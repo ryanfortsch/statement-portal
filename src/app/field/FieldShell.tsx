@@ -29,9 +29,6 @@ export async function FieldShell({
   // home is a shoot list rather than a packet board.
   const isCreative = shellContractor?.trade === 'creative';
   const showRates = isCreative;
-  // Schedule is about turnovers, so it is for the inspection trades, not
-  // creative contributors (whose home is a shoot list).
-  const showSchedule = !!shellContractor && !isCreative;
   // Flag something: anyone who visits homes on packets, and anyone the
   // board grant lets flag any home (a creative contributor included).
   const showFlag = !!shellContractor && (!isCreative || showPropertyWork);
@@ -104,7 +101,7 @@ export async function FieldShell({
           )}
         </div>
       </header>
-      {contractorName && showNav && <FieldNav showPropertyWork={showPropertyWork} showRates={showRates} showSchedule={showSchedule} showFlag={showFlag} homeLabel={isCreative ? 'Shoots' : undefined} />}
+      {contractorName && showNav && <FieldNav showPropertyWork={showPropertyWork} showRates={showRates} showFlag={showFlag} homeLabel={isCreative ? 'Shoots' : undefined} />}
       <main style={{ flex: 1, width: '100%', maxWidth: 760, margin: '0 auto', padding: 'clamp(24px, 5vw, 32px) clamp(16px, 5vw, 24px) 40px' }}>
         <PhotoDraftScope actor={shellContractor?.id ?? null}>{children}</PhotoDraftScope>
       </main>

@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { cookies } from 'next/headers';
 import { auth } from '@/auth';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { isFieldConfigured } from '@/lib/field-db';
@@ -13,6 +14,7 @@ import { FieldShell } from './FieldShell';
 import { ProfilePhoto } from './ProfilePhoto';
 import { ContractorHeader } from './ContractorHeader';
 import { FieldPillars } from './FieldPillars';
+import { BrochureSeen, BROCHURE_SEEN_COOKIE } from './BrochureSeen';
 
 /** The one repeatable editorial section header: a tide index numeral, a serif
  *  title, and a hairline rule running to the edge. The page's spine. */
@@ -612,6 +614,11 @@ export default async function FieldHome({
     const samples = preview && available.length === 0 ? samplePackets(contractor.trade) : [];
     const sampled = samples.length > 0;
     const teaser = (sampled ? samples : available).slice(0, 3);
+    // The welcome brochure reads once in full. On every later visit (the
+    // background-check wait can be weeks) it folds into one "How it works"
+    // line under the hero and the work, so the live part leads. The office
+    // preview always shows it open.
+    const brochureSeen = !preview && (await cookies()).get(BROCHURE_SEEN_COOKIE)?.value === '1';
 
     const numbered = (rows: Array<[title: string, desc?: string]>, accent: string) => (
       <div>
@@ -625,6 +632,41 @@ export default async function FieldHome({
           </div>
         ))}
       </div>
+    );
+
+    // Who we are, the standard and how a visit works: open on the first
+    // view, one fold after.
+    const brochure = (
+      <>
+        {/* Who we are: the lead */}
+        <div style={{ background: 'var(--ink)', borderRadius: 4, padding: 'clamp(28px,6vw,36px)', marginBottom: 40 }}>
+          <div className="font-mono" style={{ fontSize: 11, letterSpacing: '0.22em', textTransform: 'uppercase', color: 'var(--signal-soft)', fontWeight: 600, marginBottom: 12 }}>
+            Who we are
+          </div>
+          <h2 className="font-serif" style={{ fontSize: 'clamp(26px,6vw,32px)', fontWeight: 300, lineHeight: 1.18, letterSpacing: '-0.01em', color: 'var(--paper)', margin: '0 0 20px' }}>
+            Rising Tide focuses on the best vacation rentals on Cape Ann. We need you to {story.mission}.
+          </h2>
+          <p style={{ fontSize: 14, color: 'rgba(245,239,226,0.78)', lineHeight: 1.6, margin: '0 0 14px', maxWidth: '60ch' }}>
+            We are a boutique manager, local by design. We do not run a sprawling region. We hold a curated portfolio
+            to a standard larger operators cannot, and our whole edge is the guest experience.
+          </p>
+          <p style={{ fontSize: 14, color: 'rgba(245,239,226,0.78)', lineHeight: 1.6, margin: 0, maxWidth: '60ch' }}>
+            {story.role}
+          </p>
+        </div>
+
+        {/* The standard: three flip cards */}
+        <div style={{ marginBottom: 40 }}>
+          <SectionHeader n="01" title="The standard" />
+          <FieldPillars trade={contractor.trade} />
+        </div>
+
+        {/* How a visit works */}
+        <div style={{ marginBottom: 40 }}>
+          <SectionHeader n="02" title="How a visit works" />
+          {numbered(story.steps, 'var(--tide)')}
+        </div>
+      </>
     );
 
     return (
@@ -671,38 +713,11 @@ export default async function FieldHome({
           </p>
         </div>
 
-        {/* Who we are: the lead */}
-        <div style={{ background: 'var(--ink)', borderRadius: 4, padding: 'clamp(28px,6vw,36px)', marginBottom: 40 }}>
-          <div className="font-mono" style={{ fontSize: 11, letterSpacing: '0.22em', textTransform: 'uppercase', color: 'var(--signal-soft)', fontWeight: 600, marginBottom: 12 }}>
-            Who we are
-          </div>
-          <h2 className="font-serif" style={{ fontSize: 'clamp(26px,6vw,32px)', fontWeight: 300, lineHeight: 1.18, letterSpacing: '-0.01em', color: 'var(--paper)', margin: '0 0 20px' }}>
-            Rising Tide focuses on the best vacation rentals on Cape Ann. We need you to {story.mission}.
-          </h2>
-          <p style={{ fontSize: 14, color: 'rgba(245,239,226,0.78)', lineHeight: 1.6, margin: '0 0 14px', maxWidth: '60ch' }}>
-            We are a boutique manager, local by design. We do not run a sprawling region. We hold a curated portfolio
-            to a standard larger operators cannot, and our whole edge is the guest experience.
-          </p>
-          <p style={{ fontSize: 14, color: 'rgba(245,239,226,0.78)', lineHeight: 1.6, margin: 0, maxWidth: '60ch' }}>
-            {story.role}
-          </p>
-        </div>
-
-        {/* The standard: three flip cards */}
-        <div style={{ marginBottom: 40 }}>
-          <SectionHeader n="01" title="The standard" />
-          <FieldPillars trade={contractor.trade} />
-        </div>
-
-        {/* How a visit works */}
-        <div style={{ marginBottom: 40 }}>
-          <SectionHeader n="02" title="How a visit works" />
-          {numbered(story.steps, 'var(--tide)')}
-        </div>
+        {!brochureSeen && brochure}
 
         {/* A preview of the work */}
         <div>
-          <SectionHeader n="03" title={teaser.length > 0 ? 'What’s waiting' : 'The work'} />
+          <SectionHeader n={brochureSeen ? undefined : '03'} title={teaser.length > 0 ? 'What’s waiting' : 'The work'} />
           {teaser.length > 0 ? (
             <>
               {teaser.map((p, i) =>
@@ -721,6 +736,19 @@ export default async function FieldHome({
             </p>
           )}
         </div>
+
+        {brochureSeen ? (
+          <details style={{ marginTop: 36, borderTop: '1px solid var(--rule)', paddingTop: 14 }}>
+            <summary style={{ fontSize: 14, fontWeight: 600, color: 'var(--tide-deep)', cursor: 'pointer', listStyle: 'none', display: 'flex', alignItems: 'center', gap: 8 }}>
+              How it works <span aria-hidden className="rt-chev" style={{ fontSize: 12, transition: 'transform .15s ease', display: 'inline-block' }}>▾</span>
+            </summary>
+            <div style={{ marginTop: 22 }}>
+              {brochure}
+            </div>
+          </details>
+        ) : (
+          !preview && <BrochureSeen />
+        )}
         </fieldset>
       </FieldShell>
     );

@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { fieldDb } from '@/lib/field-db';
-import { loadPacketDetail, loadPacketSupplyRun, loadCleaningStatusForStops, loadLockEquippedPropertyIds, loadOpenSlipsForStops, stopPresence, arrivalPropertiesForDay, SUPPLY_CLOSET, SUPPLY_CLOSET_COORDS, SUPPLY_CLOSET_CODE, type SupplyRun, type CleaningStatus, type StopOpenSlips , loadOfficeAssignedPacketIds } from '@/lib/field-packets';
+import { loadPacketDetail, loadPacketSupplyRun, loadCleaningStatusForStops, loadOpenSlipsForStops, stopPresence, arrivalPropertiesForDay, SUPPLY_CLOSET, SUPPLY_CLOSET_COORDS, SUPPLY_CLOSET_CODE, type SupplyRun, type CleaningStatus, type StopOpenSlips , loadOfficeAssignedPacketIds } from '@/lib/field-packets';
 import { canClaim, cityShort, fmtVisitTime, onboardingComplete, dollars, packetHeadline, effectiveBaseCents, isPayoutFinal, totalPayoutCents, type AccessBundle, type ContractorRow, type PacketStopDetail, type WorkSlipLite , clockLabel, tripWindowLabel } from '@/lib/field-types';
 import { getTeamMember } from '@/lib/team';
 import { WORK_SLIP_CATEGORY_LABELS, type WorkSlipCategory } from '@/lib/work-types';
@@ -21,6 +21,8 @@ import { FieldShell } from '../../FieldShell';
 import { PacketRouteMap } from '../../PacketRouteMap';
 import { CopyCode } from '../../CopyCode';
 import { StopReceipt } from './StopReceipt';
+import { loadVendorTimesForDay, VENDOR_LABEL } from '@/lib/vendor-schedule';
+import { formatTime12 } from '@/lib/checkout-schedule';
 import { loadPacketReceipts } from '@/lib/field-receipts';
 import { PhotoThumbs } from '@/components/PhotoUploader';
 import { AutoRefresh } from '@/components/AutoRefresh';
@@ -243,6 +245,18 @@ function slipItem(
 // verifying the cleaning on. Older than that, the home has sat idle and we
 // don't nag about a missing signal.
 const CLEAN_LOOKBACK_DAYS = 4;
+
+/** The cleaner's booked time at this home on the visit day, before anyone
+ *  has keyed in. Their own booking, so it can move. */
+function CleanerBooked({ time }: { time: string }) {
+  return (
+    <div style={{ fontSize: 13, marginTop: 4 }}>
+      <span aria-hidden>🧹</span>{' '}
+      <span style={{ color: '#875a17', fontWeight: 600 }}>Cleaning booked {formatTime12(time)}</span>
+      <span style={{ color: 'var(--ink-4)' }}> · {VENDOR_LABEL}</span>
+    </div>
+  );
+}
 
 /** Cleaner status for a turnover stop, distinct from the inspector's own
  *  progress. "Keyed in" is a confirmed door event; the finish time is usually a
@@ -656,11 +670,6 @@ export default async function PacketPage({
         })),
       )
     : new Map<string, CleaningStatus>();
-  // Homes that CAN report a cleaner (active Seam lock). A lockbox home can't, so
-  // its blank cleaning signal is expected — we suppress the warning there.
-  const locked = isMine
-    ? await loadLockEquippedPropertyIds(packet.stops.map((s) => s.property_id))
-    : new Set<string>();
   // One consistent label per stop — never the guest-facing listing title.
   // Full address once it's theirs; otherwise the real property name if they're
   // vetted (background-cleared), else an anonymized "Home N" so an un-cleared
@@ -749,6 +758,11 @@ export default async function PacketPage({
   // move (the same statuses a receipt can be homed onto, never once paid).
   const receiptsOpen = isMine && !packet.paid_at && ['claimed', 'in_progress', 'submitted', 'approved'].includes(packet.status);
   const tripReceipts = receiptsOpen ? await loadPacketReceipts(packetId).catch(() => []) : [];
+  // Cape Ann Elite's own booked cleaning time at each home on the visit day,
+  // on the stop line (this used to be a separate Schedule tab). Only while
+  // the trip is being worked, and only ever when they have announced one:
+  // silence further out means unannounced, never "nobody is coming".
+  const vendorTimes = working ? await loadVendorTimesForDay(fieldDb(), packet.visit_date).catch(() => new Map<string, string>()) : new Map<string, string>();
   const pct = packet.stops.length ? Math.round((doneCount / packet.stops.length) * 100) : 0;
   // Every route starts at the supply closet: home bins + flagged-low consumables
   // for inspections, plus the parts each work slip needs for maintenance.
@@ -1235,10 +1249,11 @@ export default async function PacketPage({
                           const sameDay = s.window_basis === 'checkout_day';
                           const checkoutDate = sameDay ? packet.visit_date : s.prior_checkout;
                           const recent = !!checkoutDate && dayGap(checkoutDate, packet.visit_date) >= 0 && dayGap(checkoutDate, packet.visit_date) <= CLEAN_LOOKBACK_DAYS;
-                          if (!sameDay && !recent) return null;
-                          const status = cleaning.get(`${s.property_id}|${checkoutDate}`);
-                          if (!status && !locked.has(s.property_id)) return null;
-                          return <CleanerStatus status={status} sameDay={sameDay} />;
+                          const status = sameDay || recent ? cleaning.get(`${s.property_id}|${checkoutDate}`) : undefined;
+                          // A cleaner's door entry beats the booking.
+                          if (status) return <CleanerStatus status={status} sameDay={sameDay} />;
+                          const booked = vendorTimes.get(s.property_id);
+                          return booked ? <CleanerBooked time={booked} /> : null;
                         })()}
                       </div>
                     ) : !s.workSlip ? (
