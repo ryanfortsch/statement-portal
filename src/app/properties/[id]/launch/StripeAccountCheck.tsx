@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { prettyPropertyId } from '@/lib/home-label';
 
 /**
  * Stripe account-identity panel for the launch checklist's Financial phase.
@@ -188,7 +189,7 @@ function ResultRow({ row, windowDays, prominent }: { row: AccountCheckRow; windo
     >
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px', alignItems: 'baseline' }}>
         {!prominent && (
-          <span style={{ ...mono, fontWeight: 700, color: 'var(--ink)' }}>{row.property_id}</span>
+          <span style={{ fontWeight: 700, color: 'var(--ink)' }}>{prettyPropertyId(row.property_id)}</span>
         )}
         {row.account_id ? (
           <>
