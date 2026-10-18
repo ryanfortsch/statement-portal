@@ -90,6 +90,20 @@ the direct OTA iCal feed is trusted; the Guesty aggregate feed and
 status `block`).** `bookings` holds one row per source per stay by design;
 never key per-stay logic on `bookings.id` (`memory/project_bookings_duplicate_rows.md`).
 
+- **Candidate only, not applied:** `docs/guesty-exit/staging-storage/booking-inventory-events.sql`
+  attaches change capture to canonical `bookings` transactions. The proposed
+  `helm_inventory_capture_scopes` holds each property's disabled-by-default
+  capture flag and monotonic version. `helm_booking_inventory_events` stores
+  only property/version, optional internal booking ID, fixed reason and timestamp.
+  Service role can read; only the owner configures scopes and trigger functions
+  append records. RLS excludes browser roles. Configuration drains booking writes
+  with a transaction-held table lock; keep owner configuration transactions short.
+  Enable/disable changes create
+  checkpoints; booking insert/update/delete events invalidate the full property
+  window, including both sides of a property move. These records do not grant
+  publishing authority or contain an availability payload. No consumer or
+  provider transport is activated by this SQL. Rate-day/plan, rental-period and
+  rolling-time invalidations remain separate, unimplemented inputs.
 - **`booking_events`**: append-only change log per booking (`created`,
   `dates_changed`, `status_changed`, `cancelled`, `guest_changed`,
   `money_changed`, `feed_moved`, `note`) with `actor`, `before` and

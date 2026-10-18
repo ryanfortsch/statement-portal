@@ -32,7 +32,7 @@ Cutover grouping follows Airbnb account authorization constraints and linked phy
 
 ## 3. Incoming event path
 
-1. Authenticate the source (provider-documented webhook verification if used), enforce payload limits and map the exact allowlisted environment/account/listing. Current polling can remain the primary trigger; do not require an unverified public webhook.
+1. Authenticate the source using provider-documented webhook verification, enforce payload limits and map the exact allowlisted environment/account/listing. The existing staging poller remains a recovery foundation. The October 18 certification review below establishes a booking webhook as a production-access prerequisite; implement and verify that boundary before registration, while retaining feed polling as a backup.
 2. Save a minimal durable provider-event record with unique identity and content digest. Retain necessary guest data only in restricted storage, never logs; exclude payment card data and access codes from event payloads.
 3. Acknowledge a provider revision only after verified durable receipt. Process it independently with durable status/retry tracking so ACK cannot lose an unapplied event.
 4. In one database transaction, claim the event, validate its source ordering and current authority, update the canonical booking and its audit event, recompute affected inventory versions, and enqueue resulting delivery intents. Roll back all changes on failure. Do not patch canonical rows directly from UI or connector code.
@@ -860,3 +860,175 @@ This closes presentation rehearsal only. Hosted hold schema/RPC integration,
 actual provider delivery, production Channex account access and PriceLabs channel
 parity remain open. These are integration milestones, not implied by the unit
 test count. Guesty remains the live operator until end-to-end pilot acceptance.
+
+
+## Production-access and application-wiring audit (October 18, 2026)
+
+The next engineering milestone is a reservation or calendar change in ordinary
+Helm operations reaching Channex through durable delivery. The message rehearsals
+are useful readiness checks, but do not establish that integration. No production
+switch is ready on the evidence inspected here.
+
+### Account and pricing observations
+
+- The accessible Channex billing page is still on `staging.channex.io`, with no
+  usage shown. Production opens at sign-in. These observations do not prove a
+  production account or paid subscription exists.
+- A focused search of the connected mailbox found the staging registration and
+  Supabase project notification, but no production activation or later Channex
+  support reply. An absent email is not proof of account nonexistence.
+- Guesty's PriceLabs page describes daily rates/minimum-stay updates and warns
+  that optional arrival/departure restrictions may not appear in Guesty's UI.
+  It supplies no dated Calderwood sync evidence. PriceLabs opens at sign-in;
+  the user has been asked to sign in. No setting or sync toggle was changed.
+- Current published Channex pricing is $130/month platform plus $0.50 per
+  connected vacation-rental unit, with an optional $0.50/unit messaging add-on.
+  One pilot unit with messaging therefore starts at $131/month before tax and
+  other services. Staging and certification have no fee. Potential extras are
+  duplicate same-channel connections ($1/month), optional Stripe tokenisation
+  ($0.02/transaction), and excess rate plans. Published cancellation notice is
+  30 days. This is a published estimate, not a verified customer quote or bill.
+- PriceLabs documents migration mapping and separately copying account-level
+  customizations. Both synced copies may appear on a bill; its documented
+  correction requires contacting support. The connector needs an active Channex
+  subscription, uses parent rate plans/per-room prices, and can send rates plus
+  restrictions. It excludes direct-booking input. No free overlap or complete
+  reservation feedback has been established for this account.
+
+Sources checked October 18:
+[Channex pricing](https://channex.io/pricing),
+[PriceLabs connector](https://help.pricelabs.co/portal/en/kb/articles/how-to-integrate-pricelabs-with-channex),
+[PriceLabs migration](https://help.pricelabs.co/portal/en/kb/articles/transitioning-between-management-systems).
+
+### Current code evidence
+
+| Boundary | Evidence at the audited commit | Remaining connection |
+| --- | --- | --- |
+| User calendar actions | `src/app/channels/calendar/calendar-actions.ts` calls the booking/rate writers and calendar mirror | No Channex delivery job emitted here |
+| Canonical booking mutation | `src/lib/bookings-write.ts` calls advisory-locked create/move/cancel RPCs | Record inventory delivery intent in the same transaction, covering direct/manual bookings and holds, not only one UI |
+| Inventory planning | `src/lib/channex-staging/inventory-planner.ts` and `inventory-planning-store.ts` have version-checked planning/storage | No normal application mutation invokes this planner; its snapshot contract is staging-specific |
+| Dispatch preparation | `src/lib/channex-staging/inventory-worker.ts` persists the submitting barrier | Only the rehearsal imports it; no provider transport or scheduler is installed by that module |
+| Provider writer | `src/lib/channex-staging/client.ts` publishes stopped Beach inventory with fixed test rate/restrictions | Preserve that guard. A separately scoped availability publisher must omit PriceLabs-owned fields |
+| Booking delivery | `shared-sync.ts` saves normalized revisions before ACK; `scripts/channex-shared-worker.mts` polls | No Channex booking webhook or transactional canonical booking importer found |
+| API pacing | Outbox models retries and uncertain writes | No connected ARI dispatcher enforcing the provider request budget found |
+
+Repository-wide source search also found no Channex implementation on verified
+`origin/main`. This is a source audit, not a runtime assertion about every deployed
+service. Existing journal/poller results are staging evidence only.
+
+### Certification implication and next implementation batch
+
+Channex's current process requires application-driven change delivery, a queue,
+retry handling, booking webhook and mapping before scenario submission. It then
+reviews recorded provider task IDs and the application in a live demonstration;
+production access follows approval. Single-unit products can explain adapted or
+unsupported scenarios. Our PriceLabs-owned rate/minimum-stay scope must be stated
+explicitly; approval of that scope is still unknown.
+
+Sources: [production route](https://channex.io/connect-first-property) and
+[certification requirements](https://docs.channex.io/api-v.1-documentation/pms-certification-tests).
+
+Next batch, using existing infrastructure and ordinary Helm operations:
+
+1. Review the canonical booking transaction and mapping schema against current
+   main. Preserve the booking overlap lock, audit event, authority gate and
+   downstream consumers. Keep Channex capability disabled by default.
+2. Prepare the transaction extension that saves a versioned inventory intent with
+   each relevant booking/hold change. A failed enqueue must roll back that change;
+   a best-effort network call after commit cannot provide this guarantee.
+3. Connect the intent consumer to an availability-only staging transport with
+   per-property serialization, request pacing, retry guidance and task/read-back
+   reconciliation. Retain uncertain lanes until their prior attempt is resolved.
+4. Add the authenticated booking receipt/import path and backup polling. Commit
+   canonical revisions, inventory effects and delivery intent atomically before
+   considering a revision applied. Keep conflicts visible and durable.
+5. Demonstrate through existing application controls: create/move/cancel a hold;
+   receive/replay a booking revision; restart after dispatch; handle throttling;
+   reject stale mapping/authority; verify PriceLabs fields remain unchanged.
+   Record real provider task IDs only after this path works.
+
+Implementation must reconcile this branch with current main and preserve the
+canonical booking/database invariants described above. This audit changes no
+production migration, subscription or provider authorization.
+PriceLabs date parity, actual message recipients/queues, access-code visibility,
+existing-channel continuity and contract exit checks remain separate cutover gates.
+
+Audit handoff: branch `codex/channex-staging-pilot`, source checkpoint
+`e6f7b08e5f305d7549ede6a2b9bf95753f2d8f69`, original base
+`a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`, remote main verified with
+`git ls-remote` as `56d611321ce264fdddd481033cc39db358e867af`.
+Changed file: this architecture document only. The pre-existing dirty contract
+notes in `calderwood-cutover-readiness.md` were preserved. Documentation-only
+validation: full diff, source-path checks and `git diff --check`; no application
+test rerun because executable code/configuration did not change. No support
+message, API key, account signup, payment, live sync, deployment or database
+mutation was performed.
+
+
+### Canonical booking capture implemented locally (October 18, 2026)
+
+Prepared `staging-storage/booking-inventory-events.sql` outside automatic
+migrations. It attaches an AFTER trigger to the real `bookings` table, so the
+existing create/move/cancel RPCs, import upserts, dedupe changes and hold deletes
+record a property invalidation in their own transaction. No existing RPC body,
+calendar authority, financial writer, UI or provider client was changed. Scope
+rows are not seeded; capture defaults off and does not confer send authority.
+
+The event stores no guest details, dates, rates, minimum stays or arbitrary
+payload. A later consumer must load the complete current property window and
+recheck mapping, authority and versions. Both properties receive an event when a
+booking transfers. No-op feed replays and guest/money-only edits do not create
+work. Enable/re-enable emits a checkpoint for changes missed while disabled.
+Service role is read-only on the new tables; browser roles cannot access them.
+Scope creation/activation uses a statement-level booking-table SHARE lock before
+scope row locks, so in-flight writes finish before the checkpoint. That lock
+permits reads but delays writes across all properties until configuration commits;
+owner configuration must use a short transaction. Ordinary capture only updates
+versions and does not take that global configuration lock. This follows
+[PostgreSQL lock compatibility](https://www.postgresql.org/docs/18/explicit-locking.html);
+multi-connection contention and lock-timeout behavior still need validation.
+
+`scripts/verify-booking-inventory-events.mjs` runs the repository's unmodified
+canonical RPC definitions in local PostgreSQL (PGlite 0.5.9) with fictional data.
+It checks successful mutation/audit/capture, failures both during capture and
+after capture, automation-cancel rollback, existing overlap refusal, feed
+replays, dedupe, property transfers, deletions, access permissions, repeat SQL
+installation, configuration lock modes, and persisted state after database
+restart. This is transaction execution, not a mocked RPC or a provider
+certification test. Minimal peripheral
+tables are fixtures; it does not apply the full production schema or simulate
+multi-connection contention. The actual RPC and availability sources matched
+verified main `56d61132` during this work.
+
+Validation: 26 local database checks passed; `npm test` passed 1,991 tests;
+non-incremental TypeScript and targeted ESLint passed; `git diff --check` passed.
+The prior temporary PGlite installation was incomplete, so a pinned local copy
+was installed under `/tmp/calderwood-capture-db`, with no project dependency
+change. Initial fixture setup needed the calendar table before loading the
+canonical migration excerpt; the final verifier loads the actual audit schema.
+The transfer failure-injection constraint initially rejected existing fixture
+rows; marking that temporary constraint NOT VALID lets it reject only the new
+write under test. The corrected transfer rollback check passed. Removing the
+configuration lock in a temporary SQL copy made the lock assertion fail, as
+expected; the repository copy was unchanged by that mutation check.
+
+Reproduce locally (with PGlite installed outside the repository):
+
+```sh
+node scripts/verify-booking-inventory-events.mjs /absolute/path/to/@electric-sql/pglite/dist/index.js
+```
+
+Remaining: review/apply the candidate in an isolated database that contains the
+canonical schema; connect its events to a versioned consumer and availability-only
+transport; cover rate-day closures, plan/season and clock-driven invalidations;
+handle linked-property resource fan-out; prove real PostgreSQL concurrency and
+recovery; add the booking webhook/import transaction. PriceLabs-owned fields
+remain outside the inventory publisher. No claim of hosted delivery or completed
+certification follows from these checks.
+
+Handoff: branch `codex/channex-staging-pilot`, pre-change HEAD `e6f7b08e`, original
+base `a148b0e6`, remote main verified `56d61132`. Files: `SCHEMA.md`, this document,
+`staging-storage/booking-inventory-events.sql`, and
+`scripts/verify-booking-inventory-events.mjs`. Pre-existing dirty contract notes
+in `calderwood-cutover-readiness.md` remain untouched. No hosted database, live
+booking, channel, message sender or subscription was changed.
