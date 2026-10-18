@@ -141,19 +141,26 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
   // Receipts: what already rides this payout, and what the awarded contractor
   // is still owed with no payout to ride. Only while the money can still move.
   const receiptsOpen = !!packet.awarded_contractor_id && !packet.paid_at && ['claimed', 'in_progress', 'submitted', 'approved'].includes(packet.status);
+  // The page splits by audience. Staff hold the trip (assign, move, release,
+  // cancel, submit-for) and see the tracker and the stops; the review, the
+  // payout, the bonus, the receipts and the activity log are the owners', so
+  // they are neither loaded nor rendered for staff, instead of rendering a
+  // section that ends "Ryan does this".
   const [review, events, paySummary, attachableByStop, addableProps, homedReceipts, openReceipts] = await Promise.all([
-    packet.status === 'submitted' || packet.status === 'approved'
+    owner && (packet.status === 'submitted' || packet.status === 'approved')
       ? loadPacketReview(id)
       : Promise.resolve([] as Awaited<ReturnType<typeof loadPacketReview>>),
-    fieldDb()
-      .from('packet_events')
-      .select('event_type, actor_email, created_at')
-      .eq('packet_id', id)
-      .order('created_at', { ascending: false })
-      .limit(8)
-      .then(({ data }) => (data ?? []) as { event_type: string; actor_email: string | null; created_at: string }[]),
+    owner
+      ? fieldDb()
+          .from('packet_events')
+          .select('event_type, actor_email, created_at')
+          .eq('packet_id', id)
+          .order('created_at', { ascending: false })
+          .limit(8)
+          .then(({ data }) => (data ?? []) as { event_type: string; actor_email: string | null; created_at: string }[])
+      : Promise.resolve([] as { event_type: string; actor_email: string | null; created_at: string }[]),
     // How the awarded inspector wants to be paid — shown beside Mark paid.
-    packet.awarded_contractor_id
+    owner && packet.awarded_contractor_id
       ? loadPaymentSummaries().then((m) => m.get(packet.awarded_contractor_id!) ?? null)
       : Promise.resolve(null),
     attachEditable
@@ -168,8 +175,10 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
             ((data ?? []) as { id: string; name: string | null; address: string | null; kind: string | null }[]).filter((p) => !onTrip.has(p.id)),
           )
       : Promise.resolve([] as { id: string; name: string | null; address: string | null; kind: string | null }[]),
-    loadPacketReceipts(id).catch(() => [] as Awaited<ReturnType<typeof loadPacketReceipts>>),
-    receiptsOpen
+    owner
+      ? loadPacketReceipts(id).catch(() => [] as Awaited<ReturnType<typeof loadPacketReceipts>>)
+      : Promise.resolve([] as Awaited<ReturnType<typeof loadPacketReceipts>>),
+    owner && receiptsOpen
       ? loadOpenReceipts(packet.awarded_contractor_id!).catch(() => [] as Awaited<ReturnType<typeof loadOpenReceipts>>)
       : Promise.resolve([] as Awaited<ReturnType<typeof loadOpenReceipts>>),
   ]);
@@ -235,7 +244,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
   // formula re-run on ACTUAL minutes on site, as a decision aid. Estimate =
   // posted_price_cents; suggestion swaps size-based on-site time for the real
   // door-to-door timestamps, drive + rush unchanged. Office-only.
-  const finalizing = packet.status === 'submitted' || (packet.status === 'approved' && !packet.paid_at);
+  const finalizing = owner && (packet.status === 'submitted' || (packet.status === 'approved' && !packet.paid_at));
   // Second read on the day's length: when they were texting the office, first
   // message to last. Independent of the door clock (which only sees mapped
   // locks, and inflates when a stop is left open), and it covers the driving
@@ -290,19 +299,24 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
             {officeAssigned && (
               <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 3 }}>assigned by the office</div>
             )}
-            <div className="font-mono" style={{ fontSize: 24, marginTop: 4 }}>{dollars(effectiveBaseCents(packet))}</div>
-            <div style={{ fontSize: 10.5, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink-4)', marginTop: 2 }}>
-              {isPayoutFinal(packet) ? 'Final' : 'Estimated'}
-            </div>
-            {packet.expenses_cents > 0 && (
-              <div style={{ fontSize: 12, color: 'var(--tide-deep)', fontWeight: 600, marginTop: 2 }} title="Receipt reimbursements recorded by the contractor, included in the payout automatically">
-                + {dollars(packet.expenses_cents)} receipts
-              </div>
-            )}
-            {packet.bonus_cents > 0 && (
-              <div style={{ fontSize: 12, color: 'var(--signal)', fontWeight: 600, marginTop: 2 }} title={packet.bonus_reason ?? undefined}>
-                + {dollars(packet.bonus_cents)} bonus
-              </div>
+            {/* Contractor pay is owner money, like the board's payout column. */}
+            {owner && (
+              <>
+                <div className="font-mono" style={{ fontSize: 24, marginTop: 4 }}>{dollars(effectiveBaseCents(packet))}</div>
+                <div style={{ fontSize: 10.5, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink-4)', marginTop: 2 }}>
+                  {isPayoutFinal(packet) ? 'Final' : 'Estimated'}
+                </div>
+                {packet.expenses_cents > 0 && (
+                  <div style={{ fontSize: 12, color: 'var(--tide-deep)', fontWeight: 600, marginTop: 2 }} title="Receipt reimbursements recorded by the contractor, included in the payout automatically">
+                    + {dollars(packet.expenses_cents)} receipts
+                  </div>
+                )}
+                {packet.bonus_cents > 0 && (
+                  <div style={{ fontSize: 12, color: 'var(--signal)', fontWeight: 600, marginTop: 2 }} title={packet.bonus_reason ?? undefined}>
+                    + {dollars(packet.bonus_cents)} bonus
+                  </div>
+                )}
+              </>
             )}
             {isLive && packet.entry_code && (
               <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 4 }}>
@@ -311,6 +325,129 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
             )}
           </div>
         </div>
+
+        {/* The owner's decision comes first: approve (with the final pay and
+            any bonus) once it is submitted, record the payment once it is
+            approved. What they found and the receipts follow right under it. */}
+        {finalizing && (
+          <div id="decision" style={{ marginTop: 20, border: '1px solid var(--ink)', borderRadius: 10, padding: '16px 18px', background: 'var(--paper-2, #fff)' }}>
+            {packet.status === 'submitted' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'flex-start' }}>
+                {/* Approve is the one loud action. The bonus and the send-back
+                    path are each one quiet click so they don't compete with it.
+                    The bonus inputs still post with Approve when filled. */}
+                <form action={approvePacket} style={{ display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'flex-start' }}>
+                  <input type="hidden" name="packet_id" value={packet.id} />
+                  {/* Set the final pay from actual time, then approve — one
+                      action. Left blank, the estimate stands. */}
+                  <FinalPayoutField
+                    estimateCents={packet.posted_price_cents}
+                    suggestedCents={suggestedCents}
+                    minsTotal={minsTotal}
+                    stopsTimed={stopsTimed}
+                    stopsTotal={packet.stops.length}
+                  />
+                  {textWindow && (
+                    <div style={{ fontSize: 12.5, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+                      Texting the office {textWindow.firstAt} – {textWindow.lastAt}
+                      <span style={{ color: 'var(--ink-4)' }}>
+                        {' '}· {fmtSpan(textWindow.spanMinutes)} across {textWindow.count} {textWindow.count === 1 ? 'message' : 'messages'}
+                      </span>
+                    </div>
+                  )}
+                  <PendingButton label="Approve packet" busyLabel="Approving, sending reports…" style={btnDark} />
+                  <details>
+                    <summary style={quietSummary}>+ Add an above-and-beyond bonus ▾</summary>
+                    <div style={{ marginTop: 10 }}><BonusFields /></div>
+                  </details>
+                </form>
+                <details>
+                  <summary style={quietSummary}>Send back for changes instead ▾</summary>
+                  <form action={requestChanges} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
+                    <input type="hidden" name="packet_id" value={packet.id} />
+                    <input name="note" placeholder="What to fix (optional)" style={{ ...priceInput, width: 200 }} />
+                    <PendingButton label="Request changes" busyLabel="Sending…" style={btnGhost} />
+                  </form>
+                </details>
+              </div>
+            )}
+            {packet.status === 'approved' && !packet.paid_at && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {/* Adjust the final pay any time before it's paid (decide-later,
+                    like the bonus). Quiet once it's been set; open while it's
+                    still just the estimate so she's nudged to confirm it. */}
+                <details open={!isPayoutFinal(packet)}>
+                  <summary style={quietSummary}>
+                    {isPayoutFinal(packet)
+                      ? `Final pay: ${dollars(effectiveBaseCents(packet))}, adjust ▾`
+                      : `Payout is still the ${dollars(packet.posted_price_cents)} estimate, set the final ▾`}
+                  </summary>
+                  <form action={finalizePacketPayout} style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start', marginTop: 10 }}>
+                    <input type="hidden" name="packet_id" value={packet.id} />
+                    <FinalPayoutField
+                      estimateCents={packet.posted_price_cents}
+                      suggestedCents={suggestedCents}
+                      minsTotal={minsTotal}
+                      stopsTimed={stopsTimed}
+                      stopsTotal={packet.stops.length}
+                      currentFinalCents={packet.final_payout_cents}
+                    />
+                    {textWindow && (
+                      <div style={{ fontSize: 12.5, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+                        Texting the office {textWindow.firstAt} – {textWindow.lastAt}
+                        <span style={{ color: 'var(--ink-4)' }}>
+                          {' '}· {fmtSpan(textWindow.spanMinutes)} across {textWindow.count} {textWindow.count === 1 ? 'message' : 'messages'}
+                        </span>
+                      </div>
+                    )}
+                    <PendingButton label="Set final pay" busyLabel="Saving…" style={btnGhost} spinnerTone="ink" />
+                  </form>
+                </details>
+                {/* The actual payment happens outside Helm — say exactly where
+                    to send it, then record it here. */}
+                <div style={{ fontSize: 13, color: 'var(--ink-3)', display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                  {paySummary ? (
+                    <>
+                      <span>
+                        Pay {packet.contractor?.full_name ?? 'the inspector'} via{' '}
+                        <strong style={{ color: 'var(--ink)' }}>{paySummary.method}</strong>
+                        {paySummary.hint ? <span className="font-mono" style={{ color: 'var(--ink)' }}> · {paySummary.hint}</span> : null}
+                      </span>
+                      {paySummary.hasDetails && paySummary.method === 'Direct deposit (ACH)' && packet.awarded_contractor_id && (
+                        <RevealPay contractorId={packet.awarded_contractor_id} />
+                      )}
+                      <span style={{ color: 'var(--ink-4)' }}>then record it:</span>
+                    </>
+                  ) : (
+                    <span style={{ color: 'var(--signal)' }}>
+                      No payout method on file - <Link href="/fieldwork/roster" style={{ color: 'var(--signal)' }}>check the roster</Link>, then record it:
+                    </span>
+                  )}
+                </div>
+                <form action={markPacketPaid} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <input type="hidden" name="packet_id" value={packet.id} />
+                  <input name="reference" placeholder="ref # (optional)" style={{ ...priceInput, width: 130 }} />
+                  <PendingButton label={`Mark paid · ${dollars(totalPayoutCents(packet))}`} busyLabel="Recording + receipt…" style={btnDark} />
+                </form>
+                {/* Decide-later bonus: quiet by default so Mark paid stays the
+                    focus; opens on its own when a bonus is already set. */}
+                <details open={packet.bonus_cents > 0}>
+                  <summary style={quietSummary}>
+                    {packet.bonus_cents > 0 ? `Bonus: ${dollars(packet.bonus_cents)}, edit ▾` : '+ Add a bonus ▾'}
+                  </summary>
+                  <form action={setPacketBonus} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
+                    <input type="hidden" name="packet_id" value={packet.id} />
+                    <BonusFields
+                      defaultDollars={packet.bonus_cents > 0 ? Math.round(packet.bonus_cents / 100) : undefined}
+                      defaultReason={packet.bonus_reason}
+                    />
+                    <button type="submit" style={btnGhost}>{packet.bonus_cents > 0 ? 'Update bonus' : 'Add bonus'}</button>
+                  </form>
+                </details>
+              </div>
+            )}
+          </div>
+        )}
 
         {offeredNames.length > 0 && (packet.status === 'published' || packet.status === 'draft') && (
           <div style={{ marginTop: 18, border: '1px solid var(--tide-deep)', borderRadius: 10, padding: '10px 16px', background: 'rgba(58,107,138,0.06)', fontSize: 13.5, color: 'var(--ink)' }}>
@@ -405,7 +542,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
           );
         })()}
 
-        {review.length > 0 && (
+        {owner && review.length > 0 && (
           <div style={{ marginTop: 20, border: '1px solid var(--rule)', borderRadius: 10, padding: '14px 18px', background: 'var(--paper-2, #fff)' }}>
             <div style={{ fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 10 }}>
               Inspection summary
@@ -468,7 +605,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
             ride (a board slip, a receipt that landed after its trip was paid).
             One click folds an open one into expenses_cents, so Mark paid and
             the paid email carry it. */}
-        {(homedReceipts.length > 0 || openReceipts.length > 0) && (
+        {owner && (homedReceipts.length > 0 || openReceipts.length > 0) && (
           <div style={{ marginTop: 20, border: `1px solid ${openReceipts.length > 0 ? 'var(--tide-deep)' : 'var(--rule)'}`, borderRadius: 10, padding: '14px 18px', background: openReceipts.length > 0 ? 'rgba(58,107,138,0.05)' : 'var(--paper-2, #fff)' }}>
             <div style={{ fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 10 }}>
               Receipts
@@ -494,7 +631,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                     </div>
                   )}
                 </div>
-                {owner && !packet.paid_at && (
+                {!packet.paid_at && (
                   <form action={unhomeReceiptFromPacket}>
                     <input type="hidden" name="packet_id" value={packet.id} />
                     <input type="hidden" name="slip_id" value={r.slipId} />
@@ -529,13 +666,11 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                     </div>
                   )}
                 </div>
-                {owner && (
-                  <form action={homeReceiptOnPacket}>
-                    <input type="hidden" name="packet_id" value={packet.id} />
-                    <input type="hidden" name="slip_id" value={r.slipId} />
-                    <PendingButton label={`Add to this payout · ${dollars(r.expenseCents)}`} busyLabel="Adding…" style={btnDark} />
-                  </form>
-                )}
+                <form action={homeReceiptOnPacket}>
+                  <input type="hidden" name="packet_id" value={packet.id} />
+                  <input type="hidden" name="slip_id" value={r.slipId} />
+                  <PendingButton label={`Add to this payout · ${dollars(r.expenseCents)}`} busyLabel="Adding…" style={btnDark} />
+                </form>
               </div>
             ))}
           </div>
@@ -559,19 +694,17 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
         {/* Lifecycle controls: ONE loud action per state; everything else is a
             quiet utility link so the page doesn't shout five buttons at once. */}
         <div style={{ marginTop: 18 }}>
-          {(editable || readyToClose || canWrapUp || packet.status === 'submitted' || (packet.status === 'approved' && !packet.paid_at)) && (
+          {(editable || readyToClose || canWrapUp) && (
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
               {editable && (
                 <>
-                  {owner ? (
+                  {owner && (
                     <form action={setPacketPrice} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <input type="hidden" name="packet_id" value={packet.id} />
                       <span style={{ color: 'var(--ink-4)' }}>$</span>
                       <input type="number" name="price_dollars" min={0} step={1} defaultValue={Math.round(packet.posted_price_cents / 100)} style={priceInput} />
                       <PendingButton label="Update price" busyLabel="Updating…" style={btnGhost} spinnerTone="ink" />
                     </form>
-                  ) : (
-                    <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>Posted at {dollars(packet.posted_price_cents)}</span>
                   )}
                   {packet.visit_date < todayET() ? (
                     // Expired (or otherwise past-dated) draft: publishPacket
@@ -599,141 +732,16 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                     style={btnDark}
                     confirm={
                       readyToClose
-                        ? `Submit for ${inspectorFirst}? Every stop is done but they never tapped Submit. This closes the trip out like their own tap: stops the clock, pulls the door codes, and moves it to ${owner ? 'your' : "Ryan's"} review.`
-                        : `Wrap up for ${inspectorFirst}? ${packet.stops.length - doneCount} stop${packet.stops.length - doneCount === 1 ? ' is' : 's are'} still open. This marks ${packet.stops.length - doneCount === 1 ? 'it' : 'them'} complete, closes the trip out (stops the clock, pulls the door codes), and moves it to ${owner ? 'your' : "Ryan's"} review.`
+                        ? `Submit for ${inspectorFirst}? Every stop is done but they never tapped Submit. This closes the trip out like their own tap: stops the clock, pulls the door codes, and moves it to ${owner ? 'your review' : 'review'}.`
+                        : `Wrap up for ${inspectorFirst}? ${packet.stops.length - doneCount} stop${packet.stops.length - doneCount === 1 ? ' is' : 's are'} still open. This marks ${packet.stops.length - doneCount === 1 ? 'it' : 'them'} complete, closes the trip out (stops the clock, pulls the door codes), and moves it to ${owner ? 'your review' : 'review'}.`
                     }
                   />
                 </form>
               )}
-              {packet.status === 'submitted' && !owner && (
-                <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>
-                  Submitted. Ryan reviews and approves the pay.
-                </span>
-              )}
-              {packet.status === 'submitted' && owner && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'flex-start' }}>
-                  {/* Approve is the one loud action. The bonus and the send-back
-                      path are each one quiet click so they don't compete with it.
-                      The bonus inputs still post with Approve when filled. */}
-                  <form action={approvePacket} style={{ display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'flex-start' }}>
-                    <input type="hidden" name="packet_id" value={packet.id} />
-                    {/* Set the final pay from actual time, then approve — one
-                        action. Left blank, the estimate stands. */}
-                    <FinalPayoutField
-                      estimateCents={packet.posted_price_cents}
-                      suggestedCents={suggestedCents}
-                      minsTotal={minsTotal}
-                      stopsTimed={stopsTimed}
-                      stopsTotal={packet.stops.length}
-                    />
-                    {textWindow && (
-                      <div style={{ fontSize: 12.5, color: 'var(--ink-3)', lineHeight: 1.5 }}>
-                        Texting the office {textWindow.firstAt} – {textWindow.lastAt}
-                        <span style={{ color: 'var(--ink-4)' }}>
-                          {' '}· {fmtSpan(textWindow.spanMinutes)} across {textWindow.count} {textWindow.count === 1 ? 'message' : 'messages'}
-                        </span>
-                      </div>
-                    )}
-                    <PendingButton label="Approve packet" busyLabel="Approving, sending reports…" style={btnDark} />
-                    <details>
-                      <summary style={quietSummary}>+ Add an above-and-beyond bonus ▾</summary>
-                      <div style={{ marginTop: 10 }}><BonusFields /></div>
-                    </details>
-                  </form>
-                  <details>
-                    <summary style={quietSummary}>Send back for changes instead ▾</summary>
-                    <form action={requestChanges} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
-                      <input type="hidden" name="packet_id" value={packet.id} />
-                      <input name="note" placeholder="What to fix (optional)" style={{ ...priceInput, width: 200 }} />
-                      <PendingButton label="Request changes" busyLabel="Sending…" style={btnGhost} />
-                    </form>
-                  </details>
-                </div>
-              )}
-              {packet.status === 'approved' && !packet.paid_at && !owner && (
-                <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>
-                  Approved. Ryan records the payment.
-                </span>
-              )}
-              {packet.status === 'approved' && !packet.paid_at && owner && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {/* Adjust the final pay any time before it's paid (decide-later,
-                      like the bonus). Quiet once it's been set; open while it's
-                      still just the estimate so she's nudged to confirm it. */}
-                  <details open={!isPayoutFinal(packet)}>
-                    <summary style={quietSummary}>
-                      {isPayoutFinal(packet)
-                        ? `Final pay: ${dollars(effectiveBaseCents(packet))}, adjust ▾`
-                        : `Payout is still the ${dollars(packet.posted_price_cents)} estimate, set the final ▾`}
-                    </summary>
-                    <form action={finalizePacketPayout} style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start', marginTop: 10 }}>
-                      <input type="hidden" name="packet_id" value={packet.id} />
-                      <FinalPayoutField
-                        estimateCents={packet.posted_price_cents}
-                        suggestedCents={suggestedCents}
-                        minsTotal={minsTotal}
-                        stopsTimed={stopsTimed}
-                        stopsTotal={packet.stops.length}
-                        currentFinalCents={packet.final_payout_cents}
-                      />
-                      {textWindow && (
-                        <div style={{ fontSize: 12.5, color: 'var(--ink-3)', lineHeight: 1.5 }}>
-                          Texting the office {textWindow.firstAt} – {textWindow.lastAt}
-                          <span style={{ color: 'var(--ink-4)' }}>
-                            {' '}· {fmtSpan(textWindow.spanMinutes)} across {textWindow.count} {textWindow.count === 1 ? 'message' : 'messages'}
-                          </span>
-                        </div>
-                      )}
-                      <PendingButton label="Set final pay" busyLabel="Saving…" style={btnGhost} spinnerTone="ink" />
-                    </form>
-                  </details>
-                  {/* The actual payment happens outside Helm — say exactly where
-                      to send it, then record it here. */}
-                  <div style={{ fontSize: 13, color: 'var(--ink-3)', display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
-                    {paySummary ? (
-                      <>
-                        <span>
-                          Pay {packet.contractor?.full_name ?? 'the inspector'} via{' '}
-                          <strong style={{ color: 'var(--ink)' }}>{paySummary.method}</strong>
-                          {paySummary.hint ? <span className="font-mono" style={{ color: 'var(--ink)' }}> · {paySummary.hint}</span> : null}
-                        </span>
-                        {paySummary.hasDetails && paySummary.method === 'Direct deposit (ACH)' && packet.awarded_contractor_id && (
-                          <RevealPay contractorId={packet.awarded_contractor_id} />
-                        )}
-                        <span style={{ color: 'var(--ink-4)' }}>then record it:</span>
-                      </>
-                    ) : (
-                      <span style={{ color: 'var(--signal)' }}>
-                        No payout method on file - <Link href="/fieldwork/roster" style={{ color: 'var(--signal)' }}>check the roster</Link>, then record it:
-                      </span>
-                    )}
-                  </div>
-                  <form action={markPacketPaid} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <input type="hidden" name="packet_id" value={packet.id} />
-                    <input name="reference" placeholder="ref # (optional)" style={{ ...priceInput, width: 130 }} />
-                    <PendingButton label={`Mark paid · ${dollars(totalPayoutCents(packet))}`} busyLabel="Recording + receipt…" style={btnDark} />
-                  </form>
-                  {/* Decide-later bonus: quiet by default so Mark paid stays the
-                      focus; opens on its own when a bonus is already set. */}
-                  <details open={packet.bonus_cents > 0}>
-                    <summary style={quietSummary}>
-                      {packet.bonus_cents > 0 ? `Bonus: ${dollars(packet.bonus_cents)}, edit ▾` : '+ Add a bonus ▾'}
-                    </summary>
-                    <form action={setPacketBonus} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
-                      <input type="hidden" name="packet_id" value={packet.id} />
-                      <BonusFields
-                        defaultDollars={packet.bonus_cents > 0 ? Math.round(packet.bonus_cents / 100) : undefined}
-                        defaultReason={packet.bonus_reason}
-                      />
-                      <button type="submit" style={btnGhost}>{packet.bonus_cents > 0 ? 'Update bonus' : 'Add bonus'}</button>
-                    </form>
-                  </details>
-                </div>
-              )}
             </div>
           )}
 
-          {packet.status === 'approved' && packet.paid_at && (
+          {owner && packet.status === 'approved' && packet.paid_at && (
             <div style={{ fontSize: 12, color: 'var(--positive)' }}>
               Paid {dollars(totalPayoutCents(packet))}
               {packet.bonus_cents > 0 ? ` (incl. ${dollars(packet.bonus_cents)} bonus)` : ''}
@@ -1055,7 +1063,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
           />
         </div>
 
-        {events.length > 0 && (
+        {owner && events.length > 0 && (
           <details style={{ marginTop: 28 }}>
             <summary style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 8, cursor: 'pointer', userSelect: 'none' }}>Activity</summary>
             <div style={{ marginTop: 8 }}>
