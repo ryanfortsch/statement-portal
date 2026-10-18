@@ -55,7 +55,12 @@ describe('status words agree', () => {
     );
     assert.deepEqual(cleanerKindsLine({ texts: 0, schedules: 0, questions: 0 }), []);
     assert.deepEqual(cleanerKindsLine({ texts: 0, schedules: 1, questions: 3 }).map((k) => k.href), ['#schedule-digest', '#owner-holds']);
-    assert.ok(read('src/app/cleaner-messaging/page.tsx').includes('<CleanerQueueSummary />'), 'the cleaner page mounts the kinds row');
+    // The Team inbox splits texts by whose they are.
+    assert.deepEqual(
+      cleanerKindsLine({ texts: 1, contractorTexts: 2, schedules: 1, questions: 0 }).map((k) => k.label),
+      ['1 cleaner text', '2 contractor texts', '1 schedule'],
+    );
+    assert.ok(read('src/app/messaging/team/page.tsx').includes('<TeamQueueSummary audience={audience} />'), 'the Team inbox mounts the kinds row');
     for (const [file, id] of [['src/app/cleaner-messaging/ScheduleDigestCard.tsx', 'schedule-digest'], ['src/app/cleaner-messaging/OwnerHoldQuestionsCard.tsx', 'owner-holds'], ['src/components/messaging/card/ApprovalQueue.tsx', 'needs-review']]) {
       assert.ok(read(file).includes(`id="${id}"`), `${file} lost the ${id} anchor the row links to`);
     }

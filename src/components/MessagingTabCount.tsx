@@ -10,7 +10,7 @@ import { fetchPendingCounts, jitteredInterval, subscribePendingCounts } from '@/
  * schedule digest for Cleaners. Scheduled sends do not need approval.
  * Polling and confirmed queue changes reconcile through the shared fetcher.
  */
-export function MessagingTabCount({ category }: { category: 'guests' | 'owners' | 'cleaners' | 'contractors' }) {
+export function MessagingTabCount({ category }: { category: 'guests' | 'owners' | 'cleaners' | 'contractors' | 'team' }) {
   const [count, setCount] = useState<number | null>(null);
   const pathname = usePathname();
 
@@ -25,7 +25,10 @@ export function MessagingTabCount({ category }: { category: 'guests' | 'owners' 
         category === 'guests' ? data.guests :
         category === 'owners' ? data.owners :
         category === 'cleaners' ? data.cleaners :
-        data.contractors;
+        category === 'contractors' ? data.contractors :
+        // Team: the cleaners (texts, a pending schedule, "clean after?")
+        // and the contractors in one number; the page's kinds row splits it.
+        typeof data.cleaners === 'number' && typeof data.contractors === 'number' ? data.cleaners + data.contractors : null;
       if (!cancelled && typeof n === 'number') setCount(n);
     };
     load();
@@ -59,13 +62,13 @@ export function MessagingTabCount({ category }: { category: 'guests' | 'owners' 
   const background =
     category === 'guests' ? 'var(--ink)' :              // navy — brand default
     category === 'owners' ? 'var(--signal)' :           // gold — established
-    category === 'cleaners' ? '#1f5e6b' :               // teal — cleaners
-    '#7a5c3a';                                          // warm brown — contractors
+    category === 'cleaners' || category === 'team' ? '#1f5e6b' : // teal: the crew
+    '#7a5c3a';                                          // warm brown: contractors
 
   return (
     <span
-      title={`${count} ${category === 'cleaners' ? 'items' : 'drafts'} awaiting review`}
-      aria-label={`${count} ${category === 'cleaners' ? 'items' : 'drafts'} awaiting review`}
+      title={`${count} ${category === 'cleaners' || category === 'team' ? 'items' : 'drafts'} awaiting review`}
+      aria-label={`${count} ${category === 'cleaners' || category === 'team' ? 'items' : 'drafts'} awaiting review`}
       style={{
         display: 'inline-flex',
         alignItems: 'center',

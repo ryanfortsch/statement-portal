@@ -1,19 +1,16 @@
 'use client';
 
-import { useCallback, type ReactNode } from 'react';
-import { useQueueRefresh } from '@/components/QueueRefreshControl';
-import { useApprovalQueue } from '@/lib/use-approval-queue';
+import type { ReactNode } from 'react';
 import type { ContractorApproval } from '@/lib/stay-concierge';
 import type { ApprovalContext } from '@/lib/contractor-approval-context';
 import { prettifyTopic } from '@/app/messaging/format';
 import { ApprovalCard, BodyText, sentAgoLabel } from '@/components/messaging/card/ApprovalCard';
-import { ApprovalQueue, type QueueCardHelpers } from '@/components/messaging/card/ApprovalQueue';
+import type { QueueCardHelpers } from '@/components/messaging/card/ApprovalQueue';
 import { useWorkSlip } from '@/components/messaging/card/useWorkSlip';
 import { TEAM_HANDLED_REASONS, isTeamProactive, reasonsFor } from '@/components/messaging/card/reasons';
 import {
   approveContractorDraft,
   markContractorHandled,
-  undoContractorDecision,
   coachContractorDraft,
   editContractorDraft,
   redraftContractorDraft,
@@ -23,57 +20,8 @@ import {
 
 type PropertyOption = { id: string; name: string };
 
-// How often the REST of the page re-renders. The cards poll their own feed
-// every 15s (useApprovalQueue), so a coached draft appears as soon as the
-// service has it.
-const PAGE_REFRESH_MS = 60_000;
-
-/** The contractor queue: the one approval card, with the work slip their
- *  text implies and the homes on their run today offered first. */
-export function ContractorMessagingQueue({
-  initialPending,
-  properties,
-  context,
-}: {
-  initialPending: ContractorApproval[];
-  context?: Record<string, ApprovalContext>;
-  /** Helm property list for the proposed-slip selector on each card. */
-  properties: PropertyOption[];
-}) {
-  // The Field context travels with the feed: a coached rewrite lands under a
-  // new id, and the context that narrows its property dropdown is keyed by id.
-  const { approvals, context: liveContext, updatedTick, refresh, watchRegen, stalledId } = useApprovalQueue<
-    ContractorApproval,
-    Record<string, ApprovalContext>
-  >(initialPending, 'contractors', context);
-  const { softRefresh } = useQueueRefresh(PAGE_REFRESH_MS);
-  const onRefresh = useCallback(() => {
-    refresh();
-    softRefresh();
-  }, [refresh, softRefresh]);
-
-  return (
-    <ApprovalQueue
-      approvals={approvals}
-      updatedTick={updatedTick}
-      onRefresh={onRefresh}
-      undo={undoContractorDecision}
-      emptyMessage="No contractor texts waiting."
-      renderCard={(approval, helpers) => (
-        <ContractorCard
-          key={approval.id}
-          approval={approval}
-          properties={properties}
-          ctx={liveContext?.[approval.id]}
-          helpers={helpers}
-          onRegenerating={watchRegen}
-          regenStalled={stalledId === approval.id}
-        />
-      )}
-    />
-  );
-}
-
+/** A contractor's text on the one approval card, on the Team inbox: the work
+ *  slip their text implies, with the homes on their run today offered first. */
 export function ContractorCard({
   approval,
   properties,

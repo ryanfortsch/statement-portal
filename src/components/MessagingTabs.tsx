@@ -5,11 +5,12 @@ import { MessagingTabCount } from './MessagingTabCount';
 /**
  * Sub-navigation for the Messaging section, in two rows.
  *
- * Row 1 (audience) is the primary axis: Guests, Owners, Cleaners,
- * Contractors. Each is a queue backed by the same Stay Concierge approval
- * flow, with a MessagingTabCount pill so the operator can see which queue
- * has drafts waiting. `current` stays required: the four routes share no
- * common prefix, so the caller names its own tab.
+ * Row 1 (audience) is the primary axis: Guests, Owners, Team. Each is a
+ * queue on the one approval card, with a MessagingTabCount pill so the
+ * operator can see which has drafts waiting. Team is the cleaners and the
+ * contractors in one list (/messaging/team, 2026-10-18); the two old routes
+ * redirect there. `current` stays required: the routes share no common
+ * prefix, so the caller names its own tab.
  *
  * Row 2 (lens) is the function within an audience. Guests has four
  * surfaces: Inbox (the approval queue + conversation browser), Send (pick a
@@ -26,7 +27,7 @@ import { MessagingTabCount } from './MessagingTabCount';
  * page, so the strip drops that tab and its count pill for a staff login.
  */
 
-type MessagingAudience = 'guests' | 'owners' | 'cleaners' | 'contractors';
+type MessagingAudience = 'guests' | 'owners' | 'team';
 /** 'none' is a page of the section that belongs to no audience (Delivery &
  *  sync): the strip renders with no tab lit, so the way out is still there. */
 type MessagingLens = 'inbox' | 'send' | 'blurbs' | 'quality';
@@ -55,8 +56,7 @@ export function MessagingTabs({
       tabs={[
         { id: 'guests', label: 'Guests', href: '/messaging', badge: <MessagingTabCount category="guests" /> },
         { id: 'owners', label: 'Owners', href: '/owner-messaging', badge: <MessagingTabCount category="owners" /> },
-        { id: 'cleaners', label: 'Cleaners', href: '/cleaner-messaging', badge: <MessagingTabCount category="cleaners" /> },
-        { id: 'contractors', label: 'Contractors', href: '/contractor-messaging', badge: <MessagingTabCount category="contractors" /> },
+        { id: 'team', label: 'Team', href: '/messaging/team', badge: <MessagingTabCount category="team" /> },
       ]}
       secondRow={lenses.length > 0 ?
         <div className="flex items-center" style={{ gap: 16, paddingTop: 10, paddingBottom: 2, overflowX: 'auto' }}>

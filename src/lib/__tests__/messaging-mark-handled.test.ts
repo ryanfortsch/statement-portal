@@ -18,7 +18,7 @@ describe('Mark handled, streamlined', () => {
   test('no queue hides its exits in a More actions menu', () => {
     const card = read('src/components/messaging/card/ApprovalCard.tsx');
     assert.ok(card.includes('className="rt-message-quiet"'), 'the one card lost its quiet exits');
-    for (const q of ['src/app/messaging/MessagingQueue.tsx', 'src/app/owner-messaging/OwnerMessagingQueue.tsx', 'src/app/cleaner-messaging/CleanerMessagingQueue.tsx', 'src/app/contractor-messaging/ContractorMessagingQueue.tsx']) {
+    for (const q of ['src/app/messaging/MessagingQueue.tsx', 'src/app/owner-messaging/OwnerMessagingQueue.tsx', 'src/app/cleaner-messaging/CleanerCard.tsx', 'src/app/contractor-messaging/ContractorCard.tsx']) {
       const src = read(q);
       assert.ok(!src.includes('<summary>More actions</summary>'), `${q} still hides Mark handled in a menu`);
       assert.ok(src.includes('className="rt-message-quiet"') || src.includes('<ApprovalCard'), `${q} lost the quiet exits on the card`);
@@ -43,13 +43,15 @@ describe('Mark handled, streamlined', () => {
     // so every queue gets the guest flow on the one card: a reason in one
     // tap, then the toast. The two-tap "Sure? Mark handled" button, which
     // stood in for a missing undo, is gone.
-    for (const q of ['src/app/owner-messaging/OwnerMessagingQueue.tsx', 'src/app/cleaner-messaging/CleanerMessagingQueue.tsx', 'src/app/contractor-messaging/ContractorMessagingQueue.tsx']) {
+    for (const q of ['src/app/owner-messaging/OwnerMessagingQueue.tsx', 'src/app/cleaner-messaging/CleanerCard.tsx', 'src/app/contractor-messaging/ContractorCard.tsx']) {
       const src = read(q);
       assert.ok(src.includes('<ApprovalCard'), `${q} is not on the one card`);
       assert.ok(src.includes('handledReasons='), `${q} renders the card without its reasons`);
-      assert.ok(/undo=\{undo\w+Decision\}/.test(src), `${q} renders the queue without its undo`);
       assert.ok(!src.includes('<HandledConfirm'), `${q} still asks twice`);
     }
+    assert.ok(/undo=\{undoOwnerDecision\}/.test(read('src/app/owner-messaging/OwnerMessagingQueue.tsx')), 'the owner queue lost its undo');
+    const team = read('src/app/messaging/team/TeamInboxQueue.tsx');
+    assert.ok(team.includes("undo={(id, kind) => (kind === 'contractor' ? undoContractorDecision(id) : undoCleanerDecision(id))}"), 'the Team inbox undoes each card with its own audience');
     const card = read('src/components/messaging/card/ApprovalCard.tsx');
     assert.ok(card.includes('onClick={() => markHandled({ reason })}'), 'a reason is one tap on the card');
     assert.ok(card.includes('onDecided({ id, name, property });'), 'the undo toast follows a Mark handled');

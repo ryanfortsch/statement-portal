@@ -26,7 +26,7 @@ describe('the Quality lens', () => {
   });
 
   test('the sibling queues keep the count line and lose the card', () => {
-    for (const page of ['src/app/owner-messaging/page.tsx', 'src/app/cleaner-messaging/page.tsx', 'src/app/contractor-messaging/page.tsx']) {
+    for (const page of ['src/app/owner-messaging/page.tsx', 'src/app/messaging/team/page.tsx']) {
       const src = read(page);
       assert.ok(!src.includes('ProposedPropertyUpdatesCard'), `${page} still mounts the card`);
       assert.ok(src.includes('<PropertyFactsToFile />'), `${page} lost the count line`);

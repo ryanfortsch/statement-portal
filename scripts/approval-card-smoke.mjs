@@ -24,10 +24,10 @@ module.exports=function(src){return ts.transpileModule(src,{fileName:this.resour
 // Every server action becomes a recorder the test resolves by hand.
 await writeFile(join(scratch,'actions.js'),`
 const rec=kind=>(...args)=>new Promise(resolve=>window.calls.push({kind,args,resolve}));
-export const approveContractorDraft=rec('approve'),markContractorHandled=rec('handled'),undoContractorDecision=rec('undo'),
+export const approveContractorDraft=rec('approve'),markContractorHandled=rec('handled'),undoContractorDecision=rec('undo-contractor'),
 coachContractorDraft=rec('coach'),editContractorDraft=rec('edit'),redraftContractorDraft=rec('redraft'),
 scheduleContractorDraft=rec('schedule'),cancelContractorSchedule=rec('cancel');
-export const approveCleanerDraft=rec('approve'),markCleanerHandled=rec('handled'),undoCleanerDecision=rec('undo'),
+export const approveCleanerDraft=rec('approve'),markCleanerHandled=rec('handled'),undoCleanerDecision=rec('undo-cleaner'),
 coachCleanerDraft=rec('coach'),editCleanerDraft=rec('edit'),redraftCleanerDraft=rec('redraft'),
 scheduleCleanerDraft=rec('schedule'),cancelCleanerSchedule=rec('cancel');
 export const approveOwnerDraft=rec('approve'),markOwnerHandled=rec('handled'),undoOwnerDecision=rec('undo'),
@@ -41,8 +41,7 @@ await writeFile(join(scratch,'navigation.js'),`export const useRouter=()=>({refr
 await writeFile(join(scratch,'link.js'),`import React from 'react';export default function Link({href,children,...p}){return React.createElement('a',{href,...p},children);}`);
 await writeFile(join(scratch,'entry.tsx'),`
 import React from 'react';import {createRoot} from 'react-dom/client';
-import {ContractorMessagingQueue} from '@/app/contractor-messaging/ContractorMessagingQueue';
-import {CleanerMessagingQueue} from '@/app/cleaner-messaging/CleanerMessagingQueue';
+import {TeamInboxQueue} from '@/app/messaging/team/TeamInboxQueue';
 import {OwnerMessagingQueue} from '@/app/owner-messaging/OwnerMessagingQueue';
 import {MessagingQueue} from '@/app/messaging/MessagingQueue';
 const mode=new URLSearchParams(location.search).get('mode')||'contractor';
@@ -75,13 +74,18 @@ const guestCards=[
   rental_inquiry:{check_in:'2026-11-01',check_out:'2026-11-05',guests:4,flexible:false,history_checked:true,checked_at:now,needs:[],decision:'Needs a price for 4 nights',homes:[]}},
 ];
 const guestQuotes={'guest-card':{total:2,quotes:[{id:'q1',status:'sent',property_internal_name:'Synthetic Cottage',check_in:'2026-10-20',check_out:'2026-10-24',nights:4,total_cents:184000,leg_due:'',amount_due_cents:0,balance_due_on:'',guest_email:''}]}};
+// One feed per audience, as /api/messaging/queue serves them.
+window.queues={contractors:cards,cleaners:cleanerCards,owners:ownerCards,guests:guestCards};
 window.queue=mode==='cleaner'?cleanerCards:mode==='owner'?ownerCards:mode==='guest'?guestCards:cards;
 window.role=new URLSearchParams(location.search).get('role')||'owner';
-window.fetch=async url=>new Response(JSON.stringify(String(url).includes('/api/messaging/queue')?{approvals:window.queue,context:mode==='guest'?guestQuotes:{}}:{}),{headers:{'Content-Type':'application/json'}});
+window.fetch=async url=>{const u=String(url);const aud=(u.match(/audience=(\w+)/)||[])[1];
+ const approvals=!u.includes('/api/messaging/queue')?null:mode==='team'||aud==='cleaners'||aud==='contractors'?window.queues[aud]:window.queue;
+ return new Response(JSON.stringify(approvals?{approvals,context:aud==='guests'?guestQuotes:{}}:{}),{headers:{'Content-Type':'application/json'}});};
 const homes=[{id:'home-a',name:'Synthetic Cottage'},{id:'home-b',name:'Synthetic Barn'}];
-createRoot(document.getElementById('root')).render(<main id={mode}>{mode==='cleaner'?<CleanerMessagingQueue initialPending={cleanerCards} properties={homes}/>:mode==='owner'?<OwnerMessagingQueue initialPending={ownerCards}/>:mode==='guest'?<MessagingQueue initialPending={guestCards} initialQuotes={guestQuotes}/>:<ContractorMessagingQueue initialPending={cards} properties={homes} context={{}}/>}</main>);
+const teamAudience=new URLSearchParams(location.search).get('audience')||(mode==='cleaner'?'cleaners':mode==='contractor'?'contractors':'all');
+createRoot(document.getElementById('root')).render(<main id={mode}>{mode==='owner'?<OwnerMessagingQueue initialPending={ownerCards}/>:mode==='guest'?<MessagingQueue initialPending={guestCards} initialQuotes={guestQuotes}/>:<TeamInboxQueue initialCleaners={mode==='contractor'?[]:cleanerCards} initialContractors={mode==='cleaner'?[]:cards} contractorContext={{}} properties={homes} audience={teamAudience}/>}</main>);
 `);
-const alias={'@/components/useHelmRole':join(scratch,'role.js'),'./Thread':join(scratch,'thread.js'),'@':join(root,'src'),'./actions':join(scratch,'actions.js'),'next/navigation':join(scratch,'navigation.js'),'next/link':join(scratch,'link.js')};
+const alias={'@/app/cleaner-messaging/actions':join(scratch,'actions.js'),'@/app/contractor-messaging/actions':join(scratch,'actions.js'),'@/components/useHelmRole':join(scratch,'role.js'),'./Thread':join(scratch,'thread.js'),'@':join(root,'src'),'./actions':join(scratch,'actions.js'),'next/navigation':join(scratch,'navigation.js'),'next/link':join(scratch,'link.js')};
 await new Promise((resolve,reject)=>{const compiler=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.tsx'),output:{path:scratch,filename:'bundle.js'},
  resolve:{extensions:['.tsx','.ts','.js'],modules:[join(root,'node_modules')],alias},
  module:{rules:[{test:/\.tsx?$/,use:join(scratch,'ts-loader.cjs')}]},performance:{hints:false}});
@@ -139,11 +143,11 @@ try{
  for(const r of ['Already answered','They said thanks','Not worth a reply'])assert.ok((await text(card('plain-card'))).includes(r),r);
  await click(card('plain-card'),'Already answered');await waitCalls(4);
  assert.deepEqual((await calls())[3],{kind:'handled',args:['plain-card',{reason:'Already answered'}]});
- await page.evaluate(()=>{window.queue=window.queue.filter(c=>c.id!=='plain-card');});
+ await page.evaluate(()=>{window.queues.contractors=window.queues.contractors.filter(c=>c.id!=='plain-card');});
  await finish(3);await page.waitForSelector('.rt-undo-toast');
  assert.match(await text('.rt-undo-toast'),/Handled · Lee Trade/);
  await page.$$eval('.rt-undo-toast button',bs=>bs.find(b=>b.textContent==='Undo').click());await waitCalls(5);
- assert.deepEqual((await calls())[4],{kind:'undo',args:['plain-card']});await finish(4);
+ assert.deepEqual((await calls())[4],{kind:'undo-contractor',args:['plain-card']});await finish(4);
  await page.waitForFunction(()=>document.body.innerText.includes('Back in the queue.'));
  pass('Mark handled is a reason in one tap, then a toast whose Undo calls the audience undo');
 
@@ -211,6 +215,18 @@ try{
  const st=await text(card('pre-card'));assert.ok(st.includes('Ask Ryan or Dotti to price this')&&!st.includes('Send a price'),'staff are told who prices');
  assert.equal(await page.$('#approval-guest-card a[href^="/guests/quotes/"]'),null,'no quote links for staff');
  pass('guests: staff see who prices, never a link that bounces');
+ // Team: cleaners and contractors in one list, each card saying whose.
+ await page.evaluate(()=>{window.calls=[];});await page.goto(origin+'/?mode=team');await page.waitForSelector(card('pt-card'));
+ assert.ok(await page.$(card('slip-card')),'contractor cards share the list');
+ const filter=await text('nav[aria-label="Whose messages"]');assert.match(filter,/All · 3/);assert.match(filter,/Cleaners · 1/);assert.match(filter,/Contractors · 2/);
+ assert.match(await text(card('pt-card')),/^Rosa Synthetic ?Cleaner/);assert.match(await text(card('slip-card')),/^Sam Field ?Contractor/);
+ await click(card('pt-card'),'Mark handled');await click(card('pt-card'),'Already answered');await waitCalls(1);
+ assert.deepEqual((await calls())[0],{kind:'handled',args:['pt-card',{reason:'Already answered'}]});await finish(0);
+ await page.waitForSelector('.rt-undo-toast');await page.$$eval('.rt-undo-toast button',bs=>bs.find(b=>b.textContent==='Undo').click());await waitCalls(2);
+ assert.deepEqual((await calls())[1],{kind:'undo-cleaner',args:['pt-card']});await finish(1);
+ pass('team: one list, an audience chip on every card, counts on the filter, and Undo goes to the card\'s own audience');
+ await page.goto(origin+'/?mode=team&audience=contractors');await page.waitForSelector(card('slip-card'));
+ assert.equal(await page.$(card('pt-card')),null,'the Contractors filter hides cleaner cards');pass('team: the filter narrows the list');
  await page.goto(origin+'/?mode=contractor');await page.waitForSelector('#approval-slip-card');
  await page.setViewport({width:390,height:844});await page.reload();await page.waitForSelector('.rt-inbox-review-toggle');
  await page.$$eval('.rt-inbox-review-toggle',bs=>bs[0].click());

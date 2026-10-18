@@ -1,6 +1,6 @@
 export const INBOX_AUDIENCES = ['guests', 'owners', 'cleaners', 'contractors'] as const;
 export type InboxAudience = typeof INBOX_AUDIENCES[number];
-export const INBOX_ROUTES: Record<InboxAudience, string> = { guests: '/messaging', owners: '/owner-messaging', cleaners: '/cleaner-messaging', contractors: '/contractor-messaging' };
+export const INBOX_ROUTES: Record<InboxAudience, string> = { guests: '/messaging', owners: '/owner-messaging', cleaners: '/messaging/team?audience=cleaners', contractors: '/messaging/team?audience=contractors' };
 export type InboxFilter = 'all' | 'review' | 'scheduled' | 'handled';
 export type SearchableApproval = {
   id: string; status: string; conversation_id?: string; draft?: string; final_response?: string; created_at?: string; resolved_at?: string | null;

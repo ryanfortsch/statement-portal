@@ -21,8 +21,7 @@ const drawsHero = (src: string) => /from '@\/components\/HelmHero'|<HelmHero/.te
 const PAIRS: [string, string][] = [
   ['src/app/messaging/loading.tsx', 'src/app/messaging/page.tsx'],
   ['src/app/owner-messaging/loading.tsx', 'src/app/owner-messaging/page.tsx'],
-  ['src/app/cleaner-messaging/loading.tsx', 'src/app/cleaner-messaging/page.tsx'],
-  ['src/app/contractor-messaging/loading.tsx', 'src/app/contractor-messaging/page.tsx'],
+  ['src/app/messaging/team/loading.tsx', 'src/app/messaging/team/page.tsx'],
   ['src/app/messaging/send/loading.tsx', 'src/app/messaging/send/page.tsx'],
   ['src/app/messaging/quality/loading.tsx', 'src/app/messaging/quality/page.tsx'],
 ];

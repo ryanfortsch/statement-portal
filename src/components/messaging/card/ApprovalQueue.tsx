@@ -30,8 +30,9 @@ export function ApprovalQueue<T extends { id: string; status?: string; send_at?:
   updatedTick: number;
   /** Fetch the queue now and catch the page up. */
   onRefresh: () => void;
-  /** The audience's undo for a Mark handled. */
-  undo: (id: string) => Promise<CardResult>;
+  /** The audience's undo for a Mark handled. A mixed queue gets the
+   *  decision's audience too. */
+  undo: (id: string, audience?: string) => Promise<CardResult>;
   emptyMessage: string;
   /** Above the cards, under the title: the Team inbox's filter row. */
   toolbar?: ReactNode;

@@ -669,7 +669,7 @@ export default async function CheckoutSchedulePage({
             }
             right={
               digest && digest.status === 'pending' ? (
-                <Link href="/cleaner-messaging#schedule-digest" style={{ fontSize: 12, color: 'var(--signal)', fontWeight: 600, textDecoration: 'underline', textUnderlineOffset: 3 }}>
+                <Link href="/messaging/team#schedule-digest" style={{ fontSize: 12, color: 'var(--signal)', fontWeight: 600, textDecoration: 'underline', textUnderlineOffset: 3 }}>
                   Approve on the cleaner inbox →
                 </Link>
               ) : digest && digest.status === 'sent' ? (
@@ -739,11 +739,11 @@ export default async function CheckoutSchedulePage({
             }
             right={
               region === CAPE_ANN_REGION && pending ? (
-                <Link href="/cleaner-messaging#schedule-digest" style={{ fontSize: 12, color: 'var(--signal)', fontWeight: 600, textDecoration: 'underline', textUnderlineOffset: 3 }}>
+                <Link href="/messaging/team#schedule-digest" style={{ fontSize: 12, color: 'var(--signal)', fontWeight: 600, textDecoration: 'underline', textUnderlineOffset: 3 }}>
                   Edit and approve on the cleaner inbox →
                 </Link>
               ) : region === CAPE_ANN_REGION && sent ? (
-                <Link href="/cleaner-messaging#schedule-digest" style={{ fontSize: 12, color: 'var(--ink-3)', fontWeight: 600, textDecoration: 'underline', textUnderlineOffset: 3 }}>
+                <Link href="/messaging/team#schedule-digest" style={{ fontSize: 12, color: 'var(--ink-3)', fontWeight: 600, textDecoration: 'underline', textUnderlineOffset: 3 }}>
                   Send an update on the cleaner inbox →
                 </Link>
               ) : undefined
@@ -767,7 +767,7 @@ export default async function CheckoutSchedulePage({
                     {noteRenderingIsStale(digest) ? (
                       <span style={{ fontStyle: 'italic' }}>
                         Note riding with it, not translated yet (it is translated when sent; Save &amp; translate on the{' '}
-                        <Link href="/cleaner-messaging#schedule-digest" style={{ color: 'inherit' }}>cleaner messaging card</Link> to see it first): &ldquo;{digest.operator_note}&rdquo;
+                        <Link href="/messaging/team#schedule-digest" style={{ color: 'inherit' }}>cleaner messaging card</Link> to see it first): &ldquo;{digest.operator_note}&rdquo;
                       </span>
                     ) : (
                       <>

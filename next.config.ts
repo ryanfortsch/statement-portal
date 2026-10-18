@@ -132,6 +132,19 @@ const nextConfig: NextConfig = {
         destination: '/',
         permanent: true,
       },
+      // The cleaner and contractor inboxes are one Team inbox (2026-10-18).
+      // Old links (alerts, texts, bookmarks) land on the same cards with the
+      // filter set; query strings ride along and the browser keeps #anchors.
+      {
+        source: '/cleaner-messaging',
+        destination: '/messaging/team?audience=cleaners',
+        permanent: true,
+      },
+      {
+        source: '/contractor-messaging',
+        destination: '/messaging/team?audience=contractors',
+        permanent: true,
+      },
       // /today retired into the home (2026-10-18): today's stays are a home
       // section under the feed, the emails were already on it. Old morning
       // texts and bookmarks still carry the link, so it lands on the home.

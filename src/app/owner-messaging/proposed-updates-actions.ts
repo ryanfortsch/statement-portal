@@ -149,14 +149,12 @@ export async function applyProposedUpdate(
   }
 
   // All three messaging pages render this card (owner-sourced candidates on
-  // /owner-messaging, cleaner-sourced on /cleaner-messaging, contractor-sourced
-  // on /contractor-messaging) through the same actions, so revalidate all
+  // /owner-messaging, cleaner- and contractor-sourced on /messaging/team) through the same actions, so revalidate all
   // three; the extra ones are no-ops.
   revalidatePath('/messaging/quality');
   revalidatePath('/messaging');
   revalidatePath('/owner-messaging');
-  revalidatePath('/cleaner-messaging');
-  revalidatePath('/contractor-messaging');
+  revalidatePath('/messaging/team');
   revalidatePath(`/properties/${propertyId}`);
   revalidatePath(`/properties/${propertyId}/edit`);
   return { ok: true, columns: applied.columns, notes: applied.notes, skipped: applied.skipped, warning };
@@ -171,8 +169,7 @@ export async function dismissProposedUpdate(candidateId: string): Promise<Dismis
   revalidatePath('/messaging/quality');
   revalidatePath('/messaging');
   revalidatePath('/owner-messaging');
-  revalidatePath('/cleaner-messaging');
-  revalidatePath('/contractor-messaging');
+  revalidatePath('/messaging/team');
   return { ok: true };
 }
 
@@ -235,8 +232,7 @@ export async function fileTriagedGroup(
   revalidatePath('/messaging/quality');
   revalidatePath('/messaging');
   revalidatePath('/owner-messaging');
-  revalidatePath('/cleaner-messaging');
-  revalidatePath('/contractor-messaging');
+  revalidatePath('/messaging/team');
   revalidatePath(`/properties/${propertyId}`);
   revalidatePath(`/properties/${propertyId}/edit`);
   return { ok: true, columns: applied.columns, notes: applied.notes, skipped: applied.skipped, warning };
@@ -275,7 +271,6 @@ export async function dismissTriagedGroup(candidateIds: string[]): Promise<Dismi
   revalidatePath('/messaging/quality');
   revalidatePath('/messaging');
   revalidatePath('/owner-messaging');
-  revalidatePath('/cleaner-messaging');
-  revalidatePath('/contractor-messaging');
+  revalidatePath('/messaging/team');
   return { ok: true };
 }

@@ -13,7 +13,7 @@ import { decideOwnerHoldAction } from '../turnovers/schedule/actions';
  * redundant stop, never a missed one. Answered blocks stay listed, quietly,
  * until their checkout passes, with a button to change the answer.
  *
- * Rendered on /cleaner-messaging above the digest card (Dotti, 2026-10-08:
+ * Rendered on the Team inbox above the digest card (Dotti, 2026-10-08:
  * "serve it up loudly, I need to see it") and, pending ones only, on the
  * home feed. Nothing here renders when there is no upcoming owner block.
  */

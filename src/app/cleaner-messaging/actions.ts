@@ -28,7 +28,7 @@ type ClientResult = { ok: true } | { ok: false; error: StayConciergeError };
 
 function mapResult(res: ClientResult): ActionResult {
   if (res.ok) {
-    revalidatePath('/cleaner-messaging');
+    revalidatePath('/messaging/team');
     return { ok: true };
   }
   return { ok: false, error: explainError(res.error), stale: isStaleConflict(res.error) };
@@ -66,7 +66,7 @@ export async function undoCleanerDecision(id: string): Promise<ActionResult> {
   if (!sess.ok) return sess;
   const res = await undoTeamApproval('cleaner', id, sess.email);
   if (res.ok) {
-    revalidatePath('/cleaner-messaging');
+    revalidatePath('/messaging/team');
     return { ok: true };
   }
   const e = res.error;
@@ -119,6 +119,6 @@ export async function saveCleanerFacts(content: string): Promise<ActionResult> {
   if (!sess.ok) return sess;
   const res = await saveCleanerCuratedFacts(content);
   if (!res.ok) return { ok: false, error: explainError(res.error) };
-  revalidatePath('/cleaner-messaging');
+  revalidatePath('/messaging/team');
   return { ok: true };
 }

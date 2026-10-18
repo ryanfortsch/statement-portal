@@ -165,7 +165,7 @@ export const HELM_MODULES: HelmModule[] = [
     section: 'operations',
   },
   // A Turnovers tab (TurnoverTabs), so no menu entry of its own. Registered
-  // for search; the daily digest approval lives on /cleaner-messaging.
+  // for search; the daily digest approval lives on the Team inbox.
   {
     id: 'checkout-schedule',
     href: '/turnovers/schedule',
@@ -546,30 +546,16 @@ export const HELM_MODULES: HelmModule[] = [
     section: 'messaging',
     access: 'owner',
   },
-  // Cleaner Messaging is a TAB inside Messaging (see MessagingTabs), same as
-  // Owner Messaging above. Hidden from the nav lists so it doesn't duplicate
-  // the Messaging entry; route + search still resolve.
+  // The Team inbox is a TAB inside Messaging (see MessagingTabs): the cleaner
+  // and contractor queues as one list since 2026-10-18 (/cleaner-messaging
+  // and /contractor-messaging redirect here). Hidden from the nav lists so
+  // it doesn't duplicate the Messaging entry; route + search still resolve.
   {
-    id: 'cleaner-messaging',
-    href: '/cleaner-messaging',
+    id: 'messaging-team',
+    href: '/messaging/team',
     number: '08c',
-    title: 'Cleaner Messaging',
-    description: 'Bilingual reply drafts for Rosa and Nina. Portuguese draft + English translation side-by-side, plus translation of their inbound message. Approve, reject, or coach the AI from Helm.',
-    status: 'active',
-    primary: false,
-    hidden: true,
-    group: 'relationships',
-    section: 'messaging',
-  },
-  // Contractor Messaging is a TAB inside Messaging (see MessagingTabs), same
-  // as Owner and Cleaner Messaging above. Registered here for search,
-  // surfaced in-context (hidden from menus).
-  {
-    id: 'contractor-messaging',
-    href: '/contractor-messaging',
-    number: '08d',
-    title: 'Contractor Messaging',
-    description: 'Reply drafts for field contractors. The Contractors tab of the Messaging section. Approve, reject, or coach the AI from Helm.',
+    title: 'Team Messages',
+    description: 'Cleaner and contractor texts in one inbox. Portuguese drafts with the English beside them for Rosa and the crew, the daily schedule text and "clean after?" questions, and contractor replies with the work slip each text implies. The Team tab of the Messaging section.',
     status: 'active',
     primary: false,
     hidden: true,

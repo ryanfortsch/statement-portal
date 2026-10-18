@@ -58,5 +58,6 @@ export type WaitReason = {
   action?: ReactNode;
 };
 
-/** A card that was just marked handled, for the undo toast. */
-export type Decision = { id: string; name: string; property?: string };
+/** A card that was just marked handled, for the undo toast. `audience`
+ *  tells a mixed queue (the Team inbox) whose undo to call. */
+export type Decision = { id: string; name: string; property?: string; audience?: string };
