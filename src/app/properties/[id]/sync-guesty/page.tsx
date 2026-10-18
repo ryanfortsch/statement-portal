@@ -18,9 +18,11 @@ async function getProperty(id: string): Promise<{ id: string; name: string } | n
 }
 
 /**
- * Guesty field-sync tool. Owns the page chrome (masthead, back link,
- * headline) and hands the live Helm-vs-Guesty diff + push to the client
- * component, which handles the "property not linked to Guesty yet" state.
+ * Guesty fields: what Helm and the live Guesty listing each hold, field by
+ * field, with an arrow for the way each one moves (Helm to Guesty for the
+ * guest-facing fields, Guesty to Helm for the house's blanks). One screen
+ * for what were two look-alike tools ("Sync to Guesty" and "Fill blanks
+ * from Guesty"). The client handles the not-linked-to-Guesty state.
  */
 export default async function SyncGuestyPage({
   params,
@@ -43,16 +45,13 @@ export default async function SyncGuestyPage({
       />
 
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 32, paddingBottom: 20, width: '100%' }}>
-        <div className="eyebrow" style={{ marginBottom: 12 }}>Helm → Guesty</div>
+        <div className="eyebrow" style={{ marginBottom: 12 }}>Helm ⇄ Guesty</div>
         <h1 className="font-serif" style={{ fontSize: 40, lineHeight: 1.05, fontWeight: 300, letterSpacing: '-0.02em', color: 'var(--ink)', margin: 0 }}>
           Guesty <em style={{ color: 'var(--tide-deep)', fontWeight: 400 }}>fields</em>
         </h1>
         <p style={{ marginTop: 14, fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: 720 }}>
-          Pushes the property details Helm already holds (Wi-Fi, parking, trash) into the
-          matching guest-facing fields on the live Guesty listing. The other direction, filling
-          Helm&apos;s blanks from Guesty, is on the Facts tab&apos;s Tools line. It shows you what&apos;s in Helm next
-          to what&apos;s in Guesty right now; empty Guesty fields are pre-checked, fields that already
-          have something are left alone unless you tick them. Nothing writes until you push.
+          Helm on the left, the live listing on the right. Tick an arrow to move that field; nothing
+          moves until you click Send or Fill.
         </p>
       </section>
 
