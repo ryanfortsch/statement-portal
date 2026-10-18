@@ -8,6 +8,7 @@ import { DownloadPdfButton } from '@/components/projections/DownloadPdfButton';
 import { ContractRedlinesPanel } from '@/components/projections/ContractRedlinesPanel';
 import { RedlinesDisclosure } from '@/components/projections/RedlinesDisclosure';
 import { ContractTermsLockedNotice } from '@/components/projections/ContractTermsLockedNotice';
+import { DoneOutsideHelm, DONE_OUTSIDE_HELM } from '@/components/projections/DoneOutsideHelm';
 import { DeleteProspectButton } from '@/components/projections/DeleteProspectButton';
 import { ResetContractButton } from '@/components/projections/ResetContractButton';
 import { InactivePanel } from '@/components/projections/ProspectInactiveControls';
@@ -46,6 +47,7 @@ import {
 import {
   updateProjection,
   markSent,
+  unmarkSent,
   toggleMonthlyBreakdown,
   promoteToProperty,
   countersignContract,
@@ -160,6 +162,7 @@ export default async function ProjectionDetailPage({
   const computed = computeProjection(projection);
   const update = updateProjection.bind(null, id);
   const send = markSent.bind(null, id);
+  const unsend = unmarkSent.bind(null, id);
   const promote = promoteToProperty.bind(null, id);
   const markOnboarding = markOnboardingDone.bind(null, id);
   const unmarkOnboarding = unmarkOnboardingDone.bind(null, id);
@@ -190,14 +193,14 @@ export default async function ProjectionDetailPage({
   const signed = !!projection.contract_signed_at;
   const countersigned = !!projection.contract_countersigned_at;
   // Contract stage completes two ways: the in-Helm signing chain fully
-  // executes (countersigned), OR a staff member taps "Mark contract
-  // complete" (deal closed out elsewhere — signed in person, e-sign
-  // bypassed for a one-off). Either advances the pipeline; the latter
-  // also unlocks Promote without needing a contract_signed_at stamp.
+  // executes (countersigned), OR someone taps "Done outside Helm" (deal
+  // closed out elsewhere: signed in person, e-sign bypassed for a
+  // one-off). Either advances the pipeline; the latter also unlocks
+  // Promote without needing a contract_signed_at stamp.
   const contractMarkedDone = !!projection.contract_marked_done_at;
   const contractStageDone = countersigned || contractMarkedDone;
   // Onboarding completes two ways: the owner submits the public intake
-  // form, OR a staff member taps "Mark complete" (info gathered another
+  // form, OR someone taps "Done outside Helm" (info gathered another
   // way). Either advances the pipeline.
   const onboardingSubmitted = !!projection.onboarding_submitted_at;
   const onboardingMarkedDone = !!projection.onboarding_marked_done_at;
@@ -375,11 +378,20 @@ export default async function ProjectionDetailPage({
               projectionTouch
                 ? gmailStatus(projectionTouch)
                 : projection.status === 'sent'
-                  ? gmailStatus(undefined, { sentAt: projection.sent_at })
+                  ? <>{DONE_OUTSIDE_HELM}{projection.sent_at ? ` ${fmtTouchDate(projection.sent_at)}` : ''}</>
                   : 'Not yet sent'
             }
           >
-            <ProjectionStageBody projection={projection} computed={computed} markSent={send} canMarkSent={projection.status === 'draft' && !projectionTouch} projectionId={id} toggleBreakdown={toggleMonthlyBreakdown.bind(null, id, !projection.include_monthly_breakdown)} />
+            <ProjectionStageBody projection={projection} computed={computed} projectionId={id} toggleBreakdown={toggleMonthlyBreakdown.bind(null, id, !projection.include_monthly_breakdown)} />
+            {/* A send the Gmail sync saw is the record; the hand mark is
+                for a deck that went out some other way. */}
+            {!projectionTouch && (
+              <DoneOutsideHelm
+                doneAt={projection.status === 'sent' ? projection.sent_at ?? projection.updated_at ?? projection.created_at : null}
+                mark={send}
+                undo={unsend}
+              />
+            )}
           </Stage>
 
           {/* 02 — Partnership Guide, Contract, AND Signing. The
@@ -392,12 +404,12 @@ export default async function ProjectionDetailPage({
             title="Partnership Guide & Contract"
             state={contractStageDone ? 'done' : 'active'}
             status={
-              // Status priority: fully executed > marked complete > signed/awaiting
-              // > both sent > one sent > nothing sent.
+              // Status priority: fully executed > done outside Helm >
+              // signed/awaiting > both sent > one sent > nothing sent.
               countersigned
                 ? <>Fully executed {fmtTouchDate(projection.contract_countersigned_at!)}</>
                 : contractMarkedDone
-                  ? <>Marked complete {fmtTouchDate(projection.contract_marked_done_at!)}</>
+                  ? <>{DONE_OUTSIDE_HELM} {fmtTouchDate(projection.contract_marked_done_at!)}</>
                   : signed
                     ? <>Signed {fmtTouchDate(projection.contract_signed_at!)}{projection.contract_signed_name ? ` by ${projection.contract_signed_name}` : ''} · awaiting countersign</>
                     : guideSent && contractSent
@@ -431,7 +443,7 @@ export default async function ProjectionDetailPage({
               onboardingSubmitted
                 ? <>Submitted {fmtTouchDate(projection.onboarding_submitted_at!)}</>
                 : onboardingMarkedDone
-                  ? <>Marked complete {fmtTouchDate(projection.onboarding_marked_done_at!)}</>
+                  ? <>{DONE_OUTSIDE_HELM} {fmtTouchDate(projection.onboarding_marked_done_at!)}</>
                   : 'Awaiting submission'
             }
           >
@@ -598,15 +610,11 @@ export default async function ProjectionDetailPage({
 function ProjectionStageBody({
   projection,
   computed,
-  markSent,
-  canMarkSent,
   projectionId,
   toggleBreakdown,
 }: {
   projection: ProjectionRow;
   computed: ReturnType<typeof computeProjection>;
-  markSent: () => Promise<void>;
-  canMarkSent: boolean;
   projectionId: string;
   toggleBreakdown: () => Promise<void>;
 }) {
@@ -682,13 +690,6 @@ function ProjectionStageBody({
         type="projection"
         openSlug="render"
         downloadLabel="Download Projection"
-        extraAction={
-          canMarkSent ? (
-            <form action={markSent} style={{ display: 'inline-block' }}>
-              <SubmitButton label="Mark as sent" busyLabel="Marking…" spinnerTone="ink" style={ghostButtonStyle} />
-            </form>
-          ) : null
-        }
       />
     </>
   );
@@ -754,43 +755,14 @@ function GuideAndContractStageBody({
           one phase on the page. isLast flips when the manual-override
           block below is hidden (countersigned), so the stage card
           doesn't trail off with a stray separator. */}
-      <SubDeliverable label="Signing" isLast={countersigned}>
+      <SubDeliverable label="Signing" isLast>
         <SignedStageBody projection={projection} notice={signingNotice} />
       </SubDeliverable>
 
-      {/* Manual completion — only when the contract hasn't been
-          countersigned in-Helm. Lets staff advance the pipeline to
-          Promote when the deal closed out elsewhere (signed in person,
-          executed via a one-off, etc.). Mirrors the Onboarding stage's
-          "Mark complete" override. */}
-      {!countersigned && (
-        <SubDeliverable label="Manual override" isLast>
-          {markedDone ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 12, color: 'var(--positive)', fontWeight: 500 }}>
-                ✓ Marked complete {fmtTouchDate(markedDone)} — pipeline advanced.
-              </span>
-              <form action={unmarkContractDone} style={{ display: 'inline-block' }}>
-                <SubmitButton
-                  label="Undo"
-                  busyLabel="Undoing…"
-                  spinnerTone="ink"
-                  style={{ ...ghostButtonStyle, fontSize: 10, padding: '7px 12px' }}
-                />
-              </form>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
-              <form action={markContractDone} style={{ display: 'inline-block' }}>
-                <SubmitButton label="Mark contract complete" busyLabel="Marking…" spinnerTone="ink" style={ghostButtonStyle} />
-              </form>
-              <span style={{ fontSize: 11, color: 'var(--ink-4)', fontStyle: 'italic' }}>
-                Use when the contract was executed outside the in-Helm signing flow.
-              </span>
-            </div>
-          )}
-        </SubDeliverable>
-      )}
+      {/* Done outside Helm: only while the contract is not countersigned
+          in Helm. Advances the pipeline to Promote when the deal closed
+          out elsewhere (signed in person, executed via a one-off). */}
+      {!countersigned && <DoneOutsideHelm doneAt={markedDone} mark={markContractDone} undo={unmarkContractDone} />}
     </>
   );
 }
@@ -1164,38 +1136,9 @@ function OnboardingStageBody({
       )}
       <LinkRow link={link} />
 
-      {/* Manual completion — only when the owner hasn't submitted the
-          public form. Lets staff advance the pipeline to Promote when
-          the property info was gathered another way (call, walkthrough,
-          emailed PDF). */}
-      {!submitted && (
-        <div style={{ marginTop: 14 }}>
-          {markedDone ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 12, color: 'var(--positive)', fontWeight: 500 }}>
-                ✓ Marked complete {fmtTouchDate(markedDone)} — pipeline advanced.
-              </span>
-              <form action={unmarkOnboardingDone} style={{ display: 'inline-block' }}>
-                <SubmitButton
-                  label="Undo"
-                  busyLabel="Undoing…"
-                  spinnerTone="ink"
-                  style={{ ...ghostButtonStyle, fontSize: 10, padding: '7px 12px' }}
-                />
-              </form>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
-              <form action={markOnboardingDone} style={{ display: 'inline-block' }}>
-                <SubmitButton label="Mark onboarding complete" busyLabel="Marking…" spinnerTone="ink" style={ghostButtonStyle} />
-              </form>
-              <span style={{ fontSize: 11, color: 'var(--ink-4)', fontStyle: 'italic' }}>
-                Use when you&rsquo;ve gathered the property info another way.
-              </span>
-            </div>
-          )}
-        </div>
-      )}
+      {/* Done outside Helm: only while the owner has not submitted the
+          public form (the property info was gathered another way). */}
+      {!submitted && <DoneOutsideHelm doneAt={markedDone} mark={markOnboardingDone} undo={unmarkOnboardingDone} />}
 
       {/* Readiness checklist — sub-deliverable that lives inside the
           Onboarding stage rather than its own pipeline step. Always
@@ -1305,6 +1248,9 @@ function ActivityLog({ projection }: { projection: ProjectionRow }) {
   if (projection.created_at) events.push({ at: projection.created_at, label: 'Prospect created' });
   const t = projection.gmail_touches ?? {};
   if (t.projection) events.push({ at: t.projection.sent_at, label: `${t.projection.from_user ?? 'Someone'} sent the projection` });
+  else if (projection.status === 'sent' && projection.sent_at) {
+    events.push({ at: projection.sent_at, label: `Projection: ${DONE_OUTSIDE_HELM.toLowerCase()}` });
+  }
   if (t.guide) events.push({ at: t.guide.sent_at, label: `${t.guide.from_user ?? 'Someone'} sent the partnership guide` });
   if (t.contract) events.push({ at: t.contract.sent_at, label: `${t.contract.from_user ?? 'Someone'} sent the contract` });
   if (t.onboarding) events.push({ at: t.onboarding.sent_at, label: `${t.onboarding.from_user ?? 'Someone'} sent the onboarding link` });
@@ -1323,13 +1269,13 @@ function ActivityLog({ projection }: { projection: ProjectionRow }) {
     });
   }
   if (projection.contract_marked_done_at) {
-    events.push({ at: projection.contract_marked_done_at, label: 'Contract marked complete by staff' });
+    events.push({ at: projection.contract_marked_done_at, label: `Contract: ${DONE_OUTSIDE_HELM.toLowerCase()}` });
   }
   if (projection.onboarding_submitted_at) {
     events.push({ at: projection.onboarding_submitted_at, label: 'Onboarding form submitted' });
   }
   if (projection.onboarding_marked_done_at) {
-    events.push({ at: projection.onboarding_marked_done_at, label: 'Onboarding marked complete by staff' });
+    events.push({ at: projection.onboarding_marked_done_at, label: `Onboarding: ${DONE_OUTSIDE_HELM.toLowerCase()}` });
   }
   if (projection.property_id && projection.updated_at) {
     events.push({ at: projection.updated_at, label: 'Promoted to managed property' });
@@ -1390,19 +1336,17 @@ function ActivityLog({ projection }: { projection: ProjectionRow }) {
 
 // ─── Inline atoms ──────────────────────────────────────────────────────────
 
-/** Action row for a deliverable: Open + Download (+ optional extras). */
+/** Action row for a deliverable: Open + Download. */
 function DeliverableActions({
   projectionId,
   type,
   openSlug,
   downloadLabel,
-  extraAction,
 }: {
   projectionId: string;
   type: 'projection' | 'guide' | 'contract' | 'readiness';
   openSlug: 'render' | 'guide' | 'contract' | 'readiness';
   downloadLabel: string;
-  extraAction?: React.ReactNode;
 }) {
   // render/guide/contract intentionally stay at /projections: they're public
   // PDF surfaces with external callers (proxy allowlist + Puppeteer). Only
@@ -1430,7 +1374,6 @@ function DeliverableActions({
         Open ↗
       </Link>
       <DownloadPdfButton projectionId={projectionId} type={type} label={downloadLabel} />
-      {extraAction}
     </div>
   );
 }

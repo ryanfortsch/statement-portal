@@ -657,6 +657,28 @@ export async function markSent(id: string) {
 }
 
 /**
+ * Undo "Done outside Helm" on the Projection stage: the deck goes back to
+ * draft. A copy markSent filed to Drive stays filed (a later send keeps the
+ * original file). Only a hand mark is undone; a send the Gmail sync saw is
+ * its own record and never set this status.
+ */
+export async function unmarkSent(id: string) {
+  const session = await auth();
+  if (!session?.user?.email) throw new Error('Not signed in');
+
+  const { error } = await supabase
+    .from('projections')
+    .update({ status: 'draft', sent_at: null })
+    .eq('id', id)
+    .eq('status', 'sent');
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath('/properties');
+  revalidatePath(`/prospects/${id}`);
+}
+
+/**
  * Manually complete the Onboarding pipeline stage. Used when the owner's
  * operational info was collected outside the public intake form (a phone
  * call, an in-person walkthrough), so the pipeline can advance to Promote
