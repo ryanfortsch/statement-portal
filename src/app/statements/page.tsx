@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import { canOpenMailbox, gmailUrl, mailboxOwnerLabel } from '@/lib/gmail-links';
 import {
   loadOwnerConfig, loadTaxCerts, loadRemittanceSheet, loadOwnerActionCounts as loadOwnerActionCountsAction,
-  loadDepositReviewCounts, loadPeriodData, loadPeriodsList, loadLastSyncMap, loadMonthDataStatus,
+  loadDepositReviewCounts, loadPeriodData, loadStatementData, loadPeriodsList, loadLastSyncMap, loadMonthDataStatus,
   loadCloseState as loadCloseStateAction, saveFundsSentDateAction, upsertCloseTask,
   loadGuestyRowsByCodes, loadOwnerRequestCandidatesAction, saveOwnerRequestSelectionsAction,
   setPeriodStatusAction, unmarkStatementSentAction,
@@ -777,7 +777,7 @@ type FillGapResult =
 /**
  * Small modal that lets the user patch a single missing-file gap on an
  * existing statement without re-uploading everything else. Calls
- * /api/fill-gap with the one file and reloads the dashboard on success.
+ * /api/fill-gap with the one file and refreshes the card on success.
  */
 function FillGapModal(props: {
   gap: DataGap;
@@ -1047,7 +1047,13 @@ function PreviewModal({ onClose, children }: { onClose: () => void; children: Re
   );
 }
 
-function Toast({ tone, onDismiss, children }: { tone: 'positive' | 'tide' | 'negative'; onDismiss: () => void; children: React.ReactNode }) {
+function Toast({ tone, onDismiss, action, children }: {
+  tone: 'positive' | 'tide' | 'negative';
+  onDismiss?: () => void;
+  // One verb beside the sentence, e.g. Retry on a read that failed.
+  action?: { label: string; onClick: () => void };
+  children: React.ReactNode;
+}) {
   const color = tone === 'positive' ? 'var(--positive)' : tone === 'tide' ? 'var(--tide-deep)' : 'var(--negative)';
   return (
     <div className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 16 }}>
@@ -1065,15 +1071,32 @@ function Toast({ tone, onDismiss, children }: { tone: 'positive' | 'tide' | 'neg
           {tone === 'negative' ? <IconWarning className="w-3.5 h-3.5 shrink-0" /> : <IconCheck className="w-3.5 h-3.5 shrink-0" />}
           <span>{children}</span>
         </div>
-        <button
-          onClick={onDismiss}
-          style={{ color: 'var(--ink-4)', background: 'transparent', border: 'none', cursor: 'pointer', padding: 4 }}
-          aria-label="dismiss"
-        >
-          <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
+        <div className="flex items-center gap-2" style={{ flexShrink: 0 }}>
+          {action && (
+            <button
+              type="button"
+              onClick={action.onClick}
+              style={{
+                border: '1px solid var(--ink)', background: 'transparent', color: 'var(--ink)',
+                fontSize: 10, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase',
+                padding: '5px 12px', cursor: 'pointer',
+              }}
+            >
+              {action.label}
+            </button>
+          )}
+          {onDismiss && (
+            <button
+              onClick={onDismiss}
+              style={{ color: 'var(--ink-4)', background: 'transparent', border: 'none', cursor: 'pointer', padding: 4 }}
+              aria-label="dismiss"
+            >
+              <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -1156,11 +1179,9 @@ function ReserveHoldbackRow({ prop, onSaved }: { prop: PropertyStatement; onSave
       }
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'save failed');
-      // Trigger the parent to reload period data. That refreshes every
-      // owner_payout display on the card (top strip, Financials Net,
-      // Owner Payout total) in one shot rather than mutating prop in
-      // place -- React can't see prop mutations, so a reload is the
-      // only way the totals visibly update.
+      // Re-read this statement. That refreshes every owner_payout display
+      // on the card (header, Financials Net, Owner Payout total) in one
+      // shot rather than mutating prop in place.
       onSaved();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -1492,6 +1513,8 @@ function PropertyCard({
   prop: PropertyStatement;
   month: string;
   ownerActionCount: number;
+  // Re-read THIS statement and the strip counts, in place. The card stays
+  // mounted, so it stays open and the page stays where it was scrolled.
   onRefresh: () => void;
   // Bumped by the dashboard on every period reload so the deposit-review
   // queue refetches (syncs can land new pending rows).
@@ -1513,6 +1536,11 @@ function PropertyCard({
   const [resolvingGapId, setResolvingGapId] = useState<string | null>(null);
   const [refreshingStatement, setRefreshingStatement] = useState(false);
   const [addingReceipt, setAddingReceipt] = useState(false);
+  // Bumped by an action that can change this card's bank rows (a bank CSV
+  // patched through Fill Gap re-runs deposit matching), so the queue below
+  // refetches along with the statement.
+  const [queueToken, setQueueToken] = useState(0);
+  const refreshWithQueue = () => { setQueueToken(n => n + 1); onRefresh(); };
   const gaps = prop.data_gaps?.filter(g => !g.resolved) || [];
   const reservations = prop.reservations || [];
   // Sort on the same date the row displays (bank charge date, falling back to
@@ -1974,6 +2002,7 @@ function PropertyCard({
                           amount={ce.amount}
                           initialCreditAmount={Number(ce.credit_amount) || 0}
                           initialCreditReason={ce.credit_reason}
+                          onSaved={onRefresh}
                         />
                       )}
                     </div>
@@ -2095,7 +2124,8 @@ function PropertyCard({
               propertyId={prop.property_id}
               month={month}
               reservations={(prop.reservations || []).map(r => ({ confirmation_code: r.confirmation_code, guest_name: r.guest_name }))}
-              refreshToken={reviewRefresh}
+              refreshToken={`${reviewRefresh}:${queueToken}`}
+              onChanged={onRefresh}
             />
           )}
 
@@ -2307,7 +2337,7 @@ function PropertyCard({
               propertyName={prop.property_name}
               month={month}
               onClose={() => setFillingGap(null)}
-              onSuccess={() => { setFillingGap(null); onRefresh(); }}
+              onSuccess={() => { setFillingGap(null); refreshWithQueue(); }}
             />
           )}
 
@@ -2411,9 +2441,34 @@ function PropertyCard({
 function DashboardContent() {
   const [period, setPeriod] = useState<StatementPeriod | null>(null);
   const [periods, setPeriods] = useState<{ month: string; status: string }[]>([]);
-  const [loading, setLoading] = useState(true);
+  // True until the first month arrives. Never again: a refresh keeps the
+  // page it has, and only a month switch swaps the body for a spinner.
+  const [initialLoading, setInitialLoading] = useState(true);
+  // 'no_data' only: the first-ever state, before any month exists.
   const [error, setError] = useState<string | null>(null);
   const [selectedMonth, setSelectedMonth] = useState('');
+  // The month being loaded while a different one is on screen. The
+  // masthead and the month select stay put; the body shows the spinner.
+  const [switchingMonth, setSwitchingMonth] = useState<string | null>(null);
+  // A load that left nothing to show: the first load, or a month switch.
+  // month null means the month list itself failed.
+  const [loadError, setLoadError] = useState<{ month: string | null; message: string } | null>(null);
+  // A refresh that failed while the page still shows the last good numbers.
+  const [refreshNotice, setRefreshNotice] = useState<{
+    text: string;
+    retry: { kind: 'month'; month: string } | { kind: 'statement'; id: string; name: string };
+  } | null>(null);
+  // Secondary reads fail on their own and say so, instead of taking down
+  // the whole page with them.
+  const [closeStateError, setCloseStateError] = useState<string | null>(null);
+  const [ownerCfgError, setOwnerCfgError] = useState(false);
+  // In-flight quiet refreshes, for the one-word indicator in the strip.
+  const [refreshing, setRefreshing] = useState(0);
+  // Bumped after a card action so the strip's counts re-read without
+  // refetching every card's bank queue.
+  const [countsRefresh, setCountsRefresh] = useState(0);
+  // The month the page is showing, for callbacks that outlive a render.
+  const shownMonthRef = useRef<string | null>(null);
   // Map of legacy property_id ("21_horton") → count of open owner-action
   // work slips on that property. Loaded once on mount and refreshed
   // alongside period data, so the per-card badge stays in sync after a
@@ -2428,9 +2483,14 @@ function DashboardContent() {
   const loadOwnerCfg = useCallback(async () => {
     // Owner emails/names are PII -- fetched server-side (service role) rather
     // than read directly off the anon key from the browser. See
-    // src/app/statements/actions.ts.
-    const map = await loadOwnerConfig();
-    setOwnerCfg(map);
+    // src/app/statements/actions.ts. A failure falls back to the built-in
+    // map (resolveCfg) and says so, rather than taking the page down.
+    try {
+      setOwnerCfg(await loadOwnerConfig());
+      setOwnerCfgError(false);
+    } catch {
+      setOwnerCfgError(true);
+    }
   }, []);
   // DB-first owner config for a property. When the DB row exists it wins
   // (fields it leaves blank fall back to the static map); otherwise the
@@ -2491,7 +2551,8 @@ function DashboardContent() {
     let cancelled = false;
     (async () => {
       const [review, status] = await Promise.all([
-        loadDepositReviewCounts(selectedMonth),
+        // A thrown read is an unknown count, never a zero.
+        loadDepositReviewCounts(selectedMonth).catch(() => ({ known: false, counts: {} as Record<string, number> })),
         loadMonthDataStatus(selectedMonth).catch(() => null),
       ]);
       if (cancelled) return;
@@ -2499,7 +2560,7 @@ function DashboardContent() {
       setMonthStatus(status);
     })();
     return () => { cancelled = true; };
-  }, [selectedMonth, reviewRefresh]);
+  }, [selectedMonth, reviewRefresh, countsRefresh]);
   // Broadcast from the month review strip: expand these property cards and
   // jump to the first. The token forces a re-expand on repeat clicks.
   const [cardExpand, setCardExpand] = useState<{ token: number; ids: string[] }>({ token: 0, ids: [] });
@@ -2712,17 +2773,50 @@ function DashboardContent() {
     }
   }, []);
 
-  const loadPeriod = useCallback(async (month: string) => {
-    setLoading(true);
+  /**
+   * The close-out ticks and the funds-sent date. A failed read leaves the
+   * ticks unknown and says so; Draft All and Finalize wait until it loads,
+   * because an empty list would read as "nothing drafted, nothing sent".
+   */
+  const reloadCloseState = useCallback(async (periodId: string, month: string) => {
+    try {
+      const { tasks, funds_sent_date, error: readError } = await loadCloseStateAction(periodId);
+      if (readError) throw new Error(readError);
+      const map: Record<string, CloseTask> = {};
+      (tasks as unknown as CloseTask[]).forEach((t: CloseTask) => { map[t.property_id] = t; });
+      setCloseTasks(map);
+      setFundsSentDate(funds_sent_date || defaultFundsSentDate(month));
+      setCloseStateError(null);
+    } catch (err) {
+      setCloseStateError(err instanceof Error ? err.message : String(err));
+    }
+  }, []);
+
+  /**
+   * Load a whole month. A different month swaps the body for a spinner
+   * under the masthead; the same month (after a sync, Finalize, Check sent
+   * emails) refreshes quietly: every card stays mounted, so the ones open
+   * stay open and the page stays where it was scrolled. A quiet refresh
+   * that fails keeps the numbers it had and says so with a Retry.
+   */
+  const loadPeriod = useCallback(async (month: string, opts: { quiet?: boolean } = {}) => {
+    const quiet = !!opts.quiet && shownMonthRef.current === month;
+    if (quiet) {
+      setRefreshing(n => n + 1);
+    } else {
+      setSwitchingMonth(month);
+      setLoadError(null);
+      // The Check sent emails result belongs to the month it ran on.
+      setReconcileResult(null);
+    }
     // Bump the review-queue token so each BankDepositReview refetches --
     // a Sync Stripe / ingest run may have queued new one-off charges.
     setReviewRefresh(n => n + 1);
-    // Drop month-scoped caches so the Remittance / Booking.com / Reconcile
-    // modals never show a previous month's (or a pre-refresh) sheet. They
+    // Drop the month's sheets so the Remittance and Booking.com modals
+    // never show a previous month's (or a pre-refresh) sheet. They
     // lazy-reload on next open.
     setRemittanceSheet(null);
     setBookingRoutingRows(null);
-    setReconcileResult(null);
     try {
       // Period row + statements + per-property enrichment (reservations,
       // cleaning, repairs, gaps, drift probe) all happen server-side now --
@@ -2732,31 +2826,65 @@ function DashboardContent() {
       const periodData = res.period as unknown as StatementPeriod;
       const enrichedProps = res.props as unknown as PropertyStatement[];
 
+      if (!quiet) setCloseTasks({});
       setPeriod({ ...periodData, property_statements: enrichedProps });
       setSelectedMonth(month);
+      shownMonthRef.current = month;
+      setRefreshNotice(null);
       await Promise.all([
-        loadCloseState(periodData.id, month),
+        reloadCloseState(periodData.id, month),
         loadOwnerActionCounts(),
       ]);
     } catch (err) {
-      setError('load_failed: ' + (err instanceof Error ? err.message : JSON.stringify(err)));
+      const message = err instanceof Error ? err.message : JSON.stringify(err);
+      if (quiet) {
+        setRefreshNotice({
+          text: `${monthLabel(month)} did not refresh (${message}). The numbers below are from the last good load.`,
+          retry: { kind: 'month', month },
+        });
+      } else {
+        setLoadError({ month, message });
+      }
     } finally {
-      setLoading(false);
+      if (quiet) setRefreshing(n => n - 1);
+      else setSwitchingMonth(null);
+      setInitialLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /**
+   * Re-read one statement after an action on its card, and the strip's
+   * counts with it. Nothing else reloads: no spinner, no other card
+   * touched, the open cards stay open and the scroll stays put.
+   */
+  const refreshStatement = useCallback(async (statementId: string, propertyName: string) => {
+    const month = shownMonthRef.current;
+    if (!month) return;
+    setRefreshing(n => n + 1);
+    try {
+      const res = await loadStatementData(month, statementId);
+      if ('error' in res) throw new Error(res.error);
+      const fresh = res.prop as unknown as PropertyStatement;
+      setPeriod(prev => (prev && prev.month === month
+        ? { ...prev, property_statements: (prev.property_statements || []).map(p => (p.id === statementId ? fresh : p)) }
+        : prev));
+      setRefreshNotice(null);
+    } catch (err) {
+      setRefreshNotice({
+        text: `${propertyName} did not refresh (${err instanceof Error ? err.message : String(err)}). Its card may show the numbers from before your change.`,
+        retry: { kind: 'statement', id: statementId, name: propertyName },
+      });
+    } finally {
+      setRefreshing(n => n - 1);
+      setCountsRefresh(n => n + 1);
+    }
   }, []);
 
   const loadLastSync = useCallback(async () => {
     setLastSync(await loadLastSyncMap());
   }, []);
 
-  const loadCloseState = useCallback(async (periodId: string, month: string) => {
-    const { tasks, funds_sent_date } = await loadCloseStateAction(periodId);
-    const map: Record<string, CloseTask> = {};
-    (tasks as unknown as CloseTask[]).forEach((t: CloseTask) => { map[t.property_id] = t; });
-    setCloseTasks(map);
-    setFundsSentDate(funds_sent_date || defaultFundsSentDate(month));
-  }, []);
 
   async function saveFundsSentDate(iso: string) {
     setFundsSentDate(iso);
@@ -2994,26 +3122,30 @@ function DashboardContent() {
     }
   }
 
+  /**
+   * First load: the month list, then the newest month. The sync health and
+   * the owner contacts are secondary: each fails on its own, so neither can
+   * take the page down with it.
+   */
+  const init = useCallback(async () => {
+    try {
+      const res = await loadPeriodsList();
+      if ('error' in res) throw new Error(res.error);
+      const data = res.periods;
+      if (!data || data.length === 0) { setError('no_data'); setInitialLoading(false); return; }
+      setPeriods(data);
+      await loadPeriod(data[0].month);
+    } catch (err) {
+      setLoadError({ month: null, message: err instanceof Error ? err.message : JSON.stringify(err) });
+      setInitialLoading(false);
+    }
+    loadLastSync().catch(() => {});
+    void loadOwnerCfg();
+  }, [loadPeriod, loadLastSync, loadOwnerCfg]);
+
   useEffect(() => {
-    (async () => {
-      setLoading(true);
-      try {
-        const res = await loadPeriodsList();
-        if ('error' in res) throw new Error(res.error);
-        const data = res.periods;
-        if (!data || data.length === 0) { setError('no_data'); setLoading(false); return; }
-        setPeriods(data);
-        await loadPeriod(selectedMonth || data[0].month);
-        await loadLastSync();
-        await loadOwnerCfg();
-      } catch (err) {
-        setError('load_failed: ' + (err instanceof Error ? err.message : JSON.stringify(err)));
-      } finally {
-        setLoading(false);
-      }
-    })();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadLastSync, loadOwnerCfg]);
+    (async () => { await init(); })();
+  }, [init]);
 
   async function syncInvoices() {
     if (!selectedMonth) return;
@@ -3028,7 +3160,7 @@ function DashboardContent() {
       const data = await res.json();
       if (data.success) {
         setSyncResult({ total: data.total_invoices_found, matched: data.matched, inserted: data.inserted, skipped: data.skipped });
-        await loadPeriod(selectedMonth);
+        await loadPeriod(selectedMonth, { quiet: true });
         await loadLastSync();
       } else {
         // A dead Gmail token during close must never read as "no invoices
@@ -3141,7 +3273,7 @@ function DashboardContent() {
         errors: rs.filter(p => p.error).map(p => p.error as string),
       };
       setStripeSyncResult(agg);
-      await loadPeriod(selectedMonth);
+      await loadPeriod(selectedMonth, { quiet: true });
       await loadLastSync();
     } catch (err) {
       setStripeSyncResult(err instanceof Error ? err.message : 'Sync failed');
@@ -3222,8 +3354,9 @@ function DashboardContent() {
       }
       setReconcileResult(data);
       // Refresh the period so any newly-written gap rows surface on
-      // their property cards immediately.
-      await loadPeriod(selectedMonth);
+      // their property cards immediately. Quiet, so the result above
+      // stays on screen.
+      await loadPeriod(selectedMonth, { quiet: true });
     } catch (err) {
       setReconcileResult(err instanceof Error ? err.message : 'Reconcile failed');
     } finally {
@@ -3378,58 +3511,12 @@ function DashboardContent() {
     );
   }
 
-  if (error && error.startsWith('load_failed')) {
-    return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--paper)' }}>
-        <div style={{ textAlign: 'center', maxWidth: 480, padding: '0 24px' }}>
-          <div className="eyebrow" style={{ marginBottom: 14, color: 'var(--negative)' }}>Connection Error</div>
-          <h1 className="font-serif" style={{ fontSize: 28, fontWeight: 300, color: 'var(--ink)', lineHeight: 1.2 }}>
-            Could not reach the database.
-          </h1>
-          <p style={{ color: 'var(--ink-3)', fontSize: 13, marginTop: 14 }}>Check your connection and try again.</p>
-          <pre className="font-mono" style={{
-            color: 'var(--negative)',
-            fontSize: 11,
-            background: 'var(--paper-2)',
-            borderLeft: '3px solid var(--negative)',
-            padding: '12px 16px',
-            marginTop: 18,
-            textAlign: 'left',
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-all',
-          }}>{error}</pre>
-        </div>
-      </div>
-    );
-  }
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: 'var(--paper)', gap: 14 }}>
-        <span style={{
-          width: 24, height: 24, borderRadius: '50%',
-          border: '2px solid var(--ink)', borderTopColor: 'transparent',
-          animation: 'spin 0.8s linear infinite',
-        }} />
-        <p className="eyebrow">Loading statements</p>
-      </div>
-    );
-  }
-
-  if (!period) return null;
-
-  const props = period.property_statements || [];
-  const totalPayout = props.reduce((s, p) => s + p.owner_payout, 0);
-  const totalRevenue = props.reduce((s, p) => s + p.rental_revenue, 0);
-  const totalMgmt = props.reduce((s, p) => s + p.management_fee, 0);
-  const totalCleaning = props.reduce((s, p) => s + p.cleaning_total, 0);
-  const totalGaps = props.reduce((s, p) => s + (p.data_gaps?.filter(g => !g.resolved).length || 0), 0);
-  const totalStays = props.reduce((s, p) => s + p.num_stays, 0);
-  const totalNights = props.reduce((s, p) => s + p.nights_booked, 0);
-
-  return (
-    <div className="min-h-screen" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      {/* ─── MASTHEAD ─── */}
+  // The masthead, the money strip and the month select render in every
+  // state below, so a month switch or a failed load never blanks the frame
+  // and the operator can always pick another month.
+  const shownMonth = switchingMonth || loadError?.month || selectedMonth;
+  const frame = (
+    <>
       {/* Use the shared HelmMasthead so /statements matches every other module
           on the logo, wordmark, nav, search trigger, and user menu. The
           Period dropdown rides in the rightContent slot. The bespoke close-
@@ -3437,13 +3524,13 @@ function DashboardContent() {
       <HelmMasthead
         rightContent={
           <select
-            value={selectedMonth}
+            value={shownMonth}
             onChange={(e) => {
               if (e.target.value === '__new__') {
                 window.location.href = '/statements/upload';
                 return;
               }
-              loadPeriod(e.target.value);
+              void loadPeriod(e.target.value);
             }}
             aria-label="Statement period"
             className="font-serif"
@@ -3472,6 +3559,77 @@ function DashboardContent() {
         }
       />
       <FinancialsTabs current="statements" />
+    </>
+  );
+
+  if (loadError || initialLoading || switchingMonth || !period) {
+    const retry = () => {
+      if (loadError?.month) { void loadPeriod(loadError.month); return; }
+      setLoadError(null);
+      setInitialLoading(true);
+      void init();
+    };
+    return (
+      <div className="min-h-screen" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
+        {frame}
+        <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 72, paddingBottom: 72 }}>
+          {loadError ? (
+            <div style={{ textAlign: 'center', maxWidth: 520, margin: '0 auto' }}>
+              <div className="eyebrow" style={{ marginBottom: 14, color: 'var(--negative)' }}>Did not load</div>
+              <h1 className="font-serif" style={{ fontSize: 28, fontWeight: 300, color: 'var(--ink)', lineHeight: 1.2 }}>
+                {loadError.month ? `${monthLabel(loadError.month)} statements did not load.` : 'The statement months did not load.'}
+              </h1>
+              <pre className="font-mono" style={{
+                color: 'var(--negative)',
+                fontSize: 11,
+                background: 'var(--paper-2)',
+                borderLeft: '3px solid var(--negative)',
+                padding: '12px 16px',
+                marginTop: 18,
+                textAlign: 'left',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-all',
+              }}>{loadError.message}</pre>
+              <button
+                type="button"
+                onClick={retry}
+                style={{
+                  marginTop: 18,
+                  background: 'var(--ink)', color: 'var(--paper)', border: 'none',
+                  fontSize: 11, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase',
+                  padding: '10px 22px', cursor: 'pointer',
+                }}
+              >
+                Retry
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center" style={{ gap: 14 }}>
+              <span style={{
+                width: 24, height: 24, borderRadius: '50%',
+                border: '2px solid var(--ink)', borderTopColor: 'transparent',
+                animation: 'spin 0.8s linear infinite',
+              }} />
+              <p className="eyebrow">{shownMonth ? `Loading ${monthLabel(shownMonth)}` : 'Loading statements'}</p>
+            </div>
+          )}
+        </section>
+      </div>
+    );
+  }
+
+  const props = period.property_statements || [];
+  const totalPayout = props.reduce((s, p) => s + p.owner_payout, 0);
+  const totalRevenue = props.reduce((s, p) => s + p.rental_revenue, 0);
+  const totalMgmt = props.reduce((s, p) => s + p.management_fee, 0);
+  const totalCleaning = props.reduce((s, p) => s + p.cleaning_total, 0);
+  const totalGaps = props.reduce((s, p) => s + (p.data_gaps?.filter(g => !g.resolved).length || 0), 0);
+  const totalStays = props.reduce((s, p) => s + p.num_stays, 0);
+  const totalNights = props.reduce((s, p) => s + p.nights_booked, 0);
+
+  return (
+    <div className="min-h-screen" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
+      {frame}
 
       {/* ─── ACTIONS STRIP ───
           Module-specific close-of-month controls. Lives directly under the
@@ -3656,7 +3814,7 @@ function DashboardContent() {
               />
               <EditorialButton
                 onClick={draftAll}
-                disabled={!!bulkDraftProgress || props.length === 0}
+                disabled={!!bulkDraftProgress || props.length === 0 || !!closeStateError}
                 busy={!!bulkDraftProgress}
                 label={
                   bulkDraftProgress
@@ -3686,20 +3844,54 @@ function DashboardContent() {
                 }
               />
             </div>
-            <Link href={`/statements/upload?month=${selectedMonth}`} style={{
-              display: 'inline-flex', alignItems: 'center', gap: 6,
-              background: 'var(--ink)', color: 'var(--paper)',
-              fontSize: 11, fontWeight: 600, letterSpacing: '.1em', textTransform: 'uppercase',
-              padding: '7px 14px',
-            }}>
-              <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-              </svg>
-              Upload Month
-            </Link>
+            <div className="flex items-center gap-3">
+              {refreshing > 0 && (
+                <span className="eyebrow" aria-live="polite" style={{ color: 'var(--ink-4)' }}>Refreshing…</span>
+              )}
+              <Link href={`/statements/upload?month=${selectedMonth}`} style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                background: 'var(--ink)', color: 'var(--paper)',
+                fontSize: 11, fontWeight: 600, letterSpacing: '.1em', textTransform: 'uppercase',
+                padding: '7px 14px',
+              }}>
+                <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                </svg>
+                Upload Month
+              </Link>
+            </div>
           </div>
         </div>
       </section>
+
+      {/* ─── Read failures ─── each says what it costs and offers a Retry;
+           none of them takes the rest of the page down. */}
+      {refreshNotice && (
+        <Toast
+          tone="negative"
+          onDismiss={() => setRefreshNotice(null)}
+          action={{
+            label: 'Retry',
+            onClick: () => {
+              const r = refreshNotice.retry;
+              if (r.kind === 'month') void loadPeriod(r.month, { quiet: true });
+              else void refreshStatement(r.id, r.name);
+            },
+          }}
+        >
+          {refreshNotice.text}
+        </Toast>
+      )}
+      {closeStateError && (
+        <Toast tone="negative" action={{ label: 'Retry', onClick: () => { void reloadCloseState(period.id, period.month); } }}>
+          The close-out ticks did not load ({closeStateError}), so Drafted and Sent below are unknown. Draft All and Finalize wait until they load.
+        </Toast>
+      )}
+      {ownerCfgError && (
+        <Toast tone="tide" action={{ label: 'Retry', onClick: () => { void loadOwnerCfg(); } }}>
+          Owner contacts did not load, so email previews show the built-in names and addresses. The Gmail draft reads the live ones.
+        </Toast>
+      )}
 
       {/* ─── Sync toasts ─── */}
       {syncResult && (
@@ -4009,12 +4201,12 @@ function DashboardContent() {
       <PlatformCSVUploadCard
         defaultMonth={selectedMonth || undefined}
         status={monthStatus?.platform_csv ?? null}
-        onUploaded={() => { setReviewRefresh(n => n + 1); }}
+        onUploaded={() => { setCountsRefresh(n => n + 1); }}
       />
       <BookingDepositsUploadCard
         defaultMonth={selectedMonth || undefined}
         status={monthStatus?.booking_activity ?? null}
-        onUploaded={() => { setReviewRefresh(n => n + 1); }}
+        onUploaded={() => { setCountsRefresh(n => n + 1); }}
       />
 
       {/* ─── CLOSE-OUT NOTES ─── per-month freeform notepad the operator
@@ -4603,7 +4795,7 @@ function DashboardContent() {
                 prop={prop}
                 month={selectedMonth}
                 ownerActionCount={ownerActionCounts[prop.property_id] ?? 0}
-                onRefresh={() => loadPeriod(selectedMonth)}
+                onRefresh={() => { void refreshStatement(prop.id, prop.property_name); }}
                 reviewRefresh={reviewRefresh}
                 forceExpand={cardExpand.ids.includes(prop.property_id) ? cardExpand.token : 0}
               />
@@ -4715,7 +4907,7 @@ function DashboardContent() {
                       try {
                         const r = await setPeriodStatusAction(period.id, 'draft');
                         if (!r.ok) alert(`Reopen failed: ${r.error}`);
-                        else await loadPeriod(selectedMonth);
+                        else await loadPeriod(selectedMonth, { quiet: true });
                       } finally { setFinalizing(false); }
                     }}
                     style={{
@@ -4729,7 +4921,7 @@ function DashboardContent() {
                   </button>
                 ) : (
                   <button
-                    disabled={finalizing}
+                    disabled={finalizing || !!closeStateError}
                     title="Freeze every statement in this month. Any later change requires an explicit, recorded override."
                     onClick={async () => {
                       const unsent = props.filter(p => !closeTasks[p.property_id]?.email_sent_at).length;
@@ -4739,7 +4931,7 @@ function DashboardContent() {
                       try {
                         const r = await setPeriodStatusAction(period.id, 'final');
                         if (!r.ok) alert(`Finalize failed: ${r.error}`);
-                        else await loadPeriod(selectedMonth);
+                        else await loadPeriod(selectedMonth, { quiet: true });
                       } finally { setFinalizing(false); }
                     }}
                     style={{

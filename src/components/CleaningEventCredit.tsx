@@ -16,12 +16,15 @@ import { jsonWithFreezeRetry } from '@/lib/freeze-confirm';
  */
 
 export function CleaningEventCredit({
-  eventId, amount, initialCreditAmount, initialCreditReason,
+  eventId, amount, initialCreditAmount, initialCreditReason, onSaved,
 }: {
   eventId: string;
   amount: number;
   initialCreditAmount: number;
   initialCreditReason: string | null;
+  /** Re-read the statement the credit moved. /statements loads its data
+   *  client-side, so router.refresh() alone leaves the card's totals stale. */
+  onSaved?: () => void;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -43,7 +46,8 @@ export function CleaningEventCredit({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Save failed');
       setOpen(false);
-      router.refresh();
+      if (onSaved) onSaved();
+      else router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed');
     } finally {
