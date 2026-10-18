@@ -87,12 +87,6 @@ export default async function ChannelsPage({ searchParams }: { searchParams: Pro
         description="Listings, rates, calendars, bookings and the cutover. Every home in the registry, who runs its calendar today, when Helm last read each OTA and when each OTA last read Helm."
       />
 
-      <section className="max-w-[1100px] mx-auto px-10 pb-8 w-full">
-        <Link href="/channels/pilot" className="block rounded-xl border border-teal-200 bg-teal-50 p-5 text-teal-900">
-          <strong>65 Calderwood · Read-only pilot →</strong>
-          <p className="mt-2 text-sm">Review the calendar, reservation details and imported-record differences. No operational changes.</p>
-        </Link>
-      </section>
       {!dbReady && <DbSetupBlock />}
 
       {dbReady && (
@@ -109,7 +103,7 @@ export default async function ChannelsPage({ searchParams }: { searchParams: Pro
             </Banner>
           )}
           <StatsStrip stats={stats} fleetCount={fleet.length} helmRunCount={helmRunCount} />
-          <ActionsBar listingsCount={listings.length} />
+          <ActionsBar />
           {(inquiries.length > 0 || expiredInquiries.total > 0) && (
             <InquiriesBlock inquiries={inquiries} expired={expiredInquiries} nameOf={nameOf} now={now} />
           )}
@@ -191,14 +185,14 @@ function StatsStrip({
   );
 }
 
-function ActionsBar({ listingsCount }: { listingsCount: number }) {
+// Wiring is per home now (the Edit wiring fold on each hub); the Calderwood
+// pilot workspace and the Airbnb request desk are retired (2026-10-18).
+function ActionsBar() {
   return (
     <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 32 }}>
       <div className="flex items-center gap-3 flex-wrap">
         <Link href="/channels/calendar" style={primaryButtonStyle}>Multi-calendar →</Link>
-        <Link href="/channels/listings" style={secondaryButtonStyle}>{listingsCount > 0 ? 'Channel wiring' : 'Wire the first feed'}</Link>
         <Link href="/channels/bookings" style={secondaryButtonStyle}>Bookings</Link>
-        {process.env.AIRBNB_REQUEST_QUEUE_ENABLED === 'true' && <Link href="/channels/requests" style={secondaryButtonStyle}>Airbnb requests</Link>}
         <Link href="/channels/bookings/new" style={secondaryButtonStyle}>+ Booking</Link>
         <Link href="/channels/bookings/new?type=block" style={secondaryButtonStyle}>+ Block</Link>
         <SyncNowButton style={secondaryButtonStyle} />

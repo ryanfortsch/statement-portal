@@ -15,7 +15,7 @@
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { guestyWritesSentence, GUESTY_HOME_SENTENCE } from '../guesty-writes.ts';
 
 const root = new URL('../../../', import.meta.url);
@@ -61,10 +61,7 @@ describe('the sentence', () => {
 });
 
 describe('every Channels page says it once, at the top', () => {
-  // The pilot workspace and the request desk are being deleted (their own
-  // skins, one home each); every other Channels page carries the notice.
-  const retiring = ['src/app/channels/pilot', 'src/app/channels/requests'];
-  const pages = pagesUnder('src/app/channels').filter((p) => !retiring.some((r) => p.startsWith(r + '/')));
+  const pages = pagesUnder('src/app/channels');
   test('the Channels pages were found', () => assert.ok(pages.length >= 7, `only ${pages.length}`));
   for (const page of pages) {
     test(page, () => {
@@ -112,5 +109,50 @@ describe('the calendar drawer and hand-entered holds', () => {
     }
     assert.ok(read('src/app/channels/calendar/calendar-actions.ts').includes("const HOLD_KINDS = new Set(['owner', 'maintenance', 'other']);"));
     assert.ok(read('src/app/channels/bookings/new/actions.ts').includes("const HOLD_KINDS = ['owner', 'maintenance', 'other'] as const;"));
+  });
+});
+
+describe('fewer Channels pages', () => {
+  test('the pilot workspace, its inbox, the request desk and the fleet wiring page are gone and redirect', () => {
+    for (const p of ['src/app/channels/pilot', 'src/app/channels/requests', 'src/app/channels/listings/page.tsx']) {
+      assert.ok(!existsSync(new URL(p, root)), `${p} should be deleted`);
+    }
+    const config = read('next.config.ts');
+    assert.ok(/source: '\/channels\/pilot\/:path\*',\n\s*destination: '\/channels\/65_calderwood',/.test(config));
+    assert.ok(/source: '\/channels\/pilot',\n\s*destination: '\/channels\/65_calderwood',/.test(config));
+    assert.ok(/source: '\/channels\/requests',\n\s*destination: '\/channels',/.test(config));
+    assert.ok(/source: '\/channels\/listings',\n\s*destination: '\/channels',/.test(config));
+  });
+
+  test('nothing links to them any more', () => {
+    const files = [...pagesUnder('src/app/channels'), 'src/app/channels/listings/WiringCard.tsx', 'src/lib/cutover.ts', 'src/lib/helm-modules.ts'];
+    for (const f of files) {
+      const src = read(f);
+      for (const gone of ["'/channels/pilot", '"/channels/pilot', "'/channels/requests", '"/channels/requests', "'/channels/listings", '"/channels/listings']) {
+        assert.ok(!src.includes(gone), `${f} still links ${gone}`);
+      }
+    }
+  });
+
+  test('each hub carries its wiring, open where the fix links land', () => {
+    const hub = read('src/app/channels/[propertyId]/page.tsx');
+    assert.ok(hub.includes("<details id=\"wiring\" open={one(sp.wiring) === '1'}"));
+    assert.ok(hub.includes('<WiringCard property={property} listings={feeds} pulls={wiringPulls} now={now} closures={closures} />'));
+    assert.ok(hub.includes('<Link href="?wiring=1#wiring"'), 'the feed rows link to the fold');
+    assert.ok(read('src/lib/cutover.ts').includes('const listingsHref = `/channels/${facts.propertyId}?prepare=1&wiring=1#wiring`;'), 'the preflight fix links land on the fold, with the runbook open');
+  });
+
+  test('the booking record folds its technical half under Technical', () => {
+    const page = read('src/app/channels/bookings/[id]/page.tsx');
+    const at = page.indexOf('<details className="rt-booking-technical"');
+    const end = page.indexOf('</details>', at);
+    assert.ok(at > 0 && end > at, 'the Technical fold is found');
+    const fold = page.slice(at, end);
+    assert.ok(fold.includes('>\n          Technical\n'));
+    for (const part of ['Money sub-record · booking_finance', 'What this stay generated', 'Change log · booking_events', '<Provenance booking={booking} />']) {
+      assert.ok(fold.includes(part), `${part} sits under Technical`);
+    }
+    const before = page.slice(0, at);
+    assert.ok(before.includes('>Threads</div>') && before.includes('Automation sends for this stay'), 'threads and sends stay on the record');
   });
 });

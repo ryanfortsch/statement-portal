@@ -8,12 +8,15 @@ import { SubmitButton } from '@/components/SubmitButton';
 import { GuestyWritesNotice } from '@/components/channels/GuestyWritesNotice';
 import { isOwnerSession } from '@/lib/helm-access-server';
 import { CopyableUrl } from '../listings/CopyableUrl';
+import { WiringCard } from '../listings/WiringCard';
+import { lastPullsByProperty, type ExportPull } from '@/lib/ical-export-pulls';
 import { getFleetProperty } from '@/lib/fleet';
 import { regionLabel } from '@/lib/property-scope';
 import {
   anonymousPulls,
   listAutomationSendsForProperty,
   listBookingsForProperty,
+  liveFeedClosureCounts,
   loadFeedHealth,
   type AutomationSendRow,
   type BookingEx,
@@ -90,7 +93,7 @@ export default async function ChannelsPropertyPage({
   const gridStart = grid.gridStart < windowStart ? grid.gridStart : windowStart;
   const gridEnd = grid.gridEnd > windowEnd ? grid.gridEnd : windowEnd;
 
-  const [bookings, feeds, anonPulls, sends, events, factsOrError, bundle, mirror] = await Promise.all([
+  const [bookings, feeds, anonPulls, sends, events, factsOrError, bundle, mirror, wiringPulls, closures] = await Promise.all([
     safe(() => listBookingsForProperty(propertyId, gridStart, gridEnd), [] as BookingEx[]),
     safe(() => loadFeedHealth(propertyId), [] as FeedHealth[]),
     safe(() => anonymousPulls(propertyId), []),
@@ -102,6 +105,10 @@ export default async function ChannelsPropertyPage({
     ),
     helmRun ? safe(() => loadPricingBundle(propertyId, grid.gridStart, grid.gridEnd), null as PricingBundle | null) : Promise.resolve(null as PricingBundle | null),
     helmRun ? Promise.resolve(null) : safe(() => loadCalendarDayMap([propertyId], grid.gridStart, grid.gridEnd), null),
+    // The Edit wiring fold (the old /channels/listings card): every pull of
+    // the export, and the live closures each feed's retire would cancel.
+    safe(async () => (await lastPullsByProperty([propertyId])).get(propertyId) ?? [], [] as ExportPull[]),
+    safe(() => liveFeedClosureCounts(), new Map<string, number>()),
   ]);
 
   const preflight: CutoverPreflight | null = factsOrError.facts ? evaluateCutoverPreflight(factsOrError.facts) : null;
@@ -428,6 +435,16 @@ export default async function ChannelsPropertyPage({
             <FeedRow key={channel} channel={channel} feed={feed} helmRun={helmRun} now={now} />
           ))}
         </div>
+        {/* EDIT WIRING: per channel, the iCal URL Helm imports, its ids,
+            who owns the price, retire and reactivate (the fleet wiring page
+            merged into each hub, 2026-10-18). Open on ?wiring=1, where the
+            preflight's fix links and the feed rows' wiring links land. */}
+        <details id="wiring" open={one(sp.wiring) === '1'} style={{ marginTop: 18 }}>
+          <summary style={{ cursor: 'pointer', fontSize: 12, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--ink-2)' }}>Edit wiring</summary>
+          <div style={{ marginTop: 16 }}>
+            <WiringCard property={property} listings={feeds} pulls={wiringPulls} now={now} closures={closures} />
+          </div>
+        </details>
         {anonPulls.length > 0 && !helmRun && (
           <p style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 10 }}>
             {anonPulls.length} recent pull{anonPulls.length === 1 ? '' : 's'} of the export got the unfiltered feed: a client nobody could identify, or an OTA reading another OTA&apos;s line (last {relativeAge(anonPulls[0].pulled_at, now)}).
@@ -900,7 +917,7 @@ function FeedRow({ channel, feed, helmRun, now }: { channel: string; feed: FeedH
               <SubmitButton label="sync" busyLabel="syncing…" spinnerTone="ink" style={linkButton} />
             </form>
           )}
-          <Link href="/channels/listings" style={{ fontSize: 11, color: 'var(--ink-3)', textDecoration: 'underline' }}>
+          <Link href="?wiring=1#wiring" style={{ fontSize: 11, color: 'var(--ink-3)', textDecoration: 'underline' }}>
             wiring →
           </Link>
         </span>

@@ -215,7 +215,8 @@ export function evaluateCutoverPreflight(facts: CutoverFacts): CutoverPreflight 
   const now = facts.now ?? new Date();
   const checks: CutoverCheck[] = [];
   const ratesHref = `/properties/${facts.propertyId}?tab=guest#rates`;
-  const listingsHref = '/channels/listings';
+  // The wiring lives on the home's own hub (the Edit wiring fold).
+  const listingsHref = `/channels/${facts.propertyId}?prepare=1&wiring=1#wiring`;
 
   // 1. rate plan
   if (facts.ratePlan) {

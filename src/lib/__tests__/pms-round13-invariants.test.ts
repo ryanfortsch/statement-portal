@@ -72,8 +72,9 @@ test("a Guesty-run home's Guesty row is not retired by hand", () => {
   const refuse = toggle.indexOf("its Guesty row retires at the flip");
   const retire = toggle.indexOf('await retireFeedHolds(');
   assert.ok(refuse > 0 && retire > refuse, 'the refusal runs before any hold is retired');
-  const page = read('src/app/channels/listings/page.tsx');
-  assert.ok(/active && !helmRun \?/.test(page), 'the page offers no Retire button on a Guesty-run home');
+  // The wiring card (the Edit wiring fold on each hub since 2026-10-18).
+  const page = read('src/app/channels/listings/WiringCard.tsx');
+  assert.ok(/active && !helmRun \?/.test(page), 'the wiring offers no Retire button on a Guesty-run home');
 });
 
 test('/book serves and accepts inquiries only for bookable homes', () => {

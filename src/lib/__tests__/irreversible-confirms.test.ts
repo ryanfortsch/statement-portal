@@ -90,7 +90,8 @@ describe('the questions', () => {
 
 describe('each control still asks', () => {
   test('listings: retire and the blanked URL', () => {
-    const page = read('src/app/channels/listings/page.tsx');
+    // The wiring card is the Edit wiring fold on each hub (2026-10-18).
+    const page = read('src/app/channels/listings/WiringCard.tsx');
     assert.ok(page.includes("confirm={listing.is_active ? feedStopConfirm('retire'"), 'feed retire lost its confirm');
     assert.ok(page.includes("confirm={feedStopConfirm('retire', 'Guesty'"), 'Guesty retire lost its confirm');
     assert.ok(page.includes("clearedConfirm={feedStopConfirm('clear_url'"), 'blank URL save lost its confirm');
