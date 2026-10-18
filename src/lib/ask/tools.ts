@@ -24,6 +24,7 @@ import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { loadOperationsData, type Range } from '@/lib/operations';
 import { ACTIVE_WORK_SLIP_STATUSES, ACTIVE_TASK_STATUSES } from '@/lib/work-types';
 import { todayET } from '@/lib/checkout-schedule';
+import { statementsHref } from '@/lib/statements-month';
 import { OWNER_ONLY_ASK_TOOLS, type HelmRole } from '@/lib/helm-access';
 
 export type AskSource = { label: string; href: string };
@@ -211,7 +212,7 @@ export function createAskTools(opts: { role: HelmRole } = { role: 'staff' }) {
         const rows = ((data ?? []) as Array<{ id: string; period_id: string; property_name: string }>)
           .map((s) => ({ ...s, month: monthByPeriod.get(s.period_id) ?? null }))
           .sort((a, b) => (b.month ?? '').localeCompare(a.month ?? ''));
-        for (const s of rows) addSource(`${s.property_name} (${s.month ?? '?'})`, '/statements');
+        for (const s of rows) addSource(`${s.property_name} (${s.month ?? '?'})`, statementsHref(s.month));
         return { count: rows.length, statements: rows };
       },
     }),

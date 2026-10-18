@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { statementsHref } from '@/lib/statements-month';
 import {
   HANDOFF_KINDS,
   HANDOFF_STATUS_LABEL,
@@ -339,7 +340,7 @@ export function CloseHandoffBoard({
       {owner && summary.pending > 0 && (
         <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 8 }}>
           Repair costs and card charges file into the statement from the home&apos;s card on{' '}
-          <Link href="/statements" style={{ color: 'var(--tide-deep)' }}>Statements</Link>, through the same receipt step as any
+          <Link href={statementsHref(month)} style={{ color: 'var(--tide-deep)' }}>Statements</Link>, through the same receipt step as any
           other receipt. Cleaning issues can be noted on the period there.
         </div>
       )}

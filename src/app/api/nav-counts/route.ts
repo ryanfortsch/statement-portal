@@ -24,7 +24,9 @@ import { isInternalSweepSource } from '@/lib/internal-transfers';
  *   strip runs), minus the recognized internal sweeps, which are Rising
  *   Tide's own money movements and are not an operator ask. This mirrors
  *   loadDepositReviewCounts in src/app/statements/actions.ts; change the
- *   two together or the badge and the strip disagree.
+ *   two together or the badge and the strip disagree. statementsReviewMonth
+ *   names that period, so the pill links to /statements?month=<it> and says
+ *   which month it counts, whatever month the page itself is showing.
  */
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -33,6 +35,7 @@ export async function GET() {
   let fieldPackets: number | null = null;
   let fieldPacketsByTrade = null;
   let statementsReview = 0;
+  let statementsReviewMonth: string | null = null;
   try {
     const db = fieldDb();
     const [packetsRes, periodRes] = await Promise.all([
@@ -45,6 +48,7 @@ export async function GET() {
     }
     const latestMonth = (periodRes.data as { month: string } | null)?.month;
     if (latestMonth) {
+      statementsReviewMonth = latestMonth;
       // Recognized internal sweeps (tax to *9928, the VRBO-commission and
       // management-fee settlements to *5130) are Rising Tide moving its own
       // money and need no operator decision, so they must not sit in the
@@ -64,5 +68,5 @@ export async function GET() {
   } catch {
     // Preserve an unavailable Field count when configuration or loading fails.
   }
-  return NextResponse.json({ fieldPackets, fieldPacketsByTrade, statementsReview });
+  return NextResponse.json({ fieldPackets, fieldPacketsByTrade, statementsReview, statementsReviewMonth });
 }

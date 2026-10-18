@@ -11,6 +11,7 @@ import { downloadStatementPdf } from '@/lib/download-pdf';
 import { loadActiveProperties } from './actions';
 import { formWithFreezeRetry } from '@/lib/freeze-confirm';
 import { PROPERTIES } from '@/lib/properties';
+import { previousCalendarMonth, statementsHref } from '@/lib/statements-month';
 
 type PropertyOption = { id: string; name: string; owner: string; location: string };
 
@@ -18,14 +19,12 @@ type PropertyOption = { id: string; name: string; owner: string; location: strin
  * Default month for a fresh upload. Until 2026-05-14 this was hardcoded
  * to '2026-04', which silently sent every upload to April even when the
  * operator was working on May -- the ingest then overwrote real April
- * data with the misplaced May payload. We now read `?month=YYYY-MM` from
- * the URL when present (dashboard passes it on the "Upload Month" link)
- * and otherwise default to the current calendar month.
+ * data with the misplaced May payload. We read `?month=YYYY-MM` from the
+ * URL when present (every link from /statements carries it) and otherwise
+ * default to the previous calendar month, the month a close works on and
+ * the same default as the two inputs cards on /statements. It used to be
+ * the current month, so an October 1-3 close opened on October.
  */
-function currentMonthString(): string {
-  const now = new Date();
-  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
-}
 
 // Fallback used only when the live `public.properties` fetch fails
 // (network blip, RLS misconfig). Derived from the configured PROPERTIES
@@ -466,12 +465,12 @@ export default function UploadPage() {
 function UploadPageInner() {
   const searchParams = useSearchParams();
   // Initialise from ?month=YYYY-MM when the dashboard passes one; fall back to
-  // today's calendar month. NEVER hard-code a constant -- that's how data ended
-  // up under April when the operator was working on May.
+  // the previous calendar month. NEVER hard-code a constant -- that's how data
+  // ended up under April when the operator was working on May.
   const initialMonth = (() => {
     const fromQuery = searchParams.get('month');
     if (fromQuery && /^\d{4}-\d{2}$/.test(fromQuery)) return fromQuery;
-    return currentMonthString();
+    return previousCalendarMonth();
   })();
   // Pre-select the property too when the dashboard passes ?property=<id>.
   // The PropertyCard's "Re-upload Data" link uses this so the operator
@@ -860,7 +859,7 @@ function UploadPageInner() {
               }}>
                 Upload Another
               </button>
-              <Link href="/statements" style={{
+              <Link href={statementsHref(result.month)} style={{
                 display: 'inline-flex', alignItems: 'center', gap: 8,
                 background: 'transparent', color: 'var(--ink-3)',
                 fontSize: 11, fontWeight: 500, letterSpacing: '.08em', textTransform: 'uppercase',

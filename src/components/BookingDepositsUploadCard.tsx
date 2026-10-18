@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { previousCalendarMonth } from '@/lib/statements-month';
 
 /**
  * Home-page upload control for the central "Bookingcom Deposits" Chase
@@ -17,12 +18,6 @@ import { useRouter } from 'next/navigation';
  * file, and expands automatically when it doesn't.
  */
 
-function computeDefaultMonth(): string {
-  const d = new Date();
-  d.setUTCDate(1);
-  d.setUTCMonth(d.getUTCMonth() - 1);
-  return d.toISOString().slice(0, 7);
-}
 
 type Result = {
   success: boolean;
@@ -43,7 +38,7 @@ export function BookingDepositsUploadCard({ defaultMonth, status, onUploaded }: 
   onUploaded?: () => void;
 } = {}) {
   const router = useRouter();
-  const [month, setMonth] = useState(defaultMonth || computeDefaultMonth());
+  const [month, setMonth] = useState(defaultMonth || previousCalendarMonth());
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
