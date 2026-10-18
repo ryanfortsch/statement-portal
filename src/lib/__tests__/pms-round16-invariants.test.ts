@@ -61,3 +61,12 @@ test('Revert to Guesty takes the same typed property id as the flip', () => {
   const form = hub.slice(hub.indexOf('<input type="hidden" name="target" value="guesty" />'));
   assert.ok(form.slice(0, 3000).includes('name="confirm"'), 'the revert form has no typed id input');
 });
+
+test('only an owner flips a home to Helm, matching the hub', () => {
+  // The hub renders Prepare cutover and the Flip form for owners only; the
+  // action must refuse a staff post on its own.
+  const action = read('src/app/channels/[propertyId]/cutover-actions.ts');
+  const helm = action.slice(action.indexOf("if (target === 'helm') {"));
+  const gate = helm.indexOf('if (!(await isOwnerSession()))');
+  assert.ok(gate > 0 && gate < helm.indexOf('flipToHelm('), 'the flip no longer checks for an owner before flipping');
+});
