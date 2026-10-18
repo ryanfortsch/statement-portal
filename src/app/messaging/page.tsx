@@ -21,6 +21,7 @@ import { loadGuestQuoteContext } from '@/lib/guest-quote-context';
 import { listHelmConversations } from '@/lib/helm-inbox';
 import { mergeConversationLists } from '@/lib/helm-inbox-core';
 import { PropertyFactsToFile } from '@/components/PropertyFactsToFile';
+import { ConciergeAlertList } from '@/components/ConciergeAlerts';
 import { MessagingQueue } from './MessagingQueue';
 import { RecentDecisions } from './RecentDecisions';
 import { ConversationsBrowser } from './Conversations';
@@ -116,7 +117,12 @@ async function QueueSection() {
 // their deep link) ride in the same list, sorted together by last activity.
 // Each half fails soft: the concierge being down still shows Helm threads,
 // and a Helm read error still shows the concierge list.
-async function ConversationsSection() {
+//
+// `?open=<conversation id>` opens that thread on arrival: an alert's "Open
+// the thread" lands on the conversation itself, not the top of the list.
+async function ConversationsSection({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const open = (await searchParams).open;
+  const openId = (Array.isArray(open) ? open[0] : open)?.trim() || null;
   const [conversations, helm, approvals] = await Promise.all([
     listConversations(60),
     listHelmConversations(60).catch(() => []),
@@ -130,8 +136,12 @@ async function ConversationsSection() {
   }));
   return (
     <ConversationsBrowser
+      // A new ?open= remounts the list, so the thread asked for opens even
+      // when the page was already showing another.
+      key={openId ?? 'none'}
       initialConversations={merged}
       initialError={conversations.ok ? null : explainError(conversations.error)}
+      initialOpenId={openId}
     />
   );
 }
@@ -142,7 +152,7 @@ async function ConversationsSection() {
 // 2026-10-17. The Inbox is the working page: it ends at Conversations and
 // keeps one line pointing there.
 
-export default function MessagingPage() {
+export default function MessagingPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   if (!isStayConciergeConfigured()) {
     return (
       <Shell>
@@ -153,6 +163,11 @@ export default function MessagingPage() {
 
   return (
     <Shell>
+      {/* What the concierge could not finish on its own, above the queue:
+          guest emergencies first, then the alerts, each in plain words. */}
+      <Suspense fallback={null}>
+        <ConciergeAlertList />
+      </Suspense>
       <Suspense fallback={<QueueSkeleton />}>
         <QueueSection />
       </Suspense>
@@ -160,7 +175,7 @@ export default function MessagingPage() {
         <RecentDecisionsSection />
       </Suspense>
       <Suspense fallback={null}>
-        <ConversationsSection />
+        <ConversationsSection searchParams={searchParams} />
       </Suspense>
       <Suspense fallback={null}><PropertyFactsToFile /></Suspense>
       <Suspense fallback={null}><RecentMessageOutcomesSection audience="guests" /></Suspense>

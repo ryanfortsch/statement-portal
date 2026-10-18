@@ -18,7 +18,7 @@ import { AskHelm } from '@/components/AskHelm';
 import { OccupancyCalendar } from '@/components/OccupancyCalendar';
 import { CleaningsStrip } from '@/components/CleaningsStrip';
 import { AiStatusBanner } from '@/components/AiStatusBanner';
-import { ConciergeAlerts } from '@/components/ConciergeAlerts';
+import { ConciergeAlertsLine } from '@/components/ConciergeAlerts';
 import { isOwnerSession } from '@/lib/helm-access-server';
 import { operatingDate } from '@/lib/operating-date';
 
@@ -311,14 +311,15 @@ export default async function HelmHome() {
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
 
-      {/* CONCIERGE — drafts paused, guest emergencies, and anything else the
-          guest concierge could not finish on its own. Streams in, so a slow
-          Mac Mini never holds up the page; renders nothing when all is well. */}
+      {/* CONCIERGE: drafts paused, and one line counting the guest
+          emergencies and alerts the concierge could not finish on its own,
+          linking to their rows on Messaging. Streams in, so a slow Mac Mini
+          never holds up the page; renders nothing when all is well. */}
       <Suspense fallback={null}>
         <AiStatusBanner />
       </Suspense>
       <Suspense fallback={null}>
-        <ConciergeAlerts />
+        <ConciergeAlertsLine />
       </Suspense>
 
       <HelmHero eyebrow="HELM" title="Today" paddingTop={32} paddingBottom={28} />

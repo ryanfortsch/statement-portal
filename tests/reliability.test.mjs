@@ -155,7 +155,8 @@ async function dashboard({ dbError = null, reviewError = false } = {}) {
     '@/lib/operations': { loadOperationsData: async () => ({ totalCount: 0, inspectionDoneCount: 0 }) },
     '@/lib/reviews': { getReviewWindowStats: async () => { if (reviewError) throw new Error('offline'); return { total: 0, fiveStar: 0, belowFive: 0 }; } },
   };
-  for (const name of ['HelmMasthead', 'HelmFooter', 'TeamActivity', 'HomeFeedTabs', 'ForMeFeed', 'AskHelm', 'OccupancyCalendar', 'CleaningsStrip', 'AiStatusBanner', 'ConciergeAlerts', 'HelmHero']) mocks[`@/components/${name}`] = { [name]: blank };
+  for (const name of ['HelmMasthead', 'HelmFooter', 'TeamActivity', 'HomeFeedTabs', 'ForMeFeed', 'AskHelm', 'OccupancyCalendar', 'CleaningsStrip', 'AiStatusBanner', 'HelmHero']) mocks[`@/components/${name}`] = { [name]: blank };
+  mocks['@/components/ConciergeAlerts'] = { ConciergeAlertsLine: blank };
   mocks['@/components/HelmHero'] = { HelmHero: ({ title }) => React.createElement('h1', null, title) };
   mocks['@/components/HomeFeedTabs'] = { HomeFeedTabs: () => React.createElement('section', null, 'Personalized work feed') };
   mocks['@/components/AskHelm'] = { AskHelm: () => React.createElement('section', null, 'Ask Helm') };
