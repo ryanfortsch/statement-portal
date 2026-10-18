@@ -71,9 +71,9 @@ test('each tool has one name on its tile, breadcrumb and page title', () => {
     assert.ok(src.includes(`{ label: '${name}' }`), `the ${slug} breadcrumb is not "${name}"`);
     assert.match(src, h1, `the ${slug} title is not "${name}"`);
   }
-  // Both directions of Guesty fields say which way they go.
-  assert.match(page, /eyebrow="Helm → Guesty"\s*\n\s*title="Guesty fields"/);
-  assert.match(read('src/app/properties/[id]/PropertyBackfillButton.tsx'), /Guesty fields \(Guesty → Helm/);
+  // Guesty fields is one screen for both directions, and says so.
+  assert.match(page, /eyebrow="Helm ⇄ Guesty"\s*\n\s*title="Guesty fields"/);
+  assert.ok(page.includes('<ToolLink href={`/properties/${p.id}/sync-guesty`}>Guesty fields</ToolLink>'));
   // Launch is the 26-step list; the Stay Cape Ann tool is not also a launch.
   assert.ok(read('src/app/properties/[id]/stay-cape-ann/page.tsx').includes("{ label: 'Stay Cape Ann' }"));
 });

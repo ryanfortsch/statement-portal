@@ -1,5 +1,6 @@
 'use server';
 
+import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { getPropertyAccess } from '@/lib/property-access';
@@ -7,25 +8,36 @@ import { resolveGuestyListingId } from '@/lib/guesty-listing-id';
 import { civicForProperty } from '@/lib/civic';
 import type { HelmPropertyRow } from '@/lib/properties';
 import {
-  getListingGuestFields,
+  getGuestyListing,
+  guestFieldsOf,
   updateListingGuestFields,
   GUESTY_GUEST_FIELD_KEYS,
   type GuestyGuestFields,
 } from '@/lib/guesty';
+import {
+  PULL_FIELDS,
+  guestyPullValues,
+  helmPullValues,
+  pullStatus,
+  pullUpdates,
+  type PullKey,
+  type PullStatus,
+} from '@/lib/guesty-fields';
 
 /**
- * Server actions backing /properties/[id]/sync-guesty — the tool that pushes
- * Helm's structured property data (wifi, parking, trash) into the matching
- * guest-facing fields on the live Guesty listing.
+ * Server actions backing /properties/[id]/sync-guesty, the Guesty fields
+ * screen: one table, both directions, an arrow per field.
  *
- * Two operations:
- *   loadGuestyFieldsAction — read Helm's values + the listing's CURRENT Guesty
- *                            values, diff them per field for review.
- *   pushGuestyFieldsAction — write ONLY the operator-approved fields to Guesty.
+ *   loadGuestyFieldsAction - read Helm's values and the listing's CURRENT
+ *                            values (one Guesty read), diffed per field.
+ *   pushGuestyFieldsAction - Helm to Guesty: write ONLY the ticked
+ *                            guest-facing fields (Wi-Fi, parking, trash).
+ *   pullGuestyFieldsAction - Guesty to Helm: fill ONLY Helm's blanks among
+ *                            the ticked house fields (size, type, map pin).
  *
- * Every write is one explicit click. The default selection is fill-empty-only
- * (a field already set in Guesty is never auto-overwritten); the operator can
- * opt in to overwriting a differing field by ticking it.
+ * Every write is one explicit click. Helm to Guesty preselects fill-empty
+ * only and overwrites a differing field on a tick. Guesty to Helm never
+ * overwrites: the writer itself refuses a column that is no longer blank.
  */
 
 export type FieldKey = keyof GuestyGuestFields;
@@ -46,9 +58,22 @@ export type FieldRow = {
   recommend: boolean;
 };
 
+/** One Guesty to Helm row: what Helm holds, what Guesty holds, what a tick does. */
+export type PullRow = {
+  key: PullKey;
+  label: string;
+  helmValue: string;
+  guestyValue: string;
+  status: PullStatus;
+  /** Preselected: only the safe fill (Helm blank, Guesty has it). */
+  recommend: boolean;
+};
+
 export type LoadFieldsResult =
-  | { ok: true; listingId: string; propertyName: string; rows: FieldRow[] }
+  | { ok: true; listingId: string; propertyName: string; rows: FieldRow[]; pull: PullRow[] }
   | { ok: false; error: string; needsListing?: boolean };
+
+export type PullFieldsResult = { ok: true; filled: string[] } | { ok: false; error: string };
 
 export type PushFieldsResult =
   | { ok: true; pushed: FieldKey[] }
@@ -102,7 +127,7 @@ async function requireLinkedProperty(
       ok: false,
       needsListing: true,
       error:
-        'This property is not linked to a Guesty listing yet. Add its Guesty listing ID (or run Sync Guesty), then come back.',
+        'This home is not linked to a Guesty listing yet, so there is nothing to compare.',
     };
   }
   return { ok: true, property, listingId };
@@ -154,12 +179,14 @@ export async function loadGuestyFieldsAction(propertyId: string): Promise<LoadFi
 
   const helm = await loadHelmFields(propertyId);
 
-  let guesty: GuestyGuestFields;
+  // One read of the listing feeds both directions.
+  let listing: Record<string, unknown>;
   try {
-    guesty = await getListingGuestFields(guard.listingId);
+    listing = (await getGuestyListing(guard.listingId)) as unknown as Record<string, unknown>;
   } catch (err) {
     return { ok: false, error: `Couldn't read the Guesty listing: ${errMsg(err)}` };
   }
+  const guesty = guestFieldsOf(listing);
 
   const rows: FieldRow[] = FIELD_META.map((m) => {
     const helmValue = helm[m.key];
@@ -178,7 +205,58 @@ export async function loadGuestyFieldsAction(propertyId: string): Promise<LoadFi
     };
   });
 
-  return { ok: true, listingId: guard.listingId, propertyName: guard.property.name, rows };
+  const { data: house } = await supabase
+    .from('properties')
+    .select('bedrooms, bathrooms, square_feet, type_of_unit, latitude, longitude')
+    .eq('id', propertyId)
+    .maybeSingle();
+  const helmHouse = helmPullValues((house ?? {}) as Record<string, unknown>);
+  const guestyHouse = guestyPullValues(listing);
+  const pull: PullRow[] = PULL_FIELDS.map((f) => {
+    const status = pullStatus(helmHouse[f.key], guestyHouse[f.key]);
+    return { key: f.key, label: f.label, helmValue: helmHouse[f.key], guestyValue: guestyHouse[f.key], status, recommend: status === 'fill' };
+  });
+
+  return { ok: true, listingId: guard.listingId, propertyName: guard.property.name, rows, pull };
+}
+
+/**
+ * Guesty to Helm: fill Helm's blank house fields from the live listing.
+ * Re-reads both sides at write time, and each column's update is guarded on
+ * the column still being blank, so a value typed on Facts meanwhile is never
+ * replaced.
+ */
+export async function pullGuestyFieldsAction(propertyId: string, keys: PullKey[]): Promise<PullFieldsResult> {
+  const guard = await requireLinkedProperty(propertyId);
+  if (!guard.ok) return { ok: false, error: guard.error };
+  const { data: house, error } = await supabase
+    .from('properties')
+    .select('bedrooms, bathrooms, square_feet, type_of_unit, latitude, longitude')
+    .eq('id', propertyId)
+    .maybeSingle();
+  if (error) return { ok: false, error: error.message };
+  let listing: Record<string, unknown>;
+  try {
+    listing = (await getGuestyListing(guard.listingId)) as unknown as Record<string, unknown>;
+  } catch (err) {
+    return { ok: false, error: `Couldn't read the Guesty listing: ${errMsg(err)}` };
+  }
+  const updates = pullUpdates(keys, (house ?? {}) as Record<string, unknown>, listing);
+  const filled: string[] = [];
+  for (const f of PULL_FIELDS) {
+    const patch = Object.fromEntries(f.columns.filter((c) => c in updates).map((c) => [c, updates[c]]));
+    if (Object.keys(patch).length !== f.columns.length) continue;
+    let q = supabase.from('properties').update({ ...patch, last_synced_at: new Date().toISOString() }).eq('id', propertyId);
+    for (const c of f.columns) q = c === 'type_of_unit' ? q.or(`${c}.is.null,${c}.eq.`) : q.is(c, null);
+    const { data, error: writeError } = await q.select('id');
+    if (writeError) return { ok: false, error: `Saving ${f.label.toLowerCase()} failed: ${writeError.message}` };
+    if (data && data.length > 0) filled.push(f.label);
+  }
+  if (filled.length) {
+    revalidatePath(`/properties/${propertyId}`);
+    revalidatePath(`/properties/${propertyId}/edit`);
+  }
+  return { ok: true, filled };
 }
 
 export async function pushGuestyFieldsAction(

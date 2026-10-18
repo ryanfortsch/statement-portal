@@ -14,7 +14,7 @@ const compile=s=>ts.transpileModule(s,{compilerOptions:{target:ts.ScriptTarget.E
 for(const [name,path] of [
  ['note','src/components/properties/NoteEditorForm.tsx'],['notice','src/components/properties/NoticeEditorForm.tsx'],['guide','src/components/properties/HomeGuideCustomizeForm.tsx'],
  ['form','src/components/properties/RetainedPropertyForm.tsx'],['readiness','src/components/projections/ReadinessChecklistClient.tsx'],['order','src/app/properties/[id]/order-checklist/OrderChecklistClient.tsx'],
- ['owner','src/components/OwnerRequestsPanel.tsx'],['recover','src/lib/use-recoverable-action.ts'],['unsaved','src/lib/unsaved-work.ts'],['guard','src/lib/use-draft-navigation-guard.ts'],
+ ['owner','src/components/OwnerRequestsPanel.tsx'],['guesty','src/app/properties/[id]/sync-guesty/SyncGuestyClient.tsx'],['recover','src/lib/use-recoverable-action.ts'],['unsaved','src/lib/unsaved-work.ts'],['guard','src/lib/use-draft-navigation-guard.ts'],
  ['queue','src/lib/checklist-save-queue.ts'],['saves','src/lib/use-checklist-saves.ts'],['status','src/components/ChecklistSaveStatus.tsx'],['readiness-catalog','src/lib/projections-readiness.ts'],
 ])await writeFile(join(scratch,name+'.js'),compile(await readFile(join(root,path),'utf8')));
 // Extract the real guide catalog without bringing server database imports into the fixture.
@@ -31,12 +31,15 @@ export const requestReadinessReview=id=>save('send',{id});
 export const setOrderHaveAction=args=>save('have',args);
 export const setOrderNoteAction=args=>save('note',args);
 export const addOwnerRequestSlipAction=args=>save('owner',args);
+export const loadGuestyFieldsAction=id=>save('gload',{id});
+export const pushGuestyFieldsAction=(id,selections)=>save('gpush',{id,selections});
+export const pullGuestyFieldsAction=(id,keys)=>save('gpull',{id,keys});
 `);
 await writeFile(join(scratch,'router.js'),`export {unstable_rethrow} from 'next/dist/client/components/unstable-rethrow.browser';`);
 await writeFile(join(scratch,'link.js'),compile(`import React from 'react';export default function Link({children,...props}){return <a {...props} onClick={e=>{props.onClick?.(e);if(!e.defaultPrevented){window.navs++;e.preventDefault();}}}>{children}</a>;}`));
 await writeFile(join(scratch,'entry.js'),compile(`
 import React,{useState} from 'react';import {createRoot} from 'react-dom/client';import Link from './link.js';
-import {NoteEditorForm} from './note.js';import {NoticeEditorForm} from './notice.js';import {HomeGuideCustomizeForm} from './guide.js';import {ReadinessChecklistClient} from './readiness.js';import {OrderChecklistClient} from './order.js';import {OwnerRequestsPanel} from './owner.js';import {hasUnsavedWork} from './unsaved.js';import {save} from './actions.js';
+import {NoteEditorForm} from './note.js';import {NoticeEditorForm} from './notice.js';import {HomeGuideCustomizeForm} from './guide.js';import {ReadinessChecklistClient} from './readiness.js';import {OrderChecklistClient} from './order.js';import {OwnerRequestsPanel} from './owner.js';import {SyncGuestyClient} from './guesty.js';import {hasUnsavedWork} from './unsaved.js';import {save} from './actions.js';
 window.calls=[];window.navs=0;window.reloads=0;window.prints=0;window.print=()=>window.prints++;window.guarded=hasUnsavedWork;window.confirmAnswer=false;window.confirm=()=>window.confirmAnswer;
 const groups=[{title:'Kitchen',items:[{label:'Cups',count:4},{label:'Plates',count:6}]}],initial={have:{Cups:1},notes:{supply_closet:'Old closet',order_notes:'Old order'}};
 function Fixture(){const mode=new URLSearchParams(location.search).get('mode');const [mounted,setMounted]=useState(true);window.unmount=()=>setMounted(false);if(!mounted)return null;return <><Link href="/away">Leave page</Link><section id={mode}>
@@ -45,6 +48,7 @@ function Fixture(){const mode=new URLSearchParams(location.search).get('mode');c
 {mode==='guide'&&<HomeGuideCustomizeForm propertyId="home-a" overrides={{wifi:'Old guide copy'}}/>}
 {mode==='readiness'&&<ReadinessChecklistClient projectionId="prospect-a" propertyTag="Synthetic home" salutation="Sample owner" propertyTypeLabel="home" groups={groups} context={{maxGuests:4,bedrooms:2,bathrooms:1,bathroomsFromIntake:true}} initial={initial} printHref="/print"/>}
 {mode==='order'&&<OrderChecklistClient propertyId="home-a" propertyName="Synthetic home" groups={groups} context={{maxGuests:4,bedrooms:2,bathrooms:1,beds:[],bedCount:2,bedsFromRooms:true,guestsFromBeds:true,bathroomsFromRecord:true}} initial={initial} supplyClosetLocation="Hall"/>}
+{mode==='guesty'&&<SyncGuestyClient propertyId="home-a"/>}
 {mode==='owner'&&<OwnerRequestsPanel houses={[{propertyId:'home-a',name:'Synthetic home'}]} candidates={{'home-a':{candidates:[]}}} selections={{}} includeHandled={{}} maintenanceCharge={{}} loading={false} onSelectionsChange={()=>{}} onToggleHandled={()=>{}} onReloadHouse={()=>window.reloads++}/>}
 </section></>;}createRoot(document.getElementById('root')).render(<Fixture/>);
 `));
@@ -108,5 +112,20 @@ await reset('readiness');await edit('#readiness textarea','Print draft');await p
 await reset('owner');await click('#owner','+ Add request');await edit('#owner input','Replace lamp');await edit('#owner textarea','Cord is damaged');await edit('#owner select','purchase');await click('#owner','Cancel');assert.ok(await page.$('#owner input'));await click('#owner','File request',true);await waitCalls(1);const ownerArgs=(await calls())[0].args;assert.match(ownerArgs.requestId,/^[0-9a-f-]{36}$/);assert.equal(await page.$eval('#owner input',e=>e.matches(':disabled')),true);await click('#owner','Cancel');assert.ok(await page.$('#owner input'));await finish(0,null,true);await waitText('Could not confirm the request');assert.equal(await value('#owner input'),'Replace lamp');assert.equal(await value('#owner textarea'),'Cord is damaged');assert.equal(await value('#owner select'),'purchase');pass('owner request blocks discard and duplicate filing while pending, then retains all fields on lost response');
 await click('#owner','File request');await waitCalls(2);assert.deepEqual((await calls())[1].args,ownerArgs);await finish(1,{ok:false,error:'Synthetic refusal'});await waitText('Synthetic refusal');await click('#owner','File request');await waitCalls(3);assert.deepEqual((await calls())[2].args,ownerArgs);await finish(2,{ok:true,slipId:'synthetic-slip'});await clean();assert.equal(await page.evaluate(()=>window.reloads),1);assert.equal(await page.$('#owner input'),null);pass('owner request retries the same identity after returned errors and closes only on confirmed success');
 await click('#owner','+ Add request');await edit('#owner input','Draft to discard');await page.evaluate(()=>window.confirmAnswer=true);await click('#owner','Cancel');await clean();assert.equal(await page.$('#owner input'),null);pass('owner request cancellation discards only after confirmation');
+await reset('guesty');await waitCalls(1);
+await finish(0,{ok:true,listingId:'L',propertyName:'Synthetic home',rows:[{key:'wifiName',label:'Wi-Fi name',sensitive:false,helmValue:'HarborNet',guestyValue:'',status:'guesty-empty',recommend:true},{key:'parkingInstructions',label:'Parking instructions',sensitive:false,helmValue:'Driveway',guestyValue:'Street',status:'differs',recommend:false}],pull:[{key:'bedrooms',label:'Bedrooms',helmValue:'',guestyValue:'4',status:'fill',recommend:true},{key:'bathrooms',label:'Bathrooms',helmValue:'2',guestyValue:'3',status:'kept',recommend:false}]});
+await waitText('Send 1 to Guesty →');await waitText('← Fill 1 in Helm');
+assert.equal(await page.$eval('#guesty input[aria-label="Fill Bathrooms in Helm from Guesty"]',e=>e.disabled),true);
+assert.equal(await page.$eval('#guesty input[aria-label="Send Parking instructions from Helm to Guesty"]',e=>e.checked),false);
+assert.equal(await page.$$eval('#guesty .rt-gf-arrow-h',els=>els.map(e=>e.textContent).join('')),'→→←←');
+await page.click('#guesty input[aria-label="Send Parking instructions from Helm to Guesty"]');await waitText('Send 2 to Guesty →');
+await click('#guesty','Send 2 to Guesty →');await waitCalls(2);assert.deepEqual((await calls())[1].args.selections.map(x=>x.key),['wifiName','parkingInstructions']);
+await finish(1,{ok:false,error:'Synthetic Guesty refusal'});await waitText('Synthetic Guesty refusal');
+await click('#guesty','← Fill 1 in Helm');await waitCalls(3);assert.deepEqual((await calls())[2].args.keys,['bedrooms']);
+await finish(2,{ok:true,filled:['Bedrooms']});await waitCalls(4);await waitText('Filled bedrooms in Helm.');
+pass('guesty fields: each field moves the way its arrow points, only ticked fields move, Helm keeps its own values');
+await reset('guesty');await waitCalls(1);await finish(0,{ok:false,needsListing:true,error:'This home is not linked to a Guesty listing yet, so there is nothing to compare.'});
+await waitText('Set the Guesty listing ID →');assert.equal(await page.$eval('#guesty a',a=>a.getAttribute('href')),'/properties/home-a/stay-cape-ann');
+pass('guesty fields: an unlinked home says where its Guesty listing id is set');
 assert.deepEqual(errors,[]);console.log('PASS '+checks+' guest materials browser checks; no live records or messages used.');
 }finally{await browser?.close();await new Promise(resolve=>server.close(resolve));await rm(scratch,{recursive:true,force:true});}

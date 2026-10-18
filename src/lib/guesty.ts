@@ -412,9 +412,12 @@ export const GUESTY_GUEST_FIELD_KEYS: (keyof GuestyGuestFields)[] = [
  * as empty without null-juggling.
  */
 export async function getListingGuestFields(listingId: string): Promise<GuestyGuestFields> {
-  const l = await guestyGet<Partial<Record<keyof GuestyGuestFields, unknown>>>(
-    `/v1/listings/${listingId}`,
-  );
+  return guestFieldsOf(await guestyGet<Record<string, unknown>>(`/v1/listings/${listingId}`));
+}
+
+/** The guest-facing fields off a raw listing record, so a caller that already
+ *  read the listing (the Guesty fields screen) needs no second request. */
+export function guestFieldsOf(l: Record<string, unknown>): GuestyGuestFields {
   const str = (v: unknown) => (typeof v === 'string' ? v : v == null ? '' : String(v));
   return {
     wifiName: str(l.wifiName),

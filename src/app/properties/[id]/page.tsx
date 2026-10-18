@@ -27,7 +27,6 @@ import { MultiMonthBookingsSection } from './MultiMonthBookingsSection';
 import { Fragment, Suspense } from 'react';
 import { PropertyActivityList, loadPropertyActivity } from './PropertyActivity';
 import { PropertyOnboardingLink } from './PropertyOnboardingLink';
-import { PropertyBackfillButton } from './PropertyBackfillButton';
 import { PropertyTabs, TabSection } from './PropertyTabs';
 import { DocumentsPanel } from './DocumentsPanel';
 import { GuestCodesPanel } from './GuestCodesPanel';
@@ -1384,8 +1383,8 @@ export default async function PropertyDetailPage({
             hang off two Setup catalog items and vanished with the tab. */}
         <ToolLink href={`/properties/${p.id}/order-checklist`}>Outfitting order</ToolLink>
         <ToolLink href={`/properties/${p.id}/launch`}>Launch</ToolLink>
-        {/* A helm-run home has no live Guesty listing to fill from. */}
-        {!helmRun && <PropertyBackfillButton propertyId={p.id} />}
+        {/* A helm-run home has no live Guesty listing to compare with. */}
+        {!helmRun && <ToolLink href={`/properties/${p.id}/sync-guesty`}>Guesty fields</ToolLink>}
       </ToolsLine>
 
         </TabSection>
@@ -1930,12 +1929,11 @@ export default async function PropertyDetailPage({
                 description="Drafts a caption for every Guesty gallery photo in our listings' voice; you approve before anything pushes."
                 href={`/properties/${p.id}/caption-photos`}
               />
-              {/* The direction is in the name, because Facts' Tools line has
-                  the same tool pointed the other way (Guesty to Helm). */}
+              {/* Both directions on one screen, an arrow per field. */}
               <GrowthTile
-                eyebrow="Helm → Guesty"
+                eyebrow="Helm ⇄ Guesty"
                 title="Guesty fields"
-                description="Push Helm's Wi-Fi, parking, and trash details into the matching guest-facing fields on the live listing."
+                description="Helm's Wi-Fi, parking and trash to the live listing; the listing's bedrooms, baths, size and map pin to Helm's blanks."
                 href={`/properties/${p.id}/sync-guesty`}
               />
               {/* A live listing whose payment probe came back demo_mode takes
