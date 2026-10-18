@@ -108,7 +108,7 @@ await writeFile(join(scratch, 'entry.js'), compile(`
         </>}
       </aside>
       {mounted && <ScaLaunchClient propertyId="synthetic" propertyName="Synthetic House"
-        defaults={draft} initialRow={window.row} signedIn githubConfigured/>}
+        defaults={draft} initialRow={window.row} signedIn githubConfigured isOwner={!params.has('staff')}/>}
     </>;
   }
   createRoot(document.getElementById('root')).render(<Fixture/>);
@@ -227,6 +227,17 @@ try{
     await click('Force go-live…');await waitCalls(1);
     assert.equal(await page.evaluate(()=>window.calls.at(-1).args[1]),true);
     pass('the existing payment checklist and explicit override retain their behavior');
+
+    const hasButton=text=>page.evaluate(text=>[...document.querySelectorAll('button')].some(b=>b.textContent.trim()===text),text);
+    await reset('?launch=1&unpaid=1&staff=1');await waitEnabled('Update preview PR');
+    for(const owned of ['Approve & go live →','Force go-live…','Verify wiring','Unlist…']) assert.equal(await hasButton(owned),false,owned);
+    await waitText('Payments: not wired');
+    assert.equal(await page.evaluate(()=>document.body.innerText.includes('Stripe account key')),false);
+    assert.equal(await page.evaluate(()=>document.querySelectorAll('input[type=checkbox]').length),0);
+    await reset('?staff=1');await waitEnabled('Publish update');await waitText('Payments: wired');
+    assert.equal(await hasButton('Refresh site data'),true);
+    assert.equal(await hasButton('Unlist…'),false);assert.equal(await hasButton('Verify payments (production)'),false);
+    pass('staff get the listing, the preview, publishing and site refresh, and one line for payments');
 
     await reset('?error=1');await waitText('Could not check the preview.');
     assert.equal(await enabled('Publish update'),false);

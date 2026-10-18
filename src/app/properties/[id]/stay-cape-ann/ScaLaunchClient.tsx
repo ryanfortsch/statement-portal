@@ -32,6 +32,13 @@ type Props = {
   defaults: ScaFormDraft;
   githubConfigured: boolean;
   signedIn: boolean;
+  /**
+   * Owners see the whole launcher. Staff see the listing content and the
+   * preview (Steps 1 and 2) and one line for payments: the Stripe wiring,
+   * the payment probe, go-live, Force go-live and Unlist are owner acts,
+   * and their server actions refuse a staff session.
+   */
+  isOwner: boolean;
 };
 
 type PreviewState = 'none' | 'pending' | 'success' | 'failure';
@@ -76,7 +83,7 @@ export function ScaLaunchClient(props: Props) {
   const noticeRef = useRef<HTMLDivElement | null>(null);
 
   // The notice banner renders at the top of a long form, but the buttons that
-  // set it (Save draft / Open preview PR) sit at the bottom — an error landed
+  // set it (Save draft / Open preview PR) sit at the bottom, so an error landed
   // silently above the fold and the flow just looked dead (84 Thatcher launch,
   // 2026-07-20). Whenever the notice changes, bring it into view.
   useEffect(() => {
@@ -96,6 +103,10 @@ export function ScaLaunchClient(props: Props) {
   const env = scaStripeEnvVarNames(form.stripeAccountKey || 'ACCOUNT_KEY');
   const webhookUrl = scaStripeWebhookUrl(form.stripeAccountKey || 'ACCOUNT_KEY');
   const paymentsReady = !!(row?.payment_publishable_set && row?.payment_secret_set && row?.payment_webhook_set);
+  // What staff are told about payments: wired once the three wiring boxes are
+  // ticked, unless the last probe found the booking page in demo mode
+  // (bookings that collect nothing, 84 Thatcher).
+  const paymentsWired = paymentsReady && row?.payment_verify_signal !== 'demo_mode';
 
   // Auto-poll the preview deploy while a PR is open and not yet resolved.
   useEffect(() => {
@@ -247,7 +258,7 @@ export function ScaLaunchClient(props: Props) {
         setNotice({ kind: 'ok', text: 'Pull request opened. Building a preview…' });
       } else if (res.errors) {
         setErrors(res.errors);
-        setNotice({ kind: 'err', text: `Can't open the PR yet — ${Object.values(res.errors).join('; ')}` });
+        setNotice({ kind: 'err', text: `Can't open the PR yet: ${Object.values(res.errors).join('; ')}` });
         if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
       } else {
         setNotice({ kind: 'err', text: res.error ?? 'Could not open PR' });
@@ -269,7 +280,7 @@ export function ScaLaunchClient(props: Props) {
         setNotice({ kind: 'ok', text: 'Update PR opened. The listing stays live until you publish. Review the preview, then click Publish update.' });
       } else if (res.errors) {
         setErrors(res.errors);
-        setNotice({ kind: 'err', text: `Can't open the update PR yet — ${Object.values(res.errors).join('; ')}` });
+        setNotice({ kind: 'err', text: `Can't open the update PR yet: ${Object.values(res.errors).join('; ')}` });
         if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
       } else {
         setNotice({ kind: 'err', text: res.error ?? 'Could not open update PR' });
@@ -364,12 +375,12 @@ export function ScaLaunchClient(props: Props) {
           {uploadingSlots.size > 0 ? ' Wait for the photo upload to finish before saving.' : ''}
         </p>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 18 }}>
+        {/* One column on a phone, two from 640px. The Stripe account key used
+            to sit here beside the Guesty id; it names payment keys, so it
+            moved to the owners' Step 3. */}
+        <div className="grid grid-cols-1 sm:grid-cols-2" style={{ gap: 16, marginTop: 18 }}>
           <Field label="Guesty listing ID" error={errOf('guestyListingId')} hint="The ID of the listing in Guesty. Becomes /stays/<id>.">
             <input style={inputStyle} value={form.guestyListingId} onChange={(e) => set('guestyListingId', e.target.value)} placeholder="67a1355216416a00122e976f" />
-          </Field>
-          <Field label="Stripe account key" error={errOf('stripeAccountKey')} hint="Identifies this property's own Stripe account and names its keys below.">
-            <input style={{ ...inputStyle, ...mono }} value={form.stripeAccountKey} onChange={(e) => set('stripeAccountKey', e.target.value.toUpperCase())} placeholder="36_GRANITE" />
           </Field>
           <Field label="Public listing name" error={errOf('publicName')} hint="Guest-facing title.">
             <input style={inputStyle} value={form.publicName} onChange={(e) => set('publicName', e.target.value)} placeholder="Stay at Granite Point" />
@@ -441,8 +452,8 @@ export function ScaLaunchClient(props: Props) {
         <div style={{ marginTop: 24 }}>
           <span style={labelStyle}>Stay favorite (one verified restaurant)</span>
           <p style={hintStyle}>The &ldquo;we&rsquo;d eat here&rdquo; pick shown on the neighborhood map. Use only a verified business.</p>
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 8, marginTop: 8 }}>
-            <input style={inputStyle} value={form.stayFavorite.name} onChange={(e) => set('stayFavorite', { ...form.stayFavorite, name: e.target.value })} placeholder="Restaurant name" />
+          <div className="grid grid-cols-2 sm:grid-cols-[2fr_1fr_1fr_1fr]" style={{ gap: 8, marginTop: 8 }}>
+            <input className="col-span-2 sm:col-span-1" style={inputStyle} value={form.stayFavorite.name} onChange={(e) => set('stayFavorite', { ...form.stayFavorite, name: e.target.value })} placeholder="Restaurant name" />
             <input style={inputStyle} value={form.stayFavorite.town} onChange={(e) => set('stayFavorite', { ...form.stayFavorite, town: e.target.value })} placeholder="Town" />
             <input style={inputStyle} inputMode="decimal" value={Number.isFinite(form.stayFavorite.lat) ? String(form.stayFavorite.lat) : ''} onChange={(e) => set('stayFavorite', { ...form.stayFavorite, lat: e.target.value === '' ? NaN : Number(e.target.value) })} placeholder="Lat" />
             <input style={inputStyle} inputMode="decimal" value={Number.isFinite(form.stayFavorite.lng) ? String(form.stayFavorite.lng) : ''} onChange={(e) => set('stayFavorite', { ...form.stayFavorite, lng: e.target.value === '' ? NaN : Number(e.target.value) })} placeholder="Lng" />
@@ -461,8 +472,8 @@ export function ScaLaunchClient(props: Props) {
           onRemove={(i) => set('extraFavorites', (form.extraFavorites ?? []).filter((_, j) => j !== i))}
           render={(f, i) => (
             <>
-              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 8 }}>
-                <input style={inputStyle} value={f.name} onChange={(e) => updateAt('extraFavorites', i, { ...f, name: e.target.value })} placeholder="Name" />
+              <div className="grid grid-cols-2 sm:grid-cols-[2fr_1fr_1fr_1fr]" style={{ gap: 8 }}>
+                <input className="col-span-2 sm:col-span-1" style={inputStyle} value={f.name} onChange={(e) => updateAt('extraFavorites', i, { ...f, name: e.target.value })} placeholder="Name" />
                 <input style={inputStyle} value={f.town} onChange={(e) => updateAt('extraFavorites', i, { ...f, town: e.target.value })} placeholder="Town" />
                 <input style={inputStyle} inputMode="decimal" value={Number.isFinite(f.lat) ? String(f.lat) : ''} onChange={(e) => updateAt('extraFavorites', i, { ...f, lat: e.target.value === '' ? NaN : Number(e.target.value) })} placeholder="Lat" />
                 <input style={inputStyle} inputMode="decimal" value={Number.isFinite(f.lng) ? String(f.lng) : ''} onChange={(e) => updateAt('extraFavorites', i, { ...f, lng: e.target.value === '' ? NaN : Number(e.target.value) })} placeholder="Lng" />
@@ -479,12 +490,12 @@ export function ScaLaunchClient(props: Props) {
           onRemove={(i) => set('sleepingArrangements', (form.sleepingArrangements ?? []).filter((_, j) => j !== i))}
           render={(s, i) => (
             <>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <div className="grid grid-cols-1 sm:grid-cols-2" style={{ gap: 8 }}>
                 <input style={inputStyle} value={s.name ?? ''} onChange={(e) => updateAt('sleepingArrangements', i, { ...s, name: e.target.value })} placeholder="Room (e.g. Master suite)" />
                 <input style={inputStyle} value={s.beds ?? ''} onChange={(e) => updateAt('sleepingArrangements', i, { ...s, beds: e.target.value })} placeholder="Beds (e.g. 2 Twins)" />
               </div>
               <div style={{ marginTop: 8 }}>
-                <span style={{ ...labelStyle, marginBottom: 4 }}>Bedroom photo(s) — drop them in, no naming or files</span>
+                <span style={{ ...labelStyle, marginBottom: 4 }}>Bedroom photos: drop them in, no naming or files</span>
                 <PhotoUploader
                   value={Array.isArray(s.photo) ? s.photo : []}
                   onChange={(next) => updateAt('sleepingArrangements', i, { ...s, photo: next })}
@@ -508,8 +519,8 @@ export function ScaLaunchClient(props: Props) {
           onRemove={(i) => set('reviews', (form.reviews ?? []).filter((_, j) => j !== i))}
           render={(r, i) => (
             <>
-              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 8 }}>
-                <input style={inputStyle} value={r.name} onChange={(e) => updateAt('reviews', i, { ...r, name: e.target.value })} placeholder="First name" />
+              <div className="grid grid-cols-2 sm:grid-cols-[2fr_1fr_1fr]" style={{ gap: 8 }}>
+                <input className="col-span-2 sm:col-span-1" style={inputStyle} value={r.name} onChange={(e) => updateAt('reviews', i, { ...r, name: e.target.value })} placeholder="First name" />
                 <input style={inputStyle} value={r.date} onChange={(e) => updateAt('reviews', i, { ...r, date: e.target.value })} placeholder="YYYY-MM" />
                 <input style={inputStyle} type="number" min={1} max={5} value={r.rating} onChange={(e) => updateAt('reviews', i, { ...r, rating: Number(e.target.value) })} placeholder="Rating" />
               </div>
@@ -543,7 +554,7 @@ export function ScaLaunchClient(props: Props) {
             )}
           </div>
         ) : (
-          <div style={{ display: 'flex', gap: 10, marginTop: 24 }}>
+          <div style={{ display: 'flex', gap: 10, marginTop: 24, flexWrap: 'wrap' }}>
             <button type="button" style={btnBase} disabled={busy !== null} onClick={onSave}>{busy === 'save' ? 'Saving…' : 'Save draft'}</button>
             <button type="button" style={btnPrimary} disabled={busy !== null || !props.githubConfigured} onClick={onOpenPr}>
               {busy === 'pr' ? 'Opening PR…' : prOpen ? 'Update preview PR' : 'Open preview PR →'}
@@ -561,7 +572,7 @@ export function ScaLaunchClient(props: Props) {
         ) : (
           <div style={{ marginTop: 8 }}>
             <Row label="Pull request">
-              {row?.pr_url ? <a href={row.pr_url} target="_blank" rel="noreferrer" style={linkStyle}>#{row.pr_number} ↗</a> : '—'}
+              {row?.pr_url ? <a href={row.pr_url} target="_blank" rel="noreferrer" style={linkStyle}>#{row.pr_number} ↗</a> : 'none yet'}
             </Row>
             <Row label="Preview deploy">
               <PreviewBadge state={previewState} />
@@ -596,7 +607,7 @@ export function ScaLaunchClient(props: Props) {
                         kind: 'err',
                         text:
                           r.hint ||
-                          'No preview deploy reported yet. Vercel usually posts one within a minute of the PR — check again shortly, or open the PR on GitHub to confirm the deploy started.',
+                          'No preview deploy reported yet. Vercel usually posts one within a minute of the PR. Check again shortly, or open the PR on GitHub to confirm the deploy started.',
                       });
                     }
                   })
@@ -618,6 +629,26 @@ export function ScaLaunchClient(props: Props) {
         )}
       </section>
 
+      {/* ── Staff: one line for payments ─────────────────────────────── */}
+      {!props.isOwner && (
+        <section style={card}>
+          <p role="status" style={{ fontSize: 14, color: 'var(--ink)', margin: 0 }}>
+            <strong>Payments: {paymentsWired ? 'wired' : 'not wired'}</strong>
+            {isLive ? '' : paymentsWired ? '. An owner takes the listing live.' : '. An owner wires the payments and takes the listing live.'}
+          </p>
+          {isLive && (
+            <LiveSiteData
+              liveUrl={row?.live_url ?? null}
+              refreshError={row?.snapshot_refresh_error ?? null}
+              refreshErrorAt={row?.snapshot_refresh_error_at ?? null}
+              busy={busy}
+              onRefresh={onRefreshSiteData}
+            />
+          )}
+        </section>
+      )}
+
+      {props.isOwner && (<>
       {/* ── Stage 3: Payments ────────────────────────────────────────── */}
       <section style={{ ...card, opacity: prOpen ? 1 : 0.55 }}>
         <div className="eyebrow">Step 3</div>
@@ -627,6 +658,12 @@ export function ScaLaunchClient(props: Props) {
           Set these three values on the <strong>stay-cape-ann</strong> Vercel project (Production + Preview), then
           register the webhook in that Stripe account, and check each box.
         </p>
+
+        <div style={{ marginTop: 14, maxWidth: 360 }}>
+          <Field label="Stripe account key" error={errOf('stripeAccountKey')} hint="Identifies this property's own Stripe account and names its keys below. Saved with the listing.">
+            <input style={{ ...inputStyle, ...mono }} value={form.stripeAccountKey} disabled={blocked} onChange={(e) => set('stripeAccountKey', e.target.value.toUpperCase())} placeholder="36_GRANITE" />
+          </Field>
+        </div>
 
         <div style={{ marginTop: 14, border: '1px solid var(--rule)', padding: 16 }}>
           <span style={labelStyle}>Keys to set on the booking site (stay-cape-ann, Production and Preview)</span>
@@ -677,7 +714,7 @@ export function ScaLaunchClient(props: Props) {
           <Check label={`Webhook created + ${env.webhookSecret} set`} checked={!!row?.payment_webhook_set} disabled={!prOpen || busy !== null} onChange={(v) => onTogglePayment('webhook', v)} />
         </div>
 
-        <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <button type="button" style={btnBase} disabled={busy !== null || !prOpen} onClick={onVerify}>{busy === 'verify' ? 'Checking…' : 'Verify wiring'}</button>
           {verifyResult && <VerifyBadge signal={verifyResult.signal} />}
           {!verifyResult && row?.payment_verify_signal && <VerifyBadge signal={row.payment_verify_signal} />}
@@ -695,32 +732,23 @@ export function ScaLaunchClient(props: Props) {
         <h2 className="font-serif" style={sectionTitle}>Go live</h2>
         {status === 'live' ? (
           <div style={{ marginTop: 8 }}>
-            <Banner kind="ok">
-              Live on staycapeann.com.{' '}
-              {row?.live_url && <a href={row.live_url} target="_blank" rel="noreferrer" style={linkStyle}>{row.live_url} ↗</a>}
-            </Banner>
-            {row?.snapshot_refresh_error && (
-              <Banner kind="err">
-                <strong>Snapshot refresh did not fire</strong>
-                {row.snapshot_refresh_error_at
-                  ? ` (last tried ${etStamp(row.snapshot_refresh_error_at)})`
-                  : ''}
-                : {row.snapshot_refresh_error} The listing page may be stale until the nightly refresh. Once fixed,
-                click <strong>Refresh site data</strong> to clear this.
-              </Banner>
-            )}
+            <LiveSiteData
+              liveUrl={row?.live_url ?? null}
+              refreshError={row?.snapshot_refresh_error ?? null}
+              refreshErrorAt={row?.snapshot_refresh_error_at ?? null}
+              busy={busy}
+              onRefresh={onRefreshSiteData}
+            />
             <div style={{ display: 'flex', gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
               <button type="button" style={btnBase} disabled={busy !== null} onClick={onVerify}>{busy === 'verify' ? 'Checking…' : 'Verify payments (production)'}</button>
-              <button type="button" style={btnBase} disabled={busy !== null} onClick={onRefreshSiteData}>{busy === 'refresh-data' ? 'Triggering…' : 'Refresh site data'}</button>
               <button type="button" style={{ ...btnBase, borderColor: 'var(--negative)', color: 'var(--negative)' }} disabled={busy !== null} onClick={onUnlist}>{busy === 'unlist' ? 'Opening removal PR…' : 'Unlist…'}</button>
             </div>
-            <p style={hintStyle}>The listing page is built from Guesty&rsquo;s snapshot, which go-live refreshes automatically (takes a couple minutes after merge). If the page or its photos look stale, click <strong>Refresh site data</strong>; it also self-heals on the nightly refresh.</p>
           </div>
         ) : (
           <div style={{ marginTop: 8 }}>
             <p style={hintStyle}>
               Going live squash-merges the PR; the build picks up the new listing and the page is public within a couple
-              minutes. Enabled once the three payment boxes are checked — open and review the preview above first.
+              minutes. Enabled once the three payment boxes are checked. Open and review the preview above first.
             </p>
             <div style={{ display: 'flex', gap: 10, marginTop: 12, alignItems: 'center', flexWrap: 'wrap' }}>
               <button
@@ -736,13 +764,14 @@ export function ScaLaunchClient(props: Props) {
               </button>
               {previewState === 'failure' && (
                 <span style={{ fontSize: 12, color: 'var(--negative)' }}>
-                  The preview build reported a failure — open it above before going live.
+                  The preview build reported a failure. Open it above before going live.
                 </span>
               )}
             </div>
           </div>
         )}
       </section>
+      </>)}
     </div>
   );
 
@@ -776,9 +805,48 @@ function FieldError({ children }: { children: ReactNode }) {
   return <p style={{ fontSize: 11.5, color: 'var(--negative)', marginTop: 4 }}>{children}</p>;
 }
 
+/**
+ * A live listing's page and its Guesty snapshot: the link, a failed refresh
+ * said out loud, and Refresh site data. Content upkeep, so staff get it too.
+ */
+function LiveSiteData({
+  liveUrl,
+  refreshError,
+  refreshErrorAt,
+  busy,
+  onRefresh,
+}: {
+  liveUrl: string | null;
+  refreshError: string | null;
+  refreshErrorAt: string | null;
+  busy: string | null;
+  onRefresh: () => void;
+}) {
+  return (
+    <>
+      <Banner kind="ok">
+        Live on staycapeann.com.{' '}
+        {liveUrl && <a href={liveUrl} target="_blank" rel="noreferrer" style={linkStyle}>{liveUrl} ↗</a>}
+      </Banner>
+      {refreshError && (
+        <Banner kind="err">
+          <strong>Snapshot refresh did not fire</strong>
+          {refreshErrorAt ? ` (last tried ${etStamp(refreshErrorAt)})` : ''}
+          : {refreshError} The listing page may be stale until the nightly refresh. Once fixed,
+          click <strong>Refresh site data</strong> to clear this.
+        </Banner>
+      )}
+      <div style={{ display: 'flex', gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
+        <button type="button" style={btnBase} disabled={busy !== null} onClick={onRefresh}>{busy === 'refresh-data' ? 'Triggering…' : 'Refresh site data'}</button>
+      </div>
+      <p style={hintStyle}>The listing page is built from Guesty&rsquo;s snapshot, which go-live refreshes automatically (takes a couple minutes after merge). If the page or its photos look stale, click <strong>Refresh site data</strong>; it also self-heals on the nightly refresh.</p>
+    </>
+  );
+}
+
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: '1px solid var(--rule)' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: '1px solid var(--rule)', flexWrap: 'wrap' }}>
       <span style={{ ...labelStyle, marginBottom: 0, width: 130, flexShrink: 0 }}>{label}</span>
       <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap' }}>{children}</div>
     </div>
@@ -819,9 +887,9 @@ function PreviewBadge({ state, inline }: { state: PreviewState; inline?: boolean
 
 function VerifyBadge({ signal }: { signal: PaymentVerifySignal }) {
   const map: Record<PaymentVerifySignal, { t: string; c: string }> = {
-    wired: { t: '✓ card field renders — payments wired', c: 'var(--positive)' },
-    demo_mode: { t: '✗ still in demo mode — publishable key not picked up', c: 'var(--negative)' },
-    unknown: { t: 'inconclusive — open the preview manually', c: 'var(--ink-3)' },
+    wired: { t: '✓ card field renders: payments wired', c: 'var(--positive)' },
+    demo_mode: { t: '✗ still in demo mode: publishable key not picked up', c: 'var(--negative)' },
+    unknown: { t: 'inconclusive: open the preview manually', c: 'var(--ink-3)' },
   };
   const { t, c } = map[signal];
   return <span style={{ color: c, fontSize: 12.5, fontWeight: 600 }}>{t}</span>;

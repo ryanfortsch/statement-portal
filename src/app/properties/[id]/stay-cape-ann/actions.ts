@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
+import { requireOwnerEmail } from '@/lib/helm-access-server';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import {
   validateScaForm,
@@ -36,6 +37,13 @@ import type { HelmPropertyRow } from '@/lib/properties';
  * are wrapped so a failure returns a clean message and never leaks the token.
  * The sca_launches table holds no secrets; the Stripe wiring is manual and only
  * its non-secret checklist state is stored here.
+ *
+ * Two halves, by role (2026-10-18). Listing content (pull, draft, save, the
+ * preview PR, publishing a copy update to a live listing, refreshing site
+ * data) is staff work. Payments and go-live (the Stripe wiring checklist, the
+ * payment probe, the first merge that takes a home public, Force go-live and
+ * Unlist) are owner acts and call requireOwnerEmail(): the page hides them
+ * from staff, and a server action is reachable without the page.
  */
 
 type ActionResult =
@@ -45,6 +53,15 @@ type ActionResult =
 async function requireEmail(): Promise<string | null> {
   const session = await auth();
   return session?.user?.email ?? null;
+}
+
+/** The owner's email, or the refusal as a result the client can print. */
+async function ownerOrRefusal(): Promise<{ email: string } | { ok: false; error: string }> {
+  try {
+    return { email: await requireOwnerEmail() };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
 }
 
 async function loadRow(propertyId: string): Promise<ScaLaunchRow | null> {
@@ -803,7 +820,7 @@ export async function refreshPreviewStatus(
   const email = await requireEmail();
   if (!email) return { ok: false, error: 'Not signed in' };
   const row = await loadRow(propertyId);
-  if (!row?.branch_name) return { ok: false, error: 'No open PR yet — open the pull request first.' };
+  if (!row?.branch_name) return { ok: false, error: 'No open PR yet. Open the pull request first.' };
   try {
     const content = await readScaPreviewContent(gh, SCA_REGISTRY_PATH, row.branch_name, row.guesty_listing_id ?? '');
     const status = await gh.getBranchPreviewStatus(content.headSha);
@@ -826,8 +843,8 @@ export async function setPaymentStep(
   step: 'publishable' | 'secret' | 'webhook',
   value: boolean,
 ): Promise<ActionResult> {
-  const email = await requireEmail();
-  if (!email) return { ok: false, error: 'Not signed in' };
+  const owner = await ownerOrRefusal();
+  if (!('email' in owner)) return owner;
   const column = {
     publishable: 'payment_publishable_set',
     secret: 'payment_secret_set',
@@ -851,8 +868,8 @@ export async function setPaymentStep(
 export async function verifyPaymentWiring(
   propertyId: string,
 ): Promise<{ ok: true; signal: PaymentVerifySignal; target: string } | { ok: false; error: string }> {
-  const email = await requireEmail();
-  if (!email) return { ok: false, error: 'Not signed in' };
+  const owner = await ownerOrRefusal();
+  if (!('email' in owner)) return owner;
   const row = await loadRow(propertyId);
   if (!row?.guesty_listing_id) return { ok: false, error: 'No listing to verify yet' };
 
@@ -893,8 +910,9 @@ export async function goLiveSca(
   override = false,
   draft?: ScaFormDraft,
 ): Promise<ActionResult> {
-  const email = await requireEmail();
-  if (!email) return { ok: false, error: 'Not signed in' };
+  const owner = await ownerOrRefusal();
+  if (!('email' in owner)) return owner;
+  const email = owner.email;
 
   const row = await loadRow(propertyId);
   if (!row?.pr_number) return { ok: false, error: 'No open PR to merge' };
@@ -968,8 +986,8 @@ export async function refreshScaSiteData(
 
 /** Open a PR that removes the listing from the registry (the unlist path). */
 export async function unlistSca(propertyId: string): Promise<ActionResult> {
-  const email = await requireEmail();
-  if (!email) return { ok: false, error: 'Not signed in' };
+  const owner = await ownerOrRefusal();
+  if (!('email' in owner)) return owner;
   if (!gh.isGithubConfigured()) return { ok: false, error: 'GITHUB_TOKEN is not configured' };
   const row = await loadRow(propertyId);
   if (!row?.guesty_listing_id) return { ok: false, error: 'Nothing to unlist' };
