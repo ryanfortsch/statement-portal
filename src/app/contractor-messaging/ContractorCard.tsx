@@ -8,6 +8,7 @@ import { ApprovalCard, BodyText, sentAgoLabel } from '@/components/messaging/car
 import type { QueueCardHelpers } from '@/components/messaging/card/ApprovalQueue';
 import { useWorkSlip } from '@/components/messaging/card/useWorkSlip';
 import { TEAM_HANDLED_REASONS, isTeamProactive, reasonsFor } from '@/components/messaging/card/reasons';
+import { waitReason } from '@/lib/card-wait-reason';
 import {
   approveContractorDraft,
   markContractorHandled,
@@ -30,6 +31,7 @@ export function ContractorCard({
   onRegenerating,
   regenStalled,
   audienceChip,
+  aiPaused,
 }: {
   approval: ContractorApproval;
   properties: PropertyOption[];
@@ -39,6 +41,8 @@ export function ContractorCard({
   regenStalled: boolean;
   /** The Team inbox says whose card this is. */
   audienceChip?: ReactNode;
+  /** The drafting AI is down. */
+  aiPaused?: { reason?: string } | null;
 }) {
   const id = approval.id;
   // The concierge's own inference wins if it names a known home; otherwise
@@ -74,6 +78,15 @@ export function ContractorCard({
       ageMinutes={approval.age_minutes}
       createdAt={approval.created_at}
       shortId={approval.short_id}
+      wait={waitReason({
+        status: approval.status,
+        ageMinutes: proactive ? null : approval.age_minutes,
+        sendAttempts: approval.send_attempts,
+        lastSendError: approval.last_send_error,
+        answeredWhere: 'by text',
+        noDraft: !approval.draft.trim(),
+        aiPaused,
+      })}
       said={{
         label: 'They said',
         sub: sentAgoLabel(approval.created_at),

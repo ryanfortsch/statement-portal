@@ -13,6 +13,7 @@ import {
   listOwnerApprovals,
   listOwnerHistory,
   listDecidedTeamApprovals,
+  getAiStatus,
   explainError,
   type OwnerApproval,
 } from '@/lib/stay-concierge';
@@ -95,9 +96,10 @@ function NotReachable({ message, retry = false }: { message: string; retry?: boo
 // 24 hours" strip is gone (the contact history below carries every reply),
 // and Proactive messages moved to the foot.
 async function OwnerQueueSection() {
-  const pending = await listOwnerApprovals();
+  const [pending, ai] = await Promise.all([listOwnerApprovals(), getAiStatus().catch(() => null)]);
   if (!pending.ok) return <NotReachable message={explainError(pending.error)} retry />;
-  return <OwnerMessagingQueue initialPending={pending.data.approvals} />;
+  const aiPaused = ai?.ok && !ai.data.ok ? { reason: ai.data.reason } : null;
+  return <OwnerMessagingQueue initialPending={pending.data.approvals} aiPaused={aiPaused} />;
 }
 
 // Handled owner cards from the last 12 hours that Undo can still reach.

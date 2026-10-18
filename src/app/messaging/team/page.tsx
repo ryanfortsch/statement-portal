@@ -17,6 +17,7 @@ import {
   listCleanerApprovals,
   listContractorApprovals,
   listDecidedTeamApprovals,
+  getAiStatus,
   explainError,
   type CleanerApproval,
   type ContractorApproval,
@@ -105,11 +106,13 @@ async function loadProperties(): Promise<{ id: string; name: string }[]> {
 // Urgent boundary: both feeds, merged on the client. One failing feed still
 // shows the other; both failing is the service being down.
 async function QueueSection({ audience }: { audience: TeamAudience }) {
-  const [cleaners, contractors, properties] = await Promise.all([
+  const [cleaners, contractors, properties, ai] = await Promise.all([
     listCleanerApprovals(),
     listContractorApprovals(),
     loadProperties(),
+    getAiStatus().catch(() => null),
   ]);
+  const aiPaused = ai?.ok && !ai.data.ok ? { reason: ai.data.reason } : null;
   if (!cleaners.ok && !contractors.ok) return <NotReachable message={explainError(cleaners.error)} retry />;
   const contractorRows = contractors.ok ? contractors.data.approvals : [];
   // Infer a contractor's work-slip property from their Field run (the
@@ -123,6 +126,7 @@ async function QueueSection({ audience }: { audience: TeamAudience }) {
       contractorContext={context}
       properties={properties}
       audience={audience}
+      aiPaused={aiPaused}
     />
   );
 }

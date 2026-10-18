@@ -9,6 +9,7 @@ import { ApprovalCard, sentAgoLabel } from '@/components/messaging/card/Approval
 import { ApprovalQueue, type QueueCardHelpers } from '@/components/messaging/card/ApprovalQueue';
 import { SecondaryButton } from '@/components/messaging/card/buttons';
 import { TEAM_HANDLED_REASONS } from '@/components/messaging/card/reasons';
+import { waitReason } from '@/lib/card-wait-reason';
 import {
   approveOwnerDraft,
   markOwnerHandled,
@@ -30,7 +31,14 @@ const PAGE_REFRESH_MS = 60_000;
 
 /** The owner queue: the one approval card, stacked so the owner's words,
  *  then where the reply goes (the Envelope), then the reply read in order. */
-export function OwnerMessagingQueue({ initialPending }: { initialPending: OwnerApproval[] }) {
+export function OwnerMessagingQueue({
+  initialPending,
+  aiPaused,
+}: {
+  initialPending: OwnerApproval[];
+  /** The drafting AI is down: a card with no draft says so. */
+  aiPaused?: { reason?: string } | null;
+}) {
   const { approvals, updatedTick, refresh, watchRegen, stalledId } = useApprovalQueue(initialPending, 'owners');
   const { softRefresh } = useQueueRefresh(PAGE_REFRESH_MS);
   const onRefresh = useCallback(() => {
@@ -52,6 +60,7 @@ export function OwnerMessagingQueue({ initialPending }: { initialPending: OwnerA
           helpers={helpers}
           onRegenerating={watchRegen}
           regenStalled={stalledId === approval.id}
+          aiPaused={aiPaused}
         />
       )}
     />
@@ -63,11 +72,13 @@ function OwnerCard({
   helpers,
   onRegenerating,
   regenStalled,
+  aiPaused,
 }: {
   approval: OwnerApproval;
   helpers: QueueCardHelpers;
   onRegenerating: (id: string) => void;
   regenStalled: boolean;
+  aiPaused?: { reason?: string } | null;
 }) {
   const id = approval.id;
   const owner = approval.owner_name || approval.owner_contact || 'Owner';
@@ -105,6 +116,15 @@ function OwnerCard({
     ageMinutes: approval.age_minutes,
     createdAt: approval.created_at,
     shortId: approval.short_id,
+    wait: waitReason({
+      status: approval.status,
+      ageMinutes: approval.age_minutes,
+      sendAttempts: approval.send_attempts,
+      lastSendError: approval.last_send_error,
+      answeredWhere: channel === 'email' ? 'by email' : 'by text',
+      noDraft: !allReactions && !approval.draft.trim(),
+      aiPaused,
+    }),
     outcomes: approval.outcomes,
     onResolved: helpers.onResolved,
     onDecided: helpers.onDecided,

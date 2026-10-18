@@ -15,6 +15,8 @@ import {
   listInboxSearchApprovals,
   listRecentApprovals,
   listConversations,
+  getAiStatus,
+  getInboxHealth,
   explainError,
 } from '@/lib/stay-concierge';
 import { loadGuestQuoteContext } from '@/lib/guest-quote-context';
@@ -113,8 +115,17 @@ async function RecentDecisionsSection() {
 // Urgent boundary: the pending-approval queue + reminders. Awaits ONLY the
 // fast queue call so it is never held hostage by the slower aggregations.
 async function QueueSection() {
-  const pending = await listApprovals();
+  // The AI's state and the held pitches are what a card cannot say for
+  // itself: why nothing was drafted, and what waits with no card at all.
+  const [pending, ai, health] = await Promise.all([
+    listApprovals(),
+    getAiStatus().catch(() => null),
+    getInboxHealth().catch(() => null),
+  ]);
   if (!pending.ok) return <NotReachable message={explainError(pending.error)} retry />;
+  const aiPaused = ai?.ok && !ai.data.ok ? { reason: ai.data.reason } : null;
+  const dayAgo = Date.now() / 1000 - 24 * 3600;
+  const held = health?.ok ? (health.data.held ?? []).filter((h) => h.held_at >= dayAgo) : [];
   // Proactive scheduling moved to the Send lens (/messaging/send): the Inbox
   // is for reacting to what came in, Send is for starting something. Keeping
   // both here made the queue page a junk drawer.
@@ -122,7 +133,7 @@ async function QueueSection() {
   // priced instead of leaving the operator to go and look. Degrades to {}:
   // the queue is the point of this page and must render without it.
   const quotes = await loadGuestQuoteContext(pending.data.approvals).catch(() => ({}));
-  return <MessagingQueue initialPending={pending.data.approvals} initialQuotes={quotes} />;
+  return <MessagingQueue initialPending={pending.data.approvals} initialQuotes={quotes} aiPaused={aiPaused} held={held} />;
 }
 
 // The Guesty-inbox replacement: every recent guest conversation, expandable

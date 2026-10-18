@@ -39,12 +39,15 @@ export function TeamInboxQueue({
   contractorContext,
   properties,
   audience,
+  aiPaused,
 }: {
   initialCleaners: CleanerApproval[];
   initialContractors: ContractorApproval[];
   contractorContext?: Record<string, ApprovalContext>;
   properties: PropertyOption[];
   audience: TeamAudience;
+  /** The drafting AI is down: a card with no draft says so. */
+  aiPaused?: { reason?: string } | null;
 }) {
   const cleaners = useApprovalQueue(initialCleaners, 'cleaners');
   const contractors = useApprovalQueue<ContractorApproval, Record<string, ApprovalContext>>(
@@ -95,6 +98,7 @@ export function TeamInboxQueue({
             onRegenerating={cleaners.watchRegen}
             regenStalled={cleaners.stalledId === row.id}
             audienceChip={chip}
+            aiPaused={aiPaused}
           />
         ) : (
           <ContractorCard
@@ -106,6 +110,7 @@ export function TeamInboxQueue({
             onRegenerating={contractors.watchRegen}
             regenStalled={contractors.stalledId === row.id}
             audienceChip={chip}
+            aiPaused={aiPaused}
           />
         );
       }}
