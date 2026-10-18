@@ -52,6 +52,7 @@ import {
   parseOwnerEmail,
 } from '@/lib/contract-copy-email';
 import { requireOwnerEmail } from '@/lib/helm-access-server';
+import { contractHasEdits, driveFileIdFromUrl, registerTermsFromProjection, TEMPLATE_RENEWAL } from '@/lib/contract-register';
 import { renderProjectionPdf } from '@/lib/projection-pdf';
 import { sendOnboardingSubmittedEmail } from '@/lib/onboarding-email';
 import { sendReadinessReviewEmail } from '@/lib/readiness-email';
@@ -1456,31 +1457,23 @@ export async function countersignContract(formData: FormData): Promise<void> {
     //    countersign; the weekly sweep's radar catches stragglers.
     if (projectionRow.property_id && projectionRow.term_end) {
       try {
-        const hasEdits =
-          ((projectionRow.contract_overrides as unknown[] | null)?.length ?? 0) > 0 ||
-          ((projectionRow.custom_clauses as unknown[] | null)?.length ?? 0) > 0;
-        const feeFraction = Number(projectionRow.mgmt_fee_pct ?? 0.25);
-        const driveFileId = executedDriveUrl?.match(/\/file\/d\/([^/?#]+)/)?.[1] ?? null;
+        const hasEdits = contractHasEdits(projectionRow);
+        const driveFileId = driveFileIdFromUrl(executedDriveUrl);
         await supabase
           .from('property_contracts')
           .update({ status: 'superseded', updated_at: new Date().toISOString() })
           .eq('property_id', projectionRow.property_id)
           .eq('status', 'active');
+        // The register form on /properties/contracts writes the same row
+        // from the same builder (src/lib/contract-register.ts).
+        const terms = registerTermsFromProjection(projectionRow);
         const { error: registerErr } = await supabase.from('property_contracts').insert({
           property_id: projectionRow.property_id,
-          owner_party: projectionRow.prospect_full_legal || projectionRow.prospect_name,
+          ...terms,
           executed_on: new Date().toISOString().slice(0, 10),
-          term_start: projectionRow.term_start,
-          term_end: projectionRow.term_end,
           // The base template auto-renews with 120-day notice; overrides can
           // reword that clause, so flag edited contracts for a read-through.
-          renewal_type: 'auto_renew',
-          notice_days_initial: 120,
-          notice_days_renewal: 120,
-          fee_pct: Math.round(feeFraction * 10000) / 100,
-          min_availability: projectionRow.min_availability_days != null ? `${projectionRow.min_availability_days} days during the term` : null,
-          sale_notice_days: projectionRow.sale_notification_days,
-          sale_reputation_fee: projectionRow.reputation_fee,
+          ...TEMPLATE_RENEWAL,
           signed_via: 'helm',
           status: 'active',
           drive_file_id: driveFileId,

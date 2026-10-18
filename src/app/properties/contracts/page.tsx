@@ -3,17 +3,18 @@ import type { CSSProperties, ReactNode } from 'react';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
-import { Stat } from '@/components/Stat';
 import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
 import {
   getAllPropertyContracts,
   contractAttention,
   currentTermEnd,
   daysUntil,
-  nextDecisionDate,
   upcomingNoticeDeadline,
   type PropertyContractRow,
 } from '@/lib/property-contracts';
+import { PROPERTIES } from '@/lib/properties';
+import { lastKnownName, RENEWAL_TYPE_WORD, RENEWAL_WORDS, type RenewalWord } from '@/lib/contract-register';
+import { startContractRenewal } from '@/app/projections/actions';
 import { PropertiesTabBar } from '../PropertiesTabBar';
 
 export const dynamic = 'force-dynamic';
@@ -25,13 +26,18 @@ export const revalidate = 60;
  * the agreement locks in for another year), and the homes running with no
  * live agreement at all.
  *
- * Layout: a short strip of the numbers that matter, then "Action needed"
- * grouped by DATE (eight contracts sharing a Nov 1 deadline are one
- * decision, not eight lines), then the register as one scannable row per
- * home. The paper's detail (executed date, availability, sale clause,
- * negotiated terms, notes, prior agreements) folds under a native
- * <details> so the fleet stays readable at a glance and no client JS is
- * needed.
+ * Layout: "Action needed" first, grouped by DATE (eight contracts sharing
+ * a Nov 1 deadline are one decision, not eight lines), then the register as
+ * one scannable row per home. The paper's detail (executed date,
+ * availability, sale clause, negotiated terms, notes, prior agreements)
+ * folds under a native <details> so the fleet stays readable at a glance
+ * and no client JS is needed. Each row carries the writes: Register this
+ * agreement (./register), Correct this entry, Draft renewal.
+ *
+ * The renewal words (non-renewal notice, notice window, auto-renews, fixed
+ * term, lapsed, superseded) get one plain line where each first appears:
+ * under the first Action needed group that uses it, else in the key above
+ * the register.
  */
 
 type PropertyLite = {
@@ -140,6 +146,29 @@ async function getProjectionContracts(properties: PropertyLite[]): Promise<Proje
   }
 }
 
+/**
+ * Names for homes that have left the managed roster but still hold a live
+ * agreement: the properties row's own name when it survives, else the code
+ * roster's, never the raw id.
+ */
+async function getLastKnownNames(ids: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (ids.length === 0) return out;
+  let db = new Map<string, string>();
+  if (isHelmConfigured) {
+    try {
+      const { data } = await supabase.from('properties').select('id, name').in('id', ids);
+      db = new Map(((data ?? []) as { id: string; name: string | null }[]).filter((r) => r.name).map((r) => [r.id, r.name as string]));
+    } catch {
+      // fall through to the code roster
+    }
+  }
+  for (const id of ids) {
+    out.set(id, lastKnownName(id, { dbName: db.get(id), rosterName: PROPERTIES[id]?.name }));
+  }
+  return out;
+}
+
 type DriveOrphan = { drive_file_id: string; title: string; folder_year: string; drive_url: string };
 
 /**
@@ -221,6 +250,10 @@ function recordsHref(propertyId: string): string {
 
 type Chip = { key: string; label: string; href: string; external?: boolean; sub?: string };
 
+function registerHref(q: Record<string, string>): string {
+  return `/properties/contracts/register?${new URLSearchParams(q).toString()}`;
+}
+
 type Decision = {
   key: string;
   /** ISO date for dated groups; null for the undated ones (uncovered, unregistered). */
@@ -230,6 +263,8 @@ type Decision = {
   tone: 'signal' | 'negative';
   sentence: string;
   chips: Chip[];
+  /** Renewal words the sentence uses; each is defined where it first appears. */
+  words?: RenewalWord[];
 };
 
 type RegisterRow = {
@@ -274,7 +309,8 @@ const css = `
   }
 `;
 
-export default async function PropertyContractsPage() {
+export default async function PropertyContractsPage({ searchParams }: { searchParams: Promise<{ saved?: string }> }) {
+  const { saved } = await searchParams;
   const todayIso = new Date().toISOString().slice(0, 10);
   const [properties, contracts, driveOrphans] = await Promise.all([
     getManagedProperties(),
@@ -310,12 +346,13 @@ export default async function PropertyContractsPage() {
     history: historyByProperty.get(p.id) ?? [],
     flight: flightByProperty.get(p.id) ?? null,
   }));
+  const offRosterNames = await getLastKnownNames(live.filter((c) => !byProperty.has(c.property_id)).map((c) => c.property_id));
   for (const c of live) {
     if (byProperty.has(c.property_id)) continue;
     rows.push({
       property: {
         id: c.property_id,
-        name: c.property_id,
+        name: offRosterNames.get(c.property_id) ?? lastKnownName(c.property_id, {}),
         owner_last: null,
         management_fee_pct: null,
         is_active: false,
@@ -331,20 +368,12 @@ export default async function PropertyContractsPage() {
 
   const uncovered = rows.filter((r) => !r.live && r.flight?.stage !== 'countersigned' && byProperty.has(r.property.id));
 
-  /* ----- the numbers ----- */
-  const ahead = live
-    .map((c) => nextDecisionDate(c, todayIso))
-    .filter((d): d is NonNullable<typeof d> => d !== null);
-  const nextDate = ahead.length ? ahead.map((d) => d.date).sort()[0] : null;
-  const nextCount = nextDate ? ahead.filter((d) => d.date === nextDate).length : 0;
-  const nextDays = nextDate ? daysUntil(nextDate, todayIso) : null;
-  const nextYear = yearOf(todayIso) + 1;
-  const settled = ahead.filter((d) => yearOf(d.date) >= nextYear).length;
-
   /* ----- action needed, grouped by date ----- */
+  const nameOf = (propertyId: string) =>
+    byProperty.get(propertyId)?.name ?? offRosterNames.get(propertyId) ?? lastKnownName(propertyId, {});
   const propertyChip = (c: PropertyContractRow): Chip => ({
     key: c.id,
-    label: byProperty.get(c.property_id)?.name ?? c.property_id,
+    label: nameOf(c.property_id),
     href: recordsHref(c.property_id),
   });
   const byLabel = (a: Chip, b: Chip) => a.label.localeCompare(b.label);
@@ -377,6 +406,7 @@ export default async function PropertyContractsPage() {
       tone: days <= 14 ? 'negative' : 'signal',
       sentence: `Last day to give non-renewal notice on ${n} ${plural(n, 'agreement')}. After it, ${n === 1 ? 'it renews' : 'each renews'} for ${g.locksYear}.`,
       chips: g.contracts.map(propertyChip).sort(byLabel),
+      words: ['non_renewal'],
     });
   }
   for (const [date, cs] of renewGroups) {
@@ -390,9 +420,10 @@ export default async function PropertyContractsPage() {
       sub: relDays(days),
       tone: days <= 14 ? 'negative' : 'signal',
       sentence: only
-        ? `Term ends. ${only.renewal_type === 'mutual_agreement' ? 'It renews only by mutual written agreement' : 'It does not renew'}, so a new signature is needed to keep managing.`
-        : `Terms end on ${n} agreements. None auto-renews; each needs a new signature to keep managing.`,
+        ? `Term ends. ${only.renewal_type === 'mutual_agreement' ? 'It renews only by mutual written agreement' : 'It is a fixed term and does not renew'}, so a new signature is needed to keep managing.`
+        : `Terms end on ${n} agreements and none renews on its own; each needs a new signature to keep managing.`,
       chips: cs.map(propertyChip).sort(byLabel),
+      words: [...new Set(cs.map((c) => RENEWAL_TYPE_WORD[c.renewal_type]))],
     });
   }
   for (const [date, cs] of lapsedGroups) {
@@ -402,13 +433,12 @@ export default async function PropertyContractsPage() {
       heading: fmtDate(date),
       sub: 'lapsed',
       tone: 'negative',
-      sentence: 'Term ended and nothing renewed it. Still managing without a live agreement.',
+      sentence: 'Still managing without a live agreement.',
       chips: cs.map(propertyChip).sort(byLabel),
+      words: ['lapsed'],
     });
   }
   dated.sort((a, b) => (a.date ?? '').localeCompare(b.date ?? ''));
-
-  const nameOf = (propertyId: string) => byProperty.get(propertyId)?.name ?? propertyId;
 
   // Rising Tide's own move comes first: an owner has signed and the
   // agreement is not in force until someone here countersigns.
@@ -490,12 +520,12 @@ export default async function PropertyContractsPage() {
       heading: 'Not registered',
       sub: 'signed in Helm',
       tone: 'signal',
-      sentence: 'Countersigned in Helm but not in this register yet.',
+      sentence: 'Countersigned in Helm but not in this register yet. Open one to register it; its terms come from the signed contract.',
       chips: unregistered
         .map((u) => ({
           key: u.propertyId,
-          label: byProperty.get(u.propertyId)?.name ?? u.propertyId,
-          href: `/projections/${u.projectionId}/contract`,
+          label: nameOf(u.propertyId),
+          href: registerHref({ property: u.propertyId, projection: u.projectionId }),
           sub: u.countersignedAt ? `signed ${fmtStamp(u.countersignedAt)}` : undefined,
         }))
         .sort(byLabel),
@@ -508,17 +538,36 @@ export default async function PropertyContractsPage() {
       heading: 'In Drive',
       sub: 'not registered',
       tone: 'signal',
-      sentence: 'Signed PDFs in the Drive Contracts folder that are not in this register yet.',
+      sentence: 'Signed PDFs in the Drive Contracts folder that are not in this register yet. Open one to register it.',
       chips: driveOrphans.map((o) => ({
         key: o.drive_file_id,
         label: o.title,
-        href: o.drive_url,
-        external: true,
+        href: registerHref({ drive: o.drive_file_id }),
         sub: o.folder_year,
       })),
     });
   }
   const decisions: Decision[] = [...head, ...dated, ...tail];
+
+  // Each renewal word gets its plain line once, where it first appears:
+  // the first Action needed group that uses it, else the register's key.
+  const defined = new Set<RenewalWord>();
+  const firstUse = (words: RenewalWord[]): RenewalWord[] =>
+    words.filter((w) => {
+      if (defined.has(w)) return false;
+      defined.add(w);
+      return true;
+    });
+  const decisionWords = new Map(decisions.map((d) => [d.key, firstUse(d.words ?? [])]));
+  const registerUses: RenewalWord[] = [];
+  for (const c of live) {
+    registerUses.push(RENEWAL_TYPE_WORD[c.renewal_type]);
+    if (c.renewal_type === 'auto_renew' && (c.notice_days_initial || c.notice_days_renewal)) registerUses.push('notice_window');
+    if (c.renewal_type !== 'auto_renew' && daysUntil(c.term_end, todayIso) < 0) registerUses.push('lapsed');
+  }
+  for (const c of contracts) if (c.status !== 'active') registerUses.push(c.status);
+  const keyOrder: RenewalWord[] = ['auto_renew', 'notice_window', 'non_renewal', 'fixed', 'mutual_agreement', 'lapsed', 'superseded', 'expired'];
+  const registerKey = firstUse(keyOrder.filter((w) => registerUses.includes(w)));
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -531,29 +580,6 @@ export default async function PropertyContractsPage() {
         description={`${live.length} live ${plural(live.length, 'agreement')} across ${properties.length} managed homes.`}
       />
       <PropertiesTabBar active="contracts" />
-
-      {/* STAT STRIP */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 36 }}>
-        <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)' }}>
-          <div className="rt-helm-stat-strip" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)' }}>
-            <Stat label="Live contracts" value={live.length} sub={`of ${properties.length} managed homes`} />
-            <Stat
-              label="Next deadline"
-              value={nextDate ? fmtDate(nextDate) : '—'}
-              sub={nextDate && nextDays != null ? `${relDays(nextDays)} · ${nextCount} ${plural(nextCount, 'agreement')}` : 'nothing ahead'}
-              accent={nextDays != null && nextDays <= 75}
-            />
-            <Stat label={`Settled for ${nextYear}`} value={settled} sub="nothing to decide this year" />
-            <Stat
-              label="No live contract"
-              value={uncovered.length}
-              valueColor={uncovered.length ? 'var(--negative)' : undefined}
-              sub={uncovered.length ? uncovered.map((r) => r.property.name).join(', ') : 'every home is covered'}
-              last
-            />
-          </div>
-        </div>
-      </section>
 
       {/* ACTION NEEDED: one group per date, not one line per contract. */}
       {decisions.length > 0 && (
@@ -579,6 +605,9 @@ export default async function PropertyContractsPage() {
               </div>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 13.5, lineHeight: 1.55, color: 'var(--ink-2)', maxWidth: 640 }}>{d.sentence}</div>
+                {(decisionWords.get(d.key) ?? []).map((w) => (
+                  <WordLine key={w} word={w} />
+                ))}
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
                   {d.chips.map((chip) =>
                     chip.external ? (
@@ -603,6 +632,13 @@ export default async function PropertyContractsPage() {
       {/* REGISTER: one row per home, detail folded under each. */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 56 }}>
         <div className="eyebrow" style={{ marginBottom: 10 }}>Register</div>
+        {registerKey.length > 0 && (
+          <div style={{ display: 'grid', gap: 3, marginBottom: 16, maxWidth: 760 }}>
+            {registerKey.map((w) => (
+              <WordLine key={w} word={w} />
+            ))}
+          </div>
+        )}
         <div className="rt-contracts-head">
           <div className="eyebrow">Property</div>
           <div className="eyebrow">Fee</div>
@@ -612,7 +648,13 @@ export default async function PropertyContractsPage() {
           <div />
         </div>
         {rows.map((r) => (
-          <ContractRow key={r.property.id} row={r} todayIso={todayIso} />
+          <ContractRow
+            key={r.property.id}
+            row={r}
+            todayIso={todayIso}
+            onRoster={byProperty.has(r.property.id)}
+            saved={saved === r.property.id}
+          />
         ))}
       </section>
 
@@ -657,6 +699,69 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
 
 const flightLinkStyle: CSSProperties = { color: 'var(--tide-deep)', textDecoration: 'none', fontSize: 11.5, whiteSpace: 'nowrap' };
 
+/** One renewal word and its plain meaning, printed where the word first appears. */
+function WordLine({ word }: { word: RenewalWord }) {
+  const w = RENEWAL_WORDS[word];
+  return (
+    <div style={{ marginTop: 4, fontSize: 11.5, lineHeight: 1.45, color: 'var(--ink-3)' }}>
+      <span style={{ color: 'var(--ink-2)', fontWeight: 600 }}>{w.word}</span>: {w.meaning}
+    </div>
+  );
+}
+
+const actionLinkStyle: CSSProperties = {
+  fontSize: 11,
+  fontWeight: 500,
+  letterSpacing: '.18em',
+  textTransform: 'uppercase',
+  color: 'var(--tide-deep)',
+  textDecoration: 'none',
+  padding: '9px 0',
+  background: 'none',
+  border: 'none',
+  cursor: 'pointer',
+};
+
+/**
+ * The register's writes for one home: register the agreement (or a newer
+ * one), correct the live entry, draft a renewal in Helm. Draft renewal is
+ * idempotent (it lands on an open draft) and is offered only while no
+ * Helm contract is mid-flight, which already has its own link.
+ */
+function RowActions({ row, onRoster }: { row: RegisterRow; onRoster: boolean }) {
+  const { property: p, live, flight } = row;
+  const registerQuery: Record<string, string> = { property: p.id };
+  if (!live && flight?.stage === 'countersigned') registerQuery.projection = flight.projectionId;
+  const startRenewal = startContractRenewal.bind(null, p.id);
+  return (
+    <div style={{ display: 'flex', gap: 22, flexWrap: 'wrap', alignItems: 'center', marginTop: 16 }}>
+      <Link href={registerHref(registerQuery)} style={actionLinkStyle}>
+        {live ? 'Register a new agreement' : 'Register this agreement'}
+      </Link>
+      {live && (
+        <Link href={registerHref({ property: p.id, edit: live.id })} style={{ ...actionLinkStyle, color: 'var(--ink-3)' }}>
+          Correct this entry
+        </Link>
+      )}
+      {onRoster && (!flight || flight.stage === 'countersigned') && (
+        <form action={startRenewal} style={{ margin: 0 }}>
+          <button type="submit" style={{ ...actionLinkStyle, color: 'var(--ink-3)' }}>
+            Draft renewal
+          </button>
+        </form>
+      )}
+    </div>
+  );
+}
+
+function SavedNote() {
+  return (
+    <div role="status" style={{ marginBottom: 12, fontSize: 12.5, color: 'var(--tide-deep)' }}>
+      Saved to the register.
+    </div>
+  );
+}
+
 /** The expanded-row line for a Helm e-sign contract that the register does not yet carry. */
 function FlightFact({ flight }: { flight: ProjectionContract }) {
   const link = (href: string, label: string) => (
@@ -667,8 +772,9 @@ function FlightFact({ flight }: { flight: ProjectionContract }) {
   if (flight.stage === 'countersigned') {
     return (
       <Fact label="Signed">
-        Countersigned in Helm{flight.countersignedAt ? ` on ${fmtStamp(flight.countersignedAt)}` : ''}.{' '}
-        {link(`/projections/${flight.projectionId}/contract`, 'Open the signed contract')}. It joins this register once its terms are entered.
+        Countersigned in Helm{flight.countersignedAt ? ` on ${fmtStamp(flight.countersignedAt)}` : ''}, not in this register yet.{' '}
+        {link(`/projections/${flight.projectionId}/contract`, 'Open the signed contract')} or{' '}
+        {link(registerHref({ property: flight.propertyId, projection: flight.projectionId }), 'register it')}.
       </Fact>
     );
   }
@@ -712,7 +818,17 @@ function historyLine(h: PropertyContractRow): ReactNode {
   );
 }
 
-function ContractRow({ row, todayIso }: { row: RegisterRow; todayIso: string }) {
+function ContractRow({
+  row,
+  todayIso,
+  onRoster,
+  saved,
+}: {
+  row: RegisterRow;
+  todayIso: string;
+  onRoster: boolean;
+  saved: boolean;
+}) {
   const { property: p, live: c, history, flight } = row;
   const nameCell = (owner: string | null, note?: ReactNode) => (
     <div style={{ minWidth: 0 }}>
@@ -735,7 +851,7 @@ function ContractRow({ row, todayIso }: { row: RegisterRow; todayIso: string }) 
   if (!c) {
     const last = history[0] ?? null;
     return (
-      <details className="rt-contract" id={`contract-${p.id}`}>
+      <details className="rt-contract" id={`contract-${p.id}`} open={saved || undefined}>
         <summary>
           {nameCell(last?.owner_party ?? p.owner_last)}
           <Cell main="—" color="var(--ink-4)" />
@@ -767,8 +883,8 @@ function ContractRow({ row, todayIso }: { row: RegisterRow; todayIso: string }) 
           <Cell main="—" color="var(--ink-4)" />
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, alignItems: 'baseline' }}>
             {flight?.stage === 'countersigned' ? (
-              <Link href={`/projections/${flight.projectionId}/contract`} style={flightLinkStyle}>
-                Signed ↗
+              <Link href={registerHref({ property: p.id, projection: flight.projectionId })} style={flightLinkStyle}>
+                Register →
               </Link>
             ) : flight?.stage === 'awaiting_countersign' ? (
               <Link href={`/prospects/${flight.projectionId}`} style={flightLinkStyle}>
@@ -785,6 +901,7 @@ function ContractRow({ row, todayIso }: { row: RegisterRow; todayIso: string }) 
           </div>
         </summary>
         <div className="rt-contract-body">
+          {saved && <SavedNote />}
           <div style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '9px 24px', fontSize: 13, alignItems: 'baseline', maxWidth: 760 }}>
             {flight && <FlightFact flight={flight} />}
             {last ? (
@@ -803,6 +920,7 @@ function ContractRow({ row, todayIso }: { row: RegisterRow; todayIso: string }) 
               </Fact>
             ))}
           </div>
+          <RowActions row={row} onRoster={onRoster} />
         </div>
       </details>
     );
@@ -834,8 +952,10 @@ function ContractRow({ row, todayIso }: { row: RegisterRow; todayIso: string }) 
     const later = c.notice_days_renewal;
     renewalSub =
       initial && later && later !== initial
-        ? `${initial}-day notice, ${later} after ${yearOf(c.term_end)}`
-        : `${initial ?? later ?? '—'}-day notice`;
+        ? `${initial}-day notice window, ${later} after ${yearOf(c.term_end)}`
+        : initial ?? later
+          ? `${initial ?? later}-day notice window`
+          : 'no notice clause';
   } else {
     renewalSub = c.renewal_type === 'mutual_agreement' ? 'renews only in writing' : 'no renewal clause';
   }
@@ -890,7 +1010,7 @@ function ContractRow({ row, todayIso }: { row: RegisterRow; todayIso: string }) 
       : null;
 
   return (
-    <details className="rt-contract" id={`contract-${p.id}`}>
+    <details className="rt-contract" id={`contract-${p.id}`} open={saved || undefined}>
       <summary>
         {nameCell(c.owner_party, flightNote)}
         <Cell
@@ -908,6 +1028,7 @@ function ContractRow({ row, todayIso }: { row: RegisterRow; todayIso: string }) 
         </div>
       </summary>
       <div className="rt-contract-body">
+        {saved && <SavedNote />}
         <div style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '9px 24px', fontSize: 13, alignItems: 'baseline', maxWidth: 760 }}>
           {flight && <FlightFact flight={flight} />}
           <Fact label="Signed">
@@ -955,6 +1076,7 @@ function ContractRow({ row, todayIso }: { row: RegisterRow; todayIso: string }) 
             </Fact>
           ))}
         </div>
+        <RowActions row={row} onRoster={onRoster} />
       </div>
     </details>
   );
