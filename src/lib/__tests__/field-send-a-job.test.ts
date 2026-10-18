@@ -48,3 +48,16 @@ test('the trade rides from the form to the packet row and the offer check', () =
   const lib = read('src/lib/field-packets.ts');
   assert.equal((lib.match(/trade: args\.trade \?\? 'inspection',/g) ?? []).length, 2, 'setup and one-off packets take the trade');
 });
+
+test('the maintenance bundler is the Handymen board planner, and its send lands there', () => {
+  const retired = read('src/app/fieldwork/packets/maintenance/page.tsx');
+  assert.ok(retired.includes("redirect('/fieldwork/packets?trade=maintenance#maintenance-jobs')"));
+  const board = read('src/app/fieldwork/packets/page.tsx');
+  assert.ok(board.includes("trade === 'maintenance' && focus === 'all' && openMaintenance &&"), 'rendered in the planner slot on the Handymen board');
+  const actions = read('src/app/fieldwork/packets/actions.ts');
+  const bundle = actions.match(/export async function bundleMaintenance[\s\S]*?\n}\n/)?.[0] ?? '';
+  assert.ok(bundle.includes("new URLSearchParams({ trade: 'maintenance', sent: '1' })"), 'a sent bundle lands on the Handymen board');
+  assert.ok(bundle.includes("c.trade === 'maintenance'"), 'Show to picks are handymen');
+  assert.ok(bundle.includes('if (draft) redirect(`/fieldwork/packets/${packetId}`)'), 'Save as draft opens the draft');
+  assert.doesNotMatch(bundle, /redirect\('\/fieldwork\/packets\/maintenance/, 'no failure rides a URL to the retired page');
+});

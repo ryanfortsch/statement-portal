@@ -635,32 +635,67 @@ export async function bundleAsDraft(formData: FormData): Promise<BundleFailure> 
   redirect(`/fieldwork/packets/${res.packetId}`);
 }
 
-/** Bundle selected open maintenance work slips into a published maintenance
- *  packet and text the maintenance contractors. */
-export async function bundleMaintenanceAndSend(formData: FormData): Promise<void> {
+/** The Handymen board's bundle bar: hand-picked open maintenance slips into
+ *  one packet. "send" publishes it to the handymen (or only the ones picked
+ *  under Show to) and texts them; "draft" saves it and opens it. Mirrors the
+ *  inspection bar (bundleAndSend / bundleAsDraft): a refusal comes back
+ *  inline with the pick still on screen, and success lands on the Handymen
+ *  board, where the new packet actually is. */
+export async function bundleMaintenance(formData: FormData): Promise<BundleFailure> {
   const email = await staffEmail();
+  const draft = formData.get('mode') === 'draft';
   const visitDate = String(formData.get('visit_date') || '');
   const slipIds = String(formData.get('work_slip_ids') || '')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
   const priceDollars = Number(formData.get('price_dollars') || 0);
-  if (!visitDate || slipIds.length === 0) redirect('/fieldwork/packets/maintenance?sent=0');
+  if (!visitDate || slipIds.length === 0) return { ok: false, message: 'Pick a day and at least one job, then try again.' };
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+  if (!draft && visitDate < today) return { ok: false, message: 'That day has passed. Pick today or a later day to send it.' };
+
+  // Show to: validated BEFORE creating anything, so a stale pick never
+  // silently widens the offer to every handyman.
+  const offeredTo = draft
+    ? []
+    : String(formData.get('offer_to') || '')
+        .split(',')
+        .map((v) => v.trim())
+        .filter(Boolean);
+  let offerNames: string[] = [];
+  if (offeredTo.length) {
+    const { data: cs } = await fieldDb().from('contractors').select('*').in('id', offeredTo);
+    const eligible = ((cs ?? []) as ContractorRow[]).filter((c) => canClaim(c) && c.trade === 'maintenance');
+    if (eligible.length !== offeredTo.length) {
+      return { ok: false, message: "One of the handymen you picked can't claim right now. Refresh the board and pick again." };
+    }
+    offerNames = eligible.map((c) => c.full_name.split(' ')[0]);
+  }
+
   const packetId = await createMaintenancePacket({
     workSlipIds: slipIds,
     visitDate,
     priceCentsOverride: priceDollars > 0 ? Math.round(priceDollars * 100) : undefined,
     createdByEmail: email,
-    publish: true,
+    publish: !draft,
+    offeredTo,
   });
   revalidatePath('/fieldwork/packets');
-  revalidatePath('/fieldwork/packets/maintenance');
-  if (packetId) {
-    await fieldDb().from('packet_events').insert({ packet_id: packetId, actor_email: email, event_type: 'published' });
-    notifyContractorsOfPacket(packetId).catch(() => {});
-    redirect('/fieldwork/packets?trade=maintenance&sent=1');
+  if (!packetId) {
+    return { ok: false, message: "Couldn't save the packet. Those jobs may already be on another packet; refresh the board to see what's open." };
   }
-  redirect('/fieldwork/packets/maintenance?sent=0');
+  if (draft) redirect(`/fieldwork/packets/${packetId}`);
+  await fieldDb().from('packet_events').insert({
+    packet_id: packetId,
+    actor_email: email,
+    event_type: 'published',
+    payload: offeredTo.length ? { offered_to: offeredTo } : null,
+  });
+  // Texts only the picked handymen when the offer is restricted.
+  notifyContractorsOfPacket(packetId).catch(() => {});
+  const q = new URLSearchParams({ trade: 'maintenance', sent: '1' });
+  if (offerNames.length) q.set('who', offerNames.join(' & '));
+  redirect(`/fieldwork/packets?${q.toString()}`);
 }
 
 export async function setPacketPrice(formData: FormData): Promise<void> {

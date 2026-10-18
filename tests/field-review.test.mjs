@@ -46,10 +46,11 @@ async function board(review, trade = 'inspection', focus, packets) {
     '@/lib/field-review': { loadFieldReview: async () => { if (review === null) throw Error('offline'); return review; } },
     '@/lib/field-db': { isFieldConfigured: true, fieldDb: () => ({ from: () => chain }) },
     '@/lib/helm-access-server': { isOwnerSession: async () => true },
-    '@/lib/field-packets': { loadPackets: async () => packets ?? [...submitted, packet('working', 'inspection', 'published')], loadInspectionCalendar: async () => ({ days: [], rows: [], missingProps: [] }), loadOfficeAssignedPacketIds: async () => new Set() },
+    '@/lib/field-packets': { loadPackets: async () => packets ?? [...submitted, packet('working', 'inspection', 'published')], loadInspectionCalendar: async () => ({ days: [], rows: [], missingProps: [] }), loadOfficeAssignedPacketIds: async () => new Set(), loadOpenMaintenance: async () => [{ id: 'slip-a', property_id: 'home-a', property_name: 'Sample Home', title: 'Sample leak' }] },
     '@/lib/field-types': types, '@/lib/field-packet-status': statuses,
     '@/components/FieldAvatar': { FieldAvatar: blank }, '@/components/SubmitButton': { SubmitButton: blank },
     './InspectionCalendar': { InspectionCalendar: () => React.createElement('div', null, 'CALENDAR') }, './SentFlash': { SentFlash: blank }, './actions': {}, './PacketStatusStrip': strip,
+    './MaintenanceBundler': { MaintenanceBundler: ({ slips }) => React.createElement('div', null, `BUNDLER ${slips.length}`) },
   });
   return renderToStaticMarkup(await Board({ searchParams: Promise.resolve({ trade, focus }) }));
 }
@@ -78,6 +79,18 @@ test('handyman landing shows the handyman queue, with the inspectors a link away
   assert.match(html, /Review Packet maintenance/); assert.doesNotMatch(html, /Review Packet inspection/);
   assert.match(html, /1 in other trades:/);
   assert.match(html, /trade=inspection&amp;focus=review#needs-review"[^>]*>Inspectors · 1 →/);
+});
+
+test('each board has one create door and its own planner: the calendar for inspectors, the open slips for handymen', async () => {
+  const inspectors = await board([]);
+  assert.match(inspectors, /CALENDAR/); assert.doesNotMatch(inspectors, /BUNDLER/);
+  assert.match(inspectors, /href="\/fieldwork\/packets\/new\?trade=inspection"[^>]*>\+ Send a job/);
+  const handymen = await board([], 'maintenance');
+  assert.match(handymen, /BUNDLER 1/); assert.doesNotMatch(handymen, /CALENDAR/);
+  assert.match(handymen, /href="\/fieldwork\/packets\/new\?trade=maintenance"[^>]*>\+ Send a job/);
+  for (const html of [inspectors, handymen]) assert.doesNotMatch(html, /Maintenance run|packets\/maintenance|packets\/adhoc|packets\/setup/);
+  const filtered = await board([], 'maintenance', 'today');
+  assert.doesNotMatch(filtered, /BUNDLER/);
 });
 
 test('a queue that is empty here but not elsewhere still points at the other trade', async () => {

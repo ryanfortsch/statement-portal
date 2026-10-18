@@ -4,16 +4,36 @@ import { useMemo, useState } from 'react';
 import { centroid, maxPairwiseMiles } from '@/lib/proximity';
 import { priceCents, isRushVisit, MAINTENANCE_BASE_CENTS } from '@/lib/field-pricing';
 import type { MaintenanceSlip } from '@/lib/field-packets';
-import { bundleMaintenanceAndSend } from '../actions';
+import { bundleMaintenance } from './actions';
+import { ShowToChips } from './ShowToChips';
 
-export function MaintenanceBundler({ slips }: { slips: MaintenanceSlip[] }) {
+/** The Handymen board's planner, in the slot the inspection calendar holds on
+ *  the Inspectors board: the open maintenance slips by home, tick the ones one
+ *  trip can cover, then the same bundle bar the calendar has (Show to, pay,
+ *  Save as draft, Bundle & send). It used to be its own page whose send
+ *  redirected to the Inspectors board, where the new packet was filtered out
+ *  under a banner saying it was below. */
+export function MaintenanceBundler({ slips, assignable }: {
+  slips: MaintenanceSlip[];
+  /** Handymen who could claim it today, for the Show to chips. */
+  assignable: { id: string; name: string }[];
+}) {
   const [sel, setSel] = useState<string[]>([]);
   const [date, setDate] = useState('');
   const [priceStr, setPriceStr] = useState('');
   const [sending, setSending] = useState(false);
+  // Why the last bundle went nowhere, from the server, kept beside the pick
+  // until it changes. Never rides the URL, so a refresh can't replay it.
+  const [error, setError] = useState<string | null>(null);
+  // Empty = every handyman sees it and gets the text.
+  const [offerTo, setOfferTo] = useState<string[]>([]);
+  const toggleOffer = (id: string) =>
+    setOfferTo((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
-  const toggle = (id: string) =>
+  const toggle = (id: string) => {
+    setError(null);
     setSel((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
+  };
 
   // Group the open slips by property for a scannable list.
   const groups = useMemo(() => {
@@ -50,7 +70,15 @@ export function MaintenanceBundler({ slips }: { slips: MaintenanceSlip[] }) {
   );
 
   return (
-    <div>
+    <div id="maintenance-jobs" style={{ scrollMarginTop: 88 }}>
+      <h2 style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', marginBottom: 8 }}>
+        Open maintenance slips · {slips.length}
+      </h2>
+      {slips.length === 0 && (
+        <p style={{ color: 'var(--ink-4)', fontSize: 13 }}>
+          Nothing to bundle. An unassigned maintenance slip on the Work board shows up here.
+        </p>
+      )}
       {groups.map(({ pid, items }) => (
         <div key={pid} style={{ marginBottom: 18 }}>
           <div style={{ fontSize: 12, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 6 }}>
@@ -83,15 +111,33 @@ export function MaintenanceBundler({ slips }: { slips: MaintenanceSlip[] }) {
         </div>
       ))}
 
+      {error && sel.length > 0 && (
+        <div
+          role="alert"
+          style={{ marginTop: 16, border: '1px solid var(--signal)', background: 'rgba(200,90,58,0.06)', color: 'var(--signal)', padding: '10px 14px', borderRadius: 8, fontSize: 13, lineHeight: 1.5 }}
+        >
+          {error}
+        </div>
+      )}
+
       {sel.length > 0 && (
         <form
           action={async (fd: FormData) => {
             setSending(true);
+            setError(null);
             try {
-              await bundleMaintenanceAndSend(fd);
+              // Both modes redirect on success (the board with a one-shot
+              // flash, or the new draft's page) and hand back a reason on
+              // failure, with the pick left in place.
+              const res = await bundleMaintenance(fd);
+              if (res && !res.ok) {
+                setError(res.message);
+                return;
+              }
               setSel([]);
               setDate('');
               setPriceStr('');
+              setOfferTo([]);
             } finally {
               setSending(false);
             }
@@ -100,6 +146,7 @@ export function MaintenanceBundler({ slips }: { slips: MaintenanceSlip[] }) {
         >
           <input type="hidden" name="work_slip_ids" value={sel.join(',')} />
           <input type="hidden" name="price_dollars" value={priceStr || String(suggested)} />
+          <input type="hidden" name="offer_to" value={offerTo.join(',')} />
           <div>
             <div style={{ fontSize: 15, color: 'var(--ink)' }}>
               {sel.length} {sel.length === 1 ? 'job' : 'jobs'}
@@ -110,9 +157,10 @@ export function MaintenanceBundler({ slips }: { slips: MaintenanceSlip[] }) {
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <ShowToChips people={assignable} picked={offerTo} onToggle={toggleOffer} onClear={() => setOfferTo([])} noun="handymen" />
             <label style={{ fontSize: 11, color: 'var(--ink-4)' }}>
               Day
-              <input type="date" name="visit_date" required value={date} onChange={(e) => setDate(e.target.value)} style={inDate} />
+              <input type="date" name="visit_date" required value={date} onChange={(e) => { setDate(e.target.value); setError(null); }} style={inDate} />
             </label>
             <label style={{ fontSize: 11, color: 'var(--ink-4)' }}>
               Pay $
@@ -127,10 +175,25 @@ export function MaintenanceBundler({ slips }: { slips: MaintenanceSlip[] }) {
             </label>
             <button
               type="submit"
+              name="mode"
+              value="draft"
               disabled={sending || !date}
-              style={{ background: sending || !date ? 'var(--ink-4)' : 'var(--signal)', color: 'var(--paper)', border: 'none', borderRadius: 8, cursor: sending || !date ? 'default' : 'pointer', fontSize: 12, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '12px 22px' }}
+              style={{ background: 'var(--paper-2, #fff)', color: 'var(--ink-3)', border: '1px solid var(--rule)', borderRadius: 8, cursor: sending || !date ? 'default' : 'pointer', opacity: sending || !date ? 0.6 : 1, fontSize: 12, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '12px 16px', whiteSpace: 'nowrap' }}
             >
-              {sending ? 'Sending…' : 'Bundle & send →'}
+              Save as draft
+            </button>
+            <button
+              type="submit"
+              name="mode"
+              value="send"
+              disabled={sending || !date}
+              style={{ background: sending || !date ? 'var(--ink-4)' : 'var(--signal)', color: 'var(--paper)', border: 'none', borderRadius: 8, cursor: sending || !date ? 'default' : 'pointer', fontSize: 12, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '12px 22px', whiteSpace: 'nowrap' }}
+            >
+              {sending
+                ? 'Sending…'
+                : offerTo.length
+                  ? `Send to ${offerTo.length} ${offerTo.length === 1 ? 'handyman' : 'handymen'} →`
+                  : 'Bundle & send →'}
             </button>
           </div>
         </form>

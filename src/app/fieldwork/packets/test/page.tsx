@@ -78,7 +78,7 @@ export default async function FieldTestPage() {
             <li>As the already-<strong>onboarded inspector</strong>: claim the test inspection packet, run the inspection, submit.</li>
             <li>As the <strong>maintenance</strong> pro: claim the test maintenance packet, mark each job done with a note, submit.</li>
             <li>Back here as staff: on the <Link href="/fieldwork/packets" style={{ color: 'var(--tide-deep)' }}>packets board</Link>, <strong>Approve</strong> each submitted packet, then <strong>Mark paid</strong>.</li>
-            <li>Try the operator side yourself too: bundle from the calendar or the <Link href="/fieldwork/packets/maintenance" style={{ color: 'var(--tide-deep)' }}>Maintenance jobs</Link> page.</li>
+            <li>Try the operator side yourself too: bundle from the calendar or the <Link href="/fieldwork/packets?trade=maintenance#maintenance-jobs" style={{ color: 'var(--tide-deep)' }}>Handymen board</Link>.</li>
             <li><strong>Reset</strong> when you&apos;re done.</li>
           </ol>
         </div>
@@ -129,7 +129,7 @@ export default async function FieldTestPage() {
         {state.seeded && (
           <p style={{ fontSize: 12, color: 'var(--ink-4)' }}>
             {state.openTestSlips} open test work {state.openTestSlips === 1 ? 'slip' : 'slips'} available to bundle on the{' '}
-            <Link href="/fieldwork/packets/maintenance" style={{ color: 'var(--tide-deep)' }}>Maintenance jobs</Link> page.
+            <Link href="/fieldwork/packets?trade=maintenance#maintenance-jobs" style={{ color: 'var(--tide-deep)' }}>Handymen board</Link>.
           </p>
         )}
 
