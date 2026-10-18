@@ -69,6 +69,19 @@ export type CleaningDay = {
   checkouts: number;
   /** Items carrying an ATTENTION status. */
   attention: number;
+  /** Checkouts the office marked "no cleaning needed" that day: off the
+   *  crew's route, so never items, but still a house that turns. */
+  skipped: SkippedCheckout[];
+};
+
+export type SkippedCheckout = {
+  propertyId: string;
+  propertyName: string;
+  guestName: string | null;
+  /** The departing stay's check-in, the schedule row's anchor. */
+  checkIn: string;
+  /** Effective checkout time, HH:MM 24h. */
+  checkoutTime: string;
 };
 
 /**
@@ -89,7 +102,7 @@ function compareItems(a: CleaningItem, b: CleaningItem): number {
   return a.propertyName.localeCompare(b.propertyName);
 }
 
-function finish(date: string, announced: boolean, items: CleaningItem[]): CleaningDay {
+function finish(date: string, announced: boolean, items: CleaningItem[], skipped: SkippedCheckout[] = []): CleaningDay {
   items.sort(compareItems);
   return {
     date,
@@ -98,6 +111,7 @@ function finish(date: string, announced: boolean, items: CleaningItem[]): Cleani
     booked: items.filter((i) => i.cleaningTime !== null).length,
     checkouts: items.filter((i) => i.checkoutTime !== null).length,
     attention: items.filter((i) => ATTENTION_STATUSES.has(i.status)).length,
+    skipped,
   };
 }
 
@@ -135,7 +149,14 @@ export function composeCleaningDay(day: ScheduleDay, report: VendorDayReport): C
       status: 'no_checkout',
     });
   }
-  return finish(day.date, report.announced, items);
+  const skipped: SkippedCheckout[] = (day.skipped ?? []).map((row) => ({
+    propertyId: row.propertyId,
+    propertyName: row.propertyName,
+    guestName: row.guestName || null,
+    checkIn: row.checkIn,
+    checkoutTime: row.time,
+  }));
+  return finish(day.date, report.announced, items, skipped);
 }
 
 /**
