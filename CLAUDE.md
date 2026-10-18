@@ -111,7 +111,7 @@ ORDER is the durable part and has not moved; the numbers drift with the repo.
 | `/competitors` | Other Cape Ann managers, inventory tracking |
 | `/playbook` | SOPs and institutional knowledge |
 | `/onboarding` | Owner intake forms, token-gated, public |
-| `/today` | Full-expansion view of the home For Me feed. Same data |
+| `/today` | Retired into the home on 2026-10-18 and redirects to `/`. Today's check-ins, checkouts and walks are the home's "Today at the houses" section; sync health and Helm-run homes are on `/messaging/status` |
 | `/search` | Long-form view behind the Cmd+K palette |
 
 **Work slips are filed into lanes, and the lane is never stored.** `src/lib/work-slip-lanes.ts`

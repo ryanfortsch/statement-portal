@@ -329,7 +329,7 @@ async function handle(request: NextRequest) {
 
   try {
     const result = await syncContactEmails({ window, perContactCap });
-    // Keep the /today triage cache warm (Allie's unread inbox).
+    // Keep the home feed's email triage cache warm (the shared unread inbox).
     let triageSummary: import('@/lib/daily-brief').SyncEmailsSummary | { skipped: string } = { skipped: 'not_attempted' };
     try {
       const { syncUnreadEmails } = await import('@/lib/daily-brief');

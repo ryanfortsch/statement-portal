@@ -7,7 +7,7 @@ import { createClient } from '@supabase/supabase-js';
 
 const modules = {
   apply: '../../app/field/apply/actions.ts', field: '../../app/field/actions.ts',
-  today: '../../app/today/actions.ts', packet: '../../app/fieldwork/packets/actions.ts',
+  packet: '../../app/fieldwork/packets/actions.ts',
 };
 const compiled = Object.fromEntries(Object.entries(modules).map(([name, path]) => [name,
   ts.transpileModule(readFileSync(new URL(path, import.meta.url), 'utf8'), {
@@ -46,7 +46,6 @@ function fixture(kind: keyof typeof modules, options: {
     '@/lib/field-notify': { sendNewApplicantEmail: async () => { effects.push('applicant-notification'); }, sendContractorOnboardedEmail: async () => { effects.push('onboarded-notification'); } },
     '@/lib/field-w9': { saveW9: async () => null }, '@/lib/field-pay': { savePayment: async () => null },
     '@/lib/geocode': { geocodeAddress: async () => null },
-    '@/lib/daily-brief': { deleteDraft: async (id: string) => { effects.push('delete:' + id); } },
   };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const exports: Record<string, (...args: any[]) => Promise<any>> = {};
@@ -105,22 +104,6 @@ describe('text preference confirms the authenticated row', () => {
     for (const target of [false, true]) assert.equal((await f.actions.setSmsOptIn(target)).ok, true);
     assert.deepEqual(f.requests.map((r) => r.body?.sms_opt_in), [false, true]);
     assert.ok(f.requests.every((r) => r.params.get('id') === 'eq.contractor-a'));
-  });
-});
-
-describe('Handled failures do not retire an email or delete its draft', () => {
-  test('requires staff authentication before reading or changing anything', async () => {
-    const f = fixture('today', { signedIn: false }); assert.equal((await f.actions.markEmailHandled('email-a')).ok, false); assert.deepEqual(f.requests, []);
-  });
-  for (const method of ['GET', 'PATCH']) for (const mode of ['fail', 'missing'] as const) test(`${method} ${mode} is visible and performs no cleanup`, async () => {
-    const f = fixture('today', { [mode]: (r: Request) => r.method === method });
-    assert.equal((await f.actions.markEmailHandled('email-a')).ok, false); assert.deepEqual(f.effects, []); assert.deepEqual(f.refreshed, []);
-  });
-  test('confirmed retirement deletes the existing draft and refreshes both feeds', async () => {
-    const f = fixture('today'); assert.equal((await f.actions.markEmailHandled('email-a')).ok, true);
-    assert.ok(f.requests.every((r) => r.params.get('gmail_message_id') === 'eq.email-a'));
-    assert.equal(f.requests[1].body?.handled_via, 'operator'); assert.equal(f.requests[1].body?.is_unread, false);
-    assert.deepEqual(f.effects, ['delete:draft-a']); assert.deepEqual(f.refreshed, ['/today', '/']);
   });
 });
 

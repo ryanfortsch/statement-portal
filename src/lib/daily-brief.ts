@@ -1,13 +1,16 @@
 /**
- * Daily Brief — Dotti's morning rundown across Helm + email.
+ * Daily Brief: the day's signals for the home page's For Me feed, plus the
+ * email triage that feeds it.
  *
- * One async loader pulls the day's signals from Supabase (work slips,
- * tasks, data gaps, inbound CRM touches awaiting reply, today's
- * turnovers) and Stay Concierge (pending message approvals). The
- * /today page and the daily-brief cron both consume the same shape.
+ * One async loader pulls today's stays and walks, the cleaning crew's
+ * schedule against ours, inbound CRM touches awaiting a reply, and the
+ * triaged unread mail (read from the email_triage cache). It used to back
+ * the /today page too; /today was retired into the home on 2026-10-18 and
+ * now redirects there, so the loader carries only what the home reads. The
+ * sync watchdog and the Helm-run homes check that /today printed moved to
+ * /messaging/status (`loadFeedsNeedingAttention`, `loadChannelsAttention`).
  *
- * Volumes are small: 12 properties, dozens of active items at most. A
- * handful of unindexed selects is fine.
+ * Volumes are small: a few dozen homes, dozens of active items at most.
  */
 
 import { linkedListingNotices } from '@/lib/listing-links';
@@ -15,16 +18,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { loadCleaningOutlook, cleaningFlags } from '@/lib/cleaning-schedule';
 import type { CleaningFlag } from '@/lib/cleaning-days';
-import {
-  isStayConciergeConfigured,
-  listApprovals,
-  type Approval,
-} from '@/lib/stay-concierge';
-import type { TaskRow, WorkSlipRow } from '@/lib/work-types';
-import {
-  ACTIVE_TASK_STATUSES,
-  ACTIVE_WORK_SLIP_STATUSES,
-} from '@/lib/work-types';
+import { operatingDate } from '@/lib/operating-date';
 import { triageEmails } from '@/lib/ai/triage-emails';
 import { draftReply } from '@/lib/ai/draft-reply';
 import { replySignalFor, type HandledVia, type ReplySignals } from '@/lib/email-reply-signals';
@@ -68,16 +62,6 @@ export type BriefInboundTouch = {
   daysWaiting: number;
 };
 
-export type BriefDataGap = {
-  id: string;
-  propertyId: string | null;
-  propertyName: string | null;
-  month: string | null;
-  gapType: string;
-  description: string | null;
-  severity: string | null;
-};
-
 export type BriefInspection = {
   id: string;
   propertyId: string;
@@ -102,19 +86,8 @@ export type BriefEmail = {
   draftId: string | null;
 };
 
-export type BriefProspect = {
-  id: string;
-  prospectName: string;
-  propertyAddress: string;
-  propertyCity: string | null;
-  status: 'draft' | 'sent';
-  sentAt: string | null;
-  closeLikelihoodPct: number | null;
-  daysSinceSent: number | null;
-};
-
 /**
- * One stuck or stale sync feed surfaced on the brief. `status='error'` means
+ * One stuck or stale sync feed, for Delivery & sync. `status='error'` means
  * the most recent attempt failed; `status='stale'` means the last attempt was
  * longer ago than the source's expected cadence and so the feed is
  * effectively silent. On-demand sources (csv-fallback, stripe) carry
@@ -148,43 +121,17 @@ export type DailyBrief = {
   checkinsToday: BriefStay[];
   cleaningFlags: BriefCleaningFlag[];
   inspectionsCompletedToday: BriefInspection[];
-  highPrioritySlips: WorkSlipRow[];
-  ownerActionSlips: WorkSlipRow[];
-  dueTasks: TaskRow[];
   inboundWaiting: BriefInboundTouch[];
   unreadEmails: BriefEmail[];
-  unresolvedDataGaps: BriefDataGap[];
-  pendingApprovals: Approval[];
-  activeProspects: BriefProspect[];
-  stayConciergeConfigured: boolean;
-  lastGmailSyncAt: string | null;
   gmailConfigured: boolean;
   /** The address the inbox above belongs to, so a link into it can name
    *  the mailbox and render only for that person. Null when unknown. */
   gmailMailbox: string | null;
-  /** Feeds in error state or past their expected cadence. Watchdog surface. */
-  feedsNeedingAttention: BriefFeedHealth[];
-  /** Helm-run homes with a handover or channel problem for a person. */
-  channelsAttention: BriefChannelAttention[];
-  totals: {
-    activeSlips: number;
-    activeTasks: number;
-    waitingReplies: number;
-    unread: number;
-    needsReply: number;
-    fyi: number;
-    notifications: number;
-    dataGaps: number;
-    approvals: number;
-    inspectionsToday: number;
-    activeProspects: number;
-    feedsStuck: number;
-    cleaningFlags: number;
-  };
 };
 
+/** Today in Gloucester: after 8 PM Eastern the UTC date is tomorrow's. */
 function today(): string {
-  return new Date().toISOString().slice(0, 10);
+  return operatingDate();
 }
 
 function daysBetween(fromIso: string, toIso: string): number {
@@ -331,7 +278,7 @@ async function fetchUnreadInbox(): Promise<FetchedEmail[]> {
   emails.sort((a, b) => (a.receivedAt < b.receivedAt ? 1 : -1));
 
   // Three reply-detection passes (see detectReply). If any hit, the email
-  // is already handled and drops before it reaches triage or /today. The
+  // is already handled and drops before it reaches triage or the home feed. The
   // same passes run again every sync against cached needs_reply rows
   // (retireAnsweredNeedsReply), so a reply that lands after first sight
   // still clears the email.
@@ -374,7 +321,7 @@ async function detectReply(
 // email. Pull the most recent outbound touch per contact, map back
 // through contacts.emails to the sender address. Anyone whose phone /
 // email isn't in contacts won't be covered here — those land in the
-// brief and Dotti can mark them handled inline via /today.
+// brief, and the home feed's × hides them for whoever has read them.
 async function loadRecentOutboundTouchByEmail(): Promise<Map<string, number>> {
   const out = new Map<string, number>();
   try {
@@ -645,7 +592,7 @@ export type SyncEmailsSummary = {
 
 // Cron-side. Pulls the current unread inbox, classifies any messages
 // we haven't seen before with a single batched Haiku call, and folds
-// the result into the email_triage cache. /today reads from the cache
+// the result into the email_triage cache. The home feed reads the cache
 // and never calls Gmail or the LLM itself.
 export async function syncUnreadEmails(): Promise<SyncEmailsSummary> {
   if (!gmailConfigured()) {
@@ -685,7 +632,7 @@ export async function syncUnreadEmails(): Promise<SyncEmailsSummary> {
   // email. Pull the full body, draft in Dotti's voice, create the
   // draft on the original thread. Only a handful of emails per sync,
   // so the extra Gmail + LLM calls are cheap. Best-effort: a failed
-  // draft just leaves draft_id null and /today still shows the email.
+  // draft just leaves draft_id null and the home feed still shows the email.
   const token = await getGmailAccessToken();
   const draftByMessageId = new Map<string, string>();
   let draftsCreated = 0;
@@ -794,7 +741,7 @@ export async function syncUnreadEmails(): Promise<SyncEmailsSummary> {
   }
 
   // Anything previously marked unread but NOT in the current inbox
-  // has been read or archived in Gmail. Flip its flag so /today drops
+  // has been read or archived in Gmail. Flip its flag so the home feed drops
   // it. Re-arriving unread (rare) will be re-flagged on the next sync.
   const stillUnreadIds = new Set(ids);
   const { data: previouslyUnread } = await sb
@@ -927,25 +874,6 @@ async function loadUnreadEmailsFromCache(): Promise<BriefEmail[]> {
   }));
 }
 
-async function loadEmailTriageTotals(): Promise<{ needsReply: number; fyi: number; notifications: number; unread: number }> {
-  const since30 = new Date(Date.now() - 30 * 86_400_000).toISOString();
-  const { data } = await supabase
-    .from('email_triage')
-    .select('triage, is_unread, handled_at')
-    .gte('received_at', since30);
-  type RowPick = { triage: 'needs_reply' | 'fyi' | 'notification'; is_unread: boolean; handled_at: string | null };
-  const rows = (data ?? []) as RowPick[];
-  return {
-    // needs_reply persists whether or not it's been read, until it's
-    // answered or marked handled; fyi/notification stay unread-only (a
-    // read note isn't "waiting").
-    needsReply: rows.filter(r => r.triage === 'needs_reply' && !r.handled_at).length,
-    fyi: rows.filter(r => r.triage === 'fyi' && r.is_unread).length,
-    notifications: rows.filter(r => r.triage === 'notification' && r.is_unread).length,
-    unread: rows.filter(r => r.is_unread).length,
-  };
-}
-
 // ── Issue emails → work slips ───────────────────────────────────────
 
 type MatchProperty = { id: string; name: string; address: string | null; title: string | null };
@@ -1034,78 +962,30 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
     check_out: string;
   };
   type PropertyPick = { id: string; name: string };
-  type StatementJoin = { property_id: string; property_name: string | null; month: string | null };
-  type DataGapPick = {
-    id: string;
-    gap_type: string;
-    description: string | null;
-    severity: string | null;
-    resolved: boolean | null;
-    property_statement_id: string | null;
-    // Supabase infers FK joins as arrays even when 1:1; we read the
-    // first row in case the type lands either way.
-    property_statements: StatementJoin | StatementJoin[] | null;
-  };
-
   type InspectionPick = { id: string; property_id: string; started_at: string | null; completed_at: string | null };
-  type ProspectPick = {
-    id: string;
-    prospect_name: string;
-    property_address: string;
-    property_city: string | null;
-    status: 'draft' | 'sent';
-    sent_at: string | null;
-    close_likelihood_pct: number | null;
-    created_at: string;
-  };
-  type SyncStatusPick = {
-    source: string;
-    last_synced_at: string | null;
-    last_attempted_at: string | null;
-    last_status: 'ok' | 'error' | null;
-    last_error: string | null;
-    error_count: number | null;
-  };
 
-  // 30-day cutoff for "recently sent" prospects still awaiting response.
-  const prospectCutoffIso = new Date(Date.now() - 30 * 86_400_000).toISOString();
+  // A walk finished "today" in Gloucester: read the last day and a half of
+  // completions and keep the ones whose Eastern date is today, so neither
+  // end of the day is cut at UTC midnight.
+  const walkCutoffIso = new Date(Date.now() - 36 * 3_600_000).toISOString();
 
   const [
     { data: properties },
-    { data: slips },
-    { data: tasks },
     { data: checkouts },
     { data: checkins },
     { data: touches },
     { data: contacts },
-    { data: gaps },
-    { data: inspectionsToday },
-    { data: prospects },
-    { data: syncRows },
+    { data: walksRecent },
     unreadEmails,
-    emailTotals,
     cleaningFlagList,
   ] = await Promise.all([
     supabase.from('properties').select('id, name').eq('is_active', true),
-    supabase
-      .from('work_slips')
-      .select('*')
-      .in('status', ACTIVE_WORK_SLIP_STATUSES)
-      .or(`snoozed_until.is.null,snoozed_until.lte.${todayIso}`)
-      .order('priority', { ascending: false })
-      .order('created_at', { ascending: false }),
-    supabase
-      .from('tasks')
-      .select('*')
-      .in('status', ACTIVE_TASK_STATUSES)
-      .order('priority', { ascending: false })
-      .order('created_at', { ascending: false }),
     // Today's departures and arrivals come from canonical bookings, the
     // Helm-native stay source every ops surface reads, not from
     // guesty_reservations: a home Helm runs after its Guesty cutover has no
     // Guesty row at all, and a Guesty-run home is mirrored into bookings
     // anyway. Same filters as operations.ts (confirmed/completed, canonical
-    // rows only) so the brief names the exact stays the turnover rail shows.
+    // rows only) so the home names the exact stays the turnover rail shows.
     supabase
       .from('bookings')
       .select('property_id, guest_name, channel, check_in, check_out')
@@ -1127,36 +1007,15 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
       .gte('touched_at', new Date(Date.now() - 14 * 86_400_000).toISOString())
       .order('touched_at', { ascending: false }),
     supabase.from('contacts').select('id, first_name, last_name, name'),
-    // Pull recent unresolved gaps with statement context joined in.
-    supabase
-      .from('data_gaps')
-      .select(
-        'id, gap_type, description, severity, resolved, property_statement_id, property_statements(property_id, property_name, month)',
-      )
-      .eq('resolved', false)
-      .order('id', { ascending: false })
-      .limit(50),
     supabase
       .from('inspections')
       .select('id, property_id, started_at, completed_at')
-      .gte('completed_at', `${todayIso}T00:00:00`)
-      .lte('completed_at', `${todayIso}T23:59:59.999`)
+      .gte('completed_at', walkCutoffIso)
       .order('completed_at', { ascending: false }),
-    // Drafts (need-to-send) + recently-sent (awaiting response). Older
-    // sent prospects are still in the funnel but don't surface in the
-    // morning brief.
-    supabase
-      .from('projections')
-      .select('id, prospect_name, property_address, property_city, status, sent_at, close_likelihood_pct, created_at')
-      .or(`status.eq.draft,and(status.eq.sent,sent_at.gte.${prospectCutoffIso})`)
-      .is('inactive_at', null) // demoted prospects don't nag the brief
-      .order('created_at', { ascending: false }),
-    supabase.from('sync_status').select('source, last_synced_at, last_attempted_at, last_status, last_error, error_count'),
     loadUnreadEmailsFromCache().catch(() => [] as BriefEmail[]),
-    loadEmailTriageTotals().catch(() => ({ needsReply: 0, fyi: 0, notifications: 0, unread: 0 })),
     // The crew's schedule against ours, today through the day after
     // tomorrow. A failed read is an empty list here, never a crash: the
-    // brief has to render even when the schedule cannot be built, and the
+    // feed has to render even when the schedule cannot be built, and the
     // cleanings page says so in its own words.
     loadCleaningOutlook(supabase)
       .then(cleaningFlags)
@@ -1173,11 +1032,10 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
     contactById.set(c.id, c);
   }
 
-  // bookings.channel is the enum token ('booking_com'); the brief and /today
-  // print the display label ('Booking.com'), the vocabulary the old
-  // guesty_reservations read handed them. An iCal-imported stay can carry no
-  // guest name (Airbnb's feed withholds it): the name stays null so the
-  // renderer hides the span rather than printing a placeholder.
+  // bookings.channel is the enum token ('booking_com'); the home prints the
+  // display label ('Booking.com'). An iCal-imported stay can carry no guest
+  // name (Airbnb's feed withholds it): the name stays null so the renderer
+  // hides the span rather than printing a placeholder.
   const toStay = (r: ReservationPick): BriefStay => ({
     propertyId: r.property_id,
     propertyName: propertyById.get(r.property_id) ?? r.property_id,
@@ -1185,19 +1043,6 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
     channel: r.channel ? (CHANNEL_LABELS[r.channel as BookingChannel] ?? r.channel) : null,
     checkIn: r.check_in,
     checkOut: r.check_out,
-  });
-
-  const allSlips = (slips ?? []) as WorkSlipRow[];
-  const highPrioritySlips = allSlips.filter(s => s.priority === 'high');
-  const ownerActionSlips = allSlips.filter(
-    s => s.owner_action_required && (s.owner_status ?? 'not_sent') !== 'approved',
-  );
-
-  const allTasks = (tasks ?? []) as TaskRow[];
-  const dueTasks = allTasks.filter(t => {
-    if (t.priority === 'high') return true;
-    if (!t.due_date) return false;
-    return t.due_date <= todayIso;
   });
 
   // Reply-needed: most-recent inbound per contact with no outbound
@@ -1239,70 +1084,52 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
   }
   inboundWaiting.sort((a, b) => (a.touchedAt < b.touchedAt ? 1 : -1));
 
-  const unresolvedDataGaps: BriefDataGap[] = ((gaps ?? []) as unknown as DataGapPick[]).map(g => {
-    const stmt: StatementJoin | null = Array.isArray(g.property_statements)
-      ? g.property_statements[0] ?? null
-      : g.property_statements;
-    return {
-      id: g.id,
-      propertyId: stmt?.property_id ?? null,
-      propertyName:
-        stmt?.property_name ??
-        (stmt?.property_id ? propertyById.get(stmt.property_id) ?? null : null),
-      month: stmt?.month ?? null,
-      gapType: g.gap_type,
-      description: g.description,
-      severity: g.severity,
-    };
-  });
+  const inspectionsCompletedToday: BriefInspection[] = ((walksRecent ?? []) as InspectionPick[])
+    .filter((i) => i.completed_at && operatingDate(new Date(i.completed_at)) === todayIso)
+    .map((i) => ({
+      id: i.id,
+      propertyId: i.property_id,
+      propertyName: propertyById.get(i.property_id) ?? i.property_id,
+      completedAt: i.completed_at,
+      startedAt: i.started_at,
+    }));
 
-  let pendingApprovals: Approval[] = [];
-  const scConfigured = isStayConciergeConfigured();
-  if (scConfigured) {
-    try {
-      const res = await listApprovals();
-      if (res.ok) pendingApprovals = res.data.approvals;
-    } catch {
-      // Stay Concierge is best-effort; the brief still renders without it.
-    }
-  }
+  return {
+    date: todayIso,
+    checkoutsToday: ((checkouts ?? []) as ReservationPick[]).map(toStay),
+    checkinsToday: ((checkins ?? []) as ReservationPick[]).map(toStay),
+    cleaningFlags: cleaningFlagList,
+    inspectionsCompletedToday,
+    inboundWaiting,
+    unreadEmails,
+    gmailConfigured: gmailConfigured(),
+    gmailMailbox: gmailConfigured() ? await gmailMailbox('shared') : null,
+  };
+}
 
-  const inspectionsCompletedToday: BriefInspection[] = ((inspectionsToday ?? []) as InspectionPick[]).map(i => ({
-    id: i.id,
-    propertyId: i.property_id,
-    propertyName: propertyById.get(i.property_id) ?? i.property_id,
-    completedAt: i.completed_at,
-    startedAt: i.started_at,
-  }));
-
-  const activeProspects: BriefProspect[] = ((prospects ?? []) as ProspectPick[]).map(p => {
-    const daysSinceSent = p.sent_at
-      ? daysBetween(p.sent_at, new Date().toISOString())
-      : null;
-    return {
-      id: p.id,
-      prospectName: p.prospect_name,
-      propertyAddress: p.property_address,
-      propertyCity: p.property_city,
-      status: p.status,
-      sentAt: p.sent_at,
-      closeLikelihoodPct: p.close_likelihood_pct,
-      daysSinceSent,
-    };
-  });
-  // Drafts first (most actionable), then most-recently-sent.
-  activeProspects.sort((a, b) => {
-    if (a.status !== b.status) return a.status === 'draft' ? -1 : 1;
-    const aKey = a.sentAt ?? '';
-    const bKey = b.sentAt ?? '';
-    return aKey < bKey ? 1 : -1;
-  });
-
+/**
+ * The sync watchdog: feeds whose last attempt failed, or that have gone
+ * quiet past their expected cadence. Read by Delivery & sync
+ * (/messaging/status). On-demand sources (the manual upload, the Stripe
+ * button) never go stale between runs; their failures still show.
+ */
+export async function loadFeedsNeedingAttention(): Promise<BriefFeedHealth[]> {
+  type SyncStatusPick = {
+    source: string;
+    last_synced_at: string | null;
+    last_attempted_at: string | null;
+    last_status: 'ok' | 'error' | null;
+    last_error: string | null;
+    error_count: number | null;
+  };
+  const { data, error } = await supabase
+    .from('sync_status')
+    .select('source, last_synced_at, last_attempted_at, last_status, last_error, error_count');
+  if (error) throw error;
   const syncBySource = new Map<string, SyncStatusPick>();
-  for (const r of (syncRows ?? []) as SyncStatusPick[]) {
+  for (const r of (data ?? []) as SyncStatusPick[]) {
     syncBySource.set(r.source, r);
   }
-  const lastGmailSyncAt = syncBySource.get('gmail-replies')?.last_synced_at ?? null;
 
   // The watchdog cadence table. Sources on a cron get an expected age cap;
   // on-demand sources (the manual upload + the per-property Stripe button)
@@ -1330,7 +1157,7 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
   ];
 
   const nowMs = Date.now();
-  const feedsNeedingAttention: BriefFeedHealth[] = [];
+  const out: BriefFeedHealth[] = [];
   for (const f of EXPECTED_FEEDS) {
     const row = syncBySource.get(f.source);
     const attemptedIso = row?.last_attempted_at ?? row?.last_synced_at ?? null;
@@ -1338,7 +1165,7 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
     const isError = row?.last_status === 'error';
     const isStale = f.maxAgeMs !== null && (ageMs === null || ageMs > f.maxAgeMs);
     if (isError || isStale) {
-      feedsNeedingAttention.push({
+      out.push({
         source: f.source,
         status: isError ? 'error' : 'stale',
         lastAttemptedAt: row?.last_attempted_at ?? null,
@@ -1350,59 +1177,17 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
     }
   }
   // Sort by repeat-failure count first (sticky problems), then by age.
-  feedsNeedingAttention.sort(
-    (a, b) => b.errorCount - a.errorCount || (b.ageMs ?? 0) - (a.ageMs ?? 0),
-  );
-
-  // Triage tallies come from the cache (loadEmailTriageTotals counts
-  // every unread row, including notifications). The page-visible list
-  // already excluded notifications at SELECT time.
-  const visibleUnreadEmails = unreadEmails;
-
-  return {
-    date: todayIso,
-    checkoutsToday: ((checkouts ?? []) as ReservationPick[]).map(toStay),
-    checkinsToday: ((checkins ?? []) as ReservationPick[]).map(toStay),
-    cleaningFlags: cleaningFlagList,
-    inspectionsCompletedToday,
-    highPrioritySlips,
-    ownerActionSlips,
-    dueTasks,
-    inboundWaiting,
-    unreadEmails: visibleUnreadEmails,
-    unresolvedDataGaps,
-    pendingApprovals,
-    activeProspects,
-    stayConciergeConfigured: scConfigured,
-    lastGmailSyncAt,
-    gmailConfigured: gmailConfigured(),
-    gmailMailbox: gmailConfigured() ? await gmailMailbox('shared') : null,
-    feedsNeedingAttention,
-    channelsAttention: await loadChannelsAttention(),
-    totals: {
-      activeSlips: allSlips.length,
-      activeTasks: allTasks.length,
-      waitingReplies: inboundWaiting.length,
-      unread: emailTotals.unread,
-      needsReply: emailTotals.needsReply,
-      fyi: emailTotals.fyi,
-      notifications: emailTotals.notifications,
-      dataGaps: unresolvedDataGaps.length,
-      approvals: pendingApprovals.length,
-      inspectionsToday: inspectionsCompletedToday.length,
-      activeProspects: activeProspects.length,
-      feedsStuck: feedsNeedingAttention.length,
-      cleaningFlags: cleaningFlagList.length,
-    },
-  };
+  out.sort((a, b) => b.errorCount - a.errorCount || (b.ageMs ?? 0) - (a.ageMs ?? 0));
+  return out;
 }
 
 /**
- * The brief's Helm-run homes section. One cutover-facts read per Helm-run
- * home (a handful at most). A home whose read fails is listed with the
- * failure rather than left out: silence here would read as "all clear".
+ * Helm-run homes with something only a person can settle, for Delivery &
+ * sync. One cutover-facts read per Helm-run home (a handful at most). A home
+ * whose read fails is listed with the failure rather than left out: silence
+ * here would read as "all clear".
  */
-async function loadChannelsAttention(): Promise<BriefChannelAttention[]> {
+export async function loadChannelsAttention(): Promise<BriefChannelAttention[]> {
   const out: BriefChannelAttention[] = [];
   // Read here, not through the forgiving pms-guards loader: that one answers
   // "no Helm-run homes" on a failed read, and this section would go silent.
@@ -1461,27 +1246,6 @@ async function loadChannelsAttention(): Promise<BriefChannelAttention[]> {
     out.push({ propertyId: '', propertyName: 'Linked listings', items: [`could not check: ${err instanceof Error ? err.message : String(err)}`] });
   }
   return out;
-}
-
-export function briefHeadline(brief: DailyBrief): string {
-  const draftProspects = brief.activeProspects.filter(p => p.status === 'draft').length;
-  const bits: string[] = [];
-  // Lead with stuck feeds so the morning SMS surfaces a silent-fail before
-  // the rest of the noise: a stuck Guesty sync, a stale Quo backfill, etc.
-  if (brief.totals.feedsStuck) bits.push(`${brief.totals.feedsStuck} feed${brief.totals.feedsStuck === 1 ? '' : 's'} stuck`);
-  // Next: a house with no cleaner (or the wrong cleaner time) is the one
-  // thing on this list with a clock on it, since Jobber books ~2 days out.
-  if (brief.totals.cleaningFlags) {
-    const n = brief.totals.cleaningFlags;
-    bits.push(`${n} cleaning${n === 1 ? '' : 's'} to check`);
-  }
-  if (brief.totals.needsReply) bits.push(`${brief.totals.needsReply} email${brief.totals.needsReply === 1 ? '' : 's'} need${brief.totals.needsReply === 1 ? 's' : ''} a reply`);
-  if (brief.checkinsToday.length) bits.push(`${brief.checkinsToday.length} check-in${brief.checkinsToday.length === 1 ? '' : 's'}`);
-  if (brief.totals.approvals) bits.push(`${brief.totals.approvals} draft${brief.totals.approvals === 1 ? '' : 's'} to review`);
-  if (brief.checkoutsToday.length) bits.push(`${brief.checkoutsToday.length} checkout${brief.checkoutsToday.length === 1 ? '' : 's'}`);
-  if (draftProspects) bits.push(`${draftProspects} prospect draft${draftProspects === 1 ? '' : 's'}`);
-  if (!bits.length) return 'Clear deck. Have a great day.';
-  return bits.join(', ');
 }
 
 export function helmBaseUrl(): string {

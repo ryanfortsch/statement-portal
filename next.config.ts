@@ -132,6 +132,14 @@ const nextConfig: NextConfig = {
         destination: '/',
         permanent: true,
       },
+      // /today retired into the home (2026-10-18): today's stays are a home
+      // section under the feed, the emails were already on it. Old morning
+      // texts and bookmarks still carry the link, so it lands on the home.
+      {
+        source: '/today',
+        destination: '/',
+        permanent: true,
+      },
 
       // ─── IA rename (2026-08-20): URL honesty pass ───────────────────
       // /operations became /turnovers, the contractor-facing lenses moved
