@@ -31,6 +31,8 @@ import { DecidedRecently } from '@/components/messaging/card/DecidedRecently';
 import { undoDecision } from './actions';
 import { guestFirstFromDraft, prettifySlug } from './format';
 import { ConversationsBrowser } from './Conversations';
+import { NumberTriage } from '@/components/messaging/NumberTriage';
+import { loadNumberTriage, triageIsEmpty } from '@/lib/number-triage';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -136,6 +138,18 @@ async function QueueSection() {
   return <MessagingQueue initialPending={pending.data.approvals} initialQuotes={quotes} aiPaused={aiPaused} held={held} />;
 }
 
+// Numbers that reached a Quo line and that Helm cannot name, plus what the
+// Quo address book knows that the contact list does not: one card with one
+// verb set (Attach, New contact, Not ours). It lived on /crm until
+// 2026-10-18; it belongs where the texts are answered. Its own boundary: a
+// slow or failed read never holds the queue, and an empty card renders
+// nothing.
+async function NumberTriageSection() {
+  const triage = await loadNumberTriage().catch(() => null);
+  if (!triage || triageIsEmpty(triage)) return null;
+  return <NumberTriage {...triage} />;
+}
+
 // The Guesty-inbox replacement: every recent guest conversation, expandable
 // in place into the full thread with a manual-reply composer. Its own
 // boundary because the first cold gather pages the Guesty API (cached 90s
@@ -207,6 +221,9 @@ export default function MessagingPage({ searchParams }: { searchParams: Promise<
       </Suspense>
       <Suspense fallback={null}>
         <RecentDecisionsSection />
+      </Suspense>
+      <Suspense fallback={null}>
+        <NumberTriageSection />
       </Suspense>
       <Suspense fallback={null}>
         <ConversationsSection searchParams={searchParams} />

@@ -16,7 +16,7 @@ for(const [name,path,extra=''] of [
   ['gmail-links','src/lib/gmail-links.ts'],
  ['operating-date','src/lib/operating-date.ts'],['work-board-view','src/lib/work-board-view.ts'],['work-week','src/lib/work-week.ts'],
   ['queue','src/app/work/QueueClient.tsx','\nexport {WorkSlipModal,TaskModal};'],
-  ['crm','src/app/crm/CrmListClient.tsx','\nexport {NewContactModal};'],
+  ['crm','src/app/crm/NewContactModal.tsx'],
   ['contact','src/app/crm/[id]/ContactDetail.tsx'],
   ['ContactMeetings','src/app/crm/[id]/ContactMeetings.tsx'],
   ['owners','src/app/properties/[id]/OwnersEditor.tsx'],

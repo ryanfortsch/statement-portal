@@ -76,15 +76,18 @@ describe('splitByAge', () => {
 });
 
 describe('one rule for both boxes, and nothing is capped away', () => {
-  test('the page reads the whole pending queue and splits it with the rule', () => {
-    const src = read('src/app/crm/page.tsx');
+  // The triage moved from /crm to one card on /messaging (2026-10-18):
+  // the loader is lib/number-triage, the card components/messaging/NumberTriage.
+  test('the loader reads the whole pending queue and splits it with the rule', () => {
+    const src = read('src/lib/number-triage.ts');
     assert.ok(!/from\('quo_unknown_numbers'\)[\s\S]{0,200}\.limit\(/.test(src), 'a cap would misstate the count');
     assert.ok(src.includes('splitByAge(unknowns, unknownNumberActivity, today)'));
     assert.ok(src.includes('splitByAge(suggestions, suggestionActivity, today)'));
   });
-  test('the box counts the recent rows and the fold offers the same controls', () => {
-    const src = read('src/app/crm/CrmListClient.tsx');
-    assert.ok(src.includes('New numbers reaching out · {visibleUnknowns.length}'));
+  test('the card counts the recent rows and the fold offers the same controls', () => {
+    const src = read('src/components/messaging/NumberTriage.tsx');
+    assert.ok(src.includes('const recentCount = visibleUnknowns.length + visibleSuggestions.length;'));
+    assert.ok(src.includes('New numbers · {recentCount}'));
     assert.ok(src.includes('visibleOlderUnknowns.slice(0, OLDER_SHOWN).map(renderUnknown)'), 'older numbers can still be attached');
     assert.ok(src.includes('visibleOlderSuggestions.slice(0, OLDER_SHOWN).map(renderSuggestion)'));
   });

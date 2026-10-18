@@ -1,16 +1,9 @@
 import { HelmMasthead } from '@/components/HelmMasthead';
-import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
-import type { ContactRow, ContactType, UnknownNumberRow } from '@/lib/crm';
+import type { ContactRow, ContactType } from '@/lib/crm';
 import { CONTACT_TYPE_LABELS } from '@/lib/crm';
-import type { ContactReconcileSuggestionRow } from '@/lib/quo-reconcile';
-import { loadGuestStaysByPhone, guestStayLabel } from '@/lib/unknown-number-guests';
-import { normalizePhone } from '@/lib/quo-lines';
-import { todayET } from '@/lib/checkout-schedule';
-import { operatingDate } from '@/lib/operating-date';
 import { selectAllPaged } from '@/lib/paged-select';
-import { splitByAge, suggestionActivity, unknownNumberActivity } from '@/lib/triage-age';
 import { CrmListClient } from './CrmListClient';
 
 export const dynamic = 'force-dynamic';
@@ -23,101 +16,44 @@ async function getContacts(): Promise<{
   contacts: ContactRow[];
   properties: PropertyMini[];
   lastTouchByContact: Record<string, LastTouch>;
-  /** The triage boxes count the last 30 days; older rows with no decision
-   *  ride in the "Older" folds (src/lib/triage-age.ts). */
-  unknownNumbers: UnknownNumberRow[];
-  olderUnknownNumbers: UnknownNumberRow[];
-  suggestions: ContactReconcileSuggestionRow[];
-  olderSuggestions: ContactReconcileSuggestionRow[];
-  /** phone -> "Beth Dowling · 17 Beach · arriving today", for numbers that
-   *  belong to a guest on a real stay. Absent for everyone else. */
-  guestByPhone: Record<string, string>;
   error: string | null;
 }> {
-  const empty = { contacts: [], properties: [], lastTouchByContact: {}, unknownNumbers: [], olderUnknownNumbers: [], suggestions: [], olderSuggestions: [], guestByPhone: {} };
+  const empty = { contacts: [], properties: [], lastTouchByContact: {} };
   if (!isHelmConfigured) {
     return { ...empty, error: 'Ask Ryan: this page is not set up.' };
   }
   try {
-    const [
-      { data: contacts, error: cErr },
-      { data: properties, error: pErr },
-      { data: touches, error: tErr },
-      unknownNumbers,
-      suggestions,
-    ] = await Promise.all([
-      supabase.from('contacts').select('*').order('name'),
+    const since = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
+    const [contacts, { data: properties, error: pErr }, touches] = await Promise.all([
+      selectAllPaged<ContactRow>((from, to) => supabase.from('contacts').select('*').order('name').order('id').range(from, to)),
       supabase.from('properties').select('id, name').order('name'),
-      // All touches from the last 60 days; grouped client-side to "last per contact".
-      supabase
-        .from('contact_touches')
-        .select('contact_id, touched_at, summary, channel')
-        .gte('touched_at', new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString())
-        .order('touched_at', { ascending: false }),
-      // Unknown-number triage queue, all of it: the box counts the last 30
-      // days and the rest folds, so a cap here would misstate both. Errors
-      // ignored (fail-safe to empty).
-      selectAllPaged<UnknownNumberRow>((from, to) =>
+      // Every touch from the last 60 days, newest first, grouped below to
+      // "last per contact". Paged: Quo writes a touch per message and call,
+      // so the window passes PostgREST's 1,000-row page and a bare read
+      // silently dropped the last touch of every older contact.
+      selectAllPaged<{ contact_id: string; touched_at: string; summary: string; channel: string }>((from, to) =>
         supabase
-          .from('quo_unknown_numbers')
-          .select('*')
-          .eq('status', 'pending')
-          .order('last_message_at', { ascending: false, nullsFirst: false })
+          .from('contact_touches')
+          .select('id, contact_id, touched_at, summary, channel')
+          .gte('touched_at', since)
+          .order('touched_at', { ascending: false })
           .order('id')
           .range(from, to),
-      ).catch(() => [] as UnknownNumberRow[]),
-      // Quo address-book suggestions. Errors ignored (table may not be migrated yet).
-      selectAllPaged<ContactReconcileSuggestionRow>((from, to) =>
-        supabase
-          .from('contact_reconcile_suggestions')
-          .select('*')
-          .eq('status', 'pending')
-          .order('created_at', { ascending: false })
-          .order('id')
-          .range(from, to),
-      ).catch(() => [] as ContactReconcileSuggestionRow[]),
+      ),
     ]);
-    if (cErr) throw cErr;
     if (pErr) throw pErr;
-    if (tErr) throw tErr;
 
     const lastTouchByContact: Record<string, LastTouch> = {};
-    for (const t of (touches ?? []) as Array<{ contact_id: string; touched_at: string; summary: string; channel: string }>) {
+    for (const t of touches) {
       if (!lastTouchByContact[t.contact_id]) {
         lastTouchByContact[t.contact_id] = { at: t.touched_at, summary: t.summary, channel: t.channel };
       }
     }
 
-    const unknowns = unknownNumbers;
-    const props = (properties ?? []) as PropertyMini[];
-    // One rule for both boxes: older than 30 Eastern days with no decision
-    // folds. Not dismissed, not deleted; it can still be attached.
-    const today = operatingDate();
-    const unknownSplit = splitByAge(unknowns, unknownNumberActivity, today);
-    const suggestionSplit = splitByAge(suggestions, suggestionActivity, today);
-
-    // Name the strangers who are actually our guests. Only worth a read when
-    // the queue has something in it.
-    const guestByPhone: Record<string, string> = {};
-    if (unknowns.length > 0) {
-      const today = todayET();
-      const stays = await loadGuestStaysByPhone(supabase, today);
-      const propName = new Map(props.map((p) => [p.id, p.name]));
-      for (const u of unknowns) {
-        const m = stays[normalizePhone(u.phone)];
-        if (m) guestByPhone[u.phone] = guestStayLabel(m, m.propertyId ? propName.get(m.propertyId) ?? null : null);
-      }
-    }
-
     return {
-      contacts: (contacts ?? []) as ContactRow[],
-      properties: props,
+      contacts,
+      properties: (properties ?? []) as PropertyMini[],
       lastTouchByContact,
-      unknownNumbers: unknownSplit.recent,
-      olderUnknownNumbers: unknownSplit.older,
-      suggestions: suggestionSplit.recent,
-      olderSuggestions: suggestionSplit.older,
-      guestByPhone,
       error: null,
     };
   } catch (err) {
@@ -126,7 +62,7 @@ async function getContacts(): Promise<{
 }
 
 export default async function CrmPage() {
-  const { contacts, properties, lastTouchByContact, unknownNumbers, olderUnknownNumbers, suggestions, olderSuggestions, guestByPhone, error } = await getContacts();
+  const { contacts, properties, lastTouchByContact, error } = await getContacts();
 
   const counts = {
     all: contacts.length,
@@ -139,13 +75,8 @@ export default async function CrmPage() {
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
-
-      <HelmHero
-        eyebrow="Helm · CRM"
-        title="The"
-        emphasis="contacts ledger."
-        description="Owners, vendors, leads. Every touch logged. Names you actually deal with."
-      />
+      {/* Straight to the list: the number triage is a card on /messaging. */}
+      <div style={{ paddingTop: 32 }} />
 
       {error ? (
         <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, flex: 1, width: '100%' }}>
@@ -176,11 +107,6 @@ export default async function CrmPage() {
           properties={properties}
           counts={counts}
           lastTouchByContact={lastTouchByContact}
-          unknownNumbers={unknownNumbers}
-          olderUnknownNumbers={olderUnknownNumbers}
-          olderSuggestions={olderSuggestions}
-          guestByPhone={guestByPhone}
-          suggestions={suggestions}
         />
       )}
 
