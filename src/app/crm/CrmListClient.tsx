@@ -35,11 +35,17 @@ type Props = {
    *  the server; absent for a cleaner, a vendor or a genuine stranger. */
   guestByPhone: Record<string, string>;
   suggestions: ContactReconcileSuggestionRow[];
+  /** No decision and quiet for more than 30 days: folded, not hidden. */
+  olderUnknownNumbers?: UnknownNumberRow[];
+  olderSuggestions?: ContactReconcileSuggestionRow[];
 };
+
+/** Rows an opened Older fold renders; each carries a contact picker. */
+const OLDER_SHOWN = 100;
 
 type FilterId = 'all' | ContactType;
 
-export function CrmListClient({ contacts, properties, counts, lastTouchByContact, unknownNumbers, guestByPhone, suggestions }: Props) {
+export function CrmListClient({ contacts, properties, counts, lastTouchByContact, unknownNumbers, guestByPhone, suggestions, olderUnknownNumbers = [], olderSuggestions = [] }: Props) {
   const router = useRouter();
   const softRefresh = useSoftRefresh();
   const [filter, setFilter] = useState<FilterId>('all');
@@ -78,6 +84,14 @@ export function CrmListClient({ contacts, properties, counts, lastTouchByContact
     () => unknownNumbers.filter((u) => !hidden.has(u.phone)),
     [unknownNumbers, hidden],
   );
+  const visibleOlderUnknowns = useMemo(
+    () => olderUnknownNumbers.filter((u) => !hidden.has(u.phone)),
+    [olderUnknownNumbers, hidden],
+  );
+  // The folds render their rows only once opened: each row carries a picker
+  // over every contact.
+  const [showOlderUnknowns, setShowOlderUnknowns] = useState(false);
+  const [showOlderSuggestions, setShowOlderSuggestions] = useState(false);
 
   async function onDismiss(phone: string) {
     if (phoneLocks.current.has(phone)) return;
@@ -126,6 +140,10 @@ export function CrmListClient({ contacts, properties, counts, lastTouchByContact
   const visibleSuggestions = useMemo(
     () => suggestions.filter((s) => !hiddenSuggestions.has(s.id)),
     [suggestions, hiddenSuggestions],
+  );
+  const visibleOlderSuggestions = useMemo(
+    () => olderSuggestions.filter((s) => !hiddenSuggestions.has(s.id)),
+    [olderSuggestions, hiddenSuggestions],
   );
 
   async function onAcceptSuggestion(s: ContactReconcileSuggestionRow) {
@@ -186,6 +204,170 @@ export function CrmListClient({ contacts, properties, counts, lastTouchByContact
     });
   }, [contacts, filter, query]);
 
+  // One row, rendered the same in the box and in its Older fold.
+  const renderSuggestion = (s: ContactReconcileSuggestionRow) => (
+    <div key={s.id} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>
+          {s.suggested_name ?? formatPhone(s.phone ?? '')}
+        </span>
+        {s.phone && s.suggested_name && (
+          <span className="font-mono" style={{ fontSize: 12, color: 'var(--ink-3)' }}>
+            {formatPhone(s.phone)}
+          </span>
+        )}
+        <span style={{ flex: 1, fontSize: 12, color: 'var(--ink-3)', minWidth: 160 }}>
+          {s.reason}
+        </span>
+        {s.suggestion_type === 'add_contact' && (
+          <select
+            disabled={busySuggestions.has(s.id)}
+            aria-label={`Contact type for ${s.suggested_name ?? s.phone}`}
+            value={suggestionTypeFor[s.id] ?? 'other'}
+            onChange={(e) => setSuggestionTypeFor((m) => ({ ...m, [s.id]: e.target.value as ContactType }))}
+            style={{
+              fontSize: 11,
+              padding: '5px 7px',
+              border: '1px solid var(--rule)',
+              background: 'var(--paper)',
+              color: 'var(--ink)',
+              fontFamily: 'inherit',
+            }}
+          >
+            <option value="owner">Owner</option>
+            <option value="vendor">Vendor</option>
+            <option value="lead">Lead</option>
+            <option value="other">Other</option>
+          </select>
+        )}
+        <button
+          type="button"
+          disabled={busySuggestions.has(s.id)}
+          onClick={() => onAcceptSuggestion(s)}
+          style={smallBtn(true)}
+        >
+          {busySuggestions.has(s.id) ? '…' : suggestionLabel(s.suggestion_type)}
+        </button>
+        <button
+          type="button"
+          disabled={busySuggestions.has(s.id)}
+          onClick={() => onDismissSuggestion(s.id)}
+          style={smallBtn(false)}
+        >
+          Skip
+        </button>
+      </div>
+      {suggestionErr[s.id] && (
+        <div role="alert" style={{ fontSize: 11, color: 'var(--negative)', paddingLeft: 2 }}>{suggestionErr[s.id]}</div>
+      )}
+    </div>
+  );
+
+  const renderUnknown = (u: UnknownNumberRow) => (
+    <div key={u.phone} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, flexWrap: 'wrap' }}>
+        <span className="font-mono" style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', whiteSpace: 'nowrap' }}>
+          {formatPhone(u.phone)}
+        </span>
+        {/* Which of our three numbers they texted. A GUESTS-line
+            text is a guest; 24/7 is crew or a vendor; OWNERS is
+            an owner or a prospect. */}
+        {u.quo_line && (
+          <span
+            className="eyebrow"
+            style={{
+              fontSize: 10,
+              padding: '2px 7px',
+              border: '1px solid var(--rule)',
+              color: u.quo_line === 'guests' ? 'var(--signal)' : 'var(--ink-3)',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {QUO_LINES[u.quo_line].label}
+          </span>
+        )}
+        {/* Helm already knows this number: it is on a booking.
+            Say so, because a guest is not a CRM contact (there is
+            no guest type) and filing one puts a four-night visitor
+            in the owners-and-vendors ledger. */}
+        {guestByPhone[u.phone] && (
+          <span
+            style={{
+              fontSize: 12,
+              color: 'var(--signal)',
+              whiteSpace: 'nowrap',
+              display: 'inline-flex',
+              alignItems: 'baseline',
+              gap: 6,
+            }}
+          >
+            <span
+              className="eyebrow"
+              style={{ fontSize: 10, padding: '2px 7px', border: '1px solid var(--signal)' }}
+            >
+              Guest
+            </span>
+            <span style={{ fontWeight: 600 }}>{guestByPhone[u.phone]}</span>
+          </span>
+        )}
+        <span style={{ flex: 1, minWidth: 200, fontSize: 12, color: 'var(--ink-3)' }}>
+          {u.last_body ? `“${truncate(u.last_body, 90)}”` : 'Reached out'}
+          {u.last_message_at && (
+            <span style={{ color: 'var(--ink-4)' }}>{' · '}{formatRelative(u.last_message_at)}</span>
+          )}
+        </span>
+        {/* Attach to an existing contact (fills their phone) before
+            the "create new" path, so an owner already in Helm isn't
+            duplicated. */}
+        <select
+          disabled={busyPhones.has(u.phone)}
+          aria-label={`Attach ${formatPhone(u.phone)} to contact`}
+          value={attachSel[u.phone] ?? ''}
+          onChange={(e) => setAttachSel((s) => ({ ...s, [u.phone]: e.target.value }))}
+          style={{
+            fontSize: 12,
+            padding: '6px 8px',
+            maxWidth: 200,
+            border: '1px solid var(--rule)',
+            background: 'var(--paper)',
+            color: 'var(--ink)',
+            fontFamily: 'inherit',
+          }}
+        >
+          <option value="">Attach to existing…</option>
+          {attachOptions.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+              {c.phone ? '' : ' · no #'}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          disabled={busyPhones.has(u.phone) || !attachSel[u.phone]}
+          onClick={() => onAttach(u.phone)}
+          style={smallBtn(!!attachSel[u.phone])}
+        >
+          {busyPhones.has(u.phone) ? '…' : 'Attach'}
+        </button>
+        <button type="button" disabled={busyPhones.has(u.phone)} onClick={() => { if (!phoneLocks.current.has(u.phone)) setPromotePhone(u.phone); }} style={smallBtn(false)}>
+          Add as new
+        </button>
+        <button
+          type="button"
+          disabled={busyPhones.has(u.phone)}
+          onClick={() => onDismiss(u.phone)}
+          style={smallBtn(false)}
+        >
+          {busyPhones.has(u.phone) ? '…' : 'Dismiss'}
+        </button>
+      </div>
+      {attachMsg[u.phone] && (
+        <div role="status" style={{ fontSize: 11, color: 'var(--ink-3)', paddingLeft: 2 }}>{attachMsg[u.phone]}</div>
+      )}
+    </div>
+  );
+
   return (
     <>
       {Object.entries(acceptedSuggestions).map(([id, result]) => (
@@ -194,189 +376,54 @@ export function CrmListClient({ contacts, properties, counts, lastTouchByContact
           {result.contactId && <Link href={`/crm/${result.contactId}`} target="_blank" rel="noopener noreferrer">View contact →</Link>}
         </div>
       ))}
-      {/* QUO ADDRESS BOOK SUGGESTIONS */}
-      {visibleSuggestions.length > 0 && (
+      {/* QUO ADDRESS BOOK SUGGESTIONS. The count is the last 30 days; an
+          entry last edited in Quo before that folds under Older
+          (src/lib/triage-age.ts), still one tap from Add or Skip. */}
+      {(visibleSuggestions.length > 0 || visibleOlderSuggestions.length > 0) && (
         <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 8, paddingBottom: 16, width: '100%' }}>
           <div style={{ border: '1px solid var(--tide)', padding: '16px 18px' }}>
             <div className="eyebrow" style={{ color: 'var(--tide)', marginBottom: 12 }}>
               From your Quo address book · {visibleSuggestions.length}
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              {visibleSuggestions.map((s) => (
-                <div key={s.id} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>
-                      {s.suggested_name ?? formatPhone(s.phone ?? '')}
-                    </span>
-                    {s.phone && s.suggested_name && (
-                      <span className="font-mono" style={{ fontSize: 12, color: 'var(--ink-3)' }}>
-                        {formatPhone(s.phone)}
-                      </span>
-                    )}
-                    <span style={{ flex: 1, fontSize: 12, color: 'var(--ink-3)', minWidth: 160 }}>
-                      {s.reason}
-                    </span>
-                    {s.suggestion_type === 'add_contact' && (
-                      <select
-                        disabled={busySuggestions.has(s.id)}
-                        aria-label={`Contact type for ${s.suggested_name ?? s.phone}`}
-                        value={suggestionTypeFor[s.id] ?? 'other'}
-                        onChange={(e) => setSuggestionTypeFor((m) => ({ ...m, [s.id]: e.target.value as ContactType }))}
-                        style={{
-                          fontSize: 11,
-                          padding: '5px 7px',
-                          border: '1px solid var(--rule)',
-                          background: 'var(--paper)',
-                          color: 'var(--ink)',
-                          fontFamily: 'inherit',
-                        }}
-                      >
-                        <option value="owner">Owner</option>
-                        <option value="vendor">Vendor</option>
-                        <option value="lead">Lead</option>
-                        <option value="other">Other</option>
-                      </select>
-                    )}
-                    <button
-                      type="button"
-                      disabled={busySuggestions.has(s.id)}
-                      onClick={() => onAcceptSuggestion(s)}
-                      style={smallBtn(true)}
-                    >
-                      {busySuggestions.has(s.id) ? '…' : suggestionLabel(s.suggestion_type)}
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busySuggestions.has(s.id)}
-                      onClick={() => onDismissSuggestion(s.id)}
-                      style={smallBtn(false)}
-                    >
-                      Skip
-                    </button>
-                  </div>
-                  {suggestionErr[s.id] && (
-                    <div role="alert" style={{ fontSize: 11, color: 'var(--negative)', paddingLeft: 2 }}>{suggestionErr[s.id]}</div>
-                  )}
-                </div>
-              ))}
+              {visibleSuggestions.length === 0 && <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>Nothing new in the last 30 days.</div>}
+              {visibleSuggestions.map(renderSuggestion)}
             </div>
+            <OlderFold
+              count={visibleOlderSuggestions.length}
+              open={showOlderSuggestions}
+              onToggle={() => setShowOlderSuggestions((v) => !v)}
+            >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                {visibleOlderSuggestions.slice(0, OLDER_SHOWN).map(renderSuggestion)}
+              </div>
+            </OlderFold>
           </div>
         </section>
       )}
 
-      {/* NEW NUMBERS REACHING OUT — Quo triage queue */}
-      {visibleUnknowns.length > 0 && (
+      {/* NEW NUMBERS REACHING OUT: Quo triage queue. The count is the last 30
+          days; a number quiet for longer folds under Older and can still be
+          attached from there (src/lib/triage-age.ts). */}
+      {(visibleUnknowns.length > 0 || visibleOlderUnknowns.length > 0) && (
         <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 8, paddingBottom: 16, width: '100%' }}>
           <div style={{ border: '1px solid var(--signal)', padding: '16px 18px' }}>
             <div className="eyebrow" style={{ color: 'var(--signal)', marginBottom: 12 }}>
               New numbers reaching out · {visibleUnknowns.length}
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {visibleUnknowns.map((u) => (
-                <div key={u.phone} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, flexWrap: 'wrap' }}>
-                    <span className="font-mono" style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', whiteSpace: 'nowrap' }}>
-                      {formatPhone(u.phone)}
-                    </span>
-                    {/* Which of our three numbers they texted. A GUESTS-line
-                        text is a guest; 24/7 is crew or a vendor; OWNERS is
-                        an owner or a prospect. */}
-                    {u.quo_line && (
-                      <span
-                        className="eyebrow"
-                        style={{
-                          fontSize: 10,
-                          padding: '2px 7px',
-                          border: '1px solid var(--rule)',
-                          color: u.quo_line === 'guests' ? 'var(--signal)' : 'var(--ink-3)',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {QUO_LINES[u.quo_line].label}
-                      </span>
-                    )}
-                    {/* Helm already knows this number: it is on a booking.
-                        Say so, because a guest is not a CRM contact (there is
-                        no guest type) and filing one puts a four-night visitor
-                        in the owners-and-vendors ledger. */}
-                    {guestByPhone[u.phone] && (
-                      <span
-                        style={{
-                          fontSize: 12,
-                          color: 'var(--signal)',
-                          whiteSpace: 'nowrap',
-                          display: 'inline-flex',
-                          alignItems: 'baseline',
-                          gap: 6,
-                        }}
-                      >
-                        <span
-                          className="eyebrow"
-                          style={{ fontSize: 10, padding: '2px 7px', border: '1px solid var(--signal)' }}
-                        >
-                          Guest
-                        </span>
-                        <span style={{ fontWeight: 600 }}>{guestByPhone[u.phone]}</span>
-                      </span>
-                    )}
-                    <span style={{ flex: 1, minWidth: 200, fontSize: 12, color: 'var(--ink-3)' }}>
-                      {u.last_body ? `“${truncate(u.last_body, 90)}”` : 'Reached out'}
-                      {u.last_message_at && (
-                        <span style={{ color: 'var(--ink-4)' }}>{' · '}{formatRelative(u.last_message_at)}</span>
-                      )}
-                    </span>
-                    {/* Attach to an existing contact (fills their phone) before
-                        the "create new" path, so an owner already in Helm isn't
-                        duplicated. */}
-                    <select
-                      disabled={busyPhones.has(u.phone)}
-                      aria-label={`Attach ${formatPhone(u.phone)} to contact`}
-                      value={attachSel[u.phone] ?? ''}
-                      onChange={(e) => setAttachSel((s) => ({ ...s, [u.phone]: e.target.value }))}
-                      style={{
-                        fontSize: 12,
-                        padding: '6px 8px',
-                        maxWidth: 200,
-                        border: '1px solid var(--rule)',
-                        background: 'var(--paper)',
-                        color: 'var(--ink)',
-                        fontFamily: 'inherit',
-                      }}
-                    >
-                      <option value="">Attach to existing…</option>
-                      {attachOptions.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                          {c.phone ? '' : ' · no #'}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      disabled={busyPhones.has(u.phone) || !attachSel[u.phone]}
-                      onClick={() => onAttach(u.phone)}
-                      style={smallBtn(!!attachSel[u.phone])}
-                    >
-                      {busyPhones.has(u.phone) ? '…' : 'Attach'}
-                    </button>
-                    <button type="button" disabled={busyPhones.has(u.phone)} onClick={() => { if (!phoneLocks.current.has(u.phone)) setPromotePhone(u.phone); }} style={smallBtn(false)}>
-                      Add as new
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busyPhones.has(u.phone)}
-                      onClick={() => onDismiss(u.phone)}
-                      style={smallBtn(false)}
-                    >
-                      {busyPhones.has(u.phone) ? '…' : 'Dismiss'}
-                    </button>
-                  </div>
-                  {attachMsg[u.phone] && (
-                    <div role="status" style={{ fontSize: 11, color: 'var(--ink-3)', paddingLeft: 2 }}>{attachMsg[u.phone]}</div>
-                  )}
-                </div>
-              ))}
+              {visibleUnknowns.length === 0 && <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>Nothing new in the last 30 days.</div>}
+              {visibleUnknowns.map(renderUnknown)}
             </div>
+            <OlderFold
+              count={visibleOlderUnknowns.length}
+              open={showOlderUnknowns}
+              onToggle={() => setShowOlderUnknowns((v) => !v)}
+            >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {visibleOlderUnknowns.slice(0, OLDER_SHOWN).map(renderUnknown)}
+              </div>
+            </OlderFold>
           </div>
         </section>
       )}
@@ -904,6 +951,33 @@ function selectStyle(): React.CSSProperties {
 function truncate(s: string, n: number): string {
   if (!s) return '';
   return s.length > n ? `${s.slice(0, n).trim()}…` : s;
+}
+
+/** "Older · N", a fold under a triage box. Opening it renders the rows. */
+function OlderFold({ count, open, onToggle, children }: { count: number; open: boolean; onToggle: () => void; children: React.ReactNode }) {
+  if (count === 0) return null;
+  return (
+    <div style={{ marginTop: 14, borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={onToggle}
+        style={{ background: 'none', border: 'none', padding: '4px 0', fontSize: 12, color: 'var(--ink-3)', cursor: 'pointer', fontFamily: 'inherit' }}
+      >
+        {open ? '▾' : '▸'} Older · {count}
+      </button>
+      {open && (
+        <div style={{ marginTop: 10 }}>
+          {children}
+          {count > OLDER_SHOWN && (
+            <div style={{ marginTop: 10, fontSize: 11, color: 'var(--ink-4)' }}>
+              Showing the {OLDER_SHOWN} most recent of {count}.
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function formatRelative(iso: string): string {
