@@ -17,8 +17,10 @@ import { shiftIsoDay, todayInEastern } from '@/lib/sca-quotes-types';
  *                  for today-90 .. today+540. Refused with the failing check
  *                  when any is red; the operator must also type the property
  *                  id so a stray click cannot flip a home.
- *   target=guesty  revertToGuesty. No preflight: the operator is retreating,
- *                  and the hub copy says what the revert does and does not do.
+ *   target=guesty  revertToGuesty. No preflight (the operator is retreating),
+ *                  but the same typed property id: a revert pauses the home's
+ *                  message automations, and flipping back means every check
+ *                  again, so a stray click must not do it.
  *
  * Redirects back to the hub with ?flipped=helm|guesty or ?flip_error=<text>.
  * The panel, the Operations calendar and the home page all re-read the
@@ -99,11 +101,16 @@ export async function flipCalendarAuthorityAction(formData: FormData) {
       }
     }
   } else {
+    // The same typed gate as the flip: a revert pauses the home's message
+    // automations, and flipping back means every preflight check again.
+    if (confirm !== propertyId) {
+      redirect(hubUrl(propertyId, { flip_error: `Type the property id (${propertyId}) exactly to confirm the revert.` }));
+    }
     try {
       const result = await revertToGuesty(propertyId, actor);
       outcome = {
         flipped: 'guesty',
-        flip_note: `Guesty is the calendar authority for ${propertyId} again (${result.property.cutover_at ?? 'now'}). Guesty listing id ${result.property.guesty_listing_id ?? 'not restored: none was parked'}. Nothing was changed in Guesty or the OTAs.`,
+        flip_note: `Guesty is the calendar authority for ${propertyId} again (${result.property.cutover_at ?? 'now'}). Guesty listing id ${result.property.guesty_listing_id ?? 'not restored: none was parked'}. Message automations for this home are paused until it is flipped back. Nothing was changed in Guesty or the OTAs.`,
       };
     } catch (err) {
       outcome = { flip_error: err instanceof Error ? err.message : String(err) };
