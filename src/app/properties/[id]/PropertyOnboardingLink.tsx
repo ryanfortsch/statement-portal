@@ -7,6 +7,7 @@ import { canOpenMailbox, draftSavedNotice } from '@/lib/gmail-links';
 import { ensurePropertyOnboardingToken } from '@/app/projections/actions';
 import { ALWAYS_CC, SEND_FROM } from '@/lib/properties';
 import { renderOnboardingInviteEmail } from '@/lib/onboarding-invite-email';
+import { GLOUCESTER_TZ } from '@/lib/stable-time';
 
 type Props = {
   propertyId: string;
@@ -162,7 +163,7 @@ export function PropertyOnboardingLink({
       if (days <= 0) return 'Submitted today';
       if (days === 1) return 'Submitted yesterday';
       if (days < 14) return `Submitted ${days} days ago`;
-      return `Submitted ${then.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+      return `Submitted ${then.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: GLOUCESTER_TZ })}`;
     } catch {
       return 'Submitted';
     }
@@ -238,7 +239,7 @@ export function PropertyOnboardingLink({
         </button>
 
         {token ? (
-          <span style={{ fontSize: 12, color: submittedAt ? 'var(--positive)' : 'var(--ink-4)', letterSpacing: '.04em', whiteSpace: 'nowrap' }}>
+          <span suppressHydrationWarning style={{ fontSize: 12, color: submittedAt ? 'var(--positive)' : 'var(--ink-4)', letterSpacing: '.04em', whiteSpace: 'nowrap' }}>
             {statusLine}
           </span>
         ) : (

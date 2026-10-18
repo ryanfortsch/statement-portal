@@ -24,6 +24,7 @@ import {
 } from '@/lib/sca-quotes-types';
 import type { QuotableProperty } from '@/lib/sca-quotes';
 import { previewQuoteContext, saveQuote, type QuoteFormInput, type QuotePreview } from './actions';
+import { GLOUCESTER_TZ } from '@/lib/stable-time';
 
 /**
  * The custom quote composer. One client component, one save.
@@ -1028,5 +1029,5 @@ function toLocalInput(iso: string): string {
 function fmtLocalInput(local: string): string {
   const d = new Date(local);
   if (Number.isNaN(d.getTime())) return local;
-  return d.toLocaleString('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+  return d.toLocaleString('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: GLOUCESTER_TZ });
 }

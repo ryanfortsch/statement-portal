@@ -18,6 +18,7 @@ import type { ContactMeetingRow } from '@/lib/meetings-core';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import { PropertyCheckboxes } from '../PropertyCheckboxes';
+import { GLOUCESTER_TZ } from '@/lib/stable-time';
 
 type PropertyMini = { id: string; name: string };
 
@@ -307,7 +308,7 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, meeti
               </dl>
               {error && <div role="alert" style={{ color: 'var(--negative)', fontSize: 12, marginBottom: 12 }}>{error}</div>}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.04em' }}>
+                <span suppressHydrationWarning style={{ fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.04em' }}>
                   Added by {displayNameForEmail(contact.created_by_email)} on {formatDate(contact.created_at)}
                   {savedAt && ` · saved ${formatRelative(savedAt)}`}
                 </span>
@@ -719,7 +720,7 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, meeti
                           </div>
                         </details>
                       )}
-                      <div style={{ marginTop: 4, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.04em' }}>
+                      <div suppressHydrationWarning style={{ marginTop: 4, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.04em' }}>
                         {isInbound
                           ? <>{contact.name} replied &middot; {formatRelative(t.touched_at)}</>
                           : <>{displayNameForEmail(t.by_email)} &middot; {formatRelative(t.touched_at)}</>}
@@ -790,7 +791,7 @@ function selectStyle(): React.CSSProperties {
 
 function formatDate(iso: string): string {
   try {
-    return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: GLOUCESTER_TZ });
   } catch {
     return iso;
   }

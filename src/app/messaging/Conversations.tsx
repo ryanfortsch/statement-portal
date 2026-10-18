@@ -506,6 +506,7 @@ export function ConversationRow({
             : ''}
         </span>
         <span
+          suppressHydrationWarning
           className="eyebrow"
           style={{ color: 'var(--ink-4)', whiteSpace: 'nowrap' }}
           title={c.last_activity_at || undefined}

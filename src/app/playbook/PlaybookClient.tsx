@@ -10,12 +10,13 @@ import {
 } from '@/lib/playbook';
 import type { PropertyOption } from '@/lib/playbook-properties';
 import { displayNameForEmail } from '@/lib/team';
+import { GLOUCESTER_TZ } from '@/lib/stable-time';
 
 function formatShortDate(iso: string): string {
   if (!iso) return '';
   const d = new Date(iso);
   if (isNaN(d.getTime())) return '';
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: GLOUCESTER_TZ });
 }
 
 const CHIP_BASE: CSSProperties = {

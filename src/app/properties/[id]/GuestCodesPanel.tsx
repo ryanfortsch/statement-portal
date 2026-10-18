@@ -12,6 +12,7 @@ import {
 } from './guest-code-actions';
 import type { GuestCodeView } from '@/lib/guest-locks';
 import { revokeCodeConfirm } from '@/lib/irreversible-confirms';
+import { etStamp } from '@/lib/stable-time';
 
 export function GuestCodesPanel({
   propertyId,
@@ -149,7 +150,7 @@ export function GuestCodesPanel({
                       {c.code}
                     </span>
                     <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>
-                      {c.ends_at ? `expires ${new Date(c.ends_at).toLocaleString()}` : ''}
+                      {c.ends_at ? `expires ${etStamp(c.ends_at)}` : ''}
                     </span>
                     <button
                       type="button"

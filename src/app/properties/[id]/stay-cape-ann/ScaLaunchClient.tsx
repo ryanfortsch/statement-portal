@@ -23,6 +23,7 @@ import {
   openScaUpdatePr,
   publishScaUpdate,
 } from './actions';
+import { etStamp } from '@/lib/stable-time';
 
 type Props = {
   propertyId: string;
@@ -702,7 +703,7 @@ export function ScaLaunchClient(props: Props) {
               <Banner kind="err">
                 <strong>Snapshot refresh did not fire</strong>
                 {row.snapshot_refresh_error_at
-                  ? ` (last tried ${new Date(row.snapshot_refresh_error_at).toLocaleString()})`
+                  ? ` (last tried ${etStamp(row.snapshot_refresh_error_at)})`
                   : ''}
                 : {row.snapshot_refresh_error} The listing page may be stale until the nightly refresh. Once fixed,
                 click <strong>Refresh site data</strong> to clear this.

@@ -34,6 +34,7 @@ import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { groupSlipsByLane, LANE_LABELS, slipDetailLine, slipDisplayTitle, type WorkLane } from '@/lib/work-slip-lanes';
 import type { WorkBriefHeadline } from '@/lib/work-briefs';
 import { dismissStaleSlips, loadStaleSlips, organizePendingCount, organizeWorkNow, type StaleHomeView } from './organize-actions';
+import { GLOUCESTER_TZ } from '@/lib/stable-time';
 
 type PropertyForPicker = {
   id: string;
@@ -1211,7 +1212,7 @@ function WorkSlipRowItem({
             {reporterName && <span style={{ color: 'var(--tide-deep)' }}> · flagged by {reporterName}</span>}
             {slip.last_verified_open_at && (
               <span style={{ color: 'var(--positive)' }}>
-                {' '}· ✓ still needed {new Date(slip.last_verified_open_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                {' '}· ✓ still needed {new Date(slip.last_verified_open_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: GLOUCESTER_TZ })}
               </span>
             )}
           </div>

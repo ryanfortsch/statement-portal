@@ -17,7 +17,7 @@ const scratch = await mkdtemp(join(tmpdir(), 'helm-sca-launch-'));
 const compile = source => ts.transpileModule(source, { compilerOptions: {
   target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX,
 } }).outputText;
-for (const [name, path] of [
+for (const [name, path] of [['stabletime', 'src/lib/stable-time.ts'], 
   ['component', 'src/app/properties/[id]/stay-cape-ann/ScaLaunchClient.tsx'],
   ['unsaved-work', 'src/lib/unsaved-work.ts'],
   ['sca-launch', 'src/lib/sca-launch.ts'],
@@ -116,7 +116,7 @@ await writeFile(join(scratch, 'entry.js'), compile(`
 await new Promise((done,reject)=>{
   const compiler=webpack({mode:'development',devtool:false,context:scratch,
     entry:join(scratch,'entry.js'),output:{path:scratch,filename:'bundle.js'},
-    resolve:{modules:[join(root,'node_modules')],alias:{
+    resolve:{modules:[join(root,'node_modules')],alias:{'@/lib/stable-time':join(scratch,'stabletime.js'),
       './actions':join(scratch,'actions.js'),
       '@/components/PhotoUploader':join(scratch,'upload.js'),
       ...Object.fromEntries(['unsaved-work','sca-launch','sca-config'].map(name=>['@/lib/'+name,join(scratch,name+'.js')])),

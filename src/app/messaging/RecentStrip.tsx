@@ -91,6 +91,7 @@ export function RecentList({ recent }: { recent: Approval[] }) {
                 {row.draft || row.guest_text || ''}
               </span>
               <span
+                suppressHydrationWarning
                 style={{
                   color: 'var(--ink-4)',
                   fontSize: 11,

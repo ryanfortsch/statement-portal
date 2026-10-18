@@ -8,6 +8,7 @@ import { updateWorkSlipOwnerAction, updateWorkSlipOwnerStatus } from '../actions
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import { chipHintStyle, chipStyle, withClearHint } from './slip-controls';
+import { GLOUCESTER_TZ } from '@/lib/stable-time';
 
 type OwnerChange =
   | { kind: 'flag'; value: boolean }
@@ -404,7 +405,7 @@ function ErrorStrip({ message }: { message: string }) {
 
 function formatDate(value: string): string {
   try {
-    return new Date(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return new Date(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: GLOUCESTER_TZ });
   } catch {
     return value;
   }

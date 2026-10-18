@@ -17,6 +17,7 @@ import Link from 'next/link';
 import type { ListingContentRow, ListingPhotoRow } from '@/lib/listing-content';
 import type { PropertyRoom } from '@/lib/property-rooms-shared';
 import { HousePolicyReadout, type HousePolicyValues } from './HousePolicyReadout';
+import { etStamp } from '@/lib/stable-time';
 
 /**
  * The property page's Listing section (Guest & listing tab): Guesty's Details & layout, Overview and
@@ -510,7 +511,7 @@ function SectionHead({ title, note }: { title: string; note?: string | null }) {
 }
 
 function fmtStamp(iso: string): string {
-  return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  return etStamp(iso);
 }
 
 const labelStyle: React.CSSProperties = {
