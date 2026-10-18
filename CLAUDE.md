@@ -105,7 +105,7 @@ ORDER is the durable part and has not moved; the numbers drift with the repo.
 | `/cleaner-messaging` | Bilingual cleaner drafts, Portuguese with English side-by-side |
 | `/contractor-messaging` | Contractor reply drafts |
 | `/guests` | Subscriber list, segments, campaigns. `/guests/agreements` for SCA rental agreements. `/guests/quotes` for SCA custom quotes and booking requests (composed here, paid on staycapeann.com) |
-| `/crm` | Contacts, touch timeline, and meetings. An important meeting (owner and prospect meetings by default) texts the operator the evening before from the 24/7 line, the AirDNA reminder's rail (`DOTTI_PHONE`); every meeting shows on the home feed today and tomorrow |
+| `/crm` | Contacts, touch timeline, and meetings. An important meeting (owner and prospect meetings by default) texts the operator the evening before from the 24/7 line, the AirDNA reminder's rail (`DOTTI_PHONE`); every meeting shows on an owner's home feed today and tomorrow, and a staff login sees the meetings it logged |
 | `/channels` | The Helm-native Guesty replacement: multi-channel listings, iCal sync, bookings |
 | `/marketing` | Site traffic and conversions for both sites. `/marketing/airdna` for comps |
 | `/competitors` | Other Cape Ann managers, inventory tracking |

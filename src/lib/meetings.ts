@@ -84,17 +84,26 @@ export async function listContactMeetings(contactId: string): Promise<{
 
 /** Meetings for the home feed: today and tomorrow in Gloucester, with the
  *  contact and property names resolved. Empty on any read failure, so the
- *  home page never breaks over a calendar card. */
-export async function loadMeetingCards(now: Date = new Date()): Promise<MeetingCard[]> {
+ *  home page never breaks over a calendar card.
+ *
+ *  `createdBy` narrows to the meetings one person logged: a staff login's
+ *  feed shows the sit-downs it logged, not the owners' meetings with owners and
+ *  prospects. Owners pass nothing and see every meeting. */
+export async function loadMeetingCards(
+  now: Date = new Date(),
+  opts: { createdBy?: string } = {},
+): Promise<MeetingCard[]> {
   try {
     const today = todayET(now);
     const tomorrow = reminderTargetDate(now);
-    const { data } = await supabase
+    let q = supabase
       .from('contact_meetings')
       .select(JOIN_SELECT)
       .is('cancelled_at', null)
       .gte('meeting_date', today)
-      .lte('meeting_date', tomorrow)
+      .lte('meeting_date', tomorrow);
+    if (opts.createdBy) q = q.eq('created_by_email', opts.createdBy);
+    const { data } = await q
       .order('meeting_date', { ascending: true })
       .order('meeting_time', { ascending: true, nullsFirst: false })
       .limit(12);

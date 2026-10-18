@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { FeedClearButton } from '@/components/FeedClearButton';
+import { ConciergeClearButton } from '@/components/ConciergeClearButton';
 import { getConciergeAttention, isStayConciergeConfigured } from '@/lib/stay-concierge';
 import { alertSummary, conciergeAlertHref, conciergeAlertsFor, conciergeAlertTitle } from '@/lib/concierge-alerts';
 import { sessionRole } from '@/lib/helm-access-server';
@@ -13,8 +13,8 @@ import { ageLabel } from '@/lib/payment-links-text';
  * since 2026-08-20, so they reached nobody: 19 guest messages with no draft
  * and 12 guest emergencies between Sep 12 and Sep 26, one of them a guest
  * locked out at 73 Rocky Neck at 2:45 AM. Emergencies lead and clear
- * themselves once their card is handled; everything else clears with ×, for
- * everyone, because an alert somebody handled is handled.
+ * themselves once their card is handled; everything else clears with "Clear
+ * for everyone", because an alert somebody handled is handled.
  *
  * Renders nothing when there is nothing to show, and nothing when the
  * concierge cannot be read: /messaging owns "service unreachable", and a
@@ -129,7 +129,7 @@ function AlertRow({
           {alertSummary(summary)}
         </div>
       </div>
-      <FeedClearButton itemType="concierge" itemId={itemKey} />
+      <ConciergeClearButton itemKey={itemKey} />
     </div>
   );
 }
