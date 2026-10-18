@@ -199,6 +199,52 @@ describe('one line per house per day', () => {
     assert.equal(rows[0].pair, 'Out 11:00 · In Sat 4:00');
   });
 
+  test('an owner\'s stay pairs with the arrival after it, and the old clean does not count', () => {
+    // Helm knew a guest left Oct 10 and was cleaned; the owner then held the
+    // house (a calendar block, never a booking) and leaves today; a guest
+    // arrives tomorrow. One row, about the owner's departure.
+    const t = turnover({
+      propertyId: 'home_o',
+      checkIn: '2026-10-19',
+      previousCheckout: '2026-10-10',
+      previousStayCheckIn: '2026-10-06',
+      cleaning: { completedAt: '2026-10-10T17:00:00Z', source: 'quo', sourcePhone: null },
+    });
+    const owner = item({ propertyId: 'home_o', checkIn: '2026-10-15', guestName: null, ownerStay: true, cleaningTime: '12:00' });
+    const b = board([t], [day(TODAY, [owner])]);
+    const rows = rowsOf(b);
+    assert.equal(rows.length, 1, 'no second "Vacant" row for the owner\'s checkout');
+    const [r] = rows;
+    assert.equal(r.day, TODAY);
+    assert.equal(r.pair, 'Out 10:00 · In Mon 4:00');
+    assert.equal(r.out?.guest, 'Owner stay');
+    assert.equal(r.cleaner?.label, 'Cleaner booked 12:00', 'the Oct 10 clean is not this one');
+    assert.equal(r.turnover?.previousCheckout, TODAY, 'the opened row\'s stages follow the owner\'s departure');
+
+    const cleanedToday = composeBoard({
+      turnovers: [t],
+      cleaningDays: [day(TODAY, [owner])],
+      departureSignals: { [`home_o|${TODAY}`]: { cleanedAt: '2026-10-18T17:40:00Z', enteredAt: null, finishSource: 'quo', cleaningNow: false } },
+      today: TODAY,
+      rangeEnd: '2026-10-19',
+      nowMs: Date.parse('2026-10-18T18:00:00Z'),
+    });
+    assert.equal(rowsOf(cleanedToday)[0].cleaner?.label, 'Cleaned 1:40', "today's own clean signal counts");
+  });
+
+  test('an extension keeps the stay\'s own clean signals', () => {
+    const t = turnover({
+      propertyId: 'home_x',
+      checkIn: '2026-10-24',
+      previousCheckout: '2026-10-17',
+      previousStayCheckIn: '2026-10-12',
+      cleaning: { completedAt: '2026-10-18T15:00:00Z', source: 'manual', sourcePhone: null },
+    });
+    const [r] = rowsOf(board([t], [day(TODAY, [item({ propertyId: 'home_x', checkIn: '2026-10-12' })])], '2026-10-25'));
+    assert.equal(r.out?.date, TODAY);
+    assert.equal(r.cleaner?.label, 'Cleaned 11:00');
+  });
+
   test('a vendor visit with no checkout is not a board row (it stays on the Cape Ann Elite list)', () => {
     const b = board([], [day(TODAY, [item({ propertyId: 'home_h', checkIn: null, checkoutTime: null, status: 'no_checkout' })])]);
     assert.equal(rowsOf(b).length, 0);

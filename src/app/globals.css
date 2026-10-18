@@ -352,11 +352,13 @@ td:has(.rt-info-icon:focus-within) {
   }
   .rt-tb-slot { white-space: normal; overflow: visible; }
   .rt-tb-exp { grid-row: 3; padding-left: 0; }
-  /* Thumb-sized targets: the toggle, the verb, the quiet buttons. */
+  /* Thumb-sized targets: the toggle, the verb, the quiet buttons, and the
+     Field link in the walk column. */
   .rt-tb-toggle,
   .rt-tb-verb .rt-tn-start,
   .rt-tb-verbbtn,
   .rt-tb-verblink { min-height: 44px; }
+  .rt-tb-slot a { display: inline-flex; align-items: center; min-height: 44px; }
 }
 /* The Start walk button: solid navy, the board's strongest verb. */
 .rt-tn-start {
