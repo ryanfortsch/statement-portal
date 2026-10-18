@@ -16,8 +16,8 @@ const read = (repoPath: string): string =>
   readFileSync(new URL(`../../../${repoPath}`, import.meta.url), 'utf8');
 
 describe('status words agree', () => {
-  test('manual_sent reads Replied manually on both activity strips', () => {
-    for (const strip of ['src/app/messaging/RecentStrip.tsx', 'src/app/owner-messaging/OwnerRecentStrip.tsx']) {
+  test('manual_sent reads Replied manually on the activity strip', () => {
+    for (const strip of ['src/app/messaging/RecentStrip.tsx']) {
       assert.ok(/manual_sent: 'Replied manually'/.test(read(strip)), `${strip} calls manual_sent something else`);
       assert.ok(!/manual_sent: 'Sent via Quo'/.test(read(strip)), `${strip} still labels manual_sent Sent via Quo`);
     }

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
+import { requireOwnerEmail } from '@/lib/helm-access-server';
 import {
   approveOwnerApproval,
   markHandledOwnerApproval,
@@ -90,11 +91,16 @@ export async function coachOwnerDraft(
   return { ok: true };
 }
 
+/** Owners only: the editor renders on the staff-open Quality lens for owner
+ *  sessions, and a server action is reachable from any page. */
 export async function saveOwnerFacts(content: string): Promise<ActionResult> {
-  const sess = await requireSession();
-  if (!sess.ok) return sess;
+  try {
+    await requireOwnerEmail();
+  } catch {
+    return { ok: false, error: 'Only Ryan or Dotti can change the owner rules.' };
+  }
   const res = await saveOwnerCuratedFacts(content);
   if (!res.ok) return { ok: false, error: explainError(res.error) };
-  revalidatePath('/owner-messaging');
+  revalidatePath('/messaging/quality');
   return { ok: true };
 }

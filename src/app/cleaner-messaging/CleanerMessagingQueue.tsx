@@ -81,7 +81,7 @@ export function CleanerMessagingQueue({ initialPending, properties }: Props) {
       title={title}
       right={<QueueRefreshControl onRefresh={onResolved} refreshTick={updatedTick} />}
       empty={approvals.length === 0}
-      emptyMessage="No cleaner-manager drafts waiting. Texts from Rosa or Nina show up here automatically."
+      emptyMessage="No cleaner texts waiting."
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
         {ordered.map((approval, index) => (

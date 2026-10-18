@@ -1,6 +1,3 @@
-import { InboxSearch } from './InboxSearch';
-import { Suspense } from 'react';
-import { InboxHealth } from './InboxHealth';
 import Link from 'next/link';
 import { SectionTabs } from './SectionTabs';
 import { MessagingTabCount } from './MessagingTabCount';
@@ -88,8 +85,10 @@ export function MessagingTabs({
         </div> : undefined
       }
     />
-    {lens === 'inbox' && <InboxSearch />}
-    {lens === 'inbox' && <Suspense fallback={null}><InboxHealth /></Suspense>}
+    {/* Search and the Delivery & sync row are no longer drawn here: the
+        queue comes first on every inbox page (2026-10-18). Pages render
+        InboxHealth placement="top" (problems only) above the queue and
+        InboxBottomTools at their foot. */}
     </div>
   );
 }

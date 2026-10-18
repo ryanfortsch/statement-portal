@@ -34,10 +34,10 @@ function rendered(src: string): string {
 }
 
 describe('phone grids, dead CSS, em dashes', () => {
-  test('both Last 24 hours ledgers fold on a phone', () => {
+  test('the Last 24 hours ledger folds on a phone', () => {
     const css = read('src/app/globals.css');
     assert.ok(css.includes('.rt-msg-recent-row {\n    grid-template-columns: 1fr auto !important;'), 'the phone rule for the recent rows');
-    for (const strip of ['src/app/messaging/RecentStrip.tsx', 'src/app/owner-messaging/OwnerRecentStrip.tsx']) {
+    for (const strip of ['src/app/messaging/RecentStrip.tsx']) {
       assert.ok(read(strip).includes('className="rt-msg-recent-row"'), `${strip} rows lack the class the rule targets`);
     }
   });

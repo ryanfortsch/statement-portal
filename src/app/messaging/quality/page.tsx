@@ -15,6 +15,7 @@ import {
   getCourtesyRollup,
   getFacts,
   getFactAudit,
+  getOwnerCuratedFacts,
   explainError,
 } from '@/lib/stay-concierge';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
@@ -23,6 +24,7 @@ import { TriagedPropertyUpdates } from '../TriagedPropertyUpdates';
 import { ProposedPropertyUpdatesCard } from '@/app/owner-messaging/ProposedPropertyUpdatesCard';
 import { ReflectionProposals } from '../ReflectionProposals';
 import { PerformanceDropdown } from '../PerformanceDropdown';
+import { OwnerFactsEditor } from '@/app/owner-messaging/OwnerFactsEditor';
 
 /**
  * /messaging/quality, the Quality lens of the Guests tab (2026-10-17).
@@ -128,6 +130,21 @@ async function ReflectionSection() {
   );
 }
 
+// The rules the owner drafter applies verbatim. Owner correspondence is an
+// owner page, so a staff login never sees them. Moved here off the owner
+// queue page on 2026-10-18, with everything else that teaches the AI.
+async function OwnerFactsSection() {
+  if ((await sessionRole()) !== 'owner') return null;
+  const facts = await getOwnerCuratedFacts();
+  return (
+    <OwnerFactsEditor
+      initialContent={facts.ok ? facts.data.content : ''}
+      initialBytes={facts.ok ? facts.data.bytes : 0}
+      learnedContent={facts.ok ? facts.data.learned ?? '' : ''}
+    />
+  );
+}
+
 // The tabbed Performance section (score / last-24h activity / learning +
 // weekly fact audit). Slow calls; they stream in after the facts.
 async function AnalyticsSection() {
@@ -179,6 +196,9 @@ export default function MessagingQualityPage() {
       </Suspense>
       <Suspense fallback={null}>
         <AnalyticsSection />
+      </Suspense>
+      <Suspense fallback={null}>
+        <OwnerFactsSection />
       </Suspense>
     </Shell>
   );
