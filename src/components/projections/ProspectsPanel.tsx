@@ -105,7 +105,7 @@ export async function ProspectsPanel() {
               Promoted
             </h2>
             <span className="eyebrow">
-              {archived.length} archived
+              {archived.length} promoted
             </span>
           </div>
           <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.5, maxWidth: 580 }}>
@@ -176,7 +176,7 @@ function ProjectionRowItem({ projection: p, number }: { projection: ProjectionRo
     statusText = `Last touch ${shortDate(latestTouch.at)}`;
     statusColor = 'var(--positive)';
   } else if (sent) {
-    statusText = 'Marked sent';
+    statusText = 'Sent outside Helm';
     statusColor = 'var(--positive)';
   } else {
     statusText = 'Draft';
@@ -184,77 +184,85 @@ function ProjectionRowItem({ projection: p, number }: { projection: ProjectionRo
   }
 
   return (
-    <Link href={`/prospects/${p.id}`} style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}>
-      <div
-        className="rt-projections-row"
-        style={{
-          display: 'grid',
-          gridTemplateColumns: '64px 1fr auto auto',
-          gap: 24,
-          alignItems: 'baseline',
-          padding: '20px 0 18px',
-          borderBottom: '1px solid var(--rule)',
-          // Promoted / inactive rows render a touch softer so the eye
-          // lands on active prospects first without the archives looking
-          // broken. Inactive goes softer still — it's the dead pile.
-          opacity: promoted ? 0.78 : isInactive ? 0.65 : 1,
-        }}
-      >
-        <span className="font-mono rt-projections-row-num" style={{ fontSize: 11, color: 'var(--signal)', letterSpacing: '.08em' }}>
-          {number}
-        </span>
-        <div className="rt-projections-row-body" style={{ minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
-            <h3 className="font-serif rt-projections-row-title" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.02em', color: 'var(--ink)', margin: 0, wordBreak: 'break-word' }}>
-              {p.property_address}
-            </h3>
-          </div>
-          <p style={{ marginTop: 4, fontSize: 13, color: 'var(--ink-3)' }}>
-            {p.prospect_name}
-            {p.market ? ` · ${p.market}` : ''}
-            {p.bedrooms ? ` · ${p.bedrooms} BR` : ''}
-          </p>
-          {isInactive && p.inactive_reason && (
-            <p style={{ marginTop: 4, fontSize: 12, color: 'var(--ink-4)', fontStyle: 'italic' }}>
-              {p.inactive_reason}
-            </p>
-          )}
-          {seen.length > 0 && (
-            <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {seen.map((t) => (
-                <TouchBadge key={t} type={t} sentAt={touches[t]!.sent_at} fromUser={touches[t]!.from_user} />
-              ))}
-            </div>
-          )}
-        </div>
-        <span className="tabular-nums rt-projections-row-range" style={{ fontSize: 13, color: 'var(--ink)', whiteSpace: 'nowrap' }}>
-          {range}
-        </span>
-        <span
-          className="rt-projections-row-status"
+    <div
+      style={{
+        borderBottom: '1px solid var(--rule)',
+        // Promoted / inactive rows render a touch softer so the eye
+        // lands on active prospects first without the archives looking
+        // broken. Inactive goes softer still: it's the dead pile.
+        opacity: promoted ? 0.78 : isInactive ? 0.65 : 1,
+      }}
+    >
+      <Link href={`/prospects/${p.id}`} style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}>
+        <div
+          className="rt-projections-row"
           style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'flex-end',
-            gap: 6,
-            fontSize: 10,
-            letterSpacing: '.22em',
-            textTransform: 'uppercase',
-            fontWeight: 500,
-            color: statusColor,
-            whiteSpace: 'nowrap',
-            textAlign: 'right',
+            display: 'grid',
+            gridTemplateColumns: '64px 1fr auto auto',
+            gap: 24,
+            alignItems: 'baseline',
+            padding: '20px 0 18px',
           }}
         >
-          {statusText}
-          {/* One-click demote / reactivate without leaving the list.
-              Promoted rows get neither — property_id owns that state. */}
-          {!promoted && (
-            <InactiveQuickAction projectionId={p.id} mode={isInactive ? 'reactivate' : 'demote'} />
-          )}
-        </span>
-      </div>
-    </Link>
+          <span className="font-mono rt-projections-row-num" style={{ fontSize: 11, color: 'var(--signal)', letterSpacing: '.08em' }}>
+            {number}
+          </span>
+          <div className="rt-projections-row-body" style={{ minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+              <h3 className="font-serif rt-projections-row-title" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.02em', color: 'var(--ink)', margin: 0, wordBreak: 'break-word' }}>
+                {p.property_address}
+              </h3>
+            </div>
+            <p style={{ marginTop: 4, fontSize: 13, color: 'var(--ink-3)' }}>
+              {p.prospect_name}
+              {p.market ? ` · ${p.market}` : ''}
+              {p.bedrooms ? ` · ${p.bedrooms} BR` : ''}
+            </p>
+            {isInactive && p.inactive_reason && (
+              <p style={{ marginTop: 4, fontSize: 12, color: 'var(--ink-4)', fontStyle: 'italic' }}>
+                {p.inactive_reason}
+              </p>
+            )}
+            {seen.length > 0 && (
+              <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {seen.map((t) => (
+                  <TouchBadge key={t} type={t} sentAt={touches[t]!.sent_at} fromUser={touches[t]!.from_user} />
+                ))}
+              </div>
+            )}
+          </div>
+          <span className="tabular-nums rt-projections-row-range" style={{ fontSize: 13, color: 'var(--ink)', whiteSpace: 'nowrap' }}>
+            {range}
+          </span>
+          <span
+            className="rt-projections-row-status"
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'flex-end',
+              gap: 6,
+              fontSize: 10,
+              letterSpacing: '.22em',
+              textTransform: 'uppercase',
+              fontWeight: 500,
+              color: statusColor,
+              whiteSpace: 'nowrap',
+              textAlign: 'right',
+            }}
+          >
+            {statusText}
+          </span>
+        </div>
+      </Link>
+      {/* Mark inactive (with its reason) or Reactivate, outside the row's
+          link so typing a reason never navigates. Promoted rows get
+          neither: property_id owns that state. */}
+      {!promoted && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: -10, paddingBottom: 14 }}>
+          <InactiveQuickAction projectionId={p.id} mode={isInactive ? 'reactivate' : 'inactive'} />
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -305,4 +313,3 @@ function shortDate(iso: string): string {
     return iso.slice(0, 10);
   }
 }
-

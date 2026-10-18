@@ -7,6 +7,7 @@ import type { HelmPropertyRow } from '@/lib/properties';
 import { loadLaunchForFleet, type LaunchLoad } from '@/lib/launch-context';
 import type { LaunchSummary } from '@/lib/launch-checklist';
 import { ComingOnline } from './ComingOnline';
+import { AddProspectHomeForm } from './AddProspectHomeForm';
 import { HashOpenScript } from '@/components/properties/HashOpenScript';
 import { ACTIVE_WORK_SLIP_STATUSES } from '@/lib/work-types';
 import PropertiesMap from './PropertiesMap';
@@ -189,6 +190,10 @@ export default async function PropertiesPage() {
             )}
           </>
         )}
+        {/* A home we may sign is a properties row (kind 'prospect'), so it
+            is added here, beside the roster it will join. The deal funnel
+            at /properties/prospects is projections only. */}
+        {!error && <AddProspectHomeForm />}
       </section>
 
       <HelmFooter module="Properties" right="Source: Helm" />
