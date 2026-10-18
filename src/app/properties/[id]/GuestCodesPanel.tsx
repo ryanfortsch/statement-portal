@@ -11,6 +11,7 @@ import {
   type CodeActionResult,
 } from './guest-code-actions';
 import type { GuestCodeView } from '@/lib/guest-locks';
+import { revokeCodeConfirm } from '@/lib/irreversible-confirms';
 
 export function GuestCodesPanel({
   propertyId,
@@ -235,7 +236,10 @@ export function GuestCodesPanel({
                         <button
                           type="button"
                           disabled={pending}
-                          onClick={() => run(b.code!.id, () => revokeGuestCodeAction(propertyId, b.code!.id))}
+                          onClick={() => {
+                            if (!window.confirm(revokeCodeConfirm(b.guest_name, b.check_in, b.check_out))) return;
+                            run(b.code!.id, () => revokeGuestCodeAction(propertyId, b.code!.id));
+                          }}
                           style={revokeBtn(pending && busy === b.code.id)}
                         >
                           {pending && busy === b.code.id ? '…' : 'Revoke'}

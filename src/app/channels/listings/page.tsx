@@ -7,7 +7,10 @@ import { SubmitButton } from '@/components/SubmitButton';
 import { CopyableUrl } from './CopyableUrl';
 import { listFleetProperties, type FleetProperty } from '@/lib/fleet';
 import { regionLabel } from '@/lib/property-scope';
-import { listChannelListingsByProperty, type ChannelListingEx } from '@/lib/channels';
+import { listChannelListingsByProperty, liveFeedClosureCounts, type ChannelListingEx } from '@/lib/channels';
+import { holdsAreReservations } from '@/lib/ical-cancel-policy';
+import { feedStopConfirm } from '@/lib/irreversible-confirms';
+import { FeedUrlForm } from './FeedUrlForm';
 import { lastPullsByProperty, type ExportPull } from '@/lib/ical-export-pulls';
 import { CHANNEL_LABELS, ICAL_HINTS, PRIMARY_CHANNELS, type BookingChannel } from '@/lib/channels-types';
 import { EXPORT_FOR_CHANNELS, exportUrlFor, exportUrlForListing } from '@/lib/ical-export';
@@ -37,9 +40,10 @@ export default async function ChannelsListingsPage({ searchParams }: { searchPar
   let byProperty: Record<string, ChannelListingEx[]> = {};
   let fleet: FleetProperty[] = [];
   let pulls = new Map<string, ExportPull[]>();
+  let closures = new Map<string, number>();
   let dbError: string | null = null;
   try {
-    [byProperty, fleet] = await Promise.all([listChannelListingsByProperty(), listFleetProperties()]);
+    [byProperty, fleet, closures] = await Promise.all([listChannelListingsByProperty(), listFleetProperties(), liveFeedClosureCounts()]);
     pulls = await lastPullsByProperty(fleet.map((p) => p.id));
   } catch (e) {
     dbError = e instanceof Error ? e.message : String(e);
@@ -105,7 +109,7 @@ export default async function ChannelsListingsPage({ searchParams }: { searchPar
 
         <div style={{ marginTop: 36 }}>
           {shown.map((p) => (
-            <PropertyCard key={p.id} property={p} listings={byProperty[p.id] ?? []} pulls={pulls.get(p.id) ?? []} pullsKnown={pulls.has(p.id)} origin={origin} now={now} />
+            <PropertyCard key={p.id} property={p} listings={byProperty[p.id] ?? []} pulls={pulls.get(p.id) ?? []} pullsKnown={pulls.has(p.id)} origin={origin} now={now} closures={closures} />
           ))}
           {shown.length === 0 && <p style={{ fontSize: 13, color: 'var(--ink-3)' }}>No homes in this region.</p>}
         </div>
@@ -116,7 +120,7 @@ export default async function ChannelsListingsPage({ searchParams }: { searchPar
   );
 }
 
-function PropertyCard({ property, listings, pulls, pullsKnown, origin, now }: { property: FleetProperty; listings: ChannelListingEx[]; pulls: ExportPull[]; pullsKnown: boolean; origin: string; now: Date }) {
+function PropertyCard({ property, listings, pulls, pullsKnown, origin, now, closures }: { property: FleetProperty; listings: ChannelListingEx[]; pulls: ExportPull[]; pullsKnown: boolean; origin: string; now: Date; closures: Map<string, number> }) {
   const byChannel = new Map(listings.map((l) => [l.channel, l]));
   const exportUrl = property.ical_export_token ? `${origin}/api/channels/ical/${property.ical_export_token}` : null;
   const helmRun = property.calendar_authority === 'helm';
@@ -146,12 +150,12 @@ function PropertyCard({ property, listings, pulls, pullsKnown, origin, now }: { 
 
       <div style={{ display: 'grid', gap: 10 }}>
         {PRIMARY_CHANNELS.map((c) => (
-          <ChannelRow key={c} property={property} channel={c} listing={byChannel.get(c)} pull={pulls.find((x) => x.channel_guess === c) ?? null} helmRun={helmRun} now={now} />
+          <ChannelRow key={c} property={property} channel={c} listing={byChannel.get(c)} pull={pulls.find((x) => x.channel_guess === c) ?? null} helmRun={helmRun} now={now} closures={closures} />
         ))}
         {extraRows.map((l) => (
-          <ChannelRow key={l.id} property={property} channel={l.channel} listing={l} pull={null} helmRun={helmRun} now={now} />
+          <ChannelRow key={l.id} property={property} channel={l.channel} listing={l} pull={null} helmRun={helmRun} now={now} closures={closures} />
         ))}
-        {guestyRow && <GuestyRow listing={guestyRow} now={now} helmRun={helmRun} propertyId={property.id} />}
+        {guestyRow && <GuestyRow listing={guestyRow} now={now} helmRun={helmRun} propertyId={property.id} liveClosures={closures.get(guestyRow.id) ?? 0} />}
       </div>
 
       {exportUrl && (
@@ -187,9 +191,13 @@ function dotColor(f: Freshness): string {
   return f === 'fresh' ? 'var(--positive)' : f === 'aging' ? 'var(--signal)' : f === 'stale' ? 'var(--negative)' : 'var(--rule)';
 }
 
-function ChannelRow({ property, channel, listing, pull, helmRun, now }: { property: FleetProperty; channel: BookingChannel; listing: ChannelListingEx | undefined; pull: ExportPull | null; helmRun: boolean; now: Date }) {
+function ChannelRow({ property, channel, listing, pull, helmRun, now, closures }: { property: FleetProperty; channel: BookingChannel; listing: ChannelListingEx | undefined; pull: ExportPull | null; helmRun: boolean; now: Date; closures: Map<string, number> }) {
   const isDirect = channel === 'direct';
   const label = CHANNEL_LABELS[channel] ?? channel;
+  // Retiring this feed or saving it blank cancels its imported closures
+  // (Booking.com's are kept); both controls ask first, naming the count.
+  const liveClosures = listing ? closures.get(listing.id) ?? 0 : 0;
+  const keeps = holdsAreReservations(channel);
 
   return (
     <div style={{ background: 'var(--paper-2)', border: '1px solid var(--rule)', opacity: listing && !listing.is_active ? 0.6 : 1 }}>
@@ -205,13 +213,17 @@ function ChannelRow({ property, channel, listing, pull, helmRun, now }: { proper
           </span>
         ) : (
           <>
-            <form action={saveListing} style={{ display: 'contents' }}>
+            <FeedUrlForm
+              action={saveListing}
+              hadUrl={!!listing?.ical_import_url}
+              clearedConfirm={feedStopConfirm('clear_url', label, liveClosures, keeps)}
+            >
               <input type="hidden" name="property_id" value={property.id} />
               <input type="hidden" name="channel" value={channel} />
               <input type="url" name="ical_import_url" placeholder={`Paste the ${label} iCal export URL, https://...`} defaultValue={listing?.ical_import_url ?? ''} style={inputStyle} />
               <SyncStatus listing={listing} now={now} />
               <SubmitButton label="Save" busyLabel="Saving…" style={smallPrimary} />
-            </form>
+            </FeedUrlForm>
           </>
         )}
       </div>
@@ -237,7 +249,13 @@ function ChannelRow({ property, channel, listing, pull, helmRun, now }: { proper
           <form action={toggleListingActive}>
             <input type="hidden" name="id" value={listing.id} />
             <input type="hidden" name="is_active" value={listing.is_active ? 'false' : 'true'} />
-            <SubmitButton label={listing.is_active ? 'retire' : 'reactivate'} busyLabel="…" spinnerTone="ink" style={linkButton} />
+            <SubmitButton
+              label={listing.is_active ? 'retire' : 'reactivate'}
+              busyLabel="…"
+              spinnerTone="ink"
+              style={linkButton}
+              confirm={listing.is_active ? feedStopConfirm('retire', label, liveClosures, keeps) : undefined}
+            />
           </form>
           <details>
             <summary style={{ cursor: 'pointer', color: 'var(--ink-3)', textDecoration: 'underline' }}>ids and ownership</summary>
@@ -278,7 +296,7 @@ function ChannelRow({ property, channel, listing, pull, helmRun, now }: { proper
   );
 }
 
-function GuestyRow({ listing, now, helmRun, propertyId }: { listing: ChannelListingEx; now: Date; helmRun: boolean; propertyId: string }) {
+function GuestyRow({ listing, now, helmRun, propertyId, liveClosures }: { listing: ChannelListingEx; now: Date; helmRun: boolean; propertyId: string; liveClosures: number }) {
   const active = listing.is_active;
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '110px 1fr auto', gap: 14, alignItems: 'center', padding: '10px 12px', background: 'var(--paper)', border: `1px ${active ? 'solid' : 'dashed'} var(--rule)`, opacity: active ? 1 : 0.65 }}>
@@ -311,7 +329,12 @@ function GuestyRow({ listing, now, helmRun, propertyId }: { listing: ChannelList
           <form action={toggleListingActive}>
             <input type="hidden" name="id" value={listing.id} />
             <input type="hidden" name="is_active" value="false" />
-            <SubmitButton label="Retire" busyLabel="Retiring…" style={{ ...smallPrimary, background: 'var(--negative)' }} />
+            <SubmitButton
+              label="Retire"
+              busyLabel="Retiring…"
+              style={{ ...smallPrimary, background: 'var(--negative)' }}
+              confirm={feedStopConfirm('retire', 'Guesty', liveClosures, false)}
+            />
           </form>
         ) : (
           // No delete: a retired Guesty row is kept for good. Its id is what

@@ -21,6 +21,7 @@ import { conflictFromSearchParams, describeConflict } from '@/lib/bookings-write
 import { BOOKING_STATUSES, CHANNEL_LABELS, STATUS_LABELS, type BookingFinance, type BookingStatus } from '@/lib/channels-types';
 import { authorityBadge, channelColor, relativeAge, sourceGlyph } from '@/lib/calendar-model';
 import { cancelBookingWithReason, updateBooking } from './actions';
+import { cancelStayConfirm } from '@/lib/irreversible-confirms';
 import { DeleteBookingButton } from './DeleteBookingButton';
 
 export const dynamic = 'force-dynamic';
@@ -263,9 +264,15 @@ export default async function BookingDetailPage({ params, searchParams }: { para
           <form action={cancelBookingWithReason} style={{ marginTop: 22, display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'end', borderTop: '1px solid var(--rule)', paddingTop: 16 }}>
             <input type="hidden" name="id" value={booking.id} />
             <Field label={isBlock ? 'Release this hold, with a reason' : 'Cancel this stay, with a reason'}>
-              <input name="reason" type="text" placeholder={isBlock ? 'owner changed plans' : 'guest cancelled by phone; refund issued in Stripe'} style={inputStyle} />
+              <input name="reason" type="text" required minLength={3} placeholder={isBlock ? 'owner changed plans' : 'guest cancelled by phone; refund issued in Stripe'} style={inputStyle} />
             </Field>
-            <SubmitButton label={isBlock ? 'Release hold' : 'Cancel stay'} busyLabel="Cancelling…" spinnerTone="ink" style={{ ...secondaryButton, color: 'var(--negative)', borderColor: 'var(--negative)' }} />
+            <SubmitButton
+              label={isBlock ? 'Release hold' : 'Cancel stay'}
+              busyLabel="Cancelling…"
+              spinnerTone="ink"
+              style={{ ...secondaryButton, color: 'var(--negative)', borderColor: 'var(--negative)' }}
+              confirm={cancelStayConfirm({ isBlock, guestName: booking.guest_name, checkIn: booking.check_in, checkOut: booking.check_out })}
+            />
           </form>
         )}
       </section>

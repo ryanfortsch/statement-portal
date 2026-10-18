@@ -45,6 +45,7 @@ import { EXPORT_FOR_CHANNELS, exportUrlFor, exportUrlForListing } from '@/lib/ic
 import { type CalendarRowVM } from '../calendar/MultiCalendarGrid';
 import { PropertyMonthCalendar } from './PropertyMonthCalendar';
 import { confirmBookingComEchoAction, flipCalendarAuthorityAction, readGuestyCalendarAheadAction } from './cutover-actions';
+import { massCancelConfirm, releaseClosureConfirm } from '@/lib/irreversible-confirms';
 import { acknowledgeMassCancel, releaseOrphanedOtaHold, syncOneListing, tickExportSubscribed } from '../listings/actions';
 import { releaseAnswers } from '@/lib/ical-cancel-policy';
 
@@ -636,7 +637,13 @@ function AttentionPanel({ carry, propertyId, helmRun, unfiltered, now }: { carry
                 {rowLine(r)}
                 <form action={releaseOrphanedOtaHold}>
                   <input type="hidden" name="id" value={r.id} />
-                  <SubmitButton label="Release" busyLabel="Releasing…" spinnerTone="ink" style={linkButton} />
+                  <SubmitButton
+                    label="Release"
+                    busyLabel="Releasing…"
+                    spinnerTone="ink"
+                    style={linkButton}
+                    confirm={releaseClosureConfirm(r.check_in, r.check_out)}
+                  />
                 </form>
               </li>
             ))}
@@ -943,6 +950,7 @@ function MassCancelAlert({ feed, run, label, now, kind }: { feed: FeedHealth; ru
               busyLabel="Cancelling and syncing…"
               spinnerTone="ink"
               style={{ ...secondaryButton, borderColor: 'var(--signal)', color: 'var(--signal)' }}
+              confirm={massCancelConfirm(label, held, bcom)}
             />
           </form>
           <span style={{ fontSize: 11, color: 'var(--ink-4)', lineHeight: 1.5, maxWidth: 360 }}>

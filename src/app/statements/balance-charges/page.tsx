@@ -6,6 +6,7 @@ import { SubmitButton } from '@/components/SubmitButton';
 import { supabaseAdmin as supabase, isServiceConfigured } from '@/lib/supabase-admin';
 import { getStripeKeysMap } from '@/lib/stripe-sync';
 import { chargeBalance } from './actions';
+import { balanceChargeConfirm } from '@/lib/irreversible-confirms';
 
 /**
  * Saved-card balance charges for far-future direct bookings.
@@ -164,6 +165,7 @@ export default async function BalanceChargesPage({
               <form action={chargeBalance} style={{ marginTop: 12 }}>
                 <input type="hidden" name="id" value={r.id} />
                 <SubmitButton
+                  confirm={balanceChargeConfirm(usd(r.balance_cents), r.guest_name)}
                   label={`Charge ${usd(r.balance_cents)} to card on file`}
                   busyLabel="Charging..."
                   disabled={!keys[r.property_id]}
@@ -206,6 +208,7 @@ export default async function BalanceChargesPage({
               <form action={chargeBalance} style={{ marginTop: 12 }}>
                 <input type="hidden" name="id" value={r.id} />
                 <SubmitButton
+                  confirm={balanceChargeConfirm(usd(r.balance_cents), r.guest_name)}
                   label="Retry charge"
                   busyLabel="Charging..."
                   disabled={!keys[r.property_id] || r.charge_after > todayIso}
