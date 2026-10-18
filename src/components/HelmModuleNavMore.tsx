@@ -2,7 +2,7 @@
 
 /**
  * The Library: the small dropdown shelf of reference modules that are not
- * primary masthead tabs (Playbook, CRM, Channels, Search). Lives at the
+ * primary masthead tabs (Playbook, CRM, Search; Growth for staff). Lives at the
  * end of HelmModuleNav so they stay one click away instead of only
  * reachable via Cmd+K or direct URL.
  *
