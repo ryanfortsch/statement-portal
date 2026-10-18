@@ -94,16 +94,23 @@ describe('groupStaleSlips', () => {
 
 describe('My week, and who opens on it', () => {
   const mine = { status: 'open' as const, priority: 'normal' as const, created_at: '2026-10-01', assigned_to_email: 'delaney@risingtidestr.com' };
-  test('mine, overdue or within seven days or undated', () => {
+  test("mine and due this week: the home tile's rule (work-week.ts), overdue included, undated is backlog", () => {
     assert.equal(workMyWeek({ ...mine, scheduled_date: '2026-10-10' }, mine.assigned_to_email, TODAY), true, 'overdue');
     assert.equal(workMyWeek({ ...mine, scheduled_date: '2026-10-24' }, mine.assigned_to_email, TODAY), true, 'sixth day out');
     assert.equal(workMyWeek({ ...mine, scheduled_date: '2026-10-25' }, mine.assigned_to_email, TODAY), false, 'next week');
-    assert.equal(workMyWeek({ ...mine, scheduled_date: null }, mine.assigned_to_email, TODAY), true, 'undated');
+    assert.equal(workMyWeek({ ...mine, scheduled_date: null }, mine.assigned_to_email, TODAY), false, 'undated');
     assert.equal(workThisWeek({ ...mine, due_date: '2026-10-19' }, TODAY), true, 'a task due tomorrow');
   });
   test('not mine is never on my week, and no session has no week', () => {
-    assert.equal(workMyWeek({ ...mine, scheduled_date: null }, 'ryan@risingtidestr.com', TODAY), false);
-    assert.equal(workMyWeek({ ...mine, assigned_to_email: null, scheduled_date: null }, '', TODAY), false);
+    assert.equal(workMyWeek({ ...mine, scheduled_date: TODAY }, 'ryan@risingtidestr.com', TODAY), false);
+    assert.equal(workMyWeek({ ...mine, assigned_to_email: null, scheduled_date: TODAY }, '', TODAY), false);
+  });
+  test('the board and the home tile read one week', () => {
+    const view = read('src/lib/work-board-view.ts');
+    assert.ok(view.includes("import { dueThisWeek } from './work-week.ts';"));
+    assert.ok(view.includes('return dueThisWeek(workDate(item), today);'));
+    const home = read('src/app/page.tsx');
+    assert.ok(home.includes('workWeekEnd(today)'), 'the home tile counts with work-week.ts');
   });
   test('a staff login opens on My week, an owner on All', () => {
     assert.equal(defaultWorkFilter('staff'), 'my-week');

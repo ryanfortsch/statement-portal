@@ -29,7 +29,7 @@ import { displayNameForEmail } from '@/lib/team';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import { useOwnerEmailDraft } from '@/lib/use-owner-email-draft';
 import { operatingDate } from '@/lib/operating-date';
-import { compareWork, workMyWeek, workOverdue, workSignals, workUnassigned } from '@/lib/work-board-view';
+import { compareWork, workMyWeek, workOverdue, workSignals, workThisWeek, workUnassigned } from '@/lib/work-board-view';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { groupSlipsByLane, LANE_LABELS, slipDetailLine, slipDisplayTitle, type WorkLane } from '@/lib/work-slip-lanes';
 import type { WorkBriefHeadline } from '@/lib/work-briefs';
@@ -62,7 +62,7 @@ type Props = {
   isOwner?: boolean;
 };
 
-type FilterId = 'all' | 'my-week' | 'overdue' | 'blocked' | 'mine' | 'high' | 'due-today' | 'unclaimed' | 'owner-action' | 'snoozed';
+type FilterId = 'all' | 'my-week' | 'week' | 'overdue' | 'blocked' | 'mine' | 'high' | 'due-today' | 'unclaimed' | 'owner-action' | 'snoozed';
 
 // The board has two faces: property work, where you land, and the team
 // task list one tab over. The old third "All" tab stacked both sections
@@ -70,7 +70,7 @@ type FilterId = 'all' | 'my-week' | 'overdue' | 'blocked' | 'mine' | 'high' | 'd
 // you had to scroll past. One at a time.
 type TabId = 'slips' | 'tasks';
 
-const FILTER_IDS: FilterId[] = ['all', 'my-week', 'overdue', 'blocked', 'mine', 'high', 'due-today', 'unclaimed', 'owner-action', 'snoozed'];
+const FILTER_IDS: FilterId[] = ['all', 'my-week', 'week', 'overdue', 'blocked', 'mine', 'high', 'due-today', 'unclaimed', 'owner-action', 'snoozed'];
 
 /** Filters that only mean anything to a work slip. On the Tasks tab they
  *  neither render nor apply, but they stay in the URL so tabbing back to
@@ -320,6 +320,7 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
     const source = activeFilter === 'snoozed' ? snoozedSlips : workSlips;
     return source.filter((w) => {
       if (activeFilter === 'my-week' && !workMyWeek(w, myEmail, todayIso)) return false;
+      if (activeFilter === 'week' && !workThisWeek(w, todayIso)) return false;
       if (activeFilter === 'overdue' && !workOverdue(w, todayIso)) return false;
       if (activeFilter === 'mine' && w.assigned_to_email !== myEmail) return false;
       if (activeFilter === 'high' && w.priority !== 'high') return false;
@@ -333,6 +334,7 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
   const filteredTasks = useMemo(() => {
     return tasks.filter((t) => {
       if (activeFilter === 'my-week' && !workMyWeek(t, myEmail, todayIso)) return false;
+      if (activeFilter === 'week' && !workThisWeek(t, todayIso)) return false;
       if (activeFilter === 'overdue' && !workOverdue(t, todayIso)) return false;
       if (activeFilter === 'blocked' && t.status !== 'blocked') return false;
       if (activeFilter === 'mine' && t.assigned_to_email !== myEmail) return false;
@@ -421,6 +423,7 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
         ...workSignals(tasks, todayIso),
         all: tasks.length,
         myWeek: tasks.filter((t) => workMyWeek(t, myEmail, todayIso)).length,
+        week: tasks.filter((t) => workThisWeek(t, todayIso)).length,
         mine: tasks.filter((t) => t.assigned_to_email === myEmail).length,
         high: tasks.filter((t) => t.priority === 'high').length,
         ownerAction: 0,
@@ -431,6 +434,7 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
       ...workSignals(workSlips, todayIso),
       all: workSlips.length,
       myWeek: workSlips.filter((w) => workMyWeek(w, myEmail, todayIso)).length,
+      week: workSlips.filter((w) => workThisWeek(w, todayIso)).length,
       mine: workSlips.filter((w) => w.assigned_to_email === myEmail).length,
       high: workSlips.filter((w) => w.priority === 'high').length,
       ownerAction: workSlips.filter((w) => w.owner_action_required).length,
@@ -497,6 +501,9 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
         <div className="flex items-center gap-2 flex-wrap rt-work-filters" aria-label="Filter work">
           <Pill active={activeFilter === 'all'} onClick={() => setFilter('all')} label="All" count={counts.all} />
           {(counts.myWeek > 0 || activeFilter === 'my-week' || defaultFilter === 'my-week') && <Pill active={activeFilter === 'my-week'} onClick={() => setFilter('my-week')} label="My week" count={counts.myWeek} />}
+          {/* Everyone's week: the home page's "Open work · this week" tile
+              opens here, on the same rule (src/lib/work-week.ts). */}
+          {(counts.week > 0 || activeFilter === 'week') && <Pill active={activeFilter === 'week'} onClick={() => setFilter('week')} label="This week" count={counts.week} />}
           {(counts.overdue > 0 || activeFilter === 'overdue') && <Pill active={activeFilter === 'overdue'} onClick={() => setFilter('overdue')} label="Overdue" count={counts.overdue} accent="var(--negative)" />}
           {(counts.dueToday > 0 || activeFilter === 'due-today') && <Pill active={activeFilter === 'due-today'} onClick={() => setFilter('due-today')} label="Due today" count={counts.dueToday} />}
           {!onSlips && (counts.blocked > 0 || activeFilter === 'blocked') && <Pill active={activeFilter === 'blocked'} onClick={() => setFilter('blocked')} label="Blocked" count={counts.blocked} accent="var(--signal)" />}
@@ -523,7 +530,7 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
                 activeFilter === 'snoozed'
                   ? 'Nothing snoozed. Snooze a slip from its detail page.'
                   : activeFilter === 'my-week'
-                    ? `Nothing assigned to you this week. All ${workSlips.length} open slips are under All.`
+                    ? `Nothing assigned to you is due this week. All ${workSlips.length} open slips are under All, and your undated ones under More, My items.`
                     : 'No work slips match this filter.'
               }
             />
