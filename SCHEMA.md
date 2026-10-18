@@ -104,6 +104,16 @@ never key per-stay logic on `bookings.id` (`memory/project_bookings_duplicate_ro
   publishing authority or contain an availability payload. No consumer or
   provider transport is activated by this SQL. Rate-day/plan, rental-period and
   rolling-time invalidations remain separate, unimplemented inputs.
+- **Candidate only, not applied:** `staging-storage/booking-inventory-planning.sql`
+  (under `docs/guesty-exit`) adds `helm_booking_inventory_consumers`: owner-reviewed
+  single-unit staging configuration, processed capture/configuration versions,
+  desired plan version, freshness bound and a durable inventory journal. The
+  consistent read RPC projects only booking availability fields, rate-day closures,
+  availability rules and rental seasons. Plan commit compares the source and
+  configuration again, then appends the queue command and advances the checkpoint
+  atomically. The dispatch append also checks authority, enablement, versions,
+  current inputs and freshness. Service-role callers use RPCs; direct writes and
+  browser access are denied. No route is seeded or scheduled automatically.
 - **`booking_events`**: append-only change log per booking (`created`,
   `dates_changed`, `status_changed`, `cancelled`, `guest_changed`,
   `money_changed`, `feed_moved`, `note`) with `actor`, `before` and

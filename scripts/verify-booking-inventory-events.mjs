@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { resolve, join } from 'node:path';
 import assert from 'node:assert/strict';
+import { verifyBookingInventoryConsumer } from './verify-booking-inventory-consumer.mjs';
 if (!process.argv[2]) throw new Error('Pass the absolute PGlite module path');
 const { PGlite } = await import(pathToFileURL(resolve(process.argv[2])).href);
 const dataDir = mkdtempSync(join(tmpdir(), 'helm-inventory-capture-'));
@@ -237,6 +238,13 @@ try {
     assert.deepEqual(await events(), before); assert.equal(await version(), v);
     assert.deepEqual(await booking(hold.id), beforeBooking);
     await create(); assert.equal(await version(), v + 1);
+  });
+  await verifyBookingInventoryConsumer(db, check,
+    section(plumbing, 'create table if not exists public.property_rate_plans', '-- Quote-side jurisdiction'));
+  await check('consumer cursor and uncertain dispatch survive database restart', async () => {
+    const before = (await query("select helm_booking_inventory_read('home') as state"))[0].state;
+    await db.close(); db = new PGlite(dataDir);
+    assert.deepEqual((await query("select helm_booking_inventory_read('home') as state"))[0].state, before);
   });
   console.log(`PASS: ${passed} local PostgreSQL integration checks; canonical RPC bodies exercised; no external connections.`);
 } catch (error) {

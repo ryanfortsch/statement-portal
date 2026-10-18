@@ -1032,3 +1032,76 @@ base `a148b0e6`, remote main verified `56d61132`. Files: `SCHEMA.md`, this docum
 `scripts/verify-booking-inventory-events.mjs`. Pre-existing dirty contract notes
 in `calderwood-cutover-readiness.md` remain untouched. No hosted database, live
 booking, channel, message sender or subscription was changed.
+
+
+### Canonical inventory consumer and worker connection (October 18, 2026)
+
+The next candidate now connects the captured booking versions to the existing
+inventory planner and worker. `booking-inventory-planning.sql` reads canonical
+bookings, including duplicate OTA closures and the thirty-day turnover-buffer
+neighbours, plus the property's availability rules, rate-day closures and rental
+periods in one SQL snapshot. It projects no guest details, prices or minimum
+stays. Over-limit results fail parsing rather than becoming complete calendars.
+
+`booking-inventory-consumer.ts` uses the existing `buildAvailability` rules and
+planner. The inert price fields supplied to that pure function are discarded;
+only date, availability and stop-sell reach the durable journal. The single-unit
+configuration must explicitly identify every required source and provide complete,
+fresh coverage of the window plus any required turnover-buffer neighbours.
+Missing rules, missing coverage, disabled capture and
+expired evidence produce no plan or checkpoint advance. Future-dated observations,
+malformed identities and corrupt journals stop the pass. Source freshness is not
+inferred from a successful SQL read or an empty bookings array.
+
+A successful commit records the inventory intent and processed capture/configuration
+versions together. Booking, configuration or availability-input changes detected
+before commit reject the stale result. A lost response is recovered by rereading
+persisted state. An unchanged, still-fresh plan does not append another command.
+The plan expires at the earliest of source expiry, Eastern midnight, the next
+advance-notice boundary or sixty seconds. A later pass re-evaluates it even without
+a new booking event. That short bound is a staging safeguard, not a production
+publishing cadence; refresh/compaction and provider request pacing need review
+before continuous operation. The existing 10,000-command ceiling remains enforced.
+
+The per-property journal adapter works with `prepareInventoryDispatch`. The SQL
+submitting boundary independently rechecks capture/configuration versions, current
+inputs, explicit publish enablement, Helm authority, payload identity and expiry.
+A context read alone is insufficient. Interrupted submissions become uncertain and
+block newer jobs in the same lane until reconciled. No Channex transport is supplied
+or invoked by this batch; Guesty authority cannot cross the submitting boundary.
+
+The operator command is `scripts/channex-booking-inventory.mts plan <property-id>`.
+It requires both `CHANNEX_WORKER_MODE=isolated-staging` and
+`CHANNEX_BOOKING_INVENTORY_MODE=plan-only`, plus the existing explicit staging DB
+URL/key. Its adapter accepts only the isolated project URL. It performs one bounded
+planning pass and logs only a fixed event/status; it does not initialize a route,
+switch authority, send a message, submit inventory, or install a scheduler. SQL
+installation, route review and genuine source-coverage collection must precede
+any hosted use. No credential values are needed in this document.
+
+Validation: 14 new behavioral tests and 41 local PostgreSQL integration checks
+cover canonical create/move/cancel through the durable queue, once-only processing,
+stale planning, changed source state after context refresh, queue/checkpoint
+rollback, lost responses, no price fields, source completeness, notice/midnight
+expiry, role restrictions, uncertain-lane blocking and database restart. The full
+suite passes 2,005 tests in 240 suites; TypeScript and targeted lint pass. Local
+fixtures use the unmodified canonical booking RPCs and actual rate-table DDL, with
+minimal property/season fixtures. Multi-connection contention is not simulated.
+
+Remaining deployment work: review/apply both candidate SQL files in an isolated
+copy of the canonical schema, supply verified coverage and mapping, add the
+availability-only Channex transport and receipt/read-back reconciliation, and
+complete webhook ingestion/certification. The consumer compares non-booking inputs
+at planning and dispatch but does not install transaction-level invalidations for
+rate-day/plan/season writers. Concurrent changes to those inputs, configuration
+rollover, linked-resource fan-out, continuous refresh, API pacing and journal
+compaction must be resolved before live operation. No production readiness claim
+follows from the local pass.
+
+Handoff: branch `codex/channex-staging-pilot`, pre-change HEAD `635f8938`, original
+base `a148b0e6`, current remote main verified `993fe9d5`. Canonical booking/RPC and
+availability sources still match that main reference. Changed files are the new
+consumer, staging store adapter, operator command, behavior tests and candidate
+planning SQL; the local SQL verifier and its new consumer extension; `SCHEMA.md`;
+and this architecture document. Existing dirty contract notes remain excluded.
+No hosted database, Render process, channel configuration or subscription changed.
