@@ -3,18 +3,20 @@
 import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { consumeBookingInventory, bookingInventoryDispatchContext } from '../src/lib/channex-staging/booking-inventory-consumer.ts';
+import { ChannexAvailabilityClient } from '../src/lib/channex-staging/availability-client.ts';
+import { deliverBookingInventoryOnce } from '../src/lib/channex-staging/booking-inventory-delivery.ts';
 import { prepareInventoryDispatch } from '../src/lib/channex-staging/inventory-worker.ts';
 import { replayInventoryJournal, recordInventoryCommand } from '../src/lib/channex-staging/inventory-journal.ts';
 import { shiftIsoDay, todayInEastern } from '../src/lib/sca-quotes-types.ts';
 export async function verifyBookingInventoryConsumer(db, check, rateSchema) {
   const query = async (sql,args=[]) => (await db.query(sql,args)).rows;
   await db.exec(rateSchema);
-  await db.exec('create table property_rental_periods(property_id text,start_month int,start_day int,end_month int,end_day int)');
+  await db.exec(readFileSync(new URL('../supabase/migrations/20260916120000_property_rental_periods.sql', import.meta.url), 'utf8'));
   const sql = readFileSync(new URL('../docs/guesty-exit/staging-storage/booking-inventory-planning.sql',import.meta.url),'utf8');
   await db.exec(sql);
   const read = async () => (await query("select helm_booking_inventory_read('home') as state"))[0].state;
   const stamp=Date.now(),start=shiftIsoDay(todayInEastern(new Date(stamp)),10),end=shiftIsoDay(start,8);
-  const config={environment:'staging',topology:'single-unit',connection:'fixture',listing:'room',generation:1,publishEnabled:false,
+  const config={environment:'staging',topology:'single-unit',connection:'fixture',listing:'22222222-2222-4222-8222-222222222222',generation:1,publishEnabled:false,
     timeZone:'America/New_York',start,end,requiredSources:['canonical','channels'],coverage:['canonical','channels'].map(source=>
       ({source,start,end,complete:true,observedAt:stamp-1000,freshUntil:stamp+1800000}))};
   const append=async(v,j)=>(await query('select helm_booking_inventory_journal_append($1,$2,$3) ok',['home',v,j]))[0].ok;
@@ -110,16 +112,40 @@ export async function verifyBookingInventoryConsumer(db, check, rateSchema) {
     // Simulate lease timeout without sleeping or touching an external provider.
     await recordInventoryCommand(store.journal,{kind:'expire',now:Date.now()+6000});
   });
-  await check('current Helm authority reaches the existing durable worker submitting barrier',async()=>{
+  let deliveryJob, deliveryClient, postCount=0;
+  await check('canonical SQL queue reaches availability transport only after durable submitting',async()=>{
     // Fictional local property only. No production cutover or provider call.
     await query("update properties set calendar_authority='helm' where id='home'");
     await create(start,shiftIsoDay(start,1));assert.equal((await run()).status,'queued');
     const job=(await jobs()).at(-1);
-    const prepared=await prepareInventoryDispatch(store.journal,job.id,Date.now,5000,j=>bookingInventoryDispatchContext(store,j,Date.now));
-    assert.equal(prepared.status,'submitting');assert.equal((await jobs()).at(-1).status,'submitting');
+    const propertyId='11111111-1111-4111-8111-111111111111',roomTypeId=config.listing;
+    const route={environment:'staging',helmProperty:'home',connection:'fixture',generation:config.generation,
+      propertyId,roomTypeId,propertyTitle:'Fictional - Isolated Staging'};
+    deliveryClient=new ChannexAvailabilityClient('fixture-key',route,async(input,init)=>{
+      const path=new URL(String(input)).pathname;
+      if(init.method==='POST'){
+        postCount++;assert.equal((await jobs()).at(-1).status,'submitting');
+        const body=JSON.parse(init.body);assert.equal(path,'/api/v1/availability');
+        assert.deepEqual(body.values,job.days.map(d=>({property_id:propertyId,room_type_id:roomTypeId,date:d.date,availability:d.available})));
+        return Response.json({data:[{type:'task',id:'33333333-3333-4333-8333-333333333333'}],meta:{message:'Success',warnings:[]}});
+      }
+      if(path.includes('/properties/'))return Response.json({data:{id:propertyId,attributes:{title:route.propertyTitle,currency:'USD',timezone:'America/New_York'}}});
+      if(path.includes('/room_types/'))return Response.json({data:{id:roomTypeId,attributes:{count_of_rooms:1},relationships:{property:{data:{id:propertyId}}}}});
+      if(path.endsWith('/channels'))return Response.json({data:[],meta:{total:0,page:1,limit:100}});
+      assert.equal(path,'/api/v1/availability');
+      return Response.json({data:{[roomTypeId]:Object.fromEntries(job.days.map(d=>[d.date,postCount?d.available:1-d.available]))}});
+    });
+    assert.equal((await deliverBookingInventoryOnce(store,deliveryClient,job.id)).status,'submitted');
+    deliveryJob=(await jobs()).at(-1);assert.equal(deliveryJob.status,'submitted');assert.equal(postCount,1);
+    assert.equal(deliveryJob.task,'33333333-3333-4333-8333-333333333333');
+  });
+  await check('matching provider read-back does not erase the unresolved task barrier',async()=>{
+    const observed=await deliveryClient.observe(deliveryJob);assert.equal(observed.matches,true);
+    assert.equal(observed.canVerify,false);assert.equal(observed.settled,false);
+    assert.equal((await deliverBookingInventoryOnce(store,deliveryClient,deliveryJob.id)).status,'blocked');assert.equal(postCount,1);
   });
   await check('interrupted dispatch blocks newer work instead of blindly resending',async()=>{
-    await recordInventoryCommand(store.journal,{kind:'expire',now:Date.now()+6000});
+    await recordInventoryCommand(store.journal,{kind:'expire',now:Date.now()+61000});
     assert.equal((await jobs()).at(-1).status,'uncertain');
     await create(start,shiftIsoDay(start,1));assert.equal((await run()).status,'queued');
     const job=(await jobs()).at(-1);

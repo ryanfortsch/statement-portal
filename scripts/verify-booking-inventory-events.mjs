@@ -24,11 +24,13 @@ try {
     return s.slice(start, end);
   };
   await db.exec(`create role anon; create role authenticated; create role service_role;
-    create table public.properties(id text primary key, calendar_authority text default 'guesty');
-    create table public.channel_listings(id uuid primary key);
     create table public.property_calendar_days(id integer primary key);
     create table public.guests(id uuid primary key);`);
+  await db.exec(section(read('supabase/migrations/20260430_create_properties.sql'),
+    'create table public.properties (', '-- Index for'));
+  await db.exec(section(plumbing, 'create table if not exists public.regions', '-- ── 2.'));
   await db.exec(section(initial, 'create type public.booking_channel', '-- ─── channel_listings'));
+  await db.exec(section(initial, 'create table public.channel_listings (', '-- ─── bookings'));
   await db.exec(section(initial, 'create table public.bookings', 'create index idx_bookings_property'));
   await db.exec('alter table public.bookings add column duplicate_of uuid;');
   await db.exec(section(plumbing, 'alter table public.bookings\n', '-- ── 5.'));
@@ -49,7 +51,7 @@ try {
     return (await query("select * from helm_move_booking($1,$2,$3,$4,'fixture',false)", [id, from, to, status]))[0];
   }
   async function cancel(id) { return query("select * from helm_cancel_booking($1,'fixture','fixture')", [id]); }
-  await db.exec("insert into properties(id) values ('home'),('other'),('unscoped'),('broken'); insert into helm_inventory_capture_scopes(property_id) values ('home'),('other'),('broken');");
+  await db.exec("insert into properties(id,name,address,city,owner_last,owner_full,owner_greeting,management_fee_pct) select id,'Fictional home','Fictional address','Fictional city','Fixture','Fixture','Fixture',0 from (values('home'),('other'),('unscoped'),('broken')) as fixtures(id); insert into helm_inventory_capture_scopes(property_id) values ('home'),('other'),('broken');");
   let hold;
   await check('disabled and missing scopes preserve ordinary booking writes', async () => {
     hold = await create(); await create('unscoped');

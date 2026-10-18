@@ -1105,3 +1105,67 @@ consumer, staging store adapter, operator command, behavior tests and candidate
 planning SQL; the local SQL verifier and its new consumer extension; `SCHEMA.md`;
 and this architecture document. Existing dirty contract notes remain excluded.
 No hosted database, Render process, channel configuration or subscription changed.
+
+### Availability delivery edge and schema fixtures (October 18, 2026)
+
+`availability-client.ts` and `booking-inventory-delivery.ts` now connect an explicit
+single-unit staging route to the durable worker. The route requires exact property
+and room UUIDs, generation, Helm identity and a title ending in `Isolated Staging`.
+Preflight checks the remote property, room ownership/capacity and an explicitly empty
+channel collection, then reads every date. Missing dates stop the pass. Only room
+counts that differ are batched into one availability request. Matching counts
+produce an observation without a write or a completed-job claim.
+
+The client has a fixed staging origin, rejects redirects and uses bounded requests.
+It never calls the restrictions endpoint. The planner's `stopSell` value must be the
+inverse of room availability; it is not sent as a rate-level restriction. Existing
+rate-level stop-sell, prices and minimum stays remain outside this transport's scope.
+Consequently matching room counts do not establish that an OTA can sell those dates.
+
+The runner saves `submitting` before provider IO, rechecks expiry after the save and
+uses a short, single-use submission permit. Expired leases that never submitted can
+be reclaimed. A timeout, 5xx, partial warning, malformed success or unrecognized
+response leaves the attempt uncertain. A clean task receipt is stored as submitted.
+Loss of the response-save acknowledgement does not cause another provider call.
+Recognized rate-limit rejection uses at least a minute of backoff and respects a
+longer Retry-After. Dispatch timestamps also impose six-second property spacing
+across restarts. A new booking plan cannot bypass a prior property-wide rate-limit
+backoff. These bounds cover this runner, not other integrations sharing the
+same property/key; no continuous scheduler is installed.
+
+The API contract was checked against Channex's [availability API](https://docs.channex.io/api-v.1-documentation/ari),
+[rate limits](https://docs.channex.io/api-v.1-documentation/rate-limits) and
+[property task UI documentation](https://docs.channex.io/application-documentation/property-tasks).
+The reviewed public index does not identify a terminal-task-status API. The adapter
+therefore returns calendar observations with `settled: false` and `canVerify: false`.
+It does not fabricate task settlement from HTTP success, elapsed time, matching room
+counts or an ARI webhook. The existing lane stays blocked after submission until
+separate trustworthy settlement evidence can drive reconciliation. Automated terminal
+evidence acquisition and OTA delivery confirmation remain open integration work.
+
+The local SQL verifier now loads repository property and channel-listing definitions,
+the registry/cutover extension, and the complete rental-period migration in addition
+to the existing real booking/rate schema and canonical booking RPCs. It exercises the
+new HTTP adapter using fictional responses while checking the submitting row before
+POST, persistent task receipt and unresolved-task behavior. It still uses minimal
+calendar/guest/automation fixtures and one PGlite session; it is not a full migration
+replay or hosted/concurrent-session compatibility proof.
+
+Validation for this batch: 19 new behavioral tests cover changed-date batching,
+identity/no-channel guards, completeness, ambiguous responses, credential rejection,
+rate-limit delay, competing runners, lost saves, one-use permits, final expiry,
+lease recovery and persistent pacing. The SQL integration verifier passes 42 checks.
+The complete suite passes 2,024 tests in 240 suites; nonincremental TypeScript,
+targeted ESLint and diff checks pass. All provider responses were injected; no
+Channex, Guesty or hosted database request was made by the tests.
+
+Handoff: branch `codex/channex-staging-pilot`, starting HEAD `43dad6db`, original base
+`a148b0e6`, current remote main verified `d47e59a5`. Relevant canonical booking/RPC,
+availability and plumbing sources still match that main reference. Files are the new
+availability client, delivery runner and behavior tests; both local booking-inventory
+verifiers; and this architecture document. No candidate SQL, UI, runtime command or
+Render process was activated or changed. Existing contract notes remain excluded.
+Next: review transactional invalidation/concurrency for every availability writer,
+review the candidate schema in an isolated full-schema environment, and establish
+terminal-task evidence before enabling any hosted delivery. Verified source coverage,
+initial calendar population, mapping review and production certification remain gates.
