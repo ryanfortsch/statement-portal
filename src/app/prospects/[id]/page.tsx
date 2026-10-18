@@ -124,6 +124,7 @@ export default async function ProjectionDetailPage({
     copy_failed?: string;
     copy_reason?: string;
     owner_email?: string;
+    edit?: string;
   }>;
 }) {
   const { id } = await params;
@@ -458,7 +459,8 @@ export default async function ProjectionDetailPage({
 
       {/* ─── Edit details (collapsed) ───────────────────────────────────── */}
       <section className="max-w-[860px] mx-auto px-10" style={{ paddingBottom: 40, flex: 1, width: '100%' }}>
-        <details style={{ borderTop: '1px solid var(--rule)', paddingTop: 16 }}>
+        {/* A two-field create lands here with ?edit=1, the form open. */}
+        <details id="edit" open={!!sp.edit || undefined} style={{ borderTop: '1px solid var(--rule)', paddingTop: 16 }}>
           <summary
             style={{
               listStyle: 'none',
@@ -598,8 +600,20 @@ function ProjectionStageBody({
   const rampMid = roundToThousand(computed.year1Ramped.netPayout);
   const showRamp = rampMid !== fullMid;
   const breakdownOn = !!projection.include_monthly_breakdown;
+  // A prospect is created from a name and an address; the deck's numbers
+  // need these three before it is worth sending.
+  const needsInputs = !(projection.home_value > 0);
   return (
     <>
+      {needsInputs && (
+        <p style={{ margin: '0 0 14px', fontSize: 13, color: 'var(--signal)', lineHeight: 1.55, maxWidth: 640 }}>
+          Before the deck goes out, set the market, bedrooms and home value in{' '}
+          <a href="?edit=1#edit" style={{ color: 'var(--tide-deep)' }}>
+            Edit prospect details
+          </a>
+          .
+        </p>
+      )}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 22, marginBottom: 14 }}>
         <StageStat label="Year 1" value={fmtMoney(fullMid)} sub={`${fmtMoney(roundToThousand(computed.year1.low.netPayout))} – ${fmtMoney(roundToThousand(computed.year1.high.netPayout))}`} />
         {showRamp && (

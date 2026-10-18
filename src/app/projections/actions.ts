@@ -53,6 +53,7 @@ import {
 } from '@/lib/contract-copy-email';
 import { requireOwnerEmail } from '@/lib/helm-access-server';
 import { contractHasEdits, driveFileIdFromUrl, registerTermsFromProjection, TEMPLATE_RENEWAL } from '@/lib/contract-register';
+import { newProspectFields } from '@/lib/prospect-create';
 import { renderProjectionPdf } from '@/lib/projection-pdf';
 import { sendOnboardingSubmittedEmail } from '@/lib/onboarding-email';
 import { sendReadinessReviewEmail } from '@/lib/readiness-email';
@@ -292,20 +293,37 @@ async function resolveDriveTime(payload: ReturnType<typeof buildPayload>): Promi
 }
 
 // ─── Actions ────────────────────────────────────────────────────────────────
-export async function createProjection(formData: FormData) {
+/**
+ * Create a prospect from two fields, the owner's name and the address, and
+ * land on its workroom with the edit form open: everything else (market,
+ * bedrooms, home value, assumptions, contract terms) is edited there. The
+ * row is born with the old create form's untouched defaults; see
+ * src/lib/prospect-create.ts. Returns a sentence when the input will not do,
+ * so the form keeps what was typed.
+ */
+export async function createProjection(formData: FormData): Promise<{ error: string }> {
   const session = await auth();
   if (!session?.user?.email) throw new Error('Not signed in');
 
+  const made = newProspectFields(
+    { ownerName: str(formData, 'owner_name'), address: str(formData, 'property_address') },
+    new Date(),
+  );
+  if (!made.ok) return { error: made.error };
+
   const localPart = session.user.email.split('@')[0];
-  const basePayload = buildPayload(formData);
+  const addr = `${made.fields.property_address}, ${made.fields.property_city}`;
   const payload = {
-    ...basePayload,
+    ...made.fields,
     created_by_email: session.user.email,
     created_by_name:
       session.user.name?.trim() ||
       (localPart ? localPart.charAt(0).toUpperCase() + localPart.slice(1) : 'User'),
     onboarding_token: newOnboardingToken(),
-    drive_time_minutes: await resolveDriveTime(basePayload),
+    drive_time_minutes: await Promise.race<number | null>([
+      getDriveTimeMinutes(addr),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 6_000)),
+    ]),
   };
 
   const { data, error } = await supabase
@@ -314,10 +332,10 @@ export async function createProjection(formData: FormData) {
     .select('id')
     .single();
 
-  if (error || !data) throw new Error(error?.message || 'Failed to create projection');
+  if (error || !data) return { error: 'The prospect did not save. Nothing was created; try again.' };
 
   revalidatePath('/properties');
-  redirect(`/prospects/${data.id}`);
+  redirect(`/prospects/${data.id}?edit=1#edit`);
 }
 
 /**
