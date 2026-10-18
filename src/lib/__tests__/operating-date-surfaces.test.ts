@@ -27,7 +27,7 @@ const read = (repoPath: string): string =>
 
 /** Every surface the audit found reading the UTC clock for "today". */
 const SURFACES = [
-  'src/app/page.tsx',
+  'src/components/HomeSignals.tsx',
   'src/components/ForMeFeed.tsx',
   'src/app/search/page.tsx',
   'src/app/properties/[id]/work-slips/print/page.tsx',

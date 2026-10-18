@@ -109,7 +109,7 @@ describe('My week, and who opens on it', () => {
     const view = read('src/lib/work-board-view.ts');
     assert.ok(view.includes("import { dueThisWeek } from './work-week.ts';"));
     assert.ok(view.includes('return dueThisWeek(workDate(item), today);'));
-    const home = read('src/app/page.tsx');
+    const home = read('src/components/HomeSignals.tsx');
     assert.ok(home.includes('workWeekEnd(today)'), 'the home tile counts with work-week.ts');
   });
   test('a staff login opens on My week, an owner on All', () => {

@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 const read = (repoPath: string): string => readFileSync(new URL(`../../../${repoPath}`, import.meta.url), 'utf8');
 
 test('the occupancy calendar lives on Turnovers only', () => {
-  const home = read('src/app/page.tsx');
+  const home = read('src/app/(home)/page.tsx');
   assert.ok(!home.includes('OccupancyCalendar'), 'the home page renders no calendar');
   assert.ok(read('src/app/turnovers/calendar/page.tsx').includes('<OccupancyCalendar calendar={calendar} />'));
   const pipeline = read('src/app/turnovers/page.tsx');
@@ -15,7 +15,7 @@ test('the occupancy calendar lives on Turnovers only', () => {
 });
 
 test('Ask Helm is the input under the title, with no caption standing in for UI', () => {
-  const home = read('src/app/page.tsx');
+  const home = read('src/app/(home)/page.tsx');
   const hero = home.indexOf('<HelmHero');
   const ask = home.indexOf('<AskHelm');
   const feed = home.indexOf('<HomeFeedTabs');
