@@ -183,9 +183,10 @@ test('the signals are two numbers that say their window, plus payout for owners'
   assert.doesNotMatch(html, /Upcoming Inspections|Five-Star Reviews|Today&rsquo;s signals/);
 });
 
-test('homepage uses Today and puts live work ahead of Ask Helm', async () => {
+test('homepage uses Today with Ask Helm directly under it, then the day', async () => {
   const html = await dashboard();
   assert.match(html, /<h1>Today<\/h1>/);
-  assert.ok(html.indexOf('Personalized work feed') < html.indexOf('Ask Helm'));
+  assert.ok(html.indexOf('<h1>Today</h1>') < html.indexOf('Ask Helm'), 'Ask Helm sits under the title');
+  assert.ok(html.indexOf('Ask Helm') < html.indexOf('Personalized work feed'), 'and above the feed, not three scrolls down');
   assert.doesNotMatch(html, /clear view/i);
 });

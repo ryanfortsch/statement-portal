@@ -442,11 +442,11 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
         <WalkHomeNow properties={propertyOptions} />
       </section>
 
-      {/* The occupancy calendar left this page: the home page renders the
-          same OccupancyCalendar for the next seven days. */}
+      {/* The occupancy calendar has its own Turnovers page, so the rail
+          reads alone here and the home page stays the person's day. */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, flex: 1, width: '100%' }}>
         <Link
-          href="/#occupancy-calendar"
+          href="/turnovers/calendar"
           style={{ fontSize: 12, color: 'var(--ink-3)', textDecoration: 'underline', textUnderlineOffset: 3 }}
         >
           Occupancy calendar →
