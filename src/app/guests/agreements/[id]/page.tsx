@@ -7,6 +7,7 @@ import {
   AGREEMENT_KIND_LABEL,
   AGREEMENT_STATUS_LABEL,
   agreementStatus,
+  agreementVoidability,
   type GuestAgreementRow,
 } from '@/lib/agreement-types';
 import { fmtAgreementDate, fmtAgreementMoney } from '@/lib/agreement-base';
@@ -34,6 +35,7 @@ export default async function AgreementDetailPage({ params }: { params: Promise<
   if (!data) notFound();
   const a = data as GuestAgreementRow;
   const status = agreementStatus(a);
+  const voidable = agreementVoidability(a);
 
   const signPath = `/agreement/${a.signing_token}`;
   const pdfHref = `/api/agreement-pdf?id=${encodeURIComponent(a.id)}`;
@@ -185,9 +187,9 @@ export default async function AgreementDetailPage({ params }: { params: Promise<
         </div>
       </section>
 
-      {/* Void */}
+      {/* Cancel */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 48 }}>
-        <div className="eyebrow" style={{ marginBottom: 12 }}>Danger zone</div>
+        <div className="eyebrow" style={{ marginBottom: 12 }}>Cancel this agreement</div>
         {a.voided_at ? (
           <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
             <span style={{ fontSize: 13, color: 'var(--signal)', fontWeight: 600 }}>
@@ -198,17 +200,27 @@ export default async function AgreementDetailPage({ params }: { params: Promise<
               <SubmitButton label="Restore" busyLabel="Restoring…" style={actionGhost} spinnerTone="ink" />
             </form>
           </div>
-        ) : (
+        ) : voidable.ok ? (
           <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
             <form action={voidAgreement}>
               <input type="hidden" name="id" value={a.id} />
-              <SubmitButton label="Void agreement" busyLabel="Voiding…" style={actionDanger} spinnerTone="ink" />
+              <SubmitButton
+                label="Void agreement"
+                busyLabel="Voiding…"
+                style={actionDanger}
+                spinnerTone="ink"
+                confirm={voidable.confirm ?? undefined}
+              />
             </form>
             <span style={{ fontSize: 12, color: 'var(--ink-4)', maxWidth: 480, lineHeight: 1.5 }}>
               Kills the signing link. Use for superseded terms, then create a fresh agreement
               {a.guest_signed_at ? ' (this one is signed, so it can no longer be edited)' : ''}.
             </span>
           </div>
+        ) : (
+          <p style={{ fontSize: 12, color: 'var(--ink-4)', maxWidth: 480, lineHeight: 1.5, margin: 0 }}>
+            {voidable.reason} For new terms, create a new agreement.
+          </p>
         )}
       </section>
 

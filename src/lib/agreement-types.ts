@@ -80,6 +80,30 @@ export function agreementStatus(a: Pick<GuestAgreementRow,
   return 'draft';
 }
 
+/**
+ * Whether an agreement can still be cancelled (voided), and the one question
+ * to ask before doing it. An executed agreement (both sides signed) is a
+ * contract on file and is never voided: `agreementStatus` lets voided win over
+ * executed, so a one-click void used to file a signed, Drive-archived lease
+ * under Voided. A draft the guest never received voids without a question.
+ */
+export function agreementVoidability(a: Pick<GuestAgreementRow,
+  'voided_at' | 'countersigned_at' | 'guest_signed_at' | 'sent_at'
+>): { ok: true; confirm: string | null } | { ok: false; reason: string } {
+  if (a.voided_at) return { ok: false, reason: 'This agreement is already cancelled.' };
+  if (a.countersigned_at) {
+    return { ok: false, reason: 'Both sides signed this agreement, so it stays on file and cannot be voided.' };
+  }
+  if (a.guest_signed_at) {
+    return {
+      ok: true,
+      confirm: 'The guest already signed. Voiding cancels their signature and kills the signing link.',
+    };
+  }
+  if (a.sent_at) return { ok: true, confirm: 'Kills the signing link. The guest can no longer sign.' };
+  return { ok: true, confirm: null };
+}
+
 export const AGREEMENT_STATUS_LABEL: Record<AgreementStatus, string> = {
   draft: 'Draft',
   sent: 'Sent',
