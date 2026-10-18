@@ -1,7 +1,8 @@
 'use client';
 
+import Link from 'next/link';
 import { opensIn } from '@/lib/forecast-operating-windows';
-import { useMemo, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import {
   calcYear,
   getYearConfig,
@@ -22,6 +23,7 @@ import type { SmartForecast } from '@/lib/forecast-smart';
 import type { ProspectForecast } from '@/lib/forecast-prospects';
 import type { StatementRevenueByMonth } from '@/lib/forecast-statement-actuals';
 import { describeMonths, type YtdSummary } from '@/lib/forecast-fy-total';
+import { describeMeasured, scenarioQuery, type ForecastScenario } from '@/lib/forecast-scenario';
 
 const KNOWN_2026 = knownFromRoster(CURRENT_2026);
 
@@ -70,6 +72,8 @@ type Props = {
   bankActuals2026: readonly MonthlyActual[];
   /** Last 1-indexed calendar month with complete bank actuals. */
   bankActualsThrough2026: number;
+  /** Year and sliders from the link (?year=&new=), read on the server for the first paint. */
+  initialScenario: ForecastScenario;
 };
 
 export function ForecastClient({
@@ -83,14 +87,26 @@ export function ForecastClient({
   ytdByYear,
   bankActuals2026,
   bankActualsThrough2026,
+  initialScenario,
 }: Props) {
   // Independent per-year state. Earlier years' additions roll forward as
   // full-year actives in later years; the slider for each year only
-  // controls THAT year's incremental adds.
-  const [numNew2026, setNumNew2026] = useState<number>(3);
-  const [numNew2027, setNumNew2027] = useState<number>(3);
-  const [numNew2028, setNumNew2028] = useState<number>(3);
-  const [yearKey, setYearKey] = useState<ForecastYear>(2026);
+  // controls THAT year's incremental adds. The starting values come from
+  // the link, so a scenario can be shared; the defaults are 2026 and 3/3/3.
+  const [numNew2026, setNumNew2026] = useState<number>(initialScenario.numNew[0]);
+  const [numNew2027, setNumNew2027] = useState<number>(initialScenario.numNew[1]);
+  const [numNew2028, setNumNew2028] = useState<number>(initialScenario.numNew[2]);
+  const [yearKey, setYearKey] = useState<ForecastYear>(initialScenario.year);
+
+  // Mirror the scenario into the address bar. The native history call, never
+  // the router: a router navigation re-runs this page's server work (every
+  // Guesty and statement read) for what is only a slider move. Replace, not
+  // push, so dragging a slider does not fill the back button.
+  useEffect(() => {
+    const { pathname, search, hash } = window.location;
+    const query = scenarioQuery({ year: yearKey, numNew: [numNew2026, numNew2027, numNew2028] });
+    if (query !== search) window.history.replaceState(null, '', `${pathname}${query}${hash}`);
+  }, [yearKey, numNew2026, numNew2027, numNew2028]);
 
   // The slider value that drives this year's calc.
   const numNew =
@@ -135,8 +151,12 @@ export function ForecastClient({
     yearKey === 2026 ? roster2026 :
     yearKey === 2027 ? roster2027 :
     roster2028;
-  // How many homes each forward year starts with before its rollovers and
-  // new ones, for the slider captions. Offline homes are already out.
+  // How many homes each year starts with before its rollovers and new ones,
+  // for the slider captions. 2026 is the same live count the KPI strip
+  // prints for 2026; forward years have their offline homes already out.
+  const base2026 = smart2026
+    ? smart2026.properties.length
+    : getYearConfig(2026, 0, opensIn, undefined, roster2026).current.length;
   const base2027 = getYearConfig(2027, 0, opensIn, undefined, roster2027).current.length;
   const base2028 = getYearConfig(2028, 0, opensIn, undefined, roster2028).current.length;
 
@@ -263,6 +283,10 @@ export function ForecastClient({
   };
 
   const springTrough = Math.min(...year.cumulative.slice(0, 6), 0);
+  // The month the trough lands in, so the caption names the window it
+  // measures (January to June) and where in it the low point fell.
+  const springTroughMonth = springTrough < 0 ? MONTH_LABELS[year.cumulative.slice(0, 6).indexOf(springTrough)] : null;
+  const measured = describeMeasured(year.monthly);
   // Total managed at year-end: the homes earning this year, plus every home
   // added on a PRIOR year's slider (rolled forward as a full-year active),
   // plus the prospects, plus this year's new. Leaving the rollovers out
@@ -283,6 +307,7 @@ export function ForecastClient({
         setNumNew2027={setNumNew2027}
         numNew2028={numNew2028}
         setNumNew2028={setNumNew2028}
+        base2026={base2026}
         prospectsCount2026={prospects2026.totals.count}
       />
 
@@ -297,6 +322,7 @@ export function ForecastClient({
           totalManaged={totalManaged}
           rolledForward={rolledForward}
           springTrough={springTrough}
+          springTroughMonth={springTroughMonth}
           yearKey={yearKey}
           currentCount={liveCurrentCount}
           prospectsCount={prospectsForYear.totals.count}
@@ -309,20 +335,14 @@ export function ForecastClient({
         style={{ paddingBottom: 32, width: '100%' }}
       >
         <SectionTitle title="Monthly Detail" tag={String(yearKey)} />
-        <div
-          style={{
-            border: '1px solid var(--rule)',
-            background: 'var(--paper)',
-            overflowX: 'auto',
-          }}
-        >
-          <ForecastTable
-            year={year}
-            yearKey={yearKey}
-            currentCount={liveCurrentCount}
-            prospectsCount={prospectsForYear.totals.count}
-          />
-        </div>
+        <div style={{ margin: '8px 0 10px', fontSize: 12, color: 'var(--ink-2)' }}>{measured.line}</div>
+        <ForecastTable
+          year={year}
+          yearKey={yearKey}
+          currentCount={liveCurrentCount}
+          prospectsCount={prospectsForYear.totals.count}
+          ruleBefore={measured.ruleBefore}
+        />
       </section>
 
       {/* Per-property forward booking detail */}
@@ -344,16 +364,12 @@ export function ForecastClient({
         />
       </section>
 
-      {/* Prospect pipeline panel — what's in flight + each prospect's weighted contribution */}
+      {/* The pipeline in one line; each deck lives on Prospects. */}
       <section
         className="max-w-[1100px] mx-auto px-10"
         style={{ paddingBottom: 32, width: '100%' }}
       >
-        <SectionTitle
-          title={`Prospect pipeline · ${yearKey}`}
-          tag={`${prospectsForYear.totals.count} prospect${prospectsForYear.totals.count === 1 ? '' : 's'} · owner payout shown for prospects · RT mgmt fee weighted by close %`}
-        />
-        <ProspectsPanel data={prospectsForYear} yearKey={yearKey} />
+        <ProspectsLine data={prospectsForYear} yearKey={yearKey} />
       </section>
 
       {/* Notes & Methodology — collapsible bottom block */}
@@ -398,6 +414,10 @@ export function ForecastClient({
           .rt-forecast-kpi {
             grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
           }
+          :global(.rt-forecast-defs) {
+            grid-template-columns: 1fr !important;
+            row-gap: 4px !important;
+          }
         }
       `}</style>
     </>
@@ -432,10 +452,8 @@ function SmartForecastPanel({
           fontStyle: 'italic',
         }}
       >
-        Smart forecast unavailable. Either Supabase isn&apos;t configured, the
-        guesty_reservations table is empty, or the live fetch failed (see
-        server logs). Falls back gracefully — the seasonality-based projection
-        still works.
+        Live bookings did not load, so there is no per-property forecast. The
+        months ahead above use the seasonal curve; reload to try again.
       </div>
     );
   }
@@ -491,6 +509,8 @@ function SmartForecastPanel({
   }. Real money, not projected. The in-progress month is never counted as an actual, so it stays in the projected columns.`;
   const fyFor = (propertyId: string, projected: number) =>
     (ytd.byProperty[propertyId] ?? 0) + projected;
+  // The same rule Monthly Detail draws: billed to its left, projected to its right.
+  const fwdRule = (i: number) => (showYtd && i === 0 ? RULE_LEFT : null);
 
   return (
     <div
@@ -514,12 +534,12 @@ function SmartForecastPanel({
             <Th first>&nbsp;</Th>
             <Th>Fee %</Th>
             {showYtd && (
-              <Th actual title={ytdTitle}>
+              <Th title={ytdTitle}>
                 YTD
               </Th>
             )}
-            {data.months.map((m) => (
-              <Th key={m}>{fmtMonth(m)}</Th>
+            {data.months.map((m, i) => (
+              <Th key={m} ruleLeft={fwdRule(i) != null}>{fmtMonth(m)}</Th>
             ))}
             <Th totals title={spanTitle}>
               {spanLabel}
@@ -540,12 +560,13 @@ function SmartForecastPanel({
             </td>
             <td style={cellStyle({ color: 'var(--ink-4)' })}>—</td>
             {showYtd && <td style={cellStyle({ color: 'var(--ink-4)' })}>—</td>}
-            {data.monthInputs.map((mi) => (
+            {data.monthInputs.map((mi, i) => (
               <td
                 key={mi.month}
                 style={cellStyle({
                   color: mi.pacingPct < mi.historicalAvgPct ? 'var(--ink-2)' : 'var(--positive)',
                   fontSize: 10,
+                  ...fwdRule(i),
                 })}
               >
                 {mi.pacingPct.toFixed(1)}% / {mi.historicalAvgPct.toFixed(1)}%
@@ -560,13 +581,14 @@ function SmartForecastPanel({
             </td>
             <td style={cellStyle({ color: 'var(--ink-4)' })}>—</td>
             {showYtd && <td style={cellStyle({ color: 'var(--ink-4)' })}>—</td>}
-            {data.monthInputs.map((mi) => (
+            {data.monthInputs.map((mi, i) => (
               <td
                 key={mi.month}
                 style={cellStyle({
                   color: 'var(--ink-3)',
                   fontStyle: 'italic',
                   fontSize: 10,
+                  ...fwdRule(i),
                 })}
               >
                 {mi.multiplier > 1 ? `${mi.multiplier.toFixed(1)}×` : '1×'}
@@ -650,7 +672,7 @@ function SmartForecastPanel({
                   {fmtUsd(ytd.byProperty[p.property.id] ?? 0)}
                 </td>
               )}
-              {p.monthly.map((m) => (
+              {p.monthly.map((m, i) => (
                 <td
                   key={m.month}
                   title={
@@ -662,6 +684,7 @@ function SmartForecastPanel({
                     color: m.projectedMgmtFee === 0 ? 'var(--ink-4)' : 'var(--positive)',
                     opacity: m.projectedMgmtFee === 0 ? 0.4 : 1,
                     fontWeight: m.projectedMgmtFee > 0 ? 600 : 400,
+                    ...fwdRule(i),
                   })}
                 >
                   {fmtUsd(m.projectedMgmtFee)}
@@ -716,7 +739,7 @@ function SmartForecastPanel({
                 {fmtUsd(ytd.total)}
               </td>
             )}
-            {data.months.map((ym) => {
+            {data.months.map((ym, i) => {
               const sum = data.properties.reduce((s, p) => {
                 const cell = p.monthly.find((mm) => mm.month === ym);
                 return s + (cell?.projectedMgmtFee ?? 0);
@@ -728,6 +751,7 @@ function SmartForecastPanel({
                     background: 'var(--ink)',
                     color: '#9bd1ad',
                     fontWeight: 600,
+                    ...fwdRule(i),
                   })}
                 >
                   {fmtUsd(sum)}
@@ -812,200 +836,45 @@ type AssumptionItem = { label: string; value: string };
 type AssumptionSection = { heading: string; items: AssumptionItem[] };
 
 /**
- * Live Prospects pipeline panel — one row per prospect. Owner payout (what
- * the prospect's deck shows them) sits next to RT mgmt fee (what RT keeps),
- * and the weighted column folds in close_likelihood_pct to give the
- * expected-value contribution that flows into the Monthly Detail table.
+ * The prospect pipeline as one line: how many decks are open and the
+ * management fee they add to this year once weighted by close likelihood
+ * (the same figure as the Prospects row in Monthly Detail). Each deck, its
+ * owner payout and its close percent live on Prospects, which this links.
  */
-function ProspectsPanel({
+function ProspectsLine({
   data,
   yearKey,
 }: {
   data: ProspectForecast;
   yearKey: ForecastYear;
 }) {
-  if (data.prospects.length === 0) {
-    return (
-      <div
-        style={{
-          marginTop: 14,
-          border: '1px solid var(--rule)',
-          background: 'var(--paper)',
-          padding: '24px',
-          color: 'var(--ink-3)',
-          fontSize: 13,
-          fontStyle: 'italic',
-        }}
-      >
-        No active prospects in Helm. Add prospects via /prospects to feed the forecast.
-      </div>
-    );
-  }
-
-  const sorted = [...data.prospects].sort(
-    (a, b) => b.annualExpectedMgmtFee - a.annualExpectedMgmtFee
-  );
-
-  const fmtPct = (n: number) => `${Math.round(n * 100)}%`;
-  const fmtUsd = (n: number) =>
-    `$${Math.round(n).toLocaleString('en-US')}`;
-
+  const n = data.totals.count;
   return (
     <div
       style={{
-        marginTop: 14,
-        border: '1px solid var(--rule)',
-        background: 'var(--paper)',
-        overflowX: 'auto',
+        display: 'flex',
+        alignItems: 'baseline',
+        justifyContent: 'space-between',
+        gap: 12,
+        flexWrap: 'wrap',
+        borderTop: '1px solid var(--ink)',
+        borderBottom: '1px solid var(--rule)',
+        padding: '12px 0',
+        fontSize: 13,
+        color: 'var(--ink-2)',
       }}
     >
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, background: 'var(--paper)' }}>
-        <thead>
-          <tr>
-            <th style={pcThStyle('left', 220)}>Prospect</th>
-            <th style={pcThStyle('left', 80)}>Market</th>
-            <th style={pcThStyle('right', 90)}>Fee %</th>
-            <th style={pcThStyle('right', 110)}>Close %</th>
-            <th style={pcThStyle('right', 150)}>Owner payout (Y1)</th>
-            <th style={pcThStyle('right', 140)}>RT mgmt fee · Y1</th>
-            <th style={pcThStyle('right', 150)}>Weighted · {yearKey}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {sorted.map((p) => (
-            <tr key={p.prospectId}>
-              <td style={pcCellStyle({ fontWeight: 500, color: 'var(--ink-2)', textAlign: 'left' })}>
-                {p.name}
-                {p.isClosed && (
-                  <span
-                    style={{
-                      marginLeft: 8,
-                      fontSize: 9,
-                      fontWeight: 700,
-                      letterSpacing: '.1em',
-                      color: 'var(--positive)',
-                    }}
-                  >
-                    SIGNED
-                  </span>
-                )}
-              </td>
-              <td style={pcCellStyle({ color: 'var(--ink-3)', textAlign: 'left', fontSize: 11 })}>
-                {p.market} · {p.bedrooms}BR
-              </td>
-              <td style={pcCellStyle({ color: 'var(--signal)', fontWeight: 600 })}>
-                {fmtPct(p.mgmtFeePct)}
-              </td>
-              <td
-                style={pcCellStyle({
-                  color: p.closeProbability >= 0.66
-                    ? 'var(--positive)'
-                    : p.closeProbability <= 0.33
-                    ? 'var(--ink-4)'
-                    : 'var(--ink-3)',
-                  fontWeight: 600,
-                })}
-              >
-                {fmtPct(p.closeProbability)}
-              </td>
-              <td
-                style={pcCellStyle({
-                  fontFamily: 'var(--font-mono-dash), monospace',
-                  color: 'var(--ink-2)',
-                })}
-              >
-                {fmtUsd(p.ownerPayoutLow)}–{fmtUsd(p.ownerPayoutHigh)}
-              </td>
-              <td
-                style={pcCellStyle({
-                  fontFamily: 'var(--font-mono-dash), monospace',
-                  color: 'var(--ink-3)',
-                })}
-              >
-                {fmtUsd(p.annualMgmtFee)}
-              </td>
-              <td
-                style={pcCellStyle({
-                  fontFamily: 'var(--font-mono-dash), monospace',
-                  color: 'var(--positive)',
-                  fontWeight: 700,
-                  background: 'rgba(58, 107, 74, 0.06)',
-                })}
-              >
-                {fmtUsd(p.annualExpectedMgmtFee)}
-              </td>
-            </tr>
-          ))}
-          <tr>
-            <td
-              style={pcCellStyle({
-                background: 'var(--ink)',
-                color: 'var(--paper)',
-                fontWeight: 700,
-                textAlign: 'left',
-              })}
-              colSpan={6}
-            >
-              ◆ Pipeline total ({sorted.length} prospect{sorted.length === 1 ? '' : 's'})
-            </td>
-            <td
-              style={pcCellStyle({
-                background: 'var(--ink-2)',
-                color: '#9bd1ad',
-                fontWeight: 700,
-                fontFamily: 'var(--font-mono-dash), monospace',
-              })}
-            >
-              {fmtUsd(data.totals.expectedMgmtFee)}
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <div
-        style={{
-          padding: '10px 16px',
-          fontSize: 11,
-          lineHeight: 1.55,
-          color: 'var(--ink-3)',
-          borderTop: '1px solid var(--rule)',
-          background: 'var(--paper-2)',
-        }}
-      >
-        <strong style={{ color: 'var(--ink-2)' }}>How weighting works:</strong>{' '}
-        Each prospect&apos;s RT mgmt fee comes from their projection deck (home value × tier
-        rate blended with AirDNA 3-yr average, × their mgmt-fee % rate). The weighted column
-        multiplies by <code>close_likelihood_pct</code> (null defaults to 50%). Sum of the
-        weighted column feeds the &ldquo;Prospects (weighted)&rdquo; row in the Monthly
-        Detail table above.
-      </div>
+      <span>
+        <span className="eyebrow" style={{ marginRight: 12 }}>Prospect pipeline · {yearKey}</span>
+        {n === 0
+          ? 'No open prospects.'
+          : `${n} prospect${n === 1 ? '' : 's'} · ${fmtCompactSimple(data.totals.expectedMgmtFee)} mgmt fee, weighted by close %`}
+      </span>
+      <Link href="/properties/prospects" style={{ color: 'var(--signal)', fontSize: 12 }}>
+        {n === 0 ? 'Add a prospect' : 'Open Prospects'} →
+      </Link>
     </div>
   );
-}
-
-function pcThStyle(align: 'left' | 'right', width?: number): React.CSSProperties {
-  return {
-    background: 'var(--ink)',
-    color: 'var(--paper)',
-    padding: '9px 12px',
-    textAlign: align,
-    fontWeight: 500,
-    fontSize: 10,
-    letterSpacing: '.08em',
-    textTransform: 'uppercase',
-    whiteSpace: 'nowrap',
-    width: width ? `${width}px` : 'auto',
-  };
-}
-
-function pcCellStyle(extra?: React.CSSProperties): React.CSSProperties {
-  return {
-    padding: '8px 12px',
-    borderBottom: '1px solid var(--rule)',
-    fontVariantNumeric: 'tabular-nums',
-    verticalAlign: 'middle',
-    textAlign: 'right',
-    ...extra,
-  };
 }
 
 function Assumptions({ yearKey }: { yearKey: ForecastYear }) {
@@ -1068,17 +937,17 @@ const sections2026: AssumptionSection[] = [
   {
     heading: 'Revenue',
     items: [
-      { label: 'Properties', value: 'Seventeen homes filed 2026 statements and make up the Properties row. Closed months (ACT) carry the real management fee from those statements from April 2026; January to March carry the bank sweep from Chase ...5130, because the Statements module began in April. Forward months come from the smart forecast: the bookings already in Guesty for each home, pace-corrected against the capture rate Rising Tide itself achieved on the closed months of 2026, blended with the annual gross of the home spread over the Gloucester revenue curve. That annual gross is floored at what the closed statements of the home prove: while it is still ramping (two or three closed months), the larger of its latest full month and its whole record (first ramp month dropped once there are three); from four closed months, the whole record alone, so one strong month cannot set the year (decided 2026-10-15, when a single September had 17 Beach at $358K a year). Each month is held at no less than what is already booked, and the pacing scale-up is capped at 2.5x. Rows the floor lifts carry a floor tag in the per-property table. A unit of a home already in the table (17 Beach\'s front unit and guest house, split off on 2026-09-28) sells the same nights as the whole house, so it projects only its own bookings, never the portfolio average; such rows carry a unit tag. Outside June to September every home\'s curve share is scaled to its own off-season, read from the shoulder month on the books (October 2026 as of mid-October: 17 Beach at 61% of what the curve expected, 84 Thatcher 54%, most homes at 100%), so a summer house is not projected a market-shaped winter; the factor only lowers, and rows it lowers carry an off-season tag.' },
-      { label: 'Prospects', value: 'The live /prospects pipeline. Each deck projects a year-one fee; it enters month by month, weighted by close likelihood.' },
+      { label: 'Properties', value: 'Seventeen homes filed 2026 statements and make up the Properties row. Measured months carry the real management fee from those statements from April 2026; January to March carry the bank sweep from Chase ...5130, because the Statements module began in April. Forward months come from the smart forecast: the bookings already in Guesty for each home, pace-corrected against the capture rate Rising Tide itself achieved on the closed months of 2026, blended with the annual gross of the home spread over the Gloucester revenue curve. That annual gross is floored at what the closed statements of the home prove: while it is still ramping (two or three closed months), the larger of its latest full month and its whole record (first ramp month dropped once there are three); from four closed months, the whole record alone, so one strong month cannot set the year (decided 2026-10-15, when a single September had 17 Beach at $358K a year). Each month is held at no less than what is already booked, and the pacing scale-up is capped at 2.5x. Rows the floor lifts carry a floor tag in the per-property table. A unit of a home already in the table (17 Beach\'s front unit and guest house, split off on 2026-09-28) sells the same nights as the whole house, so it projects only its own bookings, never the portfolio average; such rows carry a unit tag. Outside June to September every home\'s curve share is scaled to its own off-season, read from the shoulder month on the books (October 2026 as of mid-October: 17 Beach at 61% of what the curve expected, 84 Thatcher 54%, most homes at 100%), so a summer house is not projected a market-shaped winter; the factor only lowers, and rows it lowers carry an off-season tag.' },
+      { label: 'Prospects', value: 'The live prospect pipeline (Prospects). Each deck projects a year-one fee; it enters month by month, weighted by close likelihood.' },
       { label: 'New mandates', value: '$25K/yr each in their first season on Cape Ann seasonality (4.3% of the year in each of Jan to May and Nov to Dec, 10% in Jun, Sep and Oct, 20% in Jul and Aug), from the month the slider starts them. Default 3, in Jul, Sep and Nov. Each carries the $3,000 outfitting charge in its start month, so a home added late in the year is a small loss in that year and earns its keep the next. From 2027 they roll forward at the fleet average fee per earning home.' },
       { label: 'Operating windows', value: '4 Brier Neck ran June to August 2026 and is not renewed (notice given 2026-08-31). 73 Rocky Neck is off from November 2026 and 79 Main after 21 October 2026. 16 Waterman runs May to October every year. A closed month projects no revenue, and the card and the bench count only the homes operating that month.' },
     ],
   },
   {
-    heading: 'Recurring monthly (projected months; ACT months show the bank)',
+    heading: 'Recurring monthly (projected months; measured months show the bank)',
     items: [
-      { label: 'Corporate card', value: 'Two parts, calibrated on 2026 card detail through October 7 and the Amazon Business export of October 15. Variable: guest supplies and small repairs at $2,950 per live home per year, on the Cape Ann turnover curve pulled one month earlier (a home is stocked before its guests arrive) and damped to 60%, with repairs at 12% of it. The rate is measured item by item: $1,805 of Amazon consumables per home per year, about $1,000 of replacement durables, and the non-Amazon stores. It was $8,360 until 2026-10-15, fitted with the summer outfitting orders left in; September, the first month after the onboarding wave, came in at a quarter of what that rate projected, so outfitting is now its own one-time charge (Onboarding, below). Fixed: GEICO $519, AT&T $114, travel $175, the rest of Other $185 (the van, card interest, the hiring run), marketing $680 through May 2026 and $225 from June (the step-down is measured on the card, not assumed), and two $199 Furnished Finder listings, one renewing in August and one in September. Projected months itemise the card by these terms; ACT months read the card\'s own categories.' },
-      { label: 'Software', value: '$2,700/mo flat in projected months, the September 2026 stack with no API usage in it: Guesty $1,323 (per listing, up from $973 in January), PriceLabs $246, the Claude seats, OpenAI, Seam, Quo, Adobe, AirDNA, Squarespace, Vercel, Supabase and the smaller tools. ACT months show the real card figure: $3,420 in July and $3,804 in August on Anthropic API credits the operator ruled a one-off, then $2,952 in September with that reload stream stopped. The nine-month 2026 mean is $2,598; the constant was $2,300 until 2026-10-15.' },
+      { label: 'Corporate card', value: 'Two parts, calibrated on 2026 card detail through October 7 and the Amazon Business export of October 15. Variable: guest supplies and small repairs at $2,950 per live home per year, on the Cape Ann turnover curve pulled one month earlier (a home is stocked before its guests arrive) and damped to 60%, with repairs at 12% of it. The rate is measured item by item: $1,805 of Amazon consumables per home per year, about $1,000 of replacement durables, and the non-Amazon stores. It was $8,360 until 2026-10-15, fitted with the summer outfitting orders left in; September, the first month after the onboarding wave, came in at a quarter of what that rate projected, so outfitting is now its own one-time charge (Onboarding, below). Fixed: GEICO $519, AT&T $114, travel $175, the rest of Other $185 (the van, card interest, the hiring run), marketing $680 through May 2026 and $225 from June (the step-down is measured on the card, not assumed), and two $199 Furnished Finder listings, one renewing in August and one in September. Projected months itemise the card by these terms; measured months read the card\'s own categories.' },
+      { label: 'Software', value: '$2,700/mo flat in projected months, the September 2026 stack with no API usage in it: Guesty $1,323 (per listing, up from $973 in January), PriceLabs $246, the Claude seats, OpenAI, Seam, Quo, Adobe, AirDNA, Squarespace, Vercel, Supabase and the smaller tools. Measured months show the real card figure: $3,420 in July and $3,804 in August on Anthropic API credits the operator ruled a one-off, then $2,952 in September with that reload stream stopped. The nine-month 2026 mean is $2,598; the constant was $2,300 until 2026-10-15.' },
       { label: 'Office', value: '$750/mo rent at 85 Eastern Ave from March 2026 when the lease began, plus $471/mo for the Republic Services dumpster through November 2026, the rate Republic has billed monthly since August. The dumpster was cancelled effective 2026-11-30 (notice sent 2026-10-05), so December is rent only.' },
       { label: 'Bank fees', value: '$10/mo. Real fee rows total $75 across 24 months; the old $100 figure counted bounced deposits, which are a wash, not a cost.' },
       { label: 'Contractors', value: 'The 1099 bench. Field labor (Delaney Jordan) at $33,700 a year per 16 homes, on Cape Ann seasonality and scaled to the live fleet, July to October 2026; from November it is her salary instead. Creative work (Cooper) $1,300/mo per 16 homes from July 2026 and listing photography (Lightshed, paid on the card) $1,000/mo per 16 homes from August 2026, both scaled to the live fleet. Everyone else $250/mo blended. The operating-account bench ran $8,288/mo over July 1 to August 25, 2026, plus two Lightshed shoots in the same window.' },
@@ -1108,7 +977,7 @@ const sections2027: AssumptionSection[] = [
     items: [
       { label: 'Active (Jan 1)', value: 'Every active managed home in Helm\'s registry drives the cost lines (card and bench), minus 4 Brier Neck, 73 Rocky Neck and 79 Main, which the operating windows have offline for the whole year; 16 Waterman is open May to October and counts only in those months. A home costs from the month it is activated, so 4 Middle Road is on the cost lines from day one rather than from its first closed statement. The revenue row is every active managed home in Helm with its operating window applied, so a home with no bookings or statements yet rides the portfolio-average gross (4 Middle Road today), except a unit of a home already in the table (17 Beach\'s front unit and guest house), which sells the whole house\'s nights and projects only its own bookings. Plus every home added on the 2026 slider, rolled forward as a full-year Cape Ann contract at the fleet average fee per earning home for 2027 (the mean of the per-property totals in the smart table, about $32K today), never below $25K.' },
       { label: 'Revenue per home', value: 'The smart forecast, almost entirely its annual-times-seasonality part: the annual gross of each home (its forward pace, floored at what its closed statements prove: the whole record once it has four closed months) spread over the Gloucester revenue curve, with the months outside June to September scaled to the home\'s own off-season as its shoulder month on the books showed it, times its fee percent. Bookings already placed for 2027 blend in where they exist.' },
-      { label: 'Prospects', value: 'The live /prospects pipeline. Each open deck contributes a full year at its projected fee times its close likelihood (50% when none is entered), and adds no cost until it becomes a property.' },
+      { label: 'Prospects', value: 'The live prospect pipeline (Prospects). Each open deck contributes a full year at its projected fee times its close likelihood (50% when none is entered), and adds no cost until it becomes a property.' },
       { label: 'New mandates', value: '$25K/yr each in their first season on Cape Ann seasonality from the month the slider starts them. Default 3, in Mar, Jun and Sep. They roll into 2028 at the fleet average fee.' },
     ],
   },
@@ -1146,7 +1015,7 @@ const sections2028: AssumptionSection[] = [
     items: [
       { label: 'Active (Jan 1)', value: 'The same active managed homes drive the cost lines and the revenue row, each with its operating window applied; a unit of a home already in the table projects only its own bookings. Plus everything added on the 2026 and 2027 sliders, all rolled forward as full-year Cape Ann contracts at the fleet average fee per earning home for 2028, never below $25K. Homes offline before 2028 stay out.' },
       { label: 'Revenue per home', value: 'The smart forecast on its annual-times-seasonality part alone: the annual gross of each home, floored at what its closed statements prove (the whole record once it has four closed months), spread over the Gloucester revenue curve with the months outside June to September scaled to the home\'s own off-season, times its fee percent. Bookings placed for 2028 blend in where they exist; none are on the books today.' },
-      { label: 'Prospects', value: 'The live /prospects pipeline: each open deck a full year at its projected fee times its close likelihood, no cost until it becomes a property.' },
+      { label: 'Prospects', value: 'The live prospect pipeline (Prospects): each open deck a full year at its projected fee times its close likelihood, no cost until it becomes a property.' },
       { label: 'New mandates', value: '$25K/yr each in their first season on Cape Ann seasonality. Default 3, in Mar, Jun and Sep.' },
     ],
   },
@@ -1191,6 +1060,7 @@ function ScenarioControl({
   setNumNew2027,
   numNew2028,
   setNumNew2028,
+  base2026,
   prospectsCount2026,
 }: {
   yearKey: ForecastYear;
@@ -1206,6 +1076,8 @@ function ScenarioControl({
   base2028: number;
   numNew2028: number;
   setNumNew2028: (n: number) => void;
+  /** The live 2026 count, the same one the KPI strip prints for 2026. */
+  base2026: number;
   prospectsCount2026: number;
 }) {
   // Show prior-year sliders too — earlier additions roll forward as
@@ -1260,7 +1132,7 @@ function ScenarioControl({
           setN={setNumNew2026}
           newOrder={getYearConfig(2026).newOrder}
           isActiveYear={yearKey === 2026}
-          subLabel={`beyond 9 current + ${prospectsCount2026} prospect${prospectsCount2026 === 1 ? '' : 's'}`}
+          subLabel={`beyond ${base2026} current + ${prospectsCount2026} prospect${prospectsCount2026 === 1 ? '' : 's'}`}
         />
         {showRow2027 && (
           <NumNewRow
@@ -1452,6 +1324,7 @@ function KpiStrip({
   totalManaged,
   rolledForward,
   springTrough,
+  springTroughMonth,
   yearKey,
   currentCount,
   prospectsCount,
@@ -1461,6 +1334,8 @@ function KpiStrip({
   totalManaged: number;
   rolledForward: number;
   springTrough: number;
+  /** Where the January-to-June low lands; null when the year never dips below $0. */
+  springTroughMonth: string | null;
   yearKey: ForecastYear;
   currentCount: number;
   prospectsCount: number;
@@ -1520,13 +1395,13 @@ function KpiStrip({
       <KpiCell
         label="Peak spring crunch"
         value={springTrough >= 0 ? '$0' : fmtDollar(springTrough)}
-        sub="End of May cumulative deficit"
+        sub={springTroughMonth ? `Lowest cumulative Jan to Jun, end of ${springTroughMonth}` : 'Never below $0, Jan to Jun'}
         topBorder
       />
       <KpiCell
         label="Prospects pipeline"
         value={fmtDollar(totals.rev_presigned)}
-        sub={`${prospectsCount} prospect${prospectsCount === 1 ? '' : 's'} · weighted mgmt fee from /prospects`}
+        sub={`${prospectsCount} prospect${prospectsCount === 1 ? '' : 's'} · mgmt fee weighted by close %`}
         topBorder
         last
       />
@@ -1604,174 +1479,197 @@ function KpiCell({
 
 /* ----------------------------------------------------------------- Table */
 
+/** A line of Monthly Detail and, when it has one, its row definition. */
+type Line = { label: string; info?: string; values: number[]; fy: number; highlight?: boolean };
+
+const sumOf = (rows: readonly MonthRow[], pick: (r: MonthRow) => number) => rows.reduce((a, r) => a + pick(r), 0);
+
 function ForecastTable({
   year,
   yearKey,
   currentCount,
   prospectsCount,
+  ruleBefore,
 }: {
   year: YearResult;
   yearKey: ForecastYear;
   currentCount: number;
   prospectsCount: number;
+  /** Month indexes (0-11) that open a new measured or projected run. */
+  ruleBefore: number[];
 }) {
   const { monthly, cumulative, totals } = year;
   const currentLabel = `Properties (${currentCount})`;
   const currentInfo =
     yearKey === 2026
-      ? 'Closed months (ACT) carry the real management fee from the statements from April 2026 (January to March carry the bank sweep, since the Statements module began in April) and the real expenses from Chase ...5130. Any reconciled month from property_statements overrides the projection automatically (the "ACT" badge marks those columns). Forward months without a closed statement use the Smart Forecast: Guesty bookings × Gloucester pacing × each property\'s actual mgmt fee %. Seasonality fallback only when Guesty is unavailable.'
+      ? 'Measured months carry the real management fee from the statements from April 2026 (January to March carry the bank sweep, since the Statements module began in April) and the real expenses from Chase ...5130. Any reconciled month from property_statements overrides the projection automatically (the measured columns, left of the rule). Forward months without a closed statement use the Smart Forecast: Guesty bookings × Gloucester pacing × each property\'s actual mgmt fee %. Seasonality fallback only when Guesty is unavailable.'
       : `${currentCount} homes earning in the year (seasonal homes included; offboarded homes at $0 are not counted). Each month uses statement actuals where Helm has reconciled the month, Smart Forecast where Guesty has bookings, and seasonality (scaled by the 2026 calibration factor) for everything else. Each property's annual gross is floored at the run rate its closed 2026 statements prove, so a home still ramping this August is not projected below it. Properties rolled forward from a prior year's slider ride Cape Ann seasonality on top, at the fleet average fee per earning home for the year (the mean of this table's per-property totals), never below the first-year $25K.`;
   const presignedLabel = `Prospects (${prospectsCount})`;
   const presignedInfo =
-    'Live pipeline from Helm\'s /prospects module. Each prospect\'s projected year-1 mgmt fee × close_likelihood_pct, summed per month. Owner payout (what the prospect sees) shown in the Prospect pipeline panel below; this row is what RT actually keeps.';
+    'Live pipeline from Prospects. Each prospect\'s projected year-1 mgmt fee × its close likelihood (50% when none is entered), summed per month. This row is what RT keeps; each deck\'s owner payout is on Prospects.';
+
+  const revenue: Line[] = [
+    { label: currentLabel, info: currentInfo, values: monthly.map((r) => r.rev_current), fy: totals.rev_current },
+    { label: presignedLabel, info: presignedInfo, values: monthly.map((r) => r.rev_presigned), fy: totals.rev_presigned },
+    { label: 'New', info: 'Hypothetical new contracts added via the slider above. $25K/yr on Cape Ann seasonality in their first season, which is a ramp, less the $3,000 outfitting charge on the Onboarding line in the month each starts. From the next year they roll into the Properties row at the fleet\'s projected average fee per earning home (never below $25K), so an added home is worth what the average home already run is worth.', values: monthly.map((r) => r.rev_new), fy: totals.rev_new, highlight: true },
+  ];
+  // Measured wherever the month carries card detail: the card's own
+  // categories for a measured month, the model's own terms for a projected
+  // one. The proportional split by fallback weight is only for a month
+  // whose card spend is known through a payoff alone, which has no
+  // categories to read.
+  const denom = CC_OPERATING_BREAKDOWN.reduce((a, c) => a + c.monthly, 0);
+  const recurring: Line[] = [
+    ...CC_OPERATING_BREAKDOWN.map((cat) => {
+      const catValue = (r: MonthRow) =>
+        r.cc_detail ? r.cc_detail[cat.key] : (r.exp_cc_ops * cat.monthly) / denom;
+      return { label: cat.label, info: cat.info, values: monthly.map(catValue), fy: sumOf(monthly, catValue) };
+    }),
+    { label: 'Office', info: '$750/mo rent at 85 Eastern Ave plus $471/mo for the Republic Services dumpster through November 2026: $165 a month April to June 2026, nothing in July, then $471 on 2026-08-14 and again on 2026-09-14, so $471 is the rate the last two months project. Lease started March 2026. The dumpster was cancelled effective 2026-11-30, so from December 2026 the line projects rent only. Measured months read the landlord ACHs from the operating account plus any Republic Services charge on the card.', values: monthly.map((r) => r.exp_office), fy: sumOf(monthly, (r) => r.exp_office) },
+    { label: 'Software', info: 'Software subscriptions on the corporate card: Guesty, Anthropic, PriceLabs, OpenAI, Seam, Quo, QuickBooks, Adobe, AirDNA, Squarespace, Vercel, Supabase and the smaller tools. Measured months show the real card figure ($2,740 Apr, $2,314 May, $1,272 Jun, $3,420 Jul, $3,804 Aug, $2,952 Sep 2026). Projected months carry a flat $2,700/mo, the September 2026 stack with no API usage in it; Guesty bills per listing and has grown from $973 to $1,323 this year. The subscription cuts an earlier version of this model assumed never showed up in the card data.', values: monthly.map((r) => r.exp_software), fy: sumOf(monthly, (r) => r.exp_software) },
+    { label: 'Bank fees', info: '$10/mo. Real fee rows on Chase ...5130 total $75 across 24 months; the old $100 to $112 figures counted bounced deposits, which are a wash, not a cost.', values: monthly.map((r) => r.exp_bank), fy: sumOf(monthly, (r) => r.exp_bank) },
+  ];
+  const people: Line[] = [
+    { label: 'Contractors', info: 'The 1099 bench. Delaney Jordan\'s field labor ran per job from 2026-07-07 out of Chase ...5130 by Zelle, clustered on checkout days, so it rode the seasonality curve and scaled with the fleet; it ends in October 2026, when she joins payroll (the row below). Cooper\'s creative work is $1,300/mo per 16 homes from 2026-07-29 on the Chase payroll rail, and Lightshed\'s listing photography $1,000/mo per 16 homes from August 2026 on the card, both scaled to the live fleet. Nicole Whitten, Ian Drometer and one-off trades blend to $250/mo. The operating-account bench ran $8,288/mo across July and August 2026. In a card-only month (operating export not yet uploaded) this row is the model\'s term plus what the card paid.', values: monthly.map((r) => r.exp_contractors), fy: sumOf(monthly, (r) => r.exp_contractors) },
+    { label: 'Operations manager', info: 'The one salaried hire, dated: Delaney Jordan moves from the bench to W-2 on 2026-11-01 at $65,000 a year. Projected months carry $5,417 of salary plus 9% payroll taxes, a 4% workers comp placeholder until the Wister quote lands, the $55 Gusto fee and the $50 phone allowance, about $6,226 a month, flat; it does not scale with the fleet. Mileage and summer overtime are not projected. Measured months read the Gusto debits (net pay, taxes and the fee) from the operating account. $0 before November 2026.', values: monthly.map((r) => r.exp_payroll), fy: sumOf(monthly, (r) => r.exp_payroll) },
+  ];
+  const onboarding = (r: MonthRow) => r.exp_onboard_presigned + r.exp_onboard_new;
+  const periodic: Line[] = [
+    { label: 'Onboarding', info: 'Outfitting a new home, charged once in the month a slider home starts: $3,000. The linen order is $2,156 (Fix Linens billed $23,719 across the eleven 2026 onboardings) and the Amazon durables bought for a new home beyond a settled home\'s replacement trickle are about $850: towels, bedclothes, rugs, a Schlage lock, soap dispensers, a hair dryer, a coffee maker, shelving, measured item by item on the Amazon Business export of 2026-10-15. The supplies left over once the per-home run rate is taken out say the same ($3,020 each). The card shows what Rising Tide paid; whether an owner should fund outfitting instead is an open decision. Measured months carry it inside Guest supplies, where the card put it. It was $0 until 2026-10-15, which is why the summer read as a supplies run rate.', values: monthly.map(onboarding), fy: sumOf(monthly, onboarding) },
+    { label: 'Bookkeeper', info: 'MH Partners outside bookkeeper. ~$1,000/mo Jan-Apr 2026, $1,800 final wrap-up payment in May, then $0 — engagement ends.', values: monthly.map((r) => r.exp_debt), fy: sumOf(monthly, (r) => r.exp_debt) },
+    { label: 'Insurance', info: 'Premiums paid once, not monthly. Phillips commercial liability, $5,263.92 by ACH on 2026-03-02, assumed to renew each March. Arbella, $3,188.57 on the card on 2026-04-15, is treated as a one-time hit and is not projected forward. GEICO auto is monthly and lives on the Vehicle & other insurance row above. $0 every other month.', values: monthly.map((r) => r.exp_insurance), fy: sumOf(monthly, (r) => r.exp_insurance) },
+    { label: 'Accounting', info: 'MS Consultants $4,442.96 paid 4/15/2026 was a one-time engagement, not recurring. $0 going forward.', values: monthly.map((r) => r.exp_accounting), fy: sumOf(monthly, (r) => r.exp_accounting) },
+  ];
+
+  // One disclosure under the table instead of a hover popover per row, so
+  // the definitions are there on a phone too. A card-only month gets its own
+  // entry, since the as-of line above only names it.
+  const cardOnly = MONTH_LABELS.filter((_, i) => monthly[i]?.actual_card_only);
+  const definitions: Array<{ label: string; text: string }> = [
+    ...(cardOnly.length > 0
+      ? [{
+          label: `Card only (${cardOnly.join(', ')})`,
+          text: 'Card actual. The operating account export has not reached this month, so rent, the contractor bench, payroll, the bookkeeper and bank fees are the model\'s own terms for it. Upload the Chase ...5130 export on Cost Analysis to replace them.',
+        }]
+      : []),
+    ...[...revenue, ...recurring, ...people, ...periodic]
+      .filter((l): l is Line & { info: string } => !!l.info)
+      .map((l) => ({ label: l.label, text: l.info })),
+  ];
+
+  const lineRows = (lines: Line[]) =>
+    lines.map((l) => <DataRow key={l.label} label={l.label} values={l.values} fy={l.fy} highlight={l.highlight} />);
 
   return (
-    <table
-      style={{
-        width: '100%',
-        borderCollapse: 'collapse',
-        fontSize: 11.5,
-        background: 'var(--paper)',
-      }}
-    >
-      <thead>
-        <tr>
-          <Th first>&nbsp;</Th>
-          {MONTH_LABELS.map((m, i) => (
-            <Th
-              key={m}
-              actual={monthly[i]?.is_actual}
-              partial={monthly[i]?.actual_card_only}
-              title={
-                monthly[i]?.actual_card_only
-                  ? 'Card actual. The operating account export has not reached this month, so rent, the contractor bench, payroll, the bookkeeper and bank fees are the model\'s own terms for it. Upload the Chase ...5130 export on Cost Analysis to replace them.'
-                  : undefined
-              }
-            >
-              {m}
-            </Th>
-          ))}
-          <Th totals>FY</Th>
-        </tr>
-      </thead>
-      <tbody>
-        <SectionRow label="Revenue" />
-        <DataRow label={currentLabel} info={currentInfo} values={monthly.map((r) => r.rev_current)} fy={totals.rev_current} />
-        <DataRow label={presignedLabel} info={presignedInfo} values={monthly.map((r) => r.rev_presigned)} fy={totals.rev_presigned} />
-        <DataRow
-          label="New"
-          info="Hypothetical new contracts added via the slider above. $25K/yr on Cape Ann seasonality in their first season, which is a ramp, less the $3,000 outfitting charge on the Onboarding line in the month each starts. From the next year they roll into the Properties row at the fleet's projected average fee per earning home (never below $25K), so an added home is worth what the average home already run is worth."
-          values={monthly.map((r) => r.rev_new)}
-          fy={totals.rev_new}
-          highlight
-        />
-        <TotalRow label="Total revenue" values={monthly.map((r) => r.rev_total)} fy={totals.rev_total} />
+    <MonthRules.Provider value={ruleBefore}>
+      <div
+        style={{
+          border: '1px solid var(--rule)',
+          background: 'var(--paper)',
+          overflowX: 'auto',
+        }}
+      >
+        <table
+          style={{
+            width: '100%',
+            borderCollapse: 'collapse',
+            fontSize: 11.5,
+            background: 'var(--paper)',
+          }}
+        >
+          <thead>
+            <tr>
+              <Th first>&nbsp;</Th>
+              {MONTH_LABELS.map((m, i) => (
+                <Th key={m} ruleLeft={ruleBefore.includes(i)}>
+                  {m}
+                </Th>
+              ))}
+              <Th totals>FY</Th>
+            </tr>
+          </thead>
+          <tbody>
+            <SectionRow label="Revenue" />
+            {lineRows(revenue)}
+            <TotalRow label="Total revenue" values={monthly.map((r) => r.rev_total)} fy={totals.rev_total} />
 
-        <SectionRow label="Expenses" tag="grouped & sorted by size · calibrated to Chase ...5130 actuals" />
+            <SectionRow label="Expenses" tag="grouped & sorted by size · calibrated to Chase ...5130 actuals" />
 
-        <SubsectionRow label="Recurring monthly" />
-        {CC_OPERATING_BREAKDOWN.map((cat) => {
-          // Measured wherever the month carries card detail: the card's own
-          // categories for an ACT month, the model's own terms for a
-          // projected one. The proportional split by fallback weight is
-          // only for a month whose card spend is known through a payoff
-          // alone, which has no categories to read.
-          const denom = CC_OPERATING_BREAKDOWN.reduce((a, c) => a + c.monthly, 0);
-          const catValue = (r: MonthRow) =>
-            r.cc_detail ? r.cc_detail[cat.key] : (r.exp_cc_ops * cat.monthly) / denom;
-          return (
-            <DataRow
-              key={cat.label}
-              label={cat.label}
-              info={cat.info}
-              values={monthly.map(catValue)}
-              fy={monthly.reduce((a, r) => a + catValue(r), 0)}
-            />
-          );
-        })}
-        <DataRow
-          label="Office"
-          info="$750/mo rent at 85 Eastern Ave plus $471/mo for the Republic Services dumpster through November 2026: $165 a month April to June 2026, nothing in July, then $471 on 2026-08-14 and again on 2026-09-14, so $471 is the rate the last two months project. Lease started March 2026. The dumpster was cancelled effective 2026-11-30, so from December 2026 the line projects rent only. ACT months read the landlord ACHs from the operating account plus any Republic Services charge on the card."
-          values={monthly.map((r) => r.exp_office)}
-          fy={monthly.reduce((a, r) => a + r.exp_office, 0)}
-        />
-        <DataRow
-          label="Software"
-          info="Software subscriptions on the corporate card: Guesty, Anthropic, PriceLabs, OpenAI, Seam, Quo, QuickBooks, Adobe, AirDNA, Squarespace, Vercel, Supabase and the smaller tools. ACT months show the real card figure ($2,740 Apr, $2,314 May, $1,272 Jun, $3,420 Jul, $3,804 Aug, $2,952 Sep 2026). Projected months carry a flat $2,700/mo, the September 2026 stack with no API usage in it; Guesty bills per listing and has grown from $973 to $1,323 this year. The subscription cuts an earlier version of this model assumed never showed up in the card data."
-          values={monthly.map((r) => r.exp_software)}
-          fy={monthly.reduce((a, r) => a + r.exp_software, 0)}
-        />
-        <DataRow
-          label="Bank fees"
-          info="$10/mo. Real fee rows on Chase ...5130 total $75 across 24 months; the old $100 to $112 figures counted bounced deposits, which are a wash, not a cost."
-          values={monthly.map((r) => r.exp_bank)}
-          fy={monthly.reduce((a, r) => a + r.exp_bank, 0)}
-        />
+            <SubsectionRow label="Recurring monthly" />
+            {lineRows(recurring)}
 
-        <SubsectionRow label="People" />
-        <DataRow
-          label="Contractors"
-          info="The 1099 bench. Delaney Jordan's field labor ran per job from 2026-07-07 out of Chase ...5130 by Zelle, clustered on checkout days, so it rode the seasonality curve and scaled with the fleet; it ends in October 2026, when she joins payroll (the row below). Cooper's creative work is $1,300/mo per 16 homes from 2026-07-29 on the Chase payroll rail, and Lightshed's listing photography $1,000/mo per 16 homes from August 2026 on the card, both scaled to the live fleet. Nicole Whitten, Ian Drometer and one-off trades blend to $250/mo. The operating-account bench ran $8,288/mo across July and August 2026. In an ACT* month (operating export not yet uploaded) this row is the model's term plus what the card paid."
-          values={monthly.map((r) => r.exp_contractors)}
-          fy={monthly.reduce((a, r) => a + r.exp_contractors, 0)}
-        />
-        <DataRow
-          label="Operations manager"
-          info="The one salaried hire, dated: Delaney Jordan moves from the bench to W-2 on 2026-11-01 at $65,000 a year. Projected months carry $5,417 of salary plus 9% payroll taxes, a 4% workers comp placeholder until the Wister quote lands, the $55 Gusto fee and the $50 phone allowance, about $6,226 a month, flat; it does not scale with the fleet. Mileage and summer overtime are not projected. ACT months read the Gusto debits (net pay, taxes and the fee) from the operating account. $0 before November 2026."
-          values={monthly.map((r) => r.exp_payroll)}
-          fy={monthly.reduce((a, r) => a + r.exp_payroll, 0)}
-        />
+            <SubsectionRow label="People" />
+            {lineRows(people)}
 
-        <SubsectionRow label="Periodic & wind-down" />
-        <DataRow
-          label="Onboarding"
-          info="Outfitting a new home, charged once in the month a slider home starts: $3,000. The linen order is $2,156 (Fix Linens billed $23,719 across the eleven 2026 onboardings) and the Amazon durables bought for a new home beyond a settled home's replacement trickle are about $850: towels, bedclothes, rugs, a Schlage lock, soap dispensers, a hair dryer, a coffee maker, shelving, measured item by item on the Amazon Business export of 2026-10-15. The supplies left over once the per-home run rate is taken out say the same ($3,020 each). The card shows what Rising Tide paid; whether an owner should fund outfitting instead is an open decision. ACT months carry it inside Guest supplies, where the card put it. It was $0 until 2026-10-15, which is why the summer read as a supplies run rate."
-          values={monthly.map((r) => r.exp_onboard_presigned + r.exp_onboard_new)}
-          fy={monthly.reduce((a, r) => a + r.exp_onboard_presigned + r.exp_onboard_new, 0)}
-        />
-        <DataRow
-          label="Bookkeeper"
-          info="MH Partners outside bookkeeper. ~$1,000/mo Jan-Apr 2026, $1,800 final wrap-up payment in May, then $0 — engagement ends."
-          values={monthly.map((r) => r.exp_debt)}
-          fy={monthly.reduce((a, r) => a + r.exp_debt, 0)}
-        />
-        <DataRow
-          label="Insurance"
-          info="Premiums paid once, not monthly. Phillips commercial liability, $5,263.92 by ACH on 2026-03-02, assumed to renew each March. Arbella, $3,188.57 on the card on 2026-04-15, is treated as a one-time hit and is not projected forward. GEICO auto is monthly and lives on the Vehicle & other insurance row above. $0 every other month."
-          values={monthly.map((r) => r.exp_insurance)}
-          fy={monthly.reduce((a, r) => a + r.exp_insurance, 0)}
-        />
-        <DataRow
-          label="Accounting"
-          info="MS Consultants $4,442.96 paid 4/15/2026 was a one-time engagement, not recurring. $0 going forward."
-          values={monthly.map((r) => r.exp_accounting)}
-          fy={monthly.reduce((a, r) => a + r.exp_accounting, 0)}
-        />
-        <SubtotalRow label="Total expenses" values={monthly.map((r) => r.exp_total)} fy={totals.exp_total} variant="expense" />
+            <SubsectionRow label="Periodic & wind-down" />
+            {lineRows(periodic)}
+            <SubtotalRow label="Total expenses" values={monthly.map((r) => r.exp_total)} fy={totals.exp_total} variant="expense" />
 
-        <BottomLineRow label="Net business income" values={monthly.map((r) => r.net_business)} fy={totals.net_business} />
-        <CumulativeRow label="Cumulative YTD" values={cumulative} />
-      </tbody>
-    </table>
+            <BottomLineRow label="Net business income" values={monthly.map((r) => r.net_business)} fy={totals.net_business} />
+            <CumulativeRow label="Cumulative YTD" values={cumulative} />
+          </tbody>
+        </table>
+      </div>
+      <RowDefinitions definitions={definitions} />
+    </MonthRules.Provider>
+  );
+}
+
+/** The row definitions as one disclosure: tap to open, works without hover. */
+function RowDefinitions({ definitions }: { definitions: Array<{ label: string; text: string }> }) {
+  if (definitions.length === 0) return null;
+  return (
+    <details style={{ marginTop: 10, borderBottom: '1px solid var(--rule)' }}>
+      <summary
+        style={{
+          padding: '8px 0',
+          cursor: 'pointer',
+          fontSize: 12,
+          fontWeight: 600,
+          color: 'var(--ink-2)',
+          userSelect: 'none',
+        }}
+      >
+        Row definitions
+      </summary>
+      <dl className="rt-forecast-defs" style={{ margin: 0, padding: '4px 0 12px', display: 'grid', gridTemplateColumns: '200px 1fr', gap: '10px 24px', fontSize: 12, lineHeight: 1.5 }}>
+        {definitions.map((d) => (
+          <div key={d.label} style={{ display: 'contents' }}>
+            <dt className="eyebrow" style={{ paddingTop: 2 }}>{d.label}</dt>
+            <dd style={{ margin: 0, color: 'var(--ink-2)' }}>{d.text}</dd>
+          </div>
+        ))}
+      </dl>
+    </details>
   );
 }
 
 /* --------------------------------------------------- Table cell helpers */
 
+/**
+ * The rule between the last measured month and the first projected one.
+ * Monthly Detail provides the column indexes; every row reads them, so the
+ * line runs the height of the table.
+ */
+const RULE_LEFT: React.CSSProperties = { borderLeft: '2px solid var(--signal)' };
+const MonthRules = createContext<readonly number[]>([]);
+function useRuleAt(): (i: number) => React.CSSProperties | null {
+  const rules = useContext(MonthRules);
+  return (i) => (rules.includes(i) ? RULE_LEFT : null);
+}
+
 function Th({
   children,
   first,
   totals,
-  actual,
-  partial,
+  ruleLeft,
   title,
 }: {
   children: React.ReactNode;
   first?: boolean;
   totals?: boolean;
-  actual?: boolean;
-  /** An ACT month whose operating lines are projected (card export only). */
-  partial?: boolean;
+  /** Draws the measured/projected rule on this column's left edge. */
+  ruleLeft?: boolean;
   title?: string;
 }) {
   return (
@@ -1789,23 +1687,10 @@ function Th({
         whiteSpace: 'nowrap',
         width: first ? 220 : 'auto',
         ...(first ? { position: 'sticky', left: 0 } : null),
+        ...(ruleLeft ? RULE_LEFT : null),
       }}
     >
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-        <span>{children}</span>
-        {actual && (
-          <span
-            style={{
-              fontSize: 8,
-              fontWeight: 700,
-              letterSpacing: '.1em',
-              color: 'var(--signal-soft)',
-            }}
-          >
-            {partial ? 'ACT*' : 'ACT'}
-          </span>
-        )}
-      </div>
+      {children}
     </th>
   );
 }
@@ -1952,19 +1837,18 @@ function onPaper(tint: string): string {
 
 function DataRow({
   label,
-  info,
   values,
   fy,
   highlight,
   dim,
 }: {
   label: string;
-  info?: string;
   values: number[];
   fy: number;
   highlight?: boolean;
   dim?: boolean;
 }) {
+  const ruleAt = useRuleAt();
   const rowBg = highlight ? 'rgba(200, 90, 58, 0.04)' : dim ? 'rgba(255, 252, 235, 0.5)' : 'transparent';
   return (
     <tr style={{ background: rowBg }}>
@@ -1975,10 +1859,9 @@ function DataRow({
         })}
       >
         {label}
-        {info && <InfoIcon text={info} />}
       </td>
       {values.map((v, i) => (
-        <td key={i} style={cellStyle({ color: v === 0 ? 'var(--ink-4)' : 'var(--ink)', opacity: v === 0 ? 0.5 : 1 })}>
+        <td key={i} style={cellStyle({ color: v === 0 ? 'var(--ink-4)' : 'var(--ink)', opacity: v === 0 ? 0.5 : 1, ...ruleAt(i) })}>
           {v === 0 ? '—' : fmtNum(v)}
         </td>
       ))}
@@ -1989,20 +1872,8 @@ function DataRow({
   );
 }
 
-/**
- * Small "ⓘ" icon next to a row label. Hover reveals a styled popover.
- * Pure CSS — no JS state, no positioning libraries.
- */
-function InfoIcon({ text }: { text: string }) {
-  return (
-    <span className="rt-info-icon" aria-label={text}>
-      <span className="rt-info-glyph">ⓘ</span>
-      <span className="rt-info-pop" role="tooltip">{text}</span>
-    </span>
-  );
-}
-
 function TotalRow({ label, values, fy }: { label: string; values: number[]; fy: number }) {
+  const ruleAt = useRuleAt();
   return (
     <tr>
       <td
@@ -2022,6 +1893,7 @@ function TotalRow({ label, values, fy }: { label: string; values: number[]; fy: 
             background: 'var(--ink)',
             color: 'var(--paper)',
             fontWeight: 600,
+            ...ruleAt(i),
           })}
         >
           {fmtNum(v)}
@@ -2050,6 +1922,7 @@ function SubtotalRow({
   fy: number;
   variant?: 'expense';
 }) {
+  const ruleAt = useRuleAt();
   return (
     <tr style={{ background: 'rgba(138, 58, 46, 0.04)' }}>
       <td
@@ -2062,7 +1935,7 @@ function SubtotalRow({
         {label}
       </td>
       {values.map((v, i) => (
-        <td key={i} style={cellStyle({ color: 'var(--ink)' })}>
+        <td key={i} style={cellStyle({ color: 'var(--ink)', ...ruleAt(i) })}>
           {fmtNum(v)}
         </td>
       ))}
@@ -2074,6 +1947,7 @@ function SubtotalRow({
 }
 
 function BottomLineRow({ label, values, fy }: { label: string; values: number[]; fy: number }) {
+  const ruleAt = useRuleAt();
   return (
     <tr>
       <td
@@ -2093,6 +1967,7 @@ function BottomLineRow({ label, values, fy }: { label: string; values: number[];
             background: 'var(--ink)',
             color: v >= 0 ? '#9bd1ad' : '#e0a397',
             fontWeight: 600,
+            ...ruleAt(i),
           })}
         >
           {v >= 0 ? fmtNum(v) : `(${fmtNum(Math.abs(v))})`}
@@ -2112,6 +1987,7 @@ function BottomLineRow({ label, values, fy }: { label: string; values: number[];
 }
 
 function CumulativeRow({ label, values }: { label: string; values: number[] }) {
+  const ruleAt = useRuleAt();
   return (
     <tr style={{ background: 'var(--paper)' }}>
       <td
@@ -2133,6 +2009,7 @@ function CumulativeRow({ label, values }: { label: string; values: number[] }) {
             fontSize: 10.5,
             opacity: 0.85,
             borderBottom: 'none',
+            ...ruleAt(i),
           })}
         >
           {v >= 0 ? fmtNum(v) : `(${fmtNum(Math.abs(v))})`}

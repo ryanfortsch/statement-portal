@@ -544,8 +544,8 @@ Gmail. Invoices are for **attribution** (which checkout cost what) and never ove
 total. The matcher restricts to `source IN ('matched','bank')` so an invoice cannot false-match a
 linen or laundry row that happens to share an amount.
 
-**Which property an invoice belongs to** is decided by `src/lib/invoice-property-match.ts`, shared
-by `/api/sync-invoices` and the `/forecast` cost grid. Needles come from the registry in three
+**Which property an invoice belongs to** is decided by `src/lib/invoice-property-match.ts`, used
+by `/api/sync-invoices`. Needles come from the registry in three
 layers, later winning: a hardcoded fallback (the floor, so an unreachable DB degrades to the fleet
 we already knew), needles derived from each row's `name` and `address`, then explicit
 `properties.invoice_match` entries. Matching is **longest-match**, because a sub-unit needle
