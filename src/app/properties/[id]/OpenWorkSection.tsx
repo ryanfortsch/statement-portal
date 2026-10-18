@@ -34,11 +34,14 @@ export function OpenWorkSection({
   slips,
   brief,
   myEmail,
+  myMailbox,
 }: {
   property: { id: string; name: string };
   slips: WorkSlipRow[];
   brief: WorkBriefRow | null;
   myEmail: string;
+  /** The session's own Gmail for the owner-email draft, or null (copy). */
+  myMailbox: string | null;
 }) {
   const lanes = groupSlipsByLane(slips);
   const counts = laneCounts(slips);
@@ -67,7 +70,7 @@ export function OpenWorkSection({
             {slips.length} open{countBits.length > 1 ? ` · ${countBits.join(' · ')}` : ''}
           </span>
           <PropertyAddSlipButton propertyId={property.id} propertyName={property.name} myEmail={myEmail} />
-          <PropertyDraftOwnerEmailButton propertyId={property.id} disabled={ownerCount === 0} />
+          <PropertyDraftOwnerEmailButton propertyId={property.id} disabled={ownerCount === 0} myMailbox={myMailbox} />
           {slips.length > 0 && (
             <Link
               href={`/properties/${property.id}/work-slips/print`}

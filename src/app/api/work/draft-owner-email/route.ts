@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { gmailMailbox } from '@/lib/gmail-draft';
-import { gmailUrl } from '@/lib/gmail-links';
+import { auth } from '@/auth';
+import { createGmailDraft, sessionMailbox } from '@/lib/gmail-draft';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { ALWAYS_CC, SEND_FROM } from '@/lib/properties';
+import { alwaysCcFor, SEND_FROM } from '@/lib/properties';
 import type { WorkSlipRow, WorkSlipOwnerActionType } from '@/lib/work-types';
 import { ACTIVE_WORK_SLIP_STATUSES } from '@/lib/work-types';
 
@@ -14,18 +14,16 @@ export const maxDuration = 30;
  * Body: { property_id: string }
  *
  * Pulls the Helm property + every open work slip on it that's flagged
- * `owner_action_required = true`, builds a plain-text email body listing each
- * one, and creates a Gmail draft via the same OAuth pattern used by
- * /api/draft-email. Returns the Gmail web URL so the operator can review +
- * send from their inbox.
+ * `owner_action_required = true` and builds a plain-text email listing each
+ * one. The email is drafted in the signed-in person's OWN Gmail when Helm
+ * holds a token for them (sessionMailbox), and the response names that
+ * mailbox so only its owner is offered the link. With no token for them it
+ * is never drafted in someone else's mailbox: the response carries `copy`
+ * (to, cc, subject, body) for the page to put on the clipboard instead.
  *
- * Stamps `owner_last_contacted_at` on each included slip on success so the
+ * Stamps `owner_last_contacted_at` on each included slip either way, so the
  * queue can show "owner contacted: <date>" and avoid double-sending.
  */
-
-const GMAIL_CLIENT_ID = () => process.env.GMAIL_CLIENT_ID || '';
-const GMAIL_CLIENT_SECRET = () => process.env.GMAIL_CLIENT_SECRET || '';
-const GMAIL_REFRESH_TOKEN = () => process.env.GMAIL_REFRESH_TOKEN || '';
 
 let _sb: SupabaseClient | null = null;
 function getSupabase(): SupabaseClient {
@@ -35,62 +33,6 @@ function getSupabase(): SupabaseClient {
   if (!url || !key) throw new Error('Supabase not configured');
   _sb = createClient(url, key);
   return _sb;
-}
-
-async function getGmailAccessToken(): Promise<string> {
-  if (!GMAIL_CLIENT_ID() || !GMAIL_CLIENT_SECRET() || !GMAIL_REFRESH_TOKEN()) {
-    throw new Error('Gmail OAuth env vars not configured (GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET / GMAIL_REFRESH_TOKEN)');
-  }
-  const res = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_id: GMAIL_CLIENT_ID(),
-      client_secret: GMAIL_CLIENT_SECRET(),
-      refresh_token: GMAIL_REFRESH_TOKEN(),
-      grant_type: 'refresh_token',
-    }),
-  });
-  if (!res.ok) {
-    throw new Error(`Gmail token refresh failed: ${res.status} ${await res.text()}`);
-  }
-  const data = await res.json();
-  return data.access_token;
-}
-
-function base64url(input: string | Buffer): string {
-  const buf = typeof input === 'string' ? Buffer.from(input, 'utf-8') : input;
-  return buf
-    .toString('base64')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '');
-}
-
-function encodeHeader(value: string): string {
-  // eslint-disable-next-line no-control-regex
-  if (/^[\x00-\x7F]*$/.test(value)) return value;
-  return `=?UTF-8?B?${Buffer.from(value, 'utf-8').toString('base64')}?=`;
-}
-
-function buildMimeMessage(args: {
-  from: string;
-  to: string[];
-  cc?: string[];
-  subject: string;
-  body: string;
-}): string {
-  const { from, to, cc, subject, body } = args;
-  const headers = [
-    `From: ${from}`,
-    `To: ${to.join(', ')}`,
-  ];
-  if (cc && cc.length > 0) headers.push(`Cc: ${cc.join(', ')}`);
-  headers.push(`Subject: ${encodeHeader(subject)}`);
-  headers.push('MIME-Version: 1.0');
-  headers.push('Content-Type: text/plain; charset=UTF-8');
-  headers.push('Content-Transfer-Encoding: 8bit');
-  return headers.join('\r\n') + '\r\n\r\n' + body;
 }
 
 const ACTION_TYPE_LABELS: Record<WorkSlipOwnerActionType, string> = {
@@ -162,6 +104,9 @@ function renderBody(args: {
 
 export async function POST(request: NextRequest) {
   try {
+    const session = await auth();
+    const senderEmail = session?.user?.email;
+    if (!senderEmail) return NextResponse.json({ error: 'Not signed in' }, { status: 401 });
     const body = await request.json().catch(() => ({}));
     const propertyId: string = (body && typeof body === 'object' && 'property_id' in body && typeof body.property_id === 'string')
       ? body.property_id
@@ -227,40 +172,26 @@ export async function POST(request: NextRequest) {
       slips,
     });
 
-    const mime = buildMimeMessage({
-      from: `${SEND_FROM.name} <${SEND_FROM.email}>`,
-      to: ownerEmails,
-      cc: ALWAYS_CC,
-      subject,
-      body: emailBody,
-    });
-
-    const accessToken = await getGmailAccessToken();
-
-    const draftRes = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/drafts', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ message: { raw: base64url(mime) } }),
-    });
-
-    if (!draftRes.ok) {
-      const errText = await draftRes.text();
-      const hint = draftRes.status === 403 && /insufficient/i.test(errText)
-        ? ' The Gmail OAuth token probably lacks gmail.compose scope. Re-authorize the Gmail OAuth app adding that scope and regenerate GMAIL_REFRESH_TOKEN.'
-        : '';
-      return NextResponse.json({
-        error: `Gmail draft creation failed (${draftRes.status}): ${errText}${hint}`,
-      }, { status: 502 });
+    const cc = alwaysCcFor(senderEmail);
+    const mine = await sessionMailbox(senderEmail);
+    let draftId: string | null = null;
+    let draftUrl: string | null = null;
+    let mailbox: string | null = null;
+    if (mine) {
+      const draft = await createGmailDraft({
+        from: `${SEND_FROM.name} <${SEND_FROM.email}>`,
+        to: ownerEmails,
+        cc,
+        subject,
+        body: emailBody,
+        mailbox: mine.key,
+      });
+      if (!draft.ok) return NextResponse.json({ error: draft.error }, { status: 502 });
+      draftId = draft.draftId;
+      draftUrl = draft.draftUrl;
+      // Whose Gmail the draft is in; the client offers the link only to them.
+      mailbox = draft.mailboxAddress;
     }
-
-    const draft = await draftRes.json();
-    // The draft is in the shared token's mailbox. Name it in the link and
-    // tell the caller whose it is, so only that session is offered a link.
-    const mailbox = await gmailMailbox('shared');
-    const draftUrl = gmailUrl(mailbox, `drafts/${draft.id}`);
 
     // Stamp owner_last_contacted_at on each slip we included so the queue can
     // show that the owner has been pinged. Failure here shouldn't fail the
@@ -276,11 +207,21 @@ export async function POST(request: NextRequest) {
       console.error('draft-owner-email: contacted-at stamp failed', stampErr);
     }
 
+    if (!draftUrl) {
+      // No Gmail for the sender: hand the email over to copy.
+      return NextResponse.json({
+        success: true,
+        copy: { to: ownerEmails, cc, subject, body: emailBody },
+        mailbox: null,
+        subject,
+        recipients: ownerEmails,
+        slip_count: slips.length,
+      });
+    }
     return NextResponse.json({
       success: true,
-      draft_id: draft.id,
+      draft_id: draftId,
       draft_url: draftUrl,
-      // Whose Gmail the draft is in; the client offers the link only to them.
       mailbox,
       subject,
       recipients: ownerEmails,

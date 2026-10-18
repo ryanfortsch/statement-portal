@@ -5,7 +5,9 @@ import { after } from 'next/server';
 import { auth } from '@/auth';
 import { fieldDb } from '@/lib/field-db';
 import { planMaintenanceRuns, drainClassificationBacklog } from '@/lib/maintenance-runs';
-import { draftWorkOrderEmail } from '@/lib/work-order-email';
+import { draftWorkOrderEmail, type WorkOrderResult } from '@/lib/work-order-email';
+import { sessionMailbox } from '@/lib/gmail-draft';
+import { getTeamMember } from '@/lib/team';
 import { publishPacket } from '@/app/fieldwork/packets/actions';
 
 /** Plan runs on demand from the Work board.
@@ -87,24 +89,24 @@ export async function publishRun(packetId: string): Promise<{ ok: true } | { ok:
   return { ok: true };
 }
 
-/** Create a Gmail DRAFT of an organized work-order email (jobs + labeled
- *  photos) for a set of slips, addressed to a roster recipient. FROM
- *  Dotti, CC Allie + Ryan — the operator reviews and sends in Gmail, the
- *  same rhythm as the statement workflow. */
+/** An organized work-order email (jobs + labeled photos) for a set of
+ *  slips, addressed to a roster recipient, FROM the signed-in person and CC
+ *  the rest of Allie + Ryan. It is drafted in the sender's OWN Gmail when
+ *  Helm holds a token for them (they review and send it there, the
+ *  statement-workflow rhythm); otherwise it comes back composed for them to
+ *  copy, and nothing is drafted in anyone else's mailbox. */
 export async function emailWorkOrder(args: {
   slipIds: string[];
   toName: string;
   toEmail: string;
   note?: string;
   visitDate?: string | null;
-}): Promise<
-  | { ok: true; draftUrl: string; mailbox: 'dotti' | 'shared'; mailboxAddress: string | null; jobCount: number; photoCount: number; warnings: string[] }
-  | { ok: false; error: string }
-> {
+}): Promise<WorkOrderResult> {
   const session = await auth();
   if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
   if (!args.toName.trim()) return { ok: false, error: 'Who is this going to?' };
   try {
+    const mine = await sessionMailbox(session.user.email);
     const res = await draftWorkOrderEmail({
       slipIds: args.slipIds,
       toName: args.toName.trim(),
@@ -112,6 +114,8 @@ export async function emailWorkOrder(args: {
       note: args.note,
       visitDate: args.visitDate ?? null,
       sentByEmail: session.user.email,
+      senderName: getTeamMember(session.user.email)?.name ?? session.user.name ?? session.user.email,
+      mailbox: mine?.key ?? null,
     });
     if (res.ok) revalidatePath('/work');
     return res;

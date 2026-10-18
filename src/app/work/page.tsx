@@ -8,6 +8,7 @@ import { ACTIVE_WORK_SLIP_STATUSES, ACTIVE_TASK_STATUSES } from '@/lib/work-type
 import { loadWorkBriefHeadlines, type WorkBriefHeadline } from '@/lib/work-briefs';
 import { roleForEmail } from '@/lib/helm-access';
 import { defaultWorkFilter } from '@/lib/work-board-view';
+import { sessionMailbox } from '@/lib/gmail-draft';
 import { QueueClient } from './QueueClient';
 
 export const dynamic = 'force-dynamic';
@@ -109,8 +110,13 @@ async function getData(): Promise<{
 
 export default async function WorkQueuePage() {
   const session = await auth();
-  const { workSlips, snoozedSlips, tasks, properties, slipCommentCounts, taskCommentCounts, reporterNames, briefHeadlines } = await getData();
   const myEmail = session?.user?.email ?? '';
+  const [{ workSlips, snoozedSlips, tasks, properties, slipCommentCounts, taskCommentCounts, reporterNames, briefHeadlines }, mine] = await Promise.all([
+    getData(),
+    // Whose Gmail "Draft Owner Email" drafts in: the session's own, or none
+    // (the button then copies the email instead).
+    sessionMailbox(myEmail).catch(() => null),
+  ]);
   // A staff login opens on its own week; an owner on everything
   // (lib/work-board-view.ts). Owners also get "Review stale slips".
   const role = myEmail ? roleForEmail(myEmail) : null;
@@ -129,6 +135,7 @@ export default async function WorkQueuePage() {
         briefHeadlines={briefHeadlines}
         defaultFilter={defaultWorkFilter(role)}
         isOwner={role === 'owner'}
+        myMailbox={mine?.address ?? null}
       />
 
       <HelmFooter module="Work Queue" right="Source: Helm" />

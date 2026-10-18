@@ -6,13 +6,15 @@
  * cloning the MIME machinery a fifth time. The four existing draft routes
  * keep their local copies (no mechanical sweep); new callers import this.
  *
- * Mailbox: prefers Dotti's token (GMAIL_REFRESH_TOKEN_DOTTI, optional
- * GMAIL_CLIENT_ID_DOTTI / GMAIL_CLIENT_SECRET_DOTTI — the same per-person
- * pattern import-inquiries uses) so her drafts land in HER Drafts folder;
- * falls back to the bare GMAIL_REFRESH_TOKEN (Allie's mailbox, where the
- * statement drafts already live and get reviewed). The From: header is
- * cosmetic until the mailbox verifies it as a send-as alias — same caveat
- * as SEND_FROM in lib/properties.ts.
+ * Mailboxes: the bare GMAIL_REFRESH_TOKEN (the shared mailbox where the
+ * statement drafts live) plus one optional token per person,
+ * GMAIL_REFRESH_TOKEN_<DOTTI|RYAN|ALLIE> with optional GMAIL_CLIENT_ID_<X> /
+ * GMAIL_CLIENT_SECRET_<X> (the per-person pattern import-inquiries uses).
+ * The caller names the mailbox; `sessionMailbox` finds the one that IS the
+ * signed-in person's, so a work order or an owner email drafts where its
+ * sender can see it. The From: header is cosmetic until the mailbox
+ * verifies it as a send-as alias, the same caveat as SEND_FROM in
+ * lib/properties.ts.
  */
 
 import 'server-only';
@@ -20,23 +22,24 @@ import { gmailUrl } from '@/lib/gmail-links';
 
 export type GmailAttachment = { filename: string; contentType: string; content: Buffer };
 
-type TokenPick = { clientId: string; clientSecret: string; refreshToken: string; mailbox: 'dotti' | 'shared' };
+/** A Gmail token Helm holds: the shared one, or one person's own. */
+export type MailboxKey = 'shared' | 'dotti' | 'ryan' | 'allie';
+const PERSONAL_MAILBOXES: readonly Exclude<MailboxKey, 'shared'>[] = ['dotti', 'ryan', 'allie'];
 
-function pickToken(preferDotti: boolean): TokenPick | null {
+type TokenPick = { clientId: string; clientSecret: string; refreshToken: string; mailbox: MailboxKey };
+
+function tokenFor(key: MailboxKey): TokenPick | null {
   const sharedId = process.env.GMAIL_CLIENT_ID || '';
   const sharedSecret = process.env.GMAIL_CLIENT_SECRET || '';
-  if (preferDotti && process.env.GMAIL_REFRESH_TOKEN_DOTTI) {
-    return {
-      clientId: process.env.GMAIL_CLIENT_ID_DOTTI || sharedId,
-      clientSecret: process.env.GMAIL_CLIENT_SECRET_DOTTI || sharedSecret,
-      refreshToken: process.env.GMAIL_REFRESH_TOKEN_DOTTI,
-      mailbox: 'dotti',
-    };
+  if (key === 'shared') {
+    const refreshToken = process.env.GMAIL_REFRESH_TOKEN || '';
+    return sharedId && sharedSecret && refreshToken ? { clientId: sharedId, clientSecret: sharedSecret, refreshToken, mailbox: 'shared' } : null;
   }
-  if (sharedId && sharedSecret && process.env.GMAIL_REFRESH_TOKEN) {
-    return { clientId: sharedId, clientSecret: sharedSecret, refreshToken: process.env.GMAIL_REFRESH_TOKEN, mailbox: 'shared' };
-  }
-  return null;
+  const suffix = key.toUpperCase();
+  const refreshToken = process.env[`GMAIL_REFRESH_TOKEN_${suffix}`] || '';
+  const clientId = process.env[`GMAIL_CLIENT_ID_${suffix}`] || sharedId;
+  const clientSecret = process.env[`GMAIL_CLIENT_SECRET_${suffix}`] || sharedSecret;
+  return refreshToken && clientId && clientSecret ? { clientId, clientSecret, refreshToken, mailbox: key } : null;
 }
 
 /**
@@ -48,17 +51,20 @@ function pickToken(preferDotti: boolean): TokenPick | null {
  * anyone rather than a link to the wrong mailbox.
  */
 const PROFILE_TTL_MS = 6 * 60 * 60 * 1000;
-const profileCache = new Map<TokenPick['mailbox'], { address: string; at: number }>();
+/** A page that asks whose mailbox a session has waits at most this long. */
+const PROFILE_TIMEOUT_MS = 4000;
+const profileCache = new Map<MailboxKey, { address: string; at: number }>();
 
-export async function gmailMailbox(kind: 'shared' | 'dotti'): Promise<string | null> {
-  const pick = pickToken(kind === 'dotti');
+export async function gmailMailbox(kind: MailboxKey): Promise<string | null> {
+  const pick = tokenFor(kind);
   if (!pick) return null;
   const hit = profileCache.get(pick.mailbox);
   if (hit && Date.now() - hit.at < PROFILE_TTL_MS) return hit.address;
   try {
-    const accessToken = await getAccessToken(pick);
+    const accessToken = await getAccessToken(pick, PROFILE_TIMEOUT_MS);
     const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {
       headers: { Authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(PROFILE_TIMEOUT_MS),
     });
     if (!res.ok) return null;
     const data = (await res.json()) as { emailAddress?: string };
@@ -70,7 +76,32 @@ export async function gmailMailbox(kind: 'shared' | 'dotti'): Promise<string | n
   }
 }
 
-async function getAccessToken(pick: TokenPick): Promise<string> {
+/**
+ * The token that IS this person's own mailbox, or null. A token counts only
+ * when Gmail says its address is the session's (users/me/profile), never by
+ * the env var's name, so a draft "in your Gmail" is one the sender can open.
+ * The person's own GMAIL_REFRESH_TOKEN_<NAME> is asked first, then the rest.
+ * Null means Helm holds no Gmail for them: the surfaces offer Copy instead
+ * of creating a draft in someone else's mailbox.
+ */
+export async function sessionMailbox(sessionEmail: string | null | undefined): Promise<{ key: MailboxKey; address: string } | null> {
+  const email = (sessionEmail || '').trim().toLowerCase();
+  if (!email) return null;
+  const local = email.split('@')[0];
+  const keys: MailboxKey[] = [
+    ...PERSONAL_MAILBOXES.filter((k) => k === local),
+    ...PERSONAL_MAILBOXES.filter((k) => k !== local),
+    'shared',
+  ];
+  for (const key of keys) {
+    if (!tokenFor(key)) continue;
+    const address = await gmailMailbox(key);
+    if (address && address === email) return { key, address };
+  }
+  return null;
+}
+
+async function getAccessToken(pick: TokenPick, timeoutMs?: number): Promise<string> {
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -80,6 +111,7 @@ async function getAccessToken(pick: TokenPick): Promise<string> {
       refresh_token: pick.refreshToken,
       grant_type: 'refresh_token',
     }),
+    ...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
   });
   if (!res.ok) throw new Error(`Gmail token refresh failed: ${res.status} ${await res.text()}`);
   const data = (await res.json()) as { access_token: string };
@@ -179,10 +211,11 @@ function buildMimeMessage(args: {
 }
 
 export type GmailDraftResult =
-  | { ok: true; draftId: string; draftUrl: string; mailbox: 'dotti' | 'shared'; mailboxAddress: string | null }
+  | { ok: true; draftId: string; draftUrl: string; mailbox: MailboxKey; mailboxAddress: string | null }
   | { ok: false; error: string };
 
-/** Create a Gmail draft for human review-and-send. Never sends. */
+/** Create a Gmail draft for human review-and-send, in the named mailbox.
+ *  Never sends. */
 export async function createGmailDraft(args: {
   from: string;
   to: string[];
@@ -190,10 +223,10 @@ export async function createGmailDraft(args: {
   subject: string;
   body: string;
   attachments?: GmailAttachment[];
-  /** Land in Dotti's mailbox when her token is configured (default true). */
-  preferDotti?: boolean;
+  /** Whose Gmail the draft lands in: usually sessionMailbox(...).key. */
+  mailbox: MailboxKey;
 }): Promise<GmailDraftResult> {
-  const pick = pickToken(args.preferDotti ?? true);
+  const pick = tokenFor(args.mailbox);
   if (!pick) return { ok: false, error: 'Gmail OAuth env vars not configured' };
 
   let accessToken: string;

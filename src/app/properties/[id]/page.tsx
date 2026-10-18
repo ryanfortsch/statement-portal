@@ -79,6 +79,7 @@ import { isHelmRun, isCapeAnnOps } from '@/lib/property-scope';
 import { shiftIsoDay, todayInEastern } from '@/lib/sca-quotes-types';
 import type { OwnerCard } from '@/app/properties/actions';
 import { roleForEmail } from '@/lib/helm-access';
+import { sessionMailbox } from '@/lib/gmail-draft';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 60;
@@ -490,11 +491,14 @@ export default async function PropertyDetailPage({
   };
   const pmsRegion = ((p as unknown as { region?: string | null }).region ?? null) as string | null;
   const pmsToday = todayInEastern();
-  const [pricing, listingRecord, automationsView, howWeSellIt] = await Promise.all([
+  const [pricing, listingRecord, automationsView, howWeSellIt, myMailbox] = await Promise.all([
     loadPricingBundle(p.id, pmsToday, shiftIsoDay(pmsToday, 365)).catch(() => null),
     getListingRecord(p.id).catch(() => null),
     getAutomationsPanelView(p.id).catch(() => null),
     loadHowWeSellIt(p.id),
+    // Whose Gmail an owner email drafts in (Open Work): the session's own,
+    // or none, and the button copies instead.
+    sessionMailbox(myEmail).then((m) => m?.address ?? null).catch(() => null),
   ]);
 
   // Management-contract registry facts (property_contracts). The active row
@@ -955,7 +959,7 @@ export default async function PropertyDetailPage({
       )}
 
       {/* OPEN WORK SLIPS: the brief, then the ledger by lane */}
-      <OpenWorkSection property={{ id: p.id, name: p.name }} slips={openSlips} brief={workBrief} myEmail={myEmail} />
+      <OpenWorkSection property={{ id: p.id, name: p.name }} slips={openSlips} brief={workBrief} myEmail={myEmail} myMailbox={myMailbox} />
 
       {/* ACTIVITY FEED */}
       <CollapsibleSection title="Activity" summary="recent · full log on its own page">

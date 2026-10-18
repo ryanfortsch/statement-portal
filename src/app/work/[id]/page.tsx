@@ -14,6 +14,7 @@ import { SlipOwnerActionEditor } from './SlipOwnerActionEditor';
 import { SlipLaneEditor } from './SlipLaneEditor';
 import { LANE_LABELS, laneChoicesFor, slipLane } from '@/lib/work-slip-lanes';
 import { operatingDate } from '@/lib/operating-date';
+import { sessionMailbox } from '@/lib/gmail-draft';
 
 export const dynamic = 'force-dynamic';
 
@@ -81,7 +82,10 @@ export default async function WorkSlipDetailPage({
   params: Promise<Params>;
 }) {
   const { id } = await params;
-  const [data, session] = await Promise.all([getWorkSlip(id), auth()]);
+  // Whose Gmail the owner email drafts in: the session's own, or none (the
+  // editor then copies the email instead). Asked beside the slip load.
+  const withMailbox = auth().then(async (s) => ({ session: s, mine: await sessionMailbox(s?.user?.email).catch(() => null) }));
+  const [data, { session, mine }] = await Promise.all([getWorkSlip(id), withMailbox]);
   if (!data) notFound();
   const myEmail = session?.user?.email ?? '';
 
@@ -331,6 +335,7 @@ export default async function WorkSlipDetailPage({
             initialNotes={slip.owner_action_notes ?? null}
             ownerStatus={slip.owner_status ?? null}
             ownerLastContactedAt={slip.owner_last_contacted_at ?? null}
+            myMailbox={mine?.address ?? null}
           />
         </Section>
       )}

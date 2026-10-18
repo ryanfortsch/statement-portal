@@ -32,6 +32,7 @@ import { PhotoUploader } from '@/components/PhotoUploader';
 import { displayNameForEmail } from '@/lib/team';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import { useOwnerEmailDraft } from '@/lib/use-owner-email-draft';
+import { CopiedEmailNotice } from '@/components/CopiedEmailNotice';
 import { operatingDate } from '@/lib/operating-date';
 import { compareWork, workMyWeek, workOverdue, workSignals, workThisWeek, workUnassigned } from '@/lib/work-board-view';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
@@ -65,6 +66,9 @@ type Props = {
   defaultFilter?: FilterId;
   /** Owners get "Review stale slips" on the Organize menu. */
   isOwner?: boolean;
+  /** The session's own Gmail for Draft Owner Email, or null when Helm holds
+   *  none for them (the button copies the email instead). */
+  myMailbox?: string | null;
 };
 
 type FilterId = 'all' | 'my-week' | 'week' | 'overdue' | 'blocked' | 'mine' | 'high' | 'due-today' | 'unclaimed' | 'owner-action' | 'snoozed';
@@ -116,7 +120,7 @@ function sameSet(a: Set<string>, b: Set<string>): boolean {
 const INITIAL_PROPERTY_LIMIT = 5;
 const INITIAL_TASK_LIMIT = 5;
 
-export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmail, slipCommentCounts, taskCommentCounts, reporterNames, briefHeadlines = {}, defaultFilter = 'all', isOwner = false }: Props) {
+export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmail, slipCommentCounts, taskCommentCounts, reporterNames, briefHeadlines = {}, defaultFilter = 'all', isOwner = false, myMailbox }: Props) {
   const router = useRouter();
   const softRefresh = useSoftRefresh();
   const pathname = usePathname();
@@ -545,6 +549,7 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
                   commentCounts={slipCommentCounts}
                   reporterNames={reporterNames}
                   brief={briefHeadlines[propId]}
+                  myMailbox={myMailbox}
                   onAddSlip={() => {
                     setSlipPrefillProperty(propId);
                     setShowSlipModal(true);
@@ -812,6 +817,7 @@ function PropertyGroup({
   commentCounts,
   reporterNames,
   brief,
+  myMailbox,
   onAddSlip,
 }: {
   propId: string;
@@ -819,6 +825,7 @@ function PropertyGroup({
   slips: WorkSlipRow[];
   /** The nightly brief's one line for this home, with its date, under the signals. */
   brief?: WorkBriefHeadline;
+  myMailbox?: string | null;
   myEmail: string;
   /** Expansion is owned by QueueClient (mirrored to ?open=) so it survives
    *  navigating into a slip and back. Default collapsed: with 8+ properties
@@ -856,7 +863,8 @@ function PropertyGroup({
     window.open(`/properties/${propertyId}/work-slips/print?auto=1`, '_blank', 'noopener,noreferrer');
   }
 
-  const { pending: drafting, error: draftErr, draftUrl, draft: draftOwnerEmail, savedIn: draftSavedIn } = useOwnerEmailDraft('/api/work/draft-owner-email', 'property_id', propertyId);
+  const { pending: drafting, error: draftErr, draftUrl, draft: draftOwnerEmail, savedIn: draftSavedIn, copied: draftCopied } = useOwnerEmailDraft('/api/work/draft-owner-email', 'property_id', propertyId);
+  const copyOwnerEmail = myMailbox === null || !!draftCopied;
 
   return (
     // Anchor target for /work?open=X#prop-X (the slip page's back link);
@@ -957,7 +965,7 @@ function PropertyGroup({
               opacity: drafting ? 0.6 : 1,
             }}
           >
-            {drafting ? 'Drafting…' : draftUrl ? 'Open Gmail draft' : draftSavedIn ? 'Drafted' : 'Draft Owner Email'}
+            {drafting ? (copyOwnerEmail ? 'Copying…' : 'Drafting…') : draftUrl ? 'Open Gmail draft' : draftSavedIn ? 'Drafted' : draftCopied ? 'Copy again' : copyOwnerEmail ? 'Copy owner email' : 'Draft Owner Email'}
           </button>
         )}
         {expanded && propertyId && (
@@ -1023,6 +1031,7 @@ function PropertyGroup({
 
       {draftUrl && <a className="rt-no-print" href={draftUrl} target="_blank" rel="noopener noreferrer">Open saved Gmail draft</a>}
       {draftSavedIn && <span className="rt-no-print" style={{ fontSize: 11, color: 'var(--ink-3)' }}>{draftSavedIn}</span>}
+      {draftCopied && <span className="rt-no-print"><CopiedEmailNotice copied={draftCopied} /></span>}
       {draftErr && (
         <div role="alert"
           style={{

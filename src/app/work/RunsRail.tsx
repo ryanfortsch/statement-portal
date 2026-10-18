@@ -10,17 +10,22 @@
  * to publish, live runs in flight, the 'pro' slips that need a vendor
  * booked, and the backlog that hasn't earned a run yet.
  *
- * Any run or vendor group can be emailed as an organized work order —
- * jobs numbered, photos attached with matching filenames — to a roster
- * recipient (CRM contacts + field contractors). The composer creates a
- * Gmail DRAFT (from dotti@, cc allie@ + ryan@, statement-workflow rhythm);
- * the operator reviews and hits Send in Gmail, never here.
+ * Any run or vendor group can be emailed as an organized work order (jobs
+ * numbered, photos attached with matching filenames) to a roster recipient
+ * (CRM contacts + field contractors). The composer drafts it in the
+ * signed-in person's OWN Gmail, from them and cc the rest of Allie + Ryan,
+ * and says so before the click; they review and hit Send in Gmail, never
+ * here. With no Gmail token for them it offers Copy instead (photos as
+ * links), and nothing lands in anyone else's drafts.
  */
 
 import { useMemo, useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import { canOpenMailbox, draftSavedNotice } from '@/lib/gmail-links';
+import { copiedEmailText, shortAddresses, writeClipboard } from '@/lib/copy-email';
+import { CopiedEmailNotice } from '@/components/CopiedEmailNotice';
+import { alwaysCcFor } from '@/lib/always-cc';
 import type { RunsBoardData, MaintenanceRunCard, RosterPerson, VendorNeededSlip } from '@/lib/work-types';
 import { planRunsNow, publishRun, emailWorkOrder, markRunScheduled } from './runs-actions';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
@@ -76,13 +81,18 @@ function WorkOrderComposer({
   roster,
   contextLabel,
   onClose,
+  myMailbox,
 }: {
   slipIds: string[];
   visitDate: string | null;
   roster: RosterPerson[];
   contextLabel: string;
   onClose: () => void;
+  /** The signed-in person's own Gmail (sessionMailbox), null when Helm holds
+   *  no token for them: then the composer offers Copy instead of Create. */
+  myMailbox?: string | null;
 }) {
+  const copyMode = myMailbox === null;
   const [initialRecipient] = useState(roster.length > 0 ? roster[0].email : 'custom');
   const [selected, setSelected] = useState(initialRecipient);
   const [customName, setCustomName] = useState('');
@@ -93,10 +103,13 @@ function WorkOrderComposer({
   const markLock = useRef(false);
   const [done, setDone] = useState<{
     message: string; draftUrl: string; mailboxAddress: string | null; slipIds: string[]; vendorName: string; vendorOrganization: string | null;
+    /** Copy mode: the email as one paste, and whether the clipboard took it. */
+    copied?: { text: string; ok: boolean };
   } | null>(null);
-  // The draft lands in one mailbox (Dotti's when her token is configured).
-  // Only that session is handed the link; everyone else is told where it is.
+  // The draft lands in the sender's own mailbox; the link is handed only to
+  // the session that owns it, and anyone else is told where it is.
   const sessionEmail = useSession().data?.user?.email;
+  const ccLine = shortAddresses(alwaysCcFor(sessionEmail));
   const [error, setError] = useState('');
   // Close-out step: once the vendor confirms the day, one click stamps
   // every slip Scheduled + due + vendor-labeled.
@@ -158,8 +171,23 @@ function WorkOrderComposer({
         const res = await emailWorkOrder(snapshot);
         if (!res.ok) { setError(res.error); return; }
         const w = res.warnings.length > 0 ? ` (${res.warnings.join('; ')})` : '';
+        const cc = res.cc.length > 0 ? `, cc ${shortAddresses(res.cc)}` : '';
+        if (res.mode === 'copy') {
+          const text = copiedEmailText({ to: [res.to], cc: res.cc, subject: res.subject, body: res.text });
+          const ok = await writeClipboard(text);
+          setDone({
+            message: `${ok ? 'Copied' : 'Ready to copy'} for ${snapshot.toEmail}: ${res.jobCount} jobs, ${res.photoCount} photo links${cc}${w}`,
+            draftUrl: '',
+            mailboxAddress: null,
+            slipIds: snapshot.slipIds,
+            vendorName: snapshot.toName,
+            vendorOrganization,
+            copied: { text, ok },
+          });
+          return;
+        }
         setDone({
-          message: `Draft ready for ${snapshot.toEmail}: ${res.jobCount} jobs, ${res.photoCount} photos, cc Allie + Ryan${w}`,
+          message: `Draft ready for ${snapshot.toEmail}: ${res.jobCount} jobs, ${res.photoCount} photos${cc}${w}`,
           draftUrl: res.draftUrl,
           mailboxAddress: res.mailboxAddress,
           slipIds: snapshot.slipIds,
@@ -168,7 +196,9 @@ function WorkOrderComposer({
         });
         if (canOpenMailbox(sessionEmail, res.mailboxAddress)) window.open(res.draftUrl, '_blank', 'noopener');
       } catch {
-        setError('Could not confirm draft creation. Your note and recipient are retained. Check Gmail Drafts before retrying to avoid a duplicate.');
+        setError(copyMode
+          ? 'Could not compose the work order. Your note and recipient are retained. Try again.'
+          : 'Could not confirm draft creation. Your note and recipient are retained. Check Gmail Drafts before retrying to avoid a duplicate.');
       } finally {
         sendLock.current = false;
       }
@@ -180,7 +210,9 @@ function WorkOrderComposer({
       <div style={{ borderTop: '1px solid var(--rule-soft)', paddingTop: 10, marginTop: 4, display: 'flex', flexDirection: 'column', gap: 8 }}>
         <div style={{ display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap' }}>
           <span style={{ fontSize: 12, color: 'var(--positive)' }}>{done.message}</span>
-          {canOpenMailbox(sessionEmail, done.mailboxAddress) ? (
+          {done.copied ? (
+            <CopiedEmailNotice copied={done.copied} />
+          ) : canOpenMailbox(sessionEmail, done.mailboxAddress) ? (
             <a
               href={done.draftUrl}
               target="_blank"
@@ -310,10 +342,12 @@ function WorkOrderComposer({
             opacity: sending || !toEmail.trim() || !toName.trim() ? 0.5 : 1,
           }}
         >
-          {sending ? 'Drafting…' : 'Create Gmail draft'}
+          {copyMode ? (sending ? 'Copying…' : 'Copy email') : (sending ? 'Drafting…' : 'Create Gmail draft')}
         </button>
         <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
-          drafts in Gmail, you hit send · from dotti@ · cc allie@ + ryan@ · photos attached
+          {copyMode
+            ? `Helm has no Gmail for you, so this copies the email to paste into your own mail · photos as links${ccLine ? ` · cc ${ccLine}` : ''}`
+            : `Drafts in ${myMailbox ? `your Gmail (${myMailbox})` : 'your Gmail'}; you review and send · photos attached${ccLine ? ` · cc ${ccLine}` : ''}`}
         </span>
         <button
           type="button"
@@ -328,7 +362,7 @@ function WorkOrderComposer({
   );
 }
 
-function RunCard({ run, roster }: { run: MaintenanceRunCard; roster: RosterPerson[] }) {
+function RunCard({ run, roster, myMailbox }: { run: MaintenanceRunCard; roster: RosterPerson[]; myMailbox?: string | null }) {
   const softRefresh = useSoftRefresh();
   const [publishing, startPublish] = useTransition();
   const publishLock = useRef(false);
@@ -500,6 +534,7 @@ function RunCard({ run, roster }: { run: MaintenanceRunCard; roster: RosterPerso
           slipIds={run.slips.map((s) => s.id)}
           visitDate={run.visitDate}
           roster={roster}
+          myMailbox={myMailbox}
           contextLabel={run.title.replace(/^Maintenance · /, '')}
           onClose={() => setComposing(false)}
         />
@@ -508,7 +543,7 @@ function RunCard({ run, roster }: { run: MaintenanceRunCard; roster: RosterPerso
   );
 }
 
-function VendorGroup({ propertyName, slips, roster }: { propertyName: string; slips: VendorNeededSlip[]; roster: RosterPerson[] }) {
+function VendorGroup({ propertyName, slips, roster, myMailbox }: { propertyName: string; slips: VendorNeededSlip[]; roster: RosterPerson[]; myMailbox?: string | null }) {
   const [composing, setComposing] = useState(false);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -544,6 +579,7 @@ function VendorGroup({ propertyName, slips, roster }: { propertyName: string; sl
           slipIds={slips.map((s) => s.id)}
           visitDate={null}
           roster={roster}
+          myMailbox={myMailbox}
           contextLabel={`${propertyName} vendor list`}
           onClose={() => setComposing(false)}
         />
@@ -552,7 +588,7 @@ function VendorGroup({ propertyName, slips, roster }: { propertyName: string; sl
   );
 }
 
-export function RunsRail({ data, standalone }: { data: RunsBoardData; standalone?: boolean }) {
+export function RunsRail({ data, standalone, myMailbox }: { data: RunsBoardData; standalone?: boolean; myMailbox: string | null }) {
   const softRefresh = useSoftRefresh();
   const [planning, startPlanning] = useTransition();
   const planLock = useRef(false);
@@ -635,7 +671,7 @@ export function RunsRail({ data, standalone }: { data: RunsBoardData; standalone
         {data.runs.length > 0 && (
           <div style={{ display: 'flex', gap: 12, marginTop: 14, flexWrap: 'wrap' }}>
             {data.runs.map((r) => (
-              <RunCard key={r.packetId} run={r} roster={data.roster} />
+              <RunCard key={r.packetId} run={r} roster={data.roster} myMailbox={myMailbox} />
             ))}
           </div>
         )}
@@ -645,7 +681,7 @@ export function RunsRail({ data, standalone }: { data: RunsBoardData; standalone
             <span style={{ ...LABEL, color: 'var(--signal)' }}>Book a vendor</span>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 8 }}>
               {vendorGroups.map((g) => (
-                <VendorGroup key={g.propertyId} propertyName={g.propertyName} slips={g.slips} roster={data.roster} />
+                <VendorGroup key={g.propertyId} propertyName={g.propertyName} slips={g.slips} roster={data.roster} myMailbox={myMailbox} />
               ))}
             </div>
           </div>
