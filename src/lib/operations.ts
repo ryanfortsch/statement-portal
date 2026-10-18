@@ -18,10 +18,14 @@ import { ACTIVE_WORK_SLIP_STATUSES } from './work-types';
 import { isLowBattery, type SeamBatteryStatus } from './seam';
 import { loadCalendarDayMap, type CalendarDayRow } from './calendar-days';
 
-export type Range = 'today' | '3d' | '7d' | '14d' | '30d';
+// '2d' is today plus tomorrow (the board's default): RANGE_DAYS counts the
+// days AFTER today, so it is 1. The older ranges keep their meaning ('3d'
+// reaches today + 3), because the home tile and Ask Helm read them.
+export type Range = 'today' | '2d' | '3d' | '7d' | '14d' | '30d';
 
 export const RANGE_DAYS: Record<Range, number> = {
   today: 0,
+  '2d': 1,
   '3d': 3,
   '7d': 7,
   '14d': 14,
@@ -30,13 +34,14 @@ export const RANGE_DAYS: Record<Range, number> = {
 
 export const RANGE_LABEL: Record<Range, string> = {
   today: 'Today',
+  '2d': 'Today + tomorrow',
   '3d': '3 days',
   '7d': '7 days',
   '14d': '14 days',
   '30d': '30 days',
 };
 
-export const VALID_RANGES: Range[] = ['today', '3d', '7d', '14d', '30d'];
+export const VALID_RANGES: Range[] = ['today', '2d', '3d', '7d', '14d', '30d'];
 
 /**
  * Calendar window is independent of the turnover-list range so the operator
@@ -243,6 +248,16 @@ export type Turnover = {
   status: string | null;
   isSameDayTurnover: boolean;
   previousCheckout: string | null;
+  /** The guest who leaves on previousCheckout: the subject of the cleaning
+   *  stages, which are about THEIR departure, not the arriving guest's. */
+  previousGuestName: string | null;
+  /** That departing stay's check-in, so the board can find its row on the
+   *  checkout schedule when Helm moved the departure (an extension). */
+  previousStayCheckIn: string | null;
+  /** The guest-facing check-in time, HH:MM 24h, from the home's rate plan
+   *  (property_rate_plans.checkin_time); 16:00 when the home has none. Not
+   *  properties.default_checkin_time, which is the cleaner's finish target. */
+  checkInTime: string;
   inspection: InspectionRow | null;
   inspectionStatus: InspectionStatus;
   /** An inspection is actively underway for this turnover: started in the app
@@ -358,6 +373,14 @@ export type CalendarData = {
   openValue: number | null;
 };
 
+/** What Helm knows about a clean, keyed `${propertyId}|${checkoutDate}`, for
+ *  a checkout that has no turnover row of its own (nobody arrives after it). */
+export type DepartureSignal = {
+  cleanedAt: string | null;
+  /** A cleaner keyed in (lock-only) and has not finished. */
+  cleaningNow: boolean;
+};
+
 export type OperationsData = {
   rangeStart: string;
   rangeEnd: string;
@@ -365,7 +388,25 @@ export type OperationsData = {
   totalCount: number;
   inspectionDoneCount: number;
   calendar: CalendarData;
+  /** Only with `{ departures: true }`: clean signals for every checkout in
+   *  the range, so a checkout with no arrival behind it can still say
+   *  whether it was cleaned. Empty otherwise. */
+  departureSignals: Record<string, DepartureSignal>;
 };
+
+export type OperationsOptions = {
+  /** The turnover board's view of the range: besides the arrivals inside it,
+   *  return every turnover whose PREVIOUS checkout is inside it (the house
+   *  turns in range even when the next guest arrives later), read bookings
+   *  30 days past the range so "nobody arrives" is a fact and not the edge
+   *  of the read, and fill departureSignals. The home tile and Ask Helm keep
+   *  the arrival-keyed default, so their counts do not move. */
+  departures?: boolean;
+};
+
+/** Days past the range the board reads bookings, so a checkout whose next
+ *  arrival is that far out still pairs with it. */
+const DEPARTURE_LOOKAHEAD_DAYS = 30;
 
 /**
  * Load all turnovers (check-ins) where check-in falls within [today, today+days].
@@ -383,7 +424,9 @@ export async function loadOperationsData(
   // reads the rolling 7-day window. Left in place rather than refactored.
   calendarOffset: number = 0,
   calendarMonth?: string,
+  options: OperationsOptions = {},
 ): Promise<OperationsData> {
+  const withDepartures = options.departures === true;
   const rangeStart = todayStr();
   const days = RANGE_DAYS[range];
   const rangeEnd = addDaysStr(rangeStart, days);
@@ -427,7 +470,7 @@ export async function loadOperationsData(
   const turnoverFetchStart = addDaysStr(rangeStart, -30);
   const pagedFetchStart = addDaysStr(calendarWindowStart, -1);
   const fetchStart = pagedFetchStart < turnoverFetchStart ? pagedFetchStart : turnoverFetchStart;
-  const listFetchEnd = addDaysStr(rangeEnd, 1);
+  const listFetchEnd = addDaysStr(rangeEnd, withDepartures ? 1 + DEPARTURE_LOOKAHEAD_DAYS : 1);
   const calFetchEnd = addDaysStr(calendarEnd, 1);
   const fetchEnd = calFetchEnd > listFetchEnd ? calFetchEnd : listFetchEnd;
 
@@ -670,6 +713,7 @@ export async function loadOperationsData(
     { data: unlockEventData },
     calendarDayMap,
     { data: guestyResData },
+    { data: ratePlanData },
   ] = await Promise.all([
     supabase
       .from('cleaning_completions')
@@ -751,6 +795,12 @@ export async function loadOperationsData(
       .lte('check_in', fetchEnd)
       .gte('check_out', fetchStart)
       .not('guest_name', 'is', null),
+    // The guest-facing check-in time per home, for the board's "In 4:00".
+    // A home with no rate plan (or a read error) falls back to 16:00.
+    supabase
+      .from('property_rate_plans')
+      .select('property_id, checkin_time')
+      .in('property_id', propertyIdList),
   ]);
 
   // ── Guest-name join ───────────────────────────────────────────────────
@@ -1005,11 +1055,32 @@ export async function loadOperationsData(
     if (row.started_at) inspectionStartByKey.set(`${row.property_id}|${row.checkout_date}`, row.started_at);
   }
 
+  // Guest-facing check-in time per home ("16:00:00" or "16:00" -> "16:00").
+  const checkInTimeByProperty = new Map<string, string>();
+  for (const row of (ratePlanData ?? []) as Array<{ property_id: string; checkin_time: string | null }>) {
+    const m = /^(\d{1,2}):(\d{2})/.exec((row.checkin_time ?? '').trim());
+    if (m) checkInTimeByProperty.set(row.property_id, `${m[1].padStart(2, '0')}:${m[2]}`);
+  }
+
+  // The stay that ends on a given checkout, so a turnover can name the guest
+  // who LEAVES (the subject of the cleaning stages). A real name beats a
+  // placeholder when two rows end on the same day.
+  const departingByCheckout = new Map<string, ReservationRow>();
+  for (const r of reservations) {
+    const key = `${r.property_id}|${r.check_out}`;
+    const prev = departingByCheckout.get(key);
+    if (!prev || (isPlaceholderGuest(prev.guest_name) && !isPlaceholderGuest(r.guest_name))) {
+      departingByCheckout.set(key, r);
+    }
+  }
+
   // Filter to the actual display window (today through rangeEnd) and enrich.
+  // With `departures`, a turnover whose arrival is past the range still
+  // belongs when its previous checkout is inside it: the house turns in range.
   const turnovers: Turnover[] = [];
   for (const r of reservations) {
     const checkInDate = r.check_in;
-    if (checkInDate < rangeStart || checkInDate > rangeEnd) continue;
+    if (checkInDate < rangeStart) continue;
 
     const property = propertyById.get(r.property_id) ?? null;
 
@@ -1018,6 +1089,11 @@ export async function loadOperationsData(
       [...propCheckouts]
         .reverse()
         .find((c) => c <= checkInDate && c !== r.check_out) ?? null;
+
+    if (checkInDate > rangeEnd && !(withDepartures && previousCheckout !== null && previousCheckout <= rangeEnd)) {
+      continue;
+    }
+    const departing = previousCheckout ? departingByCheckout.get(`${r.property_id}|${previousCheckout}`) ?? null : null;
 
     const isSameDayTurnover = previousCheckout === checkInDate;
 
@@ -1087,6 +1163,9 @@ export async function loadOperationsData(
       status: r.status,
       isSameDayTurnover,
       previousCheckout,
+      previousGuestName: departing?.guest_name ?? null,
+      previousStayCheckIn: departing?.check_in ?? null,
+      checkInTime: checkInTimeByProperty.get(r.property_id) ?? '16:00',
       inspection: matchingInspection,
       inspectionStatus,
       inspectionInProgress,
@@ -1145,6 +1224,23 @@ export async function loadOperationsData(
   });
 
   const inspectionDoneCount = dedupedTurnovers.filter((t) => t.inspectionStatus === 'complete').length;
+
+  // Clean signals for every checkout in the range, for the board's rows
+  // that have a departure and no arrival behind it.
+  const departureSignals: Record<string, DepartureSignal> = {};
+  if (withDepartures) {
+    const keys = new Set<string>([...cleaningByKey.keys(), ...cleaningSessionByKey.keys()]);
+    for (const key of keys) {
+      const [pid, date] = key.split('|');
+      if (!date || date < rangeStart || date > rangeEnd) continue;
+      const session = cleaningSessionByKey.get(key) ?? null;
+      const cleanedAt = session?.finishedAt ?? cleaningByKey.get(key)?.completedAt ?? null;
+      departureSignals[key] = {
+        cleanedAt,
+        cleaningNow: monitoredPropertyIds.has(pid) && !!session?.enteredAt && !cleanedAt,
+      };
+    }
+  }
 
   // ── Calendar ──────────────────────────────────────────────────────────
   // One row per active property, columns = the precomputed calendarDayList
@@ -1415,6 +1511,7 @@ export async function loadOperationsData(
     turnovers: dedupedTurnovers,
     totalCount: dedupedTurnovers.length,
     inspectionDoneCount,
+    departureSignals,
     calendar: {
       days: calendarDayList,
       rows: calendarRows,
