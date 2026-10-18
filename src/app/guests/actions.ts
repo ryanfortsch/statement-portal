@@ -8,6 +8,7 @@ import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { isProxyEmail, type GuestStatus } from '@/lib/guests-types';
 import { pushContactToResend, unsubscribeContactInResend } from '@/lib/resend';
 import { syncGuestyGuestsToList } from '@/lib/guests-guesty-sync';
+import { keepsExistingStatus, mergeTags, type AddContactOutcome } from '@/lib/guest-contact-add';
 
 type ImportRow = {
   email: string;
@@ -252,7 +253,13 @@ export async function syncFromGuesty(): Promise<void> {
   );
 }
 
-export async function manuallyAddContact(formData: FormData): Promise<void> {
+/**
+ * Add contact. A new address joins as subscribed and is mirrored to Resend;
+ * an address already on the list keeps its status (unsubscribed, bounced and
+ * complained stay off every send, and nothing is pushed to Resend for them),
+ * and only names and tags are saved. The outcome tells the form which.
+ */
+export async function manuallyAddContact(formData: FormData): Promise<AddContactOutcome> {
   const session = await auth();
   if (!session?.user?.email) throw new Error('Not signed in');
 
@@ -265,10 +272,28 @@ export async function manuallyAddContact(formData: FormData): Promise<void> {
   const tags = tagsRaw ? tagsRaw.split(',').map((s) => s.trim()).filter(Boolean) : [];
   if (isProxyEmail(email)) tags.push('proxy_email');
 
-  const { data: inserted, error } = await supabase
+  const { data: existing, error: readErr } = await supabase
     .from('audience_contacts')
-    .upsert(
-      {
+    .select('id, status, tags')
+    .eq('email', email)
+    .maybeSingle();
+  if (readErr) throw new Error(readErr.message);
+
+  let contactId: string | null;
+  let outcome: AddContactOutcome;
+  if (existing) {
+    const row = existing as { id: string; status: string | null; tags: string[] | null };
+    const updates: Record<string, unknown> = { tags: mergeTags(row.tags, tags) };
+    if (firstName) updates.first_name = firstName;
+    if (lastName) updates.last_name = lastName;
+    const { error } = await supabase.from('audience_contacts').update(updates).eq('id', row.id);
+    if (error) throw new Error(error.message);
+    contactId = row.id;
+    outcome = keepsExistingStatus(row.status) ? { kind: 'kept', status: row.status as string } : { kind: 'updated' };
+  } else {
+    const { data: inserted, error } = await supabase
+      .from('audience_contacts')
+      .insert({
         email,
         first_name: firstName,
         last_name: lastName,
@@ -278,36 +303,48 @@ export async function manuallyAddContact(formData: FormData): Promise<void> {
         source: 'manual',
         source_detail: `Added by ${session.user.email}`,
         marketing_consent: true,
-      },
-      { onConflict: 'email' }
-    )
-    .select('id')
-    .single();
-
-  if (error) throw new Error(error.message);
-
-  // Best-effort Resend mirror; failures shouldn't block the local insert.
-  try {
-    const resendId = await pushContactToResend({
-      email,
-      firstName,
-      lastName,
-    });
-    if (resendId && inserted?.id) {
-      await supabase
-        .from('audience_contacts')
-        .update({ resend_contact_id: resendId, resend_synced_at: new Date().toISOString() })
-        .eq('id', inserted.id);
+      })
+      .select('id')
+      .single();
+    if (error) {
+      if (error.code === '23505') throw new Error('This address was added a moment ago. Reload Contacts.');
+      throw new Error(error.message);
     }
-  } catch (err) {
-    console.error('[audience] resend sync failed for manual add', err);
+    contactId = (inserted as { id: string } | null)?.id ?? null;
+    outcome = { kind: 'added' };
+  }
+
+  // Best-effort Resend mirror; failures shouldn't block the local write.
+  // Never for a kept status: the mirror would mark them subscribed there.
+  if (outcome.kind !== 'kept') {
+    try {
+      const resendId = await pushContactToResend({
+        email,
+        firstName,
+        lastName,
+      });
+      if (resendId && contactId) {
+        await supabase
+          .from('audience_contacts')
+          .update({ resend_contact_id: resendId, resend_synced_at: new Date().toISOString() })
+          .eq('id', contactId);
+      }
+    } catch (err) {
+      console.error('[audience] resend sync failed for manual add', err);
+    }
   }
 
   await supabase.from('audience_events').insert({
-    contact_id: inserted?.id,
+    contact_id: contactId,
     event_type: 'manually_added',
-    metadata: { by: session.user.email, source: 'helm_ui' },
+    metadata: {
+      by: session.user.email,
+      source: 'helm_ui',
+      ...(outcome.kind === 'kept' ? { kept_status: outcome.status } : {}),
+      ...(outcome.kind === 'updated' ? { already_subscribed: true } : {}),
+    },
   });
 
   revalidatePath('/guests/contacts');
+  return outcome;
 }

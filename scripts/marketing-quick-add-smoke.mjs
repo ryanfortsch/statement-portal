@@ -15,7 +15,7 @@ const compile=s=>ts.transpileModule(s,{compilerOptions:{target:ts.ScriptTarget.E
 
 for(const [name,path] of [
  ['marketing','src/app/properties/[id]/HowWeSellIt.tsx'],['contact','src/app/guests/contacts/AddGuestContactForm.tsx'],['prospect','src/app/properties/prospects/AddProspectForm.tsx'],
- ['guard','src/lib/use-draft-navigation-guard.ts'],['recover','src/lib/use-recoverable-action.ts'],['unsaved','src/lib/unsaved-work.ts'],
+ ['guard','src/lib/use-draft-navigation-guard.ts'],['recover','src/lib/use-recoverable-action.ts'],['unsaved','src/lib/unsaved-work.ts'],['contactAdd','src/lib/guest-contact-add.ts'],
 ])await writeFile(join(scratch,name+'.js'),compile(await readFile(join(root,path),'utf8')));
 await writeFile(join(scratch,'actions.js'),`
 const save=(kind,data)=>new Promise((resolve,reject)=>window.calls.push({kind,args:Object.fromEntries(data),resolve,reject}));
@@ -29,7 +29,7 @@ function Fixture(){const [version,setVersion]=useState(0);window.revalidate=()=>
 {mode==='marketing'&&<HowWeSellIt propertyId="one" row={{tagline:version?'Server refreshed':'Initial tagline',primary_selling_point:null,selling_points:['Dock'],on_water:true,best_for:null,notes:null}}/>}
 {mode==='contact'&&<AddGuestContactForm/>}{mode==='prospect'&&<AddProspectForm/>}</section></>;}createRoot(document.getElementById('root')).render(<Fixture/>);
 `));
-const alias={'../actions':'actions','./actions':'actions','./how-we-sell-it-actions':'actions','@/lib/use-draft-navigation-guard':'guard','@/lib/use-recoverable-action':'recover','./unsaved-work':'unsaved','next/navigation':'router'};
+const alias={'../actions':'actions','./actions':'actions','./how-we-sell-it-actions':'actions','@/lib/use-draft-navigation-guard':'guard','@/lib/use-recoverable-action':'recover','./unsaved-work':'unsaved','@/lib/guest-contact-add':'contactAdd','next/navigation':'router'};
 await new Promise((resolve,reject)=>{const compiler=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.js'),output:{path:scratch,filename:'bundle.js'},resolve:{modules:[join(root,'node_modules')],alias:Object.fromEntries(Object.entries(alias).map(([k,v])=>[k,join(scratch,v+'.js')]))},performance:{hints:false}});compiler.run((err,stats)=>compiler.close(()=>err||stats?.hasErrors()?reject(err||Error(stats.toString({all:false,errors:true}))):resolve()));});
 if(process.argv.includes('--compile-only')){console.log('Marketing/quick-add fixture compiled.');await rm(scratch,{recursive:true,force:true});process.exit(0);}
 const server=createServer(async(req,res)=>{if(req.method!=='GET'){res.writeHead(405).end();return;}res.setHeader('Cache-Control','no-store');res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' https://synthetic.test data:");if(req.url==='/bundle.js'){res.setHeader('Content-Type','text/javascript; charset=utf-8');res.end(await readFile(join(scratch,'bundle.js')));}else{res.setHeader('Content-Type','text/html; charset=utf-8');res.end('<!doctype html><title>Synthetic campaign and delete recovery</title><style>body{font:14px system-ui;--ink:#222;--paper:#fff;--rule:#ccc}section{margin:20px}button{margin:4px}input,textarea,select{margin:4px}</style><div id="root"></div><script src="/bundle.js"></script>');}});
