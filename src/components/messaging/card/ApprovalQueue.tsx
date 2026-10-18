@@ -24,6 +24,7 @@ export function ApprovalQueue<T extends { id: string; status?: string; send_at?:
   undo,
   emptyMessage,
   toolbar,
+  after,
   renderCard,
 }: {
   approvals: T[];
@@ -36,6 +37,9 @@ export function ApprovalQueue<T extends { id: string; status?: string; send_at?:
   emptyMessage: string;
   /** Above the cards, under the title: the Team inbox's filter row. */
   toolbar?: ReactNode;
+  /** Under the cards, still in the queue: what waits without a card (an
+   *  email held as a pitch). */
+  after?: ReactNode;
   renderCard: (approval: T, helpers: QueueCardHelpers) => ReactNode;
 }) {
   const [notice, setNotice] = useState<string | null>(null);
@@ -79,11 +83,11 @@ export function ApprovalQueue<T extends { id: string; status?: string; send_at?:
         id="needs-review"
         title={title}
         right={<QueueRefreshControl onRefresh={onResolved} refreshTick={updatedTick} />}
-        empty={approvals.length === 0 && !toolbar}
+        empty={approvals.length === 0 && !toolbar && !after}
         emptyMessage={emptyMessage}
       >
         {toolbar}
-        {toolbar && approvals.length === 0 ? (
+        {(toolbar || after) && approvals.length === 0 ? (
           <p style={{ margin: '18px 0 0', fontSize: 13, color: 'var(--ink-3)' }}>{emptyMessage}</p>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
@@ -97,6 +101,7 @@ export function ApprovalQueue<T extends { id: string; status?: string; send_at?:
             ))}
           </div>
         )}
+        {after}
       </Section>
       {/* Outside the Section: marking the last card handled empties the
           queue, and an empty Section renders no children. */}

@@ -32,6 +32,8 @@ import {
 } from './actions';
 import { RentalInquiryPanel } from './RentalInquiryPanel';
 import { addonItem, handoffItem, quotesItem } from './guest-card-blocks';
+import { guestAnsweredWhere, waitReason } from '@/lib/card-wait-reason';
+import { HeldPitches, type HeldPitch } from './HeldPitches';
 import { inquiryDraftState, inquiryMessageText, inquiryQuoteHref } from '@/lib/rental-inquiry';
 import { ThreadPanel } from './Thread';
 import {
@@ -61,11 +63,18 @@ const NO_REPLY_REASONS = ['Already answered', 'Guest said thanks', 'Not worth a 
 export function MessagingQueue({
   initialPending,
   initialQuotes,
+  aiPaused,
+  held,
 }: {
   initialPending: Approval[];
   /** This guest's Stay Cape Ann quotes, keyed by approval id. Rides the
    *  queue's own feed so a coached rewrite (new id) keeps its context. */
   initialQuotes?: GuestQuoteContext;
+  /** The drafting AI is down: a card with no draft says so. */
+  aiPaused?: { reason?: string } | null;
+  /** First-contact emails the pitch screen held in the last day, with no
+   *  draft written: they wait here with Release, not two folds deep. */
+  held?: HeldPitch[];
 }) {
   const { approvals, context: quotes, updatedTick, refresh, watchRegen, stalledId } = useApprovalQueue<Approval, GuestQuoteContext>(
     initialPending,
@@ -85,6 +94,7 @@ export function MessagingQueue({
       onRefresh={onRefresh}
       undo={undoDecision}
       emptyMessage="No guest replies waiting."
+      after={held && held.length > 0 ? <HeldPitches items={held} /> : undefined}
       renderCard={(approval, helpers) => (
         <GuestCard
           key={approval.id}
@@ -93,6 +103,7 @@ export function MessagingQueue({
           helpers={helpers}
           onRegenerating={watchRegen}
           regenStalled={stalledId === approval.id}
+          aiPaused={aiPaused}
         />
       )}
     />
@@ -105,6 +116,7 @@ function GuestCard({
   helpers,
   onRegenerating,
   regenStalled,
+  aiPaused,
 }: {
   approval: Approval;
   /** Stay Cape Ann quotes already on file for this guest, with the true
@@ -114,6 +126,7 @@ function GuestCard({
   helpers: QueueCardHelpers;
   onRegenerating: (id: string) => void;
   regenStalled: boolean;
+  aiPaused?: { reason?: string } | null;
 }) {
   const id = approval.id;
   // Guest pricing is set by the owners: /guests/quotes is an owner page, so a
@@ -423,6 +436,17 @@ function GuestCard({
       ageMinutes={approval.age_minutes}
       createdAt={approval.created_at}
       shortId={approval.short_id}
+      wait={waitReason({
+        status: approval.status,
+        // A proactive card was never answered elsewhere: its age is not staleness.
+        ageMinutes: kind ? null : approval.age_minutes,
+        sendAttempts: approval.send_attempts,
+        lastSendError: approval.last_send_error,
+        answeredWhere: guestAnsweredWhere(approval.conversation_id, approval.module),
+        noDraft: !approval.draft.trim(),
+        aiPaused,
+        unverifiedHomes: inquiry ? inquiry.homes.filter((h) => h.availability === 'unknown').length : 0,
+      })}
       said={{
         // Proactive cards have no guest message: the left column is the
         // trigger, not "Guest said".

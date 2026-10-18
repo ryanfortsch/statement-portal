@@ -101,10 +101,9 @@ ORDER is the durable part and has not moved; the numbers drift with the repo.
 | `/properties` | Property registry. The largest module: 26 pages |
 | `/properties/contracts` | Owner agreements, renewal mechanics, notice deadlines |
 | `/properties/prospects` | Prospect funnel. Generates projection decks and partnership guides |
-| `/messaging` | Guest message drafts awaiting approval, plus `/messaging/send` |
-| `/owner-messaging` | Owner reply drafts (SMS + email) |
-| `/cleaner-messaging` | Bilingual cleaner drafts, Portuguese with English side-by-side |
-| `/contractor-messaging` | Contractor reply drafts |
+| `/messaging` | Guest message drafts awaiting approval, plus `/messaging/send`. Conversations steps back past its 60 days and takes a check-in range |
+| `/owner-messaging` | Owner reply drafts (SMS + email), owners only |
+| `/messaging/team` | The Team inbox: cleaner drafts (Portuguese with the English beside them) and contractor drafts in one list, an All / Cleaners / Contractors filter, the schedule text and "clean after?" under it. `/cleaner-messaging` and `/contractor-messaging` redirect here |
 | `/guests` | Subscriber list, segments, campaigns. `/guests/agreements` for SCA rental agreements. `/guests/quotes` for SCA custom quotes and booking requests (composed here, paid on staycapeann.com) |
 | `/crm` | Contacts, touch timeline, and meetings. An important meeting (owner and prospect meetings by default) texts the operator the evening before from the 24/7 line, the AirDNA reminder's rail (`DOTTI_PHONE`); every meeting shows on an owner's home feed today and tomorrow, and a staff login sees the meetings it logged |
 | `/channels` | The Helm-native Guesty replacement: multi-channel listings, iCal sync, bookings |
@@ -157,7 +156,17 @@ prints the owner-signed copy's fingerprint. Countersigning takes an owner login 
 in `contract_countersigned_by`. A new writer of contract terms must check the lock;
 `contract-terms.test.ts` reads the source for each one.
 
-The four messaging surfaces share a client panel (`src/components/ProactiveRemindersPanel.tsx`)
+**Every messaging queue renders one approval card** (`src/components/messaging/card/`, since
+2026-10-18): who wrote and what they said, the proposed reply, then the same verbs on every tab
+(Approve & send with Send later, Edit, Coach, Redraft, Mark handled with a reason, Undo and the
+Decided recently ledger). What approving also does (a work slip, a payment link, a note to Rosa,
+owner follow-up work) is one "Also on approve" line each, and a waiting card says why it waits in
+one line (`src/lib/card-wait-reason.ts`, from the concierge's `send_attempts`/`last_send_error`).
+Each audience wraps the card with its own blocks; add a verb or a rail to the card, never to one
+queue. The team verbs (edit, redraft, undo, handled reasons) are stay-concierge's
+`team_card_rails.py`.
+
+The queues share the card and the proactive panel (`src/components/ProactiveRemindersPanel.tsx`)
 but keep separate server-action files by audience. That split is deliberate: Next server actions
 are per-route.
 

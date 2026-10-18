@@ -34,7 +34,8 @@ export const approveOwnerDraft=rec('approve'),markOwnerHandled=rec('handled'),un
 coachOwnerDraft=rec('coach'),editOwnerDraft=rec('edit'),redraftOwnerDraft=rec('redraft'),
 scheduleOwnerDraft=rec('schedule'),cancelOwnerSchedule=rec('cancel');
 export const approveDraft=rec('approve'),markHandled=rec('handled'),undoDecision=rec('undo'),coachDraft=rec('coach'),
-editDraft=rec('edit'),redraftDraft=rec('redraft'),scheduleDraft=rec('schedule'),cancelSchedule=rec('cancel'),dismissMaintenanceSlip=rec('dismiss');`);
+editDraft=rec('edit'),redraftDraft=rec('redraft'),scheduleDraft=rec('schedule'),cancelSchedule=rec('cancel'),dismissMaintenanceSlip=rec('dismiss');
+export const releaseHeldPitch=rec('release');`);
 await writeFile(join(scratch,'role.js'),`export const useHelmRole=()=>window.role||'owner';`);
 await writeFile(join(scratch,'thread.js'),`import React from 'react';export function ThreadPanel(){return React.createElement('div',{id:'thread'},'Synthetic thread');}`);
 await writeFile(join(scratch,'navigation.js'),`export const useRouter=()=>({refresh(){window.refreshes=(window.refreshes||0)+1;}});`);
@@ -70,6 +71,8 @@ const guestCards=[
   handoff:{filed:false,audience:'cleaner',target_name:'Rosa',target_contact:'+15550101',reason:'a dog is coming',preview:'Vai ter um cachorro.',preview_english:'There will be a dog.',urgency:'soon',confidence:'high',create_error:'',preview_token:'tok'}},
  {...g,id:'pre-card',guesty_message_id:'gm2',guest_first:'Paula',guest_text:'Is July 2027 open?',draft:'Thanks Paula, we will confirm July shortly.',topic:'prerelease_request',module:'email',channel:'Email'},
  {...g,id:'manual-card',guesty_message_id:'trash-manual:x',guest_first:'Mo',guest_text:'',draft:'Trash goes out tonight.',topic:'trash_reminder',channel:'Direct'},
+ {...g,id:'failed-card',guesty_message_id:'gm5',guest_first:'Fay',guest_text:'Is the hot tub on?',draft:'Yes, it is heated to 102.',send_attempts:5,last_send_error:'quo_error: 402 Payment Required',age_minutes:20},
+ {...g,id:'stale-card',guesty_message_id:'gm6',guest_first:'Stu',guest_text:'Where is the beach key?',draft:'It is on the hook by the door.',age_minutes:5*60+10},
  {...g,id:'inq-card',guesty_message_id:'gm4',guest_first:'Ivy',guest_text:'Price for 4 nights?',draft:'',topic:'rental_inquiry',
   rental_inquiry:{check_in:'2026-11-01',check_out:'2026-11-05',guests:4,flexible:false,history_checked:true,checked_at:now,needs:[],decision:'Needs a price for 4 nights',homes:[]}},
 ];
@@ -78,14 +81,15 @@ const guestQuotes={'guest-card':{total:2,quotes:[{id:'q1',status:'sent',property
 window.queues={contractors:cards,cleaners:cleanerCards,owners:ownerCards,guests:guestCards};
 window.queue=mode==='cleaner'?cleanerCards:mode==='owner'?ownerCards:mode==='guest'?guestCards:cards;
 window.role=new URLSearchParams(location.search).get('role')||'owner';
+const held=[{source_id:'abc123def456',held_at:Math.floor(Date.now()/1000)-3600,sender:'seo@example.test',subject:'Rank #1 on Google'}];
 window.fetch=async url=>{const u=String(url);const aud=(u.match(/audience=(\w+)/)||[])[1];
  const approvals=!u.includes('/api/messaging/queue')?null:mode==='team'||aud==='cleaners'||aud==='contractors'?window.queues[aud]:window.queue;
  return new Response(JSON.stringify(approvals?{approvals,context:aud==='guests'?guestQuotes:{}}:{}),{headers:{'Content-Type':'application/json'}});};
 const homes=[{id:'home-a',name:'Synthetic Cottage'},{id:'home-b',name:'Synthetic Barn'}];
 const teamAudience=new URLSearchParams(location.search).get('audience')||(mode==='cleaner'?'cleaners':mode==='contractor'?'contractors':'all');
-createRoot(document.getElementById('root')).render(<main id={mode}>{mode==='owner'?<OwnerMessagingQueue initialPending={ownerCards}/>:mode==='guest'?<MessagingQueue initialPending={guestCards} initialQuotes={guestQuotes}/>:<TeamInboxQueue initialCleaners={mode==='contractor'?[]:cleanerCards} initialContractors={mode==='cleaner'?[]:cards} contractorContext={{}} properties={homes} audience={teamAudience}/>}</main>);
+createRoot(document.getElementById('root')).render(<main id={mode}>{mode==='owner'?<OwnerMessagingQueue initialPending={ownerCards}/>:mode==='guest'?<MessagingQueue initialPending={guestCards} initialQuotes={guestQuotes} held={held}/>:<TeamInboxQueue initialCleaners={mode==='contractor'?[]:cleanerCards} initialContractors={mode==='cleaner'?[]:cards} contractorContext={{}} properties={homes} audience={teamAudience}/>}</main>);
 `);
-const alias={'@/app/cleaner-messaging/actions':join(scratch,'actions.js'),'@/app/contractor-messaging/actions':join(scratch,'actions.js'),'@/components/useHelmRole':join(scratch,'role.js'),'./Thread':join(scratch,'thread.js'),'@':join(root,'src'),'./actions':join(scratch,'actions.js'),'next/navigation':join(scratch,'navigation.js'),'next/link':join(scratch,'link.js')};
+const alias={'./inbox-health-actions':join(scratch,'actions.js'),'@/app/cleaner-messaging/actions':join(scratch,'actions.js'),'@/app/contractor-messaging/actions':join(scratch,'actions.js'),'@/components/useHelmRole':join(scratch,'role.js'),'./Thread':join(scratch,'thread.js'),'@':join(root,'src'),'./actions':join(scratch,'actions.js'),'next/navigation':join(scratch,'navigation.js'),'next/link':join(scratch,'link.js')};
 await new Promise((resolve,reject)=>{const compiler=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.tsx'),output:{path:scratch,filename:'bundle.js'},
  resolve:{extensions:['.tsx','.ts','.js'],modules:[join(root,'node_modules')],alias},
  module:{rules:[{test:/\.tsx?$/,use:join(scratch,'ts-loader.cjs')}]},performance:{hints:false}});
@@ -215,6 +219,14 @@ try{
  const st=await text(card('pre-card'));assert.ok(st.includes('Ask Ryan or Dotti to price this')&&!st.includes('Send a price'),'staff are told who prices');
  assert.equal(await page.$('#approval-guest-card a[href^="/guests/quotes/"]'),null,'no quote links for staff');
  pass('guests: staff see who prices, never a link that bounces');
+ // Why each waiting card waits, in one line.
+ await page.goto(origin+'/?mode=guest');await page.waitForSelector(card('failed-card'));
+ assert.match(await text(card('failed-card')),/Failed after 5 tries: the texting account is out of credit\. Send again or mark handled\./);
+ assert.match(await text(card('stale-card')),/Drafted 5h ago; check whether it was already answered in Guesty\./);
+ assert.ok(!(await text(card('guest-card'))).includes('Drafted'),'a fresh card says nothing');
+ const heldRow=await text('[aria-label="Held as pitches"]');assert.match(heldRow,/Held as a pitch: seo@example\.test · Rank #1 on Google/);
+ await page.$$eval('[aria-label="Held as pitches"] button',bs=>bs[0].click());await page.waitForFunction(()=>window.calls.some(c=>c.kind==='release'));
+ pass('guests: a failed send and a stale draft say why they wait; a held pitch waits on the queue with Release');
  // Team: cleaners and contractors in one list, each card saying whose.
  await page.evaluate(()=>{window.calls=[];});await page.goto(origin+'/?mode=team');await page.waitForSelector(card('pt-card'));
  assert.ok(await page.$(card('slip-card')),'contractor cards share the list');

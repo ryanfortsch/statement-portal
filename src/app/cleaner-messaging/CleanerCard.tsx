@@ -8,6 +8,7 @@ import { ApprovalCard, BodyText, sentAgoLabel } from '@/components/messaging/car
 import type { QueueCardHelpers } from '@/components/messaging/card/ApprovalQueue';
 import { useWorkSlip } from '@/components/messaging/card/useWorkSlip';
 import { TEAM_HANDLED_REASONS, isTeamProactive, reasonsFor } from '@/components/messaging/card/reasons';
+import { waitReason } from '@/lib/card-wait-reason';
 import {
   approveCleanerDraft,
   markCleanerHandled,
@@ -29,6 +30,7 @@ export function CleanerCard({
   onRegenerating,
   regenStalled,
   audienceChip,
+  aiPaused,
 }: {
   approval: CleanerApproval;
   properties: PropertyOption[];
@@ -37,6 +39,8 @@ export function CleanerCard({
   regenStalled: boolean;
   /** The Team inbox says whose card this is. */
   audienceChip?: ReactNode;
+  /** The drafting AI is down. */
+  aiPaused?: { reason?: string } | null;
 }) {
   const id = approval.id;
   const slip = useWorkSlip({
@@ -73,6 +77,15 @@ export function CleanerCard({
       ageMinutes={approval.age_minutes}
       createdAt={approval.created_at}
       shortId={approval.short_id}
+      wait={waitReason({
+        status: approval.status,
+        ageMinutes: proactive ? null : approval.age_minutes,
+        sendAttempts: approval.send_attempts,
+        lastSendError: approval.last_send_error,
+        answeredWhere: 'by text',
+        noDraft: !approval.draft.trim(),
+        aiPaused,
+      })}
       said={{
         label: 'They said',
         sub: sentAgoLabel(approval.created_at),
