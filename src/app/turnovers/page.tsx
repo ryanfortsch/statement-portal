@@ -2,14 +2,12 @@ import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
 import { TurnoverTabs } from '@/components/TurnoverTabs';
-import { OccupancyCalendar } from '@/components/OccupancyCalendar';
 import { auth } from '@/auth';
 import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
 import { isCapeAnnOps } from '@/lib/property-scope';
 import { AutoRefresh } from '../revenue/AutoRefresh';
 import { SubmitButton } from '@/components/SubmitButton';
 import { startInspection } from '../inspections/actions';
-import { CalendarMonthSelect } from './CalendarMonthSelect';
 import { PropertyFilterSelect } from './PropertyFilterSelect';
 import { CompactTurnoverRow } from './CompactTurnoverRow';
 import { lifecycleOf, STAGE_HUES } from './turnover-format';
@@ -20,10 +18,6 @@ import {
   todayStr,
   RANGE_LABEL,
   VALID_RANGES,
-  CALENDAR_RANGE_DAYS,
-  CALENDAR_RANGE_LABEL,
-  VALID_CALENDAR_RANGES,
-  type CalendarRange,
   type Range,
   type Turnover,
 } from '@/lib/operations';
@@ -57,13 +51,13 @@ async function readPropertyName(propertyId: string): Promise<string | null> {
 }
 
 // Out-of-region homes (properties.region != cape_ann) stay out of the filter
-// options, exactly as they stay out of the pipeline and calendar. The gate is
+// options, exactly as they stay out of the pipeline. The gate is
 // the registry column, read through lib/property-scope.ts, not a literal set.
 
 /** Options for the header's property filter. Queried directly (not derived
- *  from the calendar rows) because loadOperationsData narrows its property
- *  list to the active filter, which would leave the select with only the
- *  property already chosen. */
+ *  from the operations rows) because loadOperationsData narrows its
+ *  property list to the active filter, which would leave the select with
+ *  only the property already chosen. */
 async function readPropertyOptions(): Promise<{ value: string; label: string }[]> {
   try {
     const { data } = await supabase
@@ -91,10 +85,7 @@ function formatRelative(date: Date | null): string {
 type PageProps = {
   searchParams: Promise<{
     range?: string;
-    cal?: string;
     property?: string;
-    calo?: string;
-    calm?: string;
   }>;
 };
 
@@ -106,45 +97,18 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
       ? (rangeParam as Range)
       : 'today';
 
-  const calParam = params?.cal;
-  const calRange: CalendarRange =
-    calParam && (VALID_CALENDAR_RANGES as string[]).includes(calParam)
-      ? (calParam as CalendarRange)
-      : '7d';
-
-  // Calendar paging offset in days (the ‹ Today › pagers under "On the
-  // calendar"). 0 = anchored on today; the lib clamps extremes.
-  const caloParsed = parseInt(params?.calo ?? '', 10);
-  const calOffset = Number.isFinite(caloParsed) ? caloParsed : 0;
-
-  // Month mode ("2026-09" from the month dropdown): the calendar shows
-  // exactly that month. Overrides the rolling offset window while set.
-  const calmParam = params?.calm;
-  const calMonth =
-    calmParam && /^\d{4}-(0[1-9]|1[0-2])$/.test(calmParam) ? calmParam : undefined;
-
   const propertyFilter = params?.property?.trim() || undefined;
 
   // Canonical URL for this page's own links: every control preserves the
-  // other controls' state (list range, calendar range, paging offset,
-  // month mode, property filter) instead of silently resetting it.
-  // Choosing a calendar range tab or Today exits month mode; choosing a
-  // month drops the day offset.
+  // other control's state (list range, property filter) instead of
+  // silently resetting it. The occupancy calendar, with its own range,
+  // paging and month params, lives on the home page now.
   const opsHref = (over: {
     range?: Range;
-    cal?: CalendarRange;
-    calo?: number;
-    calm?: string | null;
     property?: string | null;
   }): string => {
     const q = new URLSearchParams();
     q.set('range', over.range ?? range);
-    q.set('cal', over.cal ?? calRange);
-    const month =
-      over.calm !== undefined ? over.calm : over.cal !== undefined ? null : calMonth ?? null;
-    const calo = month != null ? 0 : over.calo !== undefined ? over.calo : calOffset;
-    if (calo !== 0) q.set('calo', String(calo));
-    if (month) q.set('calm', month);
     const prop = over.property !== undefined ? over.property : propertyFilter ?? null;
     if (prop) q.set('property', prop);
     return `/turnovers?${q.toString()}`;
@@ -167,7 +131,7 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
 
   const [{ lastSyncedAt, isStale }, data, session, filterPropertyName, propertyOptions] = await Promise.all([
     readSyncStatus(),
-    loadOperationsData(range, calRange, propertyFilter, calOffset, calMonth),
+    loadOperationsData(range, '7d', propertyFilter),
     auth(),
     propertyFilter ? readPropertyName(propertyFilter) : Promise.resolve<string | null>(null),
     readPropertyOptions(),
@@ -478,111 +442,15 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
         <WalkHomeNow properties={propertyOptions} />
       </section>
 
-      {/* OCCUPANCY CALENDAR */}
+      {/* The occupancy calendar left this page: the home page renders the
+          same OccupancyCalendar for the next seven days. */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, flex: 1, width: '100%' }}>
-        <div
-          className="flex items-baseline justify-between flex-wrap gap-3"
-          style={{ marginBottom: 14 }}
+        <Link
+          href="/#occupancy-calendar"
+          style={{ fontSize: 12, color: 'var(--ink-3)', textDecoration: 'underline', textUnderlineOffset: 3 }}
         >
-          <h2 className="font-serif" style={{
-            fontSize: 22,
-            fontWeight: 400,
-            letterSpacing: '-0.01em',
-            color: 'var(--ink)',
-            margin: 0,
-          }}>
-            On the calendar
-            {data.calendar.days.length > 0 && (
-              <span
-                className="font-sans"
-                style={{
-                  fontSize: 12,
-                  color: calOffset === 0 && !calMonth ? 'var(--ink-4)' : 'var(--signal)',
-                  marginLeft: 12,
-                  letterSpacing: '0.02em',
-                }}
-              >
-                {fmtCalDay(data.calendar.days[0])} &rarr;{' '}
-                {fmtCalDay(data.calendar.days[data.calendar.days.length - 1])}
-              </span>
-            )}
-          </h2>
-          <nav className="flex items-baseline" style={{
-            fontSize: 11,
-            letterSpacing: '0.16em',
-            textTransform: 'uppercase',
-            fontWeight: 500,
-            gap: 16,
-          }}>
-            {/* Pager: slide the window one full page (or one month, in
-                month mode); Today snaps back to the rolling window. */}
-            <span className="flex items-baseline" style={{ gap: 10 }}>
-              <Link
-                href={
-                  calMonth
-                    ? opsHref({ calm: monthShift(calMonth, -1) })
-                    : opsHref({ calo: calOffset - CALENDAR_RANGE_DAYS[calRange] })
-                }
-                scroll={false}
-                aria-label="Earlier"
-                title="Page the calendar earlier"
-                style={{ color: 'var(--ink)', textDecoration: 'none', fontSize: 14, lineHeight: 1 }}
-              >
-                &lsaquo;
-              </Link>
-              {calOffset !== 0 || calMonth ? (
-                <Link
-                  href={opsHref({ calo: 0, calm: null })}
-                  scroll={false}
-                  style={{ color: 'var(--signal)', textDecoration: 'none' }}
-                >
-                  Today
-                </Link>
-              ) : (
-                <span style={{ color: 'var(--ink-4)' }}>Today</span>
-              )}
-              <Link
-                href={
-                  calMonth
-                    ? opsHref({ calm: monthShift(calMonth, 1) })
-                    : opsHref({ calo: calOffset + CALENDAR_RANGE_DAYS[calRange] })
-                }
-                scroll={false}
-                aria-label="Later"
-                title="Page the calendar later"
-                style={{ color: 'var(--ink)', textDecoration: 'none', fontSize: 14, lineHeight: 1 }}
-              >
-                &rsaquo;
-              </Link>
-            </span>
-            <span aria-hidden style={{ color: 'var(--rule)', fontSize: 12 }}>|</span>
-            {VALID_CALENDAR_RANGES.map((cr) => {
-              const active = !calMonth && cr === calRange;
-              return (
-                <Link
-                  key={cr}
-                  href={opsHref({ cal: cr })}
-                  scroll={false}
-                  style={{
-                    color: active ? 'var(--ink)' : 'var(--ink-4)',
-                    textDecoration: 'none',
-                    borderBottom: active ? '2px solid var(--signal)' : '2px solid transparent',
-                    paddingBottom: 3,
-                  }}
-                >
-                  {CALENDAR_RANGE_LABEL[cr]}
-                </Link>
-              );
-            })}
-            <CalendarMonthSelect
-              months={monthOptions()}
-              value={calMonth ?? ''}
-              monthHrefTemplate={opsHref({ calm: '__M__' })}
-              clearHref={opsHref({ calo: 0, calm: null })}
-            />
-          </nav>
-        </div>
-        <OccupancyCalendar calendar={data.calendar} />
+          Occupancy calendar →
+        </Link>
       </section>
 
       <HelmFooter module="Turnovers" right="Source: Guesty + Helm walks" />
@@ -677,39 +545,6 @@ function computeStageCounts(pending: Turnover[]): {
     }
   }
   return { counts: { cleaningNow, awaitingCleaner, needsInspection, inspectingNow }, firsts };
-}
-
-/** "Jul 19" for the calendar-window caption next to the section title. */
-function fmtCalDay(iso: string): string {
-  return new Date(`${iso}T00:00:00`).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-  });
-}
-
-/** "2026-09" shifted by delta months. */
-function monthShift(ym: string, delta: number): string {
-  const [y, m] = ym.split('-').map(Number);
-  const d = new Date(Date.UTC(y, m - 1 + delta, 1));
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
-}
-
-/** Month-dropdown options: 6 months back through 14 ahead of today, which
- *  covers statement look-backs and next summer's bookings. */
-function monthOptions(): { value: string; label: string }[] {
-  const current = todayStr().slice(0, 7);
-  const out: { value: string; label: string }[] = [];
-  for (let i = -6; i <= 14; i += 1) {
-    const value = monthShift(current, i);
-    out.push({
-      value,
-      label: new Date(`${value}-01T00:00:00`).toLocaleDateString('en-US', {
-        month: 'long',
-        year: 'numeric',
-      }),
-    });
-  }
-  return out;
 }
 
 /** The day divider's eyebrow text: "Today", or "Tue · Jul 8". */

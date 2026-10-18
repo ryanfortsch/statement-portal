@@ -378,6 +378,9 @@ export async function loadOperationsData(
   range: Range,
   calendarRange: CalendarRange = '7d',
   propertyId?: string,
+  // calendarOffset and calendarMonth (the ‹ Today › pagers and the month
+  // jump) have no caller since the calendar left /turnovers; the home page
+  // reads the rolling 7-day window. Left in place rather than refactored.
   calendarOffset: number = 0,
   calendarMonth?: string,
 ): Promise<OperationsData> {
