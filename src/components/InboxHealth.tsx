@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { cache } from 'react';
 import { CompactDisclosure } from './CompactDisclosure';
 import { Section } from './Section';
 import { WorkFollowupsContent } from './WorkFollowups';
@@ -19,12 +20,21 @@ function when(timestamp: number | null) {
   }) + ' ET';
 }
 
-async function loadStatus() {
+// One read per request: an inbox page renders this twice (above the queue for
+// a problem, at its foot otherwise) and the Mac Mini should answer once.
+const loadStatus = cache(async () => {
   const [result, followups, owner, session] = await Promise.all([getInboxHealth(), listWorkFollowups(), isOwnerSession(), auth()]);
   return { result, followups, owner, email: session?.user?.email ?? '', checkedAt: Date.now() / 1000 };
-}
+});
 
-export async function InboxHealth({ diagnostics = false }: { diagnostics?: boolean }) {
+/**
+ * `placement` (inbox pages only): "top" renders only when something needs
+ * attention, since a broken import can hide incoming messages and belongs
+ * above the queue; "bottom" renders the routine summary (held pitches, work
+ * sync) at the page's foot, out of the queue's way (2026-10-18). Diagnostics
+ * (the Delivery & sync page) renders everything regardless.
+ */
+export async function InboxHealth({ diagnostics = false, placement = 'top' }: { diagnostics?: boolean; placement?: 'top' | 'bottom' }) {
   const { result, followups, owner, email, checkedAt } = await loadStatus();
   const health = result.ok ? result.data : null;
   // The emails behind a delayed import or a held pitch sit in the concierge's
@@ -36,6 +46,7 @@ export async function InboxHealth({ diagnostics = false }: { diagnostics?: boole
   const canOpen = canOpenMailbox(email, mailbox);
   const status = inboxStatus(health, followups.ok ? followups.data : null, checkedAt);
   if (!diagnostics && !status.summary) return null;
+  if (!diagnostics && (placement === 'top') !== status.attention) return null;
   const imports = diagnostics ? health?.unresolved ?? [] : status.imports;
   const channels = health?.channels.filter(channel => diagnostics || ['failed', 'stale'].includes(channel.status)) ?? [];
   const content = <>

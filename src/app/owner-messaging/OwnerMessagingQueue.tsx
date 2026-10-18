@@ -78,7 +78,7 @@ export function OwnerMessagingQueue({ initialPending }: Props) {
       title={title}
       right={<QueueRefreshControl onRefresh={onResolved} refreshTick={updatedTick} />}
       empty={approvals.length === 0}
-      emptyMessage="No owner drafts waiting. New owner messages will show up here automatically when the AI drafts a reply."
+      emptyMessage="No owner replies waiting."
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
         {ordered.map((approval, index) => (

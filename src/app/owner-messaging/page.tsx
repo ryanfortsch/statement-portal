@@ -11,17 +11,15 @@ import { QueueSkeleton } from '@/components/QueueSkeleton';
 import {
   isStayConciergeConfigured,
   listOwnerApprovals,
-  listRecentOwnerApprovals,
   listOwnerHistory,
-  getOwnerCuratedFacts,
   explainError,
 } from '@/lib/stay-concierge';
 import { ProactiveRemindersPanel } from '@/components/ProactiveRemindersPanel';
 import { PropertyFactsToFile } from '@/components/PropertyFactsToFile';
+import { InboxHealth } from '@/components/InboxHealth';
+import { InboxBottomTools } from '@/components/InboxBottomTools';
 import { OwnerMessagingQueue } from './OwnerMessagingQueue';
-import { OwnerRecentStrip } from './OwnerRecentStrip';
 import { OwnerContactsHistory } from './OwnerContactsHistory';
-import { OwnerFactsEditor } from './OwnerFactsEditor';
 import {
   fetchProactiveReminders,
   fetchProactiveTargets,
@@ -45,6 +43,10 @@ function Shell({ children }: { children: ReactNode }) {
       {/* Streams in: the shell must still paint with no backend call. */}
       <Suspense fallback={null}>
         <AiStatusBanner />
+      </Suspense>
+      {/* Only a delivery problem renders here; the routine row is at the foot. */}
+      <Suspense fallback={null}>
+        <InboxHealth placement="top" />
       </Suspense>
 
       {children}
@@ -84,16 +86,17 @@ function NotReachable({ message, retry = false }: { message: string; retry?: boo
 
 // Urgent boundary: the owner queue + recent strip. Awaits only the two fast
 // calls so the heavier contact history + curated facts never gate the queue.
+// The queue alone: it is the first thing on the page (2026-10-18). The "Last
+// 24 hours" strip is gone (the contact history below carries every reply),
+// and Proactive messages moved to the foot.
 async function OwnerQueueSection() {
-  const [pending, recent] = await Promise.all([
-    listOwnerApprovals(),
-    listRecentOwnerApprovals(24),
-  ]);
+  const pending = await listOwnerApprovals();
   if (!pending.ok) return <NotReachable message={explainError(pending.error)} retry />;
+  return <OwnerMessagingQueue initialPending={pending.data.approvals} />;
+}
+
+function OwnerProactive() {
   return (
-    <>
-      <OwnerMessagingQueue initialPending={pending.data.approvals} />
-      <OwnerRecentStrip initialRecent={recent.ok ? recent.data.approvals : []} />
       <ProactiveRemindersPanel
         audience="owner"
         actions={{
@@ -104,7 +107,6 @@ async function OwnerQueueSection() {
           polish: polishProactiveForAction,
         }}
       />
-    </>
   );
 }
 
@@ -113,21 +115,11 @@ async function OwnerQueueSection() {
 // this page keeps the one-line count.
 
 // Below-the-fold boundary: contact history + curated owner facts editor.
+// The owner facts editor (rules the owner drafter applies) lives on the
+// Quality lens with the rest of what teaches the AI (2026-10-18).
 async function OwnerDetailSection() {
-  const [history, facts] = await Promise.all([
-    listOwnerHistory(60),
-    getOwnerCuratedFacts(),
-  ]);
-  return (
-    <>
-      <OwnerContactsHistory initialContacts={history.ok ? history.data.contacts : []} />
-      <OwnerFactsEditor
-        initialContent={facts.ok ? facts.data.content : ''}
-        initialBytes={facts.ok ? facts.data.bytes : 0}
-        learnedContent={facts.ok ? facts.data.learned ?? '' : ''}
-      />
-    </>
-  );
+  const history = await listOwnerHistory(60);
+  return <OwnerContactsHistory initialContacts={history.ok ? history.data.contacts : []} />;
 }
 
 export default function OwnerMessagingPage() {
@@ -145,10 +137,12 @@ export default function OwnerMessagingPage() {
         <OwnerQueueSection />
       </Suspense>
       <Suspense fallback={null}><RecentMessageOutcomesSection audience="owners" /></Suspense>
-      <Suspense fallback={null}><PropertyFactsToFile /></Suspense>
       <Suspense fallback={null}>
         <OwnerDetailSection />
       </Suspense>
+      <OwnerProactive />
+      <Suspense fallback={null}><PropertyFactsToFile /></Suspense>
+      <InboxBottomTools />
     </Shell>
   );
 }

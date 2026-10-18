@@ -62,9 +62,7 @@ describe('one door for no reply', () => {
     assert.ok(/rejected: 'Handled'/.test(ledger) && /manual_sent: 'Handled'/.test(ledger), 'Decided recently says Handled');
     const thread = read('src/app/messaging/Thread.tsx');
     assert.ok(/case 'manual_sent':\s*case 'rejected':\s*return 'handled'/.test(thread), 'the thread chip says handled');
-    for (const strip of ['src/app/messaging/RecentStrip.tsx', 'src/app/owner-messaging/OwnerRecentStrip.tsx']) {
-      assert.ok(/rejected: 'Handled'/.test(read(strip)), `${strip} calls a legacy reject something else`);
-    }
+    assert.ok(/rejected: 'Handled'/.test(read('src/app/messaging/RecentStrip.tsx')), 'the activity strip calls a legacy reject something else');
     const notes = read('src/lib/message-outcomes.ts');
     assert.ok(/rejected: 'Handled'/.test(notes) && /manual_sent: 'Handled'/.test(notes), 'a note readout says Handled');
   });

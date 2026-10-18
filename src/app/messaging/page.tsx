@@ -21,6 +21,8 @@ import { loadGuestQuoteContext } from '@/lib/guest-quote-context';
 import { listHelmConversations } from '@/lib/helm-inbox';
 import { mergeConversationLists } from '@/lib/helm-inbox-core';
 import { PropertyFactsToFile } from '@/components/PropertyFactsToFile';
+import { InboxHealth } from '@/components/InboxHealth';
+import { InboxBottomTools } from '@/components/InboxBottomTools';
 import { ConciergeAlertList } from '@/components/ConciergeAlerts';
 import { MessagingQueue } from './MessagingQueue';
 import { RecentDecisions } from './RecentDecisions';
@@ -43,6 +45,10 @@ function Shell({ children }: { children: ReactNode }) {
       {/* Streams in: the shell must still paint with no backend call. */}
       <Suspense fallback={null}>
         <AiStatusBanner />
+      </Suspense>
+      {/* Only a delivery problem renders here; the routine row is at the foot. */}
+      <Suspense fallback={null}>
+        <InboxHealth placement="top" />
       </Suspense>
 
       {children}
@@ -179,6 +185,7 @@ export default function MessagingPage({ searchParams }: { searchParams: Promise<
       </Suspense>
       <Suspense fallback={null}><PropertyFactsToFile /></Suspense>
       <Suspense fallback={null}><RecentMessageOutcomesSection audience="guests" /></Suspense>
+      <InboxBottomTools />
     </Shell>
   );
 }
