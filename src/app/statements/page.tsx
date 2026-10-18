@@ -830,7 +830,7 @@ function FillGapModal(props: {
   }
 
   if (!fileType) return null;
-  const title = fileType === 'bank_csv' ? 'Upload Chase Bank CSV' : 'Upload Platform CSV';
+  const title = fileType === 'bank_csv' ? 'Upload the Chase bank CSV' : 'Upload the Guesty reservations CSV';
   const hint = fileType === 'bank_csv'
     ? 'Export the month\'s transactions from your Chase account as CSV. We\'ll re-run cleaning + deposit matching against the existing reservations. Nothing else on the statement gets touched.'
     : 'Export the reservations table from Guesty as CSV. We\'ll use it to fill in booking channels and guest names on the existing reservations, and recompute Stripe fees + owner payout. Bank-sourced cleaning data stays as-is.';
@@ -858,7 +858,7 @@ function FillGapModal(props: {
     <PreviewModal onClose={busy ? () => {} : onClose}>
       <div style={{ fontFamily: 'var(--sans)' }}>
         <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>
-          Fill Data Gap &middot; {propertyName} &middot; {month}
+          Missing file &middot; {propertyName} &middot; {month}
         </div>
         <h2 className="font-serif" style={{ fontSize: 24, fontWeight: 500, marginTop: 6, letterSpacing: '-0.01em' }}>{title}</h2>
 
@@ -1752,7 +1752,7 @@ function PropertyCard({
                     border: '1px solid var(--signal)',
                     padding: '2px 7px',
                   }}>
-                    {gaps.length} gap{gaps.length > 1 ? 's' : ''}
+                    {gaps.length} flag{gaps.length > 1 ? 's' : ''}
                   </span>
                 )}
                 {(prop.drift_bookings?.length || 0) > 0 && (
@@ -1903,9 +1903,9 @@ function PropertyCard({
             borderTop: '1px dotted var(--rule)',
           }}>
             <span className="eyebrow" style={{ marginRight: 6 }}>Sources</span>
-            <DataSourceChip active={prop.has_guesty_statement} label="Guesty" />
-            <DataSourceChip active={prop.has_platform_csv} label="Platform" />
-            <DataSourceChip active={prop.has_bank_csv} label="Bank" />
+            <DataSourceChip active={prop.has_guesty_statement} label="Guesty PDF" />
+            <DataSourceChip active={prop.has_platform_csv} label="Guesty reservations CSV" />
+            <DataSourceChip active={prop.has_bank_csv} label="Chase CSV" />
             <div style={{ flex: 1 }} />
             {prop.has_bank_csv && (
               <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>
@@ -2267,7 +2267,7 @@ function PropertyCard({
           {/* Data Gaps */}
           {(gaps.length > 0 || resolvedGaps.length > 0 || offStripeStays.length > 0) && (
             <div id={`stmt-${prop.property_id}-flags`} style={{ marginTop: 28, scrollMarginTop: 72 }}>
-              <SectionHead num="05" title="Data Gaps" meta={gaps.length > 0 ? `${gaps.length} open` : 'none open'} signal={gaps.length > 0} />
+              <SectionHead num="05" title="Flags" meta={gaps.length > 0 ? `${gaps.length} open` : 'none open'} signal={gaps.length > 0} />
               <div>
                 {gaps.map((gap) => {
                   const fillable = gapFillType(gap.gap_type) !== null;
@@ -2479,7 +2479,7 @@ function PropertyCard({
                               cursor: 'pointer',
                             }}
                           >
-                            Fill Gap
+                            Upload file
                           </button>
                         )}
                       </div>
@@ -3113,18 +3113,12 @@ function DashboardContent() {
   // when idle. Used by the Draft All button label and to disable the button.
   const [bulkDraftProgress, setBulkDraftProgress] = useState<{ done: number; total: number } | null>(null);
   const [bulkDraftResult, setBulkDraftResult] = useState<
-    | { drafted: number; skipped: number; failed: { property: string; error: string }[] }
+    | { drafted: number; skipped: { property: string; why: string }[]; failed: { property: string; error: string }[] }
     | string
     | null
   >(null);
   const [remittanceSheet, setRemittanceSheet] = useState<RemittanceSheet | null>(null);
   const [loadingRemittance, setLoadingRemittance] = useState(false);
-  const [uploadingCsv, setUploadingCsv] = useState(false);
-  const [csvResult, setCsvResult] = useState<
-    | { parsed: number; reservations: number; reviews: number; unmatched: number }
-    | string
-    | null
-  >(null);
 
   // Pulls every active work slip flagged owner_action_required, attaches
   // the Helm property name via the foreign-key join, and rolls up to a
@@ -3784,13 +3778,13 @@ function DashboardContent() {
     const driftCount = statements.reduce((s, p) => s + (p.drift_bookings?.length || 0), 0);
     const unreconciled = statements.filter(p => p.reconciliation && !p.reconciliation.reconciled).length;
     const problems: string[] = [];
-    if (openGaps > 0) problems.push(`${openGaps} open data gap${openGaps === 1 ? '' : 's'}`);
+    if (openGaps > 0) problems.push(`${openGaps} open flag${openGaps === 1 ? '' : 's'}`);
     if (pendingBankRows > 0) problems.push(`${pendingBankRows} bank row${pendingBankRows === 1 ? '' : 's'} awaiting review`);
     if (driftCount > 0) problems.push(`${driftCount} new paid booking${driftCount === 1 ? '' : 's'} not yet on a statement`);
     if (unreconciled > 0) problems.push(`${unreconciled} statement${unreconciled === 1 ? '' : 's'} not reconciled`);
     if (!depositReviewCounts.known) problems.push('bank review queue unreadable (count unknown)');
     if (statements.some(p => p.drift_known === false)) problems.push('new-booking check unreadable (drift count unknown)');
-    if (statements.some(p => p.gaps_known === false)) problems.push('gap list unreadable (a statement may be carrying flags this page cannot show)');
+    if (statements.some(p => p.gaps_known === false)) problems.push('flag list unreadable (a statement may be carrying flags this page cannot show)');
     if (statements.some(p => !p.reconciliation)) problems.push('a reconciliation could not be computed (its numbers are unverified)');
     return problems;
   }
@@ -3801,8 +3795,16 @@ function DashboardContent() {
       p.confidence !== 'red' &&
       !closeTasks[p.property_id]?.email_drafted_at,
     );
+    // Named, not counted: the toast says which statements it left alone.
+    const skipped: { property: string; why: string }[] = [
+      ...props.filter(p => !!closeTasks[p.property_id]?.email_drafted_at).map(p => ({ property: p.property_name, why: 'already drafted' })),
+      ...props.filter(p => p.confidence === 'red' && !closeTasks[p.property_id]?.email_drafted_at).map(p => ({ property: p.property_name, why: 'red confidence' })),
+    ];
     if (candidates.length === 0) {
-      setBulkDraftResult('All eligible statements are already drafted.');
+      const red = skipped.filter(x => x.why === 'red confidence').map(x => x.property);
+      setBulkDraftResult(red.length > 0
+        ? `Nothing to draft. Not drafted, red confidence: ${red.join(', ')}.`
+        : 'Every statement is already drafted.');
       return;
     }
     // Pre-flight: numbers that are still moving should not get drafted into
@@ -3828,7 +3830,6 @@ function DashboardContent() {
     // the loop rather than being filtered out before it, so without this
     // they land in neither `drafted` nor `skipped` and the toast silently
     // under-reports (15 ready, 14 drafted, 0 skipped).
-    let coveredByGroup = 0;
     const failed: { property: string; error: string }[] = [];
 
     for (let i = 0; i < candidates.length; i++) {
@@ -3854,7 +3855,7 @@ function DashboardContent() {
         }
         const data = await res.json();
         if (data.success) {
-          if (data.already_drafted) coveredByGroup++;
+          if (data.already_drafted) skipped.push({ property: p.property_name, why: 'in a combined owner email' });
           else drafted++;
           if (typeof data.mailbox === 'string') setDraftMailbox(data.mailbox);
           // Reflect the server-side stamp locally so the property card's
@@ -3896,11 +3897,7 @@ function DashboardContent() {
     }
 
     setBulkDraftProgress(null);
-    setBulkDraftResult({
-      drafted,
-      skipped: (props.length - candidates.length) + coveredByGroup,
-      failed,
-    });
+    setBulkDraftResult({ drafted, skipped, failed });
   }
 
   /* ─── Empty / Error States (editorial) ─── */
@@ -4049,11 +4046,12 @@ function DashboardContent() {
           masthead with a thin rule divider. Until 2026-05-06 this was three
           separate sync buttons plus a CSV-upload label, which crowded the
           strip and forced three sequential clicks at the start of every
-          close. Now: a single "Sync ▾" dropdown that bundles all four data
-          sources + a "Sync All" entry, so close-of-month is one click. The
-          Reservations CSV fallback lives inside the dropdown because it's
-          used rarely (only when the Guesty API sync is down). Add Note and
-          Draft All sit next to it as primary workflow actions. */}
+          close. Now: a single "Sync ▾" dropdown that bundles the three feeds
+          + a "Sync All" entry, so close-of-month is one click. The Guesty
+          reservations CSV is uploaded from its inputs card below the strip,
+          which also freshens the bookings cache, so the dropdown no longer
+          carries a second door for the same file. Add Note and Draft All
+          sit next to it as primary workflow actions. */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', borderBottom: '1px solid var(--ink)' }}>
         <div>
           <div className="rt-masthead-actions flex items-center justify-between gap-3" style={{ padding: '10px 0' }}>
@@ -4143,75 +4141,6 @@ function DashboardContent() {
                           </>
                         );
                       })()}
-                      <div style={{ borderTop: '1px solid var(--rule)' }} />
-                      <label
-                        title={lastSync['csv-fallback']?.last_synced_at
-                          ? `Reservations CSV uploaded ${relativeTime(lastSync['csv-fallback'].last_synced_at)}`
-                          : 'Guesty reservations CSV fallback. Use only when the Guesty API sync is down.'}
-                        style={{
-                          display: 'block',
-                          padding: '10px 14px',
-                          fontSize: 11, color: 'var(--ink-3)',
-                          letterSpacing: '.08em', textTransform: 'uppercase',
-                          cursor: uploadingCsv ? 'wait' : 'pointer',
-                          background: uploadingCsv ? 'var(--paper-2)' : 'transparent',
-                        }}
-                      >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                          <span style={{ fontWeight: 500 }}>
-                            {uploadingCsv ? 'Uploading…' : 'Upload Reservations CSV'}
-                          </span>
-                          <span style={{
-                            color: 'var(--ink-4)', fontWeight: 400, letterSpacing: 0,
-                            textTransform: 'none', fontSize: 10,
-                          }}>
-                            fallback
-                          </span>
-                        </div>
-                        {lastSync['csv-fallback']?.last_synced_at && !uploadingCsv && (
-                          <div style={{ color: 'var(--ink-4)', fontWeight: 400, letterSpacing: 0, textTransform: 'none', fontSize: 10, marginTop: 2 }}>
-                            last {relativeTime(lastSync['csv-fallback'].last_synced_at)}
-                          </div>
-                        )}
-                        <input
-                          type="file"
-                          accept=".csv"
-                          className="hidden"
-                          disabled={uploadingCsv}
-                          onChange={async (e) => {
-                            const file = e.target.files?.[0];
-                            if (!file) return;
-                            setSyncMenuOpen(false);
-                            setUploadingCsv(true);
-                            setCsvResult(null);
-                            try {
-                              const text = await file.text();
-                              const res = await fetch('/api/ingest-guesty-csv', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ csv: text }),
-                              });
-                              const data = await res.json();
-                              if (data.success) {
-                                setCsvResult({
-                                  parsed: data.parsed,
-                                  reservations: data.reservations_upserted,
-                                  reviews: data.reviews_upserted,
-                                  unmatched: data.unmatched_listings,
-                                });
-                                await loadLastSync();
-                              } else {
-                                setCsvResult(data.error || 'Upload failed');
-                              }
-                            } catch (err) {
-                              setCsvResult(err instanceof Error ? err.message : 'Upload failed');
-                            } finally {
-                              setUploadingCsv(false);
-                              e.target.value = '';
-                            }
-                          }}
-                        />
-                      </label>
                     </div>
                   </>
                 )}
@@ -4251,8 +4180,8 @@ function DashboardContent() {
                 onClick={runReconcile}
                 disabled={reconciling || !selectedMonth}
                 busy={reconciling}
-                label={reconciling ? 'Reconciling…' : 'Reconcile Sends'}
-                meta="email vs DB"
+                label={reconciling ? 'Checking…' : 'Check sent emails'}
+                meta="flags a mismatch"
                 icon={
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7M5 12h14" />
@@ -4334,7 +4263,7 @@ function DashboardContent() {
       {guestySyncResult && (
         typeof guestySyncResult === 'string' ? (
           <Toast tone="negative" onDismiss={() => setGuestySyncResult(null)}>
-            Guesty sync failed: {guestySyncResult}. If urgent, click <strong>Upload Reservations CSV</strong> instead.
+            Guesty sync failed: {guestySyncResult}. If it is urgent, upload the <strong>Guesty reservations CSV</strong> from its card under the close strip instead.
           </Toast>
         ) : (
           <Toast tone="tide" onDismiss={() => setGuestySyncResult(null)}>
@@ -4342,17 +4271,6 @@ function DashboardContent() {
             {guestySyncResult.reviews?.error && <span style={{ color: 'var(--signal)' }}> (reviews failed: {guestySyncResult.reviews.error})</span>}
             {guestySyncResult.reservations?.error && <span style={{ color: 'var(--signal)' }}> (reservations failed: {guestySyncResult.reservations.error})</span>}
             {'. '}These feed guest ratings and <em>On the horizon</em>. Open any statement (or regenerate a Gmail draft) to see them &mdash; no dashboard refresh needed.
-          </Toast>
-        )
-      )}
-      {csvResult && (
-        typeof csvResult === 'string' ? (
-          <Toast tone="negative" onDismiss={() => setCsvResult(null)}>CSV upload failed: {csvResult}</Toast>
-        ) : (
-          <Toast tone="positive" onDismiss={() => setCsvResult(null)}>
-            <strong>{csvResult.reservations}</strong> reservations and <strong>{csvResult.reviews}</strong> reviews saved from your Guesty CSV
-            {csvResult.unmatched > 0 && <span style={{ color: 'var(--signal)' }}> ({csvResult.unmatched} rows didn&apos;t match a property)</span>}
-            {'. '}Open any statement (or regenerate a Gmail draft) to see them &mdash; no dashboard refresh needed.
           </Toast>
         )
       )}
@@ -4416,8 +4334,17 @@ function DashboardContent() {
             onDismiss={() => setBulkDraftResult(null)}
           >
             <strong>{bulkDraftResult.drafted}</strong> Gmail draft{bulkDraftResult.drafted === 1 ? '' : 's'} created
-            {bulkDraftResult.skipped > 0 && (
-              <span style={{ color: 'var(--ink-4)' }}> &middot; {bulkDraftResult.skipped} skipped (already drafted, red, or covered by a combined owner email)</span>
+            {bulkDraftResult.skipped.length > 0 && (
+              <span style={{ display: 'block', marginTop: 4, color: 'var(--ink-3)', fontSize: 11 }}>
+                {bulkDraftResult.skipped.length} skipped:{' '}
+                {['already drafted', 'red confidence', 'in a combined owner email']
+                  .map(why => {
+                    const names = bulkDraftResult.skipped.filter(x => x.why === why).map(x => x.property);
+                    return names.length > 0 ? `${names.join(', ')} (${why})` : null;
+                  })
+                  .filter(Boolean)
+                  .join('; ')}
+              </span>
             )}
             {bulkDraftResult.failed.length > 0 && (
               <span style={{ display: 'block', marginTop: 4, color: 'var(--signal)', fontSize: 11 }}>
@@ -5050,12 +4977,12 @@ function DashboardContent() {
           owner emails that actually went out) to what Helm now shows. */}
       {reconcileOpen && (
         <PreviewModal onClose={() => setReconcileOpen(false)}>
-          <div className="eyebrow" style={{ marginBottom: 6 }}>Reconcile sends</div>
+          <div className="eyebrow" style={{ marginBottom: 6 }}>Check sent emails</div>
           <h3 className="font-serif" style={{ fontSize: 22, fontWeight: 500, margin: 0 }}>
-            {monthLabel(selectedMonth)} &middot; emails vs Helm DB
+            {monthLabel(selectedMonth)} &middot; what owners were sent, against Helm
           </h3>
           <p style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 8, lineHeight: 1.5 }}>
-            Searches Gmail for sent owner statements (any subject containing &ldquo;{monthLabel(selectedMonth).split(' ')[0]} Owner Statement&rdquo;), parses payout amounts from the snippets, and joins to the current Helm record. Divergences land as gaps on the affected property cards.
+            Finds the sent &ldquo;{monthLabel(selectedMonth).split(' ')[0]} Owner Statement&rdquo; emails in Gmail and compares each payout with Helm&apos;s. A mismatch adds a flag to that property&apos;s card.
           </p>
 
           {reconciling && !reconcileResult && (
@@ -5082,7 +5009,7 @@ function DashboardContent() {
                   <strong>{reconcileResult.emails_found}</strong> email{reconcileResult.emails_found === 1 ? '' : 's'} found
                 </span>
                 <span style={{ color: reconcileResult.gaps_written > 0 ? 'var(--signal)' : 'var(--positive)' }}>
-                  <strong>{reconcileResult.gaps_written}</strong> divergence{reconcileResult.gaps_written === 1 ? '' : 's'} flagged
+                  <strong>{reconcileResult.gaps_written}</strong> flag{reconcileResult.gaps_written === 1 ? '' : 's'} added
                 </span>
                 {reconcileResult.emails_unparsed.length > 0 && (
                   <span style={{ color: 'var(--ink-4)' }}>
@@ -5156,7 +5083,7 @@ function DashboardContent() {
 
               {reconcileResult.gaps_written > 0 && (
                 <div style={{ marginTop: 14, padding: '10px 12px', borderLeft: '2px solid var(--signal)', background: 'var(--paper-2)', fontSize: 11, color: 'var(--ink-2)' }}>
-                  Divergences are now flagged on the relevant property cards as <code>email_payout_mismatch</code> gaps. Resolve from there with an explanation (e.g. &ldquo;cleaning held back pending guest recoupment&rdquo;) so the next reconcile run preserves the resolved state.
+                  {reconcileResult.gaps_written === 1 ? 'The mismatch is' : 'Each mismatch is'} now a flag on its property&apos;s card. Resolve it there with what happened (e.g. &ldquo;cleaning held back pending guest recoupment&rdquo;); the next check keeps a resolved flag resolved.
                 </div>
               )}
 

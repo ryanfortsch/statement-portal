@@ -96,7 +96,7 @@ describe('the irreversible verbs say so', () => {
     const finalize = page.slice(page.indexOf("title: `Finalize ${monthLong(selectedMonth)}?`") - 900, page.indexOf("title: `Finalize ${monthLong(selectedMonth)}?`"));
     assert.match(finalize, /const problems = monthProblems\(\);/, 'Finalize no longer reads the Draft All list');
     const list = block(page, 'function monthProblems(');
-    for (const item of ['open data gap', 'awaiting review', 'not yet on a statement', 'not reconciled']) {
+    for (const item of ['open flag', 'awaiting review', 'not yet on a statement', 'not reconciled']) {
       assert.ok(list.includes(item), `monthProblems no longer names: ${item}`);
     }
   });
