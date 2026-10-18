@@ -44,9 +44,9 @@ export default async function CaptionPhotosPage({
       />
 
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 32, paddingBottom: 20, width: '100%' }}>
-        <div className="eyebrow" style={{ marginBottom: 12 }}>Guesty · Photo captions</div>
+        <div className="eyebrow" style={{ marginBottom: 12 }}>Guesty</div>
         <h1 className="font-serif" style={{ fontSize: 40, lineHeight: 1.05, fontWeight: 300, letterSpacing: '-0.02em', color: 'var(--ink)', margin: 0 }}>
-          Caption the <em style={{ color: 'var(--tide-deep)', fontWeight: 400 }}>gallery</em>.
+          Photo <em style={{ color: 'var(--tide-deep)', fontWeight: 400 }}>captions</em>
         </h1>
         <p style={{ marginTop: 14, fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: 720 }}>
           Pulls this listing&apos;s photos straight from Guesty and drafts a caption for each one, in

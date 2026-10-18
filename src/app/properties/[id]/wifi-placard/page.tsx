@@ -5,8 +5,12 @@ import type { HelmPropertyRow } from '@/lib/properties';
 import { renderQrForPlacard } from '@/lib/qr-sizing';
 import { requirePropertyDocumentAccess } from '@/lib/property-document-auth';
 import { ScaMark } from '@/components/properties/ScaMark';
+import { GuestDocumentBar } from '@/components/properties/GuestDocumentBar';
 
 export const dynamic = 'force-dynamic';
+
+/** One name per document: the tile, this tab's title and the bar say the same thing. */
+export const metadata = { title: 'Wi-Fi placard' };
 
 async function getProperty(id: string): Promise<HelmPropertyRow | null> {
   const { data } = await supabase.from('properties').select('*').eq('id', id).maybeSingle();
@@ -71,6 +75,7 @@ export default async function WifiPlacardPage({ params }: { params: Promise<{ id
   return (
     <>
       <style>{placardCss}</style>
+      <GuestDocumentBar propertyId={p.id} homeName={p.name} documentName="Wi-Fi placard" type="wifi-placard" />
       <div className="rt-doc" data-property-document="wifi-placard">
         {cards.map((card, i) => (
           <article className="rt-card" key={i}>

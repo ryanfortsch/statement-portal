@@ -124,7 +124,7 @@ export async function renderPropertyPdf(args: {
 }
 
 /**
- * Filesystem-safe filename, e.g. "21 Horton - Welcome Guide.pdf". For
+ * Filesystem-safe filename, e.g. "21 Horton - Home guide.pdf". For
  * bespoke notices the caller passes the notice title; we slugify and
  * use it as the suffix so a downloads folder full of placards stays
  * legible.
@@ -135,12 +135,13 @@ export function propertyPdfFilename(
   noticeTitle?: string,
 ): string {
   const labels: Record<PropertyDeliverable, string> = {
-    'home-guide': 'Welcome Guide',
-    'wifi-placard': 'WiFi Placard',
-    'info-note': 'Information Note',
+    // The tile, the document bar and the file all use one name.
+    'home-guide': 'Home guide',
+    'wifi-placard': 'Wi-Fi placard',
+    'info-note': 'Information note',
     'notice': 'Notice',
-    'welcome-card': 'Welcome Card',
-    'trash-notice': 'Trash Day Notice',
+    'welcome-card': 'Welcome card',
+    'trash-notice': 'Trash day notice',
   };
   const baseLabel =
     type === 'notice' && noticeTitle

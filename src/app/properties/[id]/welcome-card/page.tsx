@@ -3,8 +3,12 @@ import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import type { HelmPropertyRow } from '@/lib/properties';
 import { renderQrForPlacard } from '@/lib/qr-sizing';
 import { ScaMark } from '@/components/properties/ScaMark';
+import { GuestDocumentBar } from '@/components/properties/GuestDocumentBar';
 
 export const dynamic = 'force-dynamic';
+
+/** One name per document: the tile, this tab's title and the bar say the same thing. */
+export const metadata = { title: 'Welcome card' };
 
 async function getProperty(id: string): Promise<HelmPropertyRow | null> {
   const { data } = await supabase.from('properties').select('id, name, title').eq('id', id).maybeSingle();
@@ -60,6 +64,7 @@ export default async function WelcomeCardPage({
   return (
     <>
       <style>{cardCss}</style>
+      <GuestDocumentBar propertyId={p.id} homeName={p.name} documentName="Welcome card" type="welcome-card" />
       <div className="rt-doc">
         <article className="rt-card">
           <div className="rt-panel">

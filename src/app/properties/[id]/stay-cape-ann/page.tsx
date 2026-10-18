@@ -70,14 +70,14 @@ export default async function StayCapeAnnLaunchPage({
       <HelmBreadcrumb
         trail={[
           { label: property.name, href: `/properties/${id}?tab=guest` },
-          { label: 'Stay Cape Ann launch' },
+          { label: 'Stay Cape Ann' },
         ]}
       />
 
       <HelmHero
         eyebrow="Helm · Properties"
-        title="Launch on"
-        emphasis="Stay Cape Ann"
+        title="Stay Cape"
+        emphasis="Ann"
         description={`Put ${property.name} on staycapeann.com. Helm opens a reviewable pull request with the listing, surfaces a live preview, and walks you through wiring this property's own Stripe account. You approve to go live.`}
         paddingTop={28}
       />

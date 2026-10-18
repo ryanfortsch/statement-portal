@@ -45,9 +45,9 @@ export default async function ListingCopyPage({
       />
 
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 32, paddingBottom: 20, width: '100%' }}>
-        <div className="eyebrow" style={{ marginBottom: 12 }}>Stay Cape Ann · Listing copy</div>
+        <div className="eyebrow" style={{ marginBottom: 12 }}>Listing</div>
         <h1 className="font-serif" style={{ fontSize: 40, lineHeight: 1.05, fontWeight: 300, letterSpacing: '-0.02em', color: 'var(--ink)', margin: 0 }}>
-          Draft a <em style={{ color: 'var(--tide-deep)', fontWeight: 400 }}>listing</em>.
+          Listing <em style={{ color: 'var(--tide-deep)', fontWeight: 400 }}>copy</em>
         </h1>
         <p style={{ marginTop: 14, fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: 720 }}>
           The model has your property data, every live listing title (so it won't reuse one), and

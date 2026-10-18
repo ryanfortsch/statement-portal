@@ -71,13 +71,13 @@ function deepLinkFor(
       // The AI listing-copy generator built in a prior session. Wiring it
       // here so the "Listing copy drafted" step launches the tool that
       // does the work instead of being an inert checkbox.
-      return { href: `/properties/${propertyId}/listing-copy`, label: 'Draft listing copy', external: false };
+      return { href: `/properties/${propertyId}/listing-copy`, label: 'Open Listing copy', external: false };
     case 'caption_photos':
       // The Guesty photo-caption tool: pulls the listing gallery, drafts a
       // caption per photo, pushes back to Guesty on the operator's click.
-      return { href: `/properties/${propertyId}/caption-photos`, label: 'Caption photos', external: false };
+      return { href: `/properties/${propertyId}/caption-photos`, label: 'Open Photo captions', external: false };
     case 'open_quo':
-      return { href: 'https://my.openphone.com/', label: 'Open Quo', external: true };
+      return { href: 'https://my.quo.com/', label: 'Open Quo', external: true };
     case 'open_seam':
       return { href: 'https://console.seam.co/', label: 'Open Seam', external: true };
     case 'open_guesty_automations':

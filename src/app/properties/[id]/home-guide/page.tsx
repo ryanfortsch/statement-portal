@@ -9,8 +9,12 @@ import {
 } from '@/lib/properties';
 import { civicForProperty } from '@/lib/civic';
 import { requirePropertyDocumentAccess } from '@/lib/property-document-auth';
+import { GuestDocumentBar } from '@/components/properties/GuestDocumentBar';
 
 export const dynamic = 'force-dynamic';
+
+/** One name per document: the tile, this tab's title and the bar say the same thing. */
+export const metadata = { title: 'Home guide' };
 
 async function getProperty(id: string): Promise<HelmPropertyRow | null> {
   const { data } = await supabase.from('properties').select('*').eq('id', id).maybeSingle();
@@ -48,6 +52,7 @@ export default async function HomeGuidePage({ params }: { params: Promise<{ id: 
   return (
     <>
       <style>{guideCss}</style>
+      <GuestDocumentBar propertyId={p.id} homeName={p.name} documentName="Home guide" type="home-guide" />
       <div className="rt-doc" data-property-document="home-guide">
         <article className="rt-page">
           {/* Top: SCA logo mark + display headline */}
