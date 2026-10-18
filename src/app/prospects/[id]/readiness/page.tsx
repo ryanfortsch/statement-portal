@@ -1,21 +1,21 @@
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
+import { HelmMasthead } from '@/components/HelmMasthead';
+import { HelmBreadcrumb } from '@/components/HelmBreadcrumb';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
-import type { ProjectionRow, ReadinessState } from '@/lib/projections-types';
-import { computeReadiness } from '@/lib/projections-readiness';
-import { ReadinessChecklistClient } from '@/components/projections/ReadinessChecklistClient';
+import type { ProjectionRow } from '@/lib/projections-types';
+import { computeReadiness, READINESS_NOTE_FIELDS } from '@/lib/projections-readiness';
+import { loadWalkthrough } from '@/lib/home-walkthrough-db';
+import { OutfittingClient } from '@/components/walkthrough/OutfittingClient';
 
 /**
- * Interactive Property Readiness Checklist (mobile-first walkthrough tool).
+ * The outfitting walkthrough in counting mode: the prospect visit. What the
+ * home already has, the walkthrough notes, what is still needed, and Send to
+ * team for review. Its print twin (the owner-facing punch list) stays at
+ * /prospects/<id>/readiness/print.
  *
- * Thin server wrapper that:
- *   1. fetches the prospect row + computes per-property quantities, and
- *   2. hands the static data + initial state to a client component that
- *      handles tap-to-check, debounced note-saving, optimistic updates,
- *      and progress tracking.
- *
- * The corresponding printable (owner-facing) version lives at
- * /prospects/<id>/readiness/print - same computation, no interactivity,
- * letter-portrait layout for the PDF pipeline.
+ * Once the prospect is promoted the same walkthrough is the property's
+ * outfitting order, so this address follows it there: the counts made at the
+ * visit are where the order starts (one row of home_walkthroughs).
  */
 
 export const dynamic = 'force-dynamic';
@@ -25,47 +25,49 @@ async function getProjection(id: string): Promise<ProjectionRow | null> {
   return (data as ProjectionRow | null) ?? null;
 }
 
-export default async function ReadinessInteractivePage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
+async function propertyExists(id: string | null): Promise<boolean> {
+  if (!id) return false;
+  const { data } = await supabase.from('properties').select('id').eq('id', id).maybeSingle();
+  return !!data;
+}
+
+export default async function OutfittingCountPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const projection = await getProjection(id);
   if (!projection) notFound();
+  if (await propertyExists(projection.property_id)) redirect(`/properties/${projection.property_id}/order-checklist`);
 
   const { context, groups } = computeReadiness(projection);
-  const propertyTag = `${projection.property_address}${projection.property_city ? `, ${projection.property_city.split(',')[0]}` : ''}`;
-  const salutation =
-    projection.prospect_first_names ||
-    projection.prospect_first_name ||
-    projection.prospect_name ||
-    'Owner';
+  const homeName = `${projection.property_address}${projection.property_city ? `, ${projection.property_city.split(',')[0]}` : ''}`;
+  const salutation = projection.prospect_first_names || projection.prospect_first_name || projection.prospect_name || 'Owner';
   const propertyTypeLabel = (projection.property_type || 'home').toLowerCase();
-
-  // Coerce the persisted blob into the typed shape the client expects.
-  // Older / null rows resolve to an empty state.
-  const initial: ReadinessState = {
-    checked: Array.isArray(projection.readiness_state?.checked)
-      ? projection.readiness_state!.checked
-      : [],
-    notes:
-      projection.readiness_state?.notes && typeof projection.readiness_state.notes === 'object'
-        ? projection.readiness_state.notes
-        : {},
-    updated_at: projection.readiness_state?.updated_at,
-  };
+  const initial = await loadWalkthrough({ projectionId: id, propertyId: null });
 
   return (
-    <ReadinessChecklistClient
-      projectionId={id}
-      propertyTag={propertyTag}
-      salutation={salutation}
-      propertyTypeLabel={propertyTypeLabel}
-      groups={groups}
-      context={context}
-      initial={initial}
-      printHref={`/prospects/${id}/readiness/print`}
-    />
+    <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
+      <HelmMasthead />
+      <HelmBreadcrumb
+        trail={[
+          { label: 'Prospects', href: '/properties/prospects' },
+          { label: projection.property_address, href: `/prospects/${id}` },
+          { label: 'Outfitting' },
+        ]}
+      />
+      <OutfittingClient
+        mode={{
+          kind: 'counting',
+          projectionId: id,
+          salutation,
+          printHref: `/prospects/${id}/readiness/print`,
+          noteFields: READINESS_NOTE_FIELDS,
+        }}
+        homeName={homeName}
+        backHref={`/prospects/${id}`}
+        backLabel={projection.property_address || 'Prospect'}
+        tagLine={`${salutation}’s ${propertyTypeLabel} · ${context.maxGuests} guests · ${context.bedrooms} BR / ${context.bathrooms} BA${context.bathroomsFromIntake ? '' : ' (est.)'}`}
+        groups={groups}
+        initial={initial}
+      />
+    </div>
   );
 }

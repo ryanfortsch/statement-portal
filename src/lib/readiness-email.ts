@@ -14,6 +14,7 @@
  */
 import { sendTransactionalViaResend } from '@/lib/resend';
 import type { ProjectionRow } from '@/lib/projections-types';
+import { loadWalkthrough } from '@/lib/home-walkthrough-db';
 import {
   READINESS_NOTE_FIELDS,
   computeReadiness,
@@ -47,10 +48,12 @@ export async function sendReadinessReviewEmail(args: {
   // Re-derive groups + need counts from the projection so the email
   // reflects the same quantities the analyst saw on screen.
   const { groups } = computeReadiness(projection);
-  const state = projection.readiness_state ?? null;
-  const have = state?.have ?? {};
-  const checked = state?.checked ?? [];
-  const notes = state?.notes ?? {};
+  // The walkthrough lives on home_walkthroughs since 2026-10-18 (one row
+  // per home, prospect to property), not on projections.readiness_state.
+  const state = await loadWalkthrough({ projectionId: projection.id, propertyId: projection.property_id ?? null });
+  const have = state.have ?? {};
+  const checked = state.checked ?? [];
+  const notes = state.notes ?? {};
 
   // Build the "still needed" list using the same fallback the client uses:
   // legacy `checked` entries count as full, the canonical `have` dict

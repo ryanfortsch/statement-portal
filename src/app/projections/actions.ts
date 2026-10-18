@@ -15,7 +15,6 @@ import type {
   CustomClause,
   Owner,
   ProjectionRow,
-  ReadinessState,
   WithdrawnSignature,
 } from '@/lib/projections-types';
 import { deriveLegacyFromOwners } from '@/lib/projections-types';
@@ -844,90 +843,11 @@ export async function reactivateProspect(id: string): Promise<void> {
   revalidatePath(`/prospects/${id}`);
 }
 
-// ─── Readiness checklist mutations ─────────────────────────────────────────
-// Each call does a read-merge-write on the single jsonb column. Critically,
-// these actions do NOT revalidatePath — the analyst is *on* the readiness
-// page during a walkthrough, and revalidating the current route triggers
-// the parent /prospects/loading.tsx, which feels like the page froze.
-// Readiness state is purely client-managed in-memory while the page is
-// mounted; the next navigation re-fetches because the route is
-// dynamic = 'force-dynamic'.
-
-async function readReadinessState(projectionId: string): Promise<ReadinessState> {
-  const { data, error } = await supabase
-    .from('projections')
-    .select('readiness_state')
-    .eq('id', projectionId)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  if (!data) throw new Error('Prospect not found');
-  const raw = (data.readiness_state ?? null) as ReadinessState | null;
-  return {
-    have: raw?.have && typeof raw.have === 'object' ? raw.have : {},
-    checked: Array.isArray(raw?.checked) ? raw.checked : [],
-    notes: raw?.notes && typeof raw.notes === 'object' ? raw.notes : {},
-    updated_at: raw?.updated_at,
-  };
-}
-
-async function writeReadinessState(projectionId: string, next: ReadinessState): Promise<void> {
-  const stamped: ReadinessState = { ...next, updated_at: new Date().toISOString() };
-  const { data, error } = await supabase
-    .from('projections')
-    .update({ readiness_state: stamped })
-    .eq('id', projectionId)
-    .select('id');
-  if (error) throw new Error(error.message);
-  if (!data?.length) throw new Error('Prospect not found. Changes were not saved.');
-  // Intentionally NO revalidatePath — see header comment.
-}
-
-/**
- * Set how many units of an item the owner has. Pass 0 for "they have
- * none"; pass need-count (or higher) for "complete". `itemLabel` matches
- * READINESS_GROUPS in lib/projections-readiness.ts.
- *
- * Writes to the canonical `have` dict and strips the legacy `checked`
- * entry for this label so the two stay consistent.
- */
-export async function setReadinessHave(
-  projectionId: string,
-  itemLabel: string,
-  count: number,
-): Promise<void> {
-  const session = await auth();
-  if (!session?.user?.email) throw new Error('Not signed in');
-
-  const safeCount = Math.max(0, Math.round(Number(count) || 0));
-  const state = await readReadinessState(projectionId);
-  const have = { ...(state.have ?? {}) };
-  have[itemLabel] = safeCount;
-  // Drop the legacy `checked` entry for this label so the two views can't
-  // disagree. Future reads derive presence purely from `have`.
-  const checked = (state.checked ?? []).filter((c) => c !== itemLabel);
-  await writeReadinessState(projectionId, { ...state, have, checked });
-}
-
-/**
- * Write/overwrite a single walkthrough note. Pass empty string to clear.
- * `noteKey` is a stable identifier (supply_closet, smart_lock, etc.) —
- * see the NOTE_FIELDS array in lib/projections-readiness.ts.
- */
-export async function setReadinessNote(
-  projectionId: string,
-  noteKey: string,
-  value: string,
-): Promise<void> {
-  const session = await auth();
-  if (!session?.user?.email) throw new Error('Not signed in');
-
-  const state = await readReadinessState(projectionId);
-  const notes = { ...state.notes };
-  const trimmed = value.trim();
-  if (trimmed === '') delete notes[noteKey];
-  else notes[noteKey] = value;
-  await writeReadinessState(projectionId, { ...state, notes });
-}
+// ─── Readiness walkthrough ──────────────────────────────────────────────────
+// Counts and notes are written by src/app/walkthrough-actions.ts into
+// home_walkthroughs (one row per home, prospect to property) since
+// 2026-10-18; projections.readiness_state is retired and read only as a
+// fallback for one release (src/lib/home-walkthrough-db.ts).
 
 /**
  * Email the current readiness state to the Rising Tide team (Allie + Ryan
