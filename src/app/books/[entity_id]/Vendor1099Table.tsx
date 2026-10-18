@@ -4,9 +4,11 @@ import { useState } from 'react';
 import type { Vendor1099Row } from '@/lib/vendor-1099';
 
 /**
- * Renders the 1099 candidates table with an inline "W9 on file" checkbox
- * per vendor. Client component because the checkbox writes through to
- * /api/vendor-w9 and reflects optimistic state locally.
+ * Renders the 1099 candidates table with an inline "W-9 on file" checkbox
+ * per vendor, on the Rising Tide ledger (/books/rising_tide; it lived on
+ * Cost Analysis until that route retired). Client component because the
+ * checkbox writes through to /api/vendor-w9 (owner-only, like the page)
+ * and reflects optimistic state locally.
  *
  * Sources: 'cleaning' | 'repairs' | 'overhead' -- shown as small chips so
  * Dotti can see at a glance which buckets a vendor is showing up in.
@@ -58,7 +60,8 @@ export function Vendor1099Table({ rows: initial }: { rows: Vendor1099Row[] }) {
           {err}
         </div>
       )}
-      <table className="w-full tabular-nums" style={{ borderCollapse: 'collapse', fontSize: 12 }}>
+      <div style={{ overflowX: 'auto' }}>
+      <table className="w-full tabular-nums" style={{ borderCollapse: 'collapse', fontSize: 12, minWidth: 620 }}>
         <thead>
           <tr style={{ fontSize: 9, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--ink-3)' }}>
             <th style={{ textAlign: 'left', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>Vendor</th>
@@ -66,7 +69,7 @@ export function Vendor1099Table({ rows: initial }: { rows: Vendor1099Row[] }) {
             <th style={{ textAlign: 'right', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>Txns</th>
             <th style={{ textAlign: 'left', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>Sources</th>
             <th style={{ textAlign: 'center', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>1099?</th>
-            <th style={{ textAlign: 'center', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>W9 on file</th>
+            <th style={{ textAlign: 'center', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>W-9 on file</th>
           </tr>
         </thead>
         <tbody>
@@ -95,8 +98,8 @@ export function Vendor1099Table({ rows: initial }: { rows: Vendor1099Row[] }) {
                 </td>
                 <td style={{ padding: '8px 6px', textAlign: 'center' }}>
                   {r.eligible1099 ? (
-                    <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase', color: needsW9 ? 'var(--signal)' : 'var(--positive)' }}>
-                      {needsW9 ? 'Candidate' : 'Candidate'}
+                    <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase', whiteSpace: 'nowrap', color: needsW9 ? 'var(--signal)' : 'var(--positive)' }}>
+                      {needsW9 ? 'Candidate · W-9 needed' : 'Candidate · W-9 on file'}
                     </span>
                   ) : (
                     <span style={{ fontSize: 10, color: 'var(--ink-4)' }}>under $600</span>
@@ -120,6 +123,7 @@ export function Vendor1099Table({ rows: initial }: { rows: Vendor1099Row[] }) {
           })}
         </tbody>
       </table>
+      </div>
     </>
   );
 }

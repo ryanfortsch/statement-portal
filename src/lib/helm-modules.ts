@@ -109,12 +109,12 @@ export const HELM_MODULES: HelmModule[] = [
     // Default landing for the Financials section is Revenue (the
     // portfolio at-a-glance), not Statements -- per Dotti, 2026-05-23.
     // The FinancialsTabs strip still lets you jump to Statements /
-    // Forecast / Cost Analysis from there.
+    // Forecast / LLC Accounting from there.
     href: '/revenue',
     number: '01',
     title: 'Financials',
     navLabel: 'Money',
-    description: 'Money: Statements, Revenue, Forecast, and Cost Analysis in one place. Owner statements, portfolio revenue, the year model, and housekeeping cost trends.',
+    description: 'Money: Statements, Revenue, Forecast and LLC Accounting in one place. Owner statements, portfolio revenue, the year model with its actuals, and the LLC ledgers.',
     status: 'active',
     primary: true,
     group: 'money',
@@ -557,7 +557,7 @@ export const HELM_MODULES: HelmModule[] = [
     section: 'messaging',
   },
   // Owner Messaging is now a TAB inside Messaging (see MessagingTabs), same
-  // pattern as Statements / Revenue / Forecast / Cost Analysis / Books sitting
+  // pattern as Statements / Revenue / Forecast / Books sitting
   // under Financials. Hidden from the nav lists so it doesn't duplicate the
   // Messaging entry; route + search still resolve. The Messaging
   // pending-count badge sums guest + owner pending drafts.
@@ -637,7 +637,7 @@ export const HELM_MODULES: HelmModule[] = [
     href: '/forecast',
     number: '12',
     title: 'Forecast',
-    description: 'The 2026 business plan as an interactive model. Slide the lever to see how new contracts move the year.',
+    description: 'The business plan as an interactive model: slide the lever to see how new contracts move the year. Actuals at the foot: upload the company card and operating exports and see where the money goes.',
     status: 'active',
     primary: false,
     hidden: true,
@@ -646,7 +646,7 @@ export const HELM_MODULES: HelmModule[] = [
     access: 'owner',
   },
   // LLC Accounting ("Books") is a tab inside Financials (see FinancialsTabs),
-  // like Statements/Revenue/Forecast/Cost Analysis. Hidden from the nav
+  // like Statements/Revenue/Forecast. Hidden from the nav
   // lists so it doesn't duplicate the Financials entry; route + search
   // still resolve.
   {
@@ -654,30 +654,12 @@ export const HELM_MODULES: HelmModule[] = [
     href: '/books',
     number: '01',
     title: 'LLC Accounting',
-    description: 'In-house bookkeeping for the three LLCs. Bank and card transactions, categorized against the chart of accounts.',
+    description: 'In-house bookkeeping for the three LLCs. Bank and card transactions, categorized against the chart of accounts, and the year\'s 1099 candidates on the Rising Tide ledger.',
     status: 'active',
     primary: false,
     hidden: true,
     group: 'money',
     section: 'financials',
-    access: 'owner',
-  },
-  // Cost Analysis is the housekeeping-cost trend view -- a tab inside
-  // Financials (see FinancialsTabs), not a top-level destination. Registered
-  // hidden so search and the Cmd+K palette can resolve it; the only way to
-  // reach it via nav is the Financials tab strip.
-  {
-    id: 'cost-analysis',
-    href: '/cost-analysis',
-    number: '01',
-    title: 'Cost Analysis',
-    description: 'Rising Tide overhead and per-property operating cost (cleaning, linens, repairs) per turnover, month over month.',
-    status: 'active',
-    primary: false,
-    hidden: true,
-    group: 'money',
-    section: 'financials',
-    // The company ledger, payroll and contractor pay print here: owner money.
     access: 'owner',
   },
   // The tabs of the one Growth strip (GrowthTabs, rendered by the Growth

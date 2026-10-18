@@ -2,10 +2,10 @@ import { SectionTabs } from './SectionTabs';
 import { NavTabCount } from '@/components/NavTabCount';
 
 /**
- * Sub-navigation tab strip for the Financials section. Statements,
- * Revenue, Forecast, Cost Analysis, LLC Accounting and Payments are six lenses
- * on the same money. Each remains its own route (URLs unchanged), but
- * the strip renders at the top of all six so they read as tabs of one
+ * Sub-navigation tab strip for the Financials section: Statements,
+ * Revenue, Forecast, LLC Accounting and Payments. Each remains its own
+ * route, but the strip renders at the top of all of them so they read as
+ * tabs of one
  * section; the masthead tab above reads "Money" and lights by pathname.
  * Statements carries the review-queue pill.
  *
@@ -20,7 +20,7 @@ import { NavTabCount } from '@/components/NavTabCount';
 export function FinancialsTabs({
   current,
 }: {
-  current: 'statements' | 'revenue' | 'forecast' | 'cost-analysis' | 'books' | 'payments';
+  current: 'statements' | 'revenue' | 'forecast' | 'books' | 'payments';
 }) {
   return (
     <SectionTabs
@@ -32,7 +32,6 @@ export function FinancialsTabs({
         { id: 'statements', label: 'Statements', href: '/statements', badgeOutside: true, badge: <NavTabCount kind="statementsReview" /> },
         { id: 'revenue', label: 'Revenue', href: '/revenue' },
         { id: 'forecast', label: 'Forecast', href: '/forecast' },
-        { id: 'cost-analysis', label: 'Cost Analysis', href: '/cost-analysis' },
         { id: 'books', label: 'LLC Accounting', href: '/books' },
         { id: 'payments', label: 'Payments', href: '/payments' },
       ]}

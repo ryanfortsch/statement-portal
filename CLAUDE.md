@@ -87,9 +87,9 @@ ORDER is the durable part and has not moved; the numbers drift with the repo.
 | `/` | The signed-in person's day. Ask Helm under the title; the For Me feed in the order a day is worked (`src/lib/home-feed-order.ts`: my work, walks and meetings, then replies, then the clock-bound team items, then office queues, then payments; owners keep the clean-after card first); Today at the houses; two signals (Open work · this week, Turnovers · next 7 days) plus payout for owners; the cleanings strip. Concierge alerts are one line linking to `/messaging#alerts`. The feed's × only ever hides a row from your own feed |
 | `/statements` | Monthly owner statements. Ingest, reconcile, close, send |
 | `/revenue` | Portfolio revenue snapshot: stays, ADR, occupancy, owner payout |
-| `/forecast` | The business plan as an interactive model |
-| `/books` | In-house bookkeeping for the three LLCs, quarterly P&Ls, 1099s |
-| `/cost-analysis` | Housekeeping cost trends per property |
+| `/forecast` | The business plan as an interactive model; the scenario is a link (`?year=2027&new=3,2,0`). Its Actuals section (`#actuals`) holds the company card and operating upload and the "Where it goes" ledger (`overhead_expenses`) |
+| `/books` | In-house bookkeeping for the three LLCs. Lands on the Rising Tide ledger (review filtered by the link: unreviewed only, quarter, search); the 1099 candidates sit there too; chart of accounts at `/books/accounts` |
+| `/cost-analysis` | Retired 2026-10-18; redirects to `/forecast#actuals`. Each home's cost to turn is on its property page (Owner & money, owners only) |
 | `/turnovers` | The turnover board: one line per house per day (house, `Out 10:00 · In 4:00`, the cleaner verdict, the walk, one verb), today plus tomorrow by default. The model is `src/lib/turnover-board.ts`; the six-stage rail opens only on lock-monitored homes |
 | `/turnovers/calendar` | The occupancy calendar, 7, 14 or 30 days. The only place it renders; the pipeline links to it |
 | `/turnovers/schedule` | Cleaner checkout schedule, merged with late checkouts and extensions. Each row links to its board row and back |

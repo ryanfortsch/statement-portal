@@ -4,7 +4,8 @@ import { useState } from 'react';
 import type { OverheadAnalysis } from '@/lib/cost-analysis';
 
 /**
- * Rising Tide overhead dashboard (Financials > Cost Analysis).
+ * Rising Tide overhead dashboard (the Actuals section of /forecast; it was
+ * Cost Analysis until that route retired on 2026-10-18).
  *
  * High-level by default, drill-down on click: category -> vendor -> the
  * individual charges. Figures are shown as exact actuals (no rounding). A
@@ -59,7 +60,7 @@ export function OverheadDashboard({ overhead }: { overhead: OverheadAnalysis }) 
     <div>
       {/* Headline KPIs — exact actuals, complete months only (no partial-month
           headline, no all-time total). */}
-      <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)' }}>
+      <div className="rt-helm-stat-strip" style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)' }}>
         <Stat label="Avg / month" value={fmt(avgPerMonth)} sub={`last ${t12.length} full month${t12.length === 1 ? '' : 's'}`} />
         <Stat label="Trailing 12-mo" value={fmt(trailing12)} sub={`${t12.length} full month${t12.length === 1 ? '' : 's'}`} />
         <Stat label={`${ytdYear} to date`} value={fmt(ytd)} sub={`${ytdMonths.length} month${ytdMonths.length === 1 ? '' : 's'}`} last />
@@ -92,15 +93,16 @@ export function OverheadDashboard({ overhead }: { overhead: OverheadAnalysis }) 
       <div style={{ marginTop: 26 }}>
         <div className="flex items-baseline justify-between" style={{ marginBottom: 8 }}>
           <div className="eyebrow">Where it goes</div>
-          <div style={{ fontSize: 10, color: 'var(--ink-4)' }}>click a category, then a vendor, to drill in</div>
+          <div style={{ fontSize: 10, color: 'var(--ink-4)' }}>open a category, then a vendor</div>
         </div>
-        <table className="w-full tabular-nums" style={{ borderCollapse: 'collapse', fontSize: 12 }}>
+        <div style={{ overflowX: 'auto' }}>
+        <table className="w-full tabular-nums" style={{ borderCollapse: 'collapse', fontSize: 12, minWidth: 640 }}>
           <thead>
             <tr style={{ fontSize: 9, fontWeight: 600, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--ink-3)' }}>
               <th style={{ textAlign: 'left', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>Category</th>
               {trendMonths.map(m => (
                 <th key={m} style={{ textAlign: 'right', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>
-                  {monthShort(m)}{m === overhead.currentMonth ? <span style={{ color: 'var(--ink-4)', fontWeight: 400 }}> mtd</span> : ''}
+                  {monthShort(m)}{m === overhead.currentMonth ? <span style={{ color: 'var(--ink-4)', fontWeight: 400 }}> so far</span> : ''}
                 </th>
               ))}
               <th style={{ textAlign: 'right', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>
@@ -136,12 +138,11 @@ export function OverheadDashboard({ overhead }: { overhead: OverheadAnalysis }) 
             </tr>
           </tbody>
         </table>
+        </div>
       </div>
 
       <p style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 12, maxWidth: 760, lineHeight: 1.5 }}>
-        Card (*3878) + operating (*5130), exact actuals. Columns and Total cover the months shown
-        ({rangeLabel}); each row adds across to its Total. Personal/gray spend (gas, meals, streaming) and internal
-        transfers are excluded, so this is real business overhead only.{overhead.latestTxnDate ? ` The current month (mtd) is still filling in.` : ''}
+        Exact actuals, {rangeLabel}. Personal spend and internal transfers are left out.
       </p>
     </div>
   );
@@ -170,6 +171,10 @@ function CategoryGroup({
     <>
       <tr
         onClick={onToggle}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(); } }}
+        role="button"
+        tabIndex={0}
+        aria-expanded={open}
         style={{ borderBottom: '1px solid var(--rule-soft)', cursor: 'pointer', background: open ? 'var(--paper-2)' : 'transparent' }}
       >
         <td style={{ padding: '9px 6px', color: 'var(--ink)', fontFamily: 'var(--font-fraunces)', fontWeight: 500 }}>
@@ -222,7 +227,14 @@ function CategoryVendor({
   const txns = vendor.txns.filter(t => t.date && windowSet.has(t.date.slice(0, 7)));
   return (
     <>
-      <tr onClick={onToggle} style={{ borderBottom: '1px dotted var(--rule)', cursor: 'pointer' }}>
+      <tr
+        onClick={onToggle}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(); } }}
+        role="button"
+        tabIndex={0}
+        aria-expanded={open}
+        style={{ borderBottom: '1px dotted var(--rule)', cursor: 'pointer' }}
+      >
         <td style={{ padding: '7px 6px 7px 22px', color: 'var(--ink-2)' }}>
           <span style={{ display: 'inline-block', width: 12, color: 'var(--ink-4)' }}>{open ? '−' : '+'}</span>
           {vendor.vendor}
@@ -248,7 +260,7 @@ function CategoryVendor({
                       <td style={{ padding: '4px 8px 4px 0', color: 'var(--ink-3)', whiteSpace: 'nowrap', width: 88 }}>{t.date || '—'}</td>
                       <td style={{ padding: '4px 8px', color: 'var(--ink-2)' }}>
                         {t.description}
-                        <span style={{ marginLeft: 6, fontSize: 9, color: 'var(--ink-4)', textTransform: 'uppercase', letterSpacing: '.08em' }}>{t.account === 'card' ? 'card' : 'oper'}</span>
+                        <span style={{ marginLeft: 6, fontSize: 9, color: 'var(--ink-4)', textTransform: 'uppercase', letterSpacing: '.08em' }}>{t.account === 'card' ? 'card' : 'operating'}</span>
                       </td>
                       <td style={{ padding: '4px 0', textAlign: 'right', color: 'var(--ink)', whiteSpace: 'nowrap' }}>{fmt(t.amount)}</td>
                     </tr>
@@ -265,7 +277,7 @@ function CategoryVendor({
 
 function Stat({ label, value, sub, accent, last }: { label: string; value: string; sub?: string; accent?: boolean; last?: boolean }) {
   return (
-    <div style={{ padding: '18px 20px', borderRight: last ? 'none' : '1px solid var(--rule)' }}>
+    <div className="rt-helm-stat" style={{ padding: '18px 20px', borderRight: last ? 'none' : '1px solid var(--rule)' }}>
       <div className="eyebrow" style={{ marginBottom: 8 }}>{label}</div>
       <div className="font-serif tabular-nums" style={{ fontSize: 24, fontWeight: 400, color: accent ? 'var(--signal)' : 'var(--ink)', lineHeight: 1.05 }}>{value}</div>
       {sub && <div style={{ marginTop: 6, fontSize: 11, color: 'var(--ink-3)' }}>{sub}</div>}
