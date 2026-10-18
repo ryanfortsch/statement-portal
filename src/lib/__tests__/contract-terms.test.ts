@@ -162,6 +162,32 @@ describe('every writer of contract terms honours the lock', () => {
     });
   }
 
+  test('the register form takes a Helm agreement\'s terms from the signed contract and never writes it', () => {
+    // The contracts register's own writer. A register row for an agreement
+    // signed in Helm records the locked terms, so it reads them from the
+    // projection through the same builder countersign uses, and refuses a
+    // contract that is not signed and countersigned.
+    const body = fnBody(read('src/app/properties/contracts/actions.ts'), 'registerAgreement');
+    assert.match(body, /await requireOwnerEmail\(\)/);
+    assert.match(body, /if \(!contractTermsLocked\(projection\)\)/);
+    assert.match(body, /if \(!projection\.contract_countersigned_at\)/);
+    assert.match(body, /locked = registerTermsFromProjection\(projection\)/);
+    assert.match(body, /parseRegisterForm\([\s\S]*?,\s*locked,?\s*\)/);
+    assert.ok(
+      body.indexOf('contractTermsLocked(projection)') < body.indexOf('parseRegisterForm('),
+      'the lock is checked before the form is read',
+    );
+    assert.doesNotMatch(
+      body,
+      /from\('projections'\)[\s\S]{0,120}?\.(update|upsert|insert|delete)\(/,
+      'the register writer never writes the contract',
+    );
+    // A correction of a Helm row keeps the terms it was registered with.
+    assert.match(body, /if \(active\.signed_via === 'helm'\) locked = registerTermsFromRow\(active\)/);
+    // Countersign writes the register from the same builder.
+    assert.match(fnBody(actions, 'countersignContract'), /registerTermsFromProjection\(projectionRow\)/);
+  });
+
   test('withdrawing a signature is owners-only, before countersign, and keeps the record', () => {
     const body = fnBody(actions, 'withdrawOwnerSignature');
     assert.match(body, /requireOwnerEmail\(\)/);
