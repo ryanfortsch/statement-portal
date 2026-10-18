@@ -13,6 +13,8 @@ import {
   boardLifecycle,
   boardRangeFor,
   checkoutBoardHref,
+  scheduleHrefFor,
+  SCHEDULE_DAYS,
   clock,
   composeBoard,
   pairText,
@@ -331,5 +333,27 @@ describe('links into the board', () => {
     assert.match(feed, /checkoutBoardHref\(flag\.propertyId, flag\.date, operatingDate\(\)\)/);
     const tabs = readFileSync(new URL('../../components/TurnoverTabs.tsx', import.meta.url), 'utf8');
     assert.doesNotMatch(tabs, /href: '\/turnovers\/cleanings'/, 'Cleanings is not a tab: its verdicts are on the rows');
+  });
+});
+
+describe('the board and the schedule point at each other', () => {
+  test('a board row links to its checkout on the schedule while the schedule shows that day', () => {
+    assert.equal(scheduleHrefFor('home_a', { date: TODAY, scheduleCheckIn: '2026-10-14' }, TODAY), '/turnovers/schedule#stay-home_a-2026-10-14');
+    assert.equal(scheduleHrefFor('home_a', { date: '2026-10-24', scheduleCheckIn: '2026-10-20' }, TODAY), '/turnovers/schedule#stay-home_a-2026-10-20');
+    assert.equal(scheduleHrefFor('home_a', { date: '2026-10-25', scheduleCheckIn: '2026-10-20' }, TODAY), null, 'past the schedule\'s week');
+    assert.equal(scheduleHrefFor('home_a', { date: '2026-10-17', scheduleCheckIn: '2026-10-14' }, TODAY), null, 'already gone');
+    assert.equal(scheduleHrefFor('home_a', { date: TODAY, scheduleCheckIn: null }, TODAY), null, 'not on the schedule');
+    const t = turnover({ propertyId: 'home_a', checkIn: TODAY, previousCheckout: TODAY });
+    const [r] = rowsOf(board([t], [day(TODAY, [item({ propertyId: 'home_a', checkIn: '2026-10-12' })])]));
+    assert.equal(r.scheduleHref, '/turnovers/schedule#stay-home_a-2026-10-12', 'the schedule keys the stay by ITS check-in');
+  });
+
+  test('both pages agree on the keys and the week', () => {
+    const schedule = readFileSync(new URL('../../app/turnovers/schedule/page.tsx', import.meta.url), 'utf8');
+    assert.match(schedule, /id=\{`stay-\$\{row\.propertyId\}-\$\{row\.checkIn\}`\}/, 'the schedule row keeps the anchor the board links to');
+    assert.match(schedule, new RegExp(`const DAYS = ${SCHEDULE_DAYS};`), 'SCHEDULE_DAYS is the schedule page\'s week');
+    assert.match(schedule, /checkoutBoardHref\(row\.propertyId, row\.effectiveCheckOut, today\)/, 'each schedule row links to its board row');
+    const line = readFileSync(new URL('../../app/turnovers/BoardLine.tsx', import.meta.url), 'utf8');
+    assert.match(line, /href=\{row\.scheduleHref\}/, 'the opened board row links to the schedule');
   });
 });

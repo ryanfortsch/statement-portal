@@ -122,7 +122,8 @@ assert.equal(await expanded('same_day_home'),'true');
 const controls=await page.$eval(sel('same_day_home')+' .rt-tb-toggle',e=>e.getAttribute('aria-controls'));
 assert.ok(controls&&await page.$('#'+controls),'aria-controls names the opened region');
 const opened=await text('#'+controls);
-for(const words of ['Leaving','Leaving Synthetic','Arriving','Arriving Synthetic','Out','Cleaned','Walked','Mark ready','Set up the pack-n-play'])assert.ok(opened.includes(words),`the opened row says "${words}"`);
+for(const words of ['Leaving','Leaving Synthetic','Arriving','Arriving Synthetic','Out','Cleaned','Walked','Mark ready','Set up the pack-n-play','Checkout schedule'])assert.ok(opened.includes(words),`the opened row says "${words}"`);
+assert.equal(await page.$eval('#'+controls+' a[href^="/turnovers/schedule"]',a=>a.getAttribute('href')),'/turnovers/schedule#stay-same_day_home-2026-10-14','the opened row links to its checkout on the schedule');
 assert.doesNotMatch(opened,/smart lock|Cleaner in|Guest-ready/,'a lockless home shows three steps and no apology');
 pass('a lockless home opens to Out · Cleaned · Walked with who leaves and who arrives');
 
