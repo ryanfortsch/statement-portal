@@ -28,6 +28,7 @@ import * as gh from '@/lib/github';
 import { loadListingCopyEntries } from '@/lib/sca-listing-copy';
 import { readScaPreviewContent, requireScaPreviewMatch } from '@/lib/sca-preview';
 import { getGuestyListing } from '@/lib/guesty';
+import { draftListingCopy } from '@/lib/listing-copy-draft';
 import type { HelmPropertyRow } from '@/lib/properties';
 
 /**
@@ -327,8 +328,8 @@ export async function pullFromGuesty(
     // the Stay Cape Ann breadcrumb plugs, which exist on the OTAs solely to
     // funnel guests to the direct site and are redundant on the site itself.
     // The map pitch is SCA-only (no OTA equivalent), so it stays for the
-    // operator to type. No AI pass here; authoring-from-scratch has its own
-    // tool (/properties/[id]/listing-copy).
+    // operator to type. No AI pass here; writing from scratch is Draft with
+    // AI beside this button (draftScaCopyWithAi).
     const space = scrubScaPlugs((l.publicDescription?.space || '').trim());
     const summary = scrubScaPlugs((l.publicDescription?.summary || '').trim());
     const { tagline, highlights } = parseGuestySummary(summary);
@@ -349,6 +350,38 @@ export async function pullFromGuesty(
   } catch (e) {
     return { ok: false, error: `Could not pull from Guesty: ${(e as Error).message}` };
   }
+}
+
+export type ScaAiDraft = { pitch: string; tagline: string; description: string; highlights: string[]; photos: number };
+
+/**
+ * Draft with AI: the launcher's other source for tagline, About and
+ * highlights, beside Pull from Guesty. Pull copies the OTA listing verbatim;
+ * this writes new copy in the Stay Cape Ann voice from the property record,
+ * the home's Listing photos and the operator's note (the generator that used
+ * to live on /properties/[id]/listing-copy, which saved nothing). Returns the
+ * draft only; the form decides what it fills and nothing saves until Save
+ * draft.
+ */
+export async function draftScaCopyWithAi(
+  propertyId: string,
+  brief: string,
+): Promise<{ ok: true; draft: ScaAiDraft } | { ok: false; error: string }> {
+  const email = await requireEmail();
+  if (!email) return { ok: false, error: 'Not signed in' };
+  const res = await draftListingCopy(propertyId, 'sca', brief);
+  if (!res.ok) return { ok: false, error: `Could not draft the listing: ${res.error}` };
+  const c = res.copy;
+  return {
+    ok: true,
+    draft: {
+      pitch: (c.pitch ?? '').trim(),
+      tagline: (c.tagline ?? '').trim(),
+      description: (c.description ?? '').trim(),
+      highlights: (c.highlights ?? []).map((h) => h.trim()).filter(Boolean).slice(0, 5),
+      photos: res.photos,
+    },
+  };
 }
 
 /** Persist the editorial draft (no validation — lets the operator save progress). */

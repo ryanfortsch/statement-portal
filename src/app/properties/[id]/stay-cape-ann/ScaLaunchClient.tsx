@@ -20,6 +20,7 @@ import {
   unlistSca,
   refreshScaSiteData,
   pullFromGuesty,
+  draftScaCopyWithAi,
   openScaUpdatePr,
   publishScaUpdate,
 } from './actions';
@@ -78,6 +79,7 @@ export function ScaLaunchClient(props: Props) {
   const [previewSignature, setPreviewSignature] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [verifyResult, setVerifyResult] = useState<{ signal: PaymentVerifySignal; target: string } | null>(null);
+  const [aiBrief, setAiBrief] = useState('');
   const [guestyInfo, setGuestyInfo] = useState<{ bedrooms: number | null; bathrooms: number | null; accommodates: number | null; photos: number; amenities: number } | null>(null);
   const [, startTransition] = useTransition();
   const noticeRef = useRef<HTMLDivElement | null>(null);
@@ -244,6 +246,39 @@ export function ScaLaunchClient(props: Props) {
       });
     });
 
+  // Draft with AI: new copy in the Stay Cape Ann voice, where Pull from Guesty
+  // copies the OTA listing as it reads. Same fill rule as the pull: replace
+  // only on a yes, otherwise fill the blank fields and keep typed copy.
+  const onDraftAi = () =>
+    run('draft-ai', async () => {
+      const hasCopy = !!(form.tagline?.trim() || form.description?.trim() || form.highlights.some((h) => h.trim()));
+      const allFilled = !!(form.pitch?.trim() && form.tagline?.trim() && form.description?.trim() && form.highlights.some((h) => h.trim()));
+      const overwrite =
+        hasCopy &&
+        window.confirm('Replace the tagline, About and highlights with a new AI draft? Cancel keeps your copy and fills only the blank fields.');
+      if (hasCopy && !overwrite && allFilled) return;
+      const res = await draftScaCopyWithAi(props.propertyId, aiBrief);
+      if (!res.ok) {
+        setNotice({ kind: 'err', text: res.error });
+        return;
+      }
+      const d = res.draft;
+      setForm((f) => {
+        const merge = (cur: string, next: string) => (overwrite ? next || cur : cur || next);
+        const operatorHasHighlights = f.highlights.some((h) => h.trim());
+        const padded = [...d.highlights, '', '', ''].slice(0, Math.max(3, d.highlights.length));
+        return {
+          ...f,
+          pitch: f.pitch?.trim() ? f.pitch : d.pitch,
+          tagline: merge(f.tagline, d.tagline),
+          description: merge(f.description ?? '', d.description),
+          highlights: d.highlights.length && (overwrite || !operatorHasHighlights) ? padded : f.highlights,
+        };
+      });
+      const source = d.photos ? `the property record and ${d.photos} Listing photo${d.photos === 1 ? '' : 's'}` : 'the property record';
+      setNotice({ kind: 'ok', text: `Drafted from ${source}. Review it, then Save draft.` });
+    });
+
   const onOpenPr = () =>
     run('pr', async () => {
       setPreviewSignature(null);
@@ -400,6 +435,9 @@ export function ScaLaunchClient(props: Props) {
           <button type="button" style={btnBase} disabled={busy !== null} onClick={onPullGuesty}>
             {busy === 'pull-guesty' ? 'Pulling from Guesty…' : 'Pull from Guesty'}
           </button>
+          <button type="button" style={btnBase} disabled={busy !== null} onClick={onDraftAi}>
+            {busy === 'draft-ai' ? 'Drafting…' : 'Draft with AI'}
+          </button>
           {guestyInfo ? (
             <span style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>
               Guesty has: {[
@@ -412,9 +450,19 @@ export function ScaLaunchClient(props: Props) {
             </span>
           ) : (
             <span style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>
-              Enter the Guesty listing ID, then pull the listing copy exactly as it reads on Airbnb, minus the Stay Cape Ann breadcrumb lines. Fills title, tagline, About, highlights, and a nearby dining pick. Type the short map pitch, then add the iCal URL.
+              Pull from Guesty copies the Airbnb listing as it reads, minus the Stay Cape Ann lines, and picks a nearby restaurant. Draft with AI writes new copy from the property record and its Listing photos.
             </span>
           )}
+        </div>
+        <div style={{ marginTop: 10 }}>
+          <input
+            style={inputStyle}
+            value={aiBrief}
+            maxLength={2000}
+            onChange={(e) => setAiBrief(e.target.value)}
+            placeholder="For Draft with AI (optional): what makes it special, e.g. the view at low tide"
+            aria-label="Note for Draft with AI"
+          />
         </div>
 
         <div style={{ marginTop: 16 }}>

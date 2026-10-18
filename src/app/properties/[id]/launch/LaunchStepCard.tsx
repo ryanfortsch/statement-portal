@@ -69,10 +69,10 @@ function deepLinkFor(
     case 'set_external_title':
       return { href: `/properties/${propertyId}/stay-cape-ann`, label: 'Open Stay Cape Ann', external: false };
     case 'generate_copy':
-      // The AI listing-copy generator built in a prior session. Wiring it
-      // here so the "Listing copy drafted" step launches the tool that
-      // does the work instead of being an inert checkbox.
-      return { href: `/properties/${propertyId}/listing-copy`, label: 'Open Listing copy', external: false };
+      // Draft with AI sits in the Listing section's Content form, the
+      // Guesty description fields it fills and saves. (The Stay Cape Ann
+      // copy has its own Draft with AI in the launcher, step sca_page_live.)
+      return { href: `/properties/${propertyId}?tab=guest#listing`, label: 'Open Listing', external: false };
     case 'caption_photos':
       // The Guesty photo-caption tool: pulls the listing gallery, drafts a
       // caption per photo, pushes back to Guesty on the operator's click.

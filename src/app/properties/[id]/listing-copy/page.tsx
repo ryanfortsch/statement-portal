@@ -1,66 +1,14 @@
-import { notFound } from 'next/navigation';
-import { HelmMasthead } from '@/components/HelmMasthead';
-import { HelmBreadcrumb } from '@/components/HelmBreadcrumb';
-import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
-import type { HelmPropertyRow } from '@/lib/properties';
-import { ListingCopyClient } from './ListingCopyClient';
-
-export const dynamic = 'force-dynamic';
-
-async function getProperty(id: string): Promise<HelmPropertyRow | null> {
-  if (!isHelmConfigured) return null;
-  const { data, error } = await supabase
-    .from('properties')
-    .select('id, name, title, city, type_of_unit, bedrooms, bathrooms, square_feet')
-    .eq('id', id)
-    .maybeSingle();
-  if (error) throw error;
-  return (data as HelmPropertyRow) ?? null;
-}
+import { redirect } from 'next/navigation';
 
 /**
- * AI listing copy generator surface. Owns the page chrome (masthead,
- * back link, headline) and delegates the input/result UX to the client
- * component so we can keep the file-upload + transition state out of
- * the RSC tree.
+ * Draft listing is retired as a page (2026-10-18). It saved nothing: the
+ * operator drafted here, copied, and pasted into the form that saves. The
+ * same generator is now "Draft with AI" in the two forms that save it: the
+ * Stay Cape Ann launcher's Step 1 (tagline, About, highlights) and the
+ * property page's Listing section (the Guesty description fields). Old
+ * links and bookmarks land on the launcher.
  */
-export default async function ListingCopyPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
+export default async function ListingCopyRedirect({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const p = await getProperty(id);
-  if (!p) notFound();
-
-  return (
-    <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead />
-
-      <HelmBreadcrumb
-        trail={[
-          { label: p.name, href: `/properties/${p.id}?tab=guest` },
-          { label: 'Listing copy' },
-        ]}
-      />
-
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 32, paddingBottom: 20, width: '100%' }}>
-        <div className="eyebrow" style={{ marginBottom: 12 }}>Listing</div>
-        <h1 className="font-serif" style={{ fontSize: 40, lineHeight: 1.05, fontWeight: 300, letterSpacing: '-0.02em', color: 'var(--ink)', margin: 0 }}>
-          Listing <em style={{ color: 'var(--tide-deep)', fontWeight: 400 }}>copy</em>
-        </h1>
-        <p style={{ marginTop: 14, fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: 720 }}>
-          The model has your property data, every live listing title (so it won't reuse one), and
-          three sister listings as voice examples. Drop in a few photos and the line or two you'd
-          tell a friend about this house. Pick Airbnb for the structured house format or Stay Cape
-          Ann for the editorial voice. Nothing saves back to the property yet, this is a copy + paste
-          workflow into Guesty / Airbnb / VRBO.
-        </p>
-      </section>
-
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, width: '100%' }}>
-        <ListingCopyClient propertyId={p.id} propertyName={p.name} />
-      </section>
-    </div>
-  );
+  redirect(`/properties/${encodeURIComponent(id)}/stay-cape-ann`);
 }

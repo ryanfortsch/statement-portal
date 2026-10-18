@@ -38,6 +38,7 @@ await writeFile(join(scratch, 'actions.js'), `
   export const unlistSca = (...args) => call('unlist', args);
   export const refreshScaSiteData = (...args) => call('refresh', args);
   export const pullFromGuesty = (...args) => call('guesty', args);
+  export const draftScaCopyWithAi = (...args) => call('ai', args);
 `);
 await writeFile(join(scratch, 'upload.js'), compile(`
   import React from 'react';
@@ -238,6 +239,20 @@ try{
     assert.equal(await hasButton('Refresh site data'),true);
     assert.equal(await hasButton('Unlist…'),false);assert.equal(await hasButton('Verify payments (production)'),false);
     pass('staff get the listing, the preview, publishing and site refresh, and one line for payments');
+
+    await reset('?staff=1');await waitEnabled('Draft with AI');
+    await page.$eval('input[aria-label="Note for Draft with AI"]',input=>{
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'Low tide view');
+      input.dispatchEvent(new Event('input',{bubbles:true}));
+    });
+    await click('Draft with AI');await waitCalls(1);
+    assert.deepEqual(await page.evaluate(()=>window.calls.at(-1).args),['synthetic','Low tide view']);
+    await page.evaluate(()=>window.calls.at(-1).resolve({ok:true,draft:{pitch:'AI pitch',tagline:'AI tagline',description:'AI About',highlights:['One','Two','Three'],photos:2}}));
+    await waitText('Drafted from the property record and 2 Listing photos.');
+    assert.equal(await page.$eval('input[placeholder^="On Granite Point"]',input=>input.value),'AI tagline');
+    assert.equal(await page.$eval('input[placeholder="Waterfront on Granite Point"]',input=>input.value),'Harbor views');
+    assert.equal(await guard(),true);assert.equal(await enabled('Publish update'),false);
+    pass('Draft with AI fills tagline, About and highlights as unsaved work, keeps a typed pitch, and is open to staff');
 
     await reset('?error=1');await waitText('Could not check the preview.');
     assert.equal(await enabled('Publish update'),false);

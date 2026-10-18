@@ -48,8 +48,8 @@ const slim = {
     id: l.id,
     title: l.title,
     // Tagline + description carry the SCA brand voice. Used as
-    // few-shot examples for the AI listing-copy generator on
-    // /properties/[id]/listing-copy. Skipping the photo URL list
+    // few-shot examples for the AI listing-copy generator (Draft with AI in
+    // the launcher and the Listing section). Skipping the photo URL list
     // (each ~250 chars × 30 listings = bloat) and the highlights
     // array (already implicit in the description).
     tagline: l.tagline ?? null,
