@@ -29,13 +29,17 @@ coachContractorDraft=rec('coach'),editContractorDraft=rec('edit'),redraftContrac
 scheduleContractorDraft=rec('schedule'),cancelContractorSchedule=rec('cancel');
 export const approveCleanerDraft=rec('approve'),markCleanerHandled=rec('handled'),undoCleanerDecision=rec('undo'),
 coachCleanerDraft=rec('coach'),editCleanerDraft=rec('edit'),redraftCleanerDraft=rec('redraft'),
-scheduleCleanerDraft=rec('schedule'),cancelCleanerSchedule=rec('cancel');`);
+scheduleCleanerDraft=rec('schedule'),cancelCleanerSchedule=rec('cancel');
+export const approveOwnerDraft=rec('approve'),markOwnerHandled=rec('handled'),undoOwnerDecision=rec('undo'),
+coachOwnerDraft=rec('coach'),editOwnerDraft=rec('edit'),redraftOwnerDraft=rec('redraft'),
+scheduleOwnerDraft=rec('schedule'),cancelOwnerSchedule=rec('cancel');`);
 await writeFile(join(scratch,'navigation.js'),`export const useRouter=()=>({refresh(){window.refreshes=(window.refreshes||0)+1;}});`);
 await writeFile(join(scratch,'link.js'),`import React from 'react';export default function Link({href,children,...p}){return React.createElement('a',{href,...p},children);}`);
 await writeFile(join(scratch,'entry.tsx'),`
 import React from 'react';import {createRoot} from 'react-dom/client';
 import {ContractorMessagingQueue} from '@/app/contractor-messaging/ContractorMessagingQueue';
 import {CleanerMessagingQueue} from '@/app/cleaner-messaging/CleanerMessagingQueue';
+import {OwnerMessagingQueue} from '@/app/owner-messaging/OwnerMessagingQueue';
 const mode=new URLSearchParams(location.search).get('mode')||'contractor';
 window.calls=[];
 const now=new Date().toISOString();
@@ -48,10 +52,17 @@ const cards=[
 const cleanerCards=[
  {...base,id:'pt-card',cleaner_name:'Rosa Synthetic',cleaner_contact:'+15550101',property_id:'home-a',property_name:'Synthetic Cottage',cleaner_text:'Acabei a casa, faltam toalhas.',cleaner_text_english:'I finished the house, towels are missing.',inbound_language:'pt',draft:'Obrigada Rosa! Vou levar toalhas amanhã.',draft_english:'Thank you Rosa! I will bring towels tomorrow.',topic:'done',status:'pending',age_minutes:5,proposed_slip:null},
 ];
-window.queue=mode==='cleaner'?cleanerCards:cards;
+const envelope={channel:'email',from_name:'Allie',from_address:'allie@example.test',mailbox:'',to:['owner@example.test'],cc:[],reply_to:'',from_reason:'addressed',preferred_from:'',subject:'Soap dispenser',original_known:true,also_outside:[],also_rising_tide:[]};
+const ownerBase={...base,channel:'email_gmail',owner_contact:'owner@example.test',property_id:'home_a',property_name:'Synthetic Cottage',followup_status:{state:'done',enabled:1,error:''},envelope};
+const ownerCards=[
+ {...ownerBase,id:'owner-card',owner_name:'Olive Owner',owner_text:'The soap dispenser in the downstairs bath is peeling off the wall. Can someone fix it?',draft:'Hi Olive, thanks for flagging it. We will have it fixed this week.',topic:'maintenance',status:'pending',age_minutes:20,
+  proposed_actions:[{kind:'work_slip',title:'Re-mount downstairs soap dispenser',priority:'normal'},{kind:'guest_message',why:'Tell the guest about the fix',body:'Someone will stop by to fix the soap dispenser.'}]},
+ {...ownerBase,id:'reaction-card',owner_name:'Rae Owner',owner_text:'Loved “Thanks, all set”',draft:'',topic:'reaction',status:'pending',age_minutes:3,proposed_actions:[]},
+];
+window.queue=mode==='cleaner'?cleanerCards:mode==='owner'?ownerCards:cards;
 window.fetch=async url=>new Response(JSON.stringify(String(url).includes('/api/messaging/queue')?{approvals:window.queue,context:{}}:{}),{headers:{'Content-Type':'application/json'}});
 const homes=[{id:'home-a',name:'Synthetic Cottage'},{id:'home-b',name:'Synthetic Barn'}];
-createRoot(document.getElementById('root')).render(<main id={mode}>{mode==='cleaner'?<CleanerMessagingQueue initialPending={cleanerCards} properties={homes}/>:<ContractorMessagingQueue initialPending={cards} properties={homes} context={{}}/>}</main>);
+createRoot(document.getElementById('root')).render(<main id={mode}>{mode==='cleaner'?<CleanerMessagingQueue initialPending={cleanerCards} properties={homes}/>:mode==='owner'?<OwnerMessagingQueue initialPending={ownerCards}/>:<ContractorMessagingQueue initialPending={cards} properties={homes} context={{}}/>}</main>);
 `);
 const alias={'@':join(root,'src'),'./actions':join(scratch,'actions.js'),'next/navigation':join(scratch,'navigation.js'),'next/link':join(scratch,'link.js')};
 await new Promise((resolve,reject)=>{const compiler=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.tsx'),output:{path:scratch,filename:'bundle.js'},
@@ -136,6 +147,22 @@ try{
  assert.ok(!(await text(card('pt-card'))).includes('I will bring towels tomorrow'),'the English for the old draft is not shown beside the edited words');
  await click(card('pt-card'),'Coach the AI');assert.match(await text(card('pt-card')),/Write the note in English if you like; the reply comes back in Portuguese\./);
  pass('cleaners: English under both sides, Edit on the Portuguese, the language note printed in the coach drawer');
+ // Owners: said, then the Envelope, then the reply; follow-up work as Also on approve.
+ await page.evaluate(()=>{window.calls=[];});await page.goto(origin+'/?mode=owner');await page.waitForSelector(card('owner-card'));
+ const own=await text(card('owner-card'));
+ assert.ok(own.indexOf('Owner said')<own.indexOf('owner@example.test')&&own.indexOf('owner@example.test')<own.indexOf('Proposed reply'),'owner said, envelope, reply, in that order');
+ assert.match(own,/Also on approve/);assert.match(own,/Work slip ?Re-mount downstairs soap dispenser/);assert.match(own,/Create these when I approve or mark handled/);
+ assert.equal(await page.$(card('owner-card')+' textarea'),null,'no always-open editor');
+ await page.$eval(card('owner-card')+' input[type=checkbox]',e=>e.click());
+ await click(card('owner-card'),'Approve & send');await waitCalls(1);
+ assert.deepEqual((await calls())[0],{kind:'approve',args:['owner-card',null,{fileActions:false}]});await finish(0);
+ pass('owners: owner said, envelope, reply in order; follow-up work is Also on approve and its tick box rides on send');
+ await page.screenshot({path:join(process.env.SMOKE_SHOTS||tmpdir(),'approval-card-owner.png'),fullPage:true});
+ assert.match(await text(card('reaction-card')),/Rae reacted/);
+ await click(card('reaction-card'),'Mark handled');await waitCalls(2);
+ assert.deepEqual((await calls())[1],{kind:'handled',args:['reaction-card',true,{reason:'Reaction, nothing to reply to'}]});
+ await finish(1);await page.waitForSelector('.rt-undo-toast');
+ pass('owners: a reaction clears in one tap, and the toast offers Undo');
  await page.goto(origin+'/?mode=contractor');await page.waitForSelector('#approval-slip-card');
  await page.setViewport({width:390,height:844});await page.reload();await page.waitForSelector('.rt-inbox-review-toggle');
  await page.$$eval('.rt-inbox-review-toggle',bs=>bs[0].click());

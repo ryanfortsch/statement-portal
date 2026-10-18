@@ -51,11 +51,13 @@ describe('one door for no reply', () => {
     assert.ok(!/>\s*Reject\s*</.test(card) && /Mark handled/.test(card), 'the one card offers Mark handled and no Reject');
   });
 
-  test('the owner card has no bare-key shortcuts; Cmd+Enter in the draft still sends', () => {
-    const src = read('src/app/owner-messaging/OwnerMessagingQueue.tsx');
-    assert.ok(!/k === '[achr]'/.test(src), 'a bare key must never fire a decision on an owner card');
-    assert.ok(!/e\.key\.toLowerCase\(\)/.test(src), 'no single-key dispatch');
-    assert.ok(src.includes("(e.metaKey || e.ctrlKey) && e.key === 'Enter'"), 'Cmd+Enter from the draft field still sends');
+  test('no card has bare-key shortcuts; Cmd+Enter in the draft still sends', () => {
+    for (const path of [...QUEUES, 'src/components/messaging/card/ApprovalCard.tsx']) {
+      const src = read(path);
+      assert.ok(!/k === '[achr]'/.test(src), `${path}: a bare key must never fire a decision`);
+      assert.ok(!/e\.key\.toLowerCase\(\)/.test(src), `${path}: no single-key dispatch`);
+    }
+    assert.ok(read('src/components/messaging/card/ApprovalCard.tsx').includes("(e.metaKey || e.ctrlKey) && e.key === 'Enter'"), 'Cmd+Enter from the draft field still sends');
   });
 
   test('Handled is the one word: toast, ledger, search, thread, strips, notes', () => {

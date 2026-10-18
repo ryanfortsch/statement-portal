@@ -25,7 +25,7 @@ describe('status words agree', () => {
 
   test('the owner card colours the follow-up line only for a real error', () => {
     const src = read('src/app/owner-messaging/OwnerMessagingQueue.tsx');
-    assert.ok(src.includes("color: approval.followup_status.error ? 'var(--signal)' : 'var(--ink-3)'"), 'checking is benign');
+    assert.ok(src.includes("color: checking.error ? 'var(--signal)' : 'var(--ink-3)'"), 'checking is benign');
   });
 
   test('the thread claims Guesty only on a Guesty thread', () => {

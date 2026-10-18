@@ -9,16 +9,35 @@ import {
   coachOwnerApproval,
   scheduleOwnerApproval,
   cancelScheduleOwnerApproval,
+  editTeamApproval,
+  redraftTeamApproval,
+  undoTeamApproval,
   saveOwnerCuratedFacts,
   explainError,
+  explainUndoRefusal,
+  isStaleConflict,
+  type MarkHandledCapture,
+  type StayConciergeError,
 } from '@/lib/stay-concierge';
 
-export type ActionResult = { ok: true } | { ok: false; error: string };
+/** `stale` means the card moved on under the operator: the card refreshes
+ *  instead of showing a red error. */
+export type ActionResult = { ok: true } | { ok: false; error: string; stale?: boolean };
 
-async function requireSession(): Promise<ActionResult> {
+type ClientResult = { ok: true } | { ok: false; error: StayConciergeError };
+
+function mapResult(res: ClientResult): ActionResult {
+  if (res.ok) {
+    revalidatePath('/owner-messaging');
+    return { ok: true };
+  }
+  return { ok: false, error: explainError(res.error), stale: isStaleConflict(res.error) };
+}
+
+async function requireSession(): Promise<{ ok: true; email: string } | { ok: false; error: string }> {
   const session = await auth();
   if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
-  return { ok: true };
+  return { ok: true, email: session.user.email };
 }
 
 export async function approveOwnerDraft(
@@ -31,19 +50,46 @@ export async function approveOwnerDraft(
   // finalText is the operator's hand-edited reply. undefined => send the
   // AI draft as-is; a string => send that instead. fileActions false means
   // the operator unticked the proposed slips and cleaner notes.
-  const res = await approveOwnerApproval(id, finalText, opts);
-  if (!res.ok) return { ok: false, error: explainError(res.error) };
-  revalidatePath('/owner-messaging');
-  return { ok: true };
+  return mapResult(await approveOwnerApproval(id, finalText, opts));
 }
 
-export async function markOwnerHandled(id: string, fileActions = true): Promise<ActionResult> {
+/** Clear the card without sending. Ticked follow-up work still files;
+ *  `capture` is why, and what she sent if she replied elsewhere. */
+export async function markOwnerHandled(id: string, fileActions = true, capture?: MarkHandledCapture): Promise<ActionResult> {
   const sess = await requireSession();
   if (!sess.ok) return sess;
-  const res = await markHandledOwnerApproval(id, fileActions);
-  if (!res.ok) return { ok: false, error: explainError(res.error) };
-  revalidatePath('/owner-messaging');
-  return { ok: true };
+  return mapResult(await markHandledOwnerApproval(id, fileActions, capture, sess.email));
+}
+
+/** Reverse a Mark handled: the card returns exactly as it was. */
+export async function undoOwnerDecision(id: string): Promise<ActionResult> {
+  const sess = await requireSession();
+  if (!sess.ok) return sess;
+  const res = await undoTeamApproval('owner', id, sess.email);
+  if (res.ok) {
+    revalidatePath('/owner-messaging');
+    return { ok: true };
+  }
+  const e = res.error;
+  if (e.kind === 'http' && e.status === 409) return { ok: false, error: explainUndoRefusal(e.detail, 'them') };
+  return { ok: false, error: explainError(e) };
+}
+
+/** Edit changes this reply only: the operator's words become the draft, and
+ *  the concierge re-checks the follow-up work against them. */
+export async function editOwnerDraft(id: string, text: string): Promise<ActionResult> {
+  const sess = await requireSession();
+  if (!sess.ok) return sess;
+  const trimmed = text.trim();
+  if (!trimmed) return { ok: false, error: 'The reply cannot be empty' };
+  return mapResult(await editTeamApproval('owner', id, trimmed));
+}
+
+/** Re-run the draft on today's data. Nothing is sent and nothing is taught. */
+export async function redraftOwnerDraft(id: string): Promise<ActionResult> {
+  const sess = await requireSession();
+  if (!sess.ok) return sess;
+  return mapResult(await redraftTeamApproval('owner', id, sess.email));
 }
 
 /** Queue the draft to send at a future time (the send-later element).
@@ -58,20 +104,14 @@ export async function scheduleOwnerDraft(
   const sess = await requireSession();
   if (!sess.ok) return sess;
   if (!sendAt) return { ok: false, error: 'Pick a time to schedule' };
-  const res = await scheduleOwnerApproval(id, sendAt, finalText, fileActions);
-  if (!res.ok) return { ok: false, error: explainError(res.error) };
-  revalidatePath('/owner-messaging');
-  return { ok: true };
+  return mapResult(await scheduleOwnerApproval(id, sendAt, finalText, fileActions));
 }
 
 /** Unschedule a queued send, returning the draft to the pending queue. */
 export async function cancelOwnerSchedule(id: string): Promise<ActionResult> {
   const sess = await requireSession();
   if (!sess.ok) return sess;
-  const res = await cancelScheduleOwnerApproval(id);
-  if (!res.ok) return { ok: false, error: explainError(res.error) };
-  revalidatePath('/owner-messaging');
-  return { ok: true };
+  return mapResult(await cancelScheduleOwnerApproval(id));
 }
 
 export async function coachOwnerDraft(
@@ -85,10 +125,7 @@ export async function coachOwnerDraft(
   if (!trimmed) return { ok: false, error: 'Add a coaching note before sending' };
   // base is the operator's hand-edited draft; regen builds on it so tweaks
   // aren't discarded by the rewrite.
-  const res = await coachOwnerApproval(id, trimmed, base);
-  if (!res.ok) return { ok: false, error: explainError(res.error) };
-  revalidatePath('/owner-messaging');
-  return { ok: true };
+  return mapResult(await coachOwnerApproval(id, trimmed, base));
 }
 
 /** Owners only: the editor renders on the staff-open Quality lens for owner

@@ -44,8 +44,11 @@ describe('messaging skeletons match their pages', () => {
     const skeleton = read('src/components/QueueSkeleton.tsx');
     assert.ok(skeleton.includes("title = 'Needs review'"), 'the default title must match "Needs review (N)"');
     assert.ok(!skeleton.includes('"Pending"'), 'no stray Pending title');
+    // Every queue renders the one queue component, which owns the title.
+    assert.ok(read('src/components/messaging/card/ApprovalQueue.tsx').includes('`Needs review (${'), 'the queue is titled Needs review');
     for (const queue of ['src/app/messaging/MessagingQueue.tsx', 'src/app/owner-messaging/OwnerMessagingQueue.tsx']) {
-      assert.ok(read(queue).includes('`Needs review (${'), `${queue} no longer titles the queue Needs review`);
+      const src = read(queue);
+      assert.ok(src.includes('`Needs review (${') || src.includes('<ApprovalQueue'), `${queue} no longer titles the queue Needs review`);
     }
   });
 });
