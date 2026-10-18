@@ -1,229 +1,84 @@
 'use client';
 
-import { Fragment } from 'react';
-
-import { MobileInboxReview } from '@/components/MobileInboxReview';
-
-import { MessageOutcomes } from '@/components/MessageOutcomes';
-import { memo, useCallback, useEffect, useRef, useState, useTransition } from 'react';
-import { Section } from '@/components/Section';
-import { QueueRefreshControl, useQueueRefresh } from '@/components/QueueRefreshControl';
+import { useCallback, useState } from 'react';
+import { useQueueRefresh } from '@/components/QueueRefreshControl';
 import { useApprovalQueue } from '@/lib/use-approval-queue';
 import type { OwnerApproval } from '@/lib/stay-concierge';
+import { prettifySlug, prettifyTopic } from '@/app/messaging/format';
+import { ApprovalCard, sentAgoLabel } from '@/components/messaging/card/ApprovalCard';
+import { ApprovalQueue, type QueueCardHelpers } from '@/components/messaging/card/ApprovalQueue';
+import { SecondaryButton } from '@/components/messaging/card/buttons';
+import { TEAM_HANDLED_REASONS } from '@/components/messaging/card/reasons';
 import {
   approveOwnerDraft,
   markOwnerHandled,
+  undoOwnerDecision,
   coachOwnerDraft,
+  editOwnerDraft,
+  redraftOwnerDraft,
   scheduleOwnerDraft,
   cancelOwnerSchedule,
 } from './actions';
-import {
-  prettifySlug,
-  prettifyTopic,
-  ageToneColor,
-  relativeTimeShort,
-  sendsInLabel,
-} from '@/app/messaging/format';
-import {
-  QUEUED_TONE,
-  QueuedBadge,
-  SplitSendButton,
-  SchedulePopover,
-} from '@/components/ScheduleSend';
 import { splitOwnerText, parseTapback } from './conversation';
 import { Envelope, InboundSubject } from './Envelope';
-import { ProposedActions } from './ProposedActions';
-import { HandledConfirm } from '@/components/HandledConfirm';
+import { proposedActionItems } from './ProposedActions';
 
-type Props = { initialPending: OwnerApproval[] };
-
-// How often the REST of the page re-renders. The cards no longer ride this:
-// they poll their own feed every 15s (see useApprovalQueue), so a coached
-// draft appears as soon as the service has it instead of waiting on whatever
-// else the page is fetching.
+// How often the REST of the page re-renders. The cards poll their own feed
+// every 15s (useApprovalQueue), so a coached draft appears as soon as the
+// service has it.
 const PAGE_REFRESH_MS = 60_000;
 
-export function OwnerMessagingQueue({ initialPending }: Props) {
-  // The cards come from the queue's own feed. Seeded by the server render.
-  const { approvals, updatedTick, refresh, watchRegen, stalledId } =
-    useApprovalQueue(initialPending, 'owners');
-  // Shared refresh brain (QueueRefreshControl): transition-wrapped
-  // router.refresh on a jittered, visibility-gated interval (the #1236
-  // stampede fix, which this queue never got). Now only the sections below
-  // the queue depend on it.
+/** The owner queue: the one approval card, stacked so the owner's words,
+ *  then where the reply goes (the Envelope), then the reply read in order. */
+export function OwnerMessagingQueue({ initialPending }: { initialPending: OwnerApproval[] }) {
+  const { approvals, updatedTick, refresh, watchRegen, stalledId } = useApprovalQueue(initialPending, 'owners');
   const { softRefresh } = useQueueRefresh(PAGE_REFRESH_MS);
-
-  // A card action changes both: the queue feed answers in ~60ms and drops the
-  // card, the page catches up with what sits underneath in its own time.
-  const onResolved = useCallback(() => {
+  const onRefresh = useCallback(() => {
     refresh();
     softRefresh();
   }, [refresh, softRefresh]);
 
-  // Decisions first; scheduled sends stay visible in their own group.
-  const queued = approvals
-    .filter((a) => a.status === 'scheduled')
-    .sort((a, b) => (a.send_at || '').localeCompare(b.send_at || ''));
-  const pending = approvals.filter((a) => a.status !== 'scheduled');
-  const ordered = [...pending, ...queued];
-  const title =
-    approvals.length === 0
-      ? 'Inbox zero'
-      : pending.length === 0
-        ? `Scheduled (${queued.length})`
-        : `Needs review (${pending.length})`;
-
   return (
-    <Section
-      id="needs-review"
-      title={title}
-      right={<QueueRefreshControl onRefresh={onResolved} refreshTick={updatedTick} />}
-      empty={approvals.length === 0}
+    <ApprovalQueue
+      approvals={approvals}
+      updatedTick={updatedTick}
+      onRefresh={onRefresh}
+      undo={undoOwnerDecision}
       emptyMessage="No owner replies waiting."
-    >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-        {ordered.map((approval, index) => (
-          <Fragment key={approval.id}>
-          {pending.length > 0 && queued.length > 0 && index === pending.length && <h3 className="rt-inbox-group-title">Scheduled ({queued.length})</h3>}
-          <OwnerApprovalCard
-            key={approval.id}
-            approval={approval}
-            onResolved={onResolved}
-            onRegenerating={watchRegen}
-            regenStalled={stalledId === approval.id}
-          />
-          </Fragment>
-        ))}
-      </div>
-    </Section>
+      renderCard={(approval, helpers) => (
+        <OwnerCard
+          key={approval.id}
+          approval={approval}
+          helpers={helpers}
+          onRegenerating={watchRegen}
+          regenStalled={stalledId === approval.id}
+        />
+      )}
+    />
   );
 }
 
-type PendingAction =
-  | 'approve'
-  | 'mark-handled'
-  | 'coach'
-  | 'schedule'
-  | 'send-now'
-  | 'cancel-schedule'
-  | null;
-
-const OwnerApprovalCard = memo(function OwnerApprovalCard({
+function OwnerCard({
   approval,
-  onResolved,
+  helpers,
   onRegenerating,
   regenStalled,
 }: {
   approval: OwnerApproval;
-  onResolved: () => void;
-  /** Coaching accepted upstream: watch closely for the rewritten card. */
+  helpers: QueueCardHelpers;
   onRegenerating: (id: string) => void;
-  /** The rewrite never came back. */
   regenStalled: boolean;
 }) {
-  const [isPending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
-  const [showCoach, setShowCoach] = useState(false);
-  const [feedback, setFeedback] = useState('');
-  const [pendingAction, setPendingAction] = useState<PendingAction>(null);
-  // In-flight for card purposes: a coached card stays locked past its own
-  // request, until the rewrite replaces it (see runCoach).
-  const busy = isPending || pendingAction === 'coach';
-  // The draft is a live editable field. draftText is what actually sends;
-  // `edited` flags that the operator changed it from the AI's original.
-  const [draftText, setDraftText] = useState(approval.draft ?? '');
-  const [edited, setEdited] = useState(false);
-  const coachRef = useRef<HTMLTextAreaElement>(null);
-  // Send-later drawer + collapsed state for queued cards (guest pattern).
-  const [showSchedule, setShowSchedule] = useState(false);
-  const [expanded, setExpanded] = useState(false);
-  const cardRef = useRef<HTMLElement | null>(null);
-  const isScheduled = approval.status === 'scheduled';
+  const id = approval.id;
+  const owner = approval.owner_name || approval.owner_contact || 'Owner';
+  const property = approval.property_name || prettifySlug(approval.property_id) || '(no property tag)';
+  const channel = approval.channel === 'email_gmail' ? 'email' : 'SMS';
 
-  // Dismiss the schedule menu on Escape or a click outside this card.
-  useEffect(() => {
-    if (!showSchedule) return;
-    const onDown = (e: MouseEvent) => {
-      if (cardRef.current && !cardRef.current.contains(e.target as Node)) setShowSchedule(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setShowSchedule(false);
-    };
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onDown);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [showSchedule]);
-
-  const ownerLabel = approval.owner_name || approval.owner_contact || 'Owner';
-  const propertyLabel =
-    approval.property_name || prettifySlug(approval.property_id) || '(no property tag)';
-  const topicLabel = prettifyTopic(approval.topic) || 'General';
-  const channelLabel = approval.channel === 'email_gmail' ? 'email' : 'SMS';
-  const isStale = ageToneColor(approval.age_minutes) === 'var(--signal)';
-
-  const ageLabel =
-    approval.age_minutes == null
-      ? 'just now'
-      : approval.age_minutes < 1
-        ? 'just now'
-        : approval.age_minutes < 60
-          ? `${approval.age_minutes} min ago`
-          : `${Math.floor(approval.age_minutes / 60)}h ${approval.age_minutes % 60}m ago`;
-
-  const run = (action: PendingAction, fn: () => Promise<{ ok: true } | { ok: false; error: string }>) => {
-    setError(null);
-    setPendingAction(action);
-    startTransition(async () => {
-      const res = await fn();
-      if (!res.ok) {
-        setError(res.error);
-        setPendingAction(null);
-        return;
-      }
-      onResolved();
-    });
-  };
-
-  // Coaching is the one action whose work outlives its request: the service
-  // answers 202 and rewrites in the background, so the transition ends while
-  // this card is already doomed. Hand the id to the queue, which watches for
-  // the replacement every 2s, and keep the card locked meanwhile so nobody
-  // approves a draft about to be superseded out from under them.
-  const runCoach = (fn: () => Promise<{ ok: true } | { ok: false; error: string }>) => {
-    setError(null);
-    setPendingAction('coach');
-    startTransition(async () => {
-      const res = await fn();
-      if (!res.ok) {
-        setError(res.error);
-        setPendingAction(null);
-        return;
-      }
-      onRegenerating(approval.id);
-    });
-  };
-
-  // The watch gave up: the regen failed upstream, leaving this card pending.
-  // Stop claiming to be working on it and hand the note back.
-  useEffect(() => {
-    if (!regenStalled || pendingAction !== 'coach') return;
-    setPendingAction(null);
-    setShowCoach(true);
-    setError("The rewrite hasn't come back. Send the note again.");
-  }, [regenStalled, pendingAction]);
-
-  // Split the stacked owner_text into individual messages; drop pure tapbacks
-  // (reactions to our earlier replies, not new asks). If every segment is a
-  // reaction, the card collapses to a one-line notice + a single Dismiss.
+  // Split the stacked owner_text into its messages; drop pure tapbacks
+  // (reactions to our earlier replies, not new asks). A card that is all
+  // reactions has nothing to reply to.
   const segments = splitOwnerText(approval.owner_text || '');
-  const reactions = segments.map((s) => parseTapback(s)).filter(Boolean) as {
-    glyph: string;
-    verb: string;
-    quoted: string;
-  }[];
+  const reactions = segments.map((s) => parseTapback(s)).filter(Boolean) as { glyph: string; verb: string; quoted: string }[];
   const realSegments = segments.filter((s) => !parseTapback(s));
   const allReactions = segments.length > 0 && realSegments.length === 0;
   const ownerSaid = realSegments.length > 0 ? realSegments : [approval.owner_text || '(empty)'];
@@ -231,526 +86,109 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
 
   const proposedActions = approval.proposed_actions ?? [];
   const [fileActions, setFileActions] = useState(approval.followup_status?.enabled !== 0);
+  const checking =
+    approval.followup_status?.enabled !== 0 &&
+    approval.followup_status &&
+    ['checking', 'retrying', 'unchecked'].includes(approval.followup_status.state)
+      ? approval.followup_status
+      : null;
 
-  const canApprove = draftText.trim().length > 0 && !busy;
-
-  const doApprove = () => {
-    if (!canApprove) return;
-    run('approve', () =>
-      approveOwnerDraft(approval.id, edited ? draftText : undefined, { fileActions }),
-    );
-  };
-  const doSchedule = (sendAtIso: string) => {
-    setShowSchedule(false);
-    // An in-place edit rides along, mirroring approve, so the queued send
-    // fires the operator's text.
-    run('schedule', () =>
-      scheduleOwnerDraft(approval.id, sendAtIso, edited ? draftText : undefined, fileActions),
-    );
-  };
-  // Edits were persisted at schedule time, so Send now fires the stored draft.
-  const doSendNow = () => run('send-now', () => approveOwnerDraft(approval.id, undefined, { fileActions }));
-  const doCancelSchedule = () => run('cancel-schedule', () => cancelOwnerSchedule(approval.id));
-  const doHandled = () => run('mark-handled', () => markOwnerHandled(approval.id, fileActions));
-  const doCoach = () => {
-    // Collapse the drawer immediately so the in-flight status line below
-    // reads cleanly for the whole regeneration (guests-queue pattern —
-    // without it the only signal is a tiny button label and the coach
-    // looks like it did nothing).
-    setShowCoach(false);
-    runCoach(async () => {
-      const res = await coachOwnerDraft(approval.id, feedback, edited ? draftText : undefined);
-      // The note stays in the textarea until this card is actually replaced:
-      // if the rewrite never lands, the operator gets their own words back
-      // rather than having to retype them. Reopen the drawer on a failure so
-      // the note can be revised instead.
-      if (!res.ok) setShowCoach(true);
-      return res;
-    });
-  };
-  const toggleCoach = () => {
-    setShowCoach((v) => {
-      const next = !v;
-      if (next) setTimeout(() => coachRef.current?.focus(), 0);
-      return next;
-    });
+  const common = {
+    id,
+    status: approval.status,
+    sendAt: approval.send_at,
+    name: `${owner} · ${property}`,
+    property,
+    preview: approval.owner_text,
+    channel,
+    chips: <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>{prettifyTopic(approval.topic) || 'General'} · {channel}</span>,
+    ageMinutes: approval.age_minutes,
+    createdAt: approval.created_at,
+    shortId: approval.short_id,
+    outcomes: approval.outcomes,
+    onResolved: helpers.onResolved,
+    onDecided: helpers.onDecided,
+    onRegenerating,
+    regenStalled,
   };
 
-  // Card-scoped keys. Cmd/Ctrl+Enter from the draft field is the "done
-  // editing, send it" gesture; Escape closes the coach drawer or drops focus.
-  // The single-key shortcuts (a, c, h, r) are gone (2026-10-17): nothing on
-  // screen named them, no other queue had them, and a bare r on a focused
-  // card dropped an owner reply with no confirm.
-  const onKeyDown = (e: React.KeyboardEvent<HTMLElement>) => {
-    // A queued card's only actions are the explicit Send now / Cancel send
-    // buttons; a key firing a send here would be a footgun.
-    if (isScheduled) return;
-    const inTextarea = (e.target as HTMLElement)?.tagName === 'TEXTAREA';
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-      e.preventDefault();
-      doApprove();
-      return;
-    }
-    if (inTextarea || busy) return;
-    if (e.key === 'Escape') {
-      if (showCoach) {
-        setShowCoach(false);
-        setFeedback('');
-      } else {
-        (e.currentTarget as HTMLElement).blur();
-      }
-    }
-  };
-
-  // Collapsed queued card: a single dense row (name, countdown, a one-line
-  // draft preview) with its actions, so waiting sends stay quiet on the
-  // dashboard. "Show" expands to the full card below.
-  if (isScheduled && !expanded) {
+  if (allReactions) {
     return (
-      <MobileInboxReview id={approval.id} name={ownerLabel} property={propertyLabel} preview={approval.owner_text} channel={channelLabel} enabled={!isScheduled} keepOpen={busy || !!error || regenStalled} draftInProgress={edited || showCoach || showSchedule}>
-    <article
-        id={`approval-${approval.id}`}
-        ref={cardRef}
-        className="rt-message-card"
-        style={{
-          border: '1px solid var(--rule)',
-          borderLeft: `3px solid ${QUEUED_TONE}`,
-          background: 'var(--paper-2)',
-          padding: '11px 16px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-          flexWrap: 'wrap',
+      <ApprovalCard
+        {...common}
+        said={{
+          label: 'Owner reacted',
+          body: (
+            <div style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.55 }}>
+              {firstName} reacted {reactions.map((r) => r.glyph).join(' ') || '👍'} to your message. Nothing to reply to.
+            </div>
+          ),
         }}
-      >
-        <QueuedBadge />
-        <span className="font-serif" style={{ fontSize: 15, fontWeight: 500, letterSpacing: '-0.01em' }}>
-          {ownerLabel} · {propertyLabel}
-        </span>
-        <span className="eyebrow" style={{ color: 'var(--ink-3)' }} title={approval.send_at}>
-          {sendsInLabel(approval.send_at)}
-        </span>
-        <span
-          style={{
-            flex: '1 1 120px',
-            minWidth: 0,
-            fontSize: 12,
-            color: 'var(--ink-4)',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }}
-          title={approval.draft}
-        >
-          {approval.draft}
-        </span>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginLeft: 'auto' }}>
-          <button
-            type="button"
-            onClick={() => setExpanded(true)}
-            className="eyebrow"
-            style={{ color: 'var(--ink-4)', background: 'transparent', border: 'none', padding: 0, cursor: 'pointer' }}
+        reply={null}
+        verbs={{ markHandled: (capture) => markOwnerHandled(id, fileActions, capture) }}
+        handledReasons={TEAM_HANDLED_REASONS}
+        // A reaction is cleared in one tap; the toast still offers Undo.
+        footer={(ctl) => (
+          <SecondaryButton
+            onClick={() => ctl.markHandled({ reason: 'Reaction, nothing to reply to' })}
+            disabled={ctl.busy}
+            loading={ctl.pending === 'mark-handled'}
+            loadingLabel="Marking"
+            title="A reaction, not a message. Clears it from the queue without sending."
           >
-            Show ▾
-          </button>
-          <SecondaryButton onClick={doSendNow} disabled={busy}>
-            {pendingAction === 'send-now' ? 'Sending…' : 'Send now'}
+            Mark handled
           </SecondaryButton>
-          <SecondaryButton onClick={doCancelSchedule} disabled={busy}>
-            {pendingAction === 'cancel-schedule' ? 'Cancelling…' : 'Cancel send'}
-          </SecondaryButton>
-        </div>
-        {error && (
-          <p style={{ width: '100%', margin: '4px 0 0', fontSize: 12, color: 'var(--signal)', fontWeight: 500 }} role="alert">
-            {error}
-          </p>
         )}
-          <MessageOutcomes value={approval.outcomes} />
-    </article>
-    </MobileInboxReview>
+      />
     );
   }
 
   return (
-    <MobileInboxReview id={approval.id} name={ownerLabel} property={propertyLabel} preview={approval.owner_text} channel={channelLabel} enabled={!isScheduled} keepOpen={busy || !!error || regenStalled} draftInProgress={edited || showCoach || showSchedule}>
-    <article
-      id={`approval-${approval.id}`}
-      ref={cardRef}
-      className="rt-message-card"
-      tabIndex={0}
-      onKeyDown={onKeyDown}
-      style={{
-        border: '1px solid var(--rule)',
-        borderLeft: isScheduled
-          ? `3px solid ${QUEUED_TONE}`
-          : isStale
-            ? '3px solid var(--signal)'
-            : '1px solid var(--rule)',
-        background: 'var(--paper-2)',
-        padding: 20,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 16,
-        outline: 'none',
-      }}
-    >
-      <header
-        style={{
-          display: 'flex',
-          alignItems: 'baseline',
-          justifyContent: 'space-between',
-          gap: 12,
-          flexWrap: 'wrap',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-          <span className="font-serif" style={{ fontSize: 18, fontWeight: 500, letterSpacing: '-0.01em' }}>
-            {ownerLabel} · {propertyLabel}
-          </span>
-          <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
-            {topicLabel} · {channelLabel}
-          </span>
-          {isScheduled && (
-            <>
-              <QueuedBadge />
-              <span className="eyebrow" style={{ color: 'var(--ink-3)' }} title={approval.send_at}>
-                {sendsInLabel(approval.send_at)}
-              </span>
-            </>
-          )}
-        </div>
-        {/* Queued cards suppress the "drafted X ago" cue (the countdown is
-            the one time readout) and offer Hide to collapse back down. */}
-        {isScheduled ? (
-          <button
-            type="button"
-            onClick={() => setExpanded(false)}
-            className="eyebrow"
-            style={{ color: 'var(--ink-4)', background: 'transparent', border: 'none', padding: 0, cursor: 'pointer' }}
-          >
-            Hide ▴
-          </button>
-        ) : (
-          <span className="eyebrow" style={{ color: 'var(--ink-4)' }} title={`${approval.created_at} · ${approval.short_id}`}>
-            {'drafted '}
-            <span
-              style={{
-                color: ageToneColor(approval.age_minutes),
-                fontWeight: isStale ? 700 : 500,
-              }}
-            >
-              {ageLabel}
-            </span>
-          </span>
-        )}
-      </header>
-
-      {allReactions ? (
-        <>
-          <div style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.55 }}>
-            {firstName} reacted {reactions.map((r) => r.glyph).join(' ') || '👍'} to your message.
-            Nothing to reply to.
-          </div>
-          {error && (
-            <p style={{ fontSize: 13, color: 'var(--signal)', fontWeight: 500 }} role="alert">
-              {error}
-            </p>
-          )}
-          <footer className="rt-message-actions" style={{ display: 'flex', gap: 10 }}>
-            <SecondaryButton
-              onClick={doHandled}
-              disabled={busy}
-              title="A reaction, not a message. Clears it from the queue without sending."
-            >
-              {pendingAction === 'mark-handled' ? 'Marking…' : 'Mark handled'}
-            </SecondaryButton>
-          </footer>
-        </>
-      ) : (
-        <>
-          {/* OWNER SAID - the ask, read first */}
-          <div>
-            <div
-              className="eyebrow"
-              style={{ marginBottom: 6, color: 'var(--ink-4)', display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}
-            >
-              <span>{ownerSaid.length > 1 ? `Owner said · ${ownerSaid.length} messages` : 'Owner said'}</span>
-              {relativeTimeShort(approval.created_at) && (
-                <span
-                  style={{ fontSize: 10, fontWeight: 400, letterSpacing: '0.10em', color: 'var(--ink-3)', textTransform: 'none' }}
-                  title={`${approval.created_at} · ${approval.short_id}`}
-                >
-                  sent {relativeTimeShort(approval.created_at)}
-                </span>
-              )}
-            </div>
+    <ApprovalCard
+      {...common}
+      layout="stacked"
+      said={{
+        label: ownerSaid.length > 1 ? `Owner said · ${ownerSaid.length} messages` : 'Owner said',
+        sub: sentAgoLabel(approval.created_at),
+        subTitle: `${approval.created_at} · ${approval.short_id}`,
+        body: (
+          <>
             <InboundSubject envelope={approval.envelope} />
             <OwnerSaidRun segments={ownerSaid} />
             {reactions.length > 0 && <ReactionChips reactions={reactions} />}
-          </div>
-
-          {/* WHERE IT GOES - read before approving, not after */}
-          <Envelope envelope={approval.envelope} />
-
-          {/* PROPOSED REPLY - the hero, editable in place. A queued card
-              shows the locked text instead: cancel the send to edit. */}
-          {isScheduled ? (
-            <div style={{ background: 'var(--paper-3)', border: '1px solid var(--rule)', padding: '18px 20px' }}>
-              <div className="eyebrow" style={{ color: 'var(--ink-4)', marginBottom: 8 }}>
-                Reply that will send
-              </div>
-              <p
-                style={{
-                  margin: 0,
-                  fontSize: 15,
-                  lineHeight: 1.65,
-                  color: 'var(--ink)',
-                  fontWeight: 500,
-                  whiteSpace: 'pre-wrap',
-                }}
-              >
-                {approval.draft || '(no draft)'}
-              </p>
-            </div>
-          ) : (
-            <DraftHero
-              key={approval.draft}
-              initial={approval.draft ?? ''}
-              edited={edited}
-              onChange={(v, changed) => {
-                setDraftText(v);
-                if (changed) setEdited(true);
-              }}
-              onApprove={doApprove}
-            />
-          )}
-
-          {approval.followup_status?.enabled !== 0 && approval.followup_status && ['checking', 'retrying', 'unchecked'].includes(approval.followup_status.state) && (
-            <p role="status" style={{ fontSize: 13, color: approval.followup_status.error ? 'var(--signal)' : 'var(--ink-3)' }}>
-              {approval.followup_status.error || 'Checking this message for follow-up work.'}
-            </p>
-          )}
-          {proposedActions.length > 0 && !isScheduled && (
-            <ProposedActions actions={proposedActions} enabled={fileActions} onToggle={setFileActions} />
-          )}
-
-          {error && (
-            <p style={{ fontSize: 13, color: 'var(--signal)', fontWeight: 500 }} role="alert">
-              {error}
-            </p>
-          )}
-
-          <footer className="rt-message-actions" style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-            {isScheduled ? (
-              <>
-                <SecondaryButton
-                  onClick={doSendNow}
-                  disabled={busy}
-                  title="Send this reply right now instead of waiting."
-                >
-                  {pendingAction === 'send-now' ? 'Sending…' : 'Send now'}
-                </SecondaryButton>
-                <SecondaryButton
-                  onClick={doCancelSchedule}
-                  disabled={busy}
-                  title="Stop the scheduled send and return this draft to the queue."
-                >
-                  {pendingAction === 'cancel-schedule' ? 'Cancelling…' : 'Cancel send'}
-                </SecondaryButton>
-                <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
-                  Cancel send to edit or coach
-                </span>
-              </>
-            ) : (
-              <>
-                <SplitSendButton
-                  label={edited ? 'Approve edited & send' : 'Approve & send'}
-                  onApprove={doApprove}
-                  onToggle={() => setShowSchedule((v) => !v)}
-                  disabled={!canApprove}
-                  loading={pendingAction === 'approve'}
-                  open={showSchedule}
-                />
-                <SecondaryButton onClick={toggleCoach} disabled={busy}>
-                  {pendingAction === 'coach'
-                    ? 'Regenerating…'
-                    : showCoach
-                      ? 'Cancel coaching'
-                      : 'Coach the AI'}
-                </SecondaryButton>
-                {/* On the card, not in a menu (2026-10-18); asks once, since
-                    the owner queue has no undo. */}
-                <div className="rt-message-quiet">
-                  <HandledConfirm
-                    onConfirm={doHandled}
-                    disabled={busy}
-                    loading={pendingAction === 'mark-handled'}
-                    title="You replied elsewhere, or no reply is needed. Clears the card without sending; ticked follow-up work still files."
-                  />
-                </div>
-              </>
-            )}
-          </footer>
-
-          {showSchedule && !isScheduled && (
-            <SchedulePopover onSchedule={doSchedule} disabled={busy} />
-          )}
-
-          {pendingAction === 'schedule' && (
-            <p
-              style={{ fontSize: 13, color: 'var(--ink-3)', fontStyle: 'italic' }}
-              role="status"
-              aria-live="polite"
-            >
-              Queueing this reply to send later…
-            </p>
-          )}
-
-          {pendingAction === 'coach' && (
-            <p
-              style={{
-                marginTop: 4,
-                fontSize: 13,
-                color: 'var(--ink-3)',
-                fontStyle: 'italic',
-              }}
-              role="status"
-              aria-live="polite"
-            >
-              Implementing your coaching. The rewritten draft replaces this one
-              in a few seconds.
-            </p>
-          )}
-
-          {showCoach && (
-            <div>
-              <label
-                htmlFor={`owner-coach-${approval.id}`}
-                className="eyebrow"
-                style={{ display: 'block', marginBottom: 6, color: 'var(--ink-3)' }}
-              >
-                Coaching note
-              </label>
-              <textarea
-                id={`owner-coach-${approval.id}`}
-                ref={coachRef}
-                value={feedback}
-                onChange={(e) => setFeedback(e.target.value)}
-                placeholder="Say what's wrong with the draft. The AI will rewrite using your guidance (and keep any edits you made above)."
-                rows={3}
-                style={{
-                  width: '100%',
-                  padding: 10,
-                  border: '1px solid var(--rule)',
-                  background: 'var(--paper)',
-                  fontFamily: 'inherit',
-                  fontSize: 14,
-                  color: 'var(--ink)',
-                  resize: 'vertical',
-                }}
-              />
-              <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
-                <PrimaryButton onClick={doCoach} disabled={busy || !feedback.trim()}>
-                  {pendingAction === 'coach' ? 'Regenerating…' : 'Regenerate with this note'}
-                </PrimaryButton>
-                <SecondaryButton
-                  onClick={() => {
-                    setShowCoach(false);
-                    setFeedback('');
-                  }}
-                  disabled={busy}
-                >
-                  Cancel
-                </SecondaryButton>
-              </div>
-            </div>
-          )}
-        </>
-      )}
-      <MessageOutcomes value={approval.outcomes} />
-    </article>
-    </MobileInboxReview>
-  );
-});
-
-/**
- * The proposed reply, presented as the hero: a raised surface with a
- * borderless textarea that reads as typeset prose. Editing it here sends the
- * edited text on approve (no coach round-trip for a one-word fix). Remounted
- * (via key) whenever the AI draft changes, which reseeds the field and clears
- * the edited flag.
- */
-function DraftHero({
-  initial,
-  edited,
-  onChange,
-  onApprove,
-}: {
-  initial: string;
-  edited: boolean;
-  onChange: (value: string, changed: boolean) => void;
-  onApprove: () => void;
-}) {
-  const [value, setValue] = useState(initial);
-  const [focused, setFocused] = useState(false);
-  return (
-    <div style={{ background: 'var(--paper-3)', border: '1px solid var(--rule)', padding: '18px 20px' }}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'baseline',
-          justifyContent: 'space-between',
-          gap: 8,
-          marginBottom: 8,
-        }}
-      >
-        <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
-          Proposed reply
-        </span>
-        {edited && (
-          <span className="eyebrow" style={{ color: 'var(--signal)' }}>
-            edited
-          </span>
-        )}
-      </div>
-      <textarea
-        value={value}
-        onChange={(e) => {
-          setValue(e.target.value);
-          onChange(e.target.value, e.target.value !== initial);
-        }}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-        placeholder="No draft was generated. Coach the AI, or write a reply here."
-        style={{
-          width: '100%',
-          border: 'none',
-          background: 'transparent',
-          resize: 'vertical',
-          fontFamily: 'inherit',
-          fontSize: 15,
-          lineHeight: 1.65,
-          color: 'var(--ink)',
-          fontWeight: 500,
-          minHeight: 76,
-          padding: 0,
-          outline: 'none',
-          boxShadow: focused ? 'inset 0 -1px 0 var(--ink-3)' : 'none',
-          whiteSpace: 'pre-wrap',
-        }}
-        onKeyDown={(e) => {
-          if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-            e.preventDefault();
-            onApprove();
-          }
-        }}
-      />
-    </div>
+          </>
+        ),
+      }}
+      // Where the reply goes, read before approving, not after.
+      between={<Envelope envelope={approval.envelope} />}
+      reply={{ text: approval.draft }}
+      afterColumns={
+        checking && (
+          <p role="status" style={{ marginTop: 12, fontSize: 13, color: checking.error ? 'var(--signal)' : 'var(--ink-3)' }}>
+            {checking.error || 'Checking this message for follow-up work.'}
+          </p>
+        )
+      }
+      also={approval.status === 'scheduled' ? undefined : proposedActionItems(proposedActions, fileActions, setFileActions)}
+      verbs={{
+        approve: () => approveOwnerDraft(id, undefined, { fileActions }),
+        schedule: (at) => scheduleOwnerDraft(id, at, undefined, fileActions),
+        // An edit is stored on the card when it is saved, so Send now fires it.
+        sendNow: () => approveOwnerDraft(id, undefined, { fileActions }),
+        cancelSchedule: () => cancelOwnerSchedule(id),
+        saveEdit: (text) => editOwnerDraft(id, text),
+        coach: (note) => coachOwnerDraft(id, note),
+        redraft: () => redraftOwnerDraft(id),
+        markHandled: (capture) => markOwnerHandled(id, fileActions, capture),
+      }}
+      handledReasons={TEAM_HANDLED_REASONS}
+      pastePlaceholder="Paste the reply you sent the owner, by text or by email"
+    />
   );
 }
 
-/** Owner tapbacks that accompanied a real message, shown as compact chips
- *  under the owner note instead of a wall of quoted text. */
+/** Owner tapbacks that came with a real message, as chips under it instead
+ *  of a wall of quoted text. */
 function ReactionChips({ reactions }: { reactions: { glyph: string; verb: string }[] }) {
   return (
     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
@@ -777,111 +215,18 @@ function ReactionChips({ reactions }: { reactions: { glyph: string; verb: string
   );
 }
 
-/** The owner's message(s) as a clustered run. A single message reads as one
- *  line; a stacked burst becomes a keylined block, one line per message, so
- *  the operator reads a real exchange instead of a wall. Owner words render at
- *  full --ink weight so they read as the primary context. */
+/** The owner's message(s) as a run. One message reads as one line; a burst
+ *  becomes a keylined block, one line per message, at full ink weight. */
 function OwnerSaidRun({ segments }: { segments: string[] }) {
   const line = (s: string, key: number) => (
-    <p
-      key={key}
-      style={{
-        margin: 0,
-        fontSize: 14,
-        lineHeight: 1.55,
-        color: 'var(--ink)',
-        whiteSpace: 'pre-wrap',
-      }}
-    >
+    <p key={key} style={{ margin: 0, fontSize: 14, lineHeight: 1.55, color: 'var(--ink)', whiteSpace: 'pre-wrap' }}>
       {s || '(empty)'}
     </p>
   );
   if (segments.length <= 1) return line(segments[0] || '', 0);
   return (
-    <div
-      style={{
-        borderLeft: '2px solid var(--rule)',
-        paddingLeft: 12,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 6,
-      }}
-    >
+    <div style={{ borderLeft: '2px solid var(--rule)', paddingLeft: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
       {segments.map((s, i) => line(s, i))}
     </div>
-  );
-}
-
-function PrimaryButton({
-  children,
-  onClick,
-  disabled,
-}: {
-  children: React.ReactNode;
-  onClick: () => void;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      style={{
-        background: disabled ? 'var(--ink-4)' : 'var(--ink)',
-        color: 'var(--paper)',
-        border: '2px solid var(--ink)',
-        padding: '13px 22px',
-        fontSize: 12,
-        letterSpacing: '0.18em',
-        textTransform: 'uppercase',
-        fontWeight: 700,
-        cursor: disabled ? 'not-allowed' : 'pointer',
-        opacity: disabled ? 0.7 : 1,
-      }}
-    >
-      {children}
-    </button>
-  );
-}
-
-/**
- * What approving this card will ALSO do. An owner reporting a peeling soap
- * dispenser should leave a work slip behind, and an owner describing how the
- * crew should clean should leave the crew a heads-up; before 2026-09-23 the
- * reply was the only artifact and the items existed nowhere once it sent.
- * Untick to send the reply and file nothing.
- */
-function SecondaryButton({
-  children,
-  onClick,
-  disabled,
-  title,
-}: {
-  children: React.ReactNode;
-  onClick: () => void;
-  disabled?: boolean;
-  title?: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      title={title}
-      style={{
-        background: 'var(--paper)',
-        color: 'var(--ink-2)',
-        border: '1px solid var(--ink-3)',
-        padding: '10px 16px',
-        fontSize: 11,
-        letterSpacing: '0.18em',
-        textTransform: 'uppercase',
-        fontWeight: 500,
-        cursor: disabled ? 'not-allowed' : 'pointer',
-        opacity: disabled ? 0.5 : 1,
-      }}
-    >
-      {children}
-    </button>
   );
 }

@@ -33,6 +33,12 @@ const MIGRATED: { queue: string; actions: string; page: string; undo: string }[]
     page: 'src/app/cleaner-messaging/page.tsx',
     undo: 'undoCleanerDecision',
   },
+  {
+    queue: 'src/app/owner-messaging/OwnerMessagingQueue.tsx',
+    actions: 'src/app/owner-messaging/actions.ts',
+    page: 'src/app/owner-messaging/page.tsx',
+    undo: 'undoOwnerDecision',
+  },
 ];
 
 describe('the one approval card', () => {
@@ -72,6 +78,13 @@ describe('the one approval card', () => {
     assert.ok(q.includes('saveEdit: (text) => editCleanerDraft(id, text)'), 'Edit on the Portuguese');
     assert.ok(q.includes('<EnglishLine text={approval.draft_english} translating={approval.draft_translating} />'), 'the English follows an edit');
     assert.ok(!/placeholder="[^"]*Portuguese/.test(q), 'the language note is printed text, not a placeholder');
+  });
+
+  test('the owner card reads in order and its edit is explicit', () => {
+    const q = read('src/app/owner-messaging/OwnerMessagingQueue.tsx');
+    assert.ok(q.includes('layout="stacked"') && q.includes('between={<Envelope envelope={approval.envelope} />}'), 'owner said, then where it goes, then the reply');
+    assert.ok(!q.includes('<textarea'), 'no always-editable reply: a stray keystroke no longer changes what sends');
+    assert.ok(q.includes('proposedActionItems(proposedActions, fileActions, setFileActions)'), 'follow-up work is Also on approve');
   });
 
   test('a line of Also on approve that needs an answer opens by itself', () => {

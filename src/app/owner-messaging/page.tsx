@@ -12,13 +12,18 @@ import {
   isStayConciergeConfigured,
   listOwnerApprovals,
   listOwnerHistory,
+  listDecidedTeamApprovals,
   explainError,
+  type OwnerApproval,
 } from '@/lib/stay-concierge';
+import { DecidedRecently } from '@/components/messaging/card/DecidedRecently';
+import { prettifySlug } from '@/app/messaging/format';
 import { ProactiveRemindersPanel } from '@/components/ProactiveRemindersPanel';
 import { PropertyFactsToFile } from '@/components/PropertyFactsToFile';
 import { InboxHealth } from '@/components/InboxHealth';
 import { InboxBottomTools } from '@/components/InboxBottomTools';
 import { OwnerMessagingQueue } from './OwnerMessagingQueue';
+import { undoOwnerDecision } from './actions';
 import { OwnerContactsHistory } from './OwnerContactsHistory';
 import {
   fetchProactiveReminders,
@@ -95,6 +100,24 @@ async function OwnerQueueSection() {
   return <OwnerMessagingQueue initialPending={pending.data.approvals} />;
 }
 
+// Handled owner cards from the last 12 hours that Undo can still reach.
+async function DecidedSection() {
+  const res = await listDecidedTeamApprovals<OwnerApproval>('owner', 12);
+  if (!res.ok) return null;
+  const items = res.data.approvals
+    .filter((a) => a.reversible)
+    .map((a) => ({
+      id: a.id,
+      status: a.status,
+      name: a.owner_name || a.owner_contact || 'Owner',
+      property: a.property_name || prettifySlug(a.property_id) || undefined,
+      quote: a.owner_text,
+      at: a.resolved_at || a.created_at,
+      decidedBy: a.decided_by,
+    }));
+  return <DecidedRecently items={items} undo={undoOwnerDecision} />;
+}
+
 function OwnerProactive() {
   return (
       <ProactiveRemindersPanel
@@ -135,6 +158,9 @@ export default function OwnerMessagingPage() {
     <Shell>
       <Suspense fallback={<QueueSkeleton />}>
         <OwnerQueueSection />
+      </Suspense>
+      <Suspense fallback={null}>
+        <DecidedSection />
       </Suspense>
       <Suspense fallback={null}><RecentMessageOutcomesSection audience="owners" /></Suspense>
       <Suspense fallback={null}>
