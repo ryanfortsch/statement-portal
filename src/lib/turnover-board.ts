@@ -93,12 +93,14 @@ export type BoardRow = {
     date: string;
     /** HH:MM 24h, from the checkout schedule; null when the schedule does not list it. */
     time: string | null;
+    /** As the pair prints it: "10:00", "Sat". */
+    when: string;
     guest: string | null;
     /** The departing stay's check-in as the checkout schedule keys it, for
      *  the `#stay-<pid>-<checkIn>` link. Null when the schedule does not list it. */
     scheduleCheckIn: string | null;
   } | null;
-  arrive: { date: string; time: string; guest: string | null; nights: number | null } | null;
+  arrive: { date: string; time: string; when: string; guest: string | null; nights: number | null } | null;
   /** "Out 10:00 · In 4:00" */
   pair: string;
   cleaner: BoardSlot | null;
@@ -194,6 +196,21 @@ function relativeDay(date: string, today: string): string {
   return shortDay(date, today);
 }
 
+/** When the guest leaves, read from the board day: "10:00", "Sat", "Sat 10:00". */
+export function outWhen(day: string, out: { date: string; time: string | null }): string {
+  const when = [out.date !== day ? shortDay(out.date, day) : null, out.time ? clock(out.time) : null]
+    .filter(Boolean)
+    .join(' ');
+  return when || 'today';
+}
+
+/** When the guest arrives, read from the board day: "4:00", "Thu 4:00", "Nov 2". */
+export function inWhen(day: string, arrive: { date: string; time: string }): string {
+  if (arrive.date === day) return clock(arrive.time);
+  if (Math.abs(daysBetween(day, arrive.date)) > 6) return shortDay(arrive.date, day);
+  return `${shortDay(arrive.date, day)} ${clock(arrive.time)}`;
+}
+
 /**
  * The row's pair, read from the board day it sits under: a time alone for
  * that day, a weekday for another day this week, a date beyond it.
@@ -204,19 +221,9 @@ export function pairText(
   arrive: { date: string; time: string } | null,
 ): string {
   const parts: string[] = [];
-  if (out) {
-    const when = [out.date !== day ? shortDay(out.date, day) : null, out.time ? clock(out.time) : null]
-      .filter(Boolean)
-      .join(' ');
-    parts.push(`Out ${when || 'today'}`);
-  }
-  if (arrive) {
-    const far = Math.abs(daysBetween(day, arrive.date)) > 6;
-    const when = arrive.date === day ? clock(arrive.time) : far ? shortDay(arrive.date, day) : `${shortDay(arrive.date, day)} ${clock(arrive.time)}`;
-    parts.push(`In ${when}`);
-  } else if (out) {
-    parts.push('Vacant');
-  }
+  if (out) parts.push(`Out ${outWhen(day, out)}`);
+  if (arrive) parts.push(`In ${inWhen(day, arrive)}`);
+  else if (out) parts.push('Vacant');
   return parts.join(' · ');
 }
 
@@ -316,8 +323,11 @@ function cleanerSlot(args: {
   verdict: CleaningItem | null;
   skipped: boolean;
   due: boolean;
+  /** Walked or marked ready: a house someone has signed off is not a clean
+   *  anyone needs to chase, whatever the cleaner did or did not text. */
+  signedOff: boolean;
 }): BoardSlot | null {
-  const { outDate, today, cleanedAt, cleaned, cleaningNow, verdict, skipped, due } = args;
+  const { outDate, today, cleanedAt, cleaned, cleaningNow, verdict, skipped, due, signedOff } = args;
   if (!outDate) return null;
   if (cleaned) {
     const sameDay = cleanedAt ? ET_DATE.format(new Date(cleanedAt)) === today : false;
@@ -326,6 +336,7 @@ function cleanerSlot(args: {
   if (cleaningNow) return { label: BOARD_STATE_LABEL.cleaning_now, tone: 'live', key: 'cleaning_now' };
   if (skipped) return { label: 'No cleaning needed', tone: 'mute', key: null };
   if (outDate >= today) return verdict ? verdictSlot(verdict.status, verdict.cleaningTime) : null;
+  if (signedOff) return null;
   return { label: BOARD_STATE_LABEL.clean_unconfirmed, tone: due ? 'warn' : 'mute', key: 'clean_unconfirmed' };
 }
 
@@ -455,28 +466,26 @@ export function composeBoard(input: BoardInput): Board {
     if (sched) sched.consumed = true;
 
     const outDate = sched?.date ?? t.previousCheckout;
-    const out = outDate
-      ? {
-          date: outDate,
-          time: sched?.checkoutTime ?? null,
-          guest: displayGuest(sched?.guestName ?? t.previousGuestName),
-          scheduleCheckIn: sched?.checkIn ?? null,
-        }
-      : null;
-    const arrive = {
-      date: t.checkIn.slice(0, 10),
-      time: t.checkInTime || '16:00',
-      guest: displayGuest(t.guestName),
-      nights: t.nights,
-    };
+    const outBase = outDate ? { date: outDate, time: sched?.checkoutTime ?? null } : null;
+    const arriveBase = { date: t.checkIn.slice(0, 10), time: t.checkInTime || '16:00' };
 
     // The clean is live (or the house is being walked) right now: Today.
     const live = lc.active === 'in' || lc.active === 'cleaning' || lc.active === 'clean' || lc.inspecting;
     let day: string;
-    if (out && out.date >= today && out.date <= rangeEnd) day = out.date;
-    else if (live && (!out || out.date < today)) day = today;
-    else day = arrive.date;
+    if (outBase && outBase.date >= today && outBase.date <= rangeEnd) day = outBase.date;
+    else if (live && (!outBase || outBase.date < today)) day = today;
+    else day = arriveBase.date;
     if (day < today || day > rangeEnd) continue;
+
+    const out = outBase
+      ? {
+          ...outBase,
+          when: outWhen(day, outBase),
+          guest: displayGuest(sched?.guestName ?? t.previousGuestName),
+          scheduleCheckIn: sched?.checkIn ?? null,
+        }
+      : null;
+    const arrive = { ...arriveBase, when: inWhen(day, arriveBase), guest: displayGuest(t.guestName), nights: t.nights };
 
     const cleanedAt = t.cleaningSession?.finishedAt ?? t.cleaning?.completedAt ?? null;
     const cleaner = cleanerSlot({
@@ -488,6 +497,7 @@ export function composeBoard(input: BoardInput): Board {
       verdict: sched?.item ?? null,
       skipped: sched?.skipped ?? false,
       due: lc.due,
+      signedOff: lc.inspected,
     });
 
     const inRange = !!out && out.date >= today && out.date <= rangeEnd;
@@ -517,7 +527,13 @@ export function composeBoard(input: BoardInput): Board {
     const pid = e.propertyId;
     const signal = departureSignals[`${pid}|${e.date}`] ?? null;
     const cleanedAt = signal?.cleanedAt ?? null;
-    const out = { date: e.date, time: e.checkoutTime, guest: displayGuest(e.guestName), scheduleCheckIn: e.checkIn };
+    const out = {
+      date: e.date,
+      time: e.checkoutTime,
+      when: outWhen(e.date, { date: e.date, time: e.checkoutTime }),
+      guest: displayGuest(e.guestName),
+      scheduleCheckIn: e.checkIn,
+    };
     rows.push({
       id: `out-${pid}-${e.date}`,
       outAnchor: null,
@@ -537,6 +553,7 @@ export function composeBoard(input: BoardInput): Board {
         verdict: e.item,
         skipped: e.skipped,
         due: false,
+        signedOff: false,
       }),
       walk: null,
       verb: null,

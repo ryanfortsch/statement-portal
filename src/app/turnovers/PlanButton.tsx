@@ -4,7 +4,7 @@ import { useRef, useState } from 'react';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import { setInspectionPlan, deleteInspectionPlan } from './plan-actions';
 import { TeamPicker } from '@/components/TeamPicker';
-import { displayNameForEmail, getTeamMember } from '@/lib/team';
+import { displayNameForEmail } from '@/lib/team';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { operatingDate } from '@/lib/operating-date';
 
@@ -21,11 +21,10 @@ type Props = {
   assignedToEmail: string | null;
   myEmail: string;
   /** 'chip' (default): the dashed "Planned Jul 10 · Ryan" line used in the
-   *  expanded affordances. 'byline': the collapsed action-column credit —
-   *  just the assignee's full name in the same serif-italic register as a
-   *  Field contractor's name, so every delegated-or-planned walk reads as
-   *  a person at a glance. Both open the same editor modal. */
-  variant?: 'chip' | 'byline';
+   *  opened board row. 'verb': the row's one action while the walk is not
+   *  due yet, a plain "Plan walk" button (the row's walk column already says
+   *  who and when). Both open the same editor modal. */
+  variant?: 'chip' | 'verb';
 };
 
 export function PlanButton({
@@ -111,12 +110,18 @@ export function PlanButton({
     }
   }
 
-  // Trigger — a quiet, right-aligned control that lives in the turnover
-  // row's status column alongside the cleaning / slips / field / mark-done
-  // chips, so the plan state sits in the same place on every row. Two
-  // states: a colored "Planned …" line when scheduled, a faint "+ Plan
-  // walk" prompt when not. Both open the same editor modal below.
+  // Trigger. As the row's verb: one "Plan walk" button whether or not a
+  // plan exists, since the row prints the plan beside it. As a chip in the
+  // opened row: a colored "Planned …" line when scheduled, a faint "+ Plan
+  // walk" prompt when not. All open the same editor modal below.
   if (!open) {
+    if (variant === 'verb') {
+      return (
+        <button type="button" onClick={openEditor} className="rt-tb-verbbtn">
+          Plan walk
+        </button>
+      );
+    }
     if (saved.id) {
       const inspectorLabel = saved.assignee ? displayNameForEmail(saved.assignee) : null;
       const tooltip = [
@@ -124,25 +129,6 @@ export function PlanButton({
         inspectorLabel ? `Walks it: ${inspectorLabel}` : null,
         'Click to edit',
       ].filter(Boolean).join(' · ');
-      if (variant === 'byline') {
-        // Collapsed-row credit: the person's FULL name (matching how a Field
-        // contractor reads), or "Planned Jul 10" when nobody's assigned yet.
-        const fullName = saved.assignee
-          ? getTeamMember(saved.assignee)?.name ?? displayNameForEmail(saved.assignee)
-          : null;
-        return (
-          <button
-            type="button"
-            onClick={openEditor}
-            className="rt-tn-field"
-            title={`Planned ${formatShort(saved.date)} · ${fullName ?? 'unassigned'} · click to edit`}
-          >
-            <span className="rt-tn-field-p" style={{ color: 'var(--tide-deep)' }}>
-              {fullName ?? `Planned ${formatShort(saved.date)}`}
-            </span>
-          </button>
-        );
-      }
       return (
         <button
           type="button"

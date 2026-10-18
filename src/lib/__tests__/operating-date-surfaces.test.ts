@@ -39,7 +39,6 @@ const SURFACES = [
   // Already correct before the fix; listed so they cannot regress either.
   'src/app/work/page.tsx',
   'src/app/work/QueueClient.tsx',
-  'src/app/turnovers/CompactTurnoverRow.tsx',
 ];
 
 /** The two shapes the bug took: a bare `new Date()` sliced or split to a date. */

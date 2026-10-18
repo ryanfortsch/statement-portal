@@ -53,7 +53,7 @@ function Fixture(){const [mounted,setMounted]=useState(true),[plan,setPlan]=useS
  window.unmount=()=>setMounted(false);window.updatePlan=()=>setPlan({...initialPlan,plannedNotes:'Refreshed notes',plannedForDate:'2030-10-02'});if(!mounted)return null;
  return <>
  {(mode==='sync'||mode==='all')&&<section id="sync"><section id="gmail"><SyncGmailButton/></section><section id="quo"><SyncQuoButton/></section><section id="contacts"><SyncQuoContactsButton/></section></section>}
- {(mode==='plan'||mode==='all')&&<section id="plan"><PlanButton {...plan} guestyReservationId="stay-a" propertyId="home-a" checkInDate="2030-10-05" checkOutDate="2030-09-29" myEmail="staff@example.test" variant={params.has('byline')?'byline':'chip'}/></section>}
+ {(mode==='plan'||mode==='all')&&<section id="plan"><PlanButton {...plan} guestyReservationId="stay-a" propertyId="home-a" checkInDate="2030-10-05" checkOutDate="2030-09-29" myEmail="staff@example.test" variant={params.has('verb')?'verb':'chip'}/></section>}
  {(mode==='adhoc'||mode==='all')&&<section id="adhoc"><RedirectBoundary><SendJobForm trade="inspection" kinds={['inspection','adhoc','setup']} initialKind="adhoc" properties={properties} offerable={[{id:'crew-a',name:'Alex Synthetic'},{id:'crew-b',name:'Blair Synthetic'}]} contractors={[{id:'crew-a',name:'Alex Synthetic'}]}/></RedirectBoundary></section>}
  {mode==='runs'&&<section id="runs"><RunsRail standalone data={{runs:[run],roster:[],vendorNeeded:[],backlog:[],unclassifiedCount:0}}/></section>}
  {mode==='shortcuts'&&<section id="shortcuts"><section id="done"><MarkSlipDoneButton slipId="slip-a" propertyId="home-a"/></section><section id="walk"><ResolveFlagButton propertyId="home-a" flagId="walk-a" source="walk"/></section><section id="property"><ResolveFlagButton propertyId="home-a" flagId="note-a" source="property"/></section><section id="contacted"><MarkContactedButton propertyId="home-a"/></section></section>}
@@ -109,16 +109,16 @@ await finishFetch(1,{...quo,summary:{...quo.summary,cleaning_completions_inserte
 pass('partial captures refresh saved activity while each concurrent sync holds its own pending guard');
 
 const openPlan=()=>page.$eval('#plan button',e=>e.click());
-for(const extra of ['', '&byline=1']){
+for(const extra of ['&verb=1', '']){
  await reset('plan',extra);await openPlan();await page.waitForSelector('#plan textarea');assert.equal(await value('#plan textarea'),'Saved inspection notes');assert.equal(await guard(),false);
  await edit('#plan input[type="date"]','2030-10-03');await edit('#plan select','new@example.test');await edit('#plan textarea','Revised notes\nKeep the details');await click('#plan','Close');assert.ok(await page.$('#plan textarea'));assert.equal(await beforeUnload(),true);
  await click('#plan','Save Plan',true);await waitCalls(1);assert.deepEqual((await calls())[0].args,{guestyReservationId:'stay-a',propertyId:'home-a',checkinDate:'2030-10-05',checkoutDate:'2030-09-29',plannedForDate:'2030-10-03',notes:'Revised notes\nKeep the details',assignedToEmail:'new@example.test'});
  assert.equal(await page.$$eval('#plan fieldset input,#plan fieldset textarea,#plan fieldset select,#plan fieldset button',es=>es.every(e=>e.matches(':disabled'))),true);await confirm(true);await page.$eval('#plan [role="dialog"]',e=>e.click());assert.ok(await page.$('#plan textarea'));
  await finish(0,{ok:false,error:'Plan rejected'});await ready('#plan textarea');await waitText('Plan rejected');await click('#plan','Save Plan');await waitCalls(2);await finish(1,null,true);await ready('#plan textarea');await waitText('Could not confirm the walk plan save');assert.equal(await value('#plan select'),'new@example.test');assert.equal(await value('#plan textarea'),'Revised notes\nKeep the details');
- pass((extra?'byline':'chip')+' walk plan loads saved notes, freezes all fields, blocks closes/duplicates, and keeps returned/thrown failures');
+ pass((extra?'verb':'chip')+' walk plan loads saved notes, freezes all fields, blocks closes/duplicates, and keeps returned/thrown failures');
  await click('#plan','Save Plan');await waitCalls(3);await finish(2,{ok:true,id:'plan-a'});await clean();await page.waitForFunction(()=>!document.querySelector('#plan textarea'));await openPlan();assert.equal(await value('#plan textarea'),'Revised notes\nKeep the details');assert.equal(await guard(),false);
  await edit('#plan textarea','Discard this');await confirm(false);await click('#plan','Cancel');assert.equal(await value('#plan textarea'),'Discard this');await confirm(true);await click('#plan','Cancel');await clean();await openPlan();assert.equal(await value('#plan textarea'),'Revised notes\nKeep the details');
- pass((extra?'byline':'chip')+' plan success updates the local baseline immediately and explicit discard restores only confirmed values');
+ pass((extra?'verb':'chip')+' plan success updates the local baseline immediately and explicit discard restores only confirmed values');
 }
 await edit('#plan textarea','Draft during refresh');await page.evaluate(()=>window.updatePlan());assert.equal(await value('#plan textarea'),'Draft during refresh');await confirm(true);await click('#plan','Cancel');await openPlan();assert.equal(await value('#plan textarea'),'Refreshed notes');assert.equal(await value('#plan input[type="date"]'),'2030-10-02');
 pass('server refresh cannot overwrite an open inspection draft, while reopening after discard uses refreshed values');

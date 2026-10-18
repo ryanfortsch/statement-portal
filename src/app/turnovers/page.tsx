@@ -9,17 +9,20 @@ import { AutoRefresh } from '../revenue/AutoRefresh';
 import { SubmitButton } from '@/components/SubmitButton';
 import { startInspection } from '../inspections/actions';
 import { PropertyFilterSelect } from './PropertyFilterSelect';
-import { CompactTurnoverRow } from './CompactTurnoverRow';
-import { lifecycleOf, STAGE_HUES } from './turnover-format';
+import { BoardLine } from './BoardLine';
 import { operatingDate } from '@/lib/operating-date';
 import { loadPacketStatusByBooking } from '@/lib/field-packets';
+import { loadCleaningSchedule } from '@/lib/cleaning-schedule';
+import type { CleaningDay } from '@/lib/cleaning-days';
+import { displayNameForEmail } from '@/lib/team';
+import { composeBoard, type Board, type BoardCount, type BoardRow, type BoardStateKey } from '@/lib/turnover-board';
 import {
   loadOperationsData,
-  todayStr,
+  RANGE_DAYS,
   RANGE_LABEL,
   VALID_RANGES,
+  type OperationsData,
   type Range,
-  type Turnover,
 } from '@/lib/operations';
 
 export const dynamic = 'force-dynamic';
@@ -82,6 +85,45 @@ function formatRelative(date: Date | null): string {
   return `${Math.round(diffSec / 86400)} d ago`;
 }
 
+/** The crew's schedule for every day of the range, narrowed to the filtered
+ *  home. Null when it cannot be read: the rows then carry no cleaner verdict
+ *  and the page says so in one line, rather than implying nobody is booked. */
+async function readCleaningDays(days: number, propertyId: string | undefined): Promise<CleaningDay[] | null> {
+  try {
+    const sched = await loadCleaningSchedule(supabase, { days });
+    if (sched.scheduleError) return null;
+    if (!propertyId) return sched.days;
+    return sched.days.map((d) => ({
+      ...d,
+      items: d.items.filter((i) => i.propertyId === propertyId),
+      skipped: d.skipped.filter((s) => s.propertyId === propertyId),
+    }));
+  } catch {
+    return null;
+  }
+}
+
+/** The board, from one clock read: every row and the strip see the same
+ *  Eastern today and the same now. */
+function buildBoard(data: OperationsData, cleaningDays: CleaningDay[] | null): Board {
+  return composeBoard({
+    turnovers: data.turnovers,
+    cleaningDays,
+    departureSignals: data.departureSignals,
+    today: operatingDate(),
+    rangeEnd: data.rangeEnd,
+    nowMs: Date.now(),
+    nameFor: displayNameForEmail,
+  });
+}
+
+/** "today", "today or tomorrow", "in the next 7 days". */
+function rangePhrase(range: Range): string {
+  if (range === 'today') return 'today';
+  if (range === '2d') return 'today or tomorrow';
+  return `in the next ${RANGE_LABEL[range].toLowerCase()}`;
+}
+
 type PageProps = {
   searchParams: Promise<{
     range?: string;
@@ -95,7 +137,7 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
   const range: Range =
     rangeParam && (VALID_RANGES as string[]).includes(rangeParam)
       ? (rangeParam as Range)
-      : 'today';
+      : '2d';
 
   const propertyFilter = params?.property?.trim() || undefined;
 
@@ -129,12 +171,13 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
     );
   }
 
-  const [{ lastSyncedAt, isStale }, data, session, filterPropertyName, propertyOptions] = await Promise.all([
+  const [{ lastSyncedAt, isStale }, data, session, filterPropertyName, propertyOptions, cleaningDays] = await Promise.all([
     readSyncStatus(),
-    loadOperationsData(range, '7d', propertyFilter),
+    loadOperationsData(range, '7d', propertyFilter, 0, undefined, { departures: true }),
     auth(),
     propertyFilter ? readPropertyName(propertyFilter) : Promise.resolve<string | null>(null),
     readPropertyOptions(),
+    readCleaningDays(RANGE_DAYS[range] + 1, propertyFilter),
   ]);
   const myEmail = session?.user?.email ?? '';
 
@@ -156,49 +199,10 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
     ? `Synced ${formatRelative(lastSyncedAt)}`
     : 'Not synced yet';
 
-  // "Pending" = still needs attention: not inspected AND not hand-marked
-  // done. A manually-completed turnover counts as handled, so it drops out
-  // of the header count + jump target just like an inspected one.
-  const pendingTurnovers = data.turnovers.filter((t) => !isTurnoverDone(t));
-  const inspectionsLeft = pendingTurnovers.length;
-
-  // Live stage tally across the visible window, rendered as a thin strip of
-  // counts under the summary so the operator reads the shape of the day at a
-  // glance (who's mid-clean, who's waiting on a cleaner, who's clean-but-
-  // unwalked) without scanning every row. Computed server-side off render
-  // time (the clock read lives in the helper to keep the component body pure);
-  // AutoRefresh keeps it current. Same lifecycleOf the rows use, so the strip
-  // and the rails never disagree.
-  const { counts, firsts } = computeStageCounts(pendingTurnovers);
-  const { cleaningNow, awaitingCleaner, needsInspection, inspectingNow } = counts;
-  const hasLiveStages = cleaningNow + awaitingCleaner + needsInspection + inspectingNow > 0;
-
-  // Where the pending count should jump to when tapped:
-  //   - exactly 1 pending AND it has an inspection row already (the operator
-  //     started but didn't finish): resume URL straight into the runner.
-  //   - otherwise: anchor link to the first pending turnover's card, so the
-  //     operator lands next to its START INSPECTION button.
-  // Starting an inspection fresh requires a server-action form submission
-  // (the existing button on the row), which a plain <Link> can't do, so
-  // the anchor path keeps the click on a real CTA instead of doing it for
-  // the operator without confirmation.
-  // The anchor target uses the SAME flightRank order TurnoverList renders in,
-  // so the jump always lands on the first row on screen (previously it used
-  // the chronological order and could scroll past an in-flight row that had
-  // floated above it). Rank is computed once per row before sorting —
-  // flightRank reads the clock internally, and a fresh read per comparator
-  // call could go inconsistent across a stage boundary mid-sort.
-  const orderedPending = pendingTurnovers
-    .map((t) => ({ t, rank: flightRank(t) }))
-    .sort((a, b) => a.rank - b.rank)
-    .map((x) => x.t);
-  let pendingHref: string | null = null;
-  if (orderedPending.length === 1 && orderedPending[0].inspection?.id) {
-    pendingHref = `/inspections/${orderedPending[0].inspection.id}`;
-  } else if (orderedPending.length > 0) {
-    const t = orderedPending[0];
-    pendingHref = `#turnover-${t.propertyId}-${t.reservationId}`;
-  }
+  const board = buildBoard(data, cleaningDays);
+  const pending = board.days.reduce((n, d) => n + d.rows.length, 0);
+  // The headline jumps to the first open row: the one at the top of the list.
+  const firstOpen = board.days[0]?.rows[0] ?? null;
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -266,66 +270,36 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
               the small qualifier — the old layout set the decoration big
               ("7 check-ins") and the work small. */}
           <div className="font-serif" style={{ fontSize: 22, fontWeight: 400, color: 'var(--ink)', letterSpacing: '-0.01em' }}>
-            {data.totalCount === 0 ? (
-              <>No check-ins {range === 'today' ? 'today' : `in the next ${RANGE_LABEL[range].toLowerCase()}`}.</>
-            ) : inspectionsLeft > 0 ? (
+            {board.total === 0 ? (
+              <>No turnovers {rangePhrase(range)}.</>
+            ) : pending > 0 ? (
               <>
-                {(() => {
-                  const phrase = (
-                    <>
-                      <strong style={{ fontSize: 30, fontWeight: 500, color: 'var(--ink)' }}>
-                        {inspectionsLeft}
-                      </strong>{' '}
-                      turnover{inspectionsLeft === 1 ? '' : 's'} open
-                    </>
-                  );
-                  const linkStyle = {
-                    color: 'var(--ink)',
-                    textDecoration: 'none',
-                    borderBottom: '1px dashed var(--signal)',
-                    paddingBottom: 2,
-                  } as const;
-                  // For real route navigation (/inspections/{id} resume URL)
-                  // we want Next's Link with prefetch + client routing. For
-                  // a same-page hash anchor we use a plain <a> instead: the
-                  // App Router's Link intercepts the click and (in some
-                  // configurations) suppresses the browser's native
-                  // fragment-scroll. A regular <a href="#..."> lets the
-                  // browser do the scroll natively.
-                  if (pendingHref?.startsWith('#')) {
-                    return (
-                      <a href={pendingHref} style={linkStyle} title="Jump to the first turnover that still needs a walk">
-                        {phrase}
-                      </a>
-                    );
-                  }
-                  if (pendingHref) {
-                    return (
-                      <Link href={pendingHref} style={linkStyle} title="Resume the walk in progress">
-                        {phrase}
-                      </Link>
-                    );
-                  }
-                  return <span>{phrase}</span>;
-                })()}
+                {/* A plain <a> for the same-page anchor: Next's Link can
+                    suppress the browser's native fragment scroll. */}
+                <a
+                  href={firstOpen ? `#${firstOpen.id}` : undefined}
+                  style={{ color: 'var(--ink)', textDecoration: 'none', borderBottom: '1px dashed var(--signal)', paddingBottom: 2 }}
+                >
+                  <strong style={{ fontSize: 30, fontWeight: 500, color: 'var(--ink)' }}>{pending}</strong>{' '}
+                  turnover{pending === 1 ? '' : 's'} open
+                </a>
                 <span style={{ fontSize: 14, color: 'var(--ink-3)', marginLeft: 12 }}>
-                  of {data.totalCount} check-in{data.totalCount === 1 ? '' : 's'}
-                  {range === 'today' ? ' today' : ` · next ${RANGE_LABEL[range].toLowerCase()}`}
+                  of {board.total} {rangePhrase(range)}
                 </span>
               </>
             ) : (
               <>
                 <span style={{ fontSize: 30, fontWeight: 500, color: 'var(--positive)' }}>All done</span>
                 <span style={{ fontSize: 14, color: 'var(--ink-3)', marginLeft: 12 }}>
-                  {data.totalCount} check-in{data.totalCount === 1 ? '' : 's'}
-                  {range === 'today' ? ' today' : ` · next ${RANGE_LABEL[range].toLowerCase()}`}
+                  {board.total} turnover{board.total === 1 ? '' : 's'} {rangePhrase(range)}
                 </span>
               </>
             )}
           </div>
           <nav
-            className="flex items-baseline gap-4"
+            className="flex items-baseline flex-wrap"
             style={{
+              gap: '10px 16px',
               fontSize: 11,
               letterSpacing: '0.16em',
               textTransform: 'uppercase',
@@ -364,40 +338,19 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
           </nav>
         </div>
 
-        {/* Live stage strip — the shape of the day in one line. Only renders
-            when something is actually in motion; "all prepped" already covers
-            the quiet case above. */}
-        {hasLiveStages && (
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              flexWrap: 'wrap',
-              gap: '6px 20px',
-              padding: '11px 0 0',
-              fontSize: 12,
-            }}
-          >
-            {/* Each entry renders the SAME pip treatment the micro-rails use
-                (STAGE_HUES identity color; ring = a stage in motion, solid
-                fill = done), so reading the strip once decodes every rail
-                below — it doubles as the legend. Each count is an anchor to
-                the first row in that stage (plain <a> for native fragment
-                scroll, same reason as the header link). */}
-            {/* The strip says exactly what the rail's active node says
-                (TurnoverRail.tsx), so one word names one state. */}
-            {cleaningNow > 0 && (
-              <StageCount hue={STAGE_HUES[2]} label="Cleaning" n={cleaningNow} target={firsts.cleaning} />
-            )}
-            {awaitingCleaner > 0 && (
-              <StageCount hue={STAGE_HUES[1]} label="Awaiting cleaner" n={awaitingCleaner} target={firsts.awaiting} />
-            )}
-            {inspectingNow > 0 && (
-              <StageCount hue={STAGE_HUES[4]} label="Walking" n={inspectingNow} target={firsts.inspecting} />
-            )}
-            {needsInspection > 0 && (
-              <StageCount hue={STAGE_HUES[4]} label="Needs walk" n={needsInspection} target={firsts.needsInspection} />
-            )}
+        {/* The strip: how many rows show each state that wants a human,
+            in the rows' own words (lib/turnover-board.ts), each a jump to
+            the first row showing it. Quiet when nothing does. */}
+        {board.counts.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '6px 20px', padding: '11px 0 0', fontSize: 12 }}>
+            {board.counts.map((c) => (
+              <StateCount key={c.key} count={c} />
+            ))}
+          </div>
+        )}
+        {cleaningDays === null && (
+          <div style={{ paddingTop: 10, fontSize: 12, color: 'var(--signal)' }}>
+            Cape Ann Elite&rsquo;s bookings could not be read, so the rows show no cleaner.
           </div>
         )}
 
@@ -420,24 +373,14 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
         </div>
       </section>
 
-      {/* Chevron turn needs a media query inline styles can't express (the
-          row hover tint already comes from globals.css). The reduced-motion
-          guard kills the spin transition, not the state change. */}
-      <style>{`
-        .rt-tn-chev { transition: transform 0.15s ease; }
-        @media (prefers-reduced-motion: reduce) {
-          .rt-tn-chev { transition: none; }
-        }
-      `}</style>
-
       {/* TURNOVER LIST */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 56, width: '100%' }}>
-        {data.totalCount === 0 ? (
+        {board.total === 0 ? (
           <div style={{ borderTop: '1px solid var(--ink)', padding: '24px 0', fontSize: 13, color: 'var(--ink-4)' }}>
-            Pick a wider range to see upcoming check-ins.
+            Pick a wider range to see what is coming.
           </div>
         ) : (
-          <TurnoverList turnovers={data.turnovers} myEmail={myEmail} grouped={range !== 'today'} />
+          <TurnoverList board={board} myEmail={myEmail} />
         )}
         <WalkHomeNow properties={propertyOptions} />
       </section>
@@ -458,194 +401,52 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
   );
 }
 
-/**
- * The full turnover pipeline renders flat — every check-in in range is
- * always visible as one dense line, never collapsed behind an expander. The
- * operator works this list top to bottom, so hiding the tail would hide real
- * work.
- *
- * Two tiers, one row component: turnovers that still need attention (not
- * inspected and not hand-marked done) render up top, in-flight first; finished
- * ones sit inside a collapsed Ready homes section, with Undo still available.
- * The partition is stable, so it preserves the server-side chronological sort
- * within each tier. Result: the operator's eye lands on outstanding work, with
- * the finished turnovers tucked away but still reachable and expandable.
- */
-function isTurnoverDone(t: Turnover): boolean {
-  return t.inspectionStatus === 'complete' || t.manuallyCompleted;
-}
-
-// In-flight first: a cleaner physically in the house (entered, not finished)
-// floats to the top, then checkout-passed-awaiting-cleaner, then the rest.
-// Stable within each tier, so chronological order is preserved. The live,
-// pulsing rows become the first thing the operator sees.
-function flightRank(t: Turnover): number {
-  // Rank by the SAME lifecycle the rail shows so the sort and the visuals
-  // agree, and so lockless rows (no entry signal) don't permanently
-  // masquerade as "awaiting cleaner" at the top of the list (the old version
-  // keyed on enteredAt, which is null forever on a lockless home). A cleaner
-  // physically in floats to the very top, then anything due-and-awaiting (a
-  // monitored "awaiting cleaner" OR a lockless "needs clean"), then the rest.
-  const lc = lifecycleOf(t, Date.now(), operatingDate());
-  if (lc.active === 'cleaning') return 0;
-  if (lc.active === 'in' || lc.active === 'clean') return 1;
-  return 2;
-}
-
-// Tally the active stage of each pending turnover for the header strip, and
-// remember the FIRST turnover in each stage so each strip count can anchor-
-// link straight to a row it's counting. The clock read (Date.now) lives here,
-// not in the component body, so the page component stays pure under
-// react-hooks/purity (same reason flightRank and formatRelative wrap their
-// date reads).
-type StageFirsts = {
-  cleaning: Turnover | null;
-  awaiting: Turnover | null;
-  needsInspection: Turnover | null;
-  inspecting: Turnover | null;
-};
-function computeStageCounts(pending: Turnover[]): {
-  counts: {
-    cleaningNow: number;
-    awaitingCleaner: number;
-    needsInspection: number;
-    inspectingNow: number;
-  };
-  firsts: StageFirsts;
-} {
-  const now = Date.now();
-  const today = operatingDate();
-  let cleaningNow = 0;
-  let awaitingCleaner = 0;
-  let needsInspection = 0;
-  let inspectingNow = 0;
-  const firsts: StageFirsts = { cleaning: null, awaiting: null, needsInspection: null, inspecting: null };
-  for (const t of pending) {
-    const lc = lifecycleOf(t, now, today);
-    if (lc.active === 'cleaning') {
-      cleaningNow += 1;
-      firsts.cleaning ??= t;
-    }
-    // 'in' = monitored home awaiting a cleaner; 'clean' = lockless home that
-    // needs cleaning. Both are "awaiting a clean" for the header tally.
-    else if (lc.active === 'in' || lc.active === 'clean') {
-      awaitingCleaner += 1;
-      firsts.awaiting ??= t;
-    }
-    // The inspected stage splits: an inspection genuinely underway vs cleaned
-    // and waiting for one to start.
-    else if (lc.active === 'inspected') {
-      if (lc.inspecting) {
-        inspectingNow += 1;
-        firsts.inspecting ??= t;
-      } else {
-        needsInspection += 1;
-        firsts.needsInspection ??= t;
-      }
-    }
-  }
-  return { counts: { cleaningNow, awaitingCleaner, needsInspection, inspectingNow }, firsts };
-}
-
-/** The day divider's eyebrow text: "Today", or "Tue · Jul 8". */
+/** The day divider's eyebrow text: "Today", "Tomorrow", or "Tue · Oct 20". */
 function dividerLabel(date: string, today: string): string {
   if (date === today) return 'Today';
-  const d = new Date(`${date}T00:00:00`);
-  const dow = d.toLocaleDateString('en-US', { weekday: 'short' });
-  const md = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const d = new Date(`${date}T12:00:00Z`);
+  const tomorrow = new Date(`${today}T12:00:00Z`);
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+  if (date === tomorrow.toISOString().slice(0, 10)) return 'Tomorrow';
+  const dow = d.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' });
+  const md = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
   return `${dow} · ${md}`;
 }
 
-function TurnoverList({
-  turnovers,
-  myEmail,
-  grouped,
-}: {
-  turnovers: Turnover[];
-  myEmail: string;
-  /** Multi-day ranges group rows under editorial day dividers; the Today
-   *  range stays a flat list (one divider for one date is just noise). */
-  grouped: boolean;
-}) {
-  // In-flight first among pending (a cleaner physically in the house floats
-  // up), then the server's chronological order; done turnovers sink to the
-  // bottom, inside Ready homes. Every line is the same CompactTurnoverRow: tap any
-  // one to expand its full lifecycle rail + secondary affordances in place.
-  // Rank is computed ONCE per row (flightRank reads the clock internally, so
-  // re-calling it during the sort and again during the partition could flip a
-  // row across a stage boundary mid-render and land it in both groups).
-  const ranked = turnovers
-    .filter((t) => !isTurnoverDone(t))
-    .map((t) => ({ t, rank: flightRank(t) }))
-    .sort((a, b) => a.rank - b.rank);
-  const pending = ranked.map((x) => x.t);
-  const done = turnovers.filter((t) => isTurnoverDone(t));
-
-  if (!grouped) {
-    return (
-      <div style={{ borderTop: '1px solid var(--ink)' }}>
-        {pending.map((t) => (
-          <CompactTurnoverRow key={`${t.propertyId}-${t.reservationId}`} t={t} myEmail={myEmail} />
-        ))}
-        <ReadyTurnovers turnovers={done} myEmail={myEmail} />
-      </div>
-    );
-  }
-
-  // Datebook layout for multi-day ranges: anything live (a cleaner in the
-  // house, or due-and-awaiting) stays in a single "In motion" band up top —
-  // that's today's action regardless of printed date — and everything else
-  // groups under a day divider. Rows under a divider drop their repeated
-  // check-in date (the divider already says it), keeping just the mono
-  // "→ checkout · nights" trailer. Done rows sink to the bottom as before,
-  // dates intact since they sit outside the day groups.
-  const inMotion = ranked.filter((x) => x.rank < 2).map((x) => x.t);
-  const upcoming = ranked.filter((x) => x.rank >= 2).map((x) => x.t);
-  const groups: { date: string; rows: Turnover[] }[] = [];
-  for (const t of upcoming) {
-    const d = t.checkIn.slice(0, 10);
-    const last = groups[groups.length - 1];
-    if (last && last.date === d) last.rows.push(t);
-    else groups.push({ date: d, rows: [t] });
-  }
-  const today = todayStr();
-
+/**
+ * The board: open rows under a divider per day, in the order each day
+ * happens; walked and ready rows folded under Done at the end, still
+ * openable (Undo lives inside). One row component for all of them.
+ */
+function TurnoverList({ board, myEmail }: { board: Board; myEmail: string }) {
   return (
     <div style={{ borderTop: '1px solid var(--ink)' }}>
-      {inMotion.length > 0 && (
-        <>
-          <DayDivider label="In motion" accent />
-          {inMotion.map((t) => (
-            <CompactTurnoverRow key={`${t.propertyId}-${t.reservationId}`} t={t} myEmail={myEmail} />
-          ))}
-        </>
-      )}
-      {groups.map((g) => (
-        <div key={g.date}>
-          <DayDivider label={dividerLabel(g.date, today)} accent={g.date === today} />
-          {g.rows.map((t) => (
-            <CompactTurnoverRow
-              key={`${t.propertyId}-${t.reservationId}`}
-              t={t}
-              myEmail={myEmail}
-              hideDate
-            />
+      {board.days.map((d) => (
+        <div key={d.date}>
+          <DayDivider label={dividerLabel(d.date, board.today)} accent={d.date === board.today} />
+          {d.rows.map((r) => (
+            <BoardLine key={r.id} row={r} today={board.today} myEmail={myEmail} />
           ))}
         </div>
       ))}
-      <ReadyTurnovers turnovers={done} myEmail={myEmail} />
+      <ReadyTurnovers rows={board.done} today={board.today} myEmail={myEmail} />
     </div>
   );
 }
 
-function ReadyTurnovers({ turnovers, myEmail }: { turnovers: Turnover[]; myEmail: string }) {
-  if (!turnovers.length) return null;
-  // "Done" is the row's own word for this state (its readout and its Mark
-  // done verb), so the fold that holds them says the same.
-  return <details style={{ marginTop: 18 }}>
-    <summary style={{ cursor: 'pointer', minHeight: 44, padding: '12px 0', fontSize: 13, color: 'var(--ink-3)' }}>Done · {turnovers.length}</summary>
-    {turnovers.map(t => <CompactTurnoverRow key={`${t.propertyId}-${t.reservationId}`} t={t} myEmail={myEmail} />)}
-  </details>;
+function ReadyTurnovers({ rows, today, myEmail }: { rows: BoardRow[]; today: string; myEmail: string }) {
+  if (!rows.length) return null;
+  // "Done" is the row's own word for this state, so the fold says the same.
+  return (
+    <details style={{ marginTop: 18 }}>
+      <summary style={{ cursor: 'pointer', minHeight: 44, padding: '12px 0', fontSize: 13, color: 'var(--ink-3)' }}>
+        Done · {rows.length}
+      </summary>
+      {rows.map((r) => (
+        <BoardLine key={r.id} row={r} today={today} myEmail={myEmail} />
+      ))}
+    </details>
+  );
 }
 
 /**
@@ -715,68 +516,28 @@ function DayDivider({ label, accent = false }: { label: string; accent?: boolean
   );
 }
 
-// One entry in the live stage strip: a rail-style pip, a tabular count, a
-// label. The pip reuses the micro-rail's exact visual grammar (identity hue;
-// ring = in motion, solid = done) so the strip doubles as the rail legend.
-// With a target, the whole entry is a plain <a> to that row's anchor (native
-// fragment scroll — Next's Link suppresses it, see the header comment).
-function StageCount({
-  hue,
-  done = false,
-  label,
-  n,
-  target,
-}: {
-  hue: string;
-  done?: boolean;
-  label: string;
-  n: number;
-  target: Turnover | null;
-}) {
-  const pip = done ? (
-    <span
-      aria-hidden
-      style={{ width: 9, height: 9, borderRadius: '50%', background: hue, flex: '0 0 auto' }}
-    />
-  ) : (
-    <span
-      aria-hidden
-      style={{
-        width: 11,
-        height: 11,
-        borderRadius: '50%',
-        background: 'var(--paper)',
-        border: `2.5px solid ${hue}`,
-        boxSizing: 'border-box',
-        flex: '0 0 auto',
-      }}
-    />
-  );
-  const inner = (
-    <>
-      {pip}
-      <span style={{ fontFamily: 'var(--font-mono, monospace)', fontWeight: 600, color: 'var(--ink)' }}>{n}</span>
-      <span style={{ color: 'var(--ink-3)' }}>{label}</span>
-    </>
-  );
-  const style = {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 7,
-    whiteSpace: 'nowrap',
-    textDecoration: 'none',
-  } as const;
-  if (target) {
-    return (
-      <a
-        href={`#turnover-${target.propertyId}-${target.reservationId}`}
-        style={style}
-        title={`Jump to ${target.propertyName}`}
-      >
-        {inner}
-      </a>
-    );
-  }
-  return <span style={style}>{inner}</span>;
-}
+const STATE_HUE: Record<BoardStateKey, string> = {
+  no_cleaner: 'var(--negative)',
+  cleaner_late: 'var(--negative)',
+  cleaner_early: 'var(--signal)',
+  clean_unconfirmed: 'var(--signal)',
+  cleaning_now: '#c0772f',
+  walking: '#b8901a',
+  needs_walk: 'var(--signal)',
+};
 
+/** One entry in the strip: a dot in the state's hue, the count, the row's
+ *  own words, as a plain <a> to the first row showing it (native fragment
+ *  scroll; Next's Link can suppress it). */
+function StateCount({ count }: { count: BoardCount }) {
+  return (
+    <a
+      href={`#${count.firstId}`}
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 7, whiteSpace: 'nowrap', textDecoration: 'none', minHeight: 32 }}
+    >
+      <span aria-hidden style={{ width: 9, height: 9, borderRadius: '50%', background: STATE_HUE[count.key], flex: '0 0 auto' }} />
+      <span style={{ fontFamily: 'var(--font-mono, monospace)', fontWeight: 600, color: 'var(--ink)' }}>{count.n}</span>
+      <span style={{ color: 'var(--ink-3)' }}>{count.label}</span>
+    </a>
+  );
+}
