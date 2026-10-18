@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { auth } from '@/auth';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { ACTIVE_WORK_SLIP_STATUSES, ACTIVE_TASK_STATUSES } from '@/lib/work-types';
-import { loadDailyBrief, type BriefEmail, type BriefInboundTouch, type BriefCleaningFlag } from '@/lib/daily-brief';
+import { loadDailyBrief, type BriefEmail, type BriefInboundTouch, type BriefCleaningFlag, type BriefInspection, type BriefStay } from '@/lib/daily-brief';
 import { fieldDb, isFieldConfigured } from '@/lib/field-db';
 import { loadShootBoard, shootPaySummary } from '@/lib/creative-shoots';
 import { dollars } from '@/lib/field-types';
@@ -85,6 +85,7 @@ export async function ForMeFeed() {
   let fyi: BriefEmail[] = [];
   let inboundWaiting: BriefInboundTouch[] = [];
   let cleaningFlags: BriefCleaningFlag[] = [];
+  let houses: TodayAtTheHouses = { out: [], in: [], walked: [] };
   let gmailConfigured = true;
   let gmailMailbox: string | null = null;
 
@@ -94,6 +95,7 @@ export async function ForMeFeed() {
     fyi = brief.unreadEmails.filter((e) => e.triage === 'fyi');
     inboundWaiting = brief.inboundWaiting;
     cleaningFlags = brief.cleaningFlags;
+    houses = todayAtTheHouses(brief.checkoutsToday, brief.checkinsToday, brief.inspectionsCompletedToday);
     gmailConfigured = brief.gmailConfigured;
     gmailMailbox = brief.gmailMailbox;
   } catch {
@@ -210,7 +212,9 @@ export async function ForMeFeed() {
         <>
           {replyTotal > 0 && (
             <>
-              <SectionHeaderLink href="/today" title="Needs your reply" eyebrow={`${replyTotal} waiting`} />
+              {/* No header link: each row opens its own place (the
+                  contact, or the mail for whoever owns the mailbox). */}
+              <SectionHeader title="Needs your reply" eyebrow={`${replyTotal} waiting`} />
               <div style={{ borderTop: '1px solid var(--ink)' }}>
                 {replyEmails.map((e) => (
                   <EmailItem key={e.id} email={e} mail={mail} />
@@ -344,27 +348,20 @@ export async function ForMeFeed() {
           {gmailConfigured
             ? 'All clear. Nothing on your plate and nothing needs your reply right now.'
             : 'Email triage is not configured yet.'}
-          <div style={{ marginTop: 10 }}>
-            <Link href="/today" style={openBriefLinkStyle}>
-              Open full brief →
-            </Link>
-          </div>
         </div>
       ) : (
-        <>
-          {shown.map((key) => (
-            <div key={key} data-feed-section={key} style={{ marginBottom: 36 }}>
-              {sections[key]}
-            </div>
-          ))}
-
-          <div>
-            <Link href="/today" style={openBriefLinkStyle}>
-              Open full brief →
-            </Link>
+        shown.map((key) => (
+          <div key={key} data-feed-section={key} style={{ marginBottom: 36 }}>
+            {sections[key]}
           </div>
-        </>
+        ))
       )}
+
+      {/* TODAY AT THE HOUSES: who leaves and who arrives today, and the
+          homes walked today. The one block of the retired /today page the
+          home did not already have; under the feed, because it is the
+          day's backdrop rather than something waiting on you. */}
+      <TodayAtTheHousesSection houses={houses} />
     </section>
   );
 }
@@ -646,6 +643,17 @@ function SectionHeaderLink({
         </p>
       )}
     </Link>
+  );
+}
+
+/** The same header with nothing to click: for a section whose rows each
+ *  open their own place. */
+function SectionHeader({ title, eyebrow }: { title: string; eyebrow: string }) {
+  return (
+    <div className="flex items-baseline justify-between" style={{ marginBottom: 12 }}>
+      <h2 style={sectionHeadingStyle}>{title}</h2>
+      <span className="eyebrow">{eyebrow}</span>
+    </div>
   );
 }
 
@@ -1104,14 +1112,115 @@ const sectionHeadingStyle: React.CSSProperties = {
   margin: 0,
 };
 
-const openBriefLinkStyle: React.CSSProperties = {
-  fontSize: 11,
-  letterSpacing: '0.16em',
-  textTransform: 'uppercase',
-  color: 'var(--tide-deep)',
-  textDecoration: 'none',
-  fontWeight: 600,
-};
+
+// ── Today at the houses ───────────────────────────────────────────
+
+type HouseRow = { kind: 'out' | 'in'; stay: BriefStay; walked: boolean };
+type TodayAtTheHouses = { out: HouseRow[]; in: HouseRow[]; walked: BriefInspection[] };
+
+/** Today's checkouts, then check-ins, each ticked when the home was walked
+ *  today; a home walked with no stay today gets its own row. */
+function todayAtTheHouses(checkouts: BriefStay[], checkins: BriefStay[], walks: BriefInspection[]): TodayAtTheHouses {
+  const walkedHomes = new Set(walks.map((w) => w.propertyId));
+  const stayHomes = new Set([...checkouts, ...checkins].map((s) => s.propertyId));
+  const byName = (a: HouseRow, b: HouseRow) => a.stay.propertyName.localeCompare(b.stay.propertyName);
+  return {
+    out: checkouts.map((stay): HouseRow => ({ kind: 'out', stay, walked: walkedHomes.has(stay.propertyId) })).sort(byName),
+    in: checkins.map((stay): HouseRow => ({ kind: 'in', stay, walked: walkedHomes.has(stay.propertyId) })).sort(byName),
+    walked: walks.filter((w) => !stayHomes.has(w.propertyId)),
+  };
+}
+
+function TodayAtTheHousesSection({ houses }: { houses: TodayAtTheHouses }) {
+  const total = houses.out.length + houses.in.length + houses.walked.length;
+  if (total === 0) return null;
+  const eyebrow = [
+    houses.out.length > 0 ? `${houses.out.length} out` : null,
+    houses.in.length > 0 ? `${houses.in.length} in` : null,
+    houses.walked.length > 0 ? `${houses.walked.length} walked` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  return (
+    <div data-feed-section="houses" style={{ marginTop: 12 }}>
+      <SectionHeaderLink href="/turnovers?range=today" title="Today at the houses" eyebrow={eyebrow} />
+      <div style={{ borderTop: '1px solid var(--ink)' }}>
+        {[...houses.out, ...houses.in].map((r, i) => (
+          <HouseStayRow key={`${r.kind}-${r.stay.propertyId}-${i}`} row={r} />
+        ))}
+        {houses.walked.map((w) => (
+          <Link
+            key={w.id}
+            href={`/inspections/${w.id}/summary`}
+            style={{ ...feedRowStyle, alignItems: 'baseline', textDecoration: 'none', color: 'inherit' }}
+          >
+            <span className="font-mono" style={houseTagStyle('var(--ink-3)')}>
+              Walked
+            </span>
+            <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 500, color: 'var(--ink)' }}>
+              {w.propertyName}
+              <WalkedTick />
+            </span>
+            <span style={{ flexShrink: 0, fontSize: 11, color: 'var(--ink-4)' }}>
+              {w.completedAt
+                ? new Date(w.completedAt).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })
+                : ''}
+            </span>
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function HouseStayRow({ row }: { row: HouseRow }) {
+  const { stay } = row;
+  return (
+    <Link
+      href={`/properties/${stay.propertyId}`}
+      style={{ ...feedRowStyle, alignItems: 'baseline', textDecoration: 'none', color: 'inherit' }}
+    >
+      <span className="font-mono" style={houseTagStyle(row.kind === 'out' ? 'var(--signal)' : 'var(--ink-3)')}>
+        {row.kind === 'out' ? 'Out' : 'In'}
+      </span>
+      <span style={{ flex: 1, minWidth: 0, fontSize: 14, color: 'var(--ink)' }}>
+        <span style={{ fontWeight: 500 }}>{stay.propertyName}</span>
+        {row.walked && <WalkedTick />}
+        {stay.guestName && <span style={{ color: 'var(--ink-3)' }}> · {stay.guestName}</span>}
+      </span>
+      <span style={{ flexShrink: 0, fontSize: 11, color: 'var(--ink-4)' }}>{stay.channel ?? ''}</span>
+    </Link>
+  );
+}
+
+function WalkedTick() {
+  return (
+    <span
+      aria-label="walked today"
+      title="Walked today"
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: 16,
+        height: 16,
+        marginLeft: 8,
+        background: 'var(--signal)',
+        color: 'var(--paper)',
+        borderRadius: 999,
+        fontSize: 10,
+        lineHeight: 1,
+        verticalAlign: 'middle',
+      }}
+    >
+      ✓
+    </span>
+  );
+}
+
+function houseTagStyle(color: string): React.CSSProperties {
+  return { flexShrink: 0, minWidth: 44, fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color };
+}
 
 // ── Payments ──────────────────────────────────────────────────────
 

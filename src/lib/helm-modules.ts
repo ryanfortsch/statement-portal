@@ -742,24 +742,6 @@ export const HELM_MODULES: HelmModule[] = [
   //    non-clickable in the nav. The routes still resolve by direct URL.
   //    Flip `status` back to 'active' to un-park. ──────────────────────────
   {
-    // /today is the full-expansion view of the home ForMeFeed: same data,
-    // deeper. Un-parked because the morning SMS already links here, so the
-    // parked status was a mismatch. /me was folded into the home feed in
-    // the same pass and now redirects to /.
-    // Now a TAB inside Work (see WorkTabs); hidden from the nav lists for
-    // the same reason as Turnovers/Field/Properties above.
-    id: 'today',
-    href: '/today',
-    number: '00',
-    title: 'Today',
-    description: 'Daily brief. Check-ins today, cleanings to check, emails waiting and guest drafts, on one page.',
-    status: 'active',
-    primary: false,
-    hidden: true,
-    group: 'operations',
-    section: 'work',
-  },
-  {
     // Un-parked: CRM is in daily circulation via property pages and the
     // home feed, so it reads at full strength in the Library.
     id: 'crm',

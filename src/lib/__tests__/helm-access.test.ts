@@ -393,11 +393,11 @@ describe('no card or link on a staff page lands on /not-available', () => {
     assert.ok(src.includes('.filter((c) => roleMayOpen(role, c.href))'), 'every queue card is checked against the gate');
   });
 
-  test('/today keeps the prospect funnel and its footer count from staff', () => {
-    const src = read('src/app/today/page.tsx');
-    assert.ok(src.includes('const [brief, owner, session] = await Promise.all([loadDailyBrief(), isOwnerSession(), auth()]);'));
-    assert.ok(src.includes('if (owner && brief.activeProspects.length) {'), 'the Prospects section is owners only');
-    assert.ok(src.includes('{owner && <span>{brief.totals.activeProspects} prospects in funnel</span>}'), 'the footer count is owners only');
+  test('/today is retired into the home: it redirects, and nothing links to it', () => {
+    const config = read('next.config.ts');
+    assert.ok(/source: '\/today',\n\s*destination: '\/',/.test(config), '/today redirects home');
+    assert.ok(!read('src/components/ForMeFeed.tsx').includes('"/today"'), 'the feed links nowhere to /today');
+    assert.ok(!read('src/lib/helm-modules.ts').includes("href: '/today'"), 'no registry entry');
   });
 
   test('the concierge alerts drop the owner-line alerts for staff', () => {
@@ -449,7 +449,6 @@ describe('every Gmail link carries its mailbox and renders for that mailbox only
   // mailbox comes from gmailMailbox() and the link from gmailUrl().
   const GMAIL_SURFACES = [
     'src/components/ForMeFeed.tsx',
-    'src/app/today/page.tsx',
     'src/app/api/work/draft-owner-email/route.ts',
     'src/app/api/draft-email/route.ts',
     'src/app/api/draft-onboarding-email/route.ts',
@@ -480,14 +479,11 @@ describe('every Gmail link carries its mailbox and renders for that mailbox only
     assert.ok(helper.includes('draftUrl: gmailUrl(mailboxAddress, `drafts/${draft.id}`),'));
   });
 
-  test('the feed and /today link into the inbox for its owner only', () => {
+  test('the feed links into the inbox for its owner only', () => {
     const feed = read('src/components/ForMeFeed.tsx');
     assert.ok(feed.includes('const mail = { mailbox: gmailMailbox, canOpen: canOpenMailbox(email, gmailMailbox) };'));
     assert.ok(feed.includes('{mail.canOpen ? (\n            <a href={gmailUrl(mail.mailbox, `inbox/${e.threadId}`)}'), 'the sender links only when the session owns the mailbox');
     assert.ok(feed.includes('{e.draftId && mail.canOpen && ('), 'Reply drafted links only when the session owns the mailbox');
-    const today = read('src/app/today/page.tsx');
-    assert.ok(today.includes("href={mail.canOpen ? gmailUrl(mail.mailbox, 'inbox') : undefined}"), 'the Emails heading links only for the mailbox owner');
-    assert.ok(today.includes('{e.draftId && mail.canOpen ? ('));
   });
 
   test('a draft made from a page opens and links only for the mailbox owner, and says where it went otherwise', () => {

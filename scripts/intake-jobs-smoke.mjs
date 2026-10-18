@@ -14,7 +14,7 @@ const compile=s=>ts.transpileModule(s,{compilerOptions:{target:ts.ScriptTarget.E
 for(const [name,path] of [
  ['apply','src/app/field/apply/ApplyForm.tsx'],['video','src/app/field/apply/ApplyVideo.tsx'],['onboarding','src/app/field/onboarding/OnboardingForm.tsx'],
  ['payment','src/app/field/onboarding/PaymentFields.tsx'],['tin','src/app/field/onboarding/TinInput.tsx'],['phone','src/components/PhoneInput.tsx'],['phone-lib','src/lib/phone.ts'],
- ['sms','src/app/field/SmsToggle.tsx'],['checklist','src/app/properties/[id]/OnboardingItemToggle.tsx'],['handled','src/app/today/MarkHandledButton.tsx'],
+ ['sms','src/app/field/SmsToggle.tsx'],['checklist','src/app/properties/[id]/OnboardingItemToggle.tsx'],
  ['attachments','src/app/fieldwork/packets/[id]/StopAttachments.tsx'],['text','src/app/fieldwork/packets/[id]/PacketTextEditor.tsx'],['order','src/app/fieldwork/packets/[id]/StopList.tsx'],
  ['retained','src/lib/use-retained-submission.ts'],['unsaved','src/lib/unsaved-work.ts'],
 ])await writeFile(join(scratch,name+'.js'),compile(await readFile(join(root,path),'utf8')));
@@ -22,7 +22,7 @@ await writeFile(join(scratch,'actions.js'),`
 export const save=(kind,args)=>new Promise((resolve,reject)=>window.calls.push({kind,args,resolve,reject}));
 export const submitApplication=(prev,data)=>save('apply',[...data.entries()].filter(([k,v])=>typeof v==='string'));
 export const completeOnboarding=(prev,data)=>save('onboarding',[...data.entries()]);
-export const setSmsOptIn=target=>save('sms',target),setOnboardingItemAction=args=>save('checklist',args),markEmailHandled=id=>save('handled',id);
+export const setSmsOptIn=target=>save('sms',target),setOnboardingItemAction=args=>save('checklist',args);
 export const updateStopSlipContent=(packetId,id,text)=>save('job',{packetId,id,text});
 export const updateStopSlipNote=(packetId,id,text)=>save('note',{packetId,id,text});
 export const setStopInstructions=(packetId,id,text)=>save('stop',{packetId,id,text});
@@ -37,7 +37,7 @@ await writeFile(join(scratch,'refresh.js'),'export const useSoftRefresh=()=>()=>
 await writeFile(join(scratch,'entry.js'),compile(`
 import React,{useState} from 'react';import {createRoot} from 'react-dom/client';
 import {ApplyForm} from './apply.js';import {OnboardingForm} from './onboarding.js';import {SmsToggle} from './sms.js';
-import {OnboardingItemToggle} from './checklist.js';import {MarkHandledButton} from './handled.js';
+import {OnboardingItemToggle} from './checklist.js';
 import {StopAttachments,PacketInstructions} from './attachments.js';import {StopList} from './order.js';
 import {hasUnsavedWork} from './unsaved.js';
 const params=new URLSearchParams(location.search),mode=params.get('mode');
@@ -53,7 +53,7 @@ window.confirmAttach=()=>setAttached([slipA,{...slipB,attachmentId:'attachment-b
 if(!mounted)return null;return <>
 {(mode==='apply'||mode==='all')&&<section id="apply"><RedirectBoundary><ApplyForm source="synthetic-source" trade={params.has('creative')?'creative':'inspection'}/></RedirectBoundary></section>}
 {mode==='onboarding'&&<section id="onboarding"><RedirectBoundary><OnboardingForm defaultName="Synthetic Person" defaultPhone="9785550100" taxClassifications={['Individual','LLC']} paymentMethods={['Check','Venmo','Direct deposit (ACH)']} isCreative={params.has('creative')}/></RedirectBoundary></section>}
-{(mode==='controls'||mode==='all')&&<section id="controls"><section id="sms"><SmsToggle initial={true}/></section><section id="checklist"><OnboardingItemToggle propertyId="home-a" itemKey="photos" status={check} derived={params.has('derived')}/></section><section id="handled"><MarkHandledButton messageId="email-a"/></section></section>}
+{(mode==='controls'||mode==='all')&&<section id="controls"><section id="sms"><SmsToggle initial={true}/></section><section id="checklist"><OnboardingItemToggle propertyId="home-a" itemKey="photos" status={check} derived={params.has('derived')}/></section></section>}
 {(mode==='text'||mode==='all')&&<section id="text"><section id="packet"><PacketInstructions packetId="packet-a" instructions={notes} editable={!params.has('readonly')}/></section><section id="stop"><StopAttachments packetId="packet-a" stopId="stop-a" stopWorkSlipId="job-a" stopSlip={{id:'job-a',text:'Existing job description'}} attached={attached} attachable={[slipA,slipB]} instructions={params.has('empty')?null:'Existing stop instructions'} editable={!params.has('readonly')} visitDate="2030-10-01"/></section></section>}
 {mode==='order'&&<section id="order"><StopList packetId="packet-a" canReorder={!params.has('readonly')} items={ids.map(id=>({id,node:<div data-stop={id} style={{height:60}}>Stop {id}</div>}))}/></section>}
 </>;}createRoot(document.getElementById('root')).render(<Fixture/>);
@@ -124,8 +124,6 @@ await click('#checklist','Done',true);await waitCalls(5);await finish(4,{ok:fals
 pass('checklist Done failures are visible and retries keep the requested state until confirmed');
 await click('#checklist','Done');await waitCalls(8);assert.equal((await calls())[7].args.status,'todo');await finish(7);await clean();await page.evaluate(()=>window.updateChecklist());assert.equal(await page.$$eval('#checklist button',es=>es.find(e=>e.textContent==='N/A').getAttribute('aria-pressed')),'true');
 pass('confirmed checklist changes toggle back to todo correctly before refresh and adopt later server changes');
-await click('#handled','Mark handled',true);await waitCalls(9);await finish(8,{ok:false,error:'Email rejected'});await clean();await waitText('Email rejected');await click('#handled','Retry');await waitCalls(10);await finish(9,null,true);await clean();await waitText('Could not confirm this email');await click('#handled','Retry');await waitCalls(11);await finish(10);await clean();assert.equal(await page.$('#handled button'),null);assert.equal(await page.$eval('#handled',e=>e.innerText),'Handled');
-pass('Handled reports both failure paths, allows retry, and only removes its control after confirmation');
 await reset('controls','&derived=1');assert.equal(await page.$('#checklist button'),null);assert.match(await page.$eval('#checklist',e=>e.innerText),/Auto/i);pass('automatically derived checklist items stay read-only');
 
 const textarea=label=>'textarea[aria-label="'+label+'"]';
