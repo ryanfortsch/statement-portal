@@ -37,6 +37,7 @@ import { BankDepositReview } from '@/components/BankDepositReview';
 import { CleaningEventCredit } from '@/components/CleaningEventCredit';
 import { ReceiptCapture, ReceiptRowActions } from '@/components/ReceiptCapture';
 import { HandoffFileQueue } from '@/components/HandoffFileQueue';
+import { ConfirmProvider, useConfirm } from '@/components/ConfirmDialog';
 
 /* ─── Types ─── */
 type Reservation = {
@@ -115,6 +116,10 @@ type DataGap = {
   expected_data: string;
   resolved: boolean;
   upload_id: string | null;
+  // Set by /api/resolve-gap's acknowledge; read by "Show resolved".
+  resolved_at?: string | null;
+  resolved_by?: string | null;
+  resolution_note?: string | null;
 };
 
 type DriftBooking = {
@@ -807,6 +812,7 @@ function FillGapModal(props: {
   const [err, setErr] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [result, setResult] = useState<FillGapResult | null>(null);
+  const { ask } = useConfirm();
 
   // Accept a dropped-in file. Tolerates anything that ends in .csv or has
   // a text/* mime type -- Chrome downloads sometimes report
@@ -838,7 +844,7 @@ function FillGapModal(props: {
       fd.append('property_id', propertyId);
       fd.append('file_type', fileType);
       fd.append('file', file);
-      const { res, cancelled } = await formWithFreezeRetry('/api/fill-gap', fd);
+      const { res, cancelled } = await formWithFreezeRetry('/api/fill-gap', fd, ask);
       if (cancelled) { setErr('Not applied: the statement is marked sent. Override was declined.'); return; }
       const data = await res.json();
       if (!res.ok) { setErr(data.error || 'Upload failed'); return; }
@@ -1171,7 +1177,8 @@ function FinRow({ label, value, negative }: { label: string; value: string; nega
  * editorial PDF. Persists via PATCH /api/property-statements/[id]/reserve.
  * Survives re-ingest (preserved in /api/ingest's SELECT-before-delete).
  */
-function ReserveHoldbackRow({ prop, onSaved }: { prop: PropertyStatement; onSaved: () => void }) {
+function ReserveHoldbackRow({ prop, month, onSaved }: { prop: PropertyStatement; month: string; onSaved: () => void }) {
+  const { ask } = useConfirm();
   const initial = Number(prop.reserve_holdback || 0);
   const [enabled, setEnabled] = useState(initial > 0);
   const [amount, setAmount] = useState<string>(initial > 0 ? initial.toFixed(2) : '2000.00');
@@ -1182,7 +1189,7 @@ function ReserveHoldbackRow({ prop, onSaved }: { prop: PropertyStatement; onSave
     setSaving(true); setErr(null);
     try {
       const { res, cancelled } = await jsonWithFreezeRetry(`/api/property-statements/${prop.id}/reserve`, 'PATCH',
-        { amount: nextAmount });
+        { amount: nextAmount }, ask);
       if (cancelled) {
         // Revert the optimistic checkbox/amount: the server kept the old value.
         setEnabled(initial > 0);
@@ -1210,14 +1217,23 @@ function ReserveHoldbackRow({ prop, onSaved }: { prop: PropertyStatement; onSave
           <input
             type="checkbox"
             checked={enabled}
-            onChange={e => {
+            onChange={async e => {
               const next = e.target.checked;
-              setEnabled(next);
               if (next) {
+                // Ticking moves real money off this owner's payout, so it
+                // asks once, naming the amount, before it saves.
                 const amt = Number(amount) || 2000;
+                const go = await ask({
+                  title: `Withhold ${fmt(amt)} from ${prop.property_name}'s ${monthLong(month)} payout?`,
+                  body: 'The Owner Reserve comes off the owner payout on this statement and prints as its own line. Untick to release it.',
+                  confirmLabel: `Withhold ${fmt(amt)}`,
+                });
+                if (!go) return;
+                setEnabled(true);
                 if (amt !== initial) void persist(amt);
                 else if (initial === 0) void persist(2000);
               } else {
+                setEnabled(false);
                 void persist(0);
               }
             }}
@@ -1610,6 +1626,7 @@ function PropertyCard({
   // names scrolls.
   focus?: { token: number; section: CardSection; scroll: boolean };
 }) {
+  const { ask, askText, notify } = useConfirm();
   const [expanded, setExpanded] = useState(false);
   const focusToken = focus?.token ?? 0;
   const focusSection = focus?.section;
@@ -1647,6 +1664,12 @@ function PropertyCard({
   const [queueToken, setQueueToken] = useState(0);
   const refreshWithQueue = () => { setQueueToken(n => n + 1); onRefresh(); };
   const gaps = prop.data_gaps?.filter(g => !g.resolved) || [];
+  // Resolved flags stay readable, each with a Reopen where reopening moves
+  // no money. Off-Stripe rulings are listed too, read-only: undoing one
+  // would move the payout back.
+  const resolvedGaps = prop.data_gaps?.filter(g => g.resolved) || [];
+  const offStripeStays = (prop.reservations || []).filter(r => r.bank_match_status === 'paid_off_stripe');
+  const [showResolved, setShowResolved] = useState(false);
   const reservations = prop.reservations || [];
   // Sort on the same date the row displays (bank charge date, falling back to
   // checkout). The fetch has no order, so without this the list renders in
@@ -1821,33 +1844,38 @@ function PropertyCard({
                 disabled={refreshingStatement}
                 onClick={async (e) => {
                   e.stopPropagation();
+                  const count = prop.drift_bookings!.length;
+                  const go = await ask({
+                    title: `Add ${count} booking${count === 1 ? '' : 's'} to ${prop.property_name}'s statement?`,
+                    body: 'The revenue, management fee and owner payout are recomputed with them.',
+                    confirmLabel: 'Add to statement',
+                  });
+                  if (!go) return;
                   setRefreshingStatement(true);
                   try {
                     const { res, cancelled } = await jsonWithFreezeRetry('/api/refresh-statement', 'POST',
-                      { month, property_id: prop.property_id });
+                      { month, property_id: prop.property_id }, ask);
                     if (cancelled) return;
                     const data = await res.json();
                     if (!res.ok) {
-                      alert(`Refresh failed: ${data.error || 'unknown error'}`);
+                      await notify({ title: 'The bookings were not added', body: data.error || 'unknown error', tone: 'danger' });
                     } else {
                       // A booking Guesty has no collected gross for cannot be
                       // priced here; say so rather than let an unqualified
                       // success imply the statement is now complete.
                       const noGross: string[] = Array.isArray(data.missing_gross_codes) ? data.missing_gross_codes : [];
                       const added = Array.isArray(data.added) ? data.added.length : 0;
-                      if (noGross.length > 0) {
-                        alert(
-                          `${added} booking${added === 1 ? '' : 's'} added.\n\n` +
-                          `${noGross.length} could NOT be added: Guesty has no collected gross for ${noGross.length === 1 ? 'it' : 'them'} ` +
-                          `(typically a Stay Cape Ann direct booking paid through the property's own Stripe, where the money never passes through Guesty).\n\n` +
-                          `Re-ingest this month with the Guesty PDF to price ${noGross.length === 1 ? 'it' : 'them'}. ` +
-                          `Any that are confirmed Direct stays with real folio revenue are also flagged as a critical data gap on this statement.`,
-                        );
-                      }
                       onRefresh();
+                      if (noGross.length > 0) {
+                        await notify({
+                          title: `${added} booking${added === 1 ? '' : 's'} added; ${noGross.length} could not be`,
+                          body: `Guesty has no collected gross for ${noGross.length === 1 ? 'it' : 'them'}, typically a Stay Cape Ann direct booking paid through the property's own Stripe. Re-ingest this month with the Guesty PDF to price ${noGross.length === 1 ? 'it' : 'them'}. A confirmed Direct stay with real folio revenue is also flagged on this statement.`,
+                          list: noGross,
+                        });
+                      }
                     }
                   } catch (err) {
-                    alert(`Refresh failed: ${err instanceof Error ? err.message : err}`);
+                    await notify({ title: 'The bookings were not added', body: err instanceof Error ? err.message : String(err), tone: 'danger' });
                   } finally {
                     setRefreshingStatement(false);
                   }
@@ -1910,7 +1938,7 @@ function PropertyCard({
                   <FinRow label="Cleaning" value={`−${fmt(prop.cleaning_total)}`} negative />
                   {Number(prop.repairs_total || 0) > 0 && <FinRow label="Repairs" value={`−${fmt(Number(prop.repairs_total))}`} negative />}
                   {Number(prop.attributed_debits_total || 0) > 0 && <FinRow label="Refunds & Adjustments" value={`−${fmt(Number(prop.attributed_debits_total))}`} negative />}
-                  <ReserveHoldbackRow prop={prop} onSaved={onRefresh} />
+                  <ReserveHoldbackRow prop={prop} month={month} onSaved={onRefresh} />
                   <tr>
                     <td style={{ padding: '10px 0 0', borderTop: '1.5px solid var(--ink)', borderBottom: '2.5px double var(--ink)', fontWeight: 600, fontSize: 13, color: 'var(--ink)' }}>
                       Owner Payout
@@ -2237,9 +2265,9 @@ function PropertyCard({
           )}
 
           {/* Data Gaps */}
-          {gaps.length > 0 && (
+          {(gaps.length > 0 || resolvedGaps.length > 0 || offStripeStays.length > 0) && (
             <div id={`stmt-${prop.property_id}-flags`} style={{ marginTop: 28, scrollMarginTop: 72 }}>
-              <SectionHead num="05" title="Data Gaps" meta={`${gaps.length} flag${gaps.length > 1 ? 's' : ''}`} signal />
+              <SectionHead num="05" title="Data Gaps" meta={gaps.length > 0 ? `${gaps.length} open` : 'none open'} signal={gaps.length > 0} />
               <div>
                 {gaps.map((gap) => {
                   const fillable = gapFillType(gap.gap_type) !== null;
@@ -2276,7 +2304,13 @@ function PropertyCard({
                             disabled={resolvingGapId === gap.id}
                             onClick={async (e) => {
                               e.stopPropagation();
-                              const note = prompt('Resolve this flag. What did you do? (optional, shown in the audit trail)');
+                              const note = await askText({
+                                title: 'Resolve this flag?',
+                                body: gap.description,
+                                inputLabel: 'What did you do? (optional, kept with the flag)',
+                                optional: true,
+                                confirmLabel: 'Resolve',
+                              });
                               if (note === null) return;
                               setResolvingGapId(gap.id);
                               try {
@@ -2286,10 +2320,10 @@ function PropertyCard({
                                   body: JSON.stringify({ gap_id: gap.id, resolution: 'acknowledge', note }),
                                 });
                                 const data = await res.json();
-                                if (!res.ok) alert(`Failed: ${data.error || 'unknown error'}`);
+                                if (!res.ok) await notify({ title: 'The flag was not resolved', body: data.error || 'unknown error', tone: 'danger' });
                                 else onRefresh();
                               } catch (err) {
-                                alert(`Failed: ${err instanceof Error ? err.message : err}`);
+                                await notify({ title: 'The flag was not resolved', body: err instanceof Error ? err.message : String(err), tone: 'danger' });
                               } finally {
                                 setResolvingGapId(null);
                               }
@@ -2314,17 +2348,22 @@ function PropertyCard({
                               e.stopPropagation();
                               const guestMatch = gap.description.match(/for\s+([^(]+)\s+\(/);
                               const guest = guestMatch ? guestMatch[1].trim() : 'this guest';
-                              if (!confirm(`Mark as paid off-Stripe?\n\nThis will zero ${guest}'s Stripe fee and add that amount back to the owner payout. Use this only if the guest paid by check, wire, or ACH.`)) return;
+                              const go = await ask({
+                                title: `Mark ${guest} as paid off-Stripe?`,
+                                body: 'This zeroes the stay\'s Stripe fee and adds that amount back to the owner payout. Use it only if the guest paid by check, wire or ACH. The ruling stays listed under resolved flags, read-only.',
+                                confirmLabel: 'Mark paid off-Stripe',
+                              });
+                              if (!go) return;
                               setResolvingGapId(gap.id);
                               try {
                                 const { res, cancelled } = await jsonWithFreezeRetry('/api/resolve-gap', 'POST',
-                                  { gap_id: gap.id, resolution: 'paid_off_stripe' });
+                                  { gap_id: gap.id, resolution: 'paid_off_stripe' }, ask);
                                 if (cancelled) return;
                                 const data = await res.json();
-                                if (!res.ok) alert(`Failed: ${data.error || 'unknown error'}`);
+                                if (!res.ok) await notify({ title: 'Not marked paid off-Stripe', body: data.error || 'unknown error', tone: 'danger' });
                                 else onRefresh();
                               } catch (err) {
-                                alert(`Failed: ${err instanceof Error ? err.message : err}`);
+                                await notify({ title: 'Not marked paid off-Stripe', body: err instanceof Error ? err.message : String(err), tone: 'danger' });
                               } finally {
                                 setResolvingGapId(null);
                               }
@@ -2347,7 +2386,14 @@ function PropertyCard({
                             disabled={resolvingGapId === gap.id}
                             onClick={async (e) => {
                               e.stopPropagation();
-                              if (!confirm('Remove this hand-applied credit?\n\nIt was not applied on the last rebuild, so nothing on the statement changes. If the charge is real, apply the credit again on its row afterward.')) return;
+                              const go = await ask({
+                                title: 'Remove this hand-applied credit?',
+                                body: 'It was not applied on the last rebuild, so nothing on the statement changes. If the charge is real, apply the credit again on its row afterward.',
+                                confirmLabel: 'Remove credit',
+                                tone: 'danger',
+                                irreversible: true,
+                              });
+                              if (!go) return;
                               setResolvingGapId(gap.id);
                               try {
                                 const res = await fetch('/api/resolve-gap', {
@@ -2356,10 +2402,10 @@ function PropertyCard({
                                   body: JSON.stringify({ gap_id: gap.id, resolution: 'remove_credit_override' }),
                                 });
                                 const data = await res.json();
-                                if (!res.ok) alert(`Failed: ${data.error || 'unknown error'}`);
+                                if (!res.ok) await notify({ title: 'The credit was not removed', body: data.error || 'unknown error', tone: 'danger' });
                                 else onRefresh();
                               } catch (err) {
-                                alert(`Failed: ${err instanceof Error ? err.message : err}`);
+                                await notify({ title: 'The credit was not removed', body: err instanceof Error ? err.message : String(err), tone: 'danger' });
                               } finally {
                                 setResolvingGapId(null);
                               }
@@ -2385,18 +2431,25 @@ function PropertyCard({
                               // First token only: expected_data is `reservation:CODE`, and any
                               // trailing annotation must never reach the route as part of the code.
                               const code = (gap.expected_data || '').replace(/^reservation:/, '').trim().split(/\s+/)[0] || '';
-                              if (!code) { alert('No confirmation code on this gap.'); return; }
-                              if (!confirm(`Remove this cancelled reservation from the statement?\n\nHelm re-verifies it's cancelled in Guesty, then deletes it and recomputes the owner payout. It won't touch a booking Guesty still shows as confirmed.`)) return;
+                              if (!code) { await notify({ title: 'This flag names no confirmation code', tone: 'danger' }); return; }
+                              const go = await ask({
+                                title: `Remove ${code} from ${prop.property_name}'s statement?`,
+                                body: 'Helm checks it is cancelled in Guesty, then deletes the reservation and recomputes the owner payout. It will not touch a booking Guesty still shows as confirmed.',
+                                confirmLabel: 'Remove from statement',
+                                tone: 'danger',
+                                irreversible: true,
+                              });
+                              if (!go) return;
                               setResolvingGapId(gap.id);
                               try {
                                 const { res, cancelled } = await jsonWithFreezeRetry('/api/reservations/remove', 'POST',
-                                  { confirmation_code: code, property_statement_id: prop.id });
+                                  { confirmation_code: code, property_statement_id: prop.id }, ask);
                                 if (cancelled) return;
                                 const data = await res.json();
-                                if (!res.ok) alert(`Failed: ${data.error || 'unknown error'}`);
+                                if (!res.ok) await notify({ title: 'The reservation was not removed', body: data.error || 'unknown error', tone: 'danger' });
                                 else onRefresh();
                               } catch (err) {
-                                alert(`Failed: ${err instanceof Error ? err.message : err}`);
+                                await notify({ title: 'The reservation was not removed', body: err instanceof Error ? err.message : String(err), tone: 'danger' });
                               } finally {
                                 setResolvingGapId(null);
                               }
@@ -2434,6 +2487,94 @@ function PropertyCard({
                   );
                 })}
               </div>
+
+              {/* Resolved and settled: what was decided, by whom, and a
+                  Reopen where reopening is a status flip. An off-Stripe
+                  ruling moved the payout, so it is listed read-only. */}
+              {(resolvedGaps.length > 0 || offStripeStays.length > 0) && (
+                <div style={{ marginTop: 6 }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowResolved(v => !v)}
+                    aria-expanded={showResolved}
+                    style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--ink-3)', border: 'none', background: 'transparent', cursor: 'pointer', padding: '4px 0' }}
+                  >
+                    {showResolved ? 'Hide resolved' : `Show resolved (${resolvedGaps.length + offStripeStays.length})`}
+                  </button>
+                  {showResolved && (
+                    <div style={{ marginTop: 6 }}>
+                      {resolvedGaps.map(g => {
+                        const creditRemoved = (g.resolution_note || '').startsWith('Removed hand credit override');
+                        const reopenable = !creditRemoved && !isPipelineOwnedGap(g.gap_type);
+                        return (
+                          <div key={g.id} style={{
+                            padding: '8px 14px', marginBottom: 6, background: 'var(--paper-2)',
+                            borderLeft: '3px solid var(--rule)', fontSize: 12, color: 'var(--ink-3)',
+                            display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap',
+                          }}>
+                            <div style={{ minWidth: 0, flex: '1 1 320px' }}>
+                              <div style={{ color: 'var(--ink-2)' }}>{g.description}</div>
+                              <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 3 }}>
+                                Resolved{g.resolved_at ? ` ${fmtDate(g.resolved_at.slice(0, 10))}` : ''}{g.resolved_by ? ` by ${g.resolved_by}` : ''}
+                                {g.resolution_note ? <>: {g.resolution_note}</> : null}
+                              </div>
+                              {!reopenable && (
+                                <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 3 }}>
+                                  {creditRemoved
+                                    ? 'The hand credit was removed with it, so there is nothing to reopen. Apply the credit again on its cleaning row if it was right.'
+                                    : 'Helm clears this one itself when the condition clears, so there is nothing to reopen.'}
+                                </div>
+                              )}
+                            </div>
+                            {reopenable && (
+                              <button
+                                type="button"
+                                disabled={resolvingGapId === g.id}
+                                onClick={async () => {
+                                  setResolvingGapId(g.id);
+                                  try {
+                                    const res = await fetch('/api/resolve-gap', {
+                                      method: 'POST',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({ gap_id: g.id, resolution: 'reopen' }),
+                                    });
+                                    const data = await res.json();
+                                    if (!res.ok) await notify({ title: 'The flag was not reopened', body: data.error || 'unknown error', tone: 'danger' });
+                                    else onRefresh();
+                                  } catch (err) {
+                                    await notify({ title: 'The flag was not reopened', body: err instanceof Error ? err.message : String(err), tone: 'danger' });
+                                  } finally {
+                                    setResolvingGapId(null);
+                                  }
+                                }}
+                                title="Open the flag again"
+                                style={{
+                                  fontSize: 9, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase',
+                                  color: 'var(--ink-3)', background: 'transparent', border: '1px solid var(--rule)',
+                                  padding: '4px 10px', cursor: resolvingGapId === g.id ? 'wait' : 'pointer', flexShrink: 0,
+                                }}
+                              >
+                                {resolvingGapId === g.id ? '…' : 'Undo'}
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                      {offStripeStays.map(r => (
+                        <div key={r.id} style={{
+                          padding: '8px 14px', marginBottom: 6, background: 'var(--paper-2)',
+                          borderLeft: '3px solid var(--rule)', fontSize: 12, color: 'var(--ink-3)',
+                        }}>
+                          <div style={{ color: 'var(--ink-2)' }}>{r.guest_name} ({r.confirmation_code}) ruled paid off-Stripe</div>
+                          <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 3 }}>
+                            The Stripe fee was zeroed and added back to the owner payout. Undoing it would move the payout again, so it is not offered here.
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -2650,6 +2791,7 @@ function PropertyCard({
 
 /* ─── Main Dashboard ─── */
 function DashboardContent() {
+  const { ask, notify } = useConfirm();
   const [period, setPeriod] = useState<StatementPeriod | null>(null);
   const [periods, setPeriods] = useState<{ month: string; status: string }[]>([]);
   // True until the first month arrives. Never again: a refresh keeps the
@@ -3135,7 +3277,7 @@ function DashboardContent() {
         include_work_slips: includeWorkSlips,
         funds_sent_date: fundsSentDate,
         period_id: period.id,
-      });
+      }, ask);
       if (cancelled) return;
       const data = await res.json();
       if (!data.success) {
@@ -3272,7 +3414,7 @@ function DashboardContent() {
     setCloseTasks(prev => (prev[propertyId]?.period_id === before.period_id
       ? { ...prev, [propertyId]: { ...prev[propertyId], ...undo } }
       : prev));
-    alert(`Save failed: ${saved.error || 'unknown error'}\n\nNothing was changed.`);
+    await notify({ title: 'Not saved', body: `${saved.error || 'unknown error'}. Nothing was changed.`, tone: 'danger' });
     return false;
   }
 
@@ -3301,10 +3443,10 @@ function DashboardContent() {
       if (!closeTasks[p.property_id]?.email_sent_at) return;
       // A finalized month stays frozen whatever the sent stamp says
       // (statement-finality.ts), so do not promise an unfreeze there.
-      const message = period.status === 'final'
-        ? `Unmark ${p.property_name} as sent? Its numbers stay frozen while ${monthLong(period.month)} is finalized, and become editable again if the month is reopened. The unmark is recorded on the statement.`
-        : `Unmark ${p.property_name} as sent? Its numbers become editable again: the nightly Stripe sync, re-ingest, Fill Gap and bank attributions can move the owner payout with no override. The unmark is recorded on the statement.`;
-      if (!confirm(message)) return;
+      const body = period.status === 'final'
+        ? `Its numbers stay frozen while ${monthLong(period.month)} is finalized, and become editable again if the month is reopened. The unmark is recorded on the statement as a flag.`
+        : 'Its numbers become editable again: the nightly Stripe sync, re-ingest, Fill Gap and bank attributions can move the owner payout with no override. The unmark is recorded on the statement as a flag.';
+      if (!(await ask({ title: `Unmark ${p.property_name} as sent?`, body, confirmLabel: 'Unmark sent', tone: 'danger' }))) return;
       let r: { ok: boolean; error: string | null };
       try {
         r = await unmarkStatementSentAction({ periodId: period.id, propertyId: p.property_id, statementId: p.id });
@@ -3312,7 +3454,7 @@ function DashboardContent() {
         r = { ok: false, error: err instanceof Error ? err.message : String(err) };
       }
       if (!r.ok) {
-        alert(`Unmark failed: ${r.error || 'unknown error'}`);
+        await notify({ title: 'Still marked sent', body: r.error || 'unknown error', tone: 'danger' });
         return;
       }
       const periodId = period.id;
@@ -3623,6 +3765,29 @@ function DashboardContent() {
    * for the progress indicator since the operator sees "3 of 9" tick
    * forward steadily.
    */
+  /**
+   * What the month still carries: open flags, bank rows waiting, paid
+   * bookings missing from a statement, statements not reconciled, and any
+   * count that did not load. Draft All and Finalize both ask with this list.
+   */
+  function monthProblems(): string[] {
+    const statements = period?.property_statements || [];
+    const openGaps = statements.reduce((s, p) => s + (p.data_gaps?.filter(g => !g.resolved).length || 0), 0);
+    const pendingBankRows = Object.values(depositReviewCounts.counts).reduce((s, n) => s + n, 0);
+    const driftCount = statements.reduce((s, p) => s + (p.drift_bookings?.length || 0), 0);
+    const unreconciled = statements.filter(p => p.reconciliation && !p.reconciliation.reconciled).length;
+    const problems: string[] = [];
+    if (openGaps > 0) problems.push(`${openGaps} open data gap${openGaps === 1 ? '' : 's'}`);
+    if (pendingBankRows > 0) problems.push(`${pendingBankRows} bank row${pendingBankRows === 1 ? '' : 's'} awaiting review`);
+    if (driftCount > 0) problems.push(`${driftCount} new paid booking${driftCount === 1 ? '' : 's'} not yet on a statement`);
+    if (unreconciled > 0) problems.push(`${unreconciled} statement${unreconciled === 1 ? '' : 's'} not reconciled`);
+    if (!depositReviewCounts.known) problems.push('bank review queue unreadable (count unknown)');
+    if (statements.some(p => p.drift_known === false)) problems.push('new-booking check unreadable (drift count unknown)');
+    if (statements.some(p => p.gaps_known === false)) problems.push('gap list unreadable (a statement may be carrying flags this page cannot show)');
+    if (statements.some(p => !p.reconciliation)) problems.push('a reconciliation could not be computed (its numbers are unverified)');
+    return problems;
+  }
+
   async function draftAll() {
     if (!period) return;
     const candidates = props.filter(p =>
@@ -3635,23 +3800,17 @@ function DashboardContent() {
     }
     // Pre-flight: numbers that are still moving should not get drafted into
     // owner emails without the operator saying so. Count the live problems
-    // and make skipping them an explicit choice, not a default.
-    const openGaps = props.reduce((s, p) => s + (p.data_gaps?.filter(g => !g.resolved).length || 0), 0);
-    const pendingBankRows = Object.values(depositReviewCounts.counts).reduce((s, n) => s + n, 0);
-    const driftCount = props.reduce((s, p) => s + (p.drift_bookings?.length || 0), 0);
-    const problems: string[] = [];
-    if (openGaps > 0) problems.push(`${openGaps} open data gap${openGaps === 1 ? '' : 's'}`);
-    if (pendingBankRows > 0) problems.push(`${pendingBankRows} bank row${pendingBankRows === 1 ? '' : 's'} awaiting review`);
-    if (driftCount > 0) problems.push(`${driftCount} new paid booking${driftCount === 1 ? '' : 's'} not yet on a statement`);
-    if (!depositReviewCounts.known) problems.push('bank review queue unreadable (count unknown)');
-    if (props.some(p => p.drift_known === false)) problems.push('new-booking check unreadable (drift count unknown)');
-    if (props.some(p => p.gaps_known === false)) problems.push('gap list unreadable (a statement may be carrying flags this page cannot show)');
-    // Not a blocker: see the close-review strip. The operator cannot clear
-    // these from Helm, so blocking every draft on them would train them to
-    // click through the confirm without reading it.
-    if (problems.length > 0 && !confirm(
-      `This month still has:\n\n  · ${problems.join('\n  · ')}\n\nDraft ${candidates.length} owner email${candidates.length === 1 ? '' : 's'} anyway?`,
-    )) {
+    // and make skipping them an explicit choice, not a default. Not a
+    // blocker: the operator cannot clear some of these from Helm, so
+    // blocking every draft on them would train them to click through the
+    // confirm without reading it.
+    const problems = monthProblems();
+    if (problems.length > 0 && !(await ask({
+      title: `Draft ${candidates.length} owner email${candidates.length === 1 ? '' : 's'} anyway?`,
+      body: 'This month still has:',
+      list: problems,
+      confirmLabel: 'Draft anyway',
+    }))) {
       return;
     }
     setBulkDraftProgress({ done: 0, total: candidates.length });
@@ -3680,7 +3839,7 @@ function DashboardContent() {
           // owner draft earlier in this same loop (multi-property owners
           // get ONE email; both siblings sit in `candidates`).
           bulk: true,
-        });
+        }, ask);
         if (cancelled) {
           failed.push({ property: p.property_name, error: 'skipped: already marked sent (override declined)' });
           setBulkDraftProgress({ done: i + 1, total: candidates.length });
@@ -5223,11 +5382,16 @@ function DashboardContent() {
                   <button
                     disabled={finalizing}
                     onClick={async () => {
-                      if (!confirm(`Reopen ${monthLong(selectedMonth)}? Statements become editable again (per-property sent stamps still apply).`)) return;
+                      const go = await ask({
+                        title: `Reopen ${monthLong(selectedMonth)}?`,
+                        body: 'Statements become editable again. A statement marked sent stays frozen on its own until it is unmarked.',
+                        confirmLabel: 'Reopen month',
+                      });
+                      if (!go) return;
                       setFinalizing(true);
                       try {
                         const r = await setPeriodStatusAction(period.id, 'draft');
-                        if (!r.ok) alert(`Reopen failed: ${r.error}`);
+                        if (!r.ok) await notify({ title: `${monthLong(selectedMonth)} is still finalized`, body: r.error || 'unknown error', tone: 'danger' });
                         else await loadPeriod(selectedMonth, { quiet: true });
                       } finally { setFinalizing(false); }
                     }}
@@ -5245,13 +5409,25 @@ function DashboardContent() {
                     disabled={finalizing || !!closeStateError}
                     title="Freeze every statement in this month. Any later change requires an explicit, recorded override."
                     onClick={async () => {
+                      // The same gate Draft All has, and then some: Finalize
+                      // is the later and stronger action, so it names every
+                      // open item the month still carries before it freezes.
+                      const problems = monthProblems();
                       const unsent = props.filter(p => !closeTasks[p.property_id]?.email_sent_at).length;
-                      const warn = unsent > 0 ? `\n\nNote: ${unsent} statement${unsent === 1 ? ' is' : 's are'} not yet marked sent.` : '';
-                      if (!confirm(`Finalize ${monthLong(selectedMonth)}? Every statement in the month freezes; changes after this require an explicit override that is recorded on the statement.${warn}`)) return;
+                      if (unsent > 0) problems.push(`${unsent} statement${unsent === 1 ? '' : 's'} not yet marked sent`);
+                      const go = await ask({
+                        title: `Finalize ${monthLong(selectedMonth)}?`,
+                        body: problems.length > 0
+                          ? 'Every statement in the month freezes; a later change needs an override that is recorded on the statement. The month still has:'
+                          : 'Every statement in the month freezes; a later change needs an override that is recorded on the statement.',
+                        list: problems,
+                        confirmLabel: problems.length > 0 ? 'Finalize anyway' : 'Finalize month',
+                      });
+                      if (!go) return;
                       setFinalizing(true);
                       try {
                         const r = await setPeriodStatusAction(period.id, 'final');
-                        if (!r.ok) alert(`Finalize failed: ${r.error}`);
+                        if (!r.ok) await notify({ title: `${monthLong(selectedMonth)} was not finalized`, body: r.error || 'unknown error', tone: 'danger' });
                         else await loadPeriod(selectedMonth, { quiet: true });
                       } finally { setFinalizing(false); }
                     }}
@@ -5294,7 +5470,9 @@ export default function Home() {
         <p className="eyebrow">Loading</p>
       </div>
     }>
-      <DashboardContent />
+      <ConfirmProvider>
+        <DashboardContent />
+      </ConfirmProvider>
     </Suspense>
   );
 }

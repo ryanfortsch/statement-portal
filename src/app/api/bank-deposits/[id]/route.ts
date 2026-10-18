@@ -15,6 +15,12 @@ import { auth } from '@/auth';
  * PATCH /api/bank-deposits/:id  body { action: 'dismiss' }
  *   -> Marks the deposit as not-revenue (refund, transfer, etc).
  *      Silently dismissed -- no statement total change.
+ *
+ * PATCH /api/bank-deposits/:id  body { action: 'restore' }
+ *   -> The undo of dismiss: a dismissed row goes back to the pending
+ *      queue. Pending and dismissed rows never enter a statement total
+ *      (loadAddOnTotals reads status='attributed' only), so this is a
+ *      status flip with no recompute and no freeze check, same as dismiss.
  */
 
 function getSupabase() {
@@ -84,8 +90,8 @@ export async function PATCH(
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
   const body = await request.json().catch(() => ({} as Record<string, unknown>));
   const action = String(body.action || '').trim();
-  if (action !== 'attribute' && action !== 'dismiss' && action !== 'unattribute') {
-    return NextResponse.json({ error: "action must be 'attribute', 'dismiss', or 'unattribute'" }, { status: 400 });
+  if (action !== 'attribute' && action !== 'dismiss' && action !== 'unattribute' && action !== 'restore') {
+    return NextResponse.json({ error: "action must be 'attribute', 'dismiss', 'unattribute', or 'restore'" }, { status: 400 });
   }
 
   const supabase = getSupabase();
@@ -134,6 +140,20 @@ export async function PATCH(
       .eq('id', id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     // No totals recompute -- dismissed rows never affect statement totals.
+    return NextResponse.json({ ok: true });
+  }
+
+  if (action === 'restore') {
+    if (existing.status !== 'dismissed') {
+      return NextResponse.json({ error: 'Only a dismissed row can be put back in the queue.' }, { status: 400 });
+    }
+    const { error } = await supabase
+      .from('bank_deposit_attributions')
+      .update({ status: 'pending', updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .eq('status', 'dismissed');
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    // No totals recompute -- a pending row is not in any statement total.
     return NextResponse.json({ ok: true });
   }
 

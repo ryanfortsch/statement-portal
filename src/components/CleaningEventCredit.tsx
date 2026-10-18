@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { jsonWithFreezeRetry } from '@/lib/freeze-confirm';
+import { useConfirm } from '@/components/ConfirmDialog';
 
 /**
  * Per-cleaning-event credit control. Inline on each row of the Cleaning
@@ -27,6 +28,7 @@ export function CleaningEventCredit({
   onSaved?: () => void;
 }) {
   const router = useRouter();
+  const { ask } = useConfirm();
   const [open, setOpen] = useState(false);
   const [credit, setCredit] = useState(initialCreditAmount > 0 ? initialCreditAmount : amount);
   const [reason, setReason] = useState(initialCreditReason || 'Duplicate charge');
@@ -41,7 +43,7 @@ export function CleaningEventCredit({
       const { res, cancelled } = await jsonWithFreezeRetry(`/api/cleaning-events/${eventId}`, 'PATCH', {
         credit_amount: clear ? 0 : Number(credit),
         credit_reason: clear ? null : reason,
-      });
+      }, ask);
       if (cancelled) return;
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Save failed');

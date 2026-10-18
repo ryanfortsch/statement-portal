@@ -26,3 +26,33 @@ export async function loadActiveProperties(): Promise<ActivePropertyOption[] | n
     location: (r.city ?? '').split(',')[0].trim(),
   }));
 }
+
+export type ExistingStatement = { exists: false } | { exists: true; ingestedAt: string | null; sent: boolean } | { exists: null };
+
+/**
+ * Is there already a statement for this property-month? "Process & Upload"
+ * is a wipe-and-write re-ingest, so the form says so before the button and
+ * the button asks before it replaces one. Read-only. A failed read is
+ * `exists: null` (unknown), never "no statement".
+ */
+export async function loadExistingStatement(month: string, propertyId: string): Promise<ExistingStatement> {
+  if (!/^\d{4}-\d{2}$/.test(month) || !propertyId) return { exists: false };
+  const { data: period, error: periodErr } = await supabaseAdmin
+    .from('statement_periods').select('id').eq('month', month).maybeSingle();
+  if (periodErr) return { exists: null };
+  if (!period) return { exists: false };
+  const { data: stmt, error: stmtErr } = await supabaseAdmin
+    .from('property_statements').select('id, updated_at, created_at')
+    .eq('period_id', period.id).eq('property_id', propertyId).maybeSingle();
+  if (stmtErr) return { exists: null };
+  if (!stmt) return { exists: false };
+  const { data: task, error: taskErr } = await supabaseAdmin
+    .from('close_tasks').select('email_sent_at')
+    .eq('period_id', period.id).eq('property_id', propertyId).maybeSingle();
+  return {
+    exists: true,
+    ingestedAt: (stmt.updated_at as string | null) || (stmt.created_at as string | null) || null,
+    // An unreadable sent stamp reads as sent: the confirm then says the most.
+    sent: taskErr ? true : !!task?.email_sent_at,
+  };
+}

@@ -780,10 +780,11 @@ export async function loadRemittanceSheet(month: string): Promise<RemittanceShee
 
 export type BankReviewRow = Row & { id: string };
 
-/** The per-card bank review queue: pending + attributed rows for one
- *  property-month. Preserves the old client's error triage by returning the
- *  supabase error code/message for the caller's PGRST205 / missing-table
- *  special cases. */
+/** The per-card bank review queue: pending, attributed and dismissed rows
+ *  for one property-month (dismissed ones show only under "Show
+ *  dismissed", each with an Undo). Preserves the old client's error triage
+ *  by returning the supabase error code/message for the caller's PGRST205 /
+ *  missing-table special cases. */
 export async function loadBankDepositReview(propertyId: string, month: string): Promise<
   { rows: BankReviewRow[] } | { error: { code: string | null; message: string } }
 > {
@@ -792,7 +793,7 @@ export async function loadBankDepositReview(propertyId: string, month: string): 
     .select('id, deposit_date, amount, description, source, suggested_reservation_code, direction, status, attributed_reservation_code, label, review_note')
     .eq('property_id', propertyId)
     .eq('month', month)
-    .in('status', ['pending', 'attributed'])
+    .in('status', ['pending', 'attributed', 'dismissed'])
     .order('deposit_date', { ascending: true });
   if (error) return { error: { code: error.code ?? null, message: error.message || '' } };
   return { rows: (data || []) as BankReviewRow[] };
