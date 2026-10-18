@@ -4,8 +4,9 @@ import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
 import type { HelmPropertyRow } from '@/lib/properties';
-import { loadLaunchForFleet } from '@/lib/launch-context';
+import { loadLaunchForFleet, type LaunchLoad } from '@/lib/launch-context';
 import type { LaunchSummary } from '@/lib/launch-checklist';
+import { ComingOnline } from './ComingOnline';
 import { ACTIVE_WORK_SLIP_STATUSES } from '@/lib/work-types';
 import PropertiesMap from './PropertiesMap';
 import { PropertiesTabBar } from './PropertiesTabBar';
@@ -76,7 +77,8 @@ export default async function PropertiesPage() {
     getWorkCountsByProperty(),
   ]);
   /**
-   * Fleet readiness, one row per property.
+   * Fleet readiness, one row per property, and the Coming online section
+   * above the list (the old /properties/onboarding board, folded in).
    *
    * This is load-bearing now rather than nice to have: the property page's
    * Setup tab retires itself once a house is established (#1617), so a
@@ -84,9 +86,8 @@ export default async function PropertiesPage() {
    * that somewhere. Failures degrade to an empty map and no pills, never to
    * a blank roster.
    */
-  const launchByProperty = await loadLaunchForFleet(
-    properties.filter((p) => p.is_active && p.kind === 'managed'),
-  ).catch(() => new Map<string, { summary: LaunchSummary }>());
+  const managedActive = properties.filter((p) => p.is_active && p.kind === 'managed');
+  const launchByProperty = await loadLaunchForFleet(managedActive).catch(() => new Map<string, LaunchLoad>());
   const active = properties.filter((p) => p.is_active);
   // Non-managed work locations (HQ, prospect homes) ride is_active=false but
   // aren't "inactive rentals" — count them by what they are.
@@ -94,7 +95,7 @@ export default async function PropertiesPage() {
   const prospectCount = inactive.filter((p) => p.kind === 'prospect').length;
   const inactiveManaged = inactive.filter((p) => p.kind === 'managed').length;
   const heroDescription = !error
-    ? `${active.length} active${prospectCount ? `, ${prospectCount} ${prospectCount === 1 ? 'prospect' : 'prospects'}` : ''}${inactiveManaged ? `, ${inactiveManaged} inactive` : ''}. Helm-native data.`
+    ? `${active.length} active${prospectCount ? `, ${prospectCount} ${prospectCount === 1 ? 'prospect' : 'prospects'}` : ''}${inactiveManaged ? `, ${inactiveManaged} inactive` : ''}.`
     : undefined;
 
   return (
@@ -139,6 +140,9 @@ export default async function PropertiesPage() {
           <PropertiesMap properties={active} workCounts={workCounts} />
         </section>
       )}
+
+      {/* COMING ONLINE: the homes carrying a Launch list, above the roster. */}
+      {!error && <ComingOnline properties={managedActive} loads={launchByProperty} />}
 
       {/* LIST */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, flex: 1, width: '100%' }}>
@@ -295,8 +299,8 @@ function PropertyRow({
             <span
               title={
                 launch.requiredRemaining > 0
-                  ? `${launch.requiredRemaining} required launch step${launch.requiredRemaining === 1 ? '' : 's'} open${launch.next ? `. Next: ${launch.next.title}` : ''}`
-                  : 'All required launch steps are done; not yet marked live'
+                  ? `${launch.requiredRemaining} required Launch step${launch.requiredRemaining === 1 ? '' : 's'} open${launch.next ? `. Next: ${launch.next.title}` : ''}`
+                  : 'All required Launch steps are done; not yet marked live'
               }
               style={{
                 fontSize: 9, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase',
@@ -306,7 +310,7 @@ function PropertyRow({
                 padding: '2px 7px',
               }}
             >
-              {launch.requiredRemaining > 0 ? `setup ${launch.done}/${launch.total}` : 'ready'}
+              {launch.requiredRemaining > 0 ? `launch ${launch.done}/${launch.total}` : 'ready'}
             </span>
           )}
           {totalWork > 0 && (

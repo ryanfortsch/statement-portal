@@ -292,6 +292,5 @@ export async function activateProperty(
   revalidatePath(`/properties/${propertyId}/launch`);
   revalidatePath(`/properties/${propertyId}`);
   revalidatePath('/properties');
-  revalidatePath('/properties/onboarding');
   return { ok: true, activatedAt };
 }

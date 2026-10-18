@@ -71,14 +71,14 @@ export default async function PropertyLaunchPage({ params }: { params: Promise<P
 
       <HelmBreadcrumb
         trail={[
-          { label: 'Onboarding', href: '/properties/onboarding' },
+          { label: 'Coming online', href: '/properties#coming-online' },
           { label: p.name, href: `/properties/${p.id}` },
-          { label: 'Launch checklist' },
+          { label: 'Launch' },
         ]}
       />
 
       <section className="max-w-[900px] mx-auto px-10" style={{ paddingTop: 24, paddingBottom: 14, width: '100%' }}>
-        <div className="eyebrow" style={{ marginBottom: 14 }}>Launch checklist</div>
+        <div className="eyebrow" style={{ marginBottom: 14 }}>Launch</div>
         <h1
           className="font-serif"
           style={{ fontSize: 40, lineHeight: 1.05, fontWeight: 300, letterSpacing: '-0.02em', color: 'var(--ink)' }}
@@ -93,10 +93,10 @@ export default async function PropertyLaunchPage({ params }: { params: Promise<P
         </p>
         <div style={{ marginTop: 10 }}>
           <Link
-            href="/properties/onboarding"
+            href="/properties#coming-online"
             style={{ fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'none', letterSpacing: '.03em' }}
           >
-            All homes onboarding →
+            All homes coming online →
           </Link>
         </div>
 
