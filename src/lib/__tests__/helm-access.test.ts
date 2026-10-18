@@ -234,7 +234,8 @@ describe('the money server actions refuse a staff session', () => {
     // bank / owner emails / payouts / contract on a property page.
     const home = read('src/app/page.tsx');
     assert.ok(home.includes('const owner = await isOwnerSession();'), 'home page must know the role');
-    assert.ok(home.includes('`repeat(${owner ? 4 : 3}, 1fr)`'), 'the signals strip drops the payout tile for staff');
+    assert.ok(home.includes('`repeat(${owner ? 3 : 2}, 1fr)`'), 'the signals strip drops the payout tile for staff');
+    assert.ok(home.includes("owner ? getCurrentMonthActualPayout() : Promise.resolve<CurrentPayout>({ status: 'unconfigured' })"), 'a staff page never reads the payout');
     const list = read('src/app/properties/page.tsx');
     assert.ok(list.includes("owner ? `${p.management_fee_pct}% →` : 'Managed →'"), 'the properties list hides the fee from staff');
     const page = read('src/app/properties/[id]/page.tsx');

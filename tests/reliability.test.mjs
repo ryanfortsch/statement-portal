@@ -9,6 +9,7 @@ import { SaveQueue } from '../src/lib/save-queue.ts';
 import { readInspectionDrafts } from '../src/lib/inspection-drafts.ts';
 import { availableCount, claimDeployReload, isStaleDeployError } from '../src/lib/recovery.ts';
 import { operatingDate } from '../src/lib/operating-date.ts';
+import { workWeekEnd } from '../src/lib/work-week.ts';
 
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 const tick = () => new Promise((resolve) => setImmediate(resolve));
@@ -140,7 +141,7 @@ test('actual deployment recovery screen always renders actionable controls', () 
   assert.doesNotMatch(html, /Updating to the latest version/);
 });
 
-async function dashboard({ dbError = null, reviewError = false } = {}) {
+async function dashboard({ dbError = null, opsError = false } = {}) {
   const chain = new Proxy({}, { get(_, key) { if (key === 'then') return (done) => Promise.resolve({ count: dbError ? null : 0, data: [], error: dbError }).then(done); return () => chain; } });
   const link = ({ children, href }) => React.createElement('a', { href }, children);
   const { Stat } = loadComponent('../src/components/Stat.tsx', { 'next/link': { default: link, __esModule: true } });
@@ -148,12 +149,11 @@ async function dashboard({ dbError = null, reviewError = false } = {}) {
     'next/link': { default: link, __esModule: true }, '@/lib/recovery': { availableCount },
     '@/lib/supabase-admin': { supabaseAdmin: { from: () => chain }, isServiceConfigured: true },
     '@/lib/helm-access-server': { isOwnerSession: async () => true },
-    '@/lib/operating-date': { operatingDate },
+    '@/lib/operating-date': { operatingDate }, '@/lib/work-week': { workWeekEnd },
     '@/components/Stat': { Stat }, '@/components/RetryDashboard': { RetryDashboard: () => React.createElement('button', null, 'Retry unavailable data') },
     '@/lib/revenue-date-range': { computeDateRange: () => ({ rangeStart: '', rangeEnd: '' }) },
     '@/lib/revenue-snapshot': { computeRevenueSnapshot: async () => ({ portfolio: { totalPayout: 0 } }) },
-    '@/lib/operations': { loadOperationsData: async () => ({ totalCount: 0, inspectionDoneCount: 0 }) },
-    '@/lib/reviews': { getReviewWindowStats: async () => { if (reviewError) throw new Error('offline'); return { total: 0, fiveStar: 0, belowFive: 0 }; } },
+    '@/lib/operations': { loadOperationsData: async () => { if (opsError) throw new Error('offline'); return { totalCount: 0, inspectionDoneCount: 0 }; } },
   };
   for (const name of ['HelmMasthead', 'HelmFooter', 'TeamActivity', 'HomeFeedTabs', 'ForMeFeed', 'AskHelm', 'OccupancyCalendar', 'CleaningsStrip', 'AiStatusBanner', 'HelmHero']) mocks[`@/components/${name}`] = { [name]: blank };
   mocks['@/components/ConciergeAlerts'] = { ConciergeAlertsLine: blank };
@@ -165,17 +165,22 @@ async function dashboard({ dbError = null, reviewError = false } = {}) {
 }
 test('dashboard renders failed count queries as unavailable, never an empty urgent queue', async () => {
   const html = await dashboard({ dbError: { message: 'database offline' } });
-  assert.match(html, /Unavailable/); assert.match(html, /priority data unavailable/); assert.match(html, /Retry unavailable data/);
-  assert.doesNotMatch(html, /no high-priority slips/);
+  assert.match(html, /Unavailable/); assert.match(html, /could not count/); assert.match(html, /Retry unavailable data/);
+  assert.doesNotMatch(html, /nothing overdue/);
 });
 test('dashboard preserves legitimate zero counts and zero payout', async () => {
   const html = await dashboard();
-  assert.match(html, /no high-priority slips/); assert.match(html, /\$0/);
-  assert.doesNotMatch(html, /Some information couldn/);
+  assert.match(html, /nothing overdue/); assert.match(html, /\$0/);
+  assert.doesNotMatch(html, /Some numbers did not load/);
 });
-test('dashboard distinguishes review fetch failure from no reviews', async () => {
-  const html = await dashboard({ reviewError: true });
-  assert.match(html, /review data unavailable/); assert.doesNotMatch(html, /no reviews in last 30 days/);
+test('dashboard says a failed turnovers read, never a quiet week', async () => {
+  const html = await dashboard({ opsError: true });
+  assert.match(html, /Turnovers · next 7 days/); assert.match(html, /Some numbers did not load/);
+});
+test('the signals are two numbers that say their window, plus payout for owners', async () => {
+  const html = await dashboard();
+  assert.match(html, /Open work · this week/); assert.match(html, /Turnovers · next 7 days/);
+  assert.doesNotMatch(html, /Upcoming Inspections|Five-Star Reviews|Today&rsquo;s signals/);
 });
 
 test('homepage uses Today and puts live work ahead of Ask Helm', async () => {
