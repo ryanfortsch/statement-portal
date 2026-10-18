@@ -97,8 +97,7 @@ export async function ProspectsPanel() {
 
       {/* ARCHIVE — promoted prospects. Hidden entirely when empty so a
           first-time user doesn't see a phantom section. Same row layout as
-          active, but the row's status badge reads "Promoted" and the
-          close-likelihood chip is hidden (irrelevant on a closed deal). */}
+          active, but the row's status badge reads "Promoted". */}
       {archived.length > 0 && (
         <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: inactive.length > 0 ? 48 : 80, width: '100%' }}>
           <div className="flex items-baseline justify-between" style={{ marginBottom: 6 }}>
@@ -209,9 +208,6 @@ function ProjectionRowItem({ projection: p, number }: { projection: ProjectionRo
             <h3 className="font-serif rt-projections-row-title" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.02em', color: 'var(--ink)', margin: 0, wordBreak: 'break-word' }}>
               {p.property_address}
             </h3>
-            {/* Close-likelihood is an active-funnel metric — hide on
-                promoted rows (deal closed) and inactive rows (deal dead). */}
-            {!promoted && !isInactive && <LikelihoodChip pct={p.close_likelihood_pct} />}
           </div>
           <p style={{ marginTop: 4, fontSize: 13, color: 'var(--ink-3)' }}>
             {p.prospect_name}
@@ -310,50 +306,3 @@ function shortDate(iso: string): string {
   }
 }
 
-/**
- * Read-only close-likelihood chip for the list row. Inside a row-wide
- * `<Link>` so it can't be a button — clicking the row navigates to the
- * detail page where the inline edit widget lives. Three bands of color
- * (cold/warm/hot) match the detail-page widget's visual code.
- */
-function LikelihoodChip({ pct }: { pct: number | null }) {
-  if (pct == null) {
-    return (
-      <span
-        style={{
-          background: 'transparent',
-          border: '1px dashed var(--rule)',
-          color: 'var(--ink-4)',
-          fontSize: 10,
-          fontWeight: 500,
-          letterSpacing: '0.04em',
-          padding: '2px 8px',
-          borderRadius: 999,
-          whiteSpace: 'nowrap',
-        }}
-      >
-        Set close %
-      </span>
-    );
-  }
-  const hot = pct >= 67;
-  const cold = pct < 33;
-  return (
-    <span
-      title={`${pct}% likely to close`}
-      style={{
-        background: 'var(--paper-2)',
-        border: `1px solid ${hot ? 'var(--positive)' : cold ? 'var(--rule)' : 'var(--ink-3)'}`,
-        color: hot ? 'var(--positive)' : cold ? 'var(--ink-4)' : 'var(--ink)',
-        fontSize: 11,
-        fontWeight: 600,
-        letterSpacing: '0.04em',
-        padding: '3px 10px',
-        borderRadius: 999,
-        whiteSpace: 'nowrap',
-      }}
-    >
-      {pct}% likely
-    </span>
-  );
-}

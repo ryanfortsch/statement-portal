@@ -12,7 +12,6 @@ import { DoneOutsideHelm, DONE_OUTSIDE_HELM } from '@/components/projections/Don
 import { DeleteProspectButton } from '@/components/projections/DeleteProspectButton';
 import { ResetContractButton } from '@/components/projections/ResetContractButton';
 import { InactivePanel } from '@/components/projections/ProspectInactiveControls';
-import { CloseLikelihoodWidget } from '@/components/projections/CloseLikelihoodWidget';
 import { CopyLinkButton, CountersignButton, SendCopyButton, WithdrawSignatureButton } from '@/components/projections/SigningButtons';
 import { countersignerName } from '@/lib/contract-terms';
 import {
@@ -332,34 +331,11 @@ export default async function ProjectionDetailPage({
             ))}
           </div>
         )}
-        {/* Two hero summaries side-by-side: pipeline progress (left) for
-            "where is this deal?" and close-likelihood (right) for "how
-            likely are we to get it?" Cover-range / Year-1 detail moved
-            down into Stage 01's body where it sits alongside the
-            tiered-rule + AirDNA breakdown. */}
-        <style>{`
-          .rt-prospect-hero-kpis {
-            margin-top: 26px;
-            display: grid;
-            grid-template-columns: minmax(0, 1fr) auto;
-            gap: 48px;
-            align-items: flex-end;
-          }
-          /* Mobile: stack the pipeline bar above the close-likelihood
-             widget so the bar gets full width and labels stop colliding
-             with the widget. */
-          @media (max-width: 720px) {
-            .rt-prospect-hero-kpis {
-              grid-template-columns: minmax(0, 1fr);
-              gap: 22px;
-              align-items: flex-start;
-              margin-top: 22px;
-            }
-          }
-        `}</style>
-        <div className="rt-prospect-hero-kpis">
+        {/* Where is this deal? Close likelihood is a plain field in the
+            edit form now (the forecast reads it); the hero only says
+            which stage the deal is at. */}
+        <div style={{ marginTop: 26 }}>
           <PipelineProgressBar steps={pipelineSteps} doneCount={doneCount} />
-          <CloseLikelihoodWidget projectionId={id} value={projection.close_likelihood_pct} size="large" />
         </div>
       </section>
 

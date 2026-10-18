@@ -254,6 +254,19 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save', lastSave
               defaultValue={v.addl_cleaning_per_br ?? 50}
             />
           </Field>
+          {/* The forecast weights this deal's fee by it (blank counts as
+              50%), so the column stays even though nothing here ranks deals. */}
+          <Field label="Close likelihood %" hint="Your read of the odds it signs. The forecast counts blank as 50.">
+            <input
+              name="close_likelihood_pct"
+              type="number"
+              min={0}
+              max={100}
+              step={1}
+              defaultValue={v.close_likelihood_pct ?? ''}
+              style={inputStyle}
+            />
+          </Field>
         </Row>
       </Section>
 

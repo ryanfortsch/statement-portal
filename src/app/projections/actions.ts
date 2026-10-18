@@ -239,7 +239,20 @@ function buildPayload(formData: FormData) {
     // `custom_clause_title[]` + `custom_clause_body[]`. Zip them into the
     // jsonb shape and drop any rows where both fields are empty.
     custom_clauses: parseCustomClauses(formData),
+
+    // Only when the form carries the field, so a form without it never
+    // clears the forecast's weight.
+    ...(formData.has('close_likelihood_pct') ? { close_likelihood_pct: likelihoodOrNull(formData) } : {}),
   };
+}
+
+/** Close likelihood as a whole percent 0 to 100, or null when blank. */
+function likelihoodOrNull(formData: FormData): number | null {
+  const raw = str(formData, 'close_likelihood_pct').replace(/%$/, '');
+  if (!raw) return null;
+  const n = Math.round(Number(raw));
+  if (!Number.isFinite(n) || n < 0 || n > 100) throw new Error(`Close likelihood must be 0 to 100, not ${raw}`);
+  return n;
 }
 
 function parseCustomClauses(formData: FormData): CustomClause[] | null {
@@ -751,37 +764,6 @@ export async function unmarkContractDone(id: string) {
   const { error } = await supabase
     .from('projections')
     .update({ contract_marked_done_at: null })
-    .eq('id', id);
-
-  if (error) throw new Error(error.message);
-
-  revalidatePath('/properties');
-  revalidatePath(`/prospects/${id}`);
-}
-
-/**
- * Set the analyst's confidence that this prospect will close, 0–100.
- *
- * Called from the inline widget on the identity strip and from the prospect
- * list row's quick-set dropdown. Pass null to clear ("haven't decided yet").
- */
-export async function setCloseLikelihood(id: string, pct: number | null): Promise<void> {
-  const session = await auth();
-  if (!session?.user?.email) throw new Error('Not signed in');
-
-  // Validate: integer 0–100, or null.
-  let value: number | null = null;
-  if (pct !== null && pct !== undefined) {
-    const n = Math.round(Number(pct));
-    if (!Number.isFinite(n) || n < 0 || n > 100) {
-      throw new Error(`Invalid likelihood: ${pct} (must be 0–100)`);
-    }
-    value = n;
-  }
-
-  const { error } = await supabase
-    .from('projections')
-    .update({ close_likelihood_pct: value })
     .eq('id', id);
 
   if (error) throw new Error(error.message);
