@@ -432,9 +432,9 @@ export async function ScheduleDigestCard({
         {notice?.err && (
           <div style={{ marginBottom: 10, fontSize: 12, color: 'var(--signal)', fontWeight: 600 }}>
             {notice.err === 'no_recipients' && 'Nothing sent: no recipient is enabled below.'}
-            {notice.err === 'quo_unconfigured' && 'Nothing sent: QUO_API_KEY is not set in this environment.'}
-            {notice.err === 'all_failed' && 'Quo rejected every send - see the log below and try again.'}
-            {notice.err === 'raced' && 'Already handled in another tab - this is the fresh state.'}
+            {notice.err === 'quo_unconfigured' && 'Nothing sent: texting is not set up here. Ask Ryan.'}
+            {notice.err === 'all_failed' && 'Every text failed. The log below says why; try again.'}
+            {notice.err === 'raced' && 'Already handled in another tab. This is the fresh state.'}
             {notice.err === 'schedule_unavailable' && 'Nothing sent: the live schedule could not be read at that moment. Try again in a minute.'}
             {notice.err === 'save_failed' && 'That did not save. Try again.'}
             {notice.err === 'note_untranslated' && 'Your note is saved but could not be put into Portuguese just now. It will go out exactly as you typed it. Try Save & translate again in a minute.'}
@@ -495,38 +495,19 @@ export async function ScheduleDigestCard({
           </>
         )}
 
-        {/* Unattended-send switch. Sits with the recipients because both
-            answer the same question: who gets texted, and does it happen
-            without me. */}
-        <div
-          style={{
-            marginTop: 14,
-            padding: '10px 12px',
-            border: `1px solid ${settings.autosend_enabled ? 'var(--tide-deep)' : 'var(--rule)'}`,
-            borderRadius: 6,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 12,
-            flexWrap: 'wrap',
-          }}
-        >
-          <span style={{ fontSize: 12, color: 'var(--ink)', flex: 1, minWidth: 260, lineHeight: 1.5 }}>
-            {settings.autosend_enabled ? (
-              <>
-                <strong>Sending automatically</strong> every evening at{' '}
-                {formatTime12(`${String(settings.send_hour_et).padStart(2, '0')}:00`)} ET, composed live at that moment.
-                A day you skip is never sent, and a day you send by hand is never sent twice.
-              </>
-            ) : (
-              <>
-                <strong>Automatic sending is off.</strong> Nothing reaches the cleaners unless you approve it here.
-              </>
-            )}
-            {settings.last_autosend_at && (
+        {/* Unattended-send switch, one line (2026-10-18; it was a bordered
+            paragraph). Sits with the recipients because both answer the same
+            question: who gets texted, and does it happen without me. A skipped
+            day never sends; a day sent by hand never sends twice. */}
+        <div style={{ marginTop: 14, display: 'flex', alignItems: 'baseline', gap: 14, flexWrap: 'wrap', fontSize: 12, color: 'var(--ink-3)' }}>
+          <span>
+            {settings.autosend_enabled
+              ? `Sends automatically at ${formatTime12(`${String(settings.send_hour_et).padStart(2, '0')}:00`)} ET.`
+              : 'Sends only when you approve it.'}
+            {settings.autosend_enabled && settings.last_autosend_at && (
               <span style={{ color: 'var(--ink-4)' }}>
-                {' '}Last automatic send{' '}
-                {new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' }).format(new Date(settings.last_autosend_at))}
-                {settings.last_autosend_date ? ` (for ${settings.last_autosend_date})` : ''}.
+                {' '}Last sent{' '}
+                {new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' }).format(new Date(settings.last_autosend_at))}.
               </span>
             )}
           </span>
@@ -537,15 +518,7 @@ export async function ScheduleDigestCard({
               label={settings.autosend_enabled ? 'Turn off automatic sending' : `Send automatically at ${formatTime12(`${String(settings.send_hour_et).padStart(2, '0')}:00`)}`}
               busyLabel="Saving..."
               spinnerTone="ink"
-              style={{
-                fontSize: 12,
-                padding: '7px 13px',
-                borderRadius: 5,
-                cursor: 'pointer',
-                background: 'transparent',
-                color: settings.autosend_enabled ? 'var(--signal)' : 'var(--ink)',
-                border: `1px solid ${settings.autosend_enabled ? 'var(--signal)' : 'var(--ink)'}`,
-              }}
+              className="rt-quiet-btn"
             />
           </form>
         </div>
@@ -584,11 +557,15 @@ export async function ScheduleDigestCard({
               }}
             />
             <div style={{ fontSize: 11, color: 'var(--ink-4)', margin: '6px 0 12px' }}>
-              This is composed from the live schedule right now, and left untouched the send recomposes it again at that moment. Edited text goes verbatim.
+              Live from the schedule. Edited text goes as typed.
             </div>
-            <label style={{ display: 'block', fontSize: 11, letterSpacing: '.12em', textTransform: 'uppercase', fontWeight: 700, color: 'var(--ink-4)', margin: '14px 0 6px' }}>
-              Special instructions (optional)
-            </label>
+            {/* Special instructions and the tail every text carries, folded
+                (2026-10-18) unless a note exists or still needs translating.
+                A closed details still submits its fields with the form. */}
+            <details open={!!digest.operator_note || noteStale} style={{ margin: '4px 0 14px' }}>
+            <summary style={{ cursor: 'pointer', fontSize: 11, letterSpacing: '.12em', textTransform: 'uppercase', fontWeight: 700, color: 'var(--ink-4)', padding: '6px 0' }}>
+              Special instructions{digest.operator_note ? '' : ' (optional)'}
+            </summary>
             <textarea
               name="note"
               defaultValue={digest.operator_note ?? ''}
@@ -615,13 +592,8 @@ export async function ScheduleDigestCard({
                 style={{ fontSize: 12, padding: '7px 13px', background: 'transparent', color: 'var(--ink)', border: '1px solid var(--ink)', borderRadius: 5, cursor: 'pointer' }}
               />
               <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>
-                Puts it into Portuguese and shows it below, exactly as it will be sent.
+                Any language; it goes out in Portuguese with your English under it.
               </span>
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--ink-4)', margin: '0 0 12px' }}>
-              Write it in whichever language you think in. It goes out in Portuguese with your English underneath, after
-              the schedule. Unlike editing the text above, a note here does not freeze the schedule -- it still
-              recomposes live at send time. It sticks through Refresh draft and Re-scan.
             </div>
 
             {/* The tail nobody could see. The note is stored apart from the
@@ -660,8 +632,8 @@ export async function ScheduleDigestCard({
               )}
               {noteStale && (
                 <div style={{ margin: '6px 0 8px', color: 'var(--signal)', fontWeight: 600 }}>
-                  Your note has not been put into Portuguese yet. Approving translates it anyway -- press Save &amp;
-                  translate first if you want to read it before it goes.
+                  Your note has not been put into Portuguese yet. Approving translates it anyway; press Save &amp;
+                  translate first to read it before it goes.
                 </div>
               )}
               <div style={{ fontFamily: 'var(--font-mono), monospace', marginTop: 4, wordBreak: 'break-all', color: 'var(--ink-3)' }}>
@@ -673,6 +645,8 @@ export async function ScheduleDigestCard({
                 {enabledList.length > 1 ? ` (${enabledList[0].display_name}; the others get their own)` : ''}
               </div>
             </div>
+            </details>
+            {/* One primary, then the quiet exits, like a message card. */}
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
               <SubmitButton
                 label="Approve &amp; send via Quo"
@@ -680,44 +654,47 @@ export async function ScheduleDigestCard({
                 formAction={approveAndSendDigest}
                 disabled={!anyEnabled || !day}
                 style={{
-                  fontSize: 13,
-                  fontWeight: 600,
-                  padding: '9px 18px',
-                  background: anyEnabled && day ? 'var(--signal)' : 'var(--rule)',
-                  color: anyEnabled && day ? '#fff' : 'var(--ink-4)',
+                  fontSize: 12,
+                  letterSpacing: '0.18em',
+                  textTransform: 'uppercase',
+                  fontWeight: 700,
+                  padding: '13px 22px',
+                  background: anyEnabled && day ? 'var(--ink)' : 'var(--rule)',
+                  color: anyEnabled && day ? 'var(--paper)' : 'var(--ink-4)',
                   border: 'none',
-                  borderRadius: 5,
                   cursor: anyEnabled && day ? 'pointer' : 'not-allowed',
                 }}
               />
-              <SubmitButton
-                label="Refresh draft"
-                busyLabel="Refreshing..."
-                spinnerTone="ink"
-                formAction={refreshDigestDraft}
-                name="serviceDate"
-                value={digest.service_date}
-                style={{ fontSize: 12, padding: '8px 14px', background: 'transparent', color: 'var(--ink)', border: '1px solid var(--ink)', borderRadius: 5, cursor: 'pointer' }}
-              />
-              <span title="Mine the last 3 days of guest threads for agreed late checkouts / extensions right now">
+              <div className="rt-message-quiet">
                 <SubmitButton
-                  label="Re-scan messages"
-                  busyLabel="Scanning threads..."
+                  label="Refresh draft"
+                  busyLabel="Refreshing..."
                   spinnerTone="ink"
-                  formAction={rescanMessagesAction}
-                  style={{ fontSize: 12, padding: '8px 14px', background: 'transparent', color: 'var(--ink)', border: '1px solid var(--rule)', borderRadius: 5, cursor: 'pointer' }}
+                  formAction={refreshDigestDraft}
+                  name="serviceDate"
+                  value={digest.service_date}
+                  className="rt-quiet-btn"
                 />
-              </span>
-              <SubmitButton
-                label="Skip this day"
-                busyLabel="Skipping..."
-                spinnerTone="ink"
-                formAction={skipDigestAction}
-                style={{ fontSize: 12, padding: '8px 14px', background: 'transparent', color: 'var(--ink-4)', border: '1px solid var(--rule)', borderRadius: 5, cursor: 'pointer' }}
-              />
-              <Link href="/turnovers/schedule" style={{ fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}>
-                Full schedule &amp; adjustments →
-              </Link>
+                <span title="Reads the last 3 days of guest threads for agreed late checkouts and extensions, now">
+                  <SubmitButton
+                    label="Re-scan messages"
+                    busyLabel="Scanning threads..."
+                    spinnerTone="ink"
+                    formAction={rescanMessagesAction}
+                    className="rt-quiet-btn"
+                  />
+                </span>
+                <SubmitButton
+                  label="Skip this day"
+                  busyLabel="Skipping..."
+                  spinnerTone="ink"
+                  formAction={skipDigestAction}
+                  className="rt-quiet-btn"
+                />
+                <Link href="/turnovers/schedule" className="rt-inline-action" style={{ fontSize: 12 }}>
+                  Full schedule →
+                </Link>
+              </div>
             </div>
             <input type="hidden" name="back" value="card" />
           </form>
@@ -778,7 +755,7 @@ export async function ScheduleDigestCard({
                   style={{ fontSize: 12, padding: '8px 14px', background: 'var(--ink)', color: 'var(--paper)', border: 'none', borderRadius: 5, cursor: 'pointer' }}
                 />
                 <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>
-                  Helm drafts it each afternoon. This does the same thing now and moves the card to tomorrow.
+                  Drafted each afternoon; this drafts it now.
                 </span>
               </form>
             )}
