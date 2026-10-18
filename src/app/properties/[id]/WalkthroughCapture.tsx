@@ -388,7 +388,7 @@ export function WalkthroughCapture({
                       {it.kind}
                     </span>
                     <span>{it.value}</span>
-                    {it.guestFacing && <span style={{ fontSize: 9, color: 'var(--tide-deep)', textTransform: 'uppercase', letterSpacing: '.1em' }}>guest</span>}
+                    {it.guestFacing && <span style={{ fontSize: 9, color: 'var(--tide-deep)', textTransform: 'uppercase', letterSpacing: '.1em' }}>Guest KB</span>}
                     {it.confidence === 'low' && <span style={{ fontSize: 9, color: 'var(--negative)', textTransform: 'uppercase', letterSpacing: '.1em' }}>check</span>}
                   </label>
                 ))}

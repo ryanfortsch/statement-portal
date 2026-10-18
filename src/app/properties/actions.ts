@@ -770,14 +770,24 @@ export async function deletePropertyNotice(propertyId: string, noticeId: string)
  * NOT to be confused with property_notices (one-i) above, which are
  * guest-facing printed placards.
  */
-function notePayload(formData: FormData): { title: string; body: string; tag: string | null; guest_facing: boolean } | null {
+function notePayload(formData: FormData): { title: string; body: string; tag: string | null; guest_facing: boolean; kind: 'fact' | 'issue' } | null {
   const title = String(formData.get('title') ?? '').trim();
   const body = String(formData.get('body') ?? '').trim();
   const tag = strOrNull(formData, 'tag');
   // Checkbox: present ('on') when ticked, absent otherwise.
   const guest_facing = formData.get('guest_facing') != null;
+  // A fact is what we know (Facts tab, the Guest KB when guest-facing); an
+  // issue is something to fix (Now tab, resolved when fixed). Without a
+  // choice, the same rule as the DB trigger.
+  const rawKind = String(formData.get('kind') ?? '');
+  const kind: 'fact' | 'issue' = rawKind === 'fact' || rawKind === 'issue' ? rawKind : guest_facing ? 'fact' : 'issue';
   if (!title) return null;
-  return { title, body, tag, guest_facing };
+  return { title, body, tag, guest_facing, kind };
+}
+
+/** Where a note lives once saved: a fact in What we know, an issue in the Now list. */
+function noteHome(propertyId: string, kind: 'fact' | 'issue'): string {
+  return kind === 'fact' ? `/properties/${propertyId}?tab=facts#ops-notebook` : `/properties/${propertyId}?tab=now#flags`;
 }
 
 export async function createPropertyNote(propertyId: string, formData: FormData) {
@@ -793,7 +803,7 @@ export async function createPropertyNote(propertyId: string, formData: FormData)
   await insertGuestMaterial('property_notes', { property_id: propertyId, ...payload, author_email: session.user.email }, formData);
 
   revalidatePath(`/properties/${propertyId}`);
-  redirect(`/properties/${propertyId}?tab=facts#ops-notebook`);
+  redirect(noteHome(propertyId, payload.kind));
 }
 
 export async function updatePropertyNote(propertyId: string, noteId: string, formData: FormData) {
@@ -803,9 +813,12 @@ export async function updatePropertyNote(propertyId: string, noteId: string, for
   const payload = notePayload(formData);
   if (!payload) throw new Error('Title is required.');
 
+  // A fact is never resolved (property_notes_fact_never_resolved), so a
+  // resolved issue turned into a fact is reopened in the same write.
+  const patch = payload.kind === 'fact' ? { ...payload, resolved_at: null, resolved_by_email: null } : payload;
   const { data, error } = await getServiceClient()
     .from('property_notes')
-    .update(payload)
+    .update(patch)
     .eq('id', noteId)
     .eq('property_id', propertyId)
     .select('id');
@@ -813,7 +826,7 @@ export async function updatePropertyNote(propertyId: string, noteId: string, for
   if (!data?.length) throw new Error('Note not found. Your changes were not saved.');
 
   revalidatePath(`/properties/${propertyId}`);
-  redirect(`/properties/${propertyId}?tab=facts#ops-notebook`);
+  redirect(noteHome(propertyId, payload.kind));
 }
 
 export async function deletePropertyNote(propertyId: string, noteId: string) {
@@ -844,12 +857,18 @@ export async function togglePropertyNoteResolved(propertyId: string, noteId: str
   const sb = getServiceClient();
   const { data: current, error: readErr } = await sb
     .from('property_notes')
-    .select('resolved_at')
+    .select('resolved_at, kind')
     .eq('id', noteId)
     .eq('property_id', propertyId)
     .maybeSingle();
   if (readErr) throw new Error(readErr.message);
   if (!current) throw new Error('Note not found');
+  // A fact is what we know, not a job to close: resolving one would take it
+  // out of the Guest KB (/api/kb-facts reads open notes only). The database
+  // refuses it too; this says why before the write is tried.
+  if (!current.resolved_at && current.kind === 'fact') {
+    throw new Error('This is a fact, not an issue: edit or delete it instead of resolving it.');
+  }
 
   // The flags shortcut is a Resolve command, including after a lost reply.
   // Preserve the original resolver and timestamp on a repeated command.
@@ -868,6 +887,26 @@ export async function togglePropertyNoteResolved(propertyId: string, noteId: str
     .eq('id', noteId)
     .eq('property_id', propertyId);
   if (error) throw new Error(error.message);
+
+  revalidatePath(`/properties/${propertyId}`);
+}
+
+/**
+ * Reopen a resolved issue, from its edit page. Explicit rather than a toggle,
+ * so a retry after a lost response can never close it again.
+ */
+export async function reopenPropertyNote(propertyId: string, noteId: string) {
+  const session = await auth();
+  if (!session?.user?.email) throw new Error('Not signed in');
+
+  const { data, error } = await getServiceClient()
+    .from('property_notes')
+    .update({ resolved_at: null, resolved_by_email: null })
+    .eq('id', noteId)
+    .eq('property_id', propertyId)
+    .select('id');
+  if (error) throw new Error(error.message);
+  if (!data?.length) throw new Error('Note not found');
 
   revalidatePath(`/properties/${propertyId}`);
 }

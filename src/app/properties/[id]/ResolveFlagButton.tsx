@@ -23,10 +23,16 @@ export function ResolveFlagButton({
   propertyId,
   flagId,
   source,
+  guestFacing = false,
 }: {
   propertyId: string;
   flagId: string;
   source: FlagSource;
+  /**
+   * The issue is in the Guest KB, so resolving it also stops the guest AI
+   * telling guests about it. Said once, before the tap lands.
+   */
+  guestFacing?: boolean;
 }) {
   const [pending, startTransition] = useTransition();
   const lock = useRef(false);
@@ -37,6 +43,7 @@ export function ResolveFlagButton({
 
   function resolve() {
     if (lock.current || resolved) return;
+    if (guestFacing && !window.confirm('Resolving this also takes it out of the Guest KB, so the guest AI stops mentioning it. Resolve?')) return;
     lock.current = true;
     setErr(null);
     startTransition(async () => {
@@ -82,7 +89,7 @@ export function ResolveFlagButton({
         type="button"
         disabled={pending}
         onClick={resolve}
-        title="Mark resolved. The note is kept, it just stops being open."
+        title="Mark resolved. The issue is kept and can be reopened from its page."
         style={{
           background: 'transparent',
           border: '1px solid var(--rule)',
