@@ -13,6 +13,7 @@ import { PaymentLinkActions } from '@/app/messaging/send/PaymentLinkActions';
 import { loadMeetingCards } from '@/lib/meetings';
 import { meetingWhen, todayET, type MeetingCard } from '@/lib/meetings-core';
 import { operatingDate } from '@/lib/operating-date';
+import { checkoutBoardHref } from '@/lib/turnover-board';
 import { roleForEmail, roleMayOpen } from '@/lib/helm-access';
 import { canOpenMailbox, gmailUrl } from '@/lib/gmail-links';
 import { dueWording, handoffMonths, inNagWindow, monthName } from '@/lib/close-handoff';
@@ -1038,9 +1039,16 @@ async function loadStatementQueue(): Promise<QueueCard | null> {
 }
 
 function CleaningFlagRow({ flag }: { flag: BriefCleaningFlag }) {
+  // A flag about a checkout lands on that house's board row, where the
+  // verdict prints; a visit with nobody checking out has no row, so it lands
+  // on the From Cape Ann Elite list.
+  const href =
+    flag.status === 'no_checkout'
+      ? `/turnovers/cleanings#day-${flag.date}`
+      : checkoutBoardHref(flag.propertyId, flag.date, operatingDate());
   return (
     <Link
-      href={`/turnovers/cleanings#day-${flag.date}`}
+      href={href}
       style={{ ...feedRowStyle, alignItems: 'baseline', textDecoration: 'none', color: 'inherit' }}
     >
       <span aria-hidden style={{ ...dotStyle, background: 'var(--signal)' }} />

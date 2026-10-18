@@ -15,8 +15,9 @@ import { VENDOR_LABEL } from '@/lib/vendor-schedule';
  * reads "Not announced yet" until their 09:30 batch lands, and that is
  * the truth, not a gap.
  *
- * Same loader as /turnovers/cleanings (lib/cleaning-schedule.ts), so the
- * strip and the page cannot disagree. Renders nothing at all, rather than
+ * Same loader as the turnover board and /turnovers/cleanings
+ * (lib/cleaning-schedule.ts), so the strip and the board cannot disagree.
+ * Its link opens the board on the same three days. Renders nothing at all, rather than
  * an empty box, when Helm's service client is not configured or the read
  * throws: a blank strip on the home page would read as "no cleanings".
  */
@@ -152,7 +153,7 @@ export async function CleaningsStrip() {
       <div className="flex items-baseline justify-between flex-wrap" style={{ gap: 12, marginBottom: 14 }}>
         <div className="eyebrow">Cleanings · {VENDOR_LABEL}</div>
         <Link
-          href="/turnovers/cleanings"
+          href="/turnovers?range=3d"
           style={{
             fontSize: 11,
             letterSpacing: '.16em',
@@ -162,7 +163,7 @@ export async function CleaningsStrip() {
             textDecoration: 'none',
           }}
         >
-          Full schedule →
+          Turnovers →
         </Link>
       </div>
       {/* Deliberately NOT rt-helm-stat-strip. That class exists only as a

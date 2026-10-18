@@ -7,9 +7,12 @@
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   BOARD_STATE_LABEL,
   boardLifecycle,
+  boardRangeFor,
+  checkoutBoardHref,
   clock,
   composeBoard,
   pairText,
@@ -298,5 +301,35 @@ describe('the strip counts what the rows print', () => {
     const t = turnover({ propertyId: 'home_a', checkIn: TODAY, manuallyCompleted: true, previousCheckout: TODAY });
     const b = board([t], [day(TODAY, [item({ propertyId: 'home_a', status: 'no_appointment', cleaningTime: null })])]);
     assert.equal(b.counts.length, 0);
+  });
+});
+
+describe('links into the board', () => {
+  test('a date opens the narrowest range that holds it', () => {
+    assert.equal(boardRangeFor(TODAY, TODAY), '2d');
+    assert.equal(boardRangeFor('2026-10-19', TODAY), '2d');
+    assert.equal(boardRangeFor('2026-10-20', TODAY), '3d');
+    assert.equal(boardRangeFor('2026-10-25', TODAY), '7d');
+    assert.equal(boardRangeFor('2026-11-01', TODAY), '14d');
+    assert.equal(boardRangeFor('2026-11-10', TODAY), '30d');
+    assert.equal(checkoutBoardHref('home_a', '2026-10-20', TODAY), '/turnovers?range=3d#out-home_a-2026-10-20');
+  });
+
+  test('every checkout in range has its out- anchor on some row, paired or not', () => {
+    const paired = turnover({ propertyId: 'home_a', checkIn: '2026-10-22', previousCheckout: TODAY });
+    const b = board(
+      [paired],
+      [day(TODAY, [item({ propertyId: 'home_a' }), item({ propertyId: 'home_b', checkIn: '2026-10-11' })])],
+    );
+    const anchors = new Set(rowsOf(b).flatMap((r) => [r.id, r.outAnchor].filter(Boolean)));
+    assert.ok(anchors.has(`out-home_a-${TODAY}`), 'the paired row carries the anchor');
+    assert.ok(anchors.has(`out-home_b-${TODAY}`), 'the vacant checkout is the anchor');
+  });
+
+  test('a feed flag about a checkout opens its board row, not a second page', () => {
+    const feed = readFileSync(new URL('../../components/ForMeFeed.tsx', import.meta.url), 'utf8');
+    assert.match(feed, /checkoutBoardHref\(flag\.propertyId, flag\.date, operatingDate\(\)\)/);
+    const tabs = readFileSync(new URL('../../components/TurnoverTabs.tsx', import.meta.url), 'utf8');
+    assert.doesNotMatch(tabs, /href: '\/turnovers\/cleanings'/, 'Cleanings is not a tab: its verdicts are on the rows');
   });
 });

@@ -227,6 +227,25 @@ export function pairText(
   return parts.join(' · ');
 }
 
+// ── links into the board ──────────────────────────────────────────────
+
+/** The narrowest board range whose window holds `date` (the board reads
+ *  today through today + RANGE_DAYS; '2d' is today and tomorrow). */
+export function boardRangeFor(date: string, today: string): '2d' | '3d' | '7d' | '14d' | '30d' {
+  const n = daysBetween(today, date);
+  if (n <= 1) return '2d';
+  if (n <= 3) return '3d';
+  if (n <= 7) return '7d';
+  if (n <= 14) return '14d';
+  return '30d';
+}
+
+/** The board row of a checkout: every row with a departure in range carries
+ *  the `out-<pid>-<date>` anchor, paired with an arrival or not. */
+export function checkoutBoardHref(propertyId: string, date: string, today: string): string {
+  return `/turnovers?range=${boardRangeFor(date, today)}#out-${propertyId}-${date}`;
+}
+
 // ── the lifecycle, on the Eastern clock ───────────────────────────────
 
 export type BoardLifecycle = {

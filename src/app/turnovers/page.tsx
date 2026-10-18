@@ -15,6 +15,7 @@ import { loadPacketStatusByBooking } from '@/lib/field-packets';
 import { loadCleaningSchedule } from '@/lib/cleaning-schedule';
 import type { CleaningDay } from '@/lib/cleaning-days';
 import { displayNameForEmail } from '@/lib/team';
+import { VENDOR_LABEL } from '@/lib/vendor-schedule';
 import { composeBoard, type Board, type BoardCount, type BoardRow, type BoardStateKey } from '@/lib/turnover-board';
 import {
   loadOperationsData,
@@ -200,6 +201,7 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
     : 'Not synced yet';
 
   const board = buildBoard(data, cleaningDays);
+  const strayVisits = (cleaningDays ?? []).reduce((n, d) => n + d.items.filter((i) => i.status === 'no_checkout').length, 0);
   const pending = board.days.reduce((n, d) => n + d.rows.length, 0);
   // The headline jumps to the first open row: the one at the top of the list.
   const firstOpen = board.days[0]?.rows[0] ?? null;
@@ -387,12 +389,18 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
 
       {/* The occupancy calendar has its own Turnovers page, so the rail
           reads alone here and the home page stays the person's day. */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, flex: 1, width: '100%' }}>
-        <Link
-          href="/turnovers/calendar"
-          style={{ fontSize: 12, color: 'var(--ink-3)', textDecoration: 'underline', textUnderlineOffset: 3 }}
-        >
+      <section
+        className="max-w-[1100px] mx-auto px-10 flex flex-wrap"
+        style={{ paddingBottom: 80, flex: 1, width: '100%', gap: '12px 28px', alignContent: 'flex-start' }}
+      >
+        <Link href="/turnovers/calendar" style={footLink}>
           Occupancy calendar →
+        </Link>
+        {/* The crew's visits the rows cannot show (nobody checks out, or
+            not announced yet). Every verdict about a checkout is on its row. */}
+        <Link href="/turnovers/cleanings" style={footLink}>
+          From {VENDOR_LABEL}
+          {strayVisits > 0 ? ` · ${strayVisits} to check` : ''} →
         </Link>
       </section>
 
@@ -423,7 +431,7 @@ function TurnoverList({ board, myEmail }: { board: Board; myEmail: string }) {
     <div style={{ borderTop: '1px solid var(--ink)' }}>
       {board.days.map((d) => (
         <div key={d.date}>
-          <DayDivider label={dividerLabel(d.date, board.today)} accent={d.date === board.today} />
+          <DayDivider id={`day-${d.date}`} label={dividerLabel(d.date, board.today)} accent={d.date === board.today} />
           {d.rows.map((r) => (
             <BoardLine key={r.id} row={r} today={board.today} myEmail={myEmail} />
           ))}
@@ -499,10 +507,12 @@ function WalkHomeNow({ properties }: { properties: { value: string; label: strin
 
 /** Editorial day divider for the datebook list: a small letterspaced eyebrow
  *  ("TUE · JUL 8", or "TODAY" / "IN MOTION" in signal) above its rows. */
-function DayDivider({ label, accent = false }: { label: string; accent?: boolean }) {
+function DayDivider({ id, label, accent = false }: { id?: string; label: string; accent?: boolean }) {
   return (
     <div
+      id={id}
       style={{
+        scrollMarginTop: 96,
         padding: '16px 6px 6px',
         fontSize: 9,
         letterSpacing: '0.2em',
@@ -515,6 +525,8 @@ function DayDivider({ label, accent = false }: { label: string; accent?: boolean
     </div>
   );
 }
+
+const footLink: React.CSSProperties = { fontSize: 12, color: 'var(--ink-3)', textDecoration: 'underline', textUnderlineOffset: 3 };
 
 const STATE_HUE: Record<BoardStateKey, string> = {
   no_cleaner: 'var(--negative)',

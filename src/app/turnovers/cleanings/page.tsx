@@ -1,5 +1,4 @@
 import Link from 'next/link';
-import type { CSSProperties } from 'react';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
 import { TurnoverTabs } from '@/components/TurnoverTabs';
@@ -9,61 +8,41 @@ import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { addDays, formatTime12 } from '@/lib/checkout-schedule';
 import { VENDOR_LABEL } from '@/lib/vendor-schedule';
 import { loadCleaningSchedule } from '@/lib/cleaning-schedule';
-import { ATTENTION_STATUSES, type CleaningItem, type CleaningStatus } from '@/lib/cleaning-days';
+import type { CleaningItem } from '@/lib/cleaning-days';
+import { boardRangeFor } from '@/lib/turnover-board';
 import { pullVendorTextsAction } from './actions';
 
 /**
- * The cleaning crew's schedule, plainly.
+ * From Cape Ann Elite: what the crew's own schedule says that the turnover
+ * board cannot.
  *
  * Cape Ann Elite (A-1 Maintenance & Cleaning) dispatches through Jobber,
- * which texts an appointment reminder to the Quo line about two days
- * before every visit. Those texts are the vendor's OWN commitment. They
- * are parsed into vendor_appointments (lib/vendor-schedule.ts) and laid
- * here against our checkout schedule, one line per house per day: when
- * the crew is coming, who is leaving, and whether the two agree.
+ * which texts an appointment reminder to the Quo line about two days before
+ * every visit. Those texts are parsed into vendor_appointments
+ * (lib/vendor-schedule.ts) and judged against our checkouts. Every verdict
+ * about a checkout ("Cleaner booked 9:30", "No cleaner booked", "Cleaner
+ * after check-in") prints on that house's row on the board now. What is
+ * left has no row to print on:
  *
- * Read-only apart from one button. The knobs that move a checkout live on
- * /turnovers/schedule, and a mismatch here links straight to its row
- * there. What this page adds is the vendor's side of the day, without the
- * adjustment forms around it.
+ *   - a visit booked where nobody checks out (an extension, a cancellation,
+ *     an owner in the house), or one that could not be cross-checked
+ *     because our own schedule failed to load;
+ *   - a day the vendor has not announced yet, with checkouts waiting on it.
  *
- * Silence is honest. Reminders arrive about two days ahead, so a day past
- * the furthest text reads "not announced yet", never "nobody is coming".
+ * Reached from the home feed's "Cleanings to check" and the board's link.
+ * Silence is honest: a day past the furthest text is "not announced yet",
+ * never "nobody is coming".
  */
 
 export const dynamic = 'force-dynamic';
 
 const DAYS = 7;
 
-// Every label is about the CLEANER. "Nothing booked" once read as a
-// vacancy, which is the opposite of what it meant.
-const STATUS_LABEL: Record<CleaningStatus, { text: string; tone: 'ok' | 'warn' | 'bad' | 'mute' }> = {
-  agree: { text: 'Cleaner booked', tone: 'ok' },
-  early: { text: 'Cleaner before checkout', tone: 'warn' },
-  late: { text: 'Cleaner after check-in', tone: 'bad' },
-  no_appointment: { text: 'No cleaner booked', tone: 'bad' },
-  no_checkout: { text: 'Cleaner booked · no checkout', tone: 'bad' },
-  unannounced: { text: 'Not announced yet', tone: 'mute' },
-  unchecked: { text: 'Cleaner booked · not cross-checked', tone: 'ok' },
-};
-
-const TONE: Record<'ok' | 'warn' | 'bad' | 'mute', CSSProperties> = {
-  ok: { color: 'var(--ink-3)', border: '1px solid var(--rule)' },
-  warn: { color: '#8a6d1a', border: '1px solid #d6a51e' },
-  bad: { color: 'var(--signal)', border: '1px solid var(--signal)' },
-  mute: { color: 'var(--ink-4)', border: '1px solid var(--rule-soft)' },
-};
-
-function fmtDayHead(date: string, today: string): string {
-  const base = new Intl.DateTimeFormat('en-US', {
-    weekday: 'long',
-    month: 'short',
-    day: 'numeric',
-    timeZone: 'UTC',
-  }).format(new Date(`${date}T12:00:00Z`));
-  if (date === today) return `Today · ${base}`;
-  if (date === addDays(today, 1)) return `Tomorrow · ${base}`;
-  return base;
+/** "Today", "Tomorrow", then "Wed, Oct 21". */
+function dayLabel(date: string, today: string): string {
+  if (date === today) return 'Today';
+  if (date === addDays(today, 1)) return 'Tomorrow';
+  return fmtShortDay(date);
 }
 
 /** "Tue, Sep 8" */
@@ -86,83 +65,36 @@ function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
 }
 
-function CleaningRow({ item }: { item: CleaningItem }) {
-  const label = STATUS_LABEL[item.status];
-  const muted = item.status === 'unannounced';
-  const flagged = ATTENTION_STATUSES.has(item.status);
+/** One visit with no checkout behind it: when, where, and why it is here. */
+function VisitRow({ item, day, today, anchor }: { item: CleaningItem; day: string; today: string; anchor: boolean }) {
   return (
     <div
-      style={{
-        display: 'flex',
-        alignItems: 'baseline',
-        gap: 12,
-        padding: '11px 0',
-        borderTop: '1px solid var(--rule)',
-        flexWrap: 'wrap',
-      }}
+      id={anchor ? `day-${day}` : undefined}
+      style={{ display: 'flex', alignItems: 'baseline', gap: 12, padding: '11px 0', borderTop: '1px solid var(--rule)', flexWrap: 'wrap', scrollMarginTop: 100 }}
     >
-      <span
-        style={{
-          fontFamily: 'var(--font-mono), monospace',
-          fontSize: 16,
-          fontWeight: 600,
-          minWidth: 84,
-          color: item.cleaningTime ? 'var(--ink)' : 'var(--ink-4)',
-        }}
-      >
-        {item.cleaningTime ? formatTime12(item.cleaningTime) : '—'}
+      <span style={{ fontSize: 12, color: 'var(--ink-3)', minWidth: 84 }}>{dayLabel(day, today)}</span>
+      <span style={{ fontFamily: 'var(--font-mono), monospace', fontSize: 14, fontWeight: 600, minWidth: 72 }}>
+        {item.cleaningTime ? formatTime12(item.cleaningTime) : ''}
       </span>
-      <Link
-        href={`/properties/${item.propertyId}`}
-        style={{ fontSize: 14, fontWeight: 600, color: muted ? 'var(--ink-3)' : 'var(--ink)', textDecoration: 'none' }}
-      >
+      <Link href={`/properties/${item.propertyId}`} style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)', textDecoration: 'none' }}>
         {item.propertyName}
       </Link>
-      <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
-        {item.checkoutTime
-          ? `${item.guestName ? `${item.guestName} · ` : ''}out ${formatTime12(item.checkoutTime)}`
-          : 'no checkout on our schedule'}
-      </span>
-      {item.sameDayTurnover && (
-        <span
-          style={{
-            fontSize: 10,
-            fontWeight: 700,
-            letterSpacing: '.08em',
-            textTransform: 'uppercase',
-            color: 'var(--signal)',
-            border: '1px solid var(--signal)',
-            borderRadius: 3,
-            padding: '2px 7px',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          same day{item.nextCheckinTime ? ` · next guest ${formatTime12(item.nextCheckinTime)}` : ''}
-        </span>
-      )}
-      <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'baseline', gap: 12 }}>
-        {flagged && item.checkIn && (
-          <Link
-            href={`/turnovers/schedule#stay-${item.propertyId}-${item.checkIn}`}
-            style={{ fontSize: 11, color: 'var(--ink-3)', textDecoration: 'underline', textUnderlineOffset: 3 }}
-          >
-            our schedule →
-          </Link>
-        )}
-        <span
-          style={{
-            fontSize: 10,
-            letterSpacing: '.06em',
-            textTransform: 'uppercase',
-            fontWeight: 600,
-            padding: '2px 7px',
-            borderRadius: 3,
-            whiteSpace: 'nowrap',
-            ...TONE[label.tone],
-          }}
-        >
-          {label.text}
-        </span>
+      <span
+        style={{
+          marginLeft: 'auto',
+          fontSize: 10,
+          letterSpacing: '.06em',
+          textTransform: 'uppercase',
+          fontWeight: 600,
+          padding: '2px 7px',
+          borderRadius: 3,
+          whiteSpace: 'nowrap',
+          ...(item.status === 'no_checkout'
+            ? { color: 'var(--signal)', border: '1px solid var(--signal)' }
+            : { color: 'var(--ink-3)', border: '1px solid var(--rule)' }),
+        }}
+      >
+        {item.status === 'no_checkout' ? 'Nobody checks out' : 'Not cross-checked'}
       </span>
     </div>
   );
@@ -181,6 +113,12 @@ export default async function CleaningsPage({
 
   const sched = await loadCleaningSchedule(supabase, { days: DAYS });
   const { today, horizon, lastAnnouncedAt, days, scheduleError, ingest } = sched;
+  // The two things the board cannot show: visits with no checkout (or none
+  // we could check them against), and unannounced days with checkouts.
+  const visits = days.flatMap((d) =>
+    d.items.filter((i) => i.status === 'no_checkout' || i.status === 'unchecked').map((item) => ({ item, day: d.date })),
+  );
+  const unannounced = days.filter((d) => !d.announced && d.checkouts > 0);
 
   const unmatched = ingest?.unmatched ?? [];
 
@@ -190,8 +128,8 @@ export default async function CleaningsPage({
       <TurnoverTabs />
 
       <Section
-        title="Cleanings"
-        eyebrow={`${VENDOR_LABEL}'s bookings`}
+        title={`From ${VENDOR_LABEL}`}
+        eyebrow="Cleanings"
         right={
           <form action={pullVendorTextsAction}>
             <SubmitButton
@@ -212,8 +150,8 @@ export default async function CleaningsPage({
         }
         paddingBottom={8}
       >
-        {/* No explainer and no stat strip: the horizon line is the useful
-            part, and the days below say the rest row by row. */}
+        {/* The horizon line is the useful part: how far ahead the crew has
+            spoken, and when Helm last read them. */}
         <div style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: 680 }}>
           <div style={{ fontSize: 12, color: 'var(--ink-4)' }}>
             {horizon ? (
@@ -254,8 +192,8 @@ export default async function CleaningsPage({
       {scheduleError && (
         <Section title="Checkout cross-check unavailable" eyebrow="Read failure" paddingTop={8} paddingBottom={8}>
           <div style={{ borderTop: '2px solid var(--signal)', padding: '14px 0', fontSize: 13 }}>
-            <strong>Our own checkout schedule could not be loaded</strong>, so the visits below are the crew&rsquo;s
-            bookings alone, with nothing to judge them against.
+            <strong>Our own checkout schedule could not be loaded</strong>, so every visit below is the crew&rsquo;s
+            booking alone, not cross-checked.
             <div style={{ marginTop: 6, fontFamily: 'var(--font-mono), monospace', fontSize: 11, color: 'var(--ink-3)' }}>
               {scheduleError}
             </div>
@@ -263,31 +201,48 @@ export default async function CleaningsPage({
         </Section>
       )}
 
-      {days.map((day) => (
-        <Section
-          key={day.date}
-          id={`day-${day.date}`}
-          title={fmtDayHead(day.date, today)}
-          eyebrow={
-            day.announced
-              ? `${plural(day.booked, 'cleaning booked', 'cleanings booked')}${day.attention > 0 ? ` · ${day.attention} to check` : ''}`
-              : 'Not announced yet'
-          }
-          paddingTop={8}
-          paddingBottom={12}
-          empty={day.items.length === 0}
-          emptyMessage={day.announced ? 'No checkouts, and no cleaner booked.' : 'No checkouts on our schedule. Not announced yet.'}
-        >
+      <Section
+        title={scheduleError ? 'Booked, not cross-checked' : 'Nobody checks out'}
+        eyebrow={visits.length > 0 ? plural(visits.length, 'visit', 'visits') : undefined}
+        paddingTop={8}
+        paddingBottom={12}
+        empty={visits.length === 0}
+        emptyMessage={`Every visit ${VENDOR_LABEL} announced matches a checkout on the board.`}
+      >
+        <div style={{ borderTop: '1px solid var(--ink)' }}>
+          {visits.map(({ item, day }, i) => (
+            <VisitRow
+              key={`${day}|${item.propertyId}|${item.cleaningTime ?? ''}`}
+              item={item}
+              day={day}
+              today={today}
+              anchor={i === 0 || visits[i - 1].day !== day}
+            />
+          ))}
+        </div>
+      </Section>
+
+      {unannounced.length > 0 && (
+        <Section title="Not announced yet" paddingTop={8} paddingBottom={12}>
           <div style={{ borderTop: '1px solid var(--ink)' }}>
-            {day.items.map((item) => (
-              <CleaningRow key={`${item.propertyId}|${item.checkIn ?? 'visit'}`} item={item} />
+            {unannounced.map((d) => (
+              <Link
+                key={d.date}
+                id={`day-${d.date}`}
+                href={`/turnovers?range=${boardRangeFor(d.date, today)}#day-${d.date}`}
+                style={{ display: 'flex', alignItems: 'baseline', gap: 12, padding: '11px 0', borderTop: '1px solid var(--rule)', textDecoration: 'none', color: 'var(--ink)', scrollMarginTop: 100 }}
+              >
+                <span style={{ fontSize: 14, fontWeight: 600, minWidth: 140 }}>{dayLabel(d.date, today)}</span>
+                <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>{plural(d.checkouts, 'checkout', 'checkouts')} on the board</span>
+                <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--ink-3)' }}>→</span>
+              </Link>
             ))}
           </div>
         </Section>
-      ))}
+      )}
 
       <div style={{ flex: 1 }} />
-      <HelmFooter left="Turnovers · Cleanings" right={`Source: ${VENDOR_LABEL}'s reminder texts via Quo + Helm checkout schedule`} />
+      <HelmFooter left={`Turnovers · From ${VENDOR_LABEL}`} right={`Source: ${VENDOR_LABEL}'s reminder texts via Quo + Helm checkout schedule`} />
     </div>
   );
 }

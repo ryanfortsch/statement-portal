@@ -75,8 +75,8 @@ export default async function HelmHome({
 
       {/* CLEANINGS: the crew's next three days, from their own Jobber
           reminders. Sits with the signals because it IS today's question
-          at 9 AM: is a cleaner coming, and when. Full page at
-          /turnovers/cleanings. Renders nothing when the read fails. */}
+          at 9 AM: is a cleaner coming, and when. Each house's verdict is
+          on its Turnovers board row. Renders nothing when the read fails. */}
       <Suspense fallback={null}>
         <CleaningsStrip />
       </Suspense>
