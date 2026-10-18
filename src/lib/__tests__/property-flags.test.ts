@@ -25,6 +25,9 @@ function fixture(options: {
         assert.equal(url.searchParams.get('resolved_at'), 'is.null');
         if (table === 'inspection_notes') {
           assert.equal(url.searchParams.get('note_type'), 'eq.PROPERTY_NOTE');
+        } else {
+          // Only issues are flags; a fact is never listed for Resolve.
+          assert.equal(url.searchParams.get('kind'), 'eq.issue');
         }
 
         const failure = options.failures?.[table];

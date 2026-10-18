@@ -18,7 +18,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
  * them at the wrong one.
  *
  * So both are loaded here, normalized, and rendered as one list with a source
- * pill. Resolving stays two different actions because they are two different
+ * pill. From property_notes only the ISSUES load: a fact is not something to
+ * resolve (migration 20261018170000). Resolving stays two different actions because they are two different
  * tables; `source` is what tells the caller which to use.
  */
 export type FlagSource = 'walk' | 'note';
@@ -72,10 +73,13 @@ export async function loadPropertyFlags(
         .is('resolved_at', null)
         .order('created_at', { ascending: false })
         .limit(perTable),
+      // Issues only. A fact (kind = 'fact') is what we know, not a job: it
+      // lives in What we know on Facts and is never resolved from here.
       supabase
         .from('property_notes')
         .select('id, title, body, author_email, created_at, photo_urls, guest_facing', { count: 'exact' })
         .eq('property_id', propertyId)
+        .eq('kind', 'issue')
         .is('resolved_at', null)
         .order('created_at', { ascending: false })
         .limit(perTable),

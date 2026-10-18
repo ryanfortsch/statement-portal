@@ -6,13 +6,17 @@ import { supabase } from '@/lib/supabase';
  * note: title, body, optional tag, optional photos, optional
  * resolved-at timestamp for one-shot todos.
  *
- * Lives in `public.property_notes` (migration 20260528). Renders on
- * /properties/[id] inside the "Property Notes" accordion.
+ * Lives in `public.property_notes` (migration 20260528). A fact renders in
+ * "What we know" on the Facts tab; an issue in "Flagged at the house" on Now
+ * (migration 20261018170000 added the kind).
  *
  * NOT to be confused with `public.property_notices` (one-i) — those
  * are guest-facing 4×6 printed placards. Different concept, different
  * lifecycle, different audience.
  */
+
+/** Without a choice a note's kind follows guest_facing (the DB trigger). */
+export type NoteKind = 'fact' | 'issue';
 
 export type PropertyNote = {
   id: string;
@@ -20,8 +24,14 @@ export type PropertyNote = {
   title: string;
   body: string;
   tag: string | null;
-  /** true = part of the guest-messaging knowledge base; false = internal ops. */
+  /** true = part of the Guest KB (the guest AI's knowledge, via /api/kb-facts); false = internal ops. */
   guest_facing: boolean;
+  /**
+   * fact = what we know about the house: "What we know" on Facts, edited or
+   * deleted, never resolved (a check constraint holds it). issue = something
+   * to fix: "Flagged at the house" on Now, resolved and reopened.
+   */
+  kind: NoteKind;
   photo_urls: string[];
   author_email: string | null;
   resolved_at: string | null;

@@ -4,6 +4,7 @@ import { HelmBreadcrumb } from '@/components/HelmBreadcrumb';
 import { NoteEditorForm } from '@/components/properties/NoteEditorForm';
 import { DeletePropertyNoticeButton } from '@/components/properties/DeletePropertyNoticeButton';
 import { updatePropertyNote, deletePropertyNote } from '@/app/properties/actions';
+import { NoteStatusControl } from './NoteStatusControl';
 import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
 import type { HelmPropertyRow } from '@/lib/properties';
 import { getPropertyNote, type PropertyNote } from '@/lib/property-notes';
@@ -37,12 +38,14 @@ export default async function EditPropertyNotePage({
 
   const updateAction = updatePropertyNote.bind(null, id, noteId);
   const deleteAction = deletePropertyNote.bind(null, id, noteId);
+  const kind = note.kind === 'issue' ? 'issue' : 'fact';
   const initial = {
     title: note.title,
     body: note.body,
     tag: note.tag,
     guest_facing: note.guest_facing,
-  };
+    kind,
+  } as const;
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -50,8 +53,8 @@ export default async function EditPropertyNotePage({
 
       <HelmBreadcrumb
         trail={[
-          { label: p.name, href: `/properties/${p.id}?tab=facts` },
-          { label: 'Edit note' },
+          { label: p.name, href: kind === 'issue' ? `/properties/${p.id}?tab=now` : `/properties/${p.id}?tab=facts` },
+          { label: kind === 'issue' ? 'Edit issue' : 'Edit fact' },
         ]}
       />
 
@@ -60,9 +63,14 @@ export default async function EditPropertyNotePage({
           className="font-serif"
           style={{ fontSize: 40, fontWeight: 300, letterSpacing: '-0.02em', margin: '18px 0 6px', color: 'var(--ink)' }}
         >
-          Edit <em>note.</em>
+          Edit <em>{kind === 'issue' ? 'issue.' : 'fact.'}</em>
         </h1>
         <NoteMetaLine note={note} />
+        {/* An issue is resolved here or on Now, and reopened only here. A
+            fact has no status: it is edited or deleted. */}
+        {kind === 'issue' && (
+          <NoteStatusControl propertyId={p.id} noteId={note.id} resolved={!!note.resolved_at} guestFacing={note.guest_facing} />
+        )}
 
         <div style={{ borderTop: '1px solid var(--ink)', paddingTop: 26, marginTop: 28 }}>
           <NoteEditorForm action={updateAction} propertyId={p.id} initial={initial} submitLabel="Save changes" />
@@ -70,12 +78,12 @@ export default async function EditPropertyNotePage({
 
         <div style={{ borderTop: '1px solid var(--rule)', marginTop: 56, paddingTop: 24 }}>
           <p style={{ fontSize: 12, color: 'var(--ink-4)', marginBottom: 14 }}>
-            Permanently delete this note. Cannot be undone.
+            Permanently delete this {kind}. Cannot be undone.
           </p>
           <DeletePropertyNoticeButton
             action={deleteAction}
-            confirmText={`Delete the “${note.title}” note from ${p.name}? This can't be undone.`}
-            label="Delete note"
+            confirmText={`Delete the “${note.title}” ${kind} from ${p.name}? This can't be undone.`}
+            label={kind === 'issue' ? 'Delete issue' : 'Delete fact'}
           />
         </div>
       </div>

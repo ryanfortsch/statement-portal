@@ -1,15 +1,15 @@
 import { RetainedPropertyForm } from './RetainedPropertyForm';
 
 /**
- * Shared form for creating + editing an internal property note. Server content
- * with a recoverable client form wrapper. The action prop is wired by the caller (createPropertyNote
- * for /notes/new, updatePropertyNote.bind(null, id) for the edit page).
+ * Shared form for creating + editing a property note. Server content with a
+ * recoverable client form wrapper. The action prop is wired by the caller
+ * (createPropertyNote for /notes/new, updatePropertyNote.bind(null, id) for
+ * the edit page).
  *
- * Mirrors NoticeEditorForm for visual consistency, but the field set
- * is different: notes have an optional `tag` for free-form
- * categorization ("hvac", "plumbing", "neighbor") rather than the
- * notice's `eyebrow` headline kicker. Body is also optional — a title
- * alone is a valid note (e.g. "Fireplace flue sticks. Wiggle to open.").
+ * A note is a FACT (what we know: What we know on Facts, and the Guest KB
+ * when ticked; never resolved) or an ISSUE (something to fix: Flagged at the
+ * house on Now, resolved when fixed). Body and tag are optional; a title
+ * alone is a valid note ("Fireplace flue sticks. Wiggle to open.").
  */
 export function NoteEditorForm({
   action,
@@ -19,12 +19,26 @@ export function NoteEditorForm({
 }: {
   action: (formData: FormData) => Promise<void> | void;
   propertyId: string;
-  initial?: { title?: string | null; body?: string | null; tag?: string | null; guest_facing?: boolean | null };
+  initial?: { title?: string | null; body?: string | null; tag?: string | null; guest_facing?: boolean | null; kind?: 'fact' | 'issue' | null };
   submitLabel: string;
 }) {
+  const kind = initial?.kind ?? 'fact';
   return (
-    <RetainedPropertyForm action={action} submitLabel={submitLabel} buttonStyle={primaryButtonStyle} cancelHref={`/properties/${propertyId}?tab=facts`} style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
-      <Field label="Title" required hint="The headline. One line. It is the card title under Notes on the property page.">
+    <RetainedPropertyForm action={action} submitLabel={submitLabel} buttonStyle={primaryButtonStyle} cancelHref={kind === 'issue' ? `/properties/${propertyId}?tab=now` : `/properties/${propertyId}?tab=facts`} style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
+      <fieldset style={{ border: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <legend
+          className="eyebrow"
+          style={{ fontSize: 10, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--ink-3)', fontWeight: 600, marginBottom: 8 }}
+        >
+          This is
+        </legend>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
+          <KindOption value="fact" checked={kind === 'fact'} title="A fact" detail="Stays true: a quirk, a workaround, a vendor, a local tip. Listed in What we know on Facts." />
+          <KindOption value="issue" checked={kind === 'issue'} title="An issue" detail="Needs fixing. Listed in Flagged at the house on Now until someone resolves it." />
+        </div>
+      </fieldset>
+
+      <Field label="Title" required hint="One line, the way it reads in the list.">
         <input
           name="title"
           type="text"
@@ -38,7 +52,7 @@ export function NoteEditorForm({
 
       <Field
         label="Body"
-        hint="Optional. The detail — how to handle it, history, anything a new operator should know."
+        hint="Optional. The detail: how to handle it, history, anything a new operator should know."
       >
         <textarea
           name="body"
@@ -52,7 +66,7 @@ export function NoteEditorForm({
 
       <Field
         label="Tag"
-        hint="Optional. Free-form category for filtering — e.g. hvac, plumbing, exterior, vendor, neighbor."
+        hint="Optional. One word that sorts it, e.g. hvac, plumbing, exterior, vendor, neighbor."
       >
         <input
           name="tag"
@@ -88,16 +102,28 @@ export function NoteEditorForm({
               color: 'var(--ink)',
             }}
           >
-            Guest-facing knowledge
+            Guest KB
           </span>
           <span style={{ fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.5 }}>
-            Add this to the guest-messaging knowledge base — something a guest would be told (a quirk of
-            the home, a local tip). Leave unchecked for internal ops only your team should see.
+            The guest AI knows this and may tell a guest (a quirk of the home, a local tip). Leave
+            unticked for something only the team should see.
           </span>
         </span>
       </label>
 
     </RetainedPropertyForm>
+  );
+}
+
+function KindOption({ value, checked, title, detail }: { value: 'fact' | 'issue'; checked: boolean; title: string; detail: string }) {
+  return (
+    <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer', border: '1px solid var(--rule)', padding: '12px 14px' }}>
+      <input type="radio" name="kind" value={value} defaultChecked={checked} style={{ marginTop: 3, accentColor: 'var(--ink)' }} />
+      <span style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{title}</span>
+        <span style={{ fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.5 }}>{detail}</span>
+      </span>
+    </label>
   );
 }
 

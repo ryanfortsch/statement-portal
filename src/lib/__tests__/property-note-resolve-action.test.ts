@@ -10,8 +10,8 @@ import { createClient } from '@supabase/supabase-js';
 const source = readFileSync(new URL('../../app/properties/actions.ts', import.meta.url), 'utf8');
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 
-function fixture(options: { resolved?: boolean; signedIn?: boolean; readError?: boolean; writeError?: boolean; missing?: boolean } = {}) {
-  let row = { resolved_at: options.resolved ? '2026-09-01T00:00:00.000Z' : null as string | null, resolved_by_email: options.resolved ? 'original@example.test' : null as string | null };
+function fixture(options: { resolved?: boolean; signedIn?: boolean; readError?: boolean; writeError?: boolean; missing?: boolean; kind?: 'fact' | 'issue' } = {}) {
+  let row: { resolved_at: string | null; resolved_by_email: string | null; kind?: string } = { resolved_at: options.resolved ? '2026-09-01T00:00:00.000Z' : null as string | null, resolved_by_email: options.resolved ? 'original@example.test' : null as string | null, ...(options.kind ? { kind: options.kind } : {}) };
   const writes: Record<string, unknown>[] = [], refreshed: string[] = [];
   let reads = 0;
   const client = createClient('https://synthetic.supabase.co', 'synthetic-key', {
@@ -25,20 +25,21 @@ function fixture(options: { resolved?: boolean; signedIn?: boolean; readError?: 
       if (patch ? options.writeError : options.readError) return new Response(JSON.stringify({ message: 'Synthetic database failure', code: 'TEST' }), { status: 400, headers: { 'content-type': 'application/json' } });
       if (patch) {
         const data = JSON.parse(String(init?.body)); writes.push(data); row = { ...row, ...data };
-        return new Response(null, { status: 204 });
+        // reopenPropertyNote asks for the updated id back.
+        return url.searchParams.get('select') ? new Response(JSON.stringify([{ id: 'note-a' }]), { headers: { 'content-type': 'application/json' } }) : new Response(null, { status: 204 });
       }
       reads++;
       return new Response(JSON.stringify(options.missing ? null : row), { headers: { 'content-type': 'application/json' } });
     } },
   });
-  const exports: { togglePropertyNoteResolved?: (propertyId: string, noteId: string, resolveOnly?: boolean) => Promise<void> } = {};
+  const exports: { togglePropertyNoteResolved?: (propertyId: string, noteId: string, resolveOnly?: boolean) => Promise<void>; reopenPropertyNote?: (propertyId: string, noteId: string) => Promise<void> } = {};
   runInNewContext(compiled, {
     exports, process: { env: { NEXT_PUBLIC_SUPABASE_URL: 'https://synthetic.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'synthetic-key' } },
     require: (name: string) => name === '@supabase/supabase-js' ? { createClient: () => client }
       : name === '@/auth' ? { auth: async () => options.signedIn === false ? null : { user: { email: 'staff@example.test' } } }
       : name === 'next/cache' ? { revalidatePath: (path: string) => refreshed.push(path) } : {},
   });
-  return { action: exports.togglePropertyNoteResolved!, writes, refreshed, row: () => row, reads: () => reads };
+  return { action: exports.togglePropertyNoteResolved!, reopen: exports.reopenPropertyNote!, writes, refreshed, row: () => row, reads: () => reads };
 }
 
 describe('property flag Resolve command', () => {
@@ -71,5 +72,17 @@ describe('property flag Resolve command', () => {
       const f = fixture(options); await assert.rejects(f.action('home-a', 'note-a', true));
       assert.equal(f.writes.length, 0); assert.deepEqual(f.refreshed, []);
     }
+  });
+  test('a fact is never resolved, so Resolve cannot take it out of the Guest KB', async () => {
+    const f = fixture({ kind: 'fact' });
+    await assert.rejects(f.action('home-a', 'note-a', true), /fact, not an issue/);
+    await assert.rejects(f.action('home-a', 'note-a'), /fact, not an issue/);
+    assert.equal(f.writes.length, 0); assert.equal(f.row().resolved_at, null);
+  });
+  test('an issue resolves, and Reopen brings it back explicitly', async () => {
+    const f = fixture({ kind: 'issue' });
+    await f.action('home-a', 'note-a', true); assert.ok(f.row().resolved_at);
+    await f.reopen('home-a', 'note-a'); await f.reopen('home-a', 'note-a');
+    assert.equal(f.row().resolved_at, null); assert.equal(f.row().resolved_by_email, null);
   });
 });

@@ -761,10 +761,10 @@ function ToggleGuest({ guestFacing, onChange }: { guestFacing: boolean; onChange
     <span
       role="group"
       aria-label="Note audience"
-      title="Guest = added to the guest-messaging knowledge base. Internal = ops-only, your team sees it."
+      title="Guest KB = the guest AI knows this and may tell a guest. Internal = only the team sees it."
       style={{ display: 'inline-flex', border: '1px solid var(--rule)', overflow: 'hidden' }}
     >
-      {([['Guest', true], ['Internal', false]] as const).map(([label, val]) => {
+      {([['Guest KB', true], ['Internal', false]] as const).map(([label, val]) => {
         const on = guestFacing === val;
         return (
           <button

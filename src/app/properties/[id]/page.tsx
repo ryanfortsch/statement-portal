@@ -488,6 +488,8 @@ export default async function PropertyDetailPage({
     getWorkBrief(p.id),
   ]);
   const myEmail = session?.user?.email ?? '';
+  // What we know on Facts: the facts. Issues are the Now tab's flags.
+  const knownFacts = propertyNotes.filter((n) => n.kind !== 'issue');
   // Owner money on this page (the fee, bank digits, owner emails, payouts,
   // the contract) renders for owners only. Staff keep the operations.
   const owner = roleForEmail(session?.user?.email) === 'owner';
@@ -930,10 +932,14 @@ export default async function PropertyDetailPage({
           heading here read "Pinned from walkthroughs" while rendering
           inspection_notes: both capture boxes write to property_notes, so
           nothing a walkthrough dictated ever appeared under it. Source pill,
-          one resolve verb, honest count. */}
+          one resolve verb, honest count.
+
+          Issues only: a property note that is a FACT lives in What we know on
+          Facts and is never resolved, so tidying this list can no longer
+          take guest knowledge out of the Guest KB. */}
       {(propertyFlags.flags.length > 0 || propertyFlags.total === null) && (
-        <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 36, width: '100%' }}>
-          <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
+        <section id="flags" className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 36, width: '100%', scrollMarginTop: 120 }}>
+          <div className="flex items-baseline justify-between" style={{ marginBottom: 14, gap: 12, flexWrap: 'wrap' }}>
             <h2
               className="font-serif"
               style={{
@@ -946,11 +952,19 @@ export default async function PropertyDetailPage({
             >
               Flagged at the house
             </h2>
-            <span className="eyebrow">
-              {propertyFlags.total === null ? 'Count unavailable' : `${propertyFlags.total} open`}
-              {propertyFlags.total !== null && propertyFlags.total > propertyFlags.flags.length
-                ? ` · showing ${propertyFlags.flags.length}`
-                : ''}
+            <span style={{ display: 'inline-flex', gap: 16, alignItems: 'baseline' }}>
+              <span className="eyebrow">
+                {propertyFlags.total === null ? 'Count unavailable' : `${propertyFlags.total} open`}
+                {propertyFlags.total !== null && propertyFlags.total > propertyFlags.flags.length
+                  ? ` · showing ${propertyFlags.flags.length}`
+                  : ''}
+              </span>
+              <Link
+                href={`/properties/${p.id}/notes/new?kind=issue`}
+                style={{ fontSize: 11, color: 'var(--tide-deep)', textDecoration: 'none', letterSpacing: '.04em' }}
+              >
+                + Flag an issue
+              </Link>
             </span>
           </div>
           {propertyFlags.total === null && (
@@ -985,7 +999,7 @@ export default async function PropertyDetailPage({
                     </span>
                     {f.guestFacing && (
                       <span
-                        title="Part of the guest-messaging knowledge base"
+                        title="In the Guest KB: the guest AI tells guests this while it is open"
                         style={pillStyle('var(--tide-deep)', true)}
                       >
                         Guest KB
@@ -1013,7 +1027,7 @@ export default async function PropertyDetailPage({
                   <br />
                   <span style={{ fontSize: 10 }}>{formatDate(f.createdAt)}</span>
                 </div>
-                <ResolveFlagButton propertyId={p.id} flagId={f.id} source={f.source} />
+                <ResolveFlagButton propertyId={p.id} flagId={f.id} source={f.source} guestFacing={f.guestFacing} />
               </div>
             ))}
           </div>
@@ -1389,96 +1403,84 @@ export default async function PropertyDetailPage({
         )}
       </CollapsibleSection>
 
-      {/* OPERATIONS NOTEBOOK — internal per-property knowledge base
-          (property_notes). Each row is a discrete note (quirk / workaround
-          / vendor / warning).
-
-          This and "Flagged at the house" on Today now share rows, and that
-          is deliberate rather than the old accident: Today answers "what
-          needs attention here", this answers "what do we know about this
-          house". So this one keeps resolved entries and the guest-facing
-          split, which is what makes it a knowledge base rather than a
-          queue. Open rows appear in both because they are both. */}
+      {/* WHAT WE KNOW: the property's facts (property_notes, kind = 'fact').
+          A quirk, a workaround, a vendor, a local tip: things that stay true.
+          Guest KB rows are what the guest AI knows about this home
+          (/api/kb-facts). A fact is edited or deleted, never resolved: that
+          verb belongs to issues, on Now, and a resolved fact used to drop
+          out of the Guest KB without a word. The old "Operations notebook"
+          anchor is kept so deep links still land. */}
       <CollapsibleSection
         id="ops-notebook"
-        title="Operations notebook"
+        title="What we know"
         summary={(() => {
-          const open = propertyNotes.filter((n) => !n.resolved_at).length;
-          const total = propertyNotes.length;
-          if (total === 0) return 'no notes yet';
-          if (open === total) return `${total} note${total === 1 ? '' : 's'}`;
-          return `${open} open · ${total - open} resolved`;
+          const total = knownFacts.length;
+          if (total === 0) return 'nothing written down yet';
+          const kb = knownFacts.filter((n) => n.guest_facing).length;
+          return `${total} ${total === 1 ? 'fact' : 'facts'}${kb ? ` · ${kb} in the Guest KB` : ''}`;
         })()}
         headerAction={
-          <Link href={`/properties/${p.id}/notes/new`} style={primaryActionStyle}>
-            + Add note
+          <Link href={`/properties/${p.id}/notes/new?kind=fact`} style={primaryActionStyle}>
+            + Add a fact
           </Link>
         }
       >
-        {propertyNotes.length === 0 ? (
+        {knownFacts.length === 0 ? (
           <div style={{ padding: '14px 0', color: 'var(--ink-3)', fontSize: 13 }}>
-            Nothing captured yet. The first note for {p.name} could be the smart-thermostat
-            quirk, a stuck door, a neighbor who reaches out, or a vendor contact.{' '}
+            Nothing written down for {p.name} yet: a thermostat quirk, a sticky door, a neighbor, a vendor.{' '}
             <Link
-              href={`/properties/${p.id}/notes/new`}
+              href={`/properties/${p.id}/notes/new?kind=fact`}
               style={{ color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}
             >
-              Add the first note
+              Add the first fact
             </Link>
           </div>
         ) : (
-          // Hairline rows, the same list language as every other list on
-          // this page (slips, inspections, statements) — the old bordered
-          // cards were the page's one card-styled list.
           <div style={{ borderTop: '1px solid var(--ink)' }}>
-            {propertyNotes.map((n) => (
-              <Link
+            {knownFacts.map((n) => (
+              <div
                 key={n.id}
-                href={`/properties/${p.id}/notes/${n.id}/edit`}
                 style={{
-                  display: 'block',
                   padding: '14px 0',
                   borderBottom: '1px solid var(--rule)',
-                  textDecoration: 'none',
-                  color: 'inherit',
-                  opacity: n.resolved_at ? 0.6 : 1,
+                  display: 'grid',
+                  gridTemplateColumns: 'minmax(0, 1fr) auto',
+                  gap: 16,
+                  alignItems: 'baseline',
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-                  <h3
-                    className="font-serif"
-                    style={{
-                      fontSize: 16,
-                      fontWeight: 500,
-                      letterSpacing: '-0.005em',
-                      color: 'var(--ink)',
-                      margin: 0,
-                      flex: 1,
-                      textDecoration: n.resolved_at ? 'line-through' : 'none',
-                    }}
-                  >
-                    {n.title}
-                  </h3>
-                  {n.guest_facing && (
-                    <span title="Part of the guest-messaging knowledge base" style={pillStyle('var(--tide-deep)', true)}>
-                      Guest
-                    </span>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+                    <h3
+                      className="font-serif"
+                      style={{ fontSize: 16, fontWeight: 500, letterSpacing: '-0.005em', color: 'var(--ink)', margin: 0 }}
+                    >
+                      {n.title}
+                    </h3>
+                    {n.guest_facing && (
+                      <span title="In the Guest KB: the guest AI knows this about the home" style={pillStyle('var(--tide-deep)', true)}>
+                        Guest KB
+                      </span>
+                    )}
+                    {n.tag && <span style={pillStyle('var(--ink-3)')}>{n.tag}</span>}
+                  </div>
+                  {n.body && (
+                    <p style={{ marginTop: 6, marginBottom: 0, fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>
+                      {n.body}
+                    </p>
                   )}
-                  {n.tag && <span style={pillStyle('var(--ink-3)')}>{n.tag}</span>}
-                  {n.resolved_at && (
-                    <span style={{ ...pillStyle('var(--positive)'), border: 'none', padding: '2px 0' }}>Resolved</span>
-                  )}
+                  <div style={{ marginTop: 8, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.04em' }}>
+                    {n.author_email ? `${n.author_email.split('@')[0]} · ` : ''}
+                    {formatDate(n.created_at)}
+                  </div>
                 </div>
-                {n.body && (
-                  <p style={{ marginTop: 6, marginBottom: 0, fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>
-                    {n.body}
-                  </p>
-                )}
-                <div style={{ marginTop: 8, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.04em' }}>
-                  {n.author_email ? `${n.author_email.split('@')[0]} · ` : ''}
-                  {formatDate(n.created_at)}
-                </div>
-              </Link>
+                <Link
+                  href={`/properties/${p.id}/notes/${n.id}/edit`}
+                  style={{ fontSize: 11, color: 'var(--tide-deep)', textDecoration: 'none', letterSpacing: '.04em' }}
+                >
+                  Edit
+                </Link>
+              </div>
             ))}
           </div>
         )}

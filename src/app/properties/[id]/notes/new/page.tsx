@@ -26,13 +26,18 @@ async function getProperty(id: string): Promise<HelmPropertyRow | null> {
  */
 export default async function NewPropertyNotePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams?: Promise<{ kind?: string }>;
 }) {
   const { id } = await params;
   const p = await getProperty(id);
   if (!p) notFound();
 
+  // "+ Add a fact" (What we know) and "+ Flag an issue" (Now) open this page
+  // preset; the form still lets the operator switch.
+  const kind: 'fact' | 'issue' = (await searchParams)?.kind === 'issue' ? 'issue' : 'fact';
   const action = createPropertyNote.bind(null, id);
 
   return (
@@ -41,23 +46,21 @@ export default async function NewPropertyNotePage({
 
       <HelmBreadcrumb
         trail={[
-          { label: p.name, href: `/properties/${p.id}?tab=facts` },
-          { label: 'New note' },
+          { label: p.name, href: kind === 'issue' ? `/properties/${p.id}?tab=now` : `/properties/${p.id}?tab=facts` },
+          { label: kind === 'issue' ? 'New issue' : 'New fact' },
         ]}
       />
 
       <div className="max-w-[680px] mx-auto px-10" style={{ width: '100%', paddingTop: 32, paddingBottom: 64 }}>
         <h1 className="font-serif" style={{ fontSize: 40, fontWeight: 300, letterSpacing: '-0.02em', margin: '18px 0 6px', color: 'var(--ink)' }}>
-          New <em>note.</em>
+          New <em>{kind === 'issue' ? 'issue.' : 'fact.'}</em>
         </h1>
         <p style={{ margin: '0 0 30px', fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.55 }}>
-          A discrete bit of property-specific knowledge — a quirk, a workaround, a vendor
-          contact, a warning. Different from a guest-facing 4 × 6 placard (that's a Notice);
-          notes are internal and only show on this page.
+          A printed 4 × 6 card for the house is a notice, on Guest &amp; listing.
         </p>
 
         <div style={{ borderTop: '1px solid var(--ink)', paddingTop: 26 }}>
-          <NoteEditorForm action={action} propertyId={p.id} submitLabel="Create note" />
+          <NoteEditorForm action={action} propertyId={p.id} initial={{ kind }} submitLabel={kind === 'issue' ? 'Flag the issue' : 'Add the fact'} />
         </div>
       </div>
     </div>
