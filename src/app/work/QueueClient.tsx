@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
+import { Suspense, use, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import {
@@ -29,11 +29,11 @@ import { displayNameForEmail } from '@/lib/team';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import { useOwnerEmailDraft } from '@/lib/use-owner-email-draft';
 import { operatingDate } from '@/lib/operating-date';
-import { compareWork, workOverdue, workSignals, workUnassigned } from '@/lib/work-board-view';
+import { compareWork, workMyWeek, workOverdue, workSignals, workUnassigned } from '@/lib/work-board-view';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { groupSlipsByLane, LANE_LABELS, slipDetailLine, slipDisplayTitle, type WorkLane } from '@/lib/work-slip-lanes';
 import type { WorkBriefHeadline } from '@/lib/work-briefs';
-import { organizePendingCount, organizeWorkNow } from './organize-actions';
+import { dismissStaleSlips, loadStaleSlips, organizePendingCount, organizeWorkNow, type StaleHomeView } from './organize-actions';
 
 type PropertyForPicker = {
   id: string;
@@ -55,9 +55,14 @@ type Props = {
   reporterNames: Record<string, string>;
   /** property id -> the nightly brief's one-line headline and its date (lib/work-briefs.ts). */
   briefHeadlines?: Record<string, WorkBriefHeadline>;
+  /** The view with no ?filter= (lib/work-board-view.ts defaultWorkFilter):
+   *  'my-week' for a staff login, 'all' for an owner. */
+  defaultFilter?: FilterId;
+  /** Owners get "Review stale slips" on the Organize menu. */
+  isOwner?: boolean;
 };
 
-type FilterId = 'all' | 'overdue' | 'blocked' | 'mine' | 'high' | 'due-today' | 'unclaimed' | 'owner-action' | 'snoozed';
+type FilterId = 'all' | 'my-week' | 'overdue' | 'blocked' | 'mine' | 'high' | 'due-today' | 'unclaimed' | 'owner-action' | 'snoozed';
 
 // The board has two faces: property work, where you land, and the team
 // task list one tab over. The old third "All" tab stacked both sections
@@ -65,7 +70,7 @@ type FilterId = 'all' | 'overdue' | 'blocked' | 'mine' | 'high' | 'due-today' | 
 // you had to scroll past. One at a time.
 type TabId = 'slips' | 'tasks';
 
-const FILTER_IDS: FilterId[] = ['all', 'overdue', 'blocked', 'mine', 'high', 'due-today', 'unclaimed', 'owner-action', 'snoozed'];
+const FILTER_IDS: FilterId[] = ['all', 'my-week', 'overdue', 'blocked', 'mine', 'high', 'due-today', 'unclaimed', 'owner-action', 'snoozed'];
 
 /** Filters that only mean anything to a work slip. On the Tasks tab they
  *  neither render nor apply, but they stay in the URL so tabbing back to
@@ -80,8 +85,9 @@ const TASK_ONLY_FILTERS: FilterId[] = ['blocked'];
 /** The filters behind the "More" select, in its order. */
 const MORE_FILTERS: FilterId[] = ['mine', 'high', 'owner-action', 'snoozed'];
 
-function parseFilter(value: string | null): FilterId {
-  if (!value) return 'all';
+/** No ?filter= is the role's default view; an unknown one reads as All. */
+function parseFilter(value: string | null, fallback: FilterId = 'all'): FilterId {
+  if (!value) return fallback;
   return (FILTER_IDS as string[]).includes(value) ? (value as FilterId) : 'all';
 }
 function parseTab(value: string | null): TabId {
@@ -104,13 +110,13 @@ function sameSet(a: Set<string>, b: Set<string>): boolean {
 const INITIAL_PROPERTY_LIMIT = 5;
 const INITIAL_TASK_LIMIT = 5;
 
-export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmail, slipCommentCounts, taskCommentCounts, reporterNames, briefHeadlines = {} }: Props) {
+export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmail, slipCommentCounts, taskCommentCounts, reporterNames, briefHeadlines = {}, defaultFilter = 'all', isOwner = false }: Props) {
   const router = useRouter();
   const softRefresh = useSoftRefresh();
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  const initialFilter = parseFilter(searchParams.get('filter'));
+  const initialFilter = parseFilter(searchParams.get('filter'), defaultFilter);
   const initialTab = parseTab(searchParams.get('tab'));
   const [tab, setTabState] = useState<TabId>(initialTab);
   const [filter, setFilterState] = useState<FilterId>(initialFilter);
@@ -129,13 +135,13 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
   // change signal; window.location is the ground truth we adopt.
   useEffect(() => {
     const live = new URLSearchParams(window.location.search);
-    const nextFilter = parseFilter(live.get('filter'));
+    const nextFilter = parseFilter(live.get('filter'), defaultFilter);
     setFilterState((curr) => (curr === nextFilter ? curr : nextFilter));
     const nextTab = parseTab(live.get('tab'));
     setTabState((curr) => (curr === nextTab ? curr : nextTab));
     const nextOpen = parseOpen(live.get('open'));
     setOpenProps((curr) => (sameSet(curr, nextOpen) ? curr : nextOpen));
-  }, [searchParams]);
+  }, [searchParams, defaultFilter]);
 
   // Landing from a slip's "← All Work" link (/work?open=X#prop-X): the
   // loading skeleton means the browser's native anchor scroll fires before
@@ -159,7 +165,9 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
   // toggle can't rebuild the query from a stale snapshot and drop ?open=.
   function writeUrl(nextFilter: FilterId, nextTab: TabId) {
     const params = new URLSearchParams(window.location.search);
-    if (nextFilter === 'all') params.delete('filter');
+    // The role's default view is the bare URL; anything else is spelled out,
+    // so All on a staff login is ?filter=all and survives a reload.
+    if (nextFilter === defaultFilter) params.delete('filter');
     else params.set('filter', nextFilter);
     if (nextTab === 'slips') params.delete('tab');
     else params.set('tab', nextTab);
@@ -192,6 +200,14 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   }
   const [showSlipModal, setShowSlipModal] = useState(false);
+  // "Review stale slips" (owners): the read starts on the tap and the panel
+  // reads the promise, so nothing loads until an owner asks.
+  const [staleLoad, setStaleLoad] = useState<Promise<StaleLoad> | null>(null);
+  function openStaleReview() {
+    setStaleLoad(
+      loadStaleSlips().catch(() => ({ ok: false as const, error: 'Could not read the board. Close this and try again.' })),
+    );
+  }
   const [showTaskModal, setShowTaskModal] = useState(false);
   const [slipPrefillProperty, setSlipPrefillProperty] = useState<string | null>(null);
 
@@ -303,6 +319,7 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
     // to see what they pushed off, not what's active.
     const source = activeFilter === 'snoozed' ? snoozedSlips : workSlips;
     return source.filter((w) => {
+      if (activeFilter === 'my-week' && !workMyWeek(w, myEmail, todayIso)) return false;
       if (activeFilter === 'overdue' && !workOverdue(w, todayIso)) return false;
       if (activeFilter === 'mine' && w.assigned_to_email !== myEmail) return false;
       if (activeFilter === 'high' && w.priority !== 'high') return false;
@@ -315,6 +332,7 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
 
   const filteredTasks = useMemo(() => {
     return tasks.filter((t) => {
+      if (activeFilter === 'my-week' && !workMyWeek(t, myEmail, todayIso)) return false;
       if (activeFilter === 'overdue' && !workOverdue(t, todayIso)) return false;
       if (activeFilter === 'blocked' && t.status !== 'blocked') return false;
       if (activeFilter === 'mine' && t.assigned_to_email !== myEmail) return false;
@@ -402,6 +420,7 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
       return {
         ...workSignals(tasks, todayIso),
         all: tasks.length,
+        myWeek: tasks.filter((t) => workMyWeek(t, myEmail, todayIso)).length,
         mine: tasks.filter((t) => t.assigned_to_email === myEmail).length,
         high: tasks.filter((t) => t.priority === 'high').length,
         ownerAction: 0,
@@ -411,6 +430,7 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
     return {
       ...workSignals(workSlips, todayIso),
       all: workSlips.length,
+      myWeek: workSlips.filter((w) => workMyWeek(w, myEmail, todayIso)).length,
       mine: workSlips.filter((w) => w.assigned_to_email === myEmail).length,
       high: workSlips.filter((w) => w.priority === 'high').length,
       ownerAction: workSlips.filter((w) => w.owner_action_required).length,
@@ -439,10 +459,13 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
             <BoardTab active={!onSlips} onClick={() => setTab('tasks')} label="Tasks" count={tasks.length} />
           </div>
           <div className="flex items-center" style={{ gap: 12 }}>
-            {/* The tab already carries the total, so this only earns its
-                place once a filter has narrowed the list below it. */}
+            {/* The tab carries the total; once a filter narrows the list
+                (a staff login opens on My week) this says how much of it is
+                on screen, so nothing is hidden without saying so. */}
             {activeFilter !== 'all' && (
-              <span className="eyebrow">{onSlips ? filteredSlips.length : filteredTasks.length} shown</span>
+              <span className="eyebrow">
+                {onSlips ? filteredSlips.length : filteredTasks.length} of {onSlips ? workSlips.length : tasks.length} shown
+              </span>
             )}
             {onSlips && orderIsStale && (
               <button
@@ -464,7 +487,7 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
             {!onSlips && <button type="button" onClick={() => setShowTaskModal(true)} style={primaryBtn()}>
               + Task
             </button>}
-            {onSlips && <OrganizeButton />}
+            {onSlips && <OrganizeButton onReviewStale={isOwner ? openStaleReview : undefined} />}
             {onSlips && <button type="button" onClick={() => setShowSlipModal(true)} style={primaryBtn()}>
               + Work Slip
             </button>}
@@ -473,6 +496,7 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
 
         <div className="flex items-center gap-2 flex-wrap rt-work-filters" aria-label="Filter work">
           <Pill active={activeFilter === 'all'} onClick={() => setFilter('all')} label="All" count={counts.all} />
+          {(counts.myWeek > 0 || activeFilter === 'my-week' || defaultFilter === 'my-week') && <Pill active={activeFilter === 'my-week'} onClick={() => setFilter('my-week')} label="My week" count={counts.myWeek} />}
           {(counts.overdue > 0 || activeFilter === 'overdue') && <Pill active={activeFilter === 'overdue'} onClick={() => setFilter('overdue')} label="Overdue" count={counts.overdue} accent="var(--negative)" />}
           {(counts.dueToday > 0 || activeFilter === 'due-today') && <Pill active={activeFilter === 'due-today'} onClick={() => setFilter('due-today')} label="Due today" count={counts.dueToday} />}
           {!onSlips && (counts.blocked > 0 || activeFilter === 'blocked') && <Pill active={activeFilter === 'blocked'} onClick={() => setFilter('blocked')} label="Blocked" count={counts.blocked} accent="var(--signal)" />}
@@ -498,7 +522,9 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
               message={
                 activeFilter === 'snoozed'
                   ? 'Nothing snoozed. Snooze a slip from its detail page.'
-                  : 'No work slips match this filter.'
+                  : activeFilter === 'my-week'
+                    ? `Nothing assigned to you this week. All ${workSlips.length} open slips are under All.`
+                    : 'No work slips match this filter.'
               }
             />
           ) : (
@@ -577,6 +603,7 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
           onClose={() => setShowTaskModal(false)}
         />
       )}
+      {staleLoad && <StaleReviewPanel load={staleLoad} onClose={() => setStaleLoad(null)} />}
 
       {(selectedSlipIds.size > 0 || selectedTaskIds.size > 0) && (
         <BulkActionBar
@@ -1995,8 +2022,9 @@ function primaryBtn(): React.CSSProperties {
 const ORGANIZE_POLL_MS = 10_000;
 const ORGANIZE_WATCH_MS = 5 * 60_000;
 
-function OrganizeButton() {
+function OrganizeButton({ onReviewStale }: { onReviewStale?: () => void }) {
   const softRefresh = useSoftRefresh();
+  const [menuOpen, setMenuOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const [note, setNote] = useState('');
   const [error, setError] = useState('');
@@ -2084,8 +2112,185 @@ function OrganizeButton() {
       >
         {pending || watching ? 'Organizing…' : 'Organize'}
       </button>
+      {/* The Organize menu: owner decisions about the board itself. */}
+      {onReviewStale && (
+        <span style={{ position: 'relative', display: 'inline-flex' }}>
+          <button
+            type="button"
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            aria-label="More ways to organize"
+            onClick={() => setMenuOpen((v) => !v)}
+            style={{
+              background: 'none',
+              border: '1px solid var(--rule)',
+              color: 'var(--ink-3)',
+              padding: '8px 10px',
+              fontSize: 11,
+              cursor: 'pointer',
+              marginLeft: -11,
+            }}
+          >
+            ▾
+          </button>
+          {menuOpen && (
+            <span
+              role="menu"
+              style={{
+                position: 'absolute',
+                right: 0,
+                top: 'calc(100% + 4px)',
+                background: 'var(--paper)',
+                border: '1px solid var(--ink)',
+                boxShadow: '0 8px 24px rgba(30, 46, 52, 0.16)',
+                zIndex: 40,
+                minWidth: 200,
+              }}
+            >
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onReviewStale();
+                }}
+                style={{
+                  display: 'block',
+                  width: '100%',
+                  textAlign: 'left',
+                  background: 'none',
+                  border: 'none',
+                  padding: '12px 14px',
+                  fontSize: 13,
+                  color: 'var(--ink)',
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                }}
+              >
+                Review stale slips
+              </button>
+            </span>
+          )}
+        </span>
+      )}
     </span>
   );
+}
+
+type StaleLoad = Awaited<ReturnType<typeof loadStaleSlips>>;
+
+/** "Review stale slips": every open slip nobody has touched in 90 days,
+ *  grouped by home, with Dismiss per row and per home. Nothing closes
+ *  unless an owner taps (src/lib/work-stale.ts). */
+function StaleReviewPanel({ load, onClose }: { load: Promise<StaleLoad>; onClose: () => void }) {
+  return (
+    <ModalShell title="Stale slips" onClose={onClose} busy={false}>
+      <Suspense fallback={<div style={{ fontSize: 13, color: 'var(--ink-3)', padding: '12px 0' }}>Reading the board…</div>}>
+        <StaleReviewList load={load} />
+      </Suspense>
+    </ModalShell>
+  );
+}
+
+function StaleReviewList({ load }: { load: Promise<StaleLoad> }) {
+  const res = use(load);
+  const softRefresh = useSoftRefresh();
+  const [gone, setGone] = useState<Set<string>>(() => new Set());
+  const [busy, setBusy] = useState<Set<string>>(() => new Set());
+  const [note, setNote] = useState('');
+  const locks = useRef(new Set<string>());
+  useUnsavedWorkGuard(busy.size > 0);
+
+  if (!res.ok) return <div role="alert" style={{ fontSize: 13, color: 'var(--negative)' }}>{res.error}</div>;
+
+  const homes: StaleHomeView[] = res.homes
+    .map((h) => ({ ...h, slips: h.slips.filter((s) => !gone.has(s.id)) }))
+    .filter((h) => h.slips.length > 0);
+  const total = homes.reduce((n, h) => n + h.slips.length, 0);
+
+  async function dismiss(key: string, ids: string[]) {
+    if (locks.current.has(key)) return;
+    locks.current.add(key);
+    setBusy(new Set(locks.current));
+    setNote('');
+    try {
+      const r = await dismissStaleSlips(ids);
+      if (!r.ok) {
+        setNote(r.error);
+        return;
+      }
+      setGone((prev) => new Set([...prev, ...r.dismissedIds]));
+      if (r.skipped > 0) {
+        setNote(`${r.skipped} ${r.skipped === 1 ? 'slip was' : 'slips were'} touched since this list loaded and stayed open.`);
+      }
+      softRefresh();
+    } catch {
+      setNote('Could not confirm the dismissal. Refresh the board before retrying.');
+    } finally {
+      locks.current.delete(key);
+      setBusy(new Set(locks.current));
+    }
+  }
+
+  return (
+    <div>
+      <div style={{ fontSize: 13, color: 'var(--ink-3)', marginBottom: 14, lineHeight: 1.5 }}>
+        {total === 0
+          ? `Nothing open has gone ${res.days} days without someone touching it.`
+          : `${total} open ${total === 1 ? 'slip' : 'slips'} nobody has touched in ${res.days} days. Dismiss closes one without work; Reopen on the slip brings it back.`}
+      </div>
+      {note && <div role="status" style={{ fontSize: 12, color: 'var(--ink-2)', marginBottom: 12 }}>{note}</div>}
+      {homes.map((h) => {
+        const homeKey = `home:${h.propertyId}`;
+        const homeBusy = busy.has(homeKey);
+        return (
+          <section key={h.propertyId} style={{ borderTop: '1px solid var(--ink)', padding: '12px 0 4px' }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 6 }}>
+              <span className="font-serif" style={{ fontSize: 17, color: 'var(--ink)' }}>{h.propertyName}</span>
+              <span className="font-mono" style={{ fontSize: 11, color: 'var(--ink-3)' }}>{h.slips.length}</span>
+              <span style={{ flex: 1 }} />
+              <button
+                type="button"
+                disabled={homeBusy}
+                onClick={() => dismiss(homeKey, h.slips.map((s) => s.id))}
+                style={{ ...ghostBtn(), fontSize: 11, padding: '6px 10px' }}
+              >
+                {homeBusy ? 'Dismissing…' : `Dismiss all ${h.slips.length}`}
+              </button>
+            </div>
+            {h.slips.map((s) => {
+              const rowBusy = busy.has(s.id) || homeBusy;
+              return (
+                <div key={s.id} style={{ display: 'flex', alignItems: 'baseline', gap: 10, padding: '7px 0', borderTop: '1px solid var(--rule)' }}>
+                  <Link href={`/work/${s.id}`} style={{ flex: 1, minWidth: 0, fontSize: 13, color: 'var(--ink)', textDecoration: 'none' }}>
+                    {s.title}
+                  </Link>
+                  <span style={{ fontSize: 11, color: 'var(--ink-4)', whiteSpace: 'nowrap' }}>
+                    last touched {fmtStaleDay(s.lastTouchDay)}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={rowBusy}
+                    onClick={() => dismiss(s.id, [s.id])}
+                    style={{ ...ghostBtn(), fontSize: 11, padding: '4px 10px' }}
+                  >
+                    {busy.has(s.id) ? '…' : 'Dismiss'}
+                  </button>
+                </div>
+              );
+            })}
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+/** "2026-06-03" -> "Jun 3" (a year only when it is not this one). */
+function fmtStaleDay(day: string): string {
+  const d = new Date(`${day}T12:00:00Z`);
+  const sameYear = day.slice(0, 4) === String(new Date().getFullYear());
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' }), timeZone: 'UTC' });
 }
 
 function pillTinyStyle(color: string): React.CSSProperties {

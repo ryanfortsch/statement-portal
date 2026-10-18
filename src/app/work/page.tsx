@@ -6,6 +6,8 @@ import { fieldDb } from '@/lib/field-db';
 import type { WorkSlipRow, TaskRow } from '@/lib/work-types';
 import { ACTIVE_WORK_SLIP_STATUSES, ACTIVE_TASK_STATUSES } from '@/lib/work-types';
 import { loadWorkBriefHeadlines, type WorkBriefHeadline } from '@/lib/work-briefs';
+import { roleForEmail } from '@/lib/helm-access';
+import { defaultWorkFilter } from '@/lib/work-board-view';
 import { QueueClient } from './QueueClient';
 
 export const dynamic = 'force-dynamic';
@@ -109,6 +111,9 @@ export default async function WorkQueuePage() {
   const session = await auth();
   const { workSlips, snoozedSlips, tasks, properties, slipCommentCounts, taskCommentCounts, reporterNames, briefHeadlines } = await getData();
   const myEmail = session?.user?.email ?? '';
+  // A staff login opens on its own week; an owner on everything
+  // (lib/work-board-view.ts). Owners also get "Review stale slips".
+  const role = myEmail ? roleForEmail(myEmail) : null;
 
   return (
     <>
@@ -122,6 +127,8 @@ export default async function WorkQueuePage() {
         taskCommentCounts={taskCommentCounts}
         reporterNames={reporterNames}
         briefHeadlines={briefHeadlines}
+        defaultFilter={defaultWorkFilter(role)}
+        isOwner={role === 'owner'}
       />
 
       <HelmFooter module="Work Queue" right="Source: Helm" />
