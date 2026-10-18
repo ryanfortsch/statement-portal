@@ -199,7 +199,7 @@ export const LAUNCH_STEPS: ReadonlyArray<LaunchStep> = [
     title: 'Listing copy drafted',
     required: true,
     who: 'ops',
-    description: 'Helm drafts from the property\'s onboarding data; you edit and finalize. The owner doesn\'t sign off on listing copy.',
+    description: 'Draft with AI in the Listing section writes the Guesty fields from the property\'s data and photos; you edit and save. The owner doesn\'t sign off on listing copy.',
     action: 'generate_copy',
   },
   {

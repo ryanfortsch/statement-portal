@@ -12,9 +12,10 @@
  * can ground its language in the actual physical details (dock,
  * fireplace, bunk room, view) instead of generic vacation-rental copy.
  *
- * No save-back yet. The generator returns the draft so the operator can
- * copy it into Guesty / Airbnb / VRBO. Saving onto the property row is
- * a follow-up once the team agrees on the structure.
+ * The generator returns a draft; it never saves. Its one caller is
+ * `src/lib/listing-copy-draft.ts` ("Draft with AI"), which hands the draft to
+ * the form that saves it: the Stay Cape Ann launcher (the `sca` format) or
+ * the property page's Listing section (the `airbnb` format).
  */
 
 import { generateObject } from 'ai';

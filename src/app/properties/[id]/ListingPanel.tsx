@@ -5,12 +5,14 @@ import { upload } from '@vercel/blob/client';
 import {
   addPhotoUrlAction,
   deletePhotoAction,
+  draftListingWithAiAction,
   movePhotoAction,
   recordUploadedPhotoAction,
   saveListingContentAction,
   setHeroAction,
   updatePhotoAction,
   type ListingActionResult,
+  type ListingAiDraft,
   type ListingFormState,
 } from './listing-actions';
 import Link from 'next/link';
@@ -111,16 +113,78 @@ function ContentForm({
   const extras = (content?.amenities ?? []).filter((a) => !catalogKeys.has(fold(a)));
   const formKey = content?.updated_at ?? 'new';
 
+  // Draft with AI fills the five Guesty description fields in place, and
+  // Save listing saves them. The fields are uncontrolled, so a draft remounts
+  // just those five with the merged text; it belongs to the form version it
+  // was drafted on and is dropped once a save brings a newer record.
+  const formRef = useRef<HTMLFormElement>(null);
+  const [aiBrief, setAiBrief] = useState('');
+  const [aiDraft, setAiDraft] = useState<{ forKey: string; n: number; values: ListingAiDraft } | null>(null);
+  const [aiNote, setAiNote] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  const [drafting, startDraft] = useTransition();
+  const applied = aiDraft && aiDraft.forKey === formKey ? aiDraft : null;
+  const dv = (name: keyof ListingAiDraft, fallback: string): string => applied?.values[name] ?? fallback;
+  const fk = (name: keyof ListingAiDraft): string => (applied ? `${name}-${applied.n}` : name);
+
+  const onDraft = () => {
+    const fd = formRef.current ? new FormData(formRef.current) : null;
+    const current = Object.fromEntries(
+      (['title', 'summary', 'space', 'access', 'neighborhood'] as const).map((k) => [k, String(fd?.get(k) ?? '').trim()]),
+    ) as ListingAiDraft;
+    const body = ['summary', 'space', 'access', 'neighborhood'] as const;
+    const hasCopy = body.some((k) => current[k]);
+    const overwrite =
+      hasCopy &&
+      window.confirm('Replace the summary, the space, guest access and the neighborhood with a new AI draft? Cancel keeps your text and fills only the blank fields.');
+    if (hasCopy && !overwrite && body.every((k) => current[k])) return;
+    setAiNote(null);
+    startDraft(async () => {
+      try {
+        const res = await draftListingWithAiAction(propertyId, aiBrief);
+        if (!res.ok) {
+          setAiNote({ kind: 'err', text: res.error });
+          return;
+        }
+        const values = { ...current };
+        for (const k of body) values[k] = overwrite ? res.draft[k] || current[k] : current[k] || res.draft[k];
+        // The title is a name, not copy: a draft only fills a blank one.
+        values.title = current.title || res.draft.title;
+        setAiDraft((prev) => ({ forKey: formKey, n: (prev?.n ?? 0) + 1, values }));
+        const source = res.photos ? `the property record and ${res.photos} Listing photo${res.photos === 1 ? '' : 's'}` : 'the property record';
+        setAiNote({ kind: 'ok', text: `Drafted from ${source}. Review it, then Save listing.` });
+      } catch {
+        setAiNote({ kind: 'err', text: 'Could not draft the listing. Try again.' });
+      }
+    });
+  };
+
   return (
-    <form key={formKey} action={formAction} style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
+    <form ref={formRef} key={formKey} action={formAction} style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
       <SectionHead title="Content" note={content?.updated_at ? `Saved ${fmtStamp(content.updated_at)}${content.updated_by ? ` by ${content.updated_by}` : ''}` : 'Not saved yet'} />
 
-      <TextField name="title" label="Title" hint="the guest-facing name; the registry title is the fallback" consumers={consumers.title} defaultValue={content?.title ?? registry.title ?? ''} />
-      <TextField name="summary" label="Summary" hint="the short pitch; ✓ lines become staycapeann.com highlights" consumers={consumers.summary} defaultValue={content?.summary ?? ''} rows={4} />
-      <TextField name="space" label="The space" hint="room by room; ☆ headings and → bullets render as sections" consumers={consumers.space} defaultValue={content?.space ?? ''} rows={10} />
-      <TextField name="access" label="Guest access" hint="what the guest may use; never the door code" consumers={consumers.access} defaultValue={content?.access ?? ''} rows={3} />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button type="button" onClick={onDraft} disabled={drafting || pending} style={{ ...ghostBtn, opacity: drafting ? 0.6 : 1 }}>
+            {drafting ? 'Drafting…' : 'Draft with AI'}
+          </button>
+          <input
+            value={aiBrief}
+            onChange={(e) => setAiBrief(e.target.value)}
+            maxLength={2000}
+            placeholder="Optional: what makes it special, e.g. the view at low tide"
+            aria-label="Note for Draft with AI"
+            style={{ ...input, flex: '1 1 260px', width: 'auto' }}
+          />
+        </div>
+        {aiNote && <span role="status" style={{ fontSize: 12, color: aiNote.kind === 'ok' ? 'var(--positive)' : 'var(--negative)' }}>{aiNote.text}</span>}
+      </div>
+
+      <TextField key={fk('title')} name="title" label="Title" hint="the guest-facing name; the registry title is the fallback" consumers={consumers.title} defaultValue={dv('title', content?.title ?? registry.title ?? '')} />
+      <TextField key={fk('summary')} name="summary" label="Summary" hint="the short pitch; ✓ lines become staycapeann.com highlights" consumers={consumers.summary} defaultValue={dv('summary', content?.summary ?? '')} rows={4} />
+      <TextField key={fk('space')} name="space" label="The space" hint="room by room; ☆ headings and → bullets render as sections" consumers={consumers.space} defaultValue={dv('space', content?.space ?? '')} rows={10} />
+      <TextField key={fk('access')} name="access" label="Guest access" hint="what the guest may use; never the door code" consumers={consumers.access} defaultValue={dv('access', content?.access ?? '')} rows={3} />
       <TextField name="interaction" label="Interaction with guests" consumers={consumers.interaction} defaultValue={content?.interaction ?? ''} rows={2} />
-      <TextField name="neighborhood" label="Neighborhood" consumers={consumers.neighborhood} defaultValue={content?.neighborhood ?? ''} rows={5} />
+      <TextField key={fk('neighborhood')} name="neighborhood" label="Neighborhood" consumers={consumers.neighborhood} defaultValue={dv('neighborhood', content?.neighborhood ?? '')} rows={5} />
       <TextField name="notes" label="Other things to note" hint="Guesty's Notes field" consumers={consumers.notes} defaultValue={content?.notes ?? ''} rows={3} />
       <HousePolicyReadout propertyId={propertyId} values={housePolicy} fields={['houseRules', 'maxOccupancy']} />
 

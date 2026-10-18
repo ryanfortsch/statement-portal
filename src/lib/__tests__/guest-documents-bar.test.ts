@@ -64,7 +64,6 @@ test('each tool has one name on its tile, breadcrumb and page title', () => {
   const tools: Array<[string, string, RegExp]> = [
     ['caption-photos', 'Photo captions', /Photo <em[^>]*>captions<\/em>/],
     ['sync-guesty', 'Guesty fields', /Guesty <em[^>]*>fields<\/em>/],
-    ['listing-copy', 'Listing copy', /Listing <em[^>]*>copy<\/em>/],
   ];
   for (const [slug, name, h1] of tools) {
     const src = read(`src/app/properties/[id]/${slug}/page.tsx`);

@@ -12,6 +12,7 @@ import {
   upsertPhoto,
   type ListingContentPatch,
 } from '@/lib/listing-content';
+import { draftListingCopy } from '@/lib/listing-copy-draft';
 
 /**
  * Server actions for the property Listing tab (ListingPanel.tsx): the
@@ -135,6 +136,39 @@ export async function saveListingContentAction(propertyId: string, _prev: Listin
 // ── Photos ──────────────────────────────────────────────────────────────────
 
 /** Add a photo by URL (already hosted somewhere Helm can serve from). */
+/** The Guesty description fields a Draft with AI fills, by the form's names. */
+export type ListingAiDraft = { title: string; summary: string; space: string; access: string; neighborhood: string };
+
+/**
+ * Draft with AI in the Guesty format: one block per Guesty description field
+ * (title, summary, the space, guest access, the neighborhood), written from
+ * the property record, this home's Listing photos and the operator's note.
+ * Returns the draft only; the Content form fills it and Save listing saves
+ * it. This was the Airbnb half of /properties/[id]/listing-copy, a page that
+ * saved nothing.
+ */
+export async function draftListingWithAiAction(
+  propertyId: string,
+  brief: string,
+): Promise<{ ok: true; draft: ListingAiDraft; photos: number } | { ok: false; error: string }> {
+  if (!(await actor())) return { ok: false, error: 'Not signed in' };
+  if (!PROPERTY_ID.test(propertyId)) return { ok: false, error: 'Unknown property' };
+  const res = await draftListingCopy(propertyId, 'airbnb', brief);
+  if (!res.ok) return { ok: false, error: `Could not draft the listing: ${res.error}` };
+  const c = res.copy;
+  return {
+    ok: true,
+    photos: res.photos,
+    draft: {
+      title: (c.title ?? '').trim(),
+      summary: (c.summary ?? '').trim(),
+      space: (c.space ?? '').trim(),
+      access: (c.guest_access ?? '').trim(),
+      neighborhood: (c.neighborhood ?? '').trim(),
+    },
+  };
+}
+
 export async function addPhotoUrlAction(propertyId: string, input: { url: string; caption?: string | null }): Promise<ListingActionResult> {
   const by = await actor();
   if (!by) return { ok: false, error: 'Not signed in' };

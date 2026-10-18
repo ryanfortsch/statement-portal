@@ -1908,12 +1908,9 @@ export default async function PropertyDetailPage({
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
               {/* One name per tool: the tile, the page's breadcrumb and its
                   title say the same thing. */}
-              <GrowthTile
-                eyebrow="Listing"
-                title="Listing copy"
-                description="Title, tagline, and description drafted from this property's data plus photos you upload."
-                href={`/properties/${p.id}/listing-copy`}
-              />
+              {/* No Listing copy tile: Draft with AI lives in the forms that
+                  save it, the Listing section below (Guesty fields) and the
+                  Stay Cape Ann launcher (tagline, About, highlights). */}
               <GrowthTile
                 eyebrow="Guesty"
                 title="Photo captions"
