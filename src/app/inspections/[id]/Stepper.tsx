@@ -25,6 +25,7 @@ import { SaveQueue } from '@/lib/save-queue';
 import { readInspectionDrafts } from '@/lib/inspection-drafts';
 import { INSPECTION_SUPPLIES } from '@/lib/inspection-supplies';
 import { PULLOUT_BED_ITEM_ID, withSheetsLine } from '@/lib/pullout-beds';
+import { SLIP_OUTCOME_HINT, SLIP_OUTCOME_LABEL, type SlipOutcome } from '@/lib/field-slip-outcomes';
 
 /**
  * One deck card. For zone-mapped properties the same template item can
@@ -131,8 +132,9 @@ type Props = {
    *  after the last inspection item. Omitted by staff (deck is byte-identical). */
   trailingTasks?: TrailingTask[];
   /** Field-only: the property's open work slips (not already on this trip),
-   *  verified on the review screen — each defaults to "still needs doing";
-   *  one tap flips it to "it's handled". Omitted by staff. */
+   *  answered on the review screen with the packet page's three words: Done
+   *  on this trip, Already handled, Still open (the default). Omitted by
+   *  staff. */
   verifySlips?: VerifySlip[];
   packetId?: string;
   onCompleteTask?: (input: { packetId: string; attachmentId: string; note: string; photoUrls: string[] }) => Promise<{ ok: true } | { ok: false; error: string }>;
@@ -241,9 +243,9 @@ export function Stepper({
   // OK; flipping it ON marks that supply as low, which becomes a restock
   // work slip on Complete Inspection. State holds the keys currently low.
   const [suppliesLow, setSuppliesLow] = useState<Set<string>>(() => new Set());
-  // Slip verification: ids tapped as "it's handled". Everything else in
-  // verifySlips is confirmed still-open on complete.
-  const [slipsHandled, setSlipsHandled] = useState<Set<string>>(() => new Set());
+  // Slip verification: each listed slip's answer. Absent = Still open, which
+  // the walk itself confirms on complete.
+  const [slipVerdicts, setSlipVerdicts] = useState<Map<string, 'done' | 'handled'>>(() => new Map());
   function toggleSupply(key: string) {
     setSuppliesLow((prev) => {
       const next = new Set(prev);
@@ -498,10 +500,11 @@ export function Stepper({
     try {
       await completeInspection(inspectionId, {
         suppliesLow: Array.from(suppliesLow),
-        // Every listed slip gets a verdict: handled if tapped, otherwise the
-        // walk itself is the confirmation it's still outstanding.
-        slipsHandled: verifySlips.filter((w) => slipsHandled.has(w.id)).map((w) => w.id),
-        slipsStillOpen: verifySlips.filter((w) => !slipsHandled.has(w.id)).map((w) => w.id),
+        // Every listed slip gets a verdict: done on this trip, already
+        // handled, or (untouched) still open, which the walk confirms.
+        slipsDone: verifySlips.filter((w) => slipVerdicts.get(w.id) === 'done').map((w) => w.id),
+        slipsHandled: verifySlips.filter((w) => slipVerdicts.get(w.id) === 'handled').map((w) => w.id),
+        slipsStillOpen: verifySlips.filter((w) => !slipVerdicts.has(w.id)).map((w) => w.id),
       });
       router.push(`/inspections/${inspectionId}/summary`);
     } catch (e) {
@@ -651,54 +654,72 @@ export function Stepper({
 
           {verifySlips.length > 0 && (
             <div style={{ marginTop: 22 }}>
+              {/* The packet page's words for the same slips: Done on this
+                  trip, Already handled, Still open. */}
               <div style={{ fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 4 }}>
-                Still on the list
+                Also open at this home
               </div>
               <div style={{ fontSize: 12.5, color: 'var(--ink-4)', marginBottom: 10, lineHeight: 1.5 }}>
-                These are open for this home. Tap any you saw are already handled.
+                Say which you did on this walk, and which were already taken care of.
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {verifySlips.map((w) => {
-                  const done = slipsHandled.has(w.id);
+                  const verdict: SlipOutcome = slipVerdicts.get(w.id) ?? 'open';
+                  const choose = (next: SlipOutcome) =>
+                    setSlipVerdicts((prev) => {
+                      const m = new Map(prev);
+                      if (next === 'open') m.delete(w.id);
+                      else m.set(w.id, next);
+                      return m;
+                    });
                   return (
-                    <button
+                    <div
                       key={w.id}
-                      type="button"
-                      aria-pressed={done}
-                      onClick={() =>
-                        setSlipsHandled((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(w.id)) next.delete(w.id);
-                          else next.add(w.id);
-                          return next;
-                        })
-                      }
+                      role="group"
+                      aria-label={w.title}
                       style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 10,
-                        textAlign: 'left',
-                        font: 'inherit',
-                        fontSize: 14,
                         padding: '10px 12px',
                         borderRadius: 10,
-                        cursor: 'pointer',
-                        border: done ? '1px solid var(--positive)' : '1px solid var(--rule)',
-                        background: done ? 'rgba(63,153,34,0.08)' : 'var(--paper-2, #fff)',
+                        border: verdict === 'open' ? '1px solid var(--rule)' : '1px solid var(--positive)',
+                        background: verdict === 'open' ? 'var(--paper-2, #fff)' : 'rgba(63,153,34,0.08)',
                         color: 'var(--ink)',
                       }}
                     >
-                      <span aria-hidden style={{ fontSize: 16, width: 20, flexShrink: 0, color: done ? 'var(--positive)' : 'var(--ink-4)' }}>
-                        {done ? '✓' : '○'}
-                      </span>
-                      <span style={{ minWidth: 0 }}>
-                        <span style={{ textDecoration: done ? 'line-through' : 'none', opacity: done ? 0.65 : 1 }}>{w.title}</span>
+                      <div style={{ fontSize: 14 }}>
+                        <span style={{ textDecoration: verdict === 'open' ? 'none' : 'line-through', opacity: verdict === 'open' ? 1 : 0.65 }}>{w.title}</span>
                         {w.location && <span style={{ color: 'var(--ink-4)' }}> · {w.location}</span>}
-                        <span style={{ display: 'block', fontSize: 11.5, color: done ? 'var(--positive)' : 'var(--ink-4)', marginTop: 2 }}>
-                          {done ? "It's handled — we'll take it off the list" : 'Still needs doing'}
-                        </span>
-                      </span>
-                    </button>
+                      </div>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+                        {(['done', 'handled', 'open'] as const).map((o) => {
+                          const on = verdict === o;
+                          return (
+                            <button
+                              key={o}
+                              type="button"
+                              aria-pressed={on}
+                              onClick={() => choose(o)}
+                              style={{
+                                font: 'inherit',
+                                fontSize: 12.5,
+                                fontWeight: on ? 600 : 500,
+                                cursor: 'pointer',
+                                borderRadius: 999,
+                                padding: '7px 12px',
+                                minHeight: 36,
+                                border: `1px solid ${on ? (o === 'open' ? 'var(--ink-3)' : 'var(--positive)') : 'var(--rule)'}`,
+                                background: on ? (o === 'open' ? 'var(--paper)' : 'var(--positive)') : 'var(--paper-2, #fff)',
+                                color: on && o !== 'open' ? 'var(--paper)' : 'var(--ink-3)',
+                              }}
+                            >
+                              {SLIP_OUTCOME_LABEL[o]}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div style={{ fontSize: 11.5, color: verdict === 'open' ? 'var(--ink-4)' : 'var(--positive)', marginTop: 6 }}>
+                        {SLIP_OUTCOME_HINT[verdict]}
+                      </div>
+                    </div>
                   );
                 })}
               </div>

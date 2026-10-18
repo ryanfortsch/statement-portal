@@ -5,6 +5,7 @@ import { useCallback, useRef, useState } from 'react';
 import { StopSlipEditor } from './StopSlipEditor';
 import { PhotoUploader, PhotoThumbs, usePhotoDraftCleaner } from '@/components/PhotoUploader';
 import { ReceiptAmountField } from '@/components/ReceiptAmountField';
+import { SLIP_OUTCOME_HINT, SLIP_OUTCOME_LABEL } from '@/lib/field-slip-outcomes';
 import { confirmedSave } from '@/lib/confirmed-save';
 import { resolveSlipFromStop, checkFieldTaskCompletion } from '../../actions';
 
@@ -116,6 +117,9 @@ export function StopWorkList({
   const retry = useRef<(() => void) | null>(null);
 
   const markDone = (id: string) => setDoneIds((prev) => new Set([...prev, id]));
+  // Which of the done rows were found already handled, so the row says the
+  // right thing after the save (both close on the office's approval).
+  const [handledIds, setHandledIds] = useState<Set<string>>(() => new Set());
 
   function resetForms() {
     setPhotos([]);
@@ -153,6 +157,7 @@ export function StopWorkList({
         return;
       }
       await afterSaved?.();
+      if (input.outcome === 'already_handled') setHandledIds((prev) => new Set([...prev, i.slipId]));
       markDone(i.slipId);
       setFailedId(null);
       retry.current = null;
@@ -322,7 +327,7 @@ export function StopWorkList({
                     {err && !failedId && <div style={{ color: 'var(--signal)', fontSize: 13, marginTop: 8 }}>{err}</div>}
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
                       <button type="button" onClick={() => submitDone(i)} disabled={!formDraft.ready || !!failedId || saving || photoBusy || failedPhotos > 0} style={{ ...pillDark, opacity: saving ? 0.7 : 1 }}>
-                        {saving ? 'Saving…' : 'Mark done'}
+                        {saving ? 'Saving…' : SLIP_OUTCOME_LABEL.done}
                       </button>
                       <button type="button" onClick={() => { setMode('info'); resetForms(); }} disabled={!formDraft.ready || !!failedId || saving || photoBusy || failedPhotos > 0} style={pillGhost}>
                         Cancel
@@ -334,7 +339,7 @@ export function StopWorkList({
                 {mode === 'handled' && !done && (
                   <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--rule-soft, var(--rule))' }}>
                     <div style={{ color: 'var(--ink-3)' }}>
-                      Already taken care of when you got here, or it no longer applies? It comes off the list and the office sees it was found done, not done by you.
+                      Already taken care of when you got here, or it no longer applies? {SLIP_OUTCOME_HINT.handled}
                     </div>
                     {!saving && !failedId && <FieldDraftStatus status={formDraft.status} />}
                     <textarea
@@ -348,7 +353,7 @@ export function StopWorkList({
                     {err && !failedId && <div style={{ color: 'var(--signal)', fontSize: 13, marginTop: 8 }}>{err}</div>}
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
                       <button type="button" onClick={() => submitHandled(i)} disabled={!formDraft.ready || !!failedId || saving || photoBusy || failedPhotos > 0} style={{ ...pillDark, opacity: saving ? 0.7 : 1 }}>
-                        {saving ? 'Saving…' : 'Yes, take it off the list'}
+                        {saving ? 'Saving…' : SLIP_OUTCOME_LABEL.handled}
                       </button>
                       <button type="button" onClick={() => { setMode('info'); resetForms(); }} disabled={!formDraft.ready || !!failedId || saving || photoBusy || failedPhotos > 0} style={pillGhost}>
                         Cancel
@@ -363,14 +368,19 @@ export function StopWorkList({
                       Done, with photo or note
                     </button>
                     <button type="button" onClick={() => { resetForms(); setMode('handled'); }} style={pillGhost}>
-                      Already handled
+                      {SLIP_OUTCOME_LABEL.handled}
                     </button>
                     <button type="button" onClick={() => { resetForms(); setMode('edit'); }} style={pillGhost}>
                       Edit
                     </button>
                   </div>
                 )}
-                {done && <div style={{ marginTop: 10, fontSize: 12.5, color: 'var(--positive)', fontWeight: 600 }}>Done on this trip.</div>}
+                {done && (
+                  <div style={{ marginTop: 10, fontSize: 12.5, color: 'var(--positive)', fontWeight: 600 }}>
+                    {handledIds.has(i.slipId) ? SLIP_OUTCOME_LABEL.handled : SLIP_OUTCOME_LABEL.done}.{' '}
+                    <span style={{ fontWeight: 400, color: 'var(--ink-3)' }}>{SLIP_OUTCOME_HINT[handledIds.has(i.slipId) ? 'handled' : 'done']}</span>
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -398,7 +408,7 @@ export function StopWorkList({
                 : 'Also open at this home · all done'
               : 'Also open at this home',
             pinned.length === 0 && atHome.length > 0
-              ? 'Every open work slip here. Tap the circle when one is done, or the i for details.'
+              ? 'Every open work slip here. Tap the circle when you did one on this trip, or the i for details.'
               : undefined,
           )}
           {atHome.map(row)}
@@ -414,6 +424,13 @@ export function StopWorkList({
           {label(left(restocks) > 0 ? `Restock · ${left(restocks)} to go` : 'Restock · all done')}
           {restocks.map(row)}
         </>
+      )}
+      {/* What a tick means, once there is one: it counts toward this trip,
+          and the slip closes on the office's approval, not on the tap. */}
+      {!readOnly && doneIds.size > 0 && (
+        <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 8, lineHeight: 1.45 }}>
+          Ticked here counts toward this trip. The office closes each one when they approve the trip.
+        </div>
       )}
     </div>
   );
