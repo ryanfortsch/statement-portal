@@ -34,3 +34,31 @@ export function workSignals(items: BoardItem[], today: string) {
     unclaimed: items.filter(workUnassigned).length,
   };
 }
+
+/** "This week" on the board: today and the six days after it. */
+export const WORK_WEEK_DAYS = 7;
+
+function plusDays(day: string, n: number): string {
+  const d = new Date(`${day}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+/** On this week's plate: overdue, dated within the next seven days, or
+ *  undated (nothing has parked it later). Only a date past the week is not. */
+export function workThisWeek(item: BoardItem, today: string): boolean {
+  const date = workDate(item);
+  return !date || date <= plusDays(today, WORK_WEEK_DAYS - 1);
+}
+
+/** My week: assigned to me and on this week's plate. */
+export function workMyWeek(item: BoardItem, me: string, today: string): boolean {
+  return !!me && item.assigned_to_email === me && workThisWeek(item, today);
+}
+
+/** The view the board opens on with no ?filter=. A staff login opens on its
+ *  own week (All is the first pill, one tap away, and the tab carries the
+ *  total); an owner, or a session with no role, opens on everything. */
+export function defaultWorkFilter(role: string | null | undefined): 'all' | 'my-week' {
+  return role === 'staff' ? 'my-week' : 'all';
+}
