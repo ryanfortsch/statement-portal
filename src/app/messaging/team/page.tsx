@@ -32,6 +32,7 @@ import * as contractorReminders from '@/app/contractor-messaging/reminders-actio
 import { TeamInboxQueue } from './TeamInboxQueue';
 import { TeamDecidedRecently } from './TeamDecidedRecently';
 import { TeamQueueSummary } from './TeamQueueSummary';
+import { TeamProactive } from './TeamProactive';
 
 /**
  * The Team inbox (2026-10-18): the cleaner and contractor queues as one
@@ -193,36 +194,28 @@ async function ScheduleDigestSection({ searchParams }: { searchParams: SearchPar
   );
 }
 
-function CleanerProactive({ title }: { title?: string }) {
-  return (
-    <ProactiveRemindersPanel
-      audience="cleaner"
-      title={title}
-      actions={{
-        fetchReminders: cleanerReminders.fetchProactiveReminders,
-        fetchTargets: cleanerReminders.fetchProactiveTargets,
-        create: cleanerReminders.createProactiveReminder,
-        end: cleanerReminders.endProactiveReminder,
-        polish: cleanerReminders.polishProactiveForAction,
-      }}
-    />
-  );
-}
+const cleanerProactiveActions = {
+  fetchReminders: cleanerReminders.fetchProactiveReminders,
+  fetchTargets: cleanerReminders.fetchProactiveTargets,
+  create: cleanerReminders.createProactiveReminder,
+  end: cleanerReminders.endProactiveReminder,
+  polish: cleanerReminders.polishProactiveForAction,
+};
 
-function ContractorProactive({ title }: { title?: string }) {
-  return (
-    <ProactiveRemindersPanel
-      audience="contractor"
-      title={title}
-      actions={{
-        fetchReminders: contractorReminders.fetchProactiveReminders,
-        fetchTargets: contractorReminders.fetchProactiveTargets,
-        create: contractorReminders.createProactiveReminder,
-        end: contractorReminders.endProactiveReminder,
-        polish: contractorReminders.polishProactiveForAction,
-      }}
-    />
-  );
+const contractorProactiveActions = {
+  fetchReminders: contractorReminders.fetchProactiveReminders,
+  fetchTargets: contractorReminders.fetchProactiveTargets,
+  create: contractorReminders.createProactiveReminder,
+  end: contractorReminders.endProactiveReminder,
+  polish: contractorReminders.polishProactiveForAction,
+};
+
+/** One Proactive messages panel: the audience the filter shows, or on All a
+ *  Cleaners / Contractors pick in its header. */
+function TeamProactiveSection({ audience }: { audience: TeamAudience }) {
+  if (audience === 'cleaners') return <ProactiveRemindersPanel audience="cleaner" actions={cleanerProactiveActions} />;
+  if (audience === 'contractors') return <ProactiveRemindersPanel audience="contractor" actions={contractorProactiveActions} />;
+  return <TeamProactive cleaner={cleanerProactiveActions} contractor={contractorProactiveActions} />;
 }
 
 export default async function TeamInboxPage({ searchParams }: { searchParams: SearchParams }) {
@@ -278,8 +271,7 @@ export default async function TeamInboxPage({ searchParams }: { searchParams: Se
           <RecentMessageOutcomesSection audience="contractors" title={cleaners ? 'Follow-up history · Contractors' : undefined} />
         </Suspense>
       )}
-      {cleaners && <CleanerProactive title={contractors ? 'Proactive messages · Cleaners' : undefined} />}
-      {contractors && <ContractorProactive title={cleaners ? 'Proactive messages · Contractors' : undefined} />}
+      <TeamProactiveSection audience={audience} />
       <Suspense fallback={null}>
         <PropertyFactsToFile />
       </Suspense>

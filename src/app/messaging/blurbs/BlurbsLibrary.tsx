@@ -17,10 +17,10 @@ import { saveBlurbAction, setBlurbStatusAction, createBlurbAction } from './blur
  * 2026-10-17: a card reads as a saved reply, not a form. The title is text
  * with a pencil, the body is text with Edit; Save / Discard edits appear
  * only once something changed. Retire asks once and lands the reply on a
- * Retired tab with Restore. The concierge's list leaves retired rows out
- * (blurbs.list_all without include_retired), so until it returns them the
- * Retired tab holds what was retired in this session; Restore works either
- * way, since unapprove sets any row back to draft.
+ * Retired tab with Restore. The concierge's list carries retired rows since
+ * stay-concierge #91, so the tab survives a reload; a reply retired in this
+ * session shows there at once, before the next list. Restore is unapprove,
+ * which sets any row back to draft.
  */
 
 type DraftState = { dirty: boolean; pending: boolean };
@@ -99,10 +99,9 @@ export function BlurbsLibrary({ initial, categories, properties }: Props) {
   }, []);
   useDraftNavigationGuard(Object.values(draftStates).some((s) => s.dirty), Object.values(draftStates).some((s) => s.pending));
 
-  // Replies retired in this session. The service's list omits retired rows,
-  // so after the refresh that follows a retire the row is gone from
-  // `initial`; it stays here, restorable, until a restore brings it back as
-  // a draft (at which point `initial` carries it and this entry drops).
+  // Replies retired in this session, shown on the Retired tab at once,
+  // before the next list arrives (the list carries retired rows since
+  // stay-concierge #91; a server row with the same id wins).
   const [retiredHere, setRetiredHere] = useState<SavedBlurb[]>([]);
   const rows = useMemo(() => {
     const fromServer = initial.filter((b) => b.status === 'draft' || b.status === 'approved' || b.status === 'retired');

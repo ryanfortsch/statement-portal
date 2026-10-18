@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, useTransition } from 'react';
+import { useEffect, useRef, useState, useTransition, type ReactNode } from 'react';
 import { unstable_rethrow } from 'next/navigation';
 import { useRecoverableAction } from '@/lib/use-recoverable-action';
 import { useReminderResource } from '@/lib/use-reminder-resource';
@@ -51,9 +51,9 @@ type Audience = 'cleaner' | 'owner' | 'contractor';
 type Props = {
   audience: Audience;
   actions: ProactiveReminderActions;
-  /** The Team inbox shows a cleaner and a contractor panel together, so
-   *  each says whose it is. */
-  title?: string;
+  /** Beside Show in the header: the Team inbox's Cleaners / Contractors
+   *  pick, so one panel serves both. */
+  audienceSwitch?: ReactNode;
 };
 
 const WEEKDAYS = [
@@ -91,7 +91,7 @@ function cadenceLabel(r: RecurringMessage): string {
   return picked.join(', ');
 }
 
-export function ProactiveRemindersPanel({ audience, actions, title = 'Proactive messages' }: Props) {
+export function ProactiveRemindersPanel({ audience, actions, audienceSwitch }: Props) {
   const [open, setOpen] = useState(false);
   const [endedIds, setEndedIds] = useState<Set<string>>(new Set());
   const [creating, setCreating] = useState(false);
@@ -119,10 +119,12 @@ export function ProactiveRemindersPanel({ audience, actions, title = 'Proactive 
 
   return (
     <Section
-      title={title}
+      title="Proactive messages"
       eyebrow={recurring.length > 0 ? `${recurring.length} scheduled` : 'recurring + one-time'}
       paddingTop={36}
       right={
+        <>
+        {audienceSwitch}
         <button
           type="button"
           onClick={handleToggle}
@@ -142,6 +144,7 @@ export function ProactiveRemindersPanel({ audience, actions, title = 'Proactive 
         >
           {open ? 'Hide ▴' : 'Show ▾'}
         </button>
+        </>
       }
     >
       <div hidden={!open} style={{ borderTop: '1px solid var(--rule)', paddingTop: 12 }}>

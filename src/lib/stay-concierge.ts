@@ -576,7 +576,11 @@ export function explainUndoRefusal(detail: string, who: 'the guest' | 'them' = '
         ? 'A newer draft exists for this message. Look for it in the queue.'
         : 'They wrote again since, and their newer message has its own card.';
     case 'host_replied':
-      return `Someone already answered ${who} on the thread since the decision.`;
+      // The team undo asks Quo (concierge #92): a text or a call from our
+      // side since the card came in.
+      return who === 'the guest'
+        ? 'Someone already answered the guest on the thread since the decision.'
+        : 'Somebody already texted or called them since this card came in, so it stays closed.';
     default:
       return `That decision cannot be reversed (${detail || 'unknown reason'}).`;
   }

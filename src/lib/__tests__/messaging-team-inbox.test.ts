@@ -77,5 +77,9 @@ describe('the Team inbox', () => {
     const page = read('src/app/messaging/team/page.tsx');
     assert.ok(/\{cleaners && \(\s*<>\s*<Suspense fallback=\{null\}>\s*<OwnerHoldSection/.test(page), 'clean after? shows with the cleaners');
     assert.ok(page.includes('<ScheduleDigestSection searchParams={searchParams} />'), 'the schedule text stays a section');
+    // One Proactive messages panel, with a Cleaners / Contractors pick on All.
+    assert.ok(page.includes('<TeamProactiveSection audience={audience} />'));
+    assert.equal((page.match(/<ProactiveRemindersPanel /g) ?? []).length, 2, 'one panel per single-audience filter');
+    assert.ok(read('src/app/messaging/team/TeamProactive.tsx').includes('aria-label="Proactive messages for"'), 'the pick on All');
   });
 });
