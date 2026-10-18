@@ -53,9 +53,18 @@ describe('the draft goes to the sender’s own Gmail', () => {
   test('a token counts as yours only when Gmail says its address is yours', () => {
     const fn = helper.slice(helper.indexOf('export async function sessionMailbox('), helper.indexOf('async function getAccessToken('));
     assert.ok(fn.length > 0, 'sessionMailbox is where it was');
-    assert.ok(fn.includes('const address = await gmailMailbox(key);'), 'each token is asked of Gmail');
+    assert.ok(fn.includes('address: await gmailMailbox(key)'), 'each token is asked of Gmail');
     assert.ok(fn.includes('address === email'), 'the address must be the session’s own');
     assert.ok(helper.includes('GMAIL_REFRESH_TOKEN_${suffix}'), 'one token per person, by name');
+  });
+
+  test('a page render never waits on Gmail twice: tokens asked at once, a miss remembered', () => {
+    const fn = helper.slice(helper.indexOf('export async function sessionMailbox('), helper.indexOf('async function getAccessToken('));
+    assert.ok(fn.includes('await Promise.all('), 'the tokens are asked in parallel');
+    const lookup = helper.slice(helper.indexOf('export async function gmailMailbox('), helper.indexOf('export async function sessionMailbox('));
+    assert.ok(lookup.includes('profileMisses.get(pick.mailbox)'), 'a recent miss is not asked again');
+    assert.ok(lookup.includes('profileInFlight.get(pick.mailbox)'), 'concurrent renders share one lookup');
+    assert.ok(/signal: AbortSignal\.timeout\(PROFILE_TIMEOUT_MS\)/.test(lookup), 'the profile call is time-boxed');
   });
 
   test('a draft names its mailbox; nothing prefers one person’s', () => {
