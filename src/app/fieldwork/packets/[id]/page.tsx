@@ -30,6 +30,7 @@ import { loadTextWindow, fmtSpan } from '@/lib/field-text-window';
 import { RevealPay } from '../../roster/RevealPay';
 import { PendingButton } from '@/app/field/packet/[packetId]/PendingButton';
 import { JOB_KIND_LABEL, type JobKind } from '@/lib/field-job-kinds';
+import { houseDay } from '@/lib/house-date';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,8 +45,8 @@ function todayET(): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
 }
 function windowLabel(s: PacketStopDetail): string {
-  if (s.window_basis === 'checkout_day') return `after ${s.prior_checkout ?? 'morning'} checkout`;
-  if (s.window_basis === 'pre_checkin') return `before ${s.next_checkin ?? ''} check-in`;
+  if (s.window_basis === 'checkout_day') return s.prior_checkout ? `after the ${houseDay(s.prior_checkout)} checkout` : 'after the morning checkout';
+  if (s.window_basis === 'pre_checkin') return s.next_checkin ? `before the ${houseDay(s.next_checkin)} check-in` : 'before the check-in';
   return 'vacant all day';
 }
 

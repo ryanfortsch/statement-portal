@@ -14,7 +14,7 @@ const compile=s=>ts.transpileModule(s,{compilerOptions:{target:ts.ScriptTarget.E
 
 for(const [name,path] of [
  ['guest','src/app/messaging/RemindersSection.tsx'],['shared','src/components/ProactiveRemindersPanel.tsx'],['blurbs','src/app/messaging/blurbs/BlurbsLibrary.tsx'],
- ['recover','src/lib/use-recoverable-action.ts'],['resource','src/lib/use-reminder-resource.ts'],['unsaved','src/lib/unsaved-work.ts'],['guard','src/lib/use-draft-navigation-guard.ts'],
+ ['recover','src/lib/use-recoverable-action.ts'],['resource','src/lib/use-reminder-resource.ts'],['unsaved','src/lib/unsaved-work.ts'],['guard','src/lib/use-draft-navigation-guard.ts'],['housedate','src/lib/house-date.ts'],
 ])await writeFile(join(scratch,name+'.js'),compile(await readFile(join(root,path),'utf8')));
 await writeFile(join(scratch,'actions.js'),`
 export const save=(kind,args)=>new Promise((resolve,reject)=>window.calls.push({kind,args,resolve,reject}));
@@ -42,7 +42,7 @@ function Fixture(){const mode=new URLSearchParams(location.search).get('mode');c
 {mode==='blurbs'&&<BlurbsLibrary initial={rows} categories={['other','parking']} properties={[{id:'home-a',name:'Synthetic home'}]}/>}
 </main></>;}createRoot(document.getElementById('root')).render(<Fixture/>);
 `));
-const alias={'./reminders-actions':'actions','./blurbs-actions':'actions','@/lib/use-recoverable-action':'recover','./use-recoverable-action':'recover','@/lib/use-reminder-resource':'resource','@/lib/unsaved-work':'unsaved','./unsaved-work':'unsaved','@/lib/use-draft-navigation-guard':'guard','@/lib/use-soft-refresh':'refresh','@/components/Section':'section','next/navigation':'router'};
+const alias={'./reminders-actions':'actions','./blurbs-actions':'actions','@/lib/use-recoverable-action':'recover','./use-recoverable-action':'recover','@/lib/use-reminder-resource':'resource','@/lib/unsaved-work':'unsaved','./unsaved-work':'unsaved','@/lib/use-draft-navigation-guard':'guard','@/lib/use-soft-refresh':'refresh','@/components/Section':'section','@/lib/house-date':'housedate','next/navigation':'router'};
 await new Promise((resolve,reject)=>{const compiler=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.js'),output:{path:scratch,filename:'bundle.js'},resolve:{modules:[join(root,'node_modules')],alias:Object.fromEntries(Object.entries(alias).map(([k,v])=>[k,join(scratch,v+'.js')]))},performance:{hints:false}});compiler.run((err,stats)=>compiler.close(()=>err||stats?.hasErrors()?reject(err||Error(stats.toString({all:false,errors:true}))):resolve()));});
 if(process.argv.includes('--compile-only')){console.log('Messaging drafts fixture compiled.');await rm(scratch,{recursive:true,force:true});process.exit(0);}
 const server=createServer(async(req,res)=>{if(req.method!=='GET'){res.writeHead(405).end();return;}res.setHeader('Cache-Control','no-store');res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'");if(req.url==='/bundle.js'){res.setHeader('Content-Type','text/javascript; charset=utf-8');res.end(await readFile(join(scratch,'bundle.js')));}else{res.setHeader('Content-Type','text/html; charset=utf-8');res.end('<!doctype html><title>Synthetic messaging drafts</title><style>body{font:14px system-ui;--ink:#222;--paper:#fff;--rule:#ccc}section{margin:20px}button{margin:4px}input,textarea,select{margin:4px}</style><div id="root"></div><script src="/bundle.js"></script>');}});

@@ -51,6 +51,7 @@ import {
   skipDigestAction,
   decideOwnerHoldAction,
 } from './actions';
+import { houseDay, houseRange } from '@/lib/house-date';
 
 /**
  * The checkout-schedule workroom: the operator's view of the same merged
@@ -76,12 +77,10 @@ type DismissedProposal = CheckoutAdjustment & { dismissed_note: string | null };
 function ProposalLine({ p, name }: { p: CheckoutAdjustment; name: string }) {
   return (
     <span style={{ fontSize: 13 }}>
-      <strong>{name}</strong> (stay {p.stay_check_in}
-      {' to '}
-      {p.original_check_out}):{' '}
+      <strong>{name}</strong> (stay {houseRange(p.stay_check_in, p.original_check_out)}):{' '}
       {p.adjusted_checkout_time ? `checkout ${formatTime12(p.adjusted_checkout_time)}` : ''}
       {p.adjusted_checkout_time && p.adjusted_check_out ? ', ' : ''}
-      {p.adjusted_check_out ? `until ${p.adjusted_check_out}` : ''}
+      {p.adjusted_check_out ? `until ${houseDay(p.adjusted_check_out)}` : ''}
       {p.evidence && <span style={{ color: 'var(--ink-3)' }}> &ldquo;{p.evidence.slice(0, 110)}&rdquo;</span>}
     </span>
   );

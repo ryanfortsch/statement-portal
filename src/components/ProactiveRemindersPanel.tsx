@@ -12,6 +12,7 @@ import type {
   CreateRecurringInput,
 } from '@/lib/stay-concierge';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
+import { houseDay } from '@/lib/house-date';
 
 /**
  * Audience-parameterized generalization of the guest RemindersSection
@@ -243,11 +244,11 @@ function ActiveList({
             <div style={{ fontSize: 13, color: 'var(--ink-2)', whiteSpace: 'pre-wrap' }}>{r.body}</div>
             <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 4 }}>
               {(r.kind || 'recurring') === 'once'
-                ? `fires ${r.fire_date}`
+                ? `fires ${houseDay(r.fire_date)}`
                 : r.end_date
-                  ? `runs until ${r.end_date}`
+                  ? `runs until ${houseDay(r.end_date)}`
                   : 'runs until ended'}
-              {r.last_sent_date ? ` · last sent ${r.last_sent_date}` : ' · not yet sent'}
+              {r.last_sent_date ? ` · last sent ${houseDay(r.last_sent_date)}` : ' · not yet sent'}
             </div>
           </div>
           <button
