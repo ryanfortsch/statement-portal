@@ -49,3 +49,15 @@ test('the revert copy says what happens to automations', () => {
   // Round 17: arrival messages and confirmations are not "missed" after 12h.
   assert.ok(hub.includes('an arrival message still goes that day if the flip back comes before the arrival day ends'));
 });
+
+test('Revert to Guesty takes the same typed property id as the flip', () => {
+  // Audit 2026-10-17 (report 11): the revert was one click, no gate, and it
+  // pauses the home's automations; flipping back means every check again.
+  const action = read('src/app/channels/[propertyId]/cutover-actions.ts');
+  const revert = action.slice(action.indexOf('} else {', action.indexOf("if (target === 'helm')")));
+  assert.ok(revert.indexOf('if (confirm !== propertyId)') >= 0, 'the revert no longer checks the typed id');
+  assert.ok(revert.indexOf('if (confirm !== propertyId)') < revert.indexOf('revertToGuesty('));
+  const hub = read('src/app/channels/[propertyId]/page.tsx');
+  const form = hub.slice(hub.indexOf('<input type="hidden" name="target" value="guesty" />'));
+  assert.ok(form.slice(0, 3000).includes('name="confirm"'), 'the revert form has no typed id input');
+});

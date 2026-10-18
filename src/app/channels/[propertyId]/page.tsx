@@ -318,11 +318,30 @@ export default async function ChannelsPropertyPage({
                 <input type="hidden" name="property_id" value={propertyId} />
                 <input type="hidden" name="target" value="guesty" />
                 <div className="eyebrow" style={{ marginBottom: 10 }}>Revert to Guesty</div>
-                <p style={{ fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5, margin: '0 0 12px' }}>
-                  {helmRun
-                    ? "Sets the switch back and restores the parked Guesty listing id. It does not recreate the listing in Guesty, reconnect any channel, or undo anything done in Guesty or the OTAs. The next Guesty calendar sync overwrites Helm's mirror rows for this home only if the listing still exists in Guesty; until then the Helm rows stand. Message automations pause while Guesty runs the home and pick up again if it is flipped back: an arrival message still goes that day if the flip back comes before the arrival day ends, and a booking confirmation within 24 hours of the booking, so check Guesty did not already send them; any other message whose moment passed more than 12 hours earlier reads Missed its time."
-                    : 'Guesty already runs this home; there is nothing to revert. The button stays here so the path back is always visible.'}
-                </p>
+                {helmRun ? (
+                  <>
+                    <p style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.5, margin: '0 0 8px' }}>
+                      Hands this home&apos;s calendar back to Guesty. Message automations pause while Guesty runs the home, until it is flipped back.
+                    </p>
+                    <details style={{ fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5, margin: '0 0 12px' }}>
+                      <summary style={{ cursor: 'pointer' }}>What the revert does and does not do</summary>
+                      <p style={{ margin: '8px 0 0' }}>
+                        It sets the switch back and restores the parked Guesty listing id. It does not recreate the listing in Guesty, reconnect any channel, or undo anything done in Guesty or the OTAs. The next Guesty calendar sync overwrites Helm&apos;s mirror rows for this home only if the listing still exists in Guesty; until then the Helm rows stand.
+                      </p>
+                      <p style={{ margin: '8px 0 0' }}>
+                        Paused automations pick up again if the home is flipped back: an arrival message still goes that day if the flip back comes before the arrival day ends, and a booking confirmation within 24 hours of the booking, so check Guesty did not already send them. Any other message whose moment passed more than 12 hours earlier reads Missed its time.
+                      </p>
+                    </details>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 14 }}>
+                      <span className="eyebrow" style={{ color: 'var(--ink-3)' }}>Type the property id to confirm</span>
+                      <input name="confirm" type="text" required pattern={escapeForPattern(propertyId)} placeholder={propertyId} autoComplete="off" className="font-mono" style={inputStyle} />
+                    </label>
+                  </>
+                ) : (
+                  <p style={{ fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5, margin: '0 0 12px' }}>
+                    Guesty already runs this home; there is nothing to revert. The button stays here so the path back is always visible.
+                  </p>
+                )}
                 <SubmitButton
                   label="Revert to Guesty"
                   busyLabel="Reverting…"
