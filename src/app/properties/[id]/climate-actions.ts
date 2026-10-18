@@ -53,8 +53,6 @@ export async function saveClimateProfile(
     winter_eco_f: clampInt(fd, 'winter_eco_f', 60, 40, 90),
     winter_comfort_f: clampInt(fd, 'winter_comfort_f', 68, 40, 90),
     precool_lead_hours: clampInt(fd, 'precool_lead_hours', 4, 0, 24),
-    checkin_hour: clampInt(fd, 'checkin_hour', 16, 0, 23),
-    checkout_hour: clampInt(fd, 'checkout_hour', 11, 0, 23),
     timezone: (fd.get('timezone') ?? 'America/New_York').toString().trim() || 'America/New_York',
     updated_at: new Date().toISOString(),
   };

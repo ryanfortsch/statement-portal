@@ -254,7 +254,7 @@ export default async function CleanerSettingsPage({
               <input type="hidden" name="propertyId" value={p.id} />
               <span style={{ fontSize: 13, fontWeight: 600, minWidth: 150 }}>{p.name}</span>
               <label style={{ fontSize: 11, color: 'var(--ink-4)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                Checkout (guest)
+                Guest checkout
                 <input name="checkoutTime" defaultValue={p.default_checkout_time ?? ''} placeholder="10:00" style={{ ...inputStyle, width: 84 }} />
               </label>
               {/* default_checkin_time is the CLEANER's finish target, not the
@@ -262,7 +262,7 @@ export default async function CleanerSettingsPage({
                   old label "in" with a 16:00 placeholder invited a new hire to
                   "correct" it and move the crew's target an hour later. */}
               <label style={{ fontSize: 11, color: 'var(--ink-4)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                Cleaner finish target
+                Cleaner deadline
                 <input name="checkinTime" defaultValue={p.default_checkin_time ?? ''} placeholder="15:00" style={{ ...inputStyle, width: 84 }} />
               </label>
               <SubmitButton

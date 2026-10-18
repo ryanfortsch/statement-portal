@@ -18,6 +18,12 @@ import { selectAllPaged } from './paged-select.ts';
 import { normalizePeriod, type RentalPeriod } from './rental-periods.ts';
 import { rateDayMap, type RateDayRow, type RatePlanRow, type TaxConfigRow } from './rate-plan.ts';
 import { getTaxConfig } from './tax-config.ts';
+import {
+  applyHousePolicy,
+  clockHHMM,
+  HOUSE_POLICY_COLS,
+  type HousePolicy,
+} from './house-policy.ts';
 
 export const RATE_PLAN_COLS =
   'property_id, currency, base_nightly_cents, weekend_nightly_cents, weekend_days, guests_included, extra_guest_cents_per_night, cleaning_fee_cents, pet_fee_cents, security_deposit_cents, weekly_discount_pct, monthly_discount_pct, direct_markup_pct, min_nights_default, max_nights, advance_notice_hours, booking_window_days, turnover_buffer_days, checkin_time, checkout_time, max_occupancy, pets_allowed, quiet_hours, cancellation_policy_key, cancellation_terms, house_rules, updated_by, created_at, updated_at';
@@ -84,15 +90,70 @@ export function shapeRateDay(raw: Record<string, unknown>): RateDayRow {
 
 // ── Rate plan ───────────────────────────────────────────────────────────────
 
+/**
+ * The house policy columns for one home (src/lib/house-policy.ts). Null on a
+ * failed read, which leaves a plan as stored rather than blanking a quote.
+ */
+export async function getHousePolicy(propertyId: string): Promise<HousePolicy | null> {
+  if (!isServiceConfigured || !propertyId) return null;
+  const { data, error } = await supabaseAdmin.from('properties').select(HOUSE_POLICY_COLS).eq('id', propertyId).maybeSingle();
+  if (error || !data) return null;
+  return data as unknown as HousePolicy;
+}
+
+/**
+ * The one plan a property has, with its checkout, occupancy, pets, quiet
+ * hours, cancellation and house rules read from the House policy columns on
+ * properties. Every reader (quotes, availability, the calendar mirror, the
+ * /api/pms bridge, the property page) goes through here, so none of them can
+ * read the retired copies on the plan row.
+ */
 export async function getRatePlan(propertyId: string): Promise<RatePlanRow | null> {
   if (!isServiceConfigured || !propertyId) return null;
-  const { data, error } = await supabaseAdmin
-    .from('property_rate_plans')
-    .select(RATE_PLAN_COLS)
-    .eq('property_id', propertyId)
-    .maybeSingle();
+  const [{ data, error }, policy] = await Promise.all([
+    supabaseAdmin.from('property_rate_plans').select(RATE_PLAN_COLS).eq('property_id', propertyId).maybeSingle(),
+    getHousePolicy(propertyId),
+  ]);
   if (error) throw new Error(`rate plan read ${propertyId}: ${error.message}`);
-  return data ? shapeRatePlan(data as Record<string, unknown>) : null;
+  return data ? applyHousePolicy(shapeRatePlan(data as Record<string, unknown>), policy) : null;
+}
+
+export type GuestTimes = {
+  /** The GUEST check-in, HH:MM: the rate plan's, null when the home has no plan. */
+  checkin: string | null;
+  /** The GUEST checkout, HH:MM: properties.default_checkout_time, null when unset. */
+  checkout: string | null;
+};
+
+/**
+ * Guest check-in and checkout for a set of homes, from their one store each.
+ * Never properties.default_checkin_time, which is the cleaner deadline. Homes
+ * with neither value are absent from the map.
+ */
+export async function loadGuestTimes(propertyIds: string[]): Promise<Map<string, GuestTimes>> {
+  const out = new Map<string, GuestTimes>();
+  const ids = [...new Set(propertyIds.filter(Boolean))];
+  if (!isServiceConfigured || ids.length === 0) return out;
+  const [plans, props] = await Promise.all([
+    supabaseAdmin.from('property_rate_plans').select('property_id, checkin_time').in('property_id', ids),
+    supabaseAdmin.from('properties').select('id, default_checkout_time').in('id', ids),
+  ]);
+  const checkin = new Map<string, string>();
+  for (const r of (plans.data ?? []) as Array<{ property_id: string; checkin_time: string | null }>) {
+    const t = clockHHMM(r.checkin_time);
+    if (t) checkin.set(r.property_id, t);
+  }
+  const checkout = new Map<string, string>();
+  for (const r of (props.data ?? []) as Array<{ id: string; default_checkout_time: string | null }>) {
+    const t = clockHHMM(r.default_checkout_time);
+    if (t) checkout.set(r.id, t);
+  }
+  for (const id of ids) {
+    const ci = checkin.get(id) ?? null;
+    const co = checkout.get(id) ?? null;
+    if (ci || co) out.set(id, { checkin: ci, checkout: co });
+  }
+  return out;
 }
 
 export type RatePlanPatch = Partial<Omit<RatePlanRow, 'property_id' | 'created_at' | 'updated_at' | 'updated_by'>> & {
@@ -117,7 +178,7 @@ export async function upsertRatePlan(patch: RatePlanPatch, by: string): Promise<
     .select(RATE_PLAN_COLS)
     .single();
   if (error) throw new Error(`rate plan upsert ${patch.property_id}: ${error.message}`);
-  return shapeRatePlan(data as Record<string, unknown>);
+  return applyHousePolicy(shapeRatePlan(data as Record<string, unknown>), await getHousePolicy(patch.property_id));
 }
 
 // ── Rate days ───────────────────────────────────────────────────────────────

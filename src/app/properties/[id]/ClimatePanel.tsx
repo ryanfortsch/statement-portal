@@ -54,8 +54,6 @@ export function ClimatePanel({
     profile?.winter_eco_f,
     profile?.winter_comfort_f,
     profile?.precool_lead_hours,
-    profile?.checkin_hour,
-    profile?.checkout_hour,
   ].join('|');
 
   return (
@@ -127,9 +125,11 @@ export function ClimatePanel({
           <Num name="winter_comfort_f" label="Winter comfort °F" value={profile?.winter_comfort_f ?? 68} />
           <Num name="winter_eco_f" label="Winter idle °F" value={profile?.winter_eco_f ?? 60} />
           <Num name="precool_lead_hours" label="Pre-condition (hrs)" value={profile?.precool_lead_hours ?? 4} />
-          <Num name="checkin_hour" label="Check-in hour (0-23)" value={profile?.checkin_hour ?? 16} />
-          <Num name="checkout_hour" label="Checkout hour (0-23)" value={profile?.checkout_hour ?? 11} />
         </div>
+        <p style={{ fontSize: 12, color: 'var(--ink-3)', margin: '0 0 18px' }}>
+          Stays run from the guest check-in ({hourLabel(profile?.checkin_hour ?? 16)}) to the guest checkout (
+          {hourLabel(profile?.checkout_hour ?? 11)}). Change them on the rate plan and in House policy.
+        </p>
 
         <input type="hidden" name="timezone" value={profile?.timezone ?? 'America/New_York'} />
 
@@ -252,4 +252,10 @@ function ghostBtn(pending: boolean): React.CSSProperties {
     cursor: pending ? 'wait' : 'pointer',
     opacity: pending ? 0.7 : 1,
   };
+}
+
+/** 16 -> "4 PM", 0 -> "12 AM". */
+function hourLabel(h: number): string {
+  const hour = ((h % 24) + 24) % 24;
+  return `${hour % 12 === 0 ? 12 : hour % 12} ${hour < 12 ? 'AM' : 'PM'}`;
 }

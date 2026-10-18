@@ -112,11 +112,11 @@ export async function saveListingContentAction(propertyId: string, _prev: Listin
       access: textOrNull(fd, 'access'),
       interaction: textOrNull(fd, 'interaction'),
       neighborhood: textOrNull(fd, 'neighborhood'),
-      house_rules: textOrNull(fd, 'house_rules'),
+      // House rules and accommodates are not written here: the House policy
+      // columns on properties are their one home (src/lib/house-policy.ts).
       notes: textOrNull(fd, 'notes'),
       property_type: textOrNull(fd, 'property_type'),
       room_type: textOrNull(fd, 'room_type'),
-      accommodates: numOrNull(fd, 'accommodates', 1, 100),
       bedrooms: numOrNull(fd, 'bedrooms', 0, 50),
       bathrooms: numOrNull(fd, 'bathrooms', 0, 50),
       beds: numOrNull(fd, 'beds', 0, 100),

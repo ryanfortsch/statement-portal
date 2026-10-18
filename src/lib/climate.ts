@@ -22,6 +22,8 @@
  */
 
 import { getServiceClient } from '@/lib/supabase-admin';
+import { loadGuestTimes } from '@/lib/property-rates';
+import { clockHour, DEFAULT_GUEST_CHECKIN, DEFAULT_GUEST_CHECKOUT } from '@/lib/house-policy';
 import {
   seamConfigured,
   listThermostats,
@@ -170,6 +172,31 @@ export function computeDesiredClimate(
   return { season, state, mode, setpoint, reason, occupied };
 }
 
+/**
+ * The hours a stay starts and ends, from the guest's own times: the rate
+ * plan's guest check-in and the House policy checkout on properties
+ * (src/lib/house-policy.ts). The profile's checkin_hour / checkout_hour
+ * columns were a third copy of the same two facts and are no longer read.
+ * A home with neither value keeps the defaults the profile always had.
+ */
+async function withGuestHours(profiles: ClimateProfile[]): Promise<ClimateProfile[]> {
+  if (profiles.length === 0) return profiles;
+  let times: Awaited<ReturnType<typeof loadGuestTimes>>;
+  try {
+    times = await loadGuestTimes(profiles.map((p) => p.property_id));
+  } catch {
+    times = new Map();
+  }
+  return profiles.map((p) => {
+    const t = times.get(p.property_id);
+    return {
+      ...p,
+      checkin_hour: clockHour(t?.checkin ?? DEFAULT_GUEST_CHECKIN),
+      checkout_hour: clockHour(t?.checkout ?? DEFAULT_GUEST_CHECKOUT),
+    };
+  });
+}
+
 /** Read one property's climate profile (server-side, service-role). */
 export async function getClimateProfile(propertyId: string): Promise<ClimateProfile | null> {
   try {
@@ -180,7 +207,9 @@ export async function getClimateProfile(propertyId: string): Promise<ClimateProf
       .eq('property_id', propertyId)
       .maybeSingle();
     if (error) return null; // table not migrated yet, etc.
-    return (data as ClimateProfile) ?? null;
+    if (!data) return null;
+    const [profile] = await withGuestHours([data as ClimateProfile]);
+    return profile;
   } catch {
     return null;
   }
@@ -215,7 +244,7 @@ export async function runClimateAutomation(
 
   const { data, error } = await query;
   if (error) throw new Error(`load climate profiles: ${error.message}`);
-  const profiles = (data ?? []) as ClimateProfile[];
+  const profiles = await withGuestHours((data ?? []) as ClimateProfile[]);
   if (profiles.length === 0) return [];
 
   const nowMs = Date.now();

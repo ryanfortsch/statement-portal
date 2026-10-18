@@ -16,6 +16,7 @@ import {
 import { RoomsEditor } from './RoomsEditor';
 import type { ListingContentRow, ListingPhotoRow } from '@/lib/listing-content';
 import type { PropertyRoom } from '@/lib/property-rooms-shared';
+import { HousePolicyReadout, type HousePolicyValues } from './HousePolicyReadout';
 
 /**
  * The property page's Listing section (Guest & listing tab): Guesty's Details & layout, Overview and
@@ -43,11 +44,13 @@ export type ListingPanelProps = {
   consumers: Record<string, string[]>;
   helmRun: boolean;
   registry: { title: string | null; bedrooms: number | null; bathrooms: number | null };
+  /** House rules and occupancy are read from the House policy columns on properties. */
+  housePolicy: HousePolicyValues;
 };
 
 const fold = (s: string): string => s.toLowerCase().replace(/[’‘`´]/g, "'").replace(/\s+/g, ' ').trim();
 
-export function ListingPanel({ propertyId, content, photos, rooms, bedSummaryText, catalog, consumers, helmRun, registry }: ListingPanelProps) {
+export function ListingPanel({ propertyId, content, photos, rooms, bedSummaryText, catalog, consumers, helmRun, registry, housePolicy }: ListingPanelProps) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 30, paddingBottom: 8 }}>
       <div style={{ borderLeft: `3px solid ${helmRun ? 'var(--positive)' : 'var(--signal)'}`, padding: '10px 14px', background: 'var(--paper-2)', fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.55 }}>
@@ -64,7 +67,7 @@ export function ListingPanel({ propertyId, content, photos, rooms, bedSummaryTex
         )}
       </div>
 
-      <ContentForm propertyId={propertyId} content={content} catalog={catalog} consumers={consumers} registry={registry} />
+      <ContentForm propertyId={propertyId} content={content} catalog={catalog} consumers={consumers} registry={registry} housePolicy={housePolicy} />
 
       <section style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <SectionHead title="Rooms and beds" note={bedSummaryText || 'no beds on file'} />
@@ -85,12 +88,14 @@ function ContentForm({
   catalog,
   consumers,
   registry,
+  housePolicy,
 }: {
   propertyId: string;
   content: ListingContentRow | null;
   catalog: ListingPanelProps['catalog'];
   consumers: Record<string, string[]>;
   registry: ListingPanelProps['registry'];
+  housePolicy: HousePolicyValues;
 }) {
   const action = saveListingContentAction.bind(null, propertyId);
   const [state, formAction, pending] = useActionState<ListingFormState, FormData>(action, { error: null });
@@ -109,15 +114,14 @@ function ContentForm({
       <TextField name="access" label="Guest access" hint="what the guest may use; never the door code" consumers={consumers.access} defaultValue={content?.access ?? ''} rows={3} />
       <TextField name="interaction" label="Interaction with guests" consumers={consumers.interaction} defaultValue={content?.interaction ?? ''} rows={2} />
       <TextField name="neighborhood" label="Neighborhood" consumers={consumers.neighborhood} defaultValue={content?.neighborhood ?? ''} rows={5} />
-      <TextField name="house_rules" label="House rules" hint="the guest-facing text; the policy copy lives on Rates & taxes" consumers={consumers.house_rules} defaultValue={content?.house_rules ?? ''} rows={5} />
-      <TextField name="notes" label="Other things to note" hint="Guesty's Notes field; cancellation wording lived here" consumers={consumers.notes} defaultValue={content?.notes ?? ''} rows={3} />
+      <TextField name="notes" label="Other things to note" hint="Guesty's Notes field" consumers={consumers.notes} defaultValue={content?.notes ?? ''} rows={3} />
+      <HousePolicyReadout propertyId={propertyId} values={housePolicy} fields={['houseRules', 'maxOccupancy']} />
 
       <div>
         <div className="eyebrow" style={{ marginBottom: 10 }}>Facts</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '12px 18px' }}>
           <Small name="property_type" label="Property type" defaultValue={content?.property_type ?? ''} placeholder="House" consumers={consumers.property_type} />
           <Small name="room_type" label="Room type" defaultValue={content?.room_type ?? ''} placeholder="Entire home/apt" consumers={consumers.room_type} />
-          <Small name="accommodates" label="Accommodates" defaultValue={content?.accommodates ?? ''} placeholder="6" consumers={consumers.accommodates} numeric />
           <Small name="bedrooms" label="Bedrooms" defaultValue={content?.bedrooms ?? registry.bedrooms ?? ''} consumers={consumers.bedrooms} numeric />
           <Small name="bathrooms" label="Bathrooms" defaultValue={content?.bathrooms ?? registry.bathrooms ?? ''} consumers={consumers.bathrooms} numeric />
           <Small name="beds" label="Beds" defaultValue={content?.beds ?? ''} consumers={consumers.beds} numeric />

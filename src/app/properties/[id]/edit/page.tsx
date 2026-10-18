@@ -280,21 +280,21 @@ export default async function PropertyEditPage({
           <Row>
             <Field
               name="default_checkin_time"
-              label="Cleaner turnover deadline"
+              label="Cleaner deadline"
               defaultValue={p.default_checkin_time}
               id="times"
-              hint="NOT the guest's arrival time. This is when the home must be ready (15:00 by default, an hour of margin before a 16:00 guest). It drives the cleaner schedule and the field packets, and is deliberately never sent to the guest AI. Guesty stays authoritative for what a guest is told about arrival."
+              hint="When the home must be ready, not when the guest arrives (15:00 by default, an hour before a 16:00 guest). Drives the cleaner schedule and Field packets; never sent to the guest AI. The guest check-in is on the rate plan."
             />
             <Field
               name="default_checkout_time"
-              label="Guest checkout time"
+              label="Guest checkout"
               defaultValue={p.default_checkout_time}
-              hint="What the guest is told, e.g. 10:00 AM. Bridged to the guest AI, so it must match the listing."
+              hint="What the guest is told, e.g. 10:00 AM. The guest AI, the automations and the rate plan all read this one."
             />
           </Row>
           <Row>
             <Field name="quiet_hours" label="Quiet hours" defaultValue={p.quiet_hours} id="policy" hint="e.g. 10pm to 8am" />
-            <Field name="max_occupancy" label="Max occupancy" type="number" defaultValue={p.max_occupancy} hint="Guests, as listed" />
+            <Field name="max_occupancy" label="Max occupancy" type="number" defaultValue={p.max_occupancy} hint="Guests, as listed. A quote above this is flagged." />
           </Row>
           <Field
             name="pet_policy"
