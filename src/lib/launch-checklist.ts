@@ -614,6 +614,50 @@ export function summarizeLaunch(effective: ReadonlyArray<EffectiveLaunchStep>): 
 }
 
 /**
+ * Where a home sits on the onboarding board (/properties/onboarding).
+ *
+ * - untracked: no checklist rows. Onboarded before the checklist existed;
+ *   nobody is going to backfill its steps.
+ * - in_flight: the gate is open (not yet live).
+ * - loose_ends: live, with a required step still open.
+ * - complete: live and nothing required is open.
+ */
+export type LaunchBoardGroup = 'untracked' | 'in_flight' | 'loose_ends' | 'complete';
+
+export function launchBoardGroup(
+  tracked: boolean,
+  summary: Pick<LaunchSummary, 'live' | 'requiredRemaining'>,
+): LaunchBoardGroup {
+  if (!tracked) return 'untracked';
+  if (!summary.live) return 'in_flight';
+  return summary.requiredRemaining > 0 ? 'loose_ends' : 'complete';
+}
+
+/**
+ * Does a home still show its launch checklist (the Now tab's "Launch
+ * checklist N/26" chip and the Facts footer line)?
+ *
+ * A home being brought online always does. Once it is established (a first
+ * stay has started, or activated_at is stamped), the checklist is residue
+ * unless a required step is still open: on 2026-10-17 21 Horton, live for
+ * years and never tracked, wore "Launch checklist 13/26". So an established
+ * home shows it only while the board lists it in flight or with loose ends,
+ * never when the board calls it complete, and never when the board does not
+ * track it at all (opening the chip would seed rows and pull a years-live
+ * home onto the board).
+ */
+export function launchChecklistVisible(established: boolean, group: LaunchBoardGroup): boolean {
+  if (!established) return true;
+  return group === 'in_flight' || group === 'loose_ends';
+}
+
+/** The required steps still open, gate excluded, in checklist order: what
+ *  the board's "Live, with loose ends" rows list. */
+export function requiredOpenSteps(effective: ReadonlyArray<EffectiveLaunchStep>): LaunchStep[] {
+  return effective.filter((e) => e.step.required && !e.step.gate && !e.resolved).map((e) => e.step);
+}
+
+/**
  * Back-compat wrapper: the count the property page chip shows. Same
  * resolver as everything else.
  */

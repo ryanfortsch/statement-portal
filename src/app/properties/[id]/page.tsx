@@ -56,6 +56,7 @@ import { getPropertyNotices } from '@/lib/property-notices';
 import { getPropertyNotes } from '@/lib/property-notes';
 import { getPropertyFlags } from '@/lib/property-flags';
 import { loadLaunchForProperty } from '@/lib/launch-context';
+import { launchBoardGroup, launchChecklistVisible } from '@/lib/launch-checklist';
 import type { ContactRow, ContactTouchRow } from '@/lib/crm';
 import { PropertyCrmSection } from './PropertyCrmSection';
 import { ClimatePanelLoader } from './ClimatePanelLoader';
@@ -652,6 +653,14 @@ export default async function PropertyDetailPage({
    * of who is half-done belongs on /properties, not on one record.
    */
   const showSetup = !(p.activated_at || launchLoad.ctx.firstStayStarted);
+  // The launch checklist chip (Now) and its Facts footer line: always while
+  // the home is being brought online; on an established home only while the
+  // onboarding board still lists a required step open, never once the board
+  // calls it complete or does not track it (src/lib/launch-checklist.ts).
+  const showLaunchChecklist = launchChecklistVisible(
+    !showSetup,
+    launchBoardGroup(launchLoad.rows.length > 0, launchProgress),
+  );
   const onboardingTotal = ONBOARDING_ITEMS.length;
 
   // Internal-first display: the address-without-suffix name as the hero,
@@ -873,29 +882,31 @@ export default async function PropertyDetailPage({
               note after operator review. Top of the tab — capture comes
               before scanning open work. */}
           <QuickCapture propertyId={p.id} propertyName={p.name} />
-          <TabActions>
-            <Link
-              href={`/properties/${p.id}/launch`}
-              title={
-                launchProgress.allDone
-                  ? 'Launch checklist complete'
-                  : `Launch checklist: ${launchProgress.done} of ${launchProgress.total} resolved`
-              }
-              className="rt-action-link"
-              style={{
-                ...actionLinkStyle,
-                padding: '8px 14px',
-                border: `1px solid ${launchProgress.allDone ? 'var(--positive)' : 'var(--rule)'}`,
-                color: launchProgress.allDone ? 'var(--positive)' : 'var(--ink)',
-              }}
-            >
-              Launch checklist
-              <span style={{ fontFamily: 'var(--font-mono-dash), ui-monospace, monospace', fontSize: 10 }}>
-                {launchProgress.done}/{launchProgress.total}
-              </span>
-              <span aria-hidden>{launchProgress.allDone ? '✓' : '→'}</span>
-            </Link>
-          </TabActions>
+          {showLaunchChecklist && (
+            <TabActions>
+              <Link
+                href={`/properties/${p.id}/launch`}
+                title={
+                  launchProgress.allDone
+                    ? 'Launch checklist complete'
+                    : `Launch checklist: ${launchProgress.done} of ${launchProgress.total} resolved`
+                }
+                className="rt-action-link"
+                style={{
+                  ...actionLinkStyle,
+                  padding: '8px 14px',
+                  border: `1px solid ${launchProgress.allDone ? 'var(--positive)' : 'var(--rule)'}`,
+                  color: launchProgress.allDone ? 'var(--positive)' : 'var(--ink)',
+                }}
+              >
+                Launch checklist
+                <span style={{ fontFamily: 'var(--font-mono-dash), ui-monospace, monospace', fontSize: 10 }}>
+                  {launchProgress.done}/{launchProgress.total}
+                </span>
+                <span aria-hidden>{launchProgress.allDone ? '✓' : '→'}</span>
+              </Link>
+            </TabActions>
+          )}
 
       {/* FLAGGED AT THE HOUSE — one list over BOTH note tables.
           inspection_notes (someone flagged it on a walk) and property_notes
@@ -1529,7 +1540,7 @@ export default async function PropertyDetailPage({
           quiet block at the bottom. Used rarely; collapsed by default. */}
       {/* Setup has retired off the strip for this house, so the readiness
           number needs somewhere to still be reachable. One line, not a tab. */}
-      {!showSetup && (
+      {!showSetup && showLaunchChecklist && (
         <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 24, width: '100%' }}>
           <p style={{ margin: 0, fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.6 }}>
             Setup is complete for {p.name}.{' '}
