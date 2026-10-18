@@ -106,7 +106,7 @@ export function PlatformCSVUploadCard({ defaultMonth, status, onUploaded }: {
           }}
         >
           <span className="flex items-baseline flex-wrap" style={{ gap: 12 }}>
-            <span className="eyebrow">Reservations CSV</span>
+            <span className="eyebrow">Guesty reservations CSV</span>
             <span style={{
               fontSize: 11,
               fontWeight: statusLine.tone === 'alert' ? 600 : 400,

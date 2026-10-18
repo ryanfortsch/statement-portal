@@ -745,7 +745,7 @@ function UploadPageInner() {
                 <span className="font-serif tabular-nums" style={{ fontSize: 13, color: 'var(--ink)' }}>{fmt(result.summary.cleaning_total)}</span>
               </div>
               <div className="flex items-baseline justify-between" style={{ padding: '8px 0', borderBottom: '1px dotted var(--rule)' }}>
-                <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>Data Gaps</span>
+                <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>Flags</span>
                 <span className="font-serif tabular-nums" style={{
                   fontSize: 13,
                   color: result.summary.data_gaps > 0 ? 'var(--signal)' : 'var(--positive)',
@@ -1021,7 +1021,7 @@ function UploadPageInner() {
                   inputRef={pdfRef}
                 />
                 <FileDropZone
-                  label="Platform CSV"
+                  label="Guesty reservations CSV"
                   description="Maps confirmation codes to booking channels and guest names. Same export covers every property in the month, so the first upload caches for the rest."
                   accept=".csv"
                   file={platformCSV}
