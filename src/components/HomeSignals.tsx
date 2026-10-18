@@ -1,29 +1,22 @@
 import { availableCount } from '@/lib/recovery';
 import { RetryDashboard } from '@/components/RetryDashboard';
-import { HelmHero } from '@/components/HelmHero';
-import { Suspense } from 'react';
 import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
-import { HelmMasthead } from '@/components/HelmMasthead';
-import { HelmFooter } from '@/components/HelmFooter';
 import { Stat } from '@/components/Stat';
 import { computeDateRange } from '@/lib/revenue-date-range';
 import { computeRevenueSnapshot } from '@/lib/revenue-snapshot';
 import { loadOperationsData } from '@/lib/operations';
-import { TeamActivity } from '@/components/TeamActivity';
-import { HomeFeedTabs } from '@/components/HomeFeedTabs';
-import { ForMeFeed } from '@/components/ForMeFeed';
-import { AskHelm } from '@/components/AskHelm';
-import { CleaningsStrip } from '@/components/CleaningsStrip';
-import { AiStatusBanner } from '@/components/AiStatusBanner';
-import { ConciergeAlertsLine } from '@/components/ConciergeAlerts';
-import { isOwnerSession } from '@/lib/helm-access-server';
 import { operatingDate } from '@/lib/operating-date';
 import { workWeekEnd } from '@/lib/work-week';
 
-export const dynamic = 'force-dynamic';
-// Today's signals read live from Supabase per request, so don't cache.
-export const revalidate = 0;
-
+/**
+ * The home page's signals: the two numbers that change what you do today,
+ * each saying its window ("Open work · this week", "Turnovers · next 7
+ * days"), and the month's payout for owners.
+ *
+ * Its own async component so the page can stream: the masthead, title and
+ * Ask Helm paint at once, and these counts load beside the feed instead of
+ * in front of it.
+ */
 type DashboardStats = {
   latestMonth: string | null;
   latestStatus: string | null;
@@ -77,8 +70,9 @@ type CurrentPayout =
   | { status: 'unconfigured' }
   | { status: 'failed' };
 
-async function getDashboardStats(ops: HomeOps, owner: boolean): Promise<DashboardStats> {
-  const [helmStats, work, actualPayout] = await Promise.all([
+async function getDashboardStats(owner: boolean): Promise<DashboardStats> {
+  const [ops, helmStats, work, actualPayout] = await Promise.all([
+    loadHomeOps(),
     // The payout tile is owner money: a staff page never reads it.
     owner ? getHelmStats() : Promise.resolve(EMPTY_HELM_STATS),
     getWeekWork(),
@@ -222,137 +216,90 @@ async function getHelmStats() {
   }
 }
 
-export default async function HelmHome() {
+export async function HomeSignals({ owner }: { owner: boolean }) {
   // The headline payout tile is owner money. Staff get the two work
   // signals and no tile that links to /revenue, which would bounce them.
-  const owner = await isOwnerSession();
-  const ops = await loadHomeOps();
-  const stats = await getDashboardStats(ops, owner);
+  const stats = await getDashboardStats(owner);
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead />
-
-      {/* CONCIERGE: drafts paused, and one line counting the guest
-          emergencies and alerts the concierge could not finish on its own,
-          linking to their rows on Messaging. Streams in, so a slow Mac Mini
-          never holds up the page; renders nothing when all is well. */}
-      <Suspense fallback={null}>
-        <AiStatusBanner />
-      </Suspense>
-      <Suspense fallback={null}>
-        <ConciergeAlertsLine />
-      </Suspense>
-
-      <HelmHero eyebrow="HELM" title="Today" paddingTop={32} paddingBottom={20} />
-
-      {/* ASK HELM: the page's one input, directly under the title. */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 28 }}>
-        <AskHelm showSuggestions={false} />
-      </section>
-
-      {/* The signed-in person's day leads; activity remains one tab away. */}
-      <div>
-        <HomeFeedTabs
-          forMe={<ForMeFeed />}
-          recentActivity={<TeamActivity limit={20} hideHeading />}
+    <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 56 }}>
+      {(stats.weekWork === null || stats.turnovers === null || stats.currentMonthActualPayout.status === 'failed') && (
+        <p role="status" style={{ fontSize: 14, color: 'var(--negative)', marginBottom: 16 }}>
+          Some numbers did not load. <RetryDashboard />
+        </p>
+      )}
+      <div
+        className="rt-helm-stat-strip"
+        style={{
+          borderTop: '1px solid var(--ink)',
+          borderBottom: '1px solid var(--ink)',
+          display: 'grid',
+          gridTemplateColumns: `repeat(${owner ? 3 : 2}, 1fr)`,
+        }}
+      >
+        <Stat
+          label="Open work · this week"
+          value={stats.weekWork != null ? String(stats.weekWork) : 'Unavailable'}
+          sub={
+            stats.overdueWork == null
+              ? 'could not count'
+              : stats.overdueWork > 0
+                ? `${stats.overdueWork} overdue`
+                : 'nothing overdue'
+          }
+          href={stats.overdueWork != null && stats.overdueWork > 0 ? '/work?filter=overdue' : '/work'}
+          size="hero"
+          accent={stats.overdueWork != null && stats.overdueWork > 0}
         />
-      </div>
-
-      {/* SIGNALS: the two numbers that change what you do today, each
-          saying its window, and the month's payout for owners. */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 56 }}>
-        {(stats.weekWork === null || stats.turnovers === null || stats.currentMonthActualPayout.status === 'failed') && (
-          <p role="status" style={{ fontSize: 14, color: 'var(--negative)', marginBottom: 16 }}>
-            Some numbers did not load. <RetryDashboard />
-          </p>
+        <Stat
+          label="Turnovers · next 7 days"
+          value={stats.turnovers != null ? String(stats.turnovers) : 'Unavailable'}
+          sub="All turnovers →"
+          href="/turnovers"
+          size="hero"
+          last={!owner}
+        />
+        {owner && (
+        <Stat
+          label={(() => {
+            // Headline the current month's booked-so-far payout. A failed
+            // read says so; only an unconfigured Helm falls back to the
+            // latest closed period, because that is a real answer rather
+            // than a missing one.
+            const p = stats.currentMonthActualPayout;
+            if (p.status === 'ok') return `${currentMonthShortName()} payout`;
+            if (p.status === 'failed') return `${currentMonthShortName()} payout`;
+            return stats.latestMonth ? `${formatMonth(stats.latestMonth)} payout` : 'Owner payouts';
+          })()}
+          value={(() => {
+            const p = stats.currentMonthActualPayout;
+            if (p.status === 'ok') return formatCurrency(p.payout);
+            if (p.status === 'failed' || !stats.statementsAvailable) return 'Unavailable';
+            return stats.totalPayout > 0 ? formatCurrency(stats.totalPayout) : '—';
+          })()}
+          sub={(() => {
+            const p = stats.currentMonthActualPayout;
+            if (p.status === 'failed') return 'could not load; retry, or open Revenue';
+            if (p.status === 'ok') {
+              return stats.latestMonth && stats.totalPayout > 0
+                ? `booked so far · ${formatMonth(stats.latestMonth)} closed ${formatCurrency(stats.totalPayout)}`
+                : 'booked so far';
+            }
+            if (!stats.statementsAvailable) return 'payout data unavailable';
+            return stats.latestMonth ? 'current payout unavailable · showing closed period' : 'current payout unavailable';
+          })()}
+          href={
+            stats.currentMonthActualPayout.status === 'unconfigured'
+              ? '/statements'
+              : '/revenue?range=this_month'
+          }
+          size="hero"
+          last
+          accent
+        />
         )}
-        <div
-          className="rt-helm-stat-strip"
-          style={{
-            borderTop: '1px solid var(--ink)',
-            borderBottom: '1px solid var(--ink)',
-            display: 'grid',
-            gridTemplateColumns: `repeat(${owner ? 3 : 2}, 1fr)`,
-          }}
-        >
-          <Stat
-            label="Open work · this week"
-            value={stats.weekWork != null ? String(stats.weekWork) : 'Unavailable'}
-            sub={
-              stats.overdueWork == null
-                ? 'could not count'
-                : stats.overdueWork > 0
-                  ? `${stats.overdueWork} overdue`
-                  : 'nothing overdue'
-            }
-            href={stats.overdueWork != null && stats.overdueWork > 0 ? '/work?filter=overdue' : '/work'}
-            size="hero"
-            accent={stats.overdueWork != null && stats.overdueWork > 0}
-          />
-          <Stat
-            label="Turnovers · next 7 days"
-            value={stats.turnovers != null ? String(stats.turnovers) : 'Unavailable'}
-            sub="All turnovers →"
-            href="/turnovers"
-            size="hero"
-            last={!owner}
-          />
-          {owner && (
-          <Stat
-            label={(() => {
-              // Headline the current month's booked-so-far payout. A failed
-              // read says so; only an unconfigured Helm falls back to the
-              // latest closed period, because that is a real answer rather
-              // than a missing one.
-              const p = stats.currentMonthActualPayout;
-              if (p.status === 'ok') return `${currentMonthShortName()} payout`;
-              if (p.status === 'failed') return `${currentMonthShortName()} payout`;
-              return stats.latestMonth ? `${formatMonth(stats.latestMonth)} payout` : 'Owner payouts';
-            })()}
-            value={(() => {
-              const p = stats.currentMonthActualPayout;
-              if (p.status === 'ok') return formatCurrency(p.payout);
-              if (p.status === 'failed' || !stats.statementsAvailable) return 'Unavailable';
-              return stats.totalPayout > 0 ? formatCurrency(stats.totalPayout) : '—';
-            })()}
-            sub={(() => {
-              const p = stats.currentMonthActualPayout;
-              if (p.status === 'failed') return 'could not load; retry, or open Revenue';
-              if (p.status === 'ok') {
-                return stats.latestMonth && stats.totalPayout > 0
-                  ? `booked so far · ${formatMonth(stats.latestMonth)} closed ${formatCurrency(stats.totalPayout)}`
-                  : 'booked so far';
-              }
-              if (!stats.statementsAvailable) return 'payout data unavailable';
-              return stats.latestMonth ? 'current payout unavailable · showing closed period' : 'current payout unavailable';
-            })()}
-            href={
-              stats.currentMonthActualPayout.status === 'unconfigured'
-                ? '/statements'
-                : '/revenue?range=this_month'
-            }
-            size="hero"
-            last
-            accent
-          />
-          )}
-        </div>
-      </section>
-
-      {/* CLEANINGS — the crew's next three days, from their own Jobber
-          reminders. Sits with the signals because it IS today's question
-          at 9 AM: is a cleaner coming, and when. Full page at
-          /turnovers/cleanings. Renders nothing when the read fails. */}
-      <CleaningsStrip />
-
-      {/* Spacer keeps the footer pinned to the bottom whichever block is last. */}
-      <div style={{ flex: 1 }} />
-
-      <HelmFooter
-        left="Rising Tide · 85 Eastern Ave · Gloucester, MA 01930"
-      />
-    </div>
+      </div>
+    </section>
   );
 }
 

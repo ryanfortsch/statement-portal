@@ -148,7 +148,7 @@ describe('each alert reads as a home, one sentence and one verb', () => {
 
 describe('the alerts are filed under Messaging', () => {
   test('the home page carries one line, the rows render above the Messaging queue', () => {
-    const home = read('src/app/page.tsx');
+    const home = read('src/app/(home)/page.tsx');
     assert.ok(home.includes('<ConciergeAlertsLine />'), 'home renders the one-line count');
     assert.ok(!home.includes('<ConciergeAlerts />'), 'home no longer renders the rows');
     const alerts = read('src/components/ConciergeAlerts.tsx');

@@ -232,10 +232,12 @@ describe('the money server actions refuse a staff session', () => {
   test('owner money on the pages staff keep renders for owners only', () => {
     // The home payout tile, the fee on the properties list, and the fee /
     // bank / owner emails / payouts / contract on a property page.
-    const home = read('src/app/page.tsx');
-    assert.ok(home.includes('const owner = await isOwnerSession();'), 'home page must know the role');
-    assert.ok(home.includes('`repeat(${owner ? 3 : 2}, 1fr)`'), 'the signals strip drops the payout tile for staff');
-    assert.ok(home.includes("owner ? getCurrentMonthActualPayout() : Promise.resolve<CurrentPayout>({ status: 'unconfigured' })"), 'a staff page never reads the payout');
+    const home = read('src/app/(home)/page.tsx');
+    assert.ok(home.includes('const [owner, sp] = await Promise.all([isOwnerSession(), searchParams]);'), 'home page must know the role');
+    assert.ok(home.includes('<HomeSignals owner={owner} />'), 'and hands it to the signals');
+    const signals = read('src/components/HomeSignals.tsx');
+    assert.ok(signals.includes('`repeat(${owner ? 3 : 2}, 1fr)`'), 'the signals strip drops the payout tile for staff');
+    assert.ok(signals.includes("owner ? getCurrentMonthActualPayout() : Promise.resolve<CurrentPayout>({ status: 'unconfigured' })"), 'a staff page never reads the payout');
     const list = read('src/app/properties/page.tsx');
     assert.ok(list.includes("owner ? `${p.management_fee_pct}% →` : 'Managed →'"), 'the properties list hides the fee from staff');
     const page = read('src/app/properties/[id]/page.tsx');

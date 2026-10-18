@@ -148,20 +148,27 @@ async function dashboard({ dbError = null, opsError = false } = {}) {
   const mocks = {
     'next/link': { default: link, __esModule: true }, '@/lib/recovery': { availableCount },
     '@/lib/supabase-admin': { supabaseAdmin: { from: () => chain }, isServiceConfigured: true },
-    '@/lib/helm-access-server': { isOwnerSession: async () => true },
     '@/lib/operating-date': { operatingDate }, '@/lib/work-week': { workWeekEnd },
     '@/components/Stat': { Stat }, '@/components/RetryDashboard': { RetryDashboard: () => React.createElement('button', null, 'Retry unavailable data') },
     '@/lib/revenue-date-range': { computeDateRange: () => ({ rangeStart: '', rangeEnd: '' }) },
     '@/lib/revenue-snapshot': { computeRevenueSnapshot: async () => ({ portfolio: { totalPayout: 0 } }) },
     '@/lib/operations': { loadOperationsData: async () => { if (opsError) throw new Error('offline'); return { totalCount: 0, inspectionDoneCount: 0 }; } },
   };
-  for (const name of ['HelmMasthead', 'HelmFooter', 'TeamActivity', 'HomeFeedTabs', 'ForMeFeed', 'AskHelm', 'OccupancyCalendar', 'CleaningsStrip', 'AiStatusBanner', 'HelmHero']) mocks[`@/components/${name}`] = { [name]: blank };
+  const { HomeSignals } = loadComponent('../src/components/HomeSignals.tsx', mocks);
+  return renderToStaticMarkup(await HomeSignals({ owner: true }));
+}
+async function homePage(searchParams = {}) {
+  const mocks = { 'react': React, '@/lib/helm-access-server': { isOwnerSession: async () => true } };
+  for (const name of ['HelmMasthead', 'HelmFooter', 'CleaningsStrip', 'AiStatusBanner']) mocks[`@/components/${name}`] = { [name]: blank };
   mocks['@/components/ConciergeAlerts'] = { ConciergeAlertsLine: blank };
   mocks['@/components/HelmHero'] = { HelmHero: ({ title }) => React.createElement('h1', null, title) };
-  mocks['@/components/HomeFeedTabs'] = { HomeFeedTabs: () => React.createElement('section', null, 'Personalized work feed') };
+  mocks['@/components/HomeFeedTabs'] = { HomeFeedTabs: ({ active }) => React.createElement('nav', null, `tabs:${active}`) };
+  mocks['@/components/ForMeFeed'] = { ForMeFeed: () => React.createElement('section', null, 'Personalized work feed') };
+  mocks['@/components/TeamActivity'] = { TeamActivity: () => React.createElement('section', null, 'Team activity') };
+  mocks['@/components/HomeSignals'] = { HomeSignals: () => React.createElement('section', null, 'Signals') };
   mocks['@/components/AskHelm'] = { AskHelm: () => React.createElement('section', null, 'Ask Helm') };
-  const { default: Home } = loadComponent('../src/app/page.tsx', mocks);
-  return renderToStaticMarkup(await Home());
+  const { default: Home } = loadComponent('../src/app/(home)/page.tsx', mocks);
+  return renderToStaticMarkup(await Home({ searchParams: Promise.resolve(searchParams) }));
 }
 test('dashboard renders failed count queries as unavailable, never an empty urgent queue', async () => {
   const html = await dashboard({ dbError: { message: 'database offline' } });
@@ -184,9 +191,16 @@ test('the signals are two numbers that say their window, plus payout for owners'
 });
 
 test('homepage uses Today with Ask Helm directly under it, then the day', async () => {
-  const html = await dashboard();
+  const html = await homePage();
   assert.match(html, /<h1>Today<\/h1>/);
   assert.ok(html.indexOf('<h1>Today</h1>') < html.indexOf('Ask Helm'), 'Ask Helm sits under the title');
   assert.ok(html.indexOf('Ask Helm') < html.indexOf('Personalized work feed'), 'and above the feed, not three scrolls down');
   assert.doesNotMatch(html, /clear view/i);
+  assert.ok(html.indexOf('Personalized work feed') < html.indexOf('Signals'), 'the day, then the signals');
+});
+test('Recent Activity renders only when its tab is open', async () => {
+  const home = await homePage();
+  assert.match(home, /tabs:forme/); assert.doesNotMatch(home, /Team activity/);
+  const activity = await homePage({ tab: 'activity' });
+  assert.match(activity, /tabs:activity/); assert.match(activity, /Team activity/); assert.doesNotMatch(activity, /Personalized work feed/);
 });
