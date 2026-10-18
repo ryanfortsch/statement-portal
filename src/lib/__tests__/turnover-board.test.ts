@@ -222,6 +222,11 @@ describe('the walk and its one verb', () => {
     assert.equal(b.done[0].verb, 'summary');
   });
 
+  test('a walked house never says its clean was not confirmed', () => {
+    const t = turnover({ propertyId: 'home_a', checkIn: TODAY, previousCheckout: '2026-10-17', manuallyCompleted: true });
+    assert.equal(board([t], []).done[0].cleaner, null);
+  });
+
   test('marked ready by hand: no verb on the line (Undo lives in the opened row)', () => {
     const t = turnover({ propertyId: 'home_a', checkIn: TODAY, manuallyCompleted: true });
     assert.equal(walkSlot(t, lc(t), TODAY).label, 'Marked ready');

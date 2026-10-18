@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState, useTransition } from 'react';
-import { confirmCleaningDoneAction } from './cleaning-actions';
+import { useEffect, useRef, useState } from 'react';
+import { MarkCleaned } from './MarkCleaned';
 import { STAGE_HUES } from './turnover-format';
 
 /**
@@ -11,6 +11,11 @@ import { STAGE_HUES } from './turnover-format';
  * waiting on carries a pulsing coral halo and a live elapsed counter; an
  * estimated finish is a dashed node you tap to confirm. Motion respects
  * prefers-reduced-motion.
+ *
+ * Only a lock-monitored home opens to this rail: entry and cleaning are lock
+ * facts, and on every other home the board shows the three steps Helm can
+ * actually see (TurnoverSteps). The lockless branches below stay correct if
+ * a caller ever passes one.
  */
 type Props = {
   expected: boolean; // checkout has passed — cleaning is due
@@ -90,30 +95,9 @@ export function TurnoverRail(p: Props) {
   // between server refreshes. Lazy init keeps SSR + first paint correct.
   const [now, setNow] = useState(() => Date.now());
   const haloRef = useRef<HTMLSpanElement | null>(null);
-  const [pending, start] = useTransition();
+  // Shows the clean as done the moment it is confirmed, before the server
+  // re-render lands.
   const [justConfirmed, setJustConfirmed] = useState(false);
-  // Marking a clean done by hand writes a manual finish to cleaning_sessions
-  // with no undo in the UI, so it is a real button with an inline confirm
-  // (tap, then Confirm / Cancel), not a 10px underlined word under a dot.
-  const [confirming, setConfirming] = useState(false);
-  const [markError, setMarkError] = useState('');
-
-  function markCleaned() {
-    setMarkError('');
-    start(async () => {
-      try {
-        const r = await confirmCleaningDoneAction(p.propertyId, p.previousCheckout ?? '');
-        if (r.ok) {
-          setJustConfirmed(true);
-          setConfirming(false);
-        } else {
-          setMarkError(r.message ?? 'Could not save the clean.');
-        }
-      } catch {
-        setMarkError('Could not confirm the change. Refresh before retrying.');
-      }
-    });
-  }
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
@@ -361,57 +345,17 @@ export function TurnoverRail(p: Props) {
       </div>
 
       {/* The operator's hand on the Cleaned node: confirm an estimated finish,
-          or mark the clean done when no signal is coming (every lockless home,
-          or a monitored one whose cleaner did not text). Two taps. */}
-      {(showEstConfirm || canMarkClean) && (
-        <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          {!confirming ? (
-            <button type="button" onClick={() => setConfirming(true)} style={railButton(false)}>
-              {showEstConfirm ? 'Confirm cleaned' : 'Mark cleaned'}
-            </button>
-          ) : (
-            <>
-              <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
-                {showEstConfirm
-                  ? 'The cleaner has finished? This confirms the estimated time.'
-                  : monitored
-                    ? 'Mark this home cleaned by hand? No cleaner signal has reached Helm.'
-                    : 'Mark this home cleaned by hand? It has no smart lock, so Helm only knows when the cleaner texts or you confirm.'}
-              </span>
-              <button type="button" onClick={markCleaned} disabled={pending} style={railButton(true, pending)}>
-                {pending ? 'Saving…' : markError ? 'Retry' : 'Confirm'}
-              </button>
-              <button
-                type="button"
-                onClick={() => { setConfirming(false); setMarkError(''); }}
-                disabled={pending}
-                style={railButton(false, pending)}
-              >
-                Cancel
-              </button>
-              {markError && <span role="alert" style={{ fontSize: 11, color: 'var(--negative)' }}>{markError}</span>}
-            </>
-          )}
+          or mark the clean done when the cleaner did not text. Two taps. */}
+      {(showEstConfirm || canMarkClean) && p.previousCheckout && (
+        <div style={{ marginTop: 12 }}>
+          <MarkCleaned
+            propertyId={p.propertyId}
+            checkoutDate={p.previousCheckout}
+            estimated={showEstConfirm}
+            onDone={() => setJustConfirmed(true)}
+          />
         </div>
       )}
     </div>
   );
-}
-
-/** A normal-sized control for the rail: solid for the commit, ghost for the
- *  rest. 11px uppercase like the row's Start, 36px tall so a thumb finds it. */
-function railButton(solid: boolean, busy = false): React.CSSProperties {
-  return {
-    background: solid ? 'var(--ink)' : 'none',
-    color: solid ? 'var(--paper)' : 'var(--ink-3)',
-    border: `1px solid ${solid ? 'var(--ink)' : 'var(--rule)'}`,
-    padding: '8px 14px',
-    minHeight: 36,
-    fontSize: 11,
-    letterSpacing: '.14em',
-    textTransform: 'uppercase',
-    fontWeight: 600,
-    cursor: busy ? 'wait' : 'pointer',
-    opacity: busy ? 0.6 : 1,
-  };
 }

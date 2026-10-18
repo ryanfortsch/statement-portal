@@ -187,125 +187,178 @@ td:has(.rt-info-icon:focus-within) {
   z-index: 3;
 }
 
-/* ─── Operations: dense turnover ledger (CompactTurnoverRow) ─────────────
-   One ~38px line per turnover so a dozen-plus fit in one field of view.
-   Desktop: date | property+guest (grows) | micro-rail + readout | action,
-   all on one baseline. Click a line to expand the full rail in place.
-   Mobile: the row wraps to two lines (identity, then state + action) and
-   the expansion stacks — no 180px rail indent to overflow the viewport. */
-.rt-tn-row {
-  display: flex;
+/* ─── Turnovers: the board (BoardLine) ───────────────────────────────────
+   One line per house per day. Desktop (wider than 900px): one grid per row
+   with fixed columns, so the columns line up down the whole board:
+   house | Out · In | cleaner | walk | verb. Every item names its own column
+   (and row 1), so a row with no cleaner or no walk keeps the others in place.
+   Narrower: two lines, the house and its verb, then the facts wrapping under
+   them (see the max-width: 900px block below). */
+.rt-tb-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) 200px 196px 170px 112px;
   align-items: center;
-  gap: 14px;
-  flex-wrap: wrap;
-  padding: 7px 6px;
+  column-gap: 16px;
+  padding: 0 6px;
   border-bottom: 1px solid var(--rule);
-  cursor: pointer;
-  min-height: 36px;
-  transition: background 0.12s ease;
-}
-.rt-tn-row:hover { background: rgba(30, 46, 52, 0.025); }
-.rt-tn-main {
-  display: flex;
-  align-items: baseline;
-  gap: 14px;
-  flex: 1 1 360px;
-  min-width: 0;
-}
-.rt-tn-date { flex: 0 0 auto; white-space: nowrap; }
-.rt-tn-prop {
-  min-width: 0;
-  flex: 1 1 auto;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.rt-tn-sd {
-  display: inline-block;
-  width: 4px;
-  height: 13px;
-  border-radius: 2px;
-  background: var(--signal);
-  vertical-align: -2px;
-  margin-right: 6px;
-}
-.rt-tn-state {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex: 0 0 auto;
-}
-.rt-tn-rail {
-  display: flex;
-  align-items: center;
-  gap: 7px;
   position: relative;
-  padding: 0 2px;
+  scroll-margin-top: 96px;
 }
-.rt-tn-rline {
-  position: absolute;
-  left: 2px;
-  right: 2px;
-  top: 50%;
-  height: 1.5px;
-  background: var(--rule-soft, #e7dfce);
-  z-index: 0;
-}
-.rt-tn-readout {
-  font-family: var(--font-mono, monospace);
-  font-size: 11px;
-  letter-spacing: 0.02em;
-  /* Wide enough for the longest live readout ('Inspecting · 1h 23m', 19 mono
-     chars) so a long readout never shoves the pip rail left — the six-pip
-     column stays aligned down the whole ledger. */
-  min-width: 134px;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-.rt-tn-act { flex: 0 0 auto; min-width: 72px; text-align: right; }
-/* Desktop: a CONSTANT action-column width (not content-sized) so the state
-   column's right edge — and therefore the pip rail — lines up on every row
-   whether the slot holds Start, Resume, or a variable-width Field byline.
-   Mobile keeps auto width; the row's flex-wrap handles narrow screens. */
-@media (min-width: 641px) {
-  .rt-tn-act { width: 128px; }
-}
-/* Person credit in the action column — one line, no label kicker: the name
-   IS the indicator (a Field contractor via FieldCredit, or the assigned
-   staffer on a planned walk via PlanButton's byline variant). Bare
-   Fraunces-italic type, right-aligned off the same edge as Start / Resume /
-   Summary; no fill, border, or radius, so it can never be mistaken for the
-   solid navy START button. Carries a full button reset because the planned
-   variant renders as a <button> (opens the plan editor). */
-.rt-tn-field {
+.rt-tb-row[data-done] { opacity: 0.6; }
+.rt-tb-anchor { position: absolute; top: 0; left: 0; scroll-margin-top: 96px; }
+.rt-tb-house { grid-column: 1; grid-row: 1; display: flex; align-items: center; gap: 10px; min-width: 0; }
+.rt-tb-toggle {
   display: inline-flex;
   align-items: center;
-  text-decoration: none;
-  vertical-align: middle;
+  gap: 8px;
+  min-height: 40px;
+  min-width: 0;
+  padding: 0;
   background: none;
   border: none;
-  padding: 0;
-  margin: 0;
-  cursor: pointer;
   font: inherit;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
 }
-.rt-tn-field-p {
+.rt-tb-toggle:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+.rt-tb-toggle:hover .rt-tb-name { text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+.rt-tb-chev { display: inline-block; width: 10px; color: var(--ink-4); font-size: 14px; line-height: 1; transition: transform 0.15s ease; }
+.rt-tb-toggle[aria-expanded="true"] .rt-tb-chev { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) { .rt-tb-chev { transition: none; } }
+.rt-tb-name {
   font-family: var(--font-fraunces), "Times New Roman", serif;
-  font-style: italic;
-  font-size: 12.5px;
-  line-height: 1.1;
-  /* Matches the desktop .rt-tn-act column width so a long contractor name
-     ellipsizes instead of widening the column. */
-  max-width: 128px;
+  font-size: 14px;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.rt-tb-flag { font-size: 11px; font-weight: 600; color: var(--signal); white-space: nowrap; }
+.rt-tb-flag[data-tone="bad"] { color: var(--negative); }
+.rt-tb-facts { display: contents; }
+.rt-tb-pair {
+  grid-column: 2;
+  grid-row: 1;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  color: var(--ink-2);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.rt-tb-sd {
+  display: inline-block;
+  margin-left: 8px;
+  font-family: var(--font-inter), system-ui, sans-serif;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--signal);
+}
+.rt-tb-slot { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.rt-tb-cleaner { grid-column: 3; grid-row: 1; }
+.rt-tb-walk { grid-column: 4; grid-row: 1; }
+.rt-tb-slot[data-tone="ok"] { color: var(--ink-3); }
+.rt-tb-slot[data-tone="done"] { color: var(--positive); }
+.rt-tb-slot[data-tone="warn"] { color: var(--signal); font-weight: 600; }
+.rt-tb-slot[data-tone="bad"] { color: var(--negative); font-weight: 600; }
+.rt-tb-slot[data-tone="live"] { color: #c0772f; font-weight: 600; }
+.rt-tb-slot[data-tone="mute"] { color: var(--ink-4); }
+.rt-tb-slot a { color: inherit; text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+.rt-tb-verb { grid-column: 5; grid-row: 1; justify-self: end; display: flex; align-items: center; }
+/* The quieter verbs (Plan walk, Mark ready, Undo ready): an outlined twin of
+   the solid Start walk button (.rt-tn-start). */
+.rt-tb-verbbtn {
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--ink-4);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 6px 12px;
+  min-height: 32px;
+  cursor: pointer;
   white-space: nowrap;
 }
-.rt-tn-field:hover .rt-tn-field-p {
-  text-decoration: underline;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 2px;
+.rt-tb-verbbtn:hover { border-color: var(--ink); }
+.rt-tb-verblink {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  font-size: 12px;
+  color: var(--ink-3);
+  text-decoration: none;
+  white-space: nowrap;
+  border-bottom: 1px solid transparent;
 }
+.rt-tb-verblink[data-strong] { color: var(--ink); font-weight: 600; }
+.rt-tb-verblink:hover { border-bottom-color: currentColor; }
+.rt-tb-exp { grid-column: 1 / -1; grid-row: 2; padding: 6px 0 16px 18px; }
+.rt-tb-who { display: flex; flex-wrap: wrap; gap: 4px 28px; font-size: 13px; color: var(--ink); }
+.rt-tb-whokey {
+  margin-right: 8px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+.rt-tb-stepswrap { margin-top: 14px; }
+.rt-tb-steps { display: flex; flex-wrap: wrap; gap: 10px 32px; margin: 0; padding: 0; list-style: none; }
+.rt-tb-steps li { display: flex; align-items: baseline; gap: 8px; font-size: 13px; }
+.rt-tb-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid var(--rule);
+  background: var(--paper);
+  align-self: center;
+  box-sizing: border-box;
+}
+.rt-tb-steps li[data-state="done"] .rt-tb-dot { background: var(--positive); border-color: var(--positive); }
+.rt-tb-steps li[data-state="now"] .rt-tb-dot { border: 2.5px solid var(--signal); }
+.rt-tb-steplabel { font-weight: 600; color: var(--ink); }
+.rt-tb-steps li[data-state="later"] .rt-tb-steplabel { color: var(--ink-4); font-weight: 500; }
+.rt-tb-stepdetail { font-size: 12px; color: var(--ink-3); }
+.rt-tb-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--rule-soft, #e7dfce);
+}
+.rt-tb-chip { font-size: 12px; color: var(--tide-deep); text-decoration: none; }
+.rt-tb-chip[data-tone="warn"] { color: var(--signal); font-weight: 600; }
+.rt-tb-chip:hover { text-decoration: underline; text-underline-offset: 3px; }
+@media (max-width: 900px) {
+  .rt-tb-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 12px;
+    padding: 4px 2px 10px;
+  }
+  .rt-tb-house { grid-column: 1; grid-row: 1; }
+  .rt-tb-verb { grid-column: 2; grid-row: 1; }
+  .rt-tb-facts {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 14px;
+    grid-column: 1 / -1;
+    grid-row: 2;
+    padding-left: 18px;
+  }
+  .rt-tb-slot { white-space: normal; overflow: visible; }
+  .rt-tb-exp { grid-row: 3; padding-left: 0; }
+  /* Thumb-sized targets: the toggle, the verb, the quiet buttons. */
+  .rt-tb-toggle,
+  .rt-tb-verb .rt-tn-start,
+  .rt-tb-verbbtn,
+  .rt-tb-verblink { min-height: 44px; }
+}
+/* The Start walk button: solid navy, the board's strongest verb. */
 .rt-tn-start {
   background: var(--ink);
   color: var(--paper);
@@ -314,23 +367,10 @@ td:has(.rt-info-icon:focus-within) {
   letter-spacing: 0.14em;
   text-transform: uppercase;
   padding: 6px 12px;
+  min-height: 32px;
   border: none;
   cursor: pointer;
   white-space: nowrap;
-}
-.rt-tn-exp {
-  flex: 1 1 100%;
-  padding: 6px 0 10px;
-  cursor: default;
-}
-.rt-tn-affordances {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px 18px;
-  margin-top: 12px;
-  padding-top: 10px;
-  border-top: 1px solid var(--rule-soft, #e7dfce);
 }
 /* The expanded full TurnoverRail. Flush inside the dense expansion (the old
    176px indent aligned it under the legacy date column, which no longer
@@ -498,38 +538,6 @@ td:has(.rt-info-icon:focus-within) {
     display: none;
   }
 
-  /* /operations dense turnover ledger: the desktop one-liner wraps to two
-     rows on a phone. Line 1 = identity (date + property + guest). Line 2 =
-     the micro-rail + readout on the left, the primary action pinned right.
-     The date sheds its "→ checkout" trailer so the property name owns the
-     headline. The expansion (full rail + affordances) stacks underneath at
-     full width, no horizontal overflow. */
-  .rt-tn-row {
-    gap: 6px 12px !important;
-    padding: 11px 2px !important;
-  }
-  .rt-tn-main {
-    flex: 1 1 100% !important;
-  }
-  /* Class-targeted, not span:nth-child(2): datebook-grouped rows omit the
-     leading serif date span, which would shift the trailer to first
-     position and let it escape a positional selector. */
-  .rt-tn-date .rt-tn-co {
-    display: none !important;
-  }
-  .rt-tn-state {
-    flex: 1 1 auto !important;
-  }
-  .rt-tn-readout {
-    flex: 1 1 auto;
-    min-width: 0;
-  }
-  .rt-tn-act {
-    flex: 0 0 auto !important;
-  }
-  .rt-tn-affordances {
-    gap: 10px 16px !important;
-  }
   /* Expanded rail goes fully flush on phones so all six nodes + labels fit
      a ~360px viewport with no horizontal overflow. */
   .rt-tn-railwrap {
