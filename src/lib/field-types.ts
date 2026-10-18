@@ -157,6 +157,13 @@ export function onboardingComplete(c: Pick<ContractorRow, 'status' | 'agreement_
   return c.status === 'active' && !!c.agreement_signed_at && c.w9_on_file;
 }
 
+/** The office's property-board grant, on an account that can use it: the
+ *  same gate as /field/property-work. It also opens Flag something to any
+ *  home, not only one visited in the last 72 hours. */
+export function canFlagAnyHome(c: Pick<ContractorRow, 'status' | 'agreement_signed_at' | 'w9_on_file' | 'work_board_access'>): boolean {
+  return onboardingComplete(c) && !!c.work_board_access;
+}
+
 /** True once the contractor may claim paid work: onboarding done AND a
  *  background check that is at least underway. The office marking the check
  *  'pending' (running) unlocks claiming so a contractor can start while it

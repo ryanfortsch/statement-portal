@@ -22,7 +22,7 @@ for (const [name, path] of [
   ['maintenance', 'src/app/field/packet/[packetId]/MaintenanceComplete.tsx'],
   ['form-draft', 'src/components/FieldFormDraft.tsx'],
   ['form-store', 'src/lib/field-form-drafts.ts'],
-  ['component', 'src/app/field/report/ReportIssueForm.tsx'],
+  ['component', 'src/app/field/flag/FlagForm.tsx'],
   ['unsaved-work', 'src/lib/unsaved-work.ts'],
 ]) await writeFile(join(scratch, name + '.js'), compile(await readFile(join(root, path), 'utf8')));
 await writeFile(join(scratch, 'confirmed-save.js'), compile((await readFile(join(root,'src/lib/confirmed-save.ts'),'utf8')).replace('options.timeoutMs ?? 15_000', "options.timeoutMs ?? (location.search.includes('timeout=1') ? 250 : 15_000)")));
@@ -58,14 +58,16 @@ await writeFile(join(scratch, 'upload.js'), compile(`
 await writeFile(join(scratch, 'entry.js'), compile(`
   import React, {useEffect, useState} from 'react';
   import {createRoot} from 'react-dom/client';
-  import {ReportIssueForm} from './component.js';
+  import {FlagForm} from './component.js';
   import {MaintenanceComplete} from './maintenance.js';
   import {hasUnsavedWork} from './unsaved-work.js';
   window.calls=[];window.checks=0;window.refreshes=0;window.guarded=hasUnsavedWork;
   const params=new URLSearchParams(location.search);
-  const visits=['North','South'].slice(0,params.has('single')?1:2).map(name=>({
-    propertyId:name,propertyName:'Synthetic '+name,city:'Gloucester',agoLabel:'today',leftLabel:'Within reporting window',
+  const visits=['North','South'].slice(0,params.has('single')?1:params.has('novisit')?0:2).map(name=>({
+    propertyId:name,propertyName:'Synthetic '+name,city:'Gloucester',visit:{agoLabel:'today',leftLabel:'Within reporting window'},
   }));
+  // The property-board grant adds every other home below the visits.
+  const homes=params.has('board')?[...visits,{propertyId:'East',propertyName:'Synthetic East',city:null},{propertyId:'West',propertyName:'Synthetic West',city:null}]:visits;
   function Fixture() {
     const [mounted,setMounted]=useState(true);
     const [,setTick]=useState(0);
@@ -82,7 +84,7 @@ await writeFile(join(scratch, 'entry.js'), compile(`
           <button onClick={()=>setMounted(v=>!v)}>Toggle form</button>
         </>}
       </aside>
-      {mounted && (params.has('maintenance') ? <MaintenanceComplete packetId="packet-a" stopId="stop-a"/> : <ReportIssueForm visits={visits} windowHours={72}/>)}
+      {mounted && (params.has('maintenance') ? <MaintenanceComplete packetId="packet-a" stopId="stop-a"/> : <FlagForm homes={homes} windowHours={72}/>)}
     </>;
   }
   createRoot(document.getElementById('root')).render(<Fixture/>);
@@ -161,6 +163,19 @@ try{
       await edit('location','Upstairs bathroom');await edit('description','Drips even when closed.\nPhoto attached.');
       await edit('expense_dollars','27.60');await click('Soonneeds attention');await click('Attach synthetic photo');
     };
+
+    await reset();assert.equal(await page.$eval('[name=property_id]',el=>el.value),'North');assert.equal(await guard(),false);
+    pass('the home defaults to the newest visit and that default is clean');
+
+    await reset('?board=1');assert.equal(await page.$eval('[name=property_id]',el=>el.value),'North');
+    assert.deepEqual(await page.$$eval('optgroup',gs=>gs.map(g=>g.label)),['Visited lately','Any home']);
+    await page.select('[name=property_id]','East');await page.waitForFunction(()=>!document.querySelector('fieldset').disabled);
+    await waitText('Any home on your property board.');
+    await edit('title','Gutter loose');await click('Send to the office');await waitCalls(1);
+    assert.equal((await sent()).property_id,'East');
+    await finish({ok:true,home:'Synthetic East'});await waitText('Flagged. The office has it.');
+    await reset('?board=1&novisit=1');assert.equal(await page.$eval('[name=property_id]',el=>el.value),'');assert.equal(await page.$$eval('optgroup',gs=>gs.length),0);
+    pass('the board grant opens any home below the visits, and with no visit there is no default');
 
     await reset('?single=1');assert.equal(await guard(),false);
     await click('Send to the office');assert.equal(await page.evaluate(()=>window.calls.length),0);
@@ -243,7 +258,8 @@ try{
     pass('switching homes restores separate drafts without carrying details across properties');
 
     await page.goto(origin+'/?actor=contractor-b');await page.waitForFunction(()=>document.querySelector('fieldset')&&!document.querySelector('fieldset').disabled);
-    assert.equal(await page.$eval('[name=title]',el=>el.value),'');assert.equal(await page.$eval('[name=property_id]',el=>el.value),'');
+    // Another contractor starts on the default home (the newest visit), never on the first one's draft.
+    assert.equal(await page.$eval('[name=title]',el=>el.value),'');assert.equal(await page.$eval('[name=property_id]',el=>el.value),'North');
     await page.goto(origin+'/');await page.waitForFunction(()=>document.querySelector('fieldset')&&!document.querySelector('fieldset').disabled);
     assert.deepEqual(await data(),persisted);
     pass('a different contractor cannot recover the original contractor draft');

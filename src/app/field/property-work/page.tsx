@@ -1,11 +1,12 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { onboardingComplete } from '@/lib/field-types';
 import { loadPropertyWorkBoard } from '@/lib/field-work-board';
 import { FieldShell } from '../FieldShell';
 import { PhotoThumbs } from '@/components/PhotoUploader';
-import { BoardSlipDone, BoardNewSlip } from './BoardControls';
+import { BoardSlipDone } from './BoardControls';
 import { GearGrid } from '@/components/GearGrid';
 import { loadGearGrid, GEAR_ITEMS } from '@/lib/property-gear';
 import { saveGearCellField } from '../actions';
@@ -54,8 +55,15 @@ export default async function PropertyWorkPage({
         </div>
       )}
 
+      {/* Filing goes through the one Flag something form, which opens every
+          home on this grant (it replaced the board's own filing form). */}
       <div style={{ marginBottom: 26 }}>
-        <BoardNewSlip properties={board.properties} />
+        <Link
+          href="/field/flag"
+          style={{ display: 'block', background: 'var(--paper-2, #fff)', border: '1px solid var(--rule)', borderRadius: 10, color: 'var(--ink)', fontSize: 14, fontWeight: 600, padding: '14px 18px', textDecoration: 'none' }}
+        >
+          + Flag something at any home
+        </Link>
       </div>
 
       {/* The guest-gear matrix (per Ryan): which homes have a pack 'n play /

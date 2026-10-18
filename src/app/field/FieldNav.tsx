@@ -4,9 +4,10 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 /**
- * Persistent contractor nav — the two places she actually goes: her Work board
- * and her Profile. Lives in FieldShell so it's on every authenticated Field
- * page (a packet was reachable, but Profile and the way back to Work were not).
+ * Persistent contractor nav: her Work board, Flag something and her Profile,
+ * plus the tabs a trade or a grant adds. Lives in FieldShell so it's on every
+ * authenticated Field page (a packet was reachable, but Profile and the way
+ * back to Work were not).
  * A top strip, not a bottom bar, because the packet page owns a sticky bottom
  * claim/submit bar.
  */
@@ -33,6 +34,15 @@ const SCHEDULE_TAB = {
   match: (p: string) => p.startsWith('/field/schedule'),
 };
 
+// The one filing form (post-visit reports, and any home on the board
+// grant). For everyone who visits homes on packets, and for anyone holding
+// the board grant.
+const FLAG_TAB = {
+  href: '/field/flag',
+  label: 'Flag something',
+  match: (p: string) => p.startsWith('/field/flag'),
+};
+
 // Office-granted only (work_board_access): the all-properties slip board.
 const PROPERTY_WORK_TAB = {
   href: '/field/property-work',
@@ -51,11 +61,13 @@ export function FieldNav({
   showPropertyWork = false,
   showRates = false,
   showSchedule = false,
+  showFlag = false,
   homeLabel,
 }: {
   showPropertyWork?: boolean;
   showRates?: boolean;
   showSchedule?: boolean;
+  showFlag?: boolean;
   // Creative contributors land on a shoot list, not a packet board — so the
   // first tab reads "Shoots" for them.
   homeLabel?: string;
@@ -64,6 +76,7 @@ export function FieldNav({
   const tabs = [
     homeLabel ? { ...TABS[0], label: homeLabel } : TABS[0],
     ...(showSchedule ? [SCHEDULE_TAB] : []),
+    ...(showFlag ? [FLAG_TAB] : []),
     ...(showPropertyWork ? [PROPERTY_WORK_TAB] : []),
     ...(showRates ? [RATES_TAB] : []),
     TABS[1],

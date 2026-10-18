@@ -584,13 +584,13 @@ export default async function FieldHome({
           </h1>
           <p style={{ fontSize: 14, color: 'rgba(245,239,226,0.78)', lineHeight: 1.6, margin: '24px 0 0' }}>
             You&apos;re on payroll, so paid packets no longer come through this portal and nothing here pays.
-            {contractor.work_board_access ? ' The property board and issue reports still work here.' : ' Issue reports still work here.'}
+            {contractor.work_board_access ? ' The property board and Flag something still work here.' : ' Flag something still works here.'}
             {' '}Everything else is in Helm with your Rising Tide sign-in.
           </p>
           <div>
             <a href="https://helm.risingtidestr.com" style={linkStyle}>Open Helm</a>
             {contractor.work_board_access && <Link href="/field/property-work" style={linkStyle}>Property board</Link>}
-            <Link href="/field/report" style={linkStyle}>Report an issue</Link>
+            <Link href="/field/flag" style={linkStyle}>Flag something</Link>
           </div>
         </div>
       </FieldShell>
@@ -748,15 +748,15 @@ export default async function FieldHome({
       {/* Identical hero to the Profile tab (shared component, no extras). */}
       <ContractorHeader contractor={contractor} rating={rating} />
 
-      {/* Post-visit flag: only when a home is still in the 72h window, so the
-          affordance appears exactly when it's usable. */}
+      {/* Post-visit nudge, while a home is still in the 72h window. The
+          form itself is always one tap away in the tab strip. */}
       {recentVisits.length > 0 && (
         <Link
-          href="/field/report"
+          href="/field/flag"
           style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, textDecoration: 'none', border: '1px solid var(--tide-deep)', borderRadius: 10, background: 'rgba(58,107,138,0.05)', padding: '14px 18px', marginBottom: 32 }}
         >
           <div style={{ fontSize: 14.5, fontWeight: 600, color: 'var(--ink)' }}>Spotted something after a visit?</div>
-          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--tide-deep)', whiteSpace: 'nowrap' }}>Create a work slip →</span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--tide-deep)', whiteSpace: 'nowrap' }}>Flag something →</span>
         </Link>
       )}
 

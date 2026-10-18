@@ -8,13 +8,24 @@ import { PhotoUploader, useClearPhotoDraft } from '@/components/PhotoUploader';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import { reportFieldWorkSlip, checkFieldReportSubmission, type ReportState } from '../actions';
 
-export type VisitOption = {
+/** A home the form can file against: a recent visit (with its window), or,
+ *  for a contractor with the property-board grant, any home. */
+export type HomeOption = {
   propertyId: string;
   propertyName: string;
   city: string | null;
-  agoLabel: string;
-  leftLabel: string;
+  /** Set for a home they visited inside the window; absent for "any home". */
+  visit?: { agoLabel: string; leftLabel: string };
 };
+
+/**
+ * The one "Flag something" form (the portal's tab strip, /field/flag). It
+ * merged the post-visit report and the property board's bare filing form:
+ * the report's per-attempt idempotency key, device drafts per home and
+ * confirmed save, with the board's reach. The home defaults to the most
+ * recent visit; the board grant adds every other home below the visits. The
+ * server re-checks the window or the grant on every submit.
+ */
 
 const PRIORITIES: Array<{ value: 'low' | 'normal' | 'high'; label: string; hint: string }> = [
   { value: 'low', label: 'Whenever', hint: 'no rush' },
@@ -49,9 +60,12 @@ const field: React.CSSProperties = {
   outline: 'none',
 };
 
-export function ReportIssueForm({ visits, windowHours }: { visits: VisitOption[]; windowHours: number }) {
+export function FlagForm({ homes, windowHours }: { homes: HomeOption[]; windowHours: number }) {
   const submitting = useRef(false);
-  const [initialSelected] = useState(visits.length === 1 ? visits[0].propertyId : '');
+  const visits = homes.filter((h) => h.visit);
+  const others = homes.filter((h) => !h.visit);
+  // The most recent visit is the likely home; visits come newest first.
+  const [initialSelected] = useState(visits[0]?.propertyId ?? '');
   const selectionDraft = useFieldFormDraft('report-selection', { selected: initialSelected });
   const { selected } = selectionDraft.value;
   const setSelected = (v: string) => selectionDraft.set('selected', v);
@@ -109,7 +123,7 @@ export function ReportIssueForm({ visits, windowHours }: { visits: VisitOption[]
     || Object.values(details).some(value => value.length > 0);
   useUnsavedWorkGuard(!state.ok && (dirty || uploading || isPending));
 
-  const chosen = visits.find((v) => v.propertyId === selected) ?? null;
+  const chosen = homes.find((v) => v.propertyId === selected) ?? null;
 
   if (state.ok) {
     return (
@@ -120,10 +134,10 @@ export function ReportIssueForm({ visits, windowHours }: { visits: VisitOption[]
         </div>
         <p style={{ fontSize: 14.5, color: 'var(--ink-3)', lineHeight: 1.6, margin: '0 0 20px' }}>
           Thanks for catching it{state.home ? <> at <strong style={{ color: 'var(--ink)' }}>{state.home}</strong></> : ''}.
-          It&apos;s now a work order on the team&apos;s board. If it&apos;s urgent, a quick text to the office never hurts.
+          It&apos;s on the office&apos;s work board now. If it&apos;s urgent, a quick text to the office never hurts.
         </p>
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-          <Link href="/field/report" style={{ display: 'inline-block', background: 'var(--ink)', color: 'var(--paper)', textDecoration: 'none', fontSize: 12, fontWeight: 600, letterSpacing: '0.14em', textTransform: 'uppercase', padding: '13px 24px', borderRadius: 6 }}>
+          <Link href="/field/flag" style={{ display: 'inline-block', background: 'var(--ink)', color: 'var(--paper)', textDecoration: 'none', fontSize: 12, fontWeight: 600, letterSpacing: '0.14em', textTransform: 'uppercase', padding: '13px 24px', borderRadius: 6 }}>
             Flag another
           </Link>
           <Link href="/field" style={{ display: 'inline-flex', alignItems: 'center', color: 'var(--ink-3)', textDecoration: 'none', fontSize: 13, fontWeight: 600, padding: '13px 8px' }}>
@@ -147,7 +161,7 @@ export function ReportIssueForm({ visits, windowHours }: { visits: VisitOption[]
       <input type="hidden" name="photo_urls" value={JSON.stringify(photos)} />
 
       {!isPending && !retrying && <FieldDraftStatus status={formDraft.status} />}
-      {selected && !chosen && <p role="alert">This home is no longer in your reporting window. Your draft is kept; contact the office before reporting it elsewhere.</p>}
+      {selected && !chosen && <p role="alert">This home is no longer one you can flag. Your draft is kept; contact the office before flagging it elsewhere.</p>}
       {/* Which home */}
       <div>
         <label htmlFor="rf-prop" style={label}>Which home?</label>
@@ -160,19 +174,38 @@ export function ReportIssueForm({ visits, windowHours }: { visits: VisitOption[]
             onChange={(e) => (setPhotos([]), setSelected(e.target.value))}
             style={{ ...field, appearance: 'none', paddingRight: 38, color: selected ? 'var(--ink)' : 'var(--ink-4)', cursor: 'pointer' }}
           >
-            <option value="" disabled>Choose a home you visited</option>
-            {visits.map((v) => (
-              <option key={v.propertyId} value={v.propertyId} style={{ color: 'var(--ink)' }}>
-                {v.propertyName}{v.city ? ` · ${v.city}` : ''} · {v.agoLabel}
-              </option>
-            ))}
+            <option value="" disabled>{others.length > 0 ? 'Choose the home' : 'Choose a home you visited'}</option>
+            {others.length > 0 && visits.length > 0 ? (
+              <>
+                <optgroup label="Visited lately">
+                  {visits.map((v) => (
+                    <option key={v.propertyId} value={v.propertyId} style={{ color: 'var(--ink)' }}>
+                      {v.propertyName}{v.city ? ` · ${v.city}` : ''} · {v.visit!.agoLabel}
+                    </option>
+                  ))}
+                </optgroup>
+                <optgroup label="Any home">
+                  {others.map((v) => (
+                    <option key={v.propertyId} value={v.propertyId} style={{ color: 'var(--ink)' }}>{v.propertyName}</option>
+                  ))}
+                </optgroup>
+              </>
+            ) : (
+              homes.map((v) => (
+                <option key={v.propertyId} value={v.propertyId} style={{ color: 'var(--ink)' }}>
+                  {v.propertyName}{v.city ? ` · ${v.city}` : ''}{v.visit ? ` · ${v.visit.agoLabel}` : ''}
+                </option>
+              ))
+            )}
           </select>
           <span aria-hidden style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: 'var(--ink-4)', fontSize: 12 }}>▾</span>
         </div>
-        <div style={{ fontSize: 12, color: chosen ? 'var(--signal)' : 'var(--ink-4)', marginTop: 7, minHeight: 16 }}>
-          {chosen
-            ? `${chosen.leftLabel} · only homes you visited in the last ${windowHours}h show here`
-            : `Only homes you visited in the last ${windowHours} hours can be flagged.`}
+        <div style={{ fontSize: 12, color: chosen?.visit ? 'var(--signal)' : 'var(--ink-4)', marginTop: 7, minHeight: 16 }}>
+          {chosen?.visit
+            ? `${chosen.visit.leftLabel} · you were here ${chosen.visit.agoLabel}`
+            : others.length > 0
+              ? 'Any home on your property board.'
+              : `Homes you visited in the last ${windowHours} hours.`}
         </div>
       </div>
 

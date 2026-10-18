@@ -9,7 +9,7 @@ import { maybeAwardStreakBonus } from '@/lib/field-streaks';
 import { geocodeAddress } from '@/lib/geocode';
 import { haversineMiles } from '@/lib/proximity';
 import { resolveContractorFromCookie, endContractorSession } from '@/lib/field-auth';
-import { canClaim, type ContractorRow, type PacketRow, type PacketStopRow } from '@/lib/field-types';
+import { canClaim, canFlagAnyHome, type ContractorRow, type PacketRow, type PacketStopRow } from '@/lib/field-types';
 import { isWorkingStatus } from '@/lib/field-packet-status';
 import { recomputePacketExpenses, revalidatePacket, getContractorReliability } from '@/lib/field-packets';
 import { loadRecentVisits } from '@/lib/field-report';
@@ -55,10 +55,13 @@ export async function checkFieldReportSubmission(attempt: string, propertyId: st
   return result.ok ? result : { ok: false, uncertain: true, error: result.error || 'The report is not confirmed yet. Retry to safely finish the same submission.' };
 }
 
-/** Inspector flags an issue at a home they visited in the last 72 hours. Creates
- *  a normal OPEN work_slip (so it flows onto the /work board + property page like
- *  any other) tagged with who reported it and from which visit. The 72h window is
- *  RE-CHECKED here against loadRecentVisits, never trusted from the client. */
+/** "Flag something": a contractor flags an issue at a home. Creates a normal
+ *  OPEN work_slip (so it flows onto the /work board + property page like any
+ *  other) tagged with who reported it and, for a visit, from which trip. The
+ *  home must be one they visited in the last 72 hours, or any home when the
+ *  office has granted them the property board; both are RE-CHECKED here,
+ *  never trusted from the client. One form, one door (it replaced the board's
+ *  own filing form, which had no idempotency key). */
 export async function reportFieldWorkSlip(_prev: ReportState, formData: FormData): Promise<ReportState> {
   const contractor = await resolveContractorFromCookie();
   if (!contractor) return { ok: false, error: 'Please reopen your portal link and try again.' };
@@ -85,12 +88,19 @@ export async function reportFieldWorkSlip(_prev: ReportState, formData: FormData
   if (!propertyId) return { ok: false, error: 'Pick the home you want to flag.' };
   if (title.length < 3) return { ok: false, error: 'Add a short line on what needs attention.' };
 
-  // The real gate: the property MUST be one they actually visited in the window.
-  // The dropdown is only a convenience; this is what's enforced.
+  // The real gate: the property MUST be one they actually visited in the
+  // window, or the board grant must open it. The dropdown is only a
+  // convenience; this is what's enforced.
   const visits = await loadRecentVisits(contractor.id);
   const visit = visits.find((v) => v.propertyId === propertyId);
   if (!visit) {
-    return { ok: false, error: "That home is past its 72-hour window now. Call the office and we'll add it." };
+    const anyHome = canFlagAnyHome(contractor)
+      ? ((await fieldDb().from('properties').select('id, name').eq('id', propertyId).maybeSingle()).data as { id: string; name: string } | null)
+      : null;
+    if (!anyHome) {
+      return { ok: false, error: "That home is past its 72-hour window now. Call the office and we'll add it." };
+    }
+    return fileBoardFlag({ contractor, submissionId, attempt, propertyId, propertyName: anyHome.name, title, description, location, priority, photoUrls, expenseRaw: formData.get('expense_dollars') });
   }
 
   // Out-of-pocket receipt: same $500 cap as the completion-time receipt rail.
@@ -135,12 +145,65 @@ export async function reportFieldWorkSlip(_prev: ReportState, formData: FormData
     payload: { title: title.slice(0, 200), priority, ...(expenseCents > 0 ? { expense_cents: expenseCents } : {}) },
   });
 
-  // Refresh the report page + home so "Flag another" reflects the current
-  // window (a home whose 72h just elapsed drops out) rather than a cached list.
-  revalidatePath('/field/report');
+  // Refresh the form + home so "Flag another" reflects the current window
+  // (a home whose 72h just elapsed drops out) rather than a cached list.
+  revalidatePath('/field/flag');
   revalidatePath('/field');
 
   return { ok: true, home: visit.propertyName };
+}
+
+/** Flag something at a home outside the visit window, on the board grant:
+ *  the same idempotent insert as a visit report, no source trip, and a
+ *  receipt homed the way the board's mark-done homes one (onto a live trip
+ *  at that home, else left open for the office). */
+async function fileBoardFlag(args: {
+  contractor: ContractorRow;
+  submissionId: string;
+  attempt: string;
+  propertyId: string;
+  propertyName: string;
+  title: string;
+  description: string;
+  location: string;
+  priority: 'low' | 'normal' | 'high';
+  photoUrls: string[];
+  expenseRaw: FormDataEntryValue | null;
+}): Promise<ReportState> {
+  const { contractor, propertyId, title, priority } = args;
+  const expenseCents = parseReceiptDollars(args.expenseRaw);
+  const { error } = await fieldDb().from('work_slips').insert({
+    id: args.submissionId,
+    property_id: propertyId,
+    title: title.slice(0, 200),
+    description: args.description ? args.description.slice(0, 4000) : null,
+    location: args.location ? args.location.slice(0, 200) : null,
+    category: 'maintenance',
+    priority,
+    status: 'open',
+    photo_urls: args.photoUrls,
+    created_by_email: contractor.email,
+    reported_by_contractor_id: contractor.id,
+    ...(expenseCents > 0 ? { expense_cents: expenseCents, receipt_contractor_id: contractor.id } : {}),
+  });
+  if (error) {
+    // The primary key arbitrates concurrent retries, including a lost insert response.
+    const saved = await findFieldReport(contractor.id, args.attempt, propertyId);
+    return saved.ok ? { ok: true, home: args.propertyName } : { ok: false, uncertain: true, error: 'Could not confirm your report. Retry to safely finish the same submission.' };
+  }
+  const receiptPacketId = expenseCents > 0 ? await resolveReceiptPacket(contractor.id, propertyId).catch(() => null) : null;
+  if (receiptPacketId) await homeReceipt({ slipId: args.submissionId, packetId: receiptPacketId, contractorId: contractor.id, actorEmail: contractor.email }).catch(() => {});
+  await logEvent({
+    contractorId: contractor.id,
+    actorEmail: contractor.email,
+    propertyId,
+    eventType: 'board_slip_created',
+    payload: { title: title.slice(0, 200), priority, work_slip_id: args.submissionId, ...(expenseCents > 0 ? { expense_cents: expenseCents, receipt_packet_id: receiptPacketId } : {}) },
+  });
+  revalidatePath('/field/flag');
+  revalidatePath('/field/property-work');
+  revalidatePath('/work');
+  return { ok: true, home: args.propertyName };
 }
 
 /** Gate for the property-work board: signed-in, active, office-granted. */
@@ -213,61 +276,6 @@ export async function completeBoardSlip(formData: FormData) {
     propertyId: slip.property_id,
     eventType: 'board_slip_completed',
     payload: { work_slip_id: slipId, ...(expenseCents > 0 ? { expense_cents: expenseCents, receipt_packet_id: receiptPacketId } : {}) },
-  });
-  revalidatePath('/field/property-work');
-  revalidatePath('/work');
-  redirect('/field/property-work');
-}
-
-/** File a new slip from the board — any home, no 72-hour visit window (the
- *  office grant IS the trust boundary here, unlike the post-visit report). */
-export async function createBoardSlip(formData: FormData) {
-  const contractor = await boardContractor();
-  if (!contractor) redirect('/field');
-  const propertyId = String(formData.get('property_id') || '').trim();
-  const title = String(formData.get('title') || '').trim();
-  const description = String(formData.get('description') || '').trim();
-  const priorityRaw = String(formData.get('priority') || 'normal');
-  const priority = (['low', 'normal', 'high'] as const).find((x) => x === priorityRaw) ?? 'normal';
-  let photos: string[] = [];
-  try {
-    const parsed = JSON.parse(String(formData.get('photo_urls') || '[]'));
-    if (Array.isArray(parsed)) photos = parsed.filter((u): u is string => typeof u === 'string').slice(0, 12);
-  } catch {
-    /* no photos */
-  }
-  if (!propertyId || title.length < 3) redirect('/field/property-work');
-
-  // Out-of-pocket receipt ("$27.60, TP holders from Marshalls"). This is where
-  // the busiest contractor files everything, so the receipt rail has to live
-  // here too: same cap, same homing as the mark-done path above.
-  const expenseCents = parseReceiptDollars(formData.get('expense_dollars'));
-  const receiptPacketId = expenseCents > 0 ? await resolveReceiptPacket(contractor.id, propertyId).catch(() => null) : null;
-
-  const { data: created } = await fieldDb()
-    .from('work_slips')
-    .insert({
-      property_id: propertyId,
-      title: title.slice(0, 200),
-      description: description ? description.slice(0, 4000) : null,
-      category: 'maintenance',
-      priority,
-      status: 'open',
-      photo_urls: photos,
-      created_by_email: contractor.email,
-      reported_by_contractor_id: contractor.id,
-      ...(expenseCents > 0 ? { expense_cents: expenseCents, receipt_contractor_id: contractor.id } : {}),
-    })
-    .select('id')
-    .maybeSingle();
-  const slipId = (created as { id: string } | null)?.id ?? null;
-  if (slipId && receiptPacketId) await homeReceipt({ slipId, packetId: receiptPacketId, contractorId: contractor.id, actorEmail: contractor.email }).catch(() => {});
-  await logEvent({
-    contractorId: contractor.id,
-    actorEmail: contractor.email,
-    propertyId,
-    eventType: 'board_slip_created',
-    payload: { title: title.slice(0, 200), priority, ...(expenseCents > 0 ? { work_slip_id: slipId, expense_cents: expenseCents, receipt_packet_id: receiptPacketId } : {}) },
   });
   revalidatePath('/field/property-work');
   revalidatePath('/work');
