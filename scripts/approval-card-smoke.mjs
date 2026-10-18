@@ -26,12 +26,17 @@ await writeFile(join(scratch,'actions.js'),`
 const rec=kind=>(...args)=>new Promise(resolve=>window.calls.push({kind,args,resolve}));
 export const approveContractorDraft=rec('approve'),markContractorHandled=rec('handled'),undoContractorDecision=rec('undo'),
 coachContractorDraft=rec('coach'),editContractorDraft=rec('edit'),redraftContractorDraft=rec('redraft'),
-scheduleContractorDraft=rec('schedule'),cancelContractorSchedule=rec('cancel');`);
+scheduleContractorDraft=rec('schedule'),cancelContractorSchedule=rec('cancel');
+export const approveCleanerDraft=rec('approve'),markCleanerHandled=rec('handled'),undoCleanerDecision=rec('undo'),
+coachCleanerDraft=rec('coach'),editCleanerDraft=rec('edit'),redraftCleanerDraft=rec('redraft'),
+scheduleCleanerDraft=rec('schedule'),cancelCleanerSchedule=rec('cancel');`);
 await writeFile(join(scratch,'navigation.js'),`export const useRouter=()=>({refresh(){window.refreshes=(window.refreshes||0)+1;}});`);
 await writeFile(join(scratch,'link.js'),`import React from 'react';export default function Link({href,children,...p}){return React.createElement('a',{href,...p},children);}`);
 await writeFile(join(scratch,'entry.tsx'),`
 import React from 'react';import {createRoot} from 'react-dom/client';
 import {ContractorMessagingQueue} from '@/app/contractor-messaging/ContractorMessagingQueue';
+import {CleanerMessagingQueue} from '@/app/cleaner-messaging/CleanerMessagingQueue';
+const mode=new URLSearchParams(location.search).get('mode')||'contractor';
 window.calls=[];
 const now=new Date().toISOString();
 const base={short_id:'syn',channel:'sms_quo',contractor_contact:'+15550100',external_thread_id:'',external_message_id:'',final_response:'',created_at:now,resolved_at:null,send_at:'',outcomes:{work:[],notes:[],error:''}};
@@ -40,9 +45,13 @@ const cards=[
  {...base,id:'plain-card',contractor_name:'Lee Trade',property_id:'',property_name:'',contractor_text:'Can I come at 9 tomorrow?',draft:'9 works, thank you.',topic:'schedule',status:'pending',age_minutes:300,proposed_slip:null},
  {...base,id:'queued-card',contractor_name:'Pat Paint',property_id:'',property_name:'',contractor_text:'Paint is dry.',draft:'Great, thanks Pat.',topic:'report',status:'scheduled',send_at:new Date(Date.now()+3600e3).toISOString(),age_minutes:40,proposed_slip:null},
 ];
-window.queue=cards;
+const cleanerCards=[
+ {...base,id:'pt-card',cleaner_name:'Rosa Synthetic',cleaner_contact:'+15550101',property_id:'home-a',property_name:'Synthetic Cottage',cleaner_text:'Acabei a casa, faltam toalhas.',cleaner_text_english:'I finished the house, towels are missing.',inbound_language:'pt',draft:'Obrigada Rosa! Vou levar toalhas amanhã.',draft_english:'Thank you Rosa! I will bring towels tomorrow.',topic:'done',status:'pending',age_minutes:5,proposed_slip:null},
+];
+window.queue=mode==='cleaner'?cleanerCards:cards;
 window.fetch=async url=>new Response(JSON.stringify(String(url).includes('/api/messaging/queue')?{approvals:window.queue,context:{}}:{}),{headers:{'Content-Type':'application/json'}});
-createRoot(document.getElementById('root')).render(<main><ContractorMessagingQueue initialPending={cards} properties={[{id:'home-a',name:'Synthetic Cottage'},{id:'home-b',name:'Synthetic Barn'}]} context={{}}/></main>);
+const homes=[{id:'home-a',name:'Synthetic Cottage'},{id:'home-b',name:'Synthetic Barn'}];
+createRoot(document.getElementById('root')).render(<main id={mode}>{mode==='cleaner'?<CleanerMessagingQueue initialPending={cleanerCards} properties={homes}/>:<ContractorMessagingQueue initialPending={cards} properties={homes} context={{}}/>}</main>);
 `);
 const alias={'@':join(root,'src'),'./actions':join(scratch,'actions.js'),'next/navigation':join(scratch,'navigation.js'),'next/link':join(scratch,'link.js')};
 await new Promise((resolve,reject)=>{const compiler=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.tsx'),output:{path:scratch,filename:'bundle.js'},
@@ -114,6 +123,20 @@ try{
  assert.ok((await text(card('queued-card'))).includes('Send now'));pass('a queued card folds to a row and opens to Send now / Cancel send');
 
  await page.screenshot({path:join(process.env.SMOKE_SHOTS||tmpdir(),'approval-card-desktop.png'),fullPage:true});
+
+ // Cleaners: Portuguese with the English under each side, Edit on the Portuguese.
+ await page.evaluate(()=>{window.calls=[];});await page.goto(origin+'/?mode=cleaner');await page.waitForSelector(card('pt-card'));
+ const pt=await text(card('pt-card'));
+ assert.match(pt,/Proposed reply \(Portuguese\)/);assert.match(pt,/English ?I finished the house, towels are missing\./);assert.match(pt,/English ?Thank you Rosa! I will bring towels tomorrow\./);
+ await click(card('pt-card'),'Edit');await page.waitForSelector(card('pt-card')+' textarea');
+ assert.match(await text(card('pt-card')),/English, as drafted/);
+ await type(card('pt-card')+' textarea','Obrigada Rosa! Levo toalhas hoje.');await click(card('pt-card'),'Save');await waitCalls(1);
+ assert.deepEqual((await calls())[0],{kind:'edit',args:['pt-card','Obrigada Rosa! Levo toalhas hoje.']});await finish(0);
+ await page.waitForFunction(()=>document.body.textContent.includes('Levo toalhas hoje.'));
+ assert.ok(!(await text(card('pt-card'))).includes('I will bring towels tomorrow'),'the English for the old draft is not shown beside the edited words');
+ await click(card('pt-card'),'Coach the AI');assert.match(await text(card('pt-card')),/Write the note in English if you like; the reply comes back in Portuguese\./);
+ pass('cleaners: English under both sides, Edit on the Portuguese, the language note printed in the coach drawer');
+ await page.goto(origin+'/?mode=contractor');await page.waitForSelector('#approval-slip-card');
  await page.setViewport({width:390,height:844});await page.reload();await page.waitForSelector('.rt-inbox-review-toggle');
  await page.$$eval('.rt-inbox-review-toggle',bs=>bs[0].click());
  await page.screenshot({path:join(process.env.SMOKE_SHOTS||tmpdir(),'approval-card-mobile.png'),fullPage:true});

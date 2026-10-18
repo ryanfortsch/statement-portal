@@ -27,6 +27,12 @@ const MIGRATED: { queue: string; actions: string; page: string; undo: string }[]
     page: 'src/app/contractor-messaging/page.tsx',
     undo: 'undoContractorDecision',
   },
+  {
+    queue: 'src/app/cleaner-messaging/CleanerMessagingQueue.tsx',
+    actions: 'src/app/cleaner-messaging/actions.ts',
+    page: 'src/app/cleaner-messaging/page.tsx',
+    undo: 'undoCleanerDecision',
+  },
 ];
 
 describe('the one approval card', () => {
@@ -59,6 +65,13 @@ describe('the one approval card', () => {
   test('the undo toast survives the queue emptying', () => {
     const queue = read('src/components/messaging/card/ApprovalQueue.tsx');
     assert.ok(queue.indexOf('</Section>') < queue.indexOf('<UndoToast'), 'the toast renders outside the Section, which hides its children when empty');
+  });
+
+  test('the cleaner card edits the Portuguese and shows the English beside it', () => {
+    const q = read('src/app/cleaner-messaging/CleanerMessagingQueue.tsx');
+    assert.ok(q.includes('saveEdit: (text) => editCleanerDraft(id, text)'), 'Edit on the Portuguese');
+    assert.ok(q.includes('<EnglishLine text={approval.draft_english} translating={approval.draft_translating} />'), 'the English follows an edit');
+    assert.ok(!/placeholder="[^"]*Portuguese/.test(q), 'the language note is printed text, not a placeholder');
   });
 
   test('a line of Also on approve that needs an answer opens by itself', () => {

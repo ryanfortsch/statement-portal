@@ -56,7 +56,7 @@ describe('status words agree', () => {
     assert.deepEqual(cleanerKindsLine({ texts: 0, schedules: 0, questions: 0 }), []);
     assert.deepEqual(cleanerKindsLine({ texts: 0, schedules: 1, questions: 3 }).map((k) => k.href), ['#schedule-digest', '#owner-holds']);
     assert.ok(read('src/app/cleaner-messaging/page.tsx').includes('<CleanerQueueSummary />'), 'the cleaner page mounts the kinds row');
-    for (const [file, id] of [['src/app/cleaner-messaging/ScheduleDigestCard.tsx', 'schedule-digest'], ['src/app/cleaner-messaging/OwnerHoldQuestionsCard.tsx', 'owner-holds'], ['src/app/cleaner-messaging/CleanerMessagingQueue.tsx', 'needs-review']]) {
+    for (const [file, id] of [['src/app/cleaner-messaging/ScheduleDigestCard.tsx', 'schedule-digest'], ['src/app/cleaner-messaging/OwnerHoldQuestionsCard.tsx', 'owner-holds'], ['src/components/messaging/card/ApprovalQueue.tsx', 'needs-review']]) {
       assert.ok(read(file).includes(`id="${id}"`), `${file} lost the ${id} anchor the row links to`);
     }
   });

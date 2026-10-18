@@ -15,11 +15,14 @@ import { InboxBottomTools } from '@/components/InboxBottomTools';
 import {
   isStayConciergeConfigured,
   listCleanerApprovals,
-  listRecentCleanerApprovals,
+  listDecidedTeamApprovals,
   explainError,
+  type CleanerApproval,
 } from '@/lib/stay-concierge';
+import { DecidedRecently } from '@/components/messaging/card/DecidedRecently';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { CleanerMessagingQueue } from './CleanerMessagingQueue';
+import { undoCleanerDecision } from './actions';
 import { CleanerQueueSummary } from './CleanerQueueSummary';
 import { ScheduleDigestCard } from './ScheduleDigestCard';
 import { OwnerHoldQuestionsCard } from './OwnerHoldQuestionsCard';
@@ -108,17 +111,33 @@ async function loadProperties(): Promise<{ id: string; name: string }[]> {
   }
 }
 
-// Urgent boundary: the cleaner queue + proactive panel. recent is fetched for
-// parity with the old page (the strip is not rendered yet) but never gates
-// anything the operator sees.
+// Urgent boundary: the cleaner queue.
 async function QueueSection() {
-  const [pending, , properties] = await Promise.all([
+  const [pending, properties] = await Promise.all([
     listCleanerApprovals(),
-    listRecentCleanerApprovals(24),
     loadProperties(),
   ]);
   if (!pending.ok) return <NotReachable message={explainError(pending.error)} retry />;
   return <CleanerMessagingQueue initialPending={pending.data.approvals} properties={properties} />;
+}
+
+// Handled cards from the last 12 hours that Undo can still reach, a quiet
+// ledger under the queue. Nothing when there is nothing to undo.
+async function DecidedSection() {
+  const res = await listDecidedTeamApprovals<CleanerApproval>('cleaner', 12);
+  if (!res.ok) return null;
+  const items = res.data.approvals
+    .filter((a) => a.reversible)
+    .map((a) => ({
+      id: a.id,
+      status: a.status,
+      name: a.cleaner_name || a.cleaner_contact || 'Cleaner',
+      property: a.property_name || undefined,
+      quote: a.cleaner_text_english || a.cleaner_text,
+      at: a.resolved_at || a.created_at,
+      decidedBy: a.decided_by,
+    }));
+  return <DecidedRecently items={items} undo={undoCleanerDecision} />;
 }
 
 // Proactive messages sit at the foot of the page, out of the queue's way.
@@ -203,6 +222,9 @@ export default function CleanerMessagingPage({
     <Shell>
       <Suspense fallback={<QueueSkeleton />}>
         <QueueSection />
+      </Suspense>
+      <Suspense fallback={null}>
+        <DecidedSection />
       </Suspense>
       <Suspense fallback={null}>
         <OwnerHoldSection searchParams={searchParams} />
