@@ -51,29 +51,48 @@ function tokenFor(key: MailboxKey): TokenPick | null {
  * anyone rather than a link to the wrong mailbox.
  */
 const PROFILE_TTL_MS = 6 * 60 * 60 * 1000;
-/** A page that asks whose mailbox a session has waits at most this long. */
-const PROFILE_TIMEOUT_MS = 4000;
+/** A Work page asks this on every render, so a Gmail that cannot answer is
+ *  not asked again for ten minutes (the page offers Copy meanwhile), each
+ *  call waits at most PROFILE_TIMEOUT_MS, and concurrent renders share one
+ *  lookup per token. */
+const PROFILE_MISS_TTL_MS = 10 * 60 * 1000;
+const PROFILE_TIMEOUT_MS = 2500;
 const profileCache = new Map<MailboxKey, { address: string; at: number }>();
+const profileMisses = new Map<MailboxKey, number>();
+const profileInFlight = new Map<MailboxKey, Promise<string | null>>();
 
 export async function gmailMailbox(kind: MailboxKey): Promise<string | null> {
   const pick = tokenFor(kind);
   if (!pick) return null;
   const hit = profileCache.get(pick.mailbox);
   if (hit && Date.now() - hit.at < PROFILE_TTL_MS) return hit.address;
-  try {
-    const accessToken = await getAccessToken(pick, PROFILE_TIMEOUT_MS);
-    const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {
-      headers: { Authorization: `Bearer ${accessToken}` },
-      signal: AbortSignal.timeout(PROFILE_TIMEOUT_MS),
-    });
-    if (!res.ok) return null;
-    const data = (await res.json()) as { emailAddress?: string };
-    const address = data.emailAddress?.trim().toLowerCase() || null;
-    if (address) profileCache.set(pick.mailbox, { address, at: Date.now() });
-    return address;
-  } catch {
-    return null;
-  }
+  const missedAt = profileMisses.get(pick.mailbox);
+  if (missedAt && Date.now() - missedAt < PROFILE_MISS_TTL_MS) return null;
+  const pending = profileInFlight.get(pick.mailbox);
+  if (pending) return pending;
+  const lookup = (async () => {
+    try {
+      const accessToken = await getAccessToken(pick, PROFILE_TIMEOUT_MS);
+      const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        signal: AbortSignal.timeout(PROFILE_TIMEOUT_MS),
+      });
+      if (!res.ok) throw new Error(`profile ${res.status}`);
+      const data = (await res.json()) as { emailAddress?: string };
+      const address = data.emailAddress?.trim().toLowerCase() || null;
+      if (!address) throw new Error('profile without an address');
+      profileCache.set(pick.mailbox, { address, at: Date.now() });
+      profileMisses.delete(pick.mailbox);
+      return address;
+    } catch {
+      profileMisses.set(pick.mailbox, Date.now());
+      return null;
+    } finally {
+      profileInFlight.delete(pick.mailbox);
+    }
+  })();
+  profileInFlight.set(pick.mailbox, lookup);
+  return lookup;
 }
 
 /**
@@ -93,9 +112,12 @@ export async function sessionMailbox(sessionEmail: string | null | undefined): P
     ...PERSONAL_MAILBOXES.filter((k) => k !== local),
     'shared',
   ];
-  for (const key of keys) {
-    if (!tokenFor(key)) continue;
-    const address = await gmailMailbox(key);
+  // Every configured token is asked at once (each answer is cached), and
+  // the first in that order whose address is the session's wins.
+  const asked = await Promise.all(
+    keys.filter((key) => tokenFor(key) !== null).map(async (key) => ({ key, address: await gmailMailbox(key) })),
+  );
+  for (const { key, address } of asked) {
     if (address && address === email) return { key, address };
   }
   return null;
