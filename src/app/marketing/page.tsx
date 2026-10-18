@@ -15,6 +15,7 @@ import {
 } from '@/lib/marketing/queries';
 import { isConfigured as isHelmConfigured } from '@/lib/supabase';
 import { getReviewWindowStats } from '@/lib/reviews';
+import { isOwnerSession } from '@/lib/helm-access-server';
 import Link from 'next/link';
 import { FilterBar } from './FilterBar';
 import { TrafficLineChart } from './Charts';
@@ -37,7 +38,7 @@ export default async function MarketingPage({ searchParams }: { searchParams: Se
   const range = rangeForDays(days);
   const prevRange = previousRange(days);
 
-  const [sites, current, previous, traffic, topSources, topPages, unknownLandings, speed, lastUpdated, reviews] = await Promise.all([
+  const [sites, current, previous, traffic, topSources, topPages, unknownLandings, speed, lastUpdated, reviews, owner] = await Promise.all([
     getSites(),
     getStatTotals(site, range),
     getStatTotals(site, prevRange),
@@ -51,6 +52,8 @@ export default async function MarketingPage({ searchParams }: { searchParams: Se
     // (2026-10-18): a rate over weeks is growth, not today's work. Null on a
     // failed read so the tile says so instead of showing a quiet zero.
     getReviewWindowStats(days, { strict: true }).catch(() => null),
+    // AirDNA is an owner page; the link renders for owners only.
+    isOwnerSession(),
   ]);
 
   return (
@@ -71,14 +74,16 @@ export default async function MarketingPage({ searchParams }: { searchParams: Se
           currentRange={String(days)}
           lastUpdatedISO={lastUpdated}
         />
-        <div style={{ marginTop: 12, fontSize: 12, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-          <Link
-            href="/marketing/airdna"
-            style={{ color: 'var(--ink-3)', textDecoration: 'none' }}
-          >
-            AirDNA market data →
-          </Link>
-        </div>
+        {owner && (
+          <div style={{ marginTop: 12, fontSize: 12, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+            <Link
+              href="/marketing/airdna"
+              style={{ color: 'var(--ink-3)', textDecoration: 'none' }}
+            >
+              AirDNA market data →
+            </Link>
+          </div>
+        )}
       </section>
 
       {/* HERO STATS */}

@@ -602,7 +602,8 @@ export const HELM_MODULES: HelmModule[] = [
     masthead: 'owner',
     group: 'growth',
   },
-  // AirDNA is reached from the Marketing surface. Registered here for
+  // AirDNA is reached from the Marketing surface (owners only: the upload is
+  // an owner chore and its reminder texts the owner). Registered here for
   // search, surfaced in-context (hidden from menus).
   {
     id: 'airdna',
@@ -615,6 +616,7 @@ export const HELM_MODULES: HelmModule[] = [
     hidden: true,
     group: 'growth',
     section: 'marketing',
+    access: 'owner',
   },
   {
     id: 'forecast',
@@ -730,6 +732,8 @@ export const HELM_MODULES: HelmModule[] = [
     hidden: true,
     group: 'growth',
     section: 'marketing',
+    // Owner-of-record research on competitor-managed homes is prospecting.
+    access: 'owner',
   },
   {
     id: 'playbook',

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@supabase/supabase-js';
-import { auth } from '@/auth';
+import { requireOwnerEmail } from '@/lib/helm-access-server';
 
 /**
  * Server actions for the Competitors module — specifically, the inline
@@ -41,10 +41,8 @@ export async function setListingAddress(
   listingSlug: string,
   formData: FormData,
 ) {
-  const session = await auth();
-  if (!session?.user?.email) {
-    throw new Error('Not signed in');
-  }
+  // Owner-of-record research is prospecting: owners only, like the page.
+  const email = await requireOwnerEmail();
 
   const addressLine = strOrNull(formData, 'address_line');
   if (!addressLine) {
@@ -60,7 +58,7 @@ export async function setListingAddress(
     owner: strOrNull(formData, 'owner'),
     owner_note: strOrNull(formData, 'owner_note'),
     evidence: strOrNull(formData, 'evidence'),
-    verified_by_email: session.user.email,
+    verified_by_email: email,
     verified_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
@@ -77,10 +75,7 @@ export async function setListingAddress(
 /** Remove a user-verified override, reverting the listing to whatever the
  *  static research overlay says (or "unknown" if no research either). */
 export async function clearListingAddress(competitorId: string, listingSlug: string) {
-  const session = await auth();
-  if (!session?.user?.email) {
-    throw new Error('Not signed in');
-  }
+  await requireOwnerEmail();
 
   const { error } = await adminClient()
     .from('competitor_listing_overrides')
