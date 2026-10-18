@@ -55,7 +55,7 @@ export function PropertyBackfillButton({ propertyId }: Props) {
           alignSelf: 'flex-start',
         }}
       >
-        {pending ? 'Pulling from Guesty…' : 'Fill blanks from Guesty'}
+        {pending ? 'Pulling from Guesty…' : 'Guesty fields (Guesty → Helm, blanks only)'}
       </button>
 
       {error && (

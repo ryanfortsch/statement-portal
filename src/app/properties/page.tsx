@@ -7,6 +7,7 @@ import type { HelmPropertyRow } from '@/lib/properties';
 import { loadLaunchForFleet, type LaunchLoad } from '@/lib/launch-context';
 import type { LaunchSummary } from '@/lib/launch-checklist';
 import { ComingOnline } from './ComingOnline';
+import { HashOpenScript } from '@/components/properties/HashOpenScript';
 import { ACTIVE_WORK_SLIP_STATUSES } from '@/lib/work-types';
 import PropertiesMap from './PropertiesMap';
 import { PropertiesTabBar } from './PropertiesTabBar';
@@ -197,6 +198,10 @@ export default async function PropertiesPage() {
       </section>
 
       <HelmFooter module="Properties" right="Source: Helm" />
+
+      {/* /properties/onboarding and the Launch breadcrumb land on
+          #coming-online, which sits under the map: scroll there on arrival. */}
+      <HashOpenScript />
     </div>
   );
 }

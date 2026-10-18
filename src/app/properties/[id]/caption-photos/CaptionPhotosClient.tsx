@@ -249,7 +249,7 @@ export function CaptionPhotosClient({ propertyId }: Props) {
       <Notice tone="warn">
         <div style={{ marginBottom: 10 }}>{loadError}</div>
         <Link href={`/properties/${propertyId}/stay-cape-ann`} style={inlineLinkStyle}>
-          Open the Stay Cape Ann launch page to set the Guesty listing ID →
+          Open Stay Cape Ann to set the Guesty listing ID →
         </Link>
       </Notice>
     );

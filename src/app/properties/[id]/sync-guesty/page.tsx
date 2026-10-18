@@ -38,18 +38,19 @@ export default async function SyncGuestyPage({
       <HelmBreadcrumb
         trail={[
           { label: p.name, href: `/properties/${p.id}?tab=guest` },
-          { label: 'Guesty listing fields' },
+          { label: 'Guesty fields' },
         ]}
       />
 
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 32, paddingBottom: 20, width: '100%' }}>
-        <div className="eyebrow" style={{ marginBottom: 12 }}>Guesty · Listing fields</div>
+        <div className="eyebrow" style={{ marginBottom: 12 }}>Helm → Guesty</div>
         <h1 className="font-serif" style={{ fontSize: 40, lineHeight: 1.05, fontWeight: 300, letterSpacing: '-0.02em', color: 'var(--ink)', margin: 0 }}>
-          Fill Guesty from <em style={{ color: 'var(--tide-deep)', fontWeight: 400 }}>Helm</em>.
+          Guesty <em style={{ color: 'var(--tide-deep)', fontWeight: 400 }}>fields</em>
         </h1>
         <p style={{ marginTop: 14, fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: 720 }}>
-          Pushes the property details Helm already holds &mdash; Wi-Fi, parking, trash &mdash; into the
-          matching guest-facing fields on the live Guesty listing. It shows you what&apos;s in Helm next
+          Pushes the property details Helm already holds (Wi-Fi, parking, trash) into the
+          matching guest-facing fields on the live Guesty listing. The other direction, filling
+          Helm&apos;s blanks from Guesty, is on the Facts tab&apos;s Tools line. It shows you what&apos;s in Helm next
           to what&apos;s in Guesty right now; empty Guesty fields are pre-checked, fields that already
           have something are left alone unless you tick them. Nothing writes until you push.
         </p>

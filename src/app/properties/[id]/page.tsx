@@ -1903,21 +1903,25 @@ export default async function PropertyDetailPage({
               emptiest page in Helm. */}
           <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 24, paddingBottom: 48, width: '100%' }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
+              {/* One name per tool: the tile, the page's breadcrumb and its
+                  title say the same thing. */}
               <GrowthTile
-                eyebrow="Listing copy"
-                title="Draft listing"
+                eyebrow="Listing"
+                title="Listing copy"
                 description="Title, tagline, and description drafted from this property's data plus photos you upload."
                 href={`/properties/${p.id}/listing-copy`}
               />
               <GrowthTile
-                eyebrow="Photos"
-                title="Caption photos"
-                description="AI-drafts a caption for every Guesty gallery photo in our listings' voice; you approve before anything pushes."
+                eyebrow="Guesty"
+                title="Photo captions"
+                description="Drafts a caption for every Guesty gallery photo in our listings' voice; you approve before anything pushes."
                 href={`/properties/${p.id}/caption-photos`}
               />
+              {/* The direction is in the name, because Facts' Tools line has
+                  the same tool pointed the other way (Guesty to Helm). */}
               <GrowthTile
-                eyebrow="Guesty"
-                title="Sync to Guesty"
+                eyebrow="Helm → Guesty"
+                title="Guesty fields"
                 description="Push Helm's Wi-Fi, parking, and trash details into the matching guest-facing fields on the live listing."
                 href={`/properties/${p.id}/sync-guesty`}
               />
@@ -2017,10 +2021,12 @@ export default async function PropertyDetailPage({
           >
             <AutomationsPanel propertyId={p.id} view={automationsView} />
           </CollapsibleSection>
-      {/* GUEST DELIVERABLES — Stay Cape Ann home guide + WiFi placard +
-          Information Note. */}
+      {/* GUEST DOCUMENTS: the printed pieces for the house. Each opens with
+          one screen-only bar (Back, Print, Download PDF) that never prints;
+          its Back lands here. */}
       <CollapsibleSection
-        title="Guest Deliverables"
+        id="guest-documents"
+        title="Guest documents"
         summary={deliverablesSummary}
         headerAction={
           <Link href={`/properties/${p.id}/notices/new`} style={primaryActionStyle}>
@@ -2028,16 +2034,15 @@ export default async function PropertyDetailPage({
           </Link>
         }
       >
-        <p style={{ margin: '0 0 18px', fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 720 }}>
-          Print-ready guest artifacts pre-populated from this property&rsquo;s onboarding answers
-          (WiFi, parking, climate, safety equipment, etc). Edit the fact sheet on the Facts tab to refresh.
+        <p style={{ margin: '0 0 18px', fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.55, maxWidth: 720 }}>
+          Filled from the fact sheet on Facts.
         </p>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
-          {/* Welcome Guide tile */}
+          {/* Home guide tile */}
           <div style={{ border: '1px solid var(--rule)', padding: '18px 18px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div className="eyebrow">Welcome Guide</div>
+            <div className="eyebrow">Letter page</div>
             <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-              Stay Cape Ann home guide
+              Home guide
             </h3>
             <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
               One-page editorial guide. Wi-Fi, climate, parking, trash, plus two operator-picked cells.
@@ -2063,7 +2068,7 @@ export default async function PropertyDetailPage({
                   padding: '9px 12px',
                 }}
               >
-                Customize
+                Customize home guide
               </a>
             </div>
           </div>
@@ -2072,9 +2077,9 @@ export default async function PropertyDetailPage({
               staycapeann.com/contact. Universal copy (no per-property data),
               so it's always ready to print. */}
           <div style={{ border: '1px solid var(--rule)', padding: '18px 18px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div className="eyebrow">Welcome Card</div>
+            <div className="eyebrow">4 × 6 card</div>
             <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-              4 × 6 welcome + subscribe card
+              Welcome card
             </h3>
             <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
               On-arrival counter card. &ldquo;Welcome.&rdquo; on top, a soft subscribe pitch on the bottom with a QR
@@ -2089,9 +2094,9 @@ export default async function PropertyDetailPage({
           </div>
           {/* WiFi Placard tile */}
           <div style={{ border: '1px solid var(--rule)', padding: '18px 18px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div className="eyebrow">Wi-Fi Placard</div>
+            <div className="eyebrow">4 × 6 card with QR code</div>
             <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-              4 × 6 placard with QR code
+              Wi-Fi placard
             </h3>
             <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
               Auto-generated QR auto-joins the network when scanned. Slip into the glass case at the property.
@@ -2114,9 +2119,9 @@ export default async function PropertyDetailPage({
               Beverly, or out-of-state properties. */}
           {isGloucester && (
             <div style={{ border: '1px solid var(--rule)', padding: '18px 18px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div className="eyebrow">Information Note</div>
+              <div className="eyebrow">Letter page, posted</div>
               <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-                Posted house &amp; civic info
+                Information note
               </h3>
               <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
                 Required for the Gloucester STR permit inspection. Local contacts, trash schedule, parking,
@@ -2141,13 +2146,13 @@ export default async function PropertyDetailPage({
               is civic.ts or the row; it is ready once a day resolves. */}
           {isGloucester && trashNotice && (
             <div style={{ border: '1px solid var(--rule)', padding: '18px 18px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div className="eyebrow">Trash Day Notice</div>
+              <div className="eyebrow">4 × 6 fridge card</div>
               <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-                4 × 6 fridge card
+                Trash day notice
               </h3>
               <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
-                The collection day in big type, carts out the night before and back in once emptied, where the
-                carts live, the city small print.
+                The collection day in big type, carts out the night before and back in once emptied, and where
+                the carts live.
                 {trashNotice.ok ? (
                   <span style={{ display: 'block', marginTop: 6 }}>
                     {trashNotice.notice.day}

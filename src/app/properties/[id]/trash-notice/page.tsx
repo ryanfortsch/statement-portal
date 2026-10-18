@@ -3,8 +3,12 @@ import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import type { HelmPropertyRow } from '@/lib/properties';
 import { trashNoticeFor, TRASH_NOTICE_COLUMNS } from '@/lib/trash-notice';
 import { TrashNoticeCard, trashNoticeCss } from '@/components/properties/TrashNoticeCard';
+import { GuestDocumentBar } from '@/components/properties/GuestDocumentBar';
 
 export const dynamic = 'force-dynamic';
+
+/** One name per document: the tile, this tab's title and the bar say the same thing. */
+export const metadata = { title: 'Trash day notice' };
 
 /**
  * Stay Cape Ann trash-day notice, one home. A 4 x 6 inch fridge card that
@@ -27,6 +31,7 @@ export default async function TrashNoticePage({ params }: { params: Promise<{ id
   return (
     <>
       <style>{trashNoticeCss}</style>
+      <GuestDocumentBar propertyId={p.id} homeName={p.name} documentName="Trash day notice" type="trash-notice" />
       <div className="rt-doc">
         {result.ok ? (
           <TrashNoticeCard notice={result.notice} />

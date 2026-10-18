@@ -78,7 +78,7 @@ async function requireLinkedProperty(
       ok: false,
       needsListing: true,
       error:
-        'This property is not linked to a Guesty listing yet. Add its Guesty listing ID on the Stay Cape Ann launch page (or run Sync Guesty), then come back.',
+        'This property is not linked to a Guesty listing yet. Add its Guesty listing ID on the Stay Cape Ann page (or run Sync Guesty), then come back.',
     };
   }
   return { ok: true, property, listingId };
