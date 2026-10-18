@@ -236,6 +236,31 @@ const nextConfig: NextConfig = {
         destination: '/guests/contacts',
         permanent: true,
       },
+      // Channels lost three pages (2026-10-18): the 65 Calderwood pilot
+      // workspace and its read-only inbox (the hub shows the same
+      // reconciliation, in Helm's own skin), the flag-gated Airbnb request
+      // desk, and the fleet wiring page, now the Edit wiring fold on each
+      // home's hub.
+      {
+        source: '/channels/pilot/:path*',
+        destination: '/channels/65_calderwood',
+        permanent: true,
+      },
+      {
+        source: '/channels/pilot',
+        destination: '/channels/65_calderwood',
+        permanent: true,
+      },
+      {
+        source: '/channels/requests',
+        destination: '/channels',
+        permanent: true,
+      },
+      {
+        source: '/channels/listings',
+        destination: '/channels',
+        permanent: true,
+      },
       // Marketing Memory moved onto each home's property page as "How we
       // sell it" (Guest & listing tab), 2026-10-18.
       {

@@ -283,62 +283,36 @@ export default async function BookingDetailPage({ params, searchParams }: { para
         )}
       </section>
 
-      {/* Sub-records */}
+      {/* Threads */}
       <section className="max-w-[900px] mx-auto px-10" style={{ paddingBottom: 40, width: '100%' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 32 }}>
-          <div>
-            <div className="eyebrow" style={{ marginBottom: 10 }}>Money sub-record · booking_finance</div>
-            {!owner ? (
-              <p style={{ fontSize: 12, color: 'var(--ink-3)', borderTop: '1px solid var(--ink)', paddingTop: 12, margin: 0, lineHeight: 1.5 }}>
-                Money on a stay is owners only.
-              </p>
-            ) : finance ? (
-              <dl className="font-mono" style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: '6px 14px', fontSize: 12, margin: 0, borderTop: '1px solid var(--ink)', paddingTop: 12 }}>
-                <Term k="source" v={`${finance.money_source} · ${finance.confidence} confidence`} />
-                <Term k="gross" v={money(finance.gross_amount)} />
-                <Term k="cleaning" v={money(finance.cleaning_fee)} />
-                <Term k="taxes" v={money(finance.taxes)} />
-                <Term k="channel commission" v={money(finance.channel_commission)} />
-                <Term k="stripe fee" v={money(finance.stripe_fee)} />
-                <Term k="payout" v={money(finance.payout)} />
-                <Term k="reconciled" v={finance.reconciled_at ? relativeAge(finance.reconciled_at, now) : 'not yet'} />
-                {finance.notes && <Term k="notes" v={finance.notes} />}
-              </dl>
-            ) : (
-              <p style={{ fontSize: 12, color: 'var(--ink-3)', borderTop: '1px solid var(--ink)', paddingTop: 12, margin: 0, lineHeight: 1.5 }}>
-                No booking_finance row. {booking.channel === 'direct' || booking.channel === 'manual' ? 'Typing money above writes one (manual, low confidence) until Stripe settles.' : 'OTA money arrives through its own readers.'} Nothing in the statements pipeline reads this record.
-              </p>
-            )}
-          </div>
-          <div>
-            <div className="eyebrow" style={{ marginBottom: 10 }}>Threads</div>
-            {threads.length === 0 ? (
-              <p style={{ fontSize: 12, color: 'var(--ink-3)', borderTop: '1px solid var(--ink)', paddingTop: 12, margin: 0, lineHeight: 1.5 }}>
-                No Helm inbox thread is keyed to this stay yet. Guest messages are in <Link href="/messaging" style={{ color: 'var(--ink)' }}>Messaging</Link>.
-              </p>
-            ) : (
-              <div style={{ borderTop: '1px solid var(--ink)' }}>
-                {threads.map((t) => (
-                  <div key={t.id} style={{ padding: '10px 0', borderBottom: '1px solid var(--rule)', fontSize: 12 }}>
-                    <div style={{ display: 'flex', gap: 10, alignItems: 'baseline' }}>
-                      <span style={{ fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase', fontSize: 10 }}>{t.channel}</span>
-                      <span style={{ color: 'var(--ink-4)', fontSize: 10, letterSpacing: '.08em', textTransform: 'uppercase' }}>{t.status}</span>
-                      <span style={{ flex: 1 }} />
-                      {t.external_thread_url ? (
-                        <a href={t.external_thread_url} target="_blank" rel="noreferrer" style={{ color: 'var(--ink)', textDecoration: 'underline' }}>open in the OTA ↗</a>
-                      ) : (
-                        <Link href="/messaging" style={{ color: 'var(--ink)', textDecoration: 'underline' }}>open in Messaging →</Link>
-                      )}
-                    </div>
-                    {t.last_preview && <div style={{ color: 'var(--ink-3)', marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.last_preview}</div>}
-                    <div style={{ color: 'var(--ink-4)', fontSize: 11, marginTop: 2 }}>
-                      guest {relativeAge(t.last_guest_at, now)} · host {relativeAge(t.last_host_at, now)}
-                    </div>
+        <div>
+          <div className="eyebrow" style={{ marginBottom: 10 }}>Threads</div>
+          {threads.length === 0 ? (
+            <p style={{ fontSize: 12, color: 'var(--ink-3)', borderTop: '1px solid var(--ink)', paddingTop: 12, margin: 0, lineHeight: 1.5 }}>
+              No Helm inbox thread is keyed to this stay yet. Guest messages are in <Link href="/messaging" style={{ color: 'var(--ink)' }}>Messaging</Link>.
+            </p>
+          ) : (
+            <div style={{ borderTop: '1px solid var(--ink)' }}>
+              {threads.map((t) => (
+                <div key={t.id} style={{ padding: '10px 0', borderBottom: '1px solid var(--rule)', fontSize: 12 }}>
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'baseline' }}>
+                    <span style={{ fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase', fontSize: 10 }}>{t.channel}</span>
+                    <span style={{ color: 'var(--ink-4)', fontSize: 10, letterSpacing: '.08em', textTransform: 'uppercase' }}>{t.status}</span>
+                    <span style={{ flex: 1 }} />
+                    {t.external_thread_url ? (
+                      <a href={t.external_thread_url} target="_blank" rel="noreferrer" style={{ color: 'var(--ink)', textDecoration: 'underline' }}>open in the OTA ↗</a>
+                    ) : (
+                      <Link href="/messaging" style={{ color: 'var(--ink)', textDecoration: 'underline' }}>open in Messaging →</Link>
+                    )}
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
+                  {t.last_preview && <div style={{ color: 'var(--ink-3)', marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.last_preview}</div>}
+                  <div style={{ color: 'var(--ink-4)', fontSize: 11, marginTop: 2 }}>
+                    guest {relativeAge(t.last_guest_at, now)} · host {relativeAge(t.last_host_at, now)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </section>
 
@@ -364,6 +338,41 @@ export default async function BookingDetailPage({ params, searchParams }: { para
             ))}
           </div>
         )}
+      </section>
+
+      {/* TECHNICAL: the database half of the record (the finance
+          sub-record, what the stay generated, the change log, raw
+          provenance), folded so the operator record above reads alone. */}
+      <details className="rt-booking-technical" style={{ width: '100%' }}>
+        <summary className="max-w-[900px] mx-auto px-10" style={{ display: 'list-item', cursor: 'pointer', paddingBottom: 24, fontSize: 12, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--ink-2)' }}>
+          Technical
+        </summary>
+      {/* Money sub-record */}
+      <section className="max-w-[900px] mx-auto px-10" style={{ paddingBottom: 40, width: '100%' }}>
+        <div>
+          <div className="eyebrow" style={{ marginBottom: 10 }}>Money sub-record · booking_finance</div>
+          {!owner ? (
+            <p style={{ fontSize: 12, color: 'var(--ink-3)', borderTop: '1px solid var(--ink)', paddingTop: 12, margin: 0, lineHeight: 1.5 }}>
+              Money on a stay is owners only.
+            </p>
+          ) : finance ? (
+            <dl className="font-mono" style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: '6px 14px', fontSize: 12, margin: 0, borderTop: '1px solid var(--ink)', paddingTop: 12 }}>
+              <Term k="source" v={`${finance.money_source} · ${finance.confidence} confidence`} />
+              <Term k="gross" v={money(finance.gross_amount)} />
+              <Term k="cleaning" v={money(finance.cleaning_fee)} />
+              <Term k="taxes" v={money(finance.taxes)} />
+              <Term k="channel commission" v={money(finance.channel_commission)} />
+              <Term k="stripe fee" v={money(finance.stripe_fee)} />
+              <Term k="payout" v={money(finance.payout)} />
+              <Term k="reconciled" v={finance.reconciled_at ? relativeAge(finance.reconciled_at, now) : 'not yet'} />
+              {finance.notes && <Term k="notes" v={finance.notes} />}
+            </dl>
+          ) : (
+            <p style={{ fontSize: 12, color: 'var(--ink-3)', borderTop: '1px solid var(--ink)', paddingTop: 12, margin: 0, lineHeight: 1.5 }}>
+              No booking_finance row. {booking.channel === 'direct' || booking.channel === 'manual' ? 'Typing money above writes one (manual, low confidence) until Stripe settles.' : 'OTA money arrives through its own readers.'} Nothing in the statements pipeline reads this record.
+            </p>
+          )}
+        </div>
       </section>
 
       {/* Downstream artifacts */}
@@ -434,6 +443,7 @@ export default async function BookingDetailPage({ params, searchParams }: { para
       </section>
 
       <Provenance booking={booking} />
+      </details>
 
       <HelmFooter module="Channels · Booking" right={`source: ${booking.source}`} />
     </div>

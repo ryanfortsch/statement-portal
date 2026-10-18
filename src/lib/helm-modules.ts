@@ -803,10 +803,11 @@ export const HELM_MODULES: HelmModule[] = [
   },
   {
     id: 'channels-listings',
-    href: '/channels/listings',
+    // Per home since 2026-10-18: the Edit wiring fold on each home's hub.
+    href: '/channels',
     number: '16b',
     title: 'Channel wiring',
-    description: 'Per-channel listing ids, URLs, iCal import feeds and the Helm export link for Airbnb, VRBO, Booking.com and Guesty, and which OTA imports Helm. The switch that cuts a home over from Guesty to Helm is the Cutover panel on each home\'s channel hub.',
+    description: 'Per-channel listing ids, URLs, iCal import feeds and the Helm export link for Airbnb, VRBO, Booking.com and Guesty, and which OTA imports Helm: Edit wiring on each home\'s channel hub. The switch that cuts a home over from Guesty to Helm is Prepare cutover on the same hub.',
     status: 'active',
     primary: false,
     hidden: true,

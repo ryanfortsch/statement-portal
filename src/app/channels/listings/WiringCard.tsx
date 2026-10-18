@@ -1,26 +1,26 @@
-import Link from 'next/link';
-import { headers } from 'next/headers';
-import { HelmMasthead } from '@/components/HelmMasthead';
-import { GuestyWritesNotice } from '@/components/channels/GuestyWritesNotice';
-import { loadGuestyWriteScope } from '@/lib/channels';
-import { HelmHero } from '@/components/HelmHero';
-import { HelmFooter } from '@/components/HelmFooter';
 import { SubmitButton } from '@/components/SubmitButton';
-import { CopyableUrl } from './CopyableUrl';
-import { listFleetProperties, type FleetProperty } from '@/lib/fleet';
-import { regionLabel } from '@/lib/property-scope';
-import { listChannelListingsByProperty, liveFeedClosureCounts, type ChannelListingEx } from '@/lib/channels';
+import Link from 'next/link';
+import type { FleetProperty } from '@/lib/fleet';
+import type { ChannelListingEx } from '@/lib/channels';
 import { holdsAreReservations } from '@/lib/ical-cancel-policy';
 import { feedStopConfirm } from '@/lib/irreversible-confirms';
 import { FeedUrlForm } from './FeedUrlForm';
-import { lastPullsByProperty, type ExportPull } from '@/lib/ical-export-pulls';
+import type { ExportPull } from '@/lib/ical-export-pulls';
 import { CHANNEL_LABELS, ICAL_HINTS, PRIMARY_CHANNELS, type BookingChannel } from '@/lib/channels-types';
-import { EXPORT_FOR_CHANNELS, exportUrlFor, exportUrlForListing } from '@/lib/ical-export';
-import { authorityBadge, importFreshness, pullFreshness, relativeAge, type Freshness } from '@/lib/calendar-model';
+import { importFreshness, pullFreshness, relativeAge, type Freshness } from '@/lib/calendar-model';
 import { saveListing, syncOneListing, tickExportSubscribed, toggleListingActive } from './actions';
 
-export const dynamic = 'force-dynamic';
-
+/**
+ * One home's channel wiring: per channel, the OTA's iCal URL Helm imports,
+ * its sync state, whether the OTA imports Helm's export and pulls it, who
+ * owns the price, the listing ids, retire / reactivate, and the Guesty
+ * aggregate row. It was the fleet page /channels/listings, one card per
+ * home; since 2026-10-18 it is the Edit wiring fold on each home's hub,
+ * which already shows the feed rows and the export links.
+ *
+ * Retiring a feed and saving its URL blank both cancel its imported
+ * closures, so both ask first, naming the count (irreversible-confirms).
+ */
 const RATES_MANAGED_BY: Array<{ value: ChannelListingEx['rates_managed_by']; label: string }> = [
   { value: 'guesty', label: 'Guesty' },
   { value: 'pricelabs', label: 'PriceLabs (direct to the OTA)' },
@@ -28,131 +28,31 @@ const RATES_MANAGED_BY: Array<{ value: ChannelListingEx['rates_managed_by']; lab
   { value: 'helm', label: 'Helm rate plan' },
 ];
 
-type SearchParams = Record<string, string | string[] | undefined>;
-
-function one(v: string | string[] | undefined): string {
-  return Array.isArray(v) ? v[0] ?? '' : v ?? '';
-}
-
-export default async function ChannelsListingsPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
-  const sp = await searchParams;
-  const regionFilter = one(sp.region).trim();
-  const now = new Date();
-
-  let byProperty: Record<string, ChannelListingEx[]> = {};
-  let fleet: FleetProperty[] = [];
-  let pulls = new Map<string, ExportPull[]>();
-  let closures = new Map<string, number>();
-  let dbError: string | null = null;
-  try {
-    [byProperty, fleet, closures] = await Promise.all([listChannelListingsByProperty(), listFleetProperties(), liveFeedClosureCounts()]);
-    pulls = await lastPullsByProperty(fleet.map((p) => p.id));
-  } catch (e) {
-    dbError = e instanceof Error ? e.message : String(e);
-  }
-
-  const h = await headers();
-  const host = h.get('x-forwarded-host') ?? h.get('host') ?? 'helm.risingtidestr.com';
-  const proto = h.get('x-forwarded-proto') ?? 'https';
-  const origin = `${proto}://${host}`;
-
-  const regions = [...new Set(fleet.map((p) => p.region))].sort();
-  const shown = regionFilter ? fleet.filter((p) => p.region === regionFilter) : fleet;
-  const wired = shown.filter((p) => (byProperty[p.id] ?? []).some((l) => l.is_active && l.ical_import_url && l.channel !== 'guesty')).length;
-
-  const writeScope = await loadGuestyWriteScope();
-
-  return (
-    <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead />
-      <GuestyWritesNotice scope={writeScope} />
-
-      <HelmHero
-        eyebrow="Helm · Channels · Wiring"
-        title="Both directions"
-        emphasis="of every iCal link."
-        description="Per home and per channel: the OTA's export URL Helm imports, the listing ids and links, who owns the price, and whether the OTA has been given Helm's export and actually pulls it. The Guesty aggregate row retires at the flip, when a home leaves Guesty."
-      />
-
-      <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 24 }}>
-        <div className="flex items-center gap-3 flex-wrap">
-          <Link href="/channels" style={ghostButtonStyle}>← Channels</Link>
-          <Link href="/channels/calendar" style={ghostButtonStyle}>Multi-calendar →</Link>
-          {regions.length > 1 && (
-            <>
-              <span style={{ width: 12 }} />
-              <Chip href="/channels/listings" active={!regionFilter} label="All regions" />
-              {regions.map((r) => (
-                <Chip key={r} href={`/channels/listings?region=${encodeURIComponent(r)}`} active={regionFilter === r} label={regionLabel(r)} />
-              ))}
-            </>
-          )}
-          <span style={{ flex: 1 }} />
-          <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>{wired} of {shown.length} homes import at least one OTA feed</span>
-        </div>
-      </section>
-
-      {dbError && (
-        <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 32 }}>
-          <div style={{ borderLeft: '3px solid var(--negative)', padding: '12px 16px', background: 'var(--paper-2)', fontSize: 13, color: 'var(--negative)' }}>{dbError}</div>
-        </section>
-      )}
-
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, width: '100%' }}>
-        <div className="eyebrow" style={{ marginBottom: 14 }}>Where each OTA keeps its export URL</div>
-        <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--rule)', padding: '14px 0', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, fontSize: 12, color: 'var(--ink-3)' }}>
-          {PRIMARY_CHANNELS.filter((c) => c !== 'direct').map((c) => (
-            <div key={c}>
-              <div style={{ fontWeight: 600, color: 'var(--ink)', marginBottom: 4 }}>{CHANNEL_LABELS[c]}</div>
-              <div style={{ lineHeight: 1.45 }}>{ICAL_HINTS[c]}</div>
-            </div>
-          ))}
-        </div>
-        <p style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 10, lineHeight: 1.55, maxWidth: 760 }}>
-          While Guesty holds a listing, Airbnb&apos;s &quot;Sync everything&quot; and Vrbo&apos;s single-software rule block a second calendar source: Helm can import the OTA feed (shadow mode) but the OTA cannot import Helm&apos;s export until Guesty is disconnected. Tick &quot;imports Helm&quot; only once you have pasted the export URL into the OTA; the pull log proves it.
-        </p>
-
-        <div style={{ marginTop: 36 }}>
-          {shown.map((p) => (
-            <PropertyCard key={p.id} property={p} listings={byProperty[p.id] ?? []} pulls={pulls.get(p.id) ?? []} pullsKnown={pulls.has(p.id)} origin={origin} now={now} closures={closures} />
-          ))}
-          {shown.length === 0 && <p style={{ fontSize: 13, color: 'var(--ink-3)' }}>No homes in this region.</p>}
-        </div>
-      </section>
-
-      <HelmFooter module="Channels · Wiring" right={`${shown.length} homes`} />
-    </div>
-  );
-}
-
-function PropertyCard({ property, listings, pulls, pullsKnown, origin, now, closures }: { property: FleetProperty; listings: ChannelListingEx[]; pulls: ExportPull[]; pullsKnown: boolean; origin: string; now: Date; closures: Map<string, number> }) {
+export function WiringCard({ property, listings, pulls, now, closures }: { property: FleetProperty; listings: ChannelListingEx[]; pulls: ExportPull[]; now: Date; closures: Map<string, number> }) {
   const byChannel = new Map(listings.map((l) => [l.channel, l]));
-  const exportUrl = property.ical_export_token ? `${origin}/api/channels/ical/${property.ical_export_token}` : null;
   const helmRun = property.calendar_authority === 'helm';
-  const badge = authorityBadge(property, listings.some((l) => l.is_active && !!l.ical_import_url && l.channel !== 'guesty'));
   const guestyRow = byChannel.get('guesty');
   const extraRows = listings.filter((l) => !(PRIMARY_CHANNELS as string[]).includes(l.channel) && l.channel !== 'guesty');
   const connected = listings.filter((l) => l.is_active && l.ical_import_url && l.channel !== 'guesty' && l.channel !== 'direct').length;
 
   return (
-    <div style={{ borderTop: '1px solid var(--ink)', padding: '24px 0' }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 16, gap: 16, flexWrap: 'wrap' }}>
-        <div>
-          <Link href={`/channels/${property.id}`} className="font-serif" style={{ fontSize: 26, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', textDecoration: 'none' }}>
-            {property.name}
-          </Link>
-          <p style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 4 }}>
-            {property.address} · {regionLabel(property.region)}
-            <span style={{ marginLeft: 10, fontSize: 10, letterSpacing: '.14em', textTransform: 'uppercase', fontWeight: 600, color: badge.kind === 'helm' ? 'var(--positive)' : badge.kind === 'shadow' ? 'var(--signal)' : 'var(--ink-4)' }} title={badge.detail}>
-              {badge.label}
-            </span>
-          </p>
-        </div>
-        <div className="eyebrow" style={{ color: 'var(--ink-3)' }}>
-          {connected} / 3 OTA feeds importing
-        </div>
+    <div>
+      <div className="eyebrow" style={{ marginBottom: 14 }}>Where each OTA keeps its export URL</div>
+      <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--rule)', padding: '14px 0', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, fontSize: 12, color: 'var(--ink-3)' }}>
+        {PRIMARY_CHANNELS.filter((c) => c !== 'direct').map((c) => (
+          <div key={c}>
+            <div style={{ fontWeight: 600, color: 'var(--ink)', marginBottom: 4 }}>{CHANNEL_LABELS[c]}</div>
+            <div style={{ lineHeight: 1.45 }}>{ICAL_HINTS[c]}</div>
+          </div>
+        ))}
       </div>
+      <p style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 10, lineHeight: 1.55, maxWidth: 760 }}>
+        While Guesty holds a listing, Airbnb&apos;s &quot;Sync everything&quot; and Vrbo&apos;s single-software rule block a second calendar source: Helm can import the OTA feed (shadow mode) but the OTA cannot import Helm&apos;s export until Guesty is disconnected. Tick &quot;imports Helm&quot; only once you have pasted the export URL into the OTA; the pull log proves it.
+      </p>
 
+      <div className="eyebrow" style={{ color: 'var(--ink-3)', margin: '22px 0 10px' }}>
+        {connected} / 3 OTA feeds importing
+      </div>
       <div style={{ display: 'grid', gap: 10 }}>
         {PRIMARY_CHANNELS.map((c) => (
           <ChannelRow key={c} property={property} channel={c} listing={byChannel.get(c)} pull={pulls.find((x) => x.channel_guess === c) ?? null} helmRun={helmRun} now={now} closures={closures} />
@@ -162,32 +62,6 @@ function PropertyCard({ property, listings, pulls, pullsKnown, origin, now, clos
         ))}
         {guestyRow && <GuestyRow listing={guestyRow} now={now} helmRun={helmRun} propertyId={property.id} liveClosures={closures.get(guestyRow.id) ?? 0} />}
       </div>
-
-      {exportUrl && (
-        <div style={{ marginTop: 14, padding: '12px 14px', background: 'var(--paper-2)', border: '1px dashed var(--rule)' }}>
-          <div className="eyebrow" style={{ color: 'var(--ink-3)', marginBottom: 6 }}>Helm → channels · the export each OTA imports</div>
-          <p style={{ fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5, marginBottom: 8 }}>
-            One line per OTA: each feed leaves out that OTA&rsquo;s own bookings and holds. Canonical confirmed, completed and block rows only, no guest names.{' '}
-            {pulls.length > 0 ? `Last pulled ${relativeAge(pulls[0].pulled_at, now)}${pulls[0].channel_guess ? ` by ${CHANNEL_LABELS[pulls[0].channel_guess as BookingChannel] ?? pulls[0].channel_guess}` : ''}.` : pullsKnown ? 'Never pulled yet.' : 'Pull history unavailable right now.'}
-          </p>
-          <div style={{ display: 'grid', gap: 8 }}>
-            {EXPORT_FOR_CHANNELS.map((ch) => (
-              <div key={ch} style={{ display: 'grid', gridTemplateColumns: '96px 1fr', alignItems: 'center', gap: 10 }}>
-                <span className="eyebrow" style={{ color: 'var(--ink-2)' }}>{CHANNEL_LABELS[ch]}</span>
-                <CopyableUrl value={exportUrlFor(exportUrl, ch)} />
-              </div>
-            ))}
-            {listings
-              .filter((l) => l.channel === 'other' && l.is_active)
-              .map((l) => (
-                <div key={l.id} style={{ display: 'grid', gridTemplateColumns: '96px 1fr', alignItems: 'center', gap: 10 }}>
-                  <span className="eyebrow" style={{ color: 'var(--ink-2)' }}>{l.display_name || 'Other'}</span>
-                  <CopyableUrl value={exportUrlForListing(exportUrl, l.id)} />
-                </div>
-              ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -327,7 +201,7 @@ function GuestyRow({ listing, now, helmRun, propertyId, liveClosures }: { listin
         {active && !helmRun ? (
           // Guesty runs this home: the flip retires this row. Retired by
           // hand, its blocks froze live with nothing left to lift them.
-          <Link href={`/channels/${propertyId}#cutover`} style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+          <Link href={`/channels/${propertyId}?prepare=1#cutover`} style={{ fontSize: 11, color: 'var(--ink-3)' }}>
             retires at the flip
           </Link>
         ) : active ? (
@@ -373,14 +247,6 @@ function SyncStatus({ listing, now }: { listing: ChannelListingEx | undefined; n
   );
 }
 
-function Chip({ href, active, label }: { href: string; active: boolean; label: string }) {
-  return (
-    <Link href={href} style={{ padding: '4px 10px', border: `1px solid ${active ? 'var(--ink)' : 'var(--rule)'}`, background: active ? 'var(--ink)' : 'transparent', color: active ? 'var(--paper)' : 'var(--ink-2)', textDecoration: 'none', fontSize: 10, letterSpacing: '.08em', textTransform: 'uppercase', fontWeight: 500 }}>
-      {label}
-    </Link>
-  );
-}
-
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -420,16 +286,4 @@ const linkButton: React.CSSProperties = {
   border: 'none',
   cursor: 'pointer',
   padding: 0,
-};
-
-const ghostButtonStyle: React.CSSProperties = {
-  background: 'transparent',
-  color: 'var(--ink-3)',
-  fontSize: 11,
-  letterSpacing: '.06em',
-  textTransform: 'uppercase',
-  fontWeight: 500,
-  padding: '6px 0',
-  border: 'none',
-  textDecoration: 'none',
 };
