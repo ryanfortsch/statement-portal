@@ -27,6 +27,13 @@ import { writeStatementTotals, type FreezeReceipt } from '@/lib/statement-totals
  *     credit whose charge is genuinely gone, for one -- and before this
  *     existed their only exit was a hand-written SQL update.
  *
+ *   reopen (a flag resolved with acknowledge)
+ *     The undo of acknowledge: the flag is open again. A status flip on
+ *     data_gaps and nothing else, so like acknowledge it runs before the
+ *     freeze check. The earlier note is kept inside the new one, so the
+ *     history survives. paid_off_stripe has no reopen: it moved the
+ *     payout, and undoing it would move it back.
+ *
  * More resolution types can be added as new switch branches.
  */
 
@@ -76,6 +83,25 @@ export async function POST(request: NextRequest) {
         .eq('id', gapId);
       if (ackErr) return NextResponse.json({ error: `could not resolve the flag: ${ackErr.message}` }, { status: 500 });
       return NextResponse.json({ ok: true, resolution: 'acknowledge', gap_id: gapId });
+    }
+
+    if (resolution === 'reopen') {
+      if (!gap.resolved) return NextResponse.json({ error: 'This flag is already open' }, { status: 400 });
+      const session = await auth();
+      const who = session?.user?.email || 'unknown';
+      const earlier = typeof gap.resolution_note === 'string' && gap.resolution_note ? ` Earlier: ${gap.resolution_note}` : '';
+      const { error: reopenErr } = await supabase
+        .from('data_gaps')
+        .update({
+          resolved: false,
+          resolved_at: null,
+          resolved_by: null,
+          resolution_note: `Reopened ${new Date().toISOString().slice(0, 10)} by ${who}.${earlier}`.slice(0, 500),
+        })
+        .eq('id', gapId)
+        .eq('resolved', true);
+      if (reopenErr) return NextResponse.json({ error: `could not reopen the flag: ${reopenErr.message}` }, { status: 500 });
+      return NextResponse.json({ ok: true, resolution: 'reopen', gap_id: gapId });
     }
 
     // Removing a durable hand credit the rebuild could not honor. The

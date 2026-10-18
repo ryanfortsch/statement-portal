@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { PROPERTIES } from '@/lib/properties';
+import { useConfirm } from '@/components/ConfirmDialog';
 
 /**
  * Close-out notes for the selected statement month.
@@ -38,6 +39,7 @@ export function PeriodNotesCard({ month, refreshKey }: {
   /** Bump to re-fetch, e.g. after the AddNoteModal files a close-out note. */
   refreshKey?: number;
 }) {
+  const { ask } = useConfirm();
   const [notes, setNotes] = useState<Note[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
@@ -106,7 +108,14 @@ export function PeriodNotesCard({ month, refreshKey }: {
   }
 
   async function deleteNote(note: Note) {
-    if (!confirm('Delete this note? This can\'t be undone.')) return;
+    const go = await ask({
+      title: 'Delete this note?',
+      body: note.body ? `"${note.body.length > 140 ? `${note.body.slice(0, 140)}…` : note.body}"` : undefined,
+      confirmLabel: 'Delete note',
+      tone: 'danger',
+      irreversible: true,
+    });
+    if (!go) return;
     const prev = notes;
     setNotes((notes ?? []).filter(n => n.id !== note.id));
     try {

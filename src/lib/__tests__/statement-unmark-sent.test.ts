@@ -139,7 +139,8 @@ describe('the checkbox goes through the audited door', () => {
 
   test('unticking confirms, then calls unmarkStatementSentAction', () => {
     const untick = block(block(page, 'async function markStatementSent('), 'if (!next) {');
-    const asked = untick.indexOf('confirm(');
+    // The page's own modal (ConfirmDialog's ask), not the browser's confirm().
+    const asked = untick.indexOf('await ask(');
     const unmarked = untick.indexOf('unmarkStatementSentAction(');
     assert.ok(unmarked >= 0, 'the untick no longer calls unmarkStatementSentAction: unfreezing would leave no trace');
     assert.ok(asked >= 0 && asked < unmarked, 'the untick must confirm before it unfreezes');
@@ -165,7 +166,7 @@ describe('the checkbox goes through the audited door', () => {
     for (const args of upserts) {
       assert.ok(args.startsWith('closeTaskPatchRow('), `upsertCloseTask(${args}) writes more than the changed field`);
     }
-    assert.ok(block(page, 'async function saveCloseTaskField(').includes('alert('), 'a failed close-out save is silent again');
+    assert.ok(block(page, 'async function saveCloseTaskField(').includes('await notify('), 'a failed close-out save is silent again');
   });
 
   test('the upsert refuses the clear and returns its error', () => {

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { deleteWithFreezeRetry } from '@/lib/freeze-confirm';
+import { useConfirm } from '@/components/ConfirmDialog';
 
 /**
  * Receipt capture -- photograph (or drag in) a paper receipt, review the
@@ -45,7 +46,7 @@ type Warning = {
  * (status='void'), removes the mirror row, and recomputes the statement.
  */
 export function ReceiptRowActions({ receiptId, onVoided }: { receiptId: string; onVoided: () => void }) {
-  const [confirming, setConfirming] = useState(false);
+  const { ask } = useConfirm();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -70,13 +71,22 @@ export function ReceiptRowActions({ receiptId, onVoided }: { receiptId: string; 
   }
 
   async function voidReceipt() {
+    // Void is a soft delete with no un-void, and it moves the payout: the
+    // receipt leaves Repairs & Maintenance and the statement is recomputed.
+    const go = await ask({
+      title: 'Void this receipt?',
+      body: 'It comes off this month\'s Repairs & Maintenance and the owner payout is recomputed without it.',
+      confirmLabel: 'Void receipt',
+      tone: 'danger',
+      irreversible: true,
+    });
+    if (!go) return;
     setBusy(true); setErr(null);
     try {
-      const { res, cancelled } = await deleteWithFreezeRetry(`/api/receipts/${receiptId}`);
+      const { res, cancelled } = await deleteWithFreezeRetry(`/api/receipts/${receiptId}`, ask);
       if (cancelled) return;
       const data = await res.json().catch(() => null);
       if (!res.ok) { setErr(data?.error || 'Void failed'); return; }
-      setConfirming(false);
       onVoided();
     } catch {
       setErr('Void failed');
@@ -87,29 +97,12 @@ export function ReceiptRowActions({ receiptId, onVoided }: { receiptId: string; 
 
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-      {!confirming ? (
-        <>
-          <button type="button" onClick={view} disabled={busy} style={{ ...tinyButton, color: 'var(--ink-3)' }}>
-            View
-          </button>
-          <button type="button" onClick={() => { setConfirming(true); setErr(null); }} disabled={busy}
-            style={{ ...tinyButton, color: 'var(--ink-3)' }}>
-            Void
-          </button>
-        </>
-      ) : (
-        <>
-          <span style={{ fontSize: 10, color: 'var(--ink-3)' }}>Void this receipt?</span>
-          <button type="button" onClick={voidReceipt} disabled={busy}
-            style={{ ...tinyButton, color: 'var(--paper)', background: 'var(--ink)', border: '1px solid var(--ink)' }}>
-            {busy ? '…' : 'Void'}
-          </button>
-          <button type="button" onClick={() => setConfirming(false)} disabled={busy}
-            style={{ ...tinyButton, border: 'none', color: 'var(--ink-3)' }}>
-            Cancel
-          </button>
-        </>
-      )}
+      <button type="button" onClick={view} disabled={busy} style={{ ...tinyButton, color: 'var(--ink-3)' }}>
+        View
+      </button>
+      <button type="button" onClick={voidReceipt} disabled={busy} style={{ ...tinyButton, color: 'var(--ink-3)' }}>
+        {busy ? '…' : 'Void'}
+      </button>
       {err && <span style={{ fontSize: 10, color: 'var(--negative, #b13b2a)' }}>{err}</span>}
     </span>
   );

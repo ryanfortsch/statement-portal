@@ -8,7 +8,8 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { FinancialsTabs } from '@/components/FinancialsTabs';
 import { HelmHero } from '@/components/HelmHero';
 import { downloadStatementPdf } from '@/lib/download-pdf';
-import { loadActiveProperties } from './actions';
+import { loadActiveProperties, loadExistingStatement, type ExistingStatement } from './actions';
+import { ConfirmProvider, useConfirm } from '@/components/ConfirmDialog';
 import { formWithFreezeRetry } from '@/lib/freeze-confirm';
 import { PROPERTIES } from '@/lib/properties';
 import { previousCalendarMonth, statementsHref } from '@/lib/statements-month';
@@ -457,13 +458,16 @@ function relativeTimeShort(iso: string): string {
 export default function UploadPage() {
   return (
     <Suspense fallback={null}>
-      <UploadPageInner />
+      <ConfirmProvider>
+        <UploadPageInner />
+      </ConfirmProvider>
     </Suspense>
   );
 }
 
 function UploadPageInner() {
   const searchParams = useSearchParams();
+  const { ask } = useConfirm();
   // Initialise from ?month=YYYY-MM when the dashboard passes one; fall back to
   // the previous calendar month. NEVER hard-code a constant -- that's how data
   // ended up under April when the operator was working on May.
@@ -497,6 +501,9 @@ function UploadPageInner() {
     return () => { cancelled = true; };
   }, []);
   const [month, setMonth] = useState(initialMonth);
+  // The statement this upload would replace, if one exists. Process & Upload
+  // is a wipe-and-write re-ingest; the form says so before the button does.
+  const [existing, setExisting] = useState<{ key: string; value: ExistingStatement } | null>(null);
   const [propertyId, setPropertyId] = useState(initialPropertyId);
   const [guestyPDF, setGuestyPDF] = useState<File | null>(null);
   const [platformCSV, setPlatformCSV] = useState<File | null>(null);
@@ -519,6 +526,18 @@ function UploadPageInner() {
   const bankRef = useRef<HTMLInputElement>(null);
 
   const selectedProp = properties.find(p => p.id === propertyId);
+  useEffect(() => {
+    if (!propertyId || !/^\d{4}-\d{2}$/.test(month)) return;
+    let cancelled = false;
+    const key = `${month}:${propertyId}`;
+    (async () => {
+      const value = await loadExistingStatement(month, propertyId).catch((): ExistingStatement => ({ exists: null }));
+      if (!cancelled) setExisting({ key, value });
+    })();
+    return () => { cancelled = true; };
+  }, [month, propertyId]);
+  const existingFor = existing?.key;
+  const replacing = existingFor === `${month}:${propertyId}` && existing?.value.exists === true ? existing.value : null;
   // The Platform CSV slot counts as "ready" when EITHER a fresh file
   // is selected OR there's a cached CSV the server will fall back to.
   const platformSlotReady = !!platformCSV || !!cachedPlatformCSV;
@@ -593,6 +612,24 @@ function UploadPageInner() {
       setError(`Bank CSV (Chase ····${bankFileMismatch.csvLast4}) doesn't match the selected property (Chase ····${bankFileMismatch.expected}). Clear the file or change the property.`);
       return;
     }
+    // Replacing a statement rebuilds it from these files. Ask first, every
+    // time, and when the check could not run, ask as if one exists.
+    const current = existingFor === `${month}:${propertyId}` ? existing?.value : undefined;
+    if (!current || current.exists !== false) {
+      const name = selectedProp?.name || propertyId;
+      const go = await ask({
+        title: current?.exists === true
+          ? `Replace ${name}'s ${monthLabel(month)} statement?`
+          : `Process ${name} for ${monthLabel(month)}?`,
+        body: current?.exists === true
+          ? `It was ingested ${current.ingestedAt ? new Date(current.ingestedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'earlier'}${current.sent ? ' and is marked sent to the owner' : ''}. Processing rebuilds it from these files: its reservations, cleaning and flags are written again.`
+          : 'Helm could not check whether a statement already exists for this home and month. If one does, processing rebuilds it from these files.',
+        confirmLabel: current?.exists === true ? 'Replace statement' : 'Process anyway',
+        tone: 'danger',
+        irreversible: true,
+      });
+      if (!go) return;
+    }
     setSubmitting(true);
     setError(null);
     setResult(null);
@@ -605,7 +642,7 @@ function UploadPageInner() {
       if (platformCSV) formData.append('platform_csv', platformCSV);
       if (bankCSV) formData.append('bank_csv', bankCSV);
 
-      const { res, cancelled } = await formWithFreezeRetry('/api/ingest', formData);
+      const { res, cancelled } = await formWithFreezeRetry('/api/ingest', formData, ask);
       if (cancelled) { setError('Not ingested: the statement is marked sent. Untick "Statement sent" on the dashboard first, or confirm the override.'); return; }
       const data = await res.json();
 
@@ -1030,10 +1067,12 @@ function UploadPageInner() {
               paddingTop: 18,
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
             }}>
-              <span style={{ fontSize: 12, color: 'var(--ink-4)' }}>
-                {propertyId && guestyPDF
-                  ? `Ready to process ${selectedProp?.name || ''} for ${monthLabel(month)}`
-                  : 'Select a property and upload the Guesty statement to continue'}
+              <span style={{ fontSize: 12, color: replacing ? 'var(--negative)' : 'var(--ink-4)' }}>
+                {replacing
+                  ? `This replaces the ${monthLabel(month)} statement for ${selectedProp?.name || propertyId}, ingested ${replacing.ingestedAt ? new Date(replacing.ingestedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'earlier'}${replacing.sent ? ' and marked sent' : ''}.`
+                  : propertyId && guestyPDF
+                    ? `Ready to process ${selectedProp?.name || ''} for ${monthLabel(month)}`
+                    : 'Select a property and upload the Guesty statement to continue'}
               </span>
               <button
                 onClick={handleSubmit}

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { loadBankDepositReview } from '@/app/statements/actions';
 import { ALREADY_RECOGNIZED_NOTE_PREFIX, CANCELLATION_CHECK_INCOMPLETE_PREFIX } from '@/lib/cancellation-payout-match';
 import { jsonWithFreezeRetry } from '@/lib/freeze-confirm';
+import { useConfirm } from '@/components/ConfirmDialog';
 import { isFutureStayPrincipal } from '@/lib/extras-markers';
 import { isInternalSweepSource, SWEEP_SOURCE } from '@/lib/internal-transfers';
 
@@ -102,6 +103,7 @@ export function BankDepositReview({
   openToken?: number;
 }) {
   const router = useRouter();
+  const { ask } = useConfirm();
   const [items, setItems] = useState<Deposit[] | null>(null);
   const [drafts, setDrafts] = useState<Record<string, { label: string; code: string; manualCode?: string }>>({});
   // Collapsed by default so the queue doesn't dominate the property card.
@@ -111,6 +113,7 @@ export function BankDepositReview({
   const [debitsExpanded, setDebitsExpanded] = useState(openToken > 0);
   const [sweepsExpanded, setSweepsExpanded] = useState(false);
   const [historyExpanded, setHistoryExpanded] = useState(false);
+  const [dismissedExpanded, setDismissedExpanded] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -122,9 +125,10 @@ export function BankDepositReview({
 
   const load = useCallback(async () => {
     setError(null);
-    // Pull pending + attributed (skip dismissed). Pending → review queue;
-    // attributed → "Already attributed · N" history block with an Undo
-    // button so a mis-attribution can be reverted without a DB hack.
+    // Pull pending, attributed and dismissed. Pending → review queue;
+    // attributed → "Already attributed · N" with an Undo so a
+    // mis-attribution can be reverted without a DB hack; dismissed →
+    // "Dismissed · N", folded, each with an Undo back to the queue.
     const res = await loadBankDepositReview(propertyId, month);
     const e = 'error' in res ? res.error : null;
     if (e && e.code !== 'PGRST205' && !/does not exist|relation|Could not find the table|direction/i.test(e.message || '')) {
@@ -187,7 +191,13 @@ export function BankDepositReview({
     // statement, carried at the retained amount and waiting for this very
     // deposit. Attributing it as an add-on too pays the owner twice.
     if ((dep.review_note || '').startsWith(ALREADY_RECOGNIZED_NOTE_PREFIX)) {
-      if (!confirm(`${dep.review_note}\n\nAttribute anyway?`)) return;
+      const go = await ask({
+        title: 'Attribute this deposit anyway?',
+        body: dep.review_note,
+        confirmLabel: 'Attribute anyway',
+        tone: 'danger',
+      });
+      if (!go) return;
     }
     // Deposits MUST pick a reservation (the credit ties to a specific
     // stay's revenue). Debits don't have to -- the trash-can reimbursement
@@ -202,7 +212,7 @@ export function BankDepositReview({
     setBusyId(dep.id); setError(null);
     try {
       const { res, cancelled } = await jsonWithFreezeRetry(`/api/bank-deposits/${dep.id}`, 'PATCH',
-        { action: 'attribute', reservation_code: code || null, label });
+        { action: 'attribute', reservation_code: code || null, label }, ask);
       if (cancelled) return;
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Save failed');
@@ -222,7 +232,7 @@ export function BankDepositReview({
     // server fixes add_ons_revenue / attributed_debits_total + owner_payout.
     setBusyId(dep.id); setError(null);
     try {
-      const { res, cancelled } = await jsonWithFreezeRetry(`/api/bank-deposits/${dep.id}`, 'PATCH', { action: 'unattribute' });
+      const { res, cancelled } = await jsonWithFreezeRetry(`/api/bank-deposits/${dep.id}`, 'PATCH', { action: 'unattribute' }, ask);
       if (cancelled) return;
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Undo failed');
@@ -247,10 +257,32 @@ export function BankDepositReview({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Dismiss failed');
-      setItems(prev => (prev || []).filter(d => d.id !== dep.id));
+      // It moves to "Dismissed" below, where Undo puts it back.
+      setItems(prev => (prev || []).map(d => d.id === dep.id ? { ...d, status: 'dismissed', attributed_reservation_code: null } : d));
       onChanged?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Dismiss failed');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function restore(dep: Deposit) {
+    // The undo of a dismiss: back to the pending queue. No statement total
+    // moves either way, so it needs no confirm and no freeze override.
+    setBusyId(dep.id); setError(null);
+    try {
+      const res = await fetch(`/api/bank-deposits/${dep.id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'restore' }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Undo failed');
+      setItems(prev => (prev || []).map(d => d.id === dep.id ? { ...d, status: 'pending' } : d));
+      onChanged?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Undo failed');
     } finally {
       setBusyId(null);
     }
@@ -266,6 +298,7 @@ export function BankDepositReview({
   const debits = pending.filter(i => i.direction === 'debit' && !isInternalSweepSource(i.source));
   const sweeps = pending.filter(i => i.direction === 'debit' && isInternalSweepSource(i.source));
   const attributed = (items || []).filter(i => i.status === 'attributed');
+  const dismissed = (items || []).filter(i => i.status === 'dismissed');
   // Map a reservation code -> human guest name for the attributed history.
   const guestByCode = new Map<string, string>();
   reservations.forEach(r => { if (r.confirmation_code) guestByCode.set(r.confirmation_code, r.guest_name); });
@@ -278,7 +311,7 @@ export function BankDepositReview({
       </div>
     );
   }
-  if (deposits.length === 0 && debits.length === 0 && sweeps.length === 0 && attributed.length === 0) return null;
+  if (deposits.length === 0 && debits.length === 0 && sweeps.length === 0 && attributed.length === 0 && dismissed.length === 0) return null;
 
   return (
     <div style={{ marginTop: 28 }}>
@@ -633,6 +666,61 @@ export function BankDepositReview({
               })}
             </>
           )}
+        </div>
+      )}
+
+      {dismissed.length > 0 && (
+        <div style={{ marginTop: 18 }}>
+          <button
+            type="button"
+            onClick={() => setDismissedExpanded(e => !e)}
+            className="flex items-baseline justify-between w-full"
+            style={{
+              background: 'transparent', border: 'none', cursor: 'pointer', padding: '6px 0',
+              textAlign: 'left', borderBottom: dismissedExpanded ? '1px solid var(--rule-soft)' : 'none',
+              marginBottom: dismissedExpanded ? 10 : 0,
+            }}
+            aria-expanded={dismissedExpanded}
+          >
+            <span className="eyebrow" style={{ color: 'var(--ink-3)' }}>
+              Dismissed &middot; {dismissed.length}
+            </span>
+            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--ink-3)' }}>
+              {dismissedExpanded ? 'Hide −' : 'Show +'}
+            </span>
+          </button>
+          {dismissedExpanded && dismissed.map(dep => {
+            const busy = busyId === dep.id;
+            return (
+              <div key={dep.id} style={{
+                padding: '8px 14px', marginBottom: 6, background: 'var(--paper-2)',
+                borderLeft: '3px solid var(--rule)', display: 'flex', alignItems: 'baseline',
+                gap: 10, flexWrap: 'wrap', fontSize: 12,
+              }}>
+                <span className="font-mono" style={{ color: 'var(--ink-3)' }}>{fmtDate(dep.deposit_date)}</span>
+                <span className="font-serif tabular-nums" style={{ fontSize: 13, color: 'var(--ink)' }}>
+                  {dep.direction === 'debit' ? '−' : ''}{fmtMoney(Math.abs(Number(dep.amount) || 0))}
+                </span>
+                <span style={{ color: 'var(--ink-4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 360 }} title={dep.description || ''}>
+                  {dep.description || (dep.direction === 'debit' ? 'charge' : 'deposit')}
+                </span>
+                <span style={{ flex: 1 }} />
+                <button
+                  type="button"
+                  onClick={() => restore(dep)}
+                  disabled={busy}
+                  title="Put it back in the queue above"
+                  style={{
+                    fontSize: 9, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase',
+                    color: 'var(--ink-3)', background: 'transparent', border: '1px solid var(--rule)',
+                    padding: '4px 10px', cursor: busy ? 'wait' : 'pointer',
+                  }}
+                >
+                  {busy ? '…' : 'Undo'}
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
 
