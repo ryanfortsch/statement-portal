@@ -170,6 +170,12 @@ async function ConversationsSection({ searchParams }: { searchParams: Promise<Re
       initialConversations={merged}
       initialError={conversations.ok ? null : explainError(conversations.error)}
       initialOpenId={openId}
+      // The check-in window the list covers, so it can say so and step back
+      // from it. An older concierge sends none; the browser falls back to
+      // the same 60 days either side of today.
+      initialWindow={conversations.ok && conversations.data.check_in_from && conversations.data.check_in_to
+        ? { from: conversations.data.check_in_from, to: conversations.data.check_in_to, truncated: !!conversations.data.truncated }
+        : null}
     />
   );
 }
