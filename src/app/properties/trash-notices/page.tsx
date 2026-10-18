@@ -96,7 +96,7 @@ export default async function TrashNoticesPage() {
               <div className="rt-review-skips-h">No card</div>
               {skips.map((s) => (
                 <p key={s.propertyId}>
-                  <Link href={`/properties/${s.propertyId}/edit#safety`}>{s.propertyName}</Link>: {s.reason}
+                  <Link href={`/properties/${s.propertyId}/edit#trash`}>{s.propertyName}</Link>: {s.reason}
                 </p>
               ))}
             </div>
