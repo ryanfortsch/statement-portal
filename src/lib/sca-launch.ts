@@ -332,48 +332,14 @@ export function applyEntryToRegistryJson(
   return JSON.stringify(obj, null, 2) + '\n';
 }
 
-/** Mirror of stay-cape-ann's internalName -> photo-folder slug (lib/guesty.ts):
- *  lowercase, spaces collapsed to single dashes. Used for the legacy photo
- *  folder path and for a readable PR branch name. "79 Main St" -> "79-main-st". */
-export function internalNameToSlug(name: string): string {
-  return name.toLowerCase().trim().replace(/\s+/g, '-');
-}
-
 /** One bedroom slot as the operator edits it (photos held as an array). */
 export type SleepingPhotoInput = { name?: string; beds?: string; photo?: string[] };
 
-/** A listing as surfaced in the bedroom-photo picker. */
-export type RegistryListingSummary = {
-  guestyListingId: string;
-  internalName: string;
-  publicName: string;
-  sleepingArrangements: Array<{ name?: string; beds?: string; photo?: string | string[] }>;
-};
-
-/** Enumerate every listing in the registry, for the bedroom-photo picker. */
-export function listRegistryListings(raw: string): RegistryListingSummary[] {
-  const obj = parseRegistry(raw);
-  const listings = obj.listings ?? {};
-  return Object.entries(listings).map(([guestyListingId, value]) => {
-    const v = (value ?? {}) as {
-      internalName?: string;
-      publicName?: string;
-      sleepingArrangements?: Array<{ name?: string; beds?: string; photo?: string | string[] }>;
-    };
-    return {
-      guestyListingId,
-      internalName: (v.internalName ?? guestyListingId).trim(),
-      publicName: (v.publicName ?? '').trim(),
-      sleepingArrangements: Array.isArray(v.sleepingArrangements) ? v.sleepingArrangements : [],
-    };
-  });
-}
-
 /**
- * Build the registry `sleepingArrangements` array from the editor's per-bedroom
- * input. Unlike the launcher's top-down list, a slot's position here maps to a
- * specific bedroom, so interior empty slots are preserved as {} (stay-cape-ann
- * renders those as placeholder cards). Only trailing empties are trimmed.
+ * Build the registry `sleepingArrangements` array from the launcher's rooms.
+ * A slot's position is its bedroom card's position on the site, so interior
+ * empty slots are preserved as {} (stay-cape-ann renders those as placeholder
+ * cards). Only trailing empties are trimmed.
  */
 export function buildSleepingArrangementsForRegistry(
   input: SleepingPhotoInput[],

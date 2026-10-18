@@ -26,6 +26,7 @@ import {
   adoptLiveScaListing,
 } from './actions';
 import { etStamp } from '@/lib/stable-time';
+import { listingCopyNotes } from '@/lib/sca-copy-notes';
 
 type Props = {
   propertyId: string;
@@ -140,6 +141,8 @@ export function ScaLaunchClient(props: Props) {
   // A failed bedroom upload keeps the editor open (its Retry and Remove must
   // work) but nothing saves or publishes until it is retried or removed.
   const failedUploads = failedSlots.size > 0;
+  // What the retired Listing Copy Studio flagged, live as the copy changes.
+  const copyNotes = listingCopyNotes(form);
   const previewMatches = previewSignature !== null && scaDraftPreviewSignature(form) === previewSignature;
   useUnsavedWorkGuard(dirty || blocked || failedUploads);
   const env = scaStripeEnvVarNames(form.stripeAccountKey || 'ACCOUNT_KEY');
@@ -316,7 +319,7 @@ export function ScaLaunchClient(props: Props) {
       setNotice({
         kind: 'ok',
         text: overwrite
-          ? 'Re-pulled the Guesty copy verbatim (Stay Cape Ann breadcrumb lines stripped), replacing the previous copy. Review, then open an update PR.'
+          ? 'Re-pulled the Guesty copy verbatim (Stay Cape Ann breadcrumb lines stripped), replacing the previous copy. Review it, then preview the changes.'
           : 'Pulled the Guesty copy verbatim, minus the Stay Cape Ann breadcrumb lines. Type the short map pitch, check the restaurant, then add the iCal URL.',
       });
     });
@@ -364,7 +367,7 @@ export function ScaLaunchClient(props: Props) {
       setRow(res.row);
       replaceForm(normalize(res.row.registry_entry ?? {}, props.defaults), true);
       setSavedDraftAside(null);
-      setNotice({ kind: 'ok', text: 'This is the live listing. Edit it here, then Update live listing.' });
+      setNotice({ kind: 'ok', text: 'This is the live listing. Edit it here, preview the changes, then Publish.' });
     });
 
   const onOpenPr = () =>
@@ -400,25 +403,25 @@ export function ScaLaunchClient(props: Props) {
         setSavedForm(JSON.stringify(form));
         setPreviewSignature(scaDraftPreviewSignature(form));
         setPreviewState('pending');
-        setNotice({ kind: 'ok', text: 'Update PR opened. The listing stays live until you publish. Review the preview, then click Publish update.' });
+        setNotice({ kind: 'ok', text: 'Preview opened. The listing stays live until you publish. Review the preview, then Publish.' });
       } else if (res.errors) {
         setErrors(res.errors);
-        setNotice({ kind: 'err', text: `Can't open the update PR yet: ${Object.values(res.errors).join('; ')}` });
+        setNotice({ kind: 'err', text: `Can't preview the changes yet: ${Object.values(res.errors).join('; ')}` });
         if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
       } else {
-        setNotice({ kind: 'err', text: res.error ?? 'Could not open update PR' });
+        setNotice({ kind: 'err', text: res.error ?? 'Could not open the preview' });
       }
     });
 
   const onPublishUpdate = () =>
     run('publish', async () => {
       if (!previewMatches) return;
-      if (!window.confirm('Publish this update? It merges the PR and the live page updates within a couple minutes.')) return;
+      if (!window.confirm('Publish these changes? The live page updates within a couple minutes.')) return;
       const res = await publishScaUpdate(props.propertyId, form);
       if (res.ok) {
         setRow(res.row);
         setPreviewState('none');
-        setNotice({ kind: 'ok', text: 'Update published. The live page refreshes within a couple minutes.' });
+        setNotice({ kind: 'ok', text: 'Published. The live page refreshes within a couple minutes.' });
       } else setNotice({ kind: 'err', text: res.error ?? 'Publish failed' });
     });
 
@@ -598,6 +601,9 @@ export function ScaLaunchClient(props: Props) {
           />
         </div>
 
+ {copyNotes.length > 0 && (form.tagline?.trim() || form.description?.trim()) && (
+          <p role="status" style={{ ...hintStyle, color: 'var(--signal)' }}>Copy to review: {copyNotes.join(', ')}.</p>
+        )}
         <div style={{ marginTop: 16 }}>
           <Field label="Map pitch" error={errOf('pitch')} hint="4–8 word hook for the home-page map.">
             <input style={inputStyle} value={form.pitch} onChange={(e) => set('pitch', e.target.value)} placeholder="Waterfront on Granite Point" />
@@ -712,25 +718,25 @@ export function ScaLaunchClient(props: Props) {
         {isLive ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 24 }}>
             <p style={hintStyle}>
-              This listing is live. Edit the copy above (or <strong>Pull from Guesty</strong> to refresh it from the
-              source of truth), then open an update PR. The live page keeps serving the current copy until you publish.
+              This listing is live. Edit it above (or <strong>Pull from Guesty</strong> to refresh it from the source of
+              truth), then preview the changes. The live page keeps serving the current listing until you publish.
             </p>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
               <button type="button" style={btnBase} disabled={busy !== null || failedUploads} onClick={onSave}>{busy === 'save' ? 'Saving…' : 'Save draft'}</button>
               <button type="button" style={btnPrimary} disabled={busy !== null || failedUploads || !props.githubConfigured} onClick={onUpdateLive}>
-                {busy === 'update' ? 'Opening update PR…' : hasPendingUpdate ? 'Refresh update PR' : 'Update live listing →'}
+                {busy === 'update' ? 'Opening the preview…' : hasPendingUpdate ? 'Refresh the preview' : 'Preview changes →'}
               </button>
               {hasPendingUpdate && (
                 <>
-                  {row?.pr_url && <a href={row.pr_url} target="_blank" rel="noreferrer" style={linkStyle}>Update PR ↗</a>}
+                  {row?.pr_url && <a href={row.pr_url} target="_blank" rel="noreferrer" style={linkStyle}>Pull request ↗</a>}
                   <button type="button" style={btnBase} disabled={blocked || failedUploads || !previewMatches} onClick={onPublishUpdate}>
-                    {busy === 'publish' ? 'Publishing…' : 'Publish update'}
+                    {busy === 'publish' ? 'Publishing…' : 'Publish'}
                   </button>
                 </>
               )}
             </div>
             {hasPendingUpdate && (
-              <p style={hintStyle}>Review it in Step 2 (preview the page), then <strong>Publish update</strong> to merge and refresh the live page.</p>
+              <p style={hintStyle}>Review it in Step 2 (open the preview), then <strong>Publish</strong> to update the live page.</p>
             )}
           </div>
         ) : (
@@ -800,7 +806,7 @@ export function ScaLaunchClient(props: Props) {
               <p role="status" style={hintStyle}>
                 {previewSignature === null
                   ? 'Checking the preview content. Publishing is unavailable until it matches this form.'
-                  : 'This form differs from the preview. Refresh the preview PR before publishing; Save draft alone does not update it.'}
+                  : 'This form differs from the preview. Refresh the preview before publishing; Save draft alone does not update it.'}
               </p>
             )}
             {previewError && <p role="alert" style={{ ...hintStyle, color: 'var(--negative)' }}>{previewError}</p>}

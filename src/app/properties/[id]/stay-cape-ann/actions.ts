@@ -29,7 +29,6 @@ import {
   SCA_DEMO_MODE_SENTINEL,
 } from '@/lib/sca-config';
 import * as gh from '@/lib/github';
-import { loadListingCopyEntries } from '@/lib/sca-listing-copy';
 import { readScaPreviewContent, requireScaPreviewMatch } from '@/lib/sca-preview';
 import { getGuestyListing } from '@/lib/guesty';
 import { draftListingCopy } from '@/lib/listing-copy-draft';
@@ -688,12 +687,12 @@ export async function publishScaUpdate(propertyId: string, draft: ScaFormDraft):
   const row = await loadRow(propertyId);
   if (row?.status !== 'live') return { ok: false, error: 'No live listing to update' };
   if (!row.pr_number || !row.branch_name?.startsWith('sca-update/')) {
-    return { ok: false, error: 'No pending update PR to publish. Open an update PR first.' };
+    return { ok: false, error: 'Nothing to publish yet. Preview the changes first.' };
   }
   try {
     const headSha = await requireScaPreviewMatch(gh, SCA_REGISTRY_PATH, row.branch_name, draft, row.guesty_listing_id);
     const merge = await gh.mergePullRequest(row.pr_number, 'squash', headSha);
-    if (!merge.merged) return { ok: false, error: 'GitHub did not merge the update PR' };
+    if (!merge.merged) return { ok: false, error: 'GitHub did not merge the changes. Open the pull request to see why.' };
 
     if (row.branch_name) await gh.deleteBranch(row.branch_name).catch(() => {});
 
@@ -717,216 +716,6 @@ export async function publishScaUpdate(propertyId: string, draft: ScaFormDraft):
     revalidatePath('/properties');
     const updated = await loadRow(propertyId);
     return updated ? { ok: true, row: updated } : { ok: false, error: 'Merged but could not reload' };
-  } catch (e) {
-    return { ok: false, error: (e as Error).message };
-  }
-}
-
-// ── Listing-copy studio (review + hand-edit every listing's copy) ─────────────
-
-/** A listing as shown in the studio: its current editorial copy + quality flags. */
-export type ListingCopyRow = {
-  guestyListingId: string;
-  internalName: string;
-  publicName: string;
-  /** Public staycapeann.com page, for review. */
-  liveUrl: string;
-  tagline: string;
-  description: string;
-  highlights: string[];
-  /** Editorial changes saved on the batch branch and not yet live. */
-  staged: boolean;
-  /** Human-readable copy problems, e.g. "OTA bullets", "no copy". Empty = clean. */
-  flags: string[];
-};
-
-/** One branch batches every studio edit so the site rebuilds once on publish. */
-const COPY_BRANCH = 'sca-listing-copy';
-
-/** Leading OTA checkmark glyphs. NOT ★, which marks the chosen structured About. */
-const OTA_BULLET = /[✔✓✅☑]/;
-
-type RegistryShape = { description?: string; listings?: Record<string, Record<string, unknown>> };
-
-/** Flag editorial-copy problems worth a look. Advisory only — never blocks edits. */
-function assessListingCopy(e: Record<string, unknown>): string[] {
-  const tagline = String(e.tagline ?? '').trim();
-  const description = String(e.description ?? '').trim();
-  const highlights = Array.isArray(e.highlights)
-    ? (e.highlights as unknown[]).map((h) => String(h ?? '').trim()).filter(Boolean)
-    : [];
-  const flags: string[] = [];
-  if (!tagline && !description && highlights.length === 0) flags.push('no copy');
-  if (OTA_BULLET.test(tagline) || OTA_BULLET.test(description) || highlights.some((h) => OTA_BULLET.test(h)))
-    flags.push('OTA bullets');
-  if (/!/.test(tagline) || /!/.test(description)) flags.push('exclamation marks');
-  if (/[—–]/.test(tagline) || /[—–]/.test(description)) flags.push('em dashes');
-  if (tagline.length > 140) flags.push('tagline too long');
-  if (description.length > 1600) flags.push('About is a wall');
-  if (tagline && highlights.length > 0 && highlights.length < 3) flags.push('under 3 highlights');
-  return flags;
-}
-
-/**
- * List every listing in the SCA registry with its current editorial copy and a
- * quality assessment, so the operator reviews all listings on one screen and
- * fixes the bad ones. Restores pending batch edits over the live registry, so it
- * covers ALL listings and staged work survives reopening the editor.
- */
-export async function listScaListingCopy(): Promise<
-  { ok: true; rows: ListingCopyRow[] } | { ok: false; error: string }
-> {
-  const email = await requireEmail();
-  if (!email) return { ok: false, error: 'Not signed in' };
-  if (!gh.isGithubConfigured()) return { ok: false, error: 'GITHUB_TOKEN is not configured' };
-  try {
-    const entries = await loadListingCopyEntries(gh, SCA_REGISTRY_PATH, SCA_PROD_BRANCH, COPY_BRANCH);
-    const rows: ListingCopyRow[] = entries.map(({ id, entry: v, staged }) => ({
-      guestyListingId: id,
-      internalName: String(v.internalName ?? '').trim(),
-      publicName: String(v.publicName ?? id).trim(),
-      liveUrl: scaListingUrl(id),
-      tagline: String(v.tagline ?? '').trim(),
-      description: String(v.description ?? ''),
-      highlights: Array.isArray(v.highlights) ? (v.highlights as unknown[]).map((h) => String(h ?? '')) : [],
-      flags: assessListingCopy(v),
-      staged,
-    }));
-    // Flagged listings first (the ones that need attention), then alphabetical.
-    rows.sort(
-      (a, b) => Number(b.flags.length > 0) - Number(a.flags.length > 0) || a.publicName.localeCompare(b.publicName),
-    );
-    return { ok: true, rows };
-  } catch (e) {
-    return { ok: false, error: (e as Error).message };
-  }
-}
-
-/**
- * Refresh one listing's copy from Guesty, WITHOUT writing anything — returns
- * the draft for the operator to review and edit in the studio before staging.
- * Same contract as pullFromGuesty: the Guesty / Airbnb copy verbatim, with
- * only the Stay Cape Ann breadcrumb plugs scrubbed. No AI pass.
- */
-export async function draftListingCopyFromGuesty(
-  guestyListingId: string,
-): Promise<
-  | { ok: true; draft: { tagline: string; description: string; highlights: string[] }; aiGenerated: boolean }
-  | { ok: false; error: string }
-> {
-  const email = await requireEmail();
-  if (!email) return { ok: false, error: 'Not signed in' };
-  const id = guestyListingId.trim();
-  if (!id) return { ok: false, error: 'Missing listing id' };
-  try {
-    const l = await getGuestyListing(id);
-    const space = scrubScaPlugs((l.publicDescription?.space || '').trim());
-    const summary = scrubScaPlugs((l.publicDescription?.summary || '').trim());
-    const { tagline, highlights } = parseGuestySummary(summary);
-    return {
-      ok: true,
-      draft: { tagline, description: space, highlights: highlights.slice(0, 5) },
-      aiGenerated: false,
-    };
-  } catch (e) {
-    return { ok: false, error: `Could not draft from Guesty: ${(e as Error).message}` };
-  }
-}
-
-/**
- * Stage one listing's hand-edited editorial copy onto the shared batch branch
- * (no merge — publishListingCopyBatch merges the whole batch at once so the site
- * rebuilds once). Surgically updates only tagline / description / highlights and
- * preserves every other field (pitch, dining picks, sleeping arrangements…).
- * Emptying a field removes the key, so the site falls back to Guesty for it.
- */
-export async function stageListingCopyEdit(
-  guestyListingId: string,
-  edit: { tagline: string; description: string; highlights: string[] },
-): Promise<{ ok: true; staged: boolean } | { ok: false; error: string }> {
-  const email = await requireEmail();
-  if (!email) return { ok: false, error: 'Not signed in' };
-  if (!gh.isGithubConfigured()) return { ok: false, error: 'GITHUB_TOKEN is not configured' };
-  const id = guestyListingId.trim();
-  if (!id) return { ok: false, error: 'Missing listing id' };
-
-  const tagline = (edit.tagline || '').trim();
-  const description = (edit.description || '').trim();
-  const highlights = (edit.highlights || []).map((h) => h.trim()).filter(Boolean);
-
-  try {
-    // Read from the batch branch if it exists (so edits accumulate), otherwise
-    // from production (and create the branch off it first).
-    const branchExisted = await gh.branchExists(COPY_BRANCH);
-    if (!branchExisted) {
-      await gh.createBranch(COPY_BRANCH, await gh.getBranchHeadSha(SCA_PROD_BRANCH));
-    }
-    const file = await gh.getFile(SCA_REGISTRY_PATH, branchExisted ? COPY_BRANCH : SCA_PROD_BRANCH);
-    if (!file) return { ok: false, error: `Could not read ${SCA_REGISTRY_PATH}` };
-
-    const obj = JSON.parse(file.contentUtf8) as RegistryShape;
-    const entry = (obj.listings ?? {})[id];
-    if (!entry) return { ok: false, error: 'Listing not found in the registry' };
-
-    const merged: Record<string, unknown> = { ...entry };
-    // Empty -> delete the key so the site falls back to Guesty for that field.
-    if (tagline) merged.tagline = tagline;
-    else delete merged.tagline;
-    if (description) merged.description = description;
-    else delete merged.description;
-    if (highlights.length) merged.highlights = highlights;
-    else delete merged.highlights;
-
-    const newContent = applyEntryToRegistryJson(
-      file.contentUtf8,
-      id,
-      merged as Parameters<typeof applyEntryToRegistryJson>[2],
-    );
-    if (newContent === file.contentUtf8) return { ok: true, staged: false };
-
-    await gh.putFile({
-      path: SCA_REGISTRY_PATH,
-      branch: COPY_BRANCH,
-      contentUtf8: newContent,
-      message: `Edit listing copy for ${String(entry.internalName || entry.publicName || id)}`,
-      sha: file.sha,
-    });
-    return { ok: true, staged: true };
-  } catch (e) {
-    return { ok: false, error: (e as Error).message };
-  }
-}
-
-/** Merge the staged listing-copy batch (sca-listing-copy branch) and refresh the site. */
-export async function publishListingCopyBatch(): Promise<
-  { ok: true; prUrl: string } | { ok: false; error: string }
-> {
-  const email = await requireEmail();
-  if (!email) return { ok: false, error: 'Not signed in' };
-  if (!gh.isGithubConfigured()) return { ok: false, error: 'GITHUB_TOKEN is not configured' };
-  try {
-    if (!(await gh.branchExists(COPY_BRANCH))) {
-      return { ok: false, error: 'Nothing staged to publish. Edit and stage some listings first.' };
-    }
-    let pr = await gh.findOpenPrForBranch(COPY_BRANCH);
-    if (!pr) {
-      pr = await gh.openPullRequest({
-        head: COPY_BRANCH,
-        base: SCA_PROD_BRANCH,
-        title: 'Update Stay Cape Ann listing copy',
-        body: 'Opened from Helm. Hand-edited editorial copy (tagline / About / highlights) in data/ical-urls.json.',
-      });
-    }
-    const merged = await gh.mergePullRequest(pr.number, 'squash');
-    if (!merged.merged) return { ok: false, error: `GitHub did not merge the PR. Review it at ${pr.html_url}` };
-    await gh.deleteBranch(COPY_BRANCH).catch(() => {});
-    try {
-      await gh.dispatchWorkflow(SCA_SNAPSHOT_WORKFLOW, SCA_PROD_BRANCH);
-    } catch (e) {
-      // Non-fatal (nightly cron backstops), but leave a trace in runtime logs.
-      console.error(`[sca] snapshot dispatch failed after copy-batch publish: ${(e as Error).message}`);
-    }
-    return { ok: true, prUrl: pr.html_url };
   } catch (e) {
     return { ok: false, error: (e as Error).message };
   }

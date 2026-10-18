@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
  * publish path for the registry entry the launcher edits: the same uploader
  * sits in each home's Stay Cape Ann launcher, under Sleeping arrangements and
  * bedroom photos, and a live listing opens there on what guests see. Old
- * links land on that home's launcher.
+ * links land on that home's launcher, or on the launcher index.
  */
 const PROPERTY_ID = /^[a-z0-9_]{1,60}$/;
 
@@ -37,5 +37,5 @@ export default async function BedroomPhotosRedirect({
 }) {
   const { listing, property } = await searchParams;
   const id = property && PROPERTY_ID.test(property) ? property : await propertyForListing((listing ?? '').trim());
-  redirect(id ? `/properties/${id}/stay-cape-ann#sleeping` : '/properties');
+  redirect(id ? `/properties/${id}/stay-cape-ann#sleeping` : '/properties/stay-cape-ann');
 }
