@@ -72,7 +72,7 @@ export async function submitApplication(_prev: ApplyState, formData: FormData): 
   }).select('id').maybeSingle();
   if (error || !saved) return { error: 'Could not save your application. Your answers are kept; please try again.' };
 
-  sendNewApplicantEmail({ full_name, email, phone, area, has_transport, source }).catch(() => {});
+  sendNewApplicantEmail({ full_name, email, phone, area, has_transport, source, trade }).catch(() => {});
 
   redirect('/field/apply?submitted=1');
 }

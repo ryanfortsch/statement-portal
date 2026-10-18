@@ -65,7 +65,6 @@ export async function inviteApplicant(formData: FormData): Promise<void> {
     .from('contractor_applications')
     .update({ status: 'invited', contractor_id: contractorId, reviewed_by_email: staff, updated_at: new Date().toISOString() })
     .eq('id', id);
-  revalidatePath('/fieldwork/hiring');
   revalidatePath('/fieldwork/roster');
 }
 
@@ -77,7 +76,7 @@ export async function declineApplicant(formData: FormData): Promise<void> {
     .from('contractor_applications')
     .update({ status: 'declined', reviewed_by_email: staff, updated_at: new Date().toISOString() })
     .eq('id', id);
-  revalidatePath('/fieldwork/hiring');
+  revalidatePath('/fieldwork/roster');
 }
 
 /**
@@ -123,7 +122,7 @@ export async function screenApplicants(formData: FormData): Promise<void> {
         .then(() => undefined);
     }),
   );
-  revalidatePath('/fieldwork/hiring');
+  revalidatePath('/fieldwork/roster');
 }
 
 /** Put a declined/invited application back in the active queue. */
@@ -135,5 +134,5 @@ export async function reopenApplicant(formData: FormData): Promise<void> {
     .from('contractor_applications')
     .update({ status: 'new', updated_at: new Date().toISOString() })
     .eq('id', id);
-  revalidatePath('/fieldwork/hiring');
+  revalidatePath('/fieldwork/roster');
 }

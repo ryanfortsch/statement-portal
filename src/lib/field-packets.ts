@@ -26,6 +26,7 @@ import { ACTIVE_WORK_SLIP_STATUSES } from '@/lib/work-types';
 import { ownerHoldOccupiesDay, type HoldDayRow } from '@/lib/field-stale-hold';
 import { stayNoteIsPast } from '@/lib/stay-note-slips';
 import type { JobTrade } from '@/lib/field-job-kinds';
+import { summarizeVisits, VISIT_PACKET_STATUSES, VISIT_SHOOT_STATUSES, type ContractorVisits, type VisitPacketRow, type VisitShootRow } from '@/lib/field-roster-visits';
 import { gearNeedsArrivals, slipInVisitWindow, type HomeArrival } from '@/lib/slip-visit-window';
 import { getContractorShootStats } from '@/lib/creative-shoots';
 import { getPropertyAccessMap, type PropertyAccess } from '@/lib/property-access';
@@ -3164,6 +3165,36 @@ export type ContractorPayStats = {
   paidCents: number; // marked paid
   pendingCents: number; // approved creative shoots still counting views (real, not yet a firm number)
 };
+
+/** Next and last visit per contractor, for the roster card's summary line.
+ *  Paged: the packet and shoot history only grows, and a bare select stops
+ *  at 1000 rows without a word. The rule is summarizeVisits'. */
+export async function loadContractorVisits(today: string): Promise<Map<string, ContractorVisits>> {
+  const [packets, shoots] = await Promise.all([
+    selectAllPaged<VisitPacketRow>(
+      (from, to) =>
+        fieldDb()
+          .from('inspection_packets')
+          .select('awarded_contractor_id, visit_date, status')
+          .in('status', [...VISIT_PACKET_STATUSES])
+          .not('awarded_contractor_id', 'is', null)
+          .order('id')
+          .range(from, to),
+      { label: 'roster visits' },
+    ),
+    selectAllPaged<VisitShootRow>(
+      (from, to) =>
+        fieldDb()
+          .from('creative_shoots')
+          .select('contractor_id, shoot_date, status')
+          .in('status', [...VISIT_SHOOT_STATUSES])
+          .order('id')
+          .range(from, to),
+      { label: 'roster shoots' },
+    ),
+  ]);
+  return summarizeVisits(packets, shoots, today);
+}
 
 /** Per-contractor Field earnings: only APPROVED packets count toward pay, so
  *  unreviewed work never shows as owed. This is Field's own ledger, separate

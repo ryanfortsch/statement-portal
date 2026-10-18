@@ -255,15 +255,15 @@ export const HELM_MODULES: HelmModule[] = [
   },
   {
     id: 'hiring',
-    href: '/fieldwork/hiring',
+    href: '/fieldwork/roster#applicants',
     number: '03b',
     title: 'Hiring',
-    description: 'Applicant pipeline. Review applications, invite or decline, track source channels.',
+    description: 'Applicants, at the top of each roster. Review applications, invite or decline, track source channels.',
     status: 'active',
     primary: false,
-    // A tab inside the Field section (see FieldTabs: Packets / Contractors /
-    // Hiring), so it's hidden from the standalone nav lists -- route + search
-    // still resolve, it just doesn't duplicate the Field entry.
+    // The Applicants section of the Roster (Hiring folded into it,
+    // 2026-10-18), so it's hidden from the standalone nav lists -- search
+    // still resolves it, it just doesn't duplicate the Field entry.
     hidden: true,
     group: 'operations',
     section: 'field',

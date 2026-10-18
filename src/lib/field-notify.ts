@@ -1033,7 +1033,10 @@ export async function sendContractorQuestionEmail(
 export async function sendNewApplicantEmail(app: {
   full_name: string; email: string; phone: string | null; area: string | null;
   has_transport: boolean | null; source: string | null;
+  /** Lands the button on that trade's roster, where the applicants are. */
+  trade?: string | null;
 }): Promise<boolean> {
+  const reviewUrl = `${fieldBaseUrl()}/fieldwork/roster?trade=${encodeURIComponent(app.trade || 'inspection')}#applicants`;
   const details = [
     `<strong>${app.full_name}</strong>`,
     app.email,
@@ -1046,14 +1049,14 @@ export async function sendNewApplicantEmail(app: {
   const html = shell(`
     <h1 style="font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 14px;">New Field applicant</h1>
     <p style="font-size:14px;">${details}</p>
-    ${btn(`${fieldBaseUrl()}/fieldwork/hiring`, 'Review in Helm')}
+    ${btn(reviewUrl, 'Review in Helm')}
   `);
   return sendTransactionalViaResend({
     ...officeNotice(),
     subject: `New Field applicant: ${app.full_name}`,
     fromName: FROM_NAME,
     html,
-    text: `New Field applicant: ${app.full_name} (${app.email}). Review at ${fieldBaseUrl()}/fieldwork/hiring`,
+    text: `New Field applicant: ${app.full_name} (${app.email}). Review at ${reviewUrl}`,
   });
 }
 

@@ -16,8 +16,8 @@ import { NAV_TRADES, TRADE_META, type ContractorTrade } from '@/lib/field-types'
  * lives in the query string and the pathname cannot derive it.
  *
  * Row 2 (lens) is the function within a job: Packets (the priced work board),
- * Shoots & Pay (creative's planner grid + money surface), Roster (the people), Hiring (the
- * applicant pipeline), Trades (the outside vendors we dispatch). Packets only
+ * Shoots & Pay (creative's planner grid + money surface), Roster (the people,
+ * with the applicants at the top), Trades (the outside vendors we dispatch). Packets only
  * shows for trades that use the packet machinery - creative work is paid per
  * delivered asset, so its board is Shoots & Pay instead. It rides in the
  * primitive's secondRow slot.
@@ -38,7 +38,7 @@ import { NAV_TRADES, TRADE_META, type ContractorTrade } from '@/lib/field-types'
  * strip's own markup, so it asks the role itself.
  */
 
-type FieldLens = 'packets' | 'shoots' | 'contractors' | 'hiring' | 'trades' | 'close';
+type FieldLens = 'packets' | 'shoots' | 'contractors' | 'trades' | 'close';
 
 /** The lenses that belong to no job type: no ?trade=, no lit row-1 tab. */
 const TRADELESS: ReadonlySet<FieldLens> = new Set<FieldLens>(['trades', 'close']);
@@ -47,7 +47,6 @@ const LENS_HREF: Record<FieldLens, string> = {
   packets: '/fieldwork/packets',
   shoots: '/fieldwork/shoots',
   contractors: '/fieldwork/roster',
-  hiring: '/fieldwork/hiring',
   trades: '/fieldwork/trades',
   close: '/fieldwork/close',
 };
@@ -82,7 +81,6 @@ export function FieldTabs({
       TRADE_META[trade].hasPackets ? { id: 'packets', label: 'Packets' } : null,
       hasShoots(trade) ? { id: 'shoots', label: 'Shoots & Pay' } : null,
       { id: 'contractors', label: 'Roster' },
-      { id: 'hiring', label: 'Hiring' },
       { id: 'trades', label: 'Trades' },
       // The month-close handoff: field data for the statement close. Off
       // the trade grid, like Trades.

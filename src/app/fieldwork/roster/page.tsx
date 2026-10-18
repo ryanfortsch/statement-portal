@@ -4,7 +4,9 @@ import { FieldTabs } from '@/components/FieldTabs';
 import { HelmFooter } from '@/components/HelmFooter';
 import { fieldDb, isFieldConfigured } from '@/lib/field-db';
 import { fieldBaseUrl } from '@/lib/field-notify';
-import { getContractorPayStats, getContractorReliability, loadApplications } from '@/lib/field-packets';
+import { getContractorPayStats, getContractorReliability, loadApplications, loadContractorVisits } from '@/lib/field-packets';
+import type { ContractorVisits } from '@/lib/field-roster-visits';
+import { operatingDate } from '@/lib/operating-date';
 import { getContractorRatings, TIER_RANK, type RatingTier } from '@/lib/field-ratings';
 import { loadW9Summaries } from '@/lib/field-w9';
 import { loadPaymentSummaries } from '@/lib/field-pay';
@@ -17,8 +19,8 @@ import { SubmitButton } from '@/components/SubmitButton';
 import { RevealW9 } from './RevealW9';
 import { RevealPay } from './RevealPay';
 import { RateCardPanel, TalentRateStrip, rateCardSummary } from './RateCardPanel';
+import { Applicants } from './Applicants';
 import {
-  inviteContractor,
   setContractorW9, setContractorWorkBoard, setContractorEmployment,
   setContractorBackgroundCheck,
   markContractorPaid,
@@ -113,7 +115,8 @@ export default async function ContractorsPage({
   // 1099 read is by normalized vendor name (or the contractor's vendor_key if
   // set) -- it's the actual bank payment, kept separate from Field's agreed
   // price so nothing double-counts.
-  const [payStats, report, reliability, w9s, ratings, payMethods, applications, rateCards] = await Promise.all([
+  const today = operatingDate();
+  const [payStats, report, reliability, w9s, ratings, payMethods, applications, rateCards, visits] = await Promise.all([
     getContractorPayStats(),
     getVendor1099Report().catch(() => null),
     getContractorReliability(),
@@ -122,10 +125,10 @@ export default async function ContractorsPage({
     loadPaymentSummaries(),
     loadApplications().catch(() => []),
     loadRateCards(),
+    // The card's calendar line. A failed read leaves the line saying nothing
+    // rather than "No visits yet" about someone booked tomorrow.
+    loadContractorVisits(today).catch(() => null),
   ]);
-  const newApplicants = applications.filter(
-    (a) => (a.status === 'new' || a.status === 'reviewing') && (a.trade ?? 'inspection') === trade,
-  ).length;
   const booksByKey = new Map<string, BooksVal>();
   if (report) {
     for (const r of report.rows) booksByKey.set(r.vendorKey, { ytd: r.ytdTotal, w9: r.w9OnFile, over: r.eligible1099 });
@@ -182,9 +185,6 @@ export default async function ContractorsPage({
                 Shoots &amp; pay →
               </Link>
             )}
-            <Link href={`/fieldwork/hiring?trade=${trade}`} style={{ fontSize: 13, color: newApplicants > 0 ? 'var(--signal)' : 'var(--tide-deep)', fontWeight: newApplicants > 0 ? 600 : 400, textDecoration: 'none' }}>
-              Applicants{newApplicants > 0 ? ` · ${newApplicants} new` : ''} →
-            </Link>
           </div>
         </div>
         <p style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 4, marginBottom: 18 }}>
@@ -197,12 +197,16 @@ export default async function ContractorsPage({
               : `Everyone on the ${meta.label.toLowerCase()} roster: standing and reliability.`}
         </p>
 
-        {/* The rate card and the invite form fold away: both are set-up
-            chores, and open they pushed the people below the fold on every
-            visit (Dotti, 2026-09-21: "simplify overall"). The fold summary
-            still carries the ladder, so the numbers stay one glance away.
-            The panel keeps its #rate-card anchor for the save redirect; a
-            fragment landing inside a closed details opens it. */}
+        {/* Hiring lives here now: the applicants for this trade first, with
+            the one invite door. The retired Hiring page redirects here. */}
+        <Applicants apps={applications} trade={trade} owner={owner} base={base} />
+
+        {/* The rate card folds away: a set-up chore that, open, pushed the
+            people below the fold on every visit (Dotti, 2026-09-21:
+            "simplify overall"). The fold summary still carries the ladder,
+            so the numbers stay one glance away. The panel keeps its
+            #rate-card anchor for the save redirect; a fragment landing
+            inside a closed details opens it. */}
         {trade === 'creative' && (
           <details style={{ marginBottom: 10 }}>
             <summary style={foldSummary}>
@@ -213,43 +217,6 @@ export default async function ContractorsPage({
             </div>
           </details>
         )}
-
-        <details style={{ marginBottom: 26 }}>
-          <summary style={foldSummary}>+ Invite {trade === 'creative' ? 'a contributor' : `${/^[aeiou]/i.test(meta.singular) ? 'an' : 'a'} ${meta.singular}`} ▾</summary>
-          <p style={{ fontSize: 12.5, color: 'var(--ink-4)', margin: '8px 0 10px', lineHeight: 1.5 }}>
-            We email them a personal portal link. They set up their account (W-9 + agreement) before they can{' '}
-            {trade === 'creative' ? 'take on paid assets' : 'claim paid work'}.
-          </p>
-          {/* Invite form */}
-          {owner && (
-          <form action={inviteContractor} style={{ border: '1px solid var(--rule)', borderRadius: 12, background: 'var(--paper-2, #fff)', padding: '14px 18px', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-          <label style={lbl}>
-            Name
-            <input name="full_name" required placeholder="Marcus Reed" style={inp} />
-          </label>
-          <label style={lbl}>
-            Email
-            <input name="email" type="email" required placeholder="marcus@example.com" style={inp} />
-          </label>
-          <label style={lbl}>
-            Phone
-            <input name="phone" type="tel" placeholder="(978) 555-0123" style={inp} />
-          </label>
-          <label style={lbl}>
-            Trade
-            {/* Cleaning is a valid trade with no tab (turnovers run through
-                Cape Ann Elite), so an invited cleaner would vanish from
-                every roster view. Not offered until a Cleaners tab exists. */}
-            <select name="trade" defaultValue={trade} style={inp}>
-              <option value="inspection">Inspection</option>
-              <option value="maintenance">Maintenance</option>
-              <option value="creative">Creative</option>
-            </select>
-          </label>
-          <SubmitButton label="Send invite" busyLabel="Sending invite…" style={btnDark} />
-          </form>
-          )}
-        </details>
 
         {/* W-9 workspace: clear the recurring pre-1099 chore in one place. */}
         {needsW9.length > 0 && (
@@ -296,6 +263,8 @@ export default async function ContractorsPage({
               w9={w9s.get(c.id)}
               pm={payMethods.get(c.id)}
               books={booksByKey.get(c.vendor_key ? norm(c.vendor_key) : norm(c.full_name))}
+              visits={visits ? visits.get(c.id) ?? { next: null, last: null } : null}
+              today={today}
               rate={
                 trade === 'creative'
                   ? { card: rateCards.byContractor.get(c.id) ?? rateCards.def, isCustom: rateCards.byContractor.has(c.id) }
@@ -326,6 +295,8 @@ export default async function ContractorsPage({
                   w9={w9s.get(c.id)}
                   pm={payMethods.get(c.id)}
                   books={booksByKey.get(c.vendor_key ? norm(c.vendor_key) : norm(c.full_name))}
+                  visits={visits ? visits.get(c.id) ?? { next: null, last: null } : null}
+                  today={today}
                   rate={
                     trade === 'creative'
                       ? { card: rateCards.byContractor.get(c.id) ?? rateCards.def, isCustom: rateCards.byContractor.has(c.id) }
@@ -350,17 +321,37 @@ function Pill({ label, color }: { label: string; color: string }) {
   );
 }
 
-function Stat({ label, children }: { label: string; children: React.ReactNode }) {
+/** One line of a card's Record: the label, then what it says. */
+function RecordRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div style={{ background: 'var(--paper)', borderRadius: 8, padding: '9px 12px', minWidth: 0 }}>
-      <div style={{ fontSize: 9.5, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.45 }}>{children}</div>
+    <div style={{ display: 'grid', gridTemplateColumns: '108px 1fr', gap: 10, padding: '6px 0', alignItems: 'baseline', borderTop: '1px solid var(--rule)' }}>
+      <div style={{ fontSize: 9.5, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>{label}</div>
+      <div style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.45, minWidth: 0 }}>{children}</div>
     </div>
   );
 }
 
+/** "Fri, Oct 24" for a YYYY-MM-DD, pinned to noon UTC so Eastern can't slip a day. */
+function fmtVisitDay(d: string): string {
+  try {
+    return new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric' });
+  } catch {
+    return d;
+  }
+}
+
+/** The status pill: where they stand, with the background check folded in
+ *  while it is the thing between them and a claim. */
+function standingOf(c: ContractorRow): { label: string; color: string } {
+  const status = STATUS_LABEL[c.status] ?? c.status;
+  const tint = STATUS_TINT[c.status] ?? 'var(--ink-4)';
+  const bg = c.background_check_status;
+  if (c.status === 'archived' || isEmployee(c) || bg === 'cleared') return { label: status, color: tint };
+  return { label: `${status} · check ${(BG_LABEL[bg] ?? bg).toLowerCase()}`, color: bg === 'failed' ? BG_TINT.failed : tint };
+}
+
 function ContractorCard({
-  c, base, owner, rating, rank, rel, ps, w9, pm, books, rate,
+  c, base, owner, rating, rank, rel, ps, w9, pm, books, visits, today, rate,
 }: {
   c: ContractorRow;
   base: string;
@@ -373,6 +364,9 @@ function ContractorCard({
   w9?: W9Val;
   pm?: PayMethodVal;
   books?: BooksVal;
+  /** Next and last visit; null when the read failed (the line says nothing). */
+  visits: ContractorVisits | null;
+  today: string;
   rate?: { card: RateCard; isCustom: boolean } | null;
 }) {
   const initials = c.full_name.split(' ').map((p) => p[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
@@ -382,11 +376,24 @@ function ContractorCard({
   const booksCents = books ? Math.round(books.ytd * 100) : 0;
   const gap = ps && ps.paidCents > 0 && books ? ps.paidCents - booksCents : 0;
   const w9OnFile = !!w9 || !!books?.w9;
+  const standing = standingOf(c);
+  const noun = isCreative ? 'shoot' : 'visit';
+  const visitLine = !visits
+    ? null
+    : visits.next === today
+      ? `${isCreative ? 'Shoot' : 'Visit'} today`
+      : visits.next
+        ? `Next ${noun} ${fmtVisitDay(visits.next)}`
+        : visits.last
+          ? `Last ${noun} ${fmtVisitDay(visits.last)}`
+          : `No ${noun}s yet`;
 
   return (
     <details style={{ border: '1px solid var(--rule)', borderRadius: 12, background: 'var(--paper-2, #fff)', marginBottom: 14 }}>
-      {/* Collapsed by default: the summary carries the vital signs (money,
-          rating, reliability, W-9) so the whole roster scans in one screen.
+      {/* Collapsed by default: the summary carries three facts (where they
+          stand, their next or last visit, their W-9) so the whole roster
+          scans in one screen for "who can I send tomorrow". Pay, the
+          reliability score and the guest-review medal are in the Record.
           Deliberately uncontrolled -- no `open` prop -- so a card the operator
           expanded stays expanded when an action inside it revalidates. */}
       <summary className="rt-fold-summary" style={{ padding: '16px 18px', cursor: 'pointer', listStyle: 'none' }}>
@@ -412,119 +419,113 @@ function ContractorCard({
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center' }}>
           {isEmployee(c) && <Pill label="Employee" color="var(--tide-deep)" />}
-          <Pill label={STATUS_LABEL[c.status] ?? c.status} color={STATUS_TINT[c.status] ?? 'var(--ink-4)'} />
-          <Pill label={`Check: ${BG_LABEL[c.background_check_status] ?? c.background_check_status}`} color={BG_TINT[c.background_check_status] ?? 'var(--ink-4)'} />
+          <Pill label={standing.label} color={standing.color} />
           <span aria-hidden style={{ fontSize: 11, color: 'var(--ink-4)' }}>&#9662;</span>
         </div>
       </div>
-      {/* Vital signs while collapsed: the four numbers worth scanning. Pay
-          is owner money (CLAUDE.md: contractor pay and tax details), so a
-          staff login sees the standing and reliability numbers only. */}
       <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 10, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'baseline' }}>
-        {owner && earned && ps!.owedCents > 0 && <span style={{ color: 'var(--signal)', fontWeight: 600 }}>{dollars(ps!.owedCents)} owed</span>}
-        {owner && earned && ps!.paidCents > 0 && <span style={{ color: 'var(--positive)' }}>{dollars(ps!.paidCents)} paid</span>}
-        {!earned && <span>No approved work</span>}
-        {rating && rating.count > 0 && (
-          <span>&#9733; {rating.rated && rating.avg != null ? rating.avg.toFixed(2) : '\u2014'} <span style={{ color: 'var(--ink-4)' }}>({rating.count})</span></span>
+        {visitLine && <span style={{ color: visits?.next ? 'var(--ink-3)' : 'var(--ink-4)' }}>{visitLine}</span>}
+        {isEmployee(c) ? (
+          <span>On payroll</span>
+        ) : w9OnFile ? (
+          <span style={{ color: 'var(--positive)' }}>W-9 on file</span>
+        ) : (
+          <span style={{ color: 'var(--signal)', fontWeight: 600 }}>W-9 needed</span>
         )}
-        {!isCreative && rel && <span style={{ color: TIER_TINT[rel.tier] }}>{TIER_LABEL[rel.tier]}{rel.score != null ? ` \u00b7 ${rel.score}` : ''}</span>}
-        {!w9OnFile && c.status === 'active' && !isEmployee(c) && <span style={{ color: 'var(--signal)', fontWeight: 600 }}>W-9 needed</span>}
-        {isEmployee(c) && <span>On payroll · no paid packets</span>}
       </div>
       </summary>
 
       <div style={{ padding: '0 18px 16px' }}>
-      {/* Metric ribbon. Earnings and Books YTD are owner money and render
-          for owners only; staff keep reviews and reliability. */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginTop: 14 }}>
-        {owner && (
-        <Stat label="Earnings">
-          {earned ? (
-            <>
-              {ps!.owedCents > 0 && <span style={{ color: 'var(--signal)', fontWeight: 600 }}>{dollars(ps!.owedCents)} owed</span>}
-              {ps!.owedCents > 0 && ps!.paidCents > 0 && <span style={{ color: 'var(--ink-4)' }}> · </span>}
-              {ps!.paidCents > 0 && <span style={{ color: 'var(--positive)' }}>{dollars(ps!.paidCents)} paid</span>}
-              {ps!.pendingCents > 0 && (
-                // Approved creative shoots still counting views: real money, not
-                // a firm number yet, so it can't be "paid" from here.
-                <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 2 }}>{dollars(ps!.pendingCents)} counting views</div>
-              )}
-              {owner && ps!.owedCents > 0 && (
-                isCreative ? (
-                  // Creative pay is settled per post on the shoot page, not swept here.
-                  <Link href="/fieldwork/shoots" style={{ marginTop: 5, display: 'inline-block', fontSize: 11.5, color: 'var(--tide-deep)', fontWeight: 600, textDecoration: 'none' }}>
-                    Pay {dollars(ps!.owedCents)} on the shoots →
-                  </Link>
-                ) : (
-                  <form action={markContractorPaid} style={{ marginTop: 5, display: 'flex', gap: 5, alignItems: 'center' }}>
-                    <input type="hidden" name="contractor_id" value={c.id} />
-                    <input name="reference" placeholder="ref #" style={{ font: 'inherit', fontSize: 11, width: 56, border: '1px solid var(--rule)', background: 'var(--paper)', padding: '3px 5px', color: 'var(--ink)', borderRadius: 4 }} />
-                    <SubmitButton label={`Mark ${dollars(ps!.owedCents)} paid`} busyLabel="Recording…" style={payBtn} />
-                  </form>
-                )
-              )}
-            </>
-          ) : (
-            <span style={{ color: 'var(--ink-4)' }}>No approved work</span>
-          )}
-        </Stat>
-        )}
-
-        <Stat label="Guest reviews">
-          {rating && rating.count > 0 ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
-              {rank && <span style={{ fontWeight: 700 }}>#{rank}</span>}
-              <span>★ {rating.rated && rating.avg != null ? rating.avg.toFixed(2) : '—'}</span>
-              <span style={{ color: 'var(--ink-4)', fontSize: 12 }}>{rating.count}</span>
-              <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: RATING_TIER_TINT[rating.tier] }}>{RATING_TIER_LABEL[rating.tier]}</span>
-            </div>
-          ) : (
-            <span style={{ color: 'var(--ink-4)' }}>None yet</span>
-          )}
-        </Stat>
-
+      {/* The Record: how they have done, in one block. Reliability (or the
+          shoots) and guest reviews for everyone; earnings and Books YTD are
+          owner money and render for owners only. */}
+      <div style={{ marginTop: 14, background: 'var(--paper)', borderRadius: 8, padding: '8px 14px 4px' }}>
+        <div style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-4)', fontWeight: 600, paddingBottom: 6 }}>Record</div>
         {isCreative ? (
           // Creative pay is per delivered post, not per packet, so packet-based
-          // reliability (on-time / redo / flaked) doesn't apply — show shoots.
-          <Stat label="Shoots">
+          // reliability (on-time / redo / flaked) doesn't apply: show shoots.
+          <RecordRow label="Shoots">
             {ps && ps.approvedCount + ps.paidCount > 0 ? (
               <span>{ps.paidCount} paid{ps.approvedCount > 0 ? ` · ${ps.approvedCount} to pay` : ''}</span>
             ) : (
               <span style={{ color: 'var(--ink-4)' }}>No approved shoots</span>
             )}
-          </Stat>
+          </RecordRow>
         ) : (
-          <Stat label="Reliability">
+          <RecordRow label="Reliability">
             {rel ? (
               <>
                 <span style={{ color: TIER_TINT[rel.tier], fontWeight: 600 }}>{TIER_LABEL[rel.tier]}{rel.score != null ? ` · ${rel.score}` : ''}</span>
-                <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 2 }}>
-                  {[`${rel.completed} done`, onTimePct != null ? `${onTimePct}% on-time` : '', rel.reworked ? `${rel.reworked} redo` : '', rel.flaked ? `${rel.flaked} flaked` : ''].filter(Boolean).join(' · ')}
-                </div>
+                <span style={{ color: 'var(--ink-4)', fontSize: 12 }}>
+                  {' · '}{[`${rel.completed} done`, onTimePct != null ? `${onTimePct}% on-time` : '', rel.reworked ? `${rel.reworked} redo` : '', rel.flaked ? `${rel.flaked} flaked` : ''].filter(Boolean).join(' · ')}
+                </span>
               </>
             ) : (
               <span style={{ color: 'var(--ink-4)' }}>No work yet</span>
             )}
-          </Stat>
+          </RecordRow>
+        )}
+
+        <RecordRow label="Guest reviews">
+          {rating && rating.count > 0 ? (
+            <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 7, flexWrap: 'wrap' }}>
+              <span>★ {rating.rated && rating.avg != null ? rating.avg.toFixed(2) : '—'}</span>
+              <span style={{ color: 'var(--ink-4)', fontSize: 12 }}>({rating.count})</span>
+              {rank && <span style={{ color: 'var(--ink-4)', fontSize: 12 }}>#{rank} on the roster</span>}
+              <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: RATING_TIER_TINT[rating.tier] }}>{RATING_TIER_LABEL[rating.tier]}</span>
+            </span>
+          ) : (
+            <span style={{ color: 'var(--ink-4)' }}>None yet</span>
+          )}
+        </RecordRow>
+
+        {owner && (
+          <RecordRow label="Earnings">
+            {earned ? (
+              <>
+                {ps!.owedCents > 0 && <span style={{ color: 'var(--signal)', fontWeight: 600 }}>{dollars(ps!.owedCents)} owed</span>}
+                {ps!.owedCents > 0 && ps!.paidCents > 0 && <span style={{ color: 'var(--ink-4)' }}> · </span>}
+                {ps!.paidCents > 0 && <span style={{ color: 'var(--positive)' }}>{dollars(ps!.paidCents)} paid</span>}
+                {ps!.pendingCents > 0 && (
+                  // Approved creative shoots still counting views: real money, not
+                  // a firm number yet, so it can't be "paid" from here.
+                  <span style={{ fontSize: 11, color: 'var(--ink-4)' }}> · {dollars(ps!.pendingCents)} counting views</span>
+                )}
+                {ps!.owedCents > 0 && (
+                  isCreative ? (
+                    // Creative pay is settled per post on the shoot page, not swept here.
+                    <Link href="/fieldwork/shoots" style={{ marginTop: 5, display: 'block', fontSize: 11.5, color: 'var(--tide-deep)', fontWeight: 600, textDecoration: 'none' }}>
+                      Pay {dollars(ps!.owedCents)} on the shoots →
+                    </Link>
+                  ) : (
+                    <form action={markContractorPaid} style={{ marginTop: 5, display: 'flex', gap: 5, alignItems: 'center' }}>
+                      <input type="hidden" name="contractor_id" value={c.id} />
+                      <input name="reference" placeholder="ref #" style={{ font: 'inherit', fontSize: 11, width: 56, border: '1px solid var(--rule)', background: 'var(--paper-2, #fff)', padding: '3px 5px', color: 'var(--ink)', borderRadius: 4 }} />
+                      <SubmitButton label={`Mark ${dollars(ps!.owedCents)} paid`} busyLabel="Recording…" style={payBtn} />
+                    </form>
+                  )
+                )}
+              </>
+            ) : (
+              <span style={{ color: 'var(--ink-4)' }}>No approved work</span>
+            )}
+          </RecordRow>
         )}
 
         {owner && (
-        <Stat label="Books YTD">
-          <span>{dollars(booksCents)}{books?.over ? ' · 1099' : ''}</span>
-          <div style={{ fontSize: 11, marginTop: 2 }}>
+          <RecordRow label="Books YTD">
+            <span>{dollars(booksCents)}{books?.over ? ' · 1099' : ''}</span>
+            {' · '}
             {w9OnFile ? (
-              <span style={{ color: 'var(--positive)' }}>W-9 on file</span>
-            ) : owner ? (
+              <span style={{ color: 'var(--positive)', fontSize: 12 }}>W-9 on file</span>
+            ) : (
               <form action={setContractorW9} style={{ display: 'inline' }}>
                 <input type="hidden" name="contractor_id" value={c.id} />
                 <input type="hidden" name="on_file" value="true" />
                 <SubmitButton label="Mark W-9 on file" busyLabel="Marking…" style={linkBtn} spinnerTone="ink" />
               </form>
-            ) : (
-              <span style={{ color: 'var(--ink-4)' }}>W-9 not on file</span>
             )}
-          </div>
-        </Stat>
+          </RecordRow>
         )}
       </div>
 
@@ -567,10 +568,9 @@ function ContractorCard({
       {/* Actions */}
       <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center', marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--rule)' }}>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>Background</span>
-          {!owner && (
-            <span style={{ fontSize: 11.5, color: 'var(--ink-3)' }}>{BG_LABEL[c.background_check_status] ?? c.background_check_status}</span>
-          )}
+          {/* The check's state rides the status pill; this row is the
+              owner's lever to change it. */}
+          {owner && <span style={{ fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>Background</span>}
           {/* Clearing a check is the one gate between a person and an
               owner's house: owners only. */}
           {owner && (['pending', 'cleared', 'failed'] as const)
@@ -670,29 +670,6 @@ const foldSummary: React.CSSProperties = {
   listStyle: 'none',
   userSelect: 'none',
   padding: '6px 0',
-};
-const lbl: React.CSSProperties = { fontSize: 11, color: 'var(--ink-4)', display: 'flex', flexDirection: 'column', gap: 4 };
-const inp: React.CSSProperties = {
-  font: 'inherit',
-  fontSize: 14,
-  color: 'var(--ink)',
-  background: 'var(--paper)',
-  border: '1px solid var(--rule)',
-  padding: '8px 10px',
-  minWidth: 170,
-  borderRadius: 6,
-};
-const btnDark: React.CSSProperties = {
-  background: 'var(--ink)',
-  color: 'var(--paper)',
-  border: 'none',
-  cursor: 'pointer',
-  fontSize: 11,
-  fontWeight: 600,
-  letterSpacing: '0.12em',
-  textTransform: 'uppercase',
-  padding: '10px 18px',
-  borderRadius: 6,
 };
 const actBtn: React.CSSProperties = {
   background: 'var(--paper)',

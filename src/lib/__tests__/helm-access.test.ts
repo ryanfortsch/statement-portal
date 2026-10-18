@@ -547,10 +547,14 @@ describe('owner money on the pages staff keep renders for owners only (part two)
 
   test('a roster card shows staff no pay, no Books YTD, no W-9 details and no payment method', () => {
     const src = read('src/app/fieldwork/roster/page.tsx');
-    assert.ok(src.includes('{owner && earned && ps!.owedCents > 0 &&'), 'the collapsed owed figure is owners only');
-    assert.ok(src.includes('{owner && earned && ps!.paidCents > 0 &&'), 'the collapsed paid figure is owners only');
-    assert.ok(/\{owner && \(\n\s*<Stat label="Earnings">/.test(src), 'the Earnings stat is owners only');
-    assert.ok(/\{owner && \(\n\s*<Stat label="Books YTD">/.test(src), 'the Books YTD stat is owners only');
+    // The collapsed summary carries standing, the next or last visit and the
+    // W-9 state: no dollars at all, for anyone (Roster merge, 2026-10-18).
+    const at = src.indexOf('<summary className="rt-fold-summary"');
+    const summary = at < 0 ? '' : src.slice(at, src.indexOf('</summary>', at));
+    assert.ok(summary.length > 0, 'the card summary is found');
+    assert.doesNotMatch(summary, /dollars\(/, 'the collapsed card prints no pay');
+    assert.ok(/\{owner && \(\n\s*<RecordRow label="Earnings">/.test(src), 'the Earnings line of the Record is owners only');
+    assert.ok(/\{owner && \(\n\s*<RecordRow label="Books YTD">/.test(src), 'the Books YTD line of the Record is owners only');
     assert.ok(src.includes('{owner && w9 && ('), 'the W-9 summary line is owners only');
     assert.ok(src.includes('{owner && pm && ('), 'the payment method line is owners only');
     assert.ok(src.includes('{owner && Math.abs(gap) > 5000 && ('), 'the pay-versus-books gap is owners only');
