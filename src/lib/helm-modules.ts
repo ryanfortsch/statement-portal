@@ -348,7 +348,7 @@ export const HELM_MODULES: HelmModule[] = [
     href: '/work',
     number: '04',
     title: 'Work',
-    description: 'Work slips per property + team tasks. Filter by mine, high priority, due today, unclaimed. Mark done inline.',
+    description: 'Work slips per property, plus office to-dos that belong to no house. Filter by mine, high priority, due today, unassigned. Mark done inline.',
     status: 'active',
     primary: true,
     group: 'operations',

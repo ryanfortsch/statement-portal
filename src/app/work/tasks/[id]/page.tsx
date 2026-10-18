@@ -51,7 +51,7 @@ export default async function WorkTaskDetailPage({ params }: { params: Promise<P
         properties={data.properties}
         myEmail={session?.user?.email ?? ''}
       />
-      <HelmFooter module="Task" right="Source: Helm" />
+      <HelmFooter module="Office to-do" right="Source: Helm" />
     </>
   );
 }

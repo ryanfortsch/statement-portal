@@ -1,5 +1,7 @@
 export type WorkSlipCategory = 'maintenance' | 'inventory' | 'owner' | 'vendor' | 'other' | 'rising_tide' | 'ad_hoc';
-export type WorkSlipPriority = 'low' | 'normal' | 'high';
+/** One priority scale for a work slip and an office to-do. */
+export type WorkPriority = 'low' | 'normal' | 'high';
+export type WorkSlipPriority = WorkPriority;
 /** Who should do a maintenance slip: a field inspector during a routine
  *  stop, a handyman on a dedicated maintenance run, or a licensed/specialty
  *  vendor the office books. AI-triaged in lib/maintenance-runs.ts. */
@@ -10,7 +12,13 @@ export type WorkSlipOwnerActionType = 'approve' | 'purchase' | 'schedule' | 'dec
 export type WorkSlipOwnerStatus = 'not_sent' | 'sent' | 'approved' | 'declined' | 'questions';
 
 export type TaskScope = 'corporate' | 'property';
-export type TaskPriority = 'low' | 'medium' | 'high';
+/** An office to-do (a `tasks` row) is on the slip's scale. It said "medium"
+ *  until 2026-10-18, when 20261018_task_priority_normal*.sql added 'normal'
+ *  to the enum and rewrote every row; the enum still holds 'medium' and
+ *  nothing writes it. */
+export type TaskPriority = WorkPriority;
+/** 'archived' is how Dismiss is stored: closed without doing it. People
+ *  read it as Dismissed (TASK_STATUS_LABELS), the slip's word. */
 export type TaskStatus = 'open' | 'in_progress' | 'blocked' | 'done' | 'archived';
 
 export type WorkSlipRow = {
@@ -203,6 +211,36 @@ export type RunsBoardData = {
 /** "open" / "in_progress" / "scheduled" — anything that's still active. */
 export const ACTIVE_WORK_SLIP_STATUSES: WorkSlipStatus[] = ['open', 'in_progress', 'scheduled'];
 export const ACTIVE_TASK_STATUSES: TaskStatus[] = ['open', 'in_progress', 'blocked'];
+
+/**
+ * Slips and office to-dos are two tables and one way of working. A slip
+ * belongs to a house; an office to-do does not, and that is the whole
+ * difference a person ever needs (the board tab, the to-do page and the
+ * home feed all say "Office to-do"). Both use the same priority words, the
+ * same close verbs (Mark done, Dismiss, Reopen) and the same back link.
+ * work-office-todos.test.ts guards the words and the scale.
+ */
+export const OFFICE_TODO_LABEL = 'Office to-do';
+export const OFFICE_TODOS_LABEL = 'Office to-dos';
+
+export const WORK_PRIORITIES: readonly WorkPriority[] = ['low', 'normal', 'high'];
+export const WORK_PRIORITY_LABELS: Record<WorkPriority, string> = { low: 'Low', normal: 'Normal', high: 'High' };
+
+export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
+  open: 'Open',
+  in_progress: 'In progress',
+  blocked: 'Blocked',
+  done: 'Done',
+  archived: 'Dismissed',
+};
+
+/** What the to-do page's status chips offer. Closing is the Wrap up
+ *  panel's job (Mark done, Dismiss), as on a slip, so neither Done nor
+ *  Archived is a status anyone picks from a list. */
+export const TASK_PICKER_STATUSES: readonly TaskStatus[] = ['open', 'in_progress', 'blocked'];
+export const TASK_CLOSED_STATUSES: readonly TaskStatus[] = ['done', 'archived'];
+/** Dismiss writes this. */
+export const TASK_DISMISSED_STATUS: TaskStatus = 'archived';
 
 /**
  * One vocabulary for a slip's category: the lane words. The stored column

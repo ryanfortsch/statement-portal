@@ -20,7 +20,7 @@ for(const [name,path] of [['stabletime','src/lib/stable-time.ts'],
   ['slip-controls','src/app/work/[id]/slip-controls.ts'],['back','src/app/work/[id]/BackToBoardLink.tsx'],['gmail-links','src/lib/gmail-links.ts'],
   ['crm','src/app/crm/[id]/ContactDetail.tsx'],['propcheck','src/app/crm/PropertyCheckboxes.tsx'],
   ['ContactMeetings','src/app/crm/[id]/ContactMeetings.tsx'],
-  ['task','src/app/work/tasks/[id]/TaskDetail.tsx'],
+  ['task','src/app/work/tasks/[id]/TaskDetail.tsx'],['work-types','src/lib/work-types.ts'],
   ['playbook','src/app/playbook/PlaybookEditor.tsx'],
   ['rooms','src/app/properties/[id]/RoomsEditor.tsx'],
   ['room-types','src/lib/property-rooms-shared.ts'],
@@ -84,7 +84,7 @@ await writeFile(join(scratch,'entry.js'),compile(`
   };
   const contact={id:'synthetic-contact',type:'other',name:'Synthetic contact',emails:[],phone:null,organization:null,notes:'Contact note',tags:[],linked_property_ids:[],created_by_email:me,created_at:now,updated_at:now};
   const touches=['a','b','other','inbound'].map(id=>({id,contact_id:contact.id,touched_at:now,channel:'call',summary:'Activity '+id,notes:null,by_email:id==='other'?'other@example.test':me,direction:id==='inbound'?'inbound':'outbound',gmail_message_id:null,quo_message_id:null,quo_call_id:null,created_at:now}));
-  const task={id:'synthetic-task',title:'Original task',description:'Original detail',scope:'property',priority:'medium',status:'open',assigned_to_email:me,due_date:'2026-10-05',property_ids:['synthetic-home'],tags:['repair'],created_by_email:me,created_at:now,updated_at:now};
+  const task={id:'synthetic-task',title:'Original task',description:'Original detail',scope:'corporate',priority:'normal',status:'open',assigned_to_email:me,due_date:'2026-10-05',property_ids:null,tags:null,created_by_email:me,created_at:now,updated_at:now};
   const comments=['a','b','other'].map(id=>({id,task_id:task.id,author_email:id==='other'?'other@example.test':me,body:'Comment '+id,created_at:now}));
   const entry={id:'synthetic-entry',slug:'synthetic-procedure',title:'Original procedure',category:'custom-category',summary:'Original summary',body_md:'Original instructions',tags:['operations'],property_id:null,status:'draft',pinned:false,created_by_email:me,created_at:now,updated_at:now};
   const rooms=['a','b'].map(id=>({id,property_id:'synthetic-home',room_type:'bedroom',name:'Room '+id,sort_order:0,details:{beds:[{size:'queen',count:1}],notes:'Original room notes'},guest_summary:null,created_by_email:me,created_at:now,updated_at:now}));
@@ -106,7 +106,7 @@ await new Promise((done,reject)=>{
   const compiler=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.js'),output:{path:scratch,filename:'bundle.js'},resolve:{modules:[join(root,'node_modules')],alias:{'@/lib/stable-time':join(scratch,'stabletime.js'),'./PropertyCheckboxes':join(scratch,'propcheck.js'),'../PropertyCheckboxes':join(scratch,'propcheck.js'),
     '../actions':join(scratch,'actions.js'),'../../actions':join(scratch,'actions.js'),'./actions':join(scratch,'actions.js'),'./onboarding-actions':join(scratch,'actions.js'),
     '@/lib/use-soft-refresh':join(scratch,'refresh.js'),'@/lib/unsaved-work':join(scratch,'unsaved-work.js'),
-    './slip-controls':join(scratch,'slip-controls.js'),'../../[id]/BackToBoardLink':join(scratch,'back.js'),'@/lib/gmail-links':join(scratch,'gmail-links.js'),'next-auth/react':join(scratch,'session.js'),
+    './slip-controls':join(scratch,'slip-controls.js'),'../../[id]/slip-controls':join(scratch,'slip-controls.js'),'@/lib/work-types':join(scratch,'work-types.js'),'../../[id]/BackToBoardLink':join(scratch,'back.js'),'@/lib/gmail-links':join(scratch,'gmail-links.js'),'next-auth/react':join(scratch,'session.js'),
     '@/lib/team':join(scratch,'team.js'),'@/lib/meetings-core':join(scratch,'meetings-core.js'),'@/components/TeamPicker':join(scratch,'picker.js'),
     '@/lib/crm':join(scratch,'crm-types.js'),'@/lib/playbook':join(scratch,'playbook-types.js'),
     '@/lib/property-rooms-shared':join(scratch,'room-types.js'),'@/components/Markdown':join(scratch,'markdown.js'),
@@ -264,29 +264,56 @@ try{
   assert.equal(await field(touchNotes),'');assert.equal(await beforeUnload(),false);
   pass('partial CRM activity drafts can be explicitly discarded without sending a request');
 
-  const taskTitle='#task fieldset input[type="text"]';
+  const taskTitle='#task input[aria-label="To-do title"]';
+  const taskDescription='#task textarea[aria-label="Description"]';
   const taskComment=`#task textarea[placeholder="What's the latest?"]`;
   const taskRows=()=>page.$$eval('#task p',ps=>ps.filter(p=>p.style.whiteSpace==='pre-wrap').map(p=>p.textContent));
+  const taskPressed=()=>page.$$eval('#task [aria-pressed="true"]',bs=>bs.map(b=>b.textContent));
   const deleteComment=(body,twice=false)=>page.$$eval('#task p',(ps,body,twice)=>{
     const row=ps.find(p=>p.textContent===body)?.parentElement;
-    const b=row?.querySelector('button[title="Delete"]');if(!b)throw Error('Missing comment delete '+body);b.click();if(twice)b.click();
+    const b=row?.querySelector('button[aria-label="Delete comment"]');if(!b)throw Error('Missing comment delete '+body);b.click();if(twice)b.click();
   },body,twice);
-  await reset('task');await edit(taskTitle,'Updated task');await edit('#task fieldset textarea','Updated description');
-  assert.equal(await guard(),true);assert.equal(await beforeUnload(),true);await click('task','Save changes',true);await waitCalls(1);
-  assert.equal(await page.$$eval('#task fieldset input,#task fieldset textarea,#task fieldset select,#task fieldset button',es=>es.every(e=>e.matches(':disabled'))),true);
-  assert.equal(await disabled('task','Delete task'),true);
-  assert.deepEqual(await args(0),{id:'synthetic-task',title:'Updated task',description:'Updated description',scope:'property',property_ids:['synthetic-home'],assigned_to_email:'me@example.test',priority:'medium',status:'open',due_date:'2026-10-05',tags:['repair']});
-  await finish(0,{ok:false,error:'Task save failed'});await waitText('Task save failed');await ready(taskTitle);
+  await reset('task');assert.equal(await guard(),false);await click('task','Edit Title');await edit(taskTitle,'Updated task');
+  assert.equal(await guard(),true);assert.equal(await beforeUnload(),true);await click('task','Save',true);await waitCalls(1);
+  assert.equal(await page.$eval(taskTitle,e=>e.disabled),true);assert.equal(await disabled('task','Delete to-do'),true);
+  assert.deepEqual(await args(0),{id:'synthetic-task',title:'Updated task'});
+  await finish(0,{ok:false,error:'Title save failed'});await waitText('Title: Title save failed');await ready(taskTitle);
   assert.equal(await field(taskTitle),'Updated task');assert.equal(await guard(),true);
-  await click('task','Save changes');await waitCalls(2);await finish(1,null,true);await waitText('Could not confirm the task save.');await ready(taskTitle);
-  assert.equal(await disabled('task','Save changes'),false);assert.equal(await field('#task fieldset textarea'),'Updated description');
-  await click('task','Save changes');await waitCalls(3);await finish(2);await clean();await waitText('Saved ');
-  pass('task saves retain their payload through failures, release stuck controls, and reject duplicate submissions');
+  await click('task','Save');await waitCalls(2);await finish(1,null,true);await waitText('Could not confirm the change.');await ready(taskTitle);
+  assert.equal(await field(taskTitle),'Updated task');
+  await click('task','Retry');await waitCalls(3);assert.deepEqual(await args(2),{id:'synthetic-task',title:'Updated task'});await finish(2);await clean();
+  assert.equal(await page.$(taskTitle),null);await waitText('Updated task');
+  pass('a to-do title saves on its own, keeps the draft through returned and lost failures, and rejects a double submit');
 
-  await edit(taskTitle,'Newer unsaved task');assert.equal(await guard(),true);
-  assert.equal((await text('#task')).includes('Saved '),false);await waitText('Unsaved changes');
-  await edit(taskTitle,'Updated task');await clean();
-  pass('task Saved indicator disappears when edits differ from the confirmed save');
+  await reset('task');await edit(taskDescription,'Updated description');assert.equal(await guard(),true);
+  await waitCalls(1);assert.deepEqual(await args(0),{id:'synthetic-task',description:'Updated description'});
+  assert.equal(await page.$eval(taskDescription,e=>e.disabled),false);
+  await finish(0,{ok:false,error:'Description failed'});await waitText('Description: Description failed');
+  assert.equal(await field(taskDescription),'Updated description');assert.equal(await guard(),true);
+  await new Promise(resolve=>setTimeout(resolve,1600));assert.equal(await page.evaluate(()=>window.calls.length),1);
+  await edit(taskDescription,'Updated description again');await waitCalls(2);assert.equal((await args(1)).description,'Updated description again');
+  await finish(1);await waitText('Saved.');await clean();
+  pass('the description saves after a pause, never locks the box, and waits after a failure for the next keystroke');
+
+  await reset('task');assert.deepEqual(await taskPressed(),['Normal','Open']);
+  await click('task','High',true);await waitCalls(1);assert.deepEqual(await args(0),{id:'synthetic-task',priority:'high'});assert.equal(await disabled('task','Low'),true);
+  await finish(0,null,true);await waitText('Priority: Could not confirm the change.');await ready(taskDescription);assert.deepEqual(await taskPressed(),['Normal','Open']);
+  await click('task','Retry');await waitCalls(2);assert.equal((await args(1)).priority,'high');await finish(1);await clean();assert.deepEqual(await taskPressed(),['High','Open']);
+  await click('task','Blocked');await waitCalls(3);assert.deepEqual(await args(2),{id:'synthetic-task',status:'blocked'});await finish(2);await clean();
+  await waitText('Waiting on something outside the office.');assert.deepEqual(await taskPressed(),['High','Blocked']);
+  await edit('#task input[aria-label="Due date"]','2026-10-09');await waitCalls(4);assert.deepEqual(await args(3),{id:'synthetic-task',due_date:'2026-10-09'});await finish(3);await clean();
+  assert.equal(await page.evaluate(()=>window.calls.length),4);
+  pass('priority, status and due date each save on their own tap, show only the confirmed value, and retry their exact target');
+
+  await reset('task');await click('task','Mark Done',true);await waitCalls(1);assert.deepEqual(await args(0),{id:'synthetic-task',status:'done'});
+  await finish(0,{ok:false,error:'Close refused'});await waitText('Status: Close refused');
+  assert.equal(await page.$$eval('#task [role="alert"]',es=>es.length),1);
+  await click('task','Mark Done');await waitCalls(2);await finish(1);await clean();await waitText('Reopen puts it back on the list.');
+  assert.equal(await page.$$eval('#task button',bs=>bs.some(b=>b.textContent.trim()==='Blocked')),false);
+  await click('task','Reopen');await waitCalls(3);assert.equal((await args(2)).status,'open');await finish(2);await clean();
+  await click('task','Dismiss');await waitCalls(4);assert.equal((await args(3)).status,'archived');await finish(3);await clean();await waitText('Dismissed: closed without doing it.');
+  assert.equal(await page.$$eval('#task option',os=>os.some(o=>/archived/i.test(o.textContent))),false);
+  pass('Mark Done, Dismiss and Reopen are the only close verbs, each saving on its own and recovering a refusal');
 
   await reset('task');await edit(taskComment,'  Keep this comment.\nA second line.  ');await click('task','Post comment',true);await waitCalls(1);
   assert.equal(await page.$eval(taskComment,e=>e.disabled),true);assert.deepEqual(await taskRows(),['Comment a','Comment b','Comment other']);
@@ -308,19 +335,22 @@ try{
   assert.equal(await page.$$eval('#task p',ps=>!!ps.find(p=>p.textContent==='Comment other')?.parentElement.querySelector('button')),false);
   pass('task comment deletion retains its row until confirmation and only exposes delete for the current author');
 
-  await reset('task');await edit(taskTitle,'Task and comment together');await edit(taskComment,'Unfinished comment');
-  await click('task','Save changes');await waitCalls(1);await click('task','Post comment');await waitCalls(2);
-  await finish(0);await ready(taskTitle);assert.equal(await guard(),true);
+  await reset('task');await click('task','Edit Title');await edit(taskTitle,'Task and comment together');await edit(taskComment,'Unfinished comment');
+  await click('task','Save');await waitCalls(1);await click('task','Post comment');await waitCalls(2);
+  await finish(0);await page.waitForFunction(s=>!document.querySelector(s),{},taskTitle);assert.equal(await guard(),true);
   await finish(1,{ok:false,error:'Comment still needs retry'});await waitText('Comment still needs retry');await ready(taskComment);
   assert.equal(await field(taskComment),'Unfinished comment');assert.equal(await guard(),true);
   await click('task','Discard comment draft');await clean();
-  pass('saving task fields cannot release a pending or failed comment draft guard');
+  pass('saving a to-do field cannot release a pending or failed comment draft guard');
 
-  await reset('task');await confirm(false);await click('task','Delete task');assert.equal(await page.evaluate(()=>window.calls.length),0);
-  await confirm(true);await click('task','Delete task',true);await waitCalls(1);
-  assert.equal(await disabled('task','Save changes'),true);assert.equal(await disabled('task','Post comment'),true);
-  await finish(0,null,true);await waitText('Synthetic lost response');await ready(taskTitle);await clean();
-  pass('task deletion keeps its existing confirmation, blocks competing writes, and unlocks after failure');
+  await reset('task');await click('task','Delete to-do');assert.equal(await page.evaluate(()=>window.calls.length),0);
+  await waitText('Delete this to-do and its 3 comments? This cannot be undone.');await click('task','Keep it');assert.equal(await page.evaluate(()=>window.calls.length),0);
+  await click('task','Delete to-do');await click('task','Delete for good',true);await waitCalls(1);
+  assert.equal((await page.evaluate(()=>window.calls[0].kind)),'deleteTask');assert.deepEqual(await args(0),{id:'synthetic-task'});
+  assert.equal(await disabled('task','Post comment'),true);assert.equal(await disabled('task','Edit Title'),true);assert.equal(await page.$eval(taskDescription,e=>e.disabled),true);
+  await finish(0,null,true);await waitText('Synthetic lost response');await ready(taskDescription);await clean();
+  assert.equal(await page.evaluate(()=>window.confirmations.length),0);
+  pass('delete asks once on the page, says it cannot be undone, blocks competing writes, and unlocks after failure');
 
   const bookTitle='#playbook input[placeholder^="e.g. Onboard"]';
   const bookBody='#playbook textarea';
@@ -409,17 +439,17 @@ try{
   pass('room deletion confirms its target, recovers both failure kinds, and blocks competing edits');
 
   await reset('all');await click('owner','Edit');await edit('#owner textarea','Owner notes to keep');
-  await edit(touchSummary,'CRM draft to keep');await edit(taskTitle,'Task draft to keep');await edit(bookBody,'Playbook draft to keep');await editRoom('Room a');await edit(roomNotes,'Room draft to keep');
+  await edit(touchSummary,'CRM draft to keep');await click('task','Edit Title');await edit(taskTitle,'Task draft to keep');await edit(bookBody,'Playbook draft to keep');await editRoom('Room a');await edit(roomNotes,'Room draft to keep');
   await click('owner','Save');await waitCalls(1);await finish(0);await ready('#owner button');assert.equal(await guard(),true);
   await click('crm','Discard activity draft');assert.equal(await guard(),true);
-  await click('task','Save changes');await waitCalls(2);await finish(1);await ready(taskTitle);assert.equal(await guard(),true);
+  await click('task','Save');await waitCalls(2);await finish(1);await page.waitForFunction(s=>!document.querySelector(s),{},taskTitle);assert.equal(await guard(),true);
   await click('playbook','Save changes');await waitCalls(3);await finish(2,{ok:true,slug:'synthetic-procedure'});await ready(bookTitle);assert.equal(await guard(),true);
   await confirm(true);await click('rooms','Cancel');await clean();
   pass('saving or discarding one domain cannot release another editor’s unsaved-work guard');
 
   await reset('all');await click('owner','Edit');await edit('#owner textarea','Pending owner note');await click('owner','Save');
   await edit(touchSummary,'Pending CRM activity');await click('crm','Log activity');
-  await edit(taskTitle,'Pending task');await click('task','Save changes');await edit(taskComment,'Pending comment');await click('task','Post comment');
+  await click('task','Edit Title');await edit(taskTitle,'Pending task');await click('task','Save');await edit(taskComment,'Pending comment');await click('task','Post comment');
   await edit(bookBody,'Pending procedure');await click('playbook','Save changes');await editRoom('Room a');await edit(roomNotes,'Pending room');await click('rooms','Save room');await waitCalls(6);
   await page.evaluate(()=>window.unmount());await clean();
   await finish(0,null,true);await finish(1,{ok:true,id:'late-touch'});await finish(2,{ok:false,error:'Late task failure'});

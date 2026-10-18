@@ -15,6 +15,9 @@ import type {
   TaskPriority,
   TaskStatus,
 } from '@/lib/work-types';
+import { WORK_PRIORITIES } from '@/lib/work-types';
+
+const TASK_STATUSES: TaskStatus[] = ['open', 'in_progress', 'blocked', 'done', 'archived'];
 
 // ─── Work slips ───────────────────────────────────────────────────
 
@@ -547,6 +550,7 @@ export async function createTask(args: {
   const session = await auth();
   if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
   if (!args.title?.trim()) return { ok: false, error: 'Title is required' };
+  if (args.priority !== undefined && !WORK_PRIORITIES.includes(args.priority)) return { ok: false, error: 'Bad priority' };
 
   const { data, error } = await supabase
     .from('tasks')
@@ -555,7 +559,7 @@ export async function createTask(args: {
       description: args.description?.trim() || null,
       scope: args.scope ?? 'corporate',
       property_ids: args.property_ids && args.property_ids.length > 0 ? args.property_ids : null,
-      priority: args.priority ?? 'medium',
+      priority: args.priority ?? 'normal',
       due_date: args.due_date || null,
       tags: args.tags && args.tags.length > 0 ? args.tags : null,
       created_by_email: session.user.email,
@@ -576,6 +580,7 @@ export async function updateTaskStatus(args: {
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   const session = await auth();
   if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+  if (!TASK_STATUSES.includes(args.status)) return { ok: false, error: 'Bad status' };
 
   const { error } = await supabase.from('tasks').update({ status: args.status }).eq('id', args.id);
   if (error) return { ok: false, error: error.message };
@@ -586,9 +591,10 @@ export async function updateTaskStatus(args: {
 }
 
 /**
- * Full update for a task from the detail page. Pass undefined to leave
- * a field unchanged. Pass null (or empty string for trimmable fields) to
- * explicitly clear a nullable field.
+ * Update an office to-do. The to-do page saves each field on its own, so a
+ * call usually carries one field; pass undefined to leave a field
+ * unchanged, null (or an empty string for trimmable fields) to clear a
+ * nullable one.
  */
 export async function updateTask(args: {
   id: string;
@@ -604,6 +610,9 @@ export async function updateTask(args: {
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   const session = await auth();
   if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+  if (args.title !== undefined && !args.title.trim()) return { ok: false, error: 'Title is required' };
+  if (args.priority !== undefined && !WORK_PRIORITIES.includes(args.priority)) return { ok: false, error: 'Bad priority' };
+  if (args.status !== undefined && !TASK_STATUSES.includes(args.status)) return { ok: false, error: 'Bad status' };
 
   const patch: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(args)) {
@@ -623,19 +632,22 @@ export async function updateTask(args: {
   return { ok: true };
 }
 
+/** Delete an office to-do and its comments for good. The page asks once,
+ *  in words, before calling this; Dismiss is the reversible way to close
+ *  one. Lands on the Office to-dos tab. */
 export async function deleteTask(args: { id: string }): Promise<void> {
   const session = await auth();
   if (!session?.user?.email) throw new Error('Not signed in');
   const { error } = await supabase.from('tasks').delete().eq('id', args.id);
   if (error) throw new Error(error.message);
   revalidatePath('/work');
-  redirect('/work');
+  redirect('/work?tab=tasks');
 }
 
 /**
- * Bulk-update many tasks in one round trip. Mirrors bulkUpdateWorkSlips.
- * Accepts status / priority / assigned_to_email; empty string assignee
- * unassigns. Caller passes the full id set.
+ * Bulk-update many office to-dos in one round trip. Mirrors
+ * bulkUpdateWorkSlips, on the same priority scale, so the board's bulk bar
+ * passes its words through unchanged. Empty string assignee unassigns.
  */
 export async function bulkUpdateTasks(args: {
   ids: string[];
@@ -647,7 +659,9 @@ export async function bulkUpdateTasks(args: {
 }): Promise<{ ok: true; updated: number } | { ok: false; error: string }> {
   const session = await auth();
   if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
-  if (!args.ids || args.ids.length === 0) return { ok: false, error: 'No tasks selected' };
+  if (!args.ids || args.ids.length === 0) return { ok: false, error: 'No to-dos selected' };
+  if (args.patch.priority !== undefined && !WORK_PRIORITIES.includes(args.patch.priority)) return { ok: false, error: 'Bad priority' };
+  if (args.patch.status !== undefined && !TASK_STATUSES.includes(args.patch.status)) return { ok: false, error: 'Bad status' };
 
   const patch: Record<string, unknown> = {};
   if (args.patch.status !== undefined) patch.status = args.patch.status;

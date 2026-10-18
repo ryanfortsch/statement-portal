@@ -8,9 +8,13 @@ import {
   type TaskRow,
   type WorkSlipCategory,
   type WorkSlipPriority,
-  type TaskScope,
   type TaskPriority,
   DEFAULT_WORK_SLIP_CATEGORY,
+  OFFICE_TODO_LABEL,
+  OFFICE_TODOS_LABEL,
+  TASK_STATUS_LABELS,
+  WORK_PRIORITIES,
+  WORK_PRIORITY_LABELS,
   WORK_SLIP_CATEGORY_HINTS,
   WORK_SLIP_CATEGORY_LABELS,
   WORK_SLIP_PICKER_CATEGORIES,
@@ -65,10 +69,11 @@ type Props = {
 
 type FilterId = 'all' | 'my-week' | 'week' | 'overdue' | 'blocked' | 'mine' | 'high' | 'due-today' | 'unclaimed' | 'owner-action' | 'snoozed';
 
-// The board has two faces: property work, where you land, and the team
-// task list one tab over. The old third "All" tab stacked both sections
-// on one page, so the thing you came for sat above a second full list
-// you had to scroll past. One at a time.
+// The board has two faces: property work, where you land, and the office
+// to-dos one tab over. A slip belongs to a house; an office to-do does not.
+// The old third "All" tab stacked both sections on one page, so the thing
+// you came for sat above a second full list you had to scroll past. One at
+// a time. The URL keeps ?tab=tasks (the table's name) so old links land.
 type TabId = 'slips' | 'tasks';
 
 const FILTER_IDS: FilterId[] = ['all', 'my-week', 'week', 'overdue', 'blocked', 'mine', 'high', 'due-today', 'unclaimed', 'owner-action', 'snoozed'];
@@ -257,51 +262,35 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
     const slipIds = Array.from(selectedSlipIds);
     const taskIds = Array.from(selectedTaskIds);
     if (slipIds.length === 0 && taskIds.length === 0) return;
+    // A mixed selection is refused, never mapped: the bar says so in one
+    // line (BulkActionBar) and every action waits for one kind.
+    if (slipIds.length > 0 && taskIds.length > 0) return;
     bulkLock.current = true;
     setBulkErr(null);
 
+    const onSlipsNow = slipIds.length > 0;
+    const ids = onSlipsNow ? slipIds : taskIds;
+    const label = onSlipsNow ? 'Work slips' : OFFICE_TODOS_LABEL;
+    const deselect = onSlipsNow ? setSelectedSlipIds : setSelectedTaskIds;
     startBulkTransition(async () => {
-      // Each server action updates a whole group. A failure in one group
-      // must not hide the other group's confirmed result or retry its IDs.
-      const groups = [
-        {
-          label: 'Work slips', ids: slipIds, deselect: setSelectedSlipIds,
-          run: () => bulkUpdateWorkSlips({ ids: slipIds, patch }),
-        },
-        {
-          label: 'Tasks', ids: taskIds, deselect: setSelectedTaskIds,
-          run: () => bulkUpdateTasks({
-            ids: taskIds,
-            patch: { ...patch, priority: patch.priority === 'normal' ? 'medium' : patch.priority },
-          }),
-        },
-      ].filter((group) => group.ids.length > 0);
       try {
-        const results = await Promise.allSettled(groups.map((group) => Promise.resolve().then(group.run)));
-        const messages: string[] = [];
-        let failed = false;
-        results.forEach((result, index) => {
-          const group = groups[index];
-          if (result.status === 'fulfilled' && result.value.ok) {
-            group.deselect((current) => {
-              const next = new Set(current);
-              for (const id of group.ids) next.delete(id);
-              return next;
-            });
-            messages.push(`${group.label}: update confirmed for ${result.value.updated}.`);
-          } else {
-            failed = true;
-            if (result.status === 'rejected') {
-              messages.push(`${group.label}: could not confirm the update. Check their current status before retrying.`);
-            } else if (!result.value.ok) {
-              messages.push(`${group.label}: ${result.value.error}`);
-            }
-          }
-        });
-        if (failed) setBulkErr(`${messages.join(' ')} Items without a confirmed update remain selected.`);
-        softRefresh();
+        const res = onSlipsNow
+          ? await bulkUpdateWorkSlips({ ids, patch })
+          : await bulkUpdateTasks({ ids, patch });
+        if (res.ok) {
+          deselect((current) => {
+            const next = new Set(current);
+            for (const id of ids) next.delete(id);
+            return next;
+          });
+        } else {
+          setBulkErr(`${label}: ${res.error} They remain selected.`);
+        }
+      } catch {
+        setBulkErr(`${label}: could not confirm the update. Check their current status before retrying. They remain selected.`);
       } finally {
         bulkLock.current = false;
+        softRefresh();
       }
     });
   }
@@ -461,7 +450,7 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
         <div className="flex items-end justify-between flex-wrap gap-4" style={{ marginBottom: 18 }}>
           <div className="flex items-end" style={{ gap: 24 }}>
             <BoardTab active={onSlips} onClick={() => setTab('slips')} label="Property Work" count={workSlips.length} />
-            <BoardTab active={!onSlips} onClick={() => setTab('tasks')} label="Tasks" count={tasks.length} />
+            <BoardTab active={!onSlips} onClick={() => setTab('tasks')} label={OFFICE_TODOS_LABEL} count={tasks.length} />
           </div>
           <div className="flex items-center" style={{ gap: 12 }}>
             {/* The tab carries the total; once a filter narrows the list
@@ -490,7 +479,7 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
               </button>
             )}
             {!onSlips && <button type="button" onClick={() => setShowTaskModal(true)} style={primaryBtn()}>
-              + Task
+              + To-do
             </button>}
             {onSlips && <OrganizeButton onReviewStale={isOwner ? openStaleReview : undefined} />}
             {onSlips && <button type="button" onClick={() => setShowSlipModal(true)} style={primaryBtn()}>
@@ -571,12 +560,12 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
       {!onSlips && (
         <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, width: '100%', flex: 1 }}>
           {filteredTasks.length === 0 ? (
-            <EmptyBlock message="No tasks match this filter." />
+            <EmptyBlock message="No office to-dos match this filter." />
           ) : (
             <CollapsibleList
               items={filteredTasks}
               initial={INITIAL_TASK_LIMIT}
-              moreLabel={(n) => `Show ${n} more task${n === 1 ? '' : 's'}`}
+              moreLabel={(n) => `Show ${n} more to-do${n === 1 ? '' : 's'}`}
               renderItem={(t) => (
                 <TaskRowItem
                   key={t.id}
@@ -606,7 +595,6 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
       )}
       {showTaskModal && (
         <TaskModal
-          properties={properties.filter((p) => p.is_active)}
           myEmail={myEmail}
           onClose={() => setShowTaskModal(false)}
         />
@@ -1355,7 +1343,7 @@ function TaskRowItem({
         checked={selected}
         disabled={bulkPending || isPending}
         onChange={() => onToggleSelect(task.id)}
-        ariaLabel={`Select task ${task.title}`}
+        ariaLabel={`Select to-do ${task.title}`}
       />
       <Link
         href={`/work/tasks/${task.id}`}
@@ -1401,7 +1389,7 @@ function TaskRowItem({
           <CommentBadge count={commentCount} />
         )}
         {task.priority === 'high' && <span style={pillTinyStyle('var(--negative)')}>High</span>}
-        {task.status !== 'open' && <span style={pillTinyStyle(task.status === 'blocked' ? 'var(--signal)' : 'var(--ink-3)')}>{task.status.replace('_', ' ')}</span>}
+        {task.status !== 'open' && <span style={pillTinyStyle(task.status === 'blocked' ? 'var(--signal)' : 'var(--ink-3)')}>{TASK_STATUS_LABELS[task.status] ?? task.status}</span>}
       </Link>
       <button
         type="button"
@@ -1700,36 +1688,36 @@ const inlineLinkStyle: React.CSSProperties = {
   fontFamily: 'inherit',
 };
 
+/**
+ * New office to-do. A to-do is desk work that belongs to no house, so the
+ * form asks only what one needs: what, when, who, how urgent. Work at a
+ * house is a work slip (+ Work Slip on the Property Work tab).
+ */
 function TaskModal({
-  properties,
   myEmail,
   onClose,
 }: {
-  properties: PropertyForPicker[];
   myEmail: string;
   onClose: () => void;
 }) {
   const router = useRouter();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [scope, setScope] = useState<TaskScope>('corporate');
-  const [priority, setPriority] = useState<TaskPriority>('medium');
+  const [priority, setPriority] = useState<TaskPriority>('normal');
   const [dueDate, setDueDate] = useState('');
-  const [propertyIds, setPropertyIds] = useState<string[]>([]);
-  const [tagsInput, setTagsInput] = useState('');
   const [assignedToEmail, setAssignedToEmail] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const saving = useRef(false);
   const [uncertain, setUncertain] = useState(false);
-  const snapshot = JSON.stringify([title, description, scope, priority, dueDate, propertyIds, tagsInput, assignedToEmail]);
+  const snapshot = JSON.stringify([title, description, priority, dueDate, assignedToEmail]);
   const original = useRef(snapshot);
   const dirty = snapshot !== original.current;
   useUnsavedWorkGuard(dirty || submitting || uncertain);
 
   function requestClose() {
     if (saving.current) return;
-    if ((dirty || uncertain) && !window.confirm('Discard this unfinished task?')) return;
+    if ((dirty || uncertain) && !window.confirm('Discard this unfinished to-do?')) return;
     onClose();
   }
 
@@ -1741,18 +1729,11 @@ function TaskModal({
     setError(null);
     setSubmitting(true);
     try {
-    const tags = tagsInput
-      .split(',')
-      .map((t) => t.trim())
-      .filter(Boolean);
     const res = await createTask({
       title,
       description: description || undefined,
-      scope,
-      property_ids: scope === 'property' ? propertyIds : undefined,
       priority,
       due_date: dueDate || null,
-      tags,
       assigned_to_email: assignedToEmail,
     });
     if (!res.ok) {
@@ -1764,7 +1745,7 @@ function TaskModal({
     router.push(`/work/tasks/${res.id}`);
     } catch {
       setUncertain(true);
-      setError('Could not confirm whether the task was created. Your draft is kept. Check the work list in another tab before retrying to avoid a duplicate.');
+      setError('Could not confirm whether the to-do was created. Your draft is kept. Check the work list in another tab before retrying to avoid a duplicate.');
     } finally {
       saving.current = false;
       setSubmitting(false);
@@ -1772,7 +1753,7 @@ function TaskModal({
   }
 
   return (
-    <ModalShell title="New Task" onClose={requestClose} busy={submitting}>
+    <ModalShell title={`New ${OFFICE_TODO_LABEL.toLowerCase()}`} onClose={requestClose} busy={submitting}>
       <form onSubmit={handleSubmit}>
         <fieldset disabled={submitting} className="flex flex-col gap-4" style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         <Field label="Title *">
@@ -1789,50 +1770,25 @@ function TaskModal({
 
         <div className="flex gap-3">
           <div style={{ flex: 1 }}>
-            <Field label="Scope">
-              <select value={scope} onChange={(e) => setScope(e.target.value as TaskScope)} style={selectStyle()}>
-                <option value="corporate">Corporate</option>
-                <option value="property">Property</option>
+            <Field label="Priority">
+              <select value={priority} onChange={(e) => setPriority(e.target.value as TaskPriority)} style={selectStyle()}>
+                {WORK_PRIORITIES.map((p) => (
+                  <option key={p} value={p}>{WORK_PRIORITY_LABELS[p]}</option>
+                ))}
               </select>
             </Field>
           </div>
           <div style={{ flex: 1 }}>
-            <Field label="Priority">
-              <select value={priority} onChange={(e) => setPriority(e.target.value as TaskPriority)} style={selectStyle()}>
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-              </select>
+            <Field label="Due date (optional)">
+              <input
+                type="date"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+                style={inputStyle()}
+              />
             </Field>
           </div>
         </div>
-
-        {scope === 'property' && (
-          <Field label="Properties">
-            <select
-              multiple
-              value={propertyIds}
-              onChange={(e) => setPropertyIds(Array.from(e.target.selectedOptions).map((o) => o.value))}
-              style={{ ...selectStyle(), minHeight: 120 }}
-            >
-              {properties.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-            <p style={{ marginTop: 4, fontSize: 11, color: 'var(--ink-4)' }}>Hold ⌘ to select multiple.</p>
-          </Field>
-        )}
-
-        <Field label="Due date (optional)">
-          <input
-            type="date"
-            value={dueDate}
-            onChange={(e) => setDueDate(e.target.value)}
-            style={inputStyle()}
-          />
-        </Field>
 
         <Field label="Assignee">
           <TeamPicker
@@ -1849,24 +1805,14 @@ function TaskModal({
             onChange={(e) => setDescription(e.target.value)}
             rows={4}
             maxLength={2000}
-            placeholder="Acceptance criteria, links, context…"
+            placeholder="Links, context, what done looks like…"
             style={{ ...inputStyle(), fontFamily: 'inherit', resize: 'vertical' }}
           />
         </Field>
 
-        <Field label="Tags (comma-separated)">
-          <input
-            type="text"
-            value={tagsInput}
-            onChange={(e) => setTagsInput(e.target.value)}
-            placeholder="e.g. marketing, hires"
-            style={inputStyle()}
-          />
-        </Field>
+        {error && <div role="alert"><ErrorBlock message={error} />{uncertain && <a href="/work?tab=tasks" target="_blank" rel="noopener noreferrer">View saved work</a>}</div>}
 
-        {error && <div role="alert"><ErrorBlock message={error} />{uncertain && <a href="/work" target="_blank" rel="noopener noreferrer">View saved work</a>}</div>}
-
-        <ModalActions onCancel={requestClose} submitLabel="Create Task" submitting={submitting} />
+        <ModalActions onCancel={requestClose} submitLabel="Create to-do" submitting={submitting} />
       </fieldset>
       </form>
     </ModalShell>
@@ -2409,9 +2355,14 @@ function BulkActionBar({
   onSetPriority: (priority: WorkSlipPriority) => void;
 }) {
   const total = slipCount + taskCount;
-  const summary = `${total} selected${
-    slipCount && taskCount ? ` (${slipCount} slip${slipCount === 1 ? '' : 's'}, ${taskCount} task${taskCount === 1 ? '' : 's'})` : ''
-  }`;
+  // Slips and office to-dos are acted on one kind at a time. A selection
+  // that holds both (picks survive a tab switch) is refused in one line
+  // instead of being sent to two tables with two meanings.
+  const mixed = slipCount > 0 && taskCount > 0;
+  const summary = mixed
+    ? `${slipCount} slip${slipCount === 1 ? '' : 's'} and ${taskCount} to-do${taskCount === 1 ? '' : 's'} selected`
+    : `${total} selected`;
+  const off = pending || mixed;
 
   return (
     <div
@@ -2445,17 +2396,23 @@ function BulkActionBar({
       </div>
 
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        <BulkBtn label="Mark done" onClick={onMarkDone} disabled={pending} />
+        <BulkBtn label="Mark done" onClick={onMarkDone} disabled={off} />
         <BulkBtn
           label="Assign to me"
           onClick={onAssignToMe}
-          disabled={pending || !myEmail}
+          disabled={off || !myEmail}
         />
-        <BulkBtn label="Unassign" onClick={onUnassign} disabled={pending} />
-        <BulkBtn label="High" onClick={() => onSetPriority('high')} disabled={pending} accent="var(--negative)" />
-        <BulkBtn label="Normal" onClick={() => onSetPriority('normal')} disabled={pending} />
-        <BulkBtn label="Low" onClick={() => onSetPriority('low')} disabled={pending} muted />
+        <BulkBtn label="Unassign" onClick={onUnassign} disabled={off} />
+        <BulkBtn label="High" onClick={() => onSetPriority('high')} disabled={off} accent="var(--negative)" />
+        <BulkBtn label="Normal" onClick={() => onSetPriority('normal')} disabled={off} />
+        <BulkBtn label="Low" onClick={() => onSetPriority('low')} disabled={off} muted />
       </div>
+
+      {mixed && (
+        <div role="status" style={{ flexBasis: '100%', fontSize: 12, color: 'var(--paper)' }}>
+          Pick slips or office to-dos, not both. Untick one kind, or Clear.
+        </div>
+      )}
 
       <button
         type="button"

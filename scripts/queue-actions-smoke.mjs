@@ -50,7 +50,7 @@ window.confirm=m=>{window.confirmations.push(m);return window.confirmResult;};wi
 const now='2026-09-01T12:00:00Z',me='me@example.test';
 const properties=[{id:'synthetic-home',name:'Synthetic Home',city:'Gloucester',title:null,is_active:true}];
 const slips=['a','b'].map(id=>({id:'slip-'+id,title:'Slip '+id,property_id:'synthetic-home',category:'maintenance',priority:'normal',status:'open',assigned_to_type:'unassigned',created_at:now}));
-const tasks=['a','b'].map(id=>({id:'task-'+id,title:'Task '+id,priority:'medium',status:'open',scope:'corporate',created_at:now}));
+const tasks=['a','b'].map(id=>({id:'task-'+id,title:'Task '+id,priority:'normal',status:'open',scope:'corporate',created_at:now}));
 const contacts=['a','b'].map(id=>({id:'contact-'+id,name:'Contact '+id,type:'owner',emails:[],phone:null,tags:[],linked_property_ids:[],created_at:now,updated_at:now}));
 const unknownNumbers=['+19785550101','+19785550102'].map(phone=>({phone,last_body:'Synthetic message'}));
 const suggestions=['a','b'].map(id=>({id:'suggestion-'+id,suggested_name:'Suggestion '+id,suggestion_type:'add_contact',reason:'Synthetic suggestion'}));
@@ -96,27 +96,33 @@ const pass=m=>{checks++;console.log('PASS '+m);};
 const beforeUnload=()=>page.evaluate(()=>{const e=new Event('beforeunload',{cancelable:true});window.dispatchEvent(e);return e.defaultPrevented;});
 const checked=label=>page.$eval('[aria-label="'+label+'"]',e=>e.getAttribute('aria-checked')==='true');
 const switchTab=tab=>page.$$eval('#queue button',(bs,tab)=>{const b=bs.find(b=>b.textContent.startsWith(tab));if(!b)throw Error('Missing tab '+tab);b.click();},tab);
-const selectMixed=async()=>{await click('#queue','Select work slip Slip a');await switchTab('Tasks');await click('#queue','Select task Task a');};
+const selectMixed=async()=>{await click('#queue','Select work slip Slip a');await switchTab('Office to-dos');await click('#queue','Select to-do Task a');};
 const bulk='[aria-label="Bulk actions"]';
+const bulkOff=label=>page.$$eval(bulk+' button',(bs,label)=>bs.find(b=>b.textContent.trim()===label).disabled,label);
 
-await reset('queue','&open=synthetic-home');await selectMixed();await click(bulk,'Normal',true);await waitCalls(2);
-assert.deepEqual((await calls()).map(c=>[c.kind,c.args.patch.priority]),[['bulkSlips','normal'],['bulkTasks','medium']]);
-assert.equal(await page.$eval('[aria-label="Select task Task a"]',e=>e.disabled),true);await click(bulk,'Clear');assert.equal(await checked('Select task Task a'),true);assert.equal(await beforeUnload(),true);
-await finish(1,{ok:false,error:'Tasks denied'});assert.equal(await guard(),true);await finish(0,{ok:true,updated:1});await ready(bulk+' button');await clean();await waitText('Work slips: update confirmed for 1. Tasks: Tasks denied');
-assert.equal(await checked('Select task Task a'),true);await switchTab('Property Work');assert.equal(await checked('Select work slip Slip a'),false);
-pass('mixed bulk results wait for both groups, preserve task failures, clear only confirmed slips, and retain normal-to-medium mapping');
-await click(bulk,'Assign to me',true);await waitCalls(3);assert.deepEqual((await calls())[2],{kind:'bulkTasks',args:{ids:['task-a'],patch:{assigned_to_email:'me@example.test'}}});await finish(2,{ok:true,updated:1});await clean();await page.waitForFunction(()=>!document.querySelector('[aria-label="Bulk actions"]'));
-pass('bulk retry submits only remaining IDs and same-tick double clicks cannot repeat either group');
+await reset('queue','&open=synthetic-home');await selectMixed();await waitText('Pick slips or office to-dos, not both.');
+assert.match(await body(),/1 slip and 1 to-do selected/);
+for(const label of ['Mark done','Assign to me','Unassign','High','Normal','Low'])assert.equal(await bulkOff(label),true,label+' is live on a mixed selection');
+assert.equal(await bulkOff('Clear'),false);await page.$$eval(bulk+' button',bs=>bs.find(b=>b.textContent.trim()==='Normal').click());assert.equal((await calls()).length,0);
+await click('#queue','Select to-do Task a');await page.waitForFunction(()=>!document.body.textContent.includes('not both'));assert.match(await body(),/1 selected/);assert.equal(await bulkOff('Normal'),false);
+pass('a mixed selection is refused in one line, sends nothing, and unticking one kind restores the actions');
 
-await reset('queue','&open=synthetic-home');await selectMixed();await click(bulk,'Mark done');await waitCalls(2);await finish(0,null,true);await finish(1,{ok:true,updated:1});await ready(bulk+' button');
-await waitText('Work slips: could not confirm the update');assert.equal(await checked('Select task Task a'),false);await switchTab('Property Work');assert.equal(await checked('Select work slip Slip a'),true);assert.equal(await page.evaluate(()=>window.refreshes),1);
-pass('a lost bulk response retains only the uncertain group and refreshes to reconcile a possibly committed update');
-await click(bulk,'Unassign');await waitCalls(3);assert.deepEqual((await calls())[2].args,{ids:['slip-a'],patch:{assigned_to_email:null}});await finish(2,{ok:false,error:'Slip retry failed'});await ready(bulk+' button');await waitText('Slip retry failed');assert.equal(await checked('Select work slip Slip a'),true);await click(bulk,'Clear');
-pass('returned retry errors stay visible with the remaining selection and explicit Clear recovers normally');
+await click(bulk,'Normal',true);await waitCalls(1);
+assert.deepEqual((await calls()).map(c=>[c.kind,c.args.patch.priority]),[['bulkSlips','normal']]);
+await switchTab('Property Work');assert.equal(await page.$eval('[aria-label="Select work slip Slip a"]',e=>e.disabled),true);await click(bulk,'Clear');assert.equal(await checked('Select work slip Slip a'),true);assert.equal(await beforeUnload(),true);
+await finish(0,{ok:false,error:'Slips denied'});await ready(bulk+' button');await clean();await waitText('Work slips: Slips denied They remain selected.');
+assert.equal(await checked('Select work slip Slip a'),true);
+pass('slip bulk waits for its result, ignores a same-tick double click, and keeps a refused selection');
+await click(bulk,'Assign to me',true);await waitCalls(2);assert.deepEqual((await calls())[1],{kind:'bulkSlips',args:{ids:['slip-a'],patch:{assigned_to_email:'me@example.test'}}});await finish(1,{ok:true,updated:1});await clean();await page.waitForFunction(()=>!document.querySelector('[aria-label="Bulk actions"]'));
+pass('slip bulk retry submits the remaining IDs once and a confirmed update clears the bar');
 
-await reset('queue','&open=synthetic-home');await selectMixed();await click(bulk,'High');await waitCalls(2);await finish(0,{ok:false,error:'Slip failure'});await finish(1,null,true);await ready(bulk+' button');await waitText('Slip failure');await waitText('Tasks: could not confirm');
-assert.match(await body(),/2 selected/);await click(bulk,'Low');await waitCalls(4);assert.deepEqual((await calls()).slice(2).map(c=>c.args.patch.priority),['low','low']);await finish(2,{ok:true,updated:1});await finish(3,{ok:true,updated:1});await clean();
-pass('two different failure modes keep both groups selected and a later confirmed retry clears them');
+await reset('queue');await switchTab('Office to-dos');await click('#queue','Select to-do Task a');await click('#queue','Select to-do Task b');
+await click(bulk,'Normal');await waitCalls(1);assert.deepEqual((await calls())[0],{kind:'bulkTasks',args:{ids:['task-a','task-b'],patch:{priority:'normal'}}});
+await finish(0,null,true);await ready(bulk+' button');await waitText('Office to-dos: could not confirm the update');
+assert.equal(await checked('Select to-do Task a'),true);assert.equal(await checked('Select to-do Task b'),true);assert.equal(await page.evaluate(()=>window.refreshes),1);
+pass('to-do bulk passes Normal through unchanged and a lost response keeps both picks and refreshes to reconcile');
+await click(bulk,'Low');await waitCalls(2);assert.equal((await calls())[1].args.patch.priority,'low');await finish(1,{ok:true,updated:2});await clean();await page.waitForFunction(()=>!document.querySelector('[aria-label="Bulk actions"]'));
+pass('a later confirmed to-do update clears the selection');
 
 for(const [scope,kind] of [['slip','doneSlip'],['task','doneTask']]){
  await reset('done');await click('#'+scope,'✓ Done',true);await waitCalls(1);assert.equal((await calls())[0].kind,kind);await page.waitForFunction(scope=>document.querySelector('#'+scope).textContent==='',{},scope);assert.equal(await beforeUnload(),true);
