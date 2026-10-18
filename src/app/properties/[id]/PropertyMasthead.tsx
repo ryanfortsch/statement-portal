@@ -312,7 +312,7 @@ export function PropertyMasthead({
           scope={cleaner?.fleetWide ? 'fleet' : undefined}
           copy
           fixLabel="No cleaner mapped"
-          fixHref="/turnovers/schedule"
+          fixHref="/turnovers/settings#schedule-recipients"
         />
         <Fact
           label="Owner"

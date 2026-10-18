@@ -1374,10 +1374,10 @@ export default async function PropertyDetailPage({
             No cleaner is mapped to {p.name}. Inbound texts from this house fall back to matching on
             the message body, and the cleaner line on the header band stays empty.{' '}
             <Link
-              href="/turnovers/schedule"
+              href="/turnovers/settings#schedule-recipients"
               style={{ color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}
             >
-              Open the cleaner schedule
+              Open Cleaner settings
             </Link>
           </div>
         ) : (

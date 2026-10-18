@@ -76,7 +76,7 @@ test('round 10: the pre-tick hold list waits for a cutover to be prepared', () =
 
 test('round 11: a recipient takes its homes\' region, one region per row', () => {
   const src = read('src/app/turnovers/schedule/actions.ts');
-  assert.ok(src.includes('if (regions.size > 1) redirect(`${PAGE}?err=mixed_region${anchor}`);'));
+  assert.ok(src.includes('if (regions.size > 1) redirect(`${SETTINGS}?err=mixed_region${anchor}`);'));
   assert.ok(src.includes('const region = propertyRegion || rawRegion || CAPE_ANN_REGION;'));
 });
 

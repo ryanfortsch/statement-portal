@@ -94,6 +94,7 @@ describe('what a staff login may open', () => {
       '/',
       '/turnovers',
       '/turnovers/schedule',
+      '/turnovers/settings',
       '/inspections',
       '/fieldwork/packets',
       '/fieldwork/packets/abc',

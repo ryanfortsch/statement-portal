@@ -178,6 +178,21 @@ export const HELM_MODULES: HelmModule[] = [
     group: 'operations',
     section: 'operations',
   },
+  // Not a tab: the schedule page links here from its foot, and the property
+  // page sends staff here to add a cleaner. Who gets the daily text and
+  // each home's default checkout and cleaner finish times.
+  {
+    id: 'cleaner-settings',
+    href: '/turnovers/settings',
+    number: '02d',
+    title: 'Cleaner settings',
+    description: 'Who gets the daily cleaner text (recipients, scope, language, their live page link) and each home\'s default checkout and cleaner finish times.',
+    status: 'active',
+    primary: false,
+    hidden: true,
+    group: 'operations',
+    section: 'operations',
+  },
   // A Turnovers tab (TurnoverTabs). The crew's own side of the schedule:
   // Cape Ann Elite's bookings, read from the Jobber reminder texts they
   // send the Quo line, against our checkouts day by day.
