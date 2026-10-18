@@ -69,10 +69,12 @@ import { getPropertyRooms } from '@/lib/property-rooms';
 import { RatesPanel } from './RatesPanel';
 import { ListingPanel } from './ListingPanel';
 import { AutomationsPanel } from './AutomationsPanel';
+import { HowWeSellIt } from './HowWeSellIt';
+import { loadHowWeSellIt } from '@/lib/how-we-sell-it';
 import { loadPricingBundle } from '@/lib/property-rates';
 import { getListingRecord, bedSummary, AMENITY_CATALOG, FIELD_CONSUMERS } from '@/lib/listing-content';
 import { getAutomationsPanelView } from '@/lib/automations';
-import { isHelmRun } from '@/lib/property-scope';
+import { isHelmRun, isCapeAnnOps } from '@/lib/property-scope';
 import { shiftIsoDay, todayInEastern } from '@/lib/sca-quotes-types';
 import type { OwnerCard } from '@/app/properties/actions';
 import { roleForEmail } from '@/lib/helm-access';
@@ -487,10 +489,11 @@ export default async function PropertyDetailPage({
   };
   const pmsRegion = ((p as unknown as { region?: string | null }).region ?? null) as string | null;
   const pmsToday = todayInEastern();
-  const [pricing, listingRecord, automationsView] = await Promise.all([
+  const [pricing, listingRecord, automationsView, howWeSellIt] = await Promise.all([
     loadPricingBundle(p.id, pmsToday, shiftIsoDay(pmsToday, 365)).catch(() => null),
     getListingRecord(p.id).catch(() => null),
     getAutomationsPanelView(p.id).catch(() => null),
+    loadHowWeSellIt(p.id),
   ]);
 
   // Management-contract registry facts (property_contracts). The active row
@@ -2014,6 +2017,24 @@ export default async function PropertyDetailPage({
               housePolicy={housePolicyValues}
             />
           </CollapsibleSection>
+          {/* HOW WE SELL IT: the selling points the campaign AI reads on every
+              draft (property_marketing). Was Marketing Memory under Growth;
+              sleeps and bedrooms come from the registry, not from here. Cape
+              Ann homes only: the campaigns sell nothing else. */}
+          {isCapeAnnOps({ region: pmsRegion }) && <CollapsibleSection
+            id="how-we-sell-it"
+            title="How we sell it"
+            summary={!howWeSellIt.ok ? 'could not be loaded' : howWeSellIt.row?.tagline || 'Nothing written yet'}
+          >
+            {howWeSellIt.ok ? (
+              <HowWeSellIt propertyId={p.id} row={howWeSellIt.row} />
+            ) : (
+              <div role="alert" style={{ fontSize: 13, color: 'var(--ink-3)' }}>
+                This could not be loaded. Nothing you saved has changed.{' '}
+                <a href={`/properties/${p.id}?tab=guest#how-we-sell-it`}>Retry</a>
+              </div>
+            )}
+          </CollapsibleSection>}
           <CollapsibleSection
             id="automations"
             title="Automations"

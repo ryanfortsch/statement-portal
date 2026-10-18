@@ -165,3 +165,30 @@ describe('Contacts: two verbs and one menu', () => {
     assert.ok(!sql.includes('—'), 'no em dashes');
   });
 });
+
+describe('Marketing Memory lives on the property page as How we sell it', () => {
+  test('the Growth route is gone and redirects; nothing links to it', () => {
+    assert.ok(!existsSync(new URL('src/app/guests/marketing', root)));
+    assert.ok(/source: '\/guests\/marketing',\n\s*destination: '\/properties',/.test(read('next.config.ts')));
+    assert.ok(!read('src/app/guests/contacts/ManageListMenu.tsx').includes('/guests/marketing'));
+  });
+
+  test('the Guest & listing tab carries the section, for Cape Ann homes, with a retry on a failed read', () => {
+    const page = read('src/app/properties/[id]/page.tsx');
+    assert.ok(page.includes('id="how-we-sell-it"') && page.includes('title="How we sell it"'));
+    assert.ok(page.includes('{isCapeAnnOps({ region: pmsRegion }) && <CollapsibleSection'));
+    assert.ok(page.includes('<HowWeSellIt propertyId={p.id} row={howWeSellIt.row} />'));
+    assert.ok(page.includes('This could not be loaded. Nothing you saved has changed.'));
+    const guestTab = page.slice(page.indexOf('<TabSection tab="guest">'));
+    assert.ok(guestTab.indexOf('id="how-we-sell-it"') > 0, 'the section sits on the Guest & listing tab');
+  });
+
+  test('the editor has no sleeps or bedrooms, and the table is service-role only', () => {
+    const editor = read('src/app/properties/[id]/HowWeSellIt.tsx');
+    assert.ok(!editor.includes('name="sleeps"') && !editor.includes('name="bedrooms"'));
+    const sql = read('supabase/migrations/20261018191000_property_marketing_service_role.sql');
+    assert.ok(sql.includes('enable row level security'));
+    assert.ok(!/create policy/i.test(sql), 'no anon policies: the anon key is public');
+    assert.ok(!/^\s*(sleeps|bedrooms) integer/m.test(sql), 'the new table keeps no sleeps or bedrooms column');
+  });
+});

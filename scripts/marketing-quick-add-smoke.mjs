@@ -1,4 +1,4 @@
-/** Marketing memory and quick-add forms; synthetic I/O only. */
+/** How we sell it (was Marketing Memory) and quick-add forms; synthetic I/O only. */
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {readFile,writeFile,mkdtemp,rm} from 'node:fs/promises';
@@ -14,22 +14,22 @@ const compile=s=>ts.transpileModule(s,{compilerOptions:{target:ts.ScriptTarget.E
 
 
 for(const [name,path] of [
- ['marketing','src/app/guests/marketing/MarketingMemoryEditor.tsx'],['contact','src/app/guests/contacts/AddGuestContactForm.tsx'],['prospect','src/app/properties/prospects/AddProspectForm.tsx'],
+ ['marketing','src/app/properties/[id]/HowWeSellIt.tsx'],['contact','src/app/guests/contacts/AddGuestContactForm.tsx'],['prospect','src/app/properties/prospects/AddProspectForm.tsx'],
  ['guard','src/lib/use-draft-navigation-guard.ts'],['recover','src/lib/use-recoverable-action.ts'],['unsaved','src/lib/unsaved-work.ts'],
 ])await writeFile(join(scratch,name+'.js'),compile(await readFile(join(root,path),'utf8')));
 await writeFile(join(scratch,'actions.js'),`
 const save=(kind,data)=>new Promise((resolve,reject)=>window.calls.push({kind,args:Object.fromEntries(data),resolve,reject}));
-export const saveMarketing=data=>save('marketing',data),manuallyAddContact=data=>save('contact',data),createProspectProperty=data=>save('prospect',data);
+export const saveHowWeSellIt=data=>save('marketing',data),manuallyAddContact=data=>save('contact',data),createProspectProperty=data=>save('prospect',data);
 `);
 await writeFile(join(scratch,'router.js'),`export {unstable_rethrow} from 'next/dist/client/components/unstable-rethrow.browser';`);
 await writeFile(join(scratch,'entry.js'),compile(`
-import React,{useState} from 'react';import {createRoot} from 'react-dom/client';import {MarketingMemoryEditor} from './marketing';import {AddGuestContactForm} from './contact';import {AddProspectForm} from './prospect';import {hasUnsavedWork} from './unsaved';
+import React,{useState} from 'react';import {createRoot} from 'react-dom/client';import {HowWeSellIt} from './marketing';import {AddGuestContactForm} from './contact';import {AddProspectForm} from './prospect';import {hasUnsavedWork} from './unsaved';
 window.calls=[];window.navs=0;window.confirmAnswer=false;window.confirms=[];window.guarded=hasUnsavedWork;window.confirm=message=>{window.confirms.push(message);return window.confirmAnswer;};
 function Fixture(){const [version,setVersion]=useState(0);window.revalidate=()=>setVersion(v=>v+1);const mode=new URLSearchParams(location.search).get('mode');return <><a href="/away" onClick={e=>{e.preventDefault();window.navs++;}}>Leave page</a><section id={mode}>
-{mode==='marketing'&&<MarketingMemoryEditor homes={[{id:'one',name:'Synthetic One'},{id:'two',name:'Synthetic Two'}]} rows={[{property_id:'one',tagline:version?'Server refreshed':'Initial tagline',primary_selling_point:null,selling_points:['Dock'],on_water:true,bedrooms:0,sleeps:6,best_for:null,notes:null}]}/>}
+{mode==='marketing'&&<HowWeSellIt propertyId="one" row={{tagline:version?'Server refreshed':'Initial tagline',primary_selling_point:null,selling_points:['Dock'],on_water:true,best_for:null,notes:null}}/>}
 {mode==='contact'&&<AddGuestContactForm/>}{mode==='prospect'&&<AddProspectForm/>}</section></>;}createRoot(document.getElementById('root')).render(<Fixture/>);
 `));
-const alias={'../actions':'actions','./actions':'actions','@/lib/use-draft-navigation-guard':'guard','@/lib/use-recoverable-action':'recover','./unsaved-work':'unsaved','next/navigation':'router'};
+const alias={'../actions':'actions','./actions':'actions','./how-we-sell-it-actions':'actions','@/lib/use-draft-navigation-guard':'guard','@/lib/use-recoverable-action':'recover','./unsaved-work':'unsaved','next/navigation':'router'};
 await new Promise((resolve,reject)=>{const compiler=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.js'),output:{path:scratch,filename:'bundle.js'},resolve:{modules:[join(root,'node_modules')],alias:Object.fromEntries(Object.entries(alias).map(([k,v])=>[k,join(scratch,v+'.js')]))},performance:{hints:false}});compiler.run((err,stats)=>compiler.close(()=>err||stats?.hasErrors()?reject(err||Error(stats.toString({all:false,errors:true}))):resolve()));});
 if(process.argv.includes('--compile-only')){console.log('Marketing/quick-add fixture compiled.');await rm(scratch,{recursive:true,force:true});process.exit(0);}
 const server=createServer(async(req,res)=>{if(req.method!=='GET'){res.writeHead(405).end();return;}res.setHeader('Cache-Control','no-store');res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' https://synthetic.test data:");if(req.url==='/bundle.js'){res.setHeader('Content-Type','text/javascript; charset=utf-8');res.end(await readFile(join(scratch,'bundle.js')));}else{res.setHeader('Content-Type','text/html; charset=utf-8');res.end('<!doctype html><title>Synthetic campaign and delete recovery</title><style>body{font:14px system-ui;--ink:#222;--paper:#fff;--rule:#ccc}section{margin:20px}button{margin:4px}input,textarea,select{margin:4px}</style><div id="root"></div><script src="/bundle.js"></script>');}});
@@ -59,16 +59,14 @@ const leave=()=>page.$$eval('a',links=>links.find(a=>a.textContent==='Leave page
 
 
 const openAll=()=>page.$$eval('details',ds=>ds.forEach(d=>d.open=true));
-const form=n=>'#marketing details:nth-child('+n+')';
-const field=(n,name)=>form(n)+' [name="'+name+'"]';
-await reset('marketing');await openAll();assert.equal(await guard(),false);assert.equal(await value(field(1,'bedrooms')),'0');assert.equal(await value(field(2,'tagline')),'');pass('saved zero and truly empty home initialize correctly');
-await edit(field(1,'tagline'),'First draft');await edit(field(1,'selling_points'),'Dock\nBeach');await edit(field(1,'sleeps'),'8');await page.click(field(1,'on_water'));await edit(field(2,'notes'),'Neighbor draft');assert.equal(await guard(),true);await leave();assert.equal(await nav(),0);assert.equal(await page.evaluate(()=>window.confirms.length),1);pass('multiple dirty homes share one leave prompt');
-await click(form(1),'Save',true);await waitCalls(1);assert.deepEqual((await calls())[0].args,{property_id:'one',tagline:'First draft',primary_selling_point:'',selling_points:'Dock\nBeach',sleeps:'8',bedrooms:'0',best_for:'',notes:''});assert.equal(await page.$$eval('#marketing input:not([type="hidden"]),#marketing textarea,#marketing button',es=>es.every(e=>e.disabled)),true);await submit(form(2),true);assert.equal((await calls()).length,1);pass('marketing captures exact checkbox/number/text values and blocks overlapping saves');
-await leave();assert.equal(await nav(),0);await finish(0,null,true);await waitText('Could not confirm this save');await ready(field(1,'tagline'));assert.equal(await value(field(1,'tagline')),'First draft');assert.equal(await value(field(1,'selling_points')),'Dock\nBeach');assert.equal(await value(field(1,'sleeps')),'8');assert.equal(await page.$eval(field(1,'on_water'),e=>e.checked),false);assert.equal(await value(field(2,'notes')),'Neighbor draft');pass('failed save retains every field and neighboring draft');
-await click(form(1),'Save');await waitCalls(2);await finish(1);await waitText('Saved');await ready(field(1,'tagline'));assert.equal(await guard(),true);assert.equal(await page.$eval(form(1)+' summary',e=>e.textContent.includes('First draft')),true);assert.equal(await page.$$eval(form(1)+' [role="alert"]',es=>es.length),0);pass('successful retry updates saved summary but leaves other home protected');
-await page.evaluate(()=>window.revalidate());assert.equal(await value(field(1,'tagline')),'First draft');assert.equal(await value(field(2,'notes')),'Neighbor draft');pass('server revalidation cannot overwrite local drafts');
-await click(form(2),'Save');await waitCalls(3);assert.equal((await calls())[2].args.property_id,'two');assert.equal((await calls())[2].args.notes,'Neighbor draft');await finish(2);await clean();assert.equal(await page.$$eval('[role="status"]',es=>es.length),2);pass('each home receives its own saved confirmation and clears only its own draft');
-await page.click(field(2,'on_water'));assert.equal(await guard(),true);await page.click(field(2,'on_water'));await clean();await edit(field(2,'bedrooms'),'3');assert.equal(await guard(),true);pass('checkbox-only and numeric-only changes are guarded');
+const field=name=>'#marketing [name="'+name+'"]';
+await reset('marketing');assert.equal(await guard(),false);assert.equal(await value(field('tagline')),'Initial tagline');assert.equal(await value(field('selling_points')),'Dock');assert.equal(await page.$eval(field('on_water'),e=>e.checked),true);assert.equal(await page.$$eval('#marketing [name="sleeps"],#marketing [name="bedrooms"]',es=>es.length),0);pass('a saved home initializes, with no sleeps or bedrooms field (the registry holds them)');
+await edit(field('tagline'),'First draft');await edit(field('selling_points'),'Dock\nBeach');await page.click(field('on_water'));assert.equal(await guard(),true);await leave();assert.equal(await nav(),0);assert.equal(await page.evaluate(()=>window.confirms.length),1);pass('unsaved edits are protected on leave');
+await click('#marketing','Save',true);await waitCalls(1);assert.deepEqual((await calls())[0].args,{property_id:'one',tagline:'First draft',primary_selling_point:'',selling_points:'Dock\nBeach',best_for:'',notes:''});assert.equal(await page.$$eval('#marketing input:not([type="hidden"]),#marketing textarea,#marketing button',es=>es.every(e=>e.disabled)),true);await submit('#marketing',true);assert.equal((await calls()).length,1);pass('the save captures exact checkbox and text values and blocks overlapping saves');
+await leave();assert.equal(await nav(),0);await finish(0,null,true);await waitText('Could not confirm this save');await ready(field('tagline'));assert.equal(await value(field('tagline')),'First draft');assert.equal(await value(field('selling_points')),'Dock\nBeach');assert.equal(await page.$eval(field('on_water'),e=>e.checked),false);pass('a failed save retains every field');
+await click('#marketing','Save');await waitCalls(2);await finish(1);await waitText('Saved');await clean();assert.equal(await page.$$eval('#marketing [role="alert"]',es=>es.length),0);pass('a successful retry confirms and clears the leave guard');
+await page.evaluate(()=>window.revalidate());assert.equal(await value(field('tagline')),'First draft');pass('server revalidation cannot overwrite the form');
+await page.click(field('on_water'));assert.equal(await guard(),true);await page.click(field('on_water'));await clean();pass('a checkbox-only change is guarded');
 
 await reset('contact');await openAll();await click('#contact','Add');assert.equal((await calls()).length,0);await edit('[name="email"]','not-an-email');await click('#contact','Add');assert.equal((await calls()).length,0);pass('contact browser validation still blocks empty and malformed emails');
 await edit('[name="email"]','person@example.test');await edit('[name="first_name"]','Synthetic');await edit('[name="last_name"]','Guest');await edit('[name="tags"]','test, local');await leave();assert.equal(await nav(),0);pass('contact text is protected before submission');

@@ -48,9 +48,6 @@ export function ManageListMenu({ lastGuestySync }: { lastGuestySync: string | nu
         <Link href="/guests/campaigns" style={{ ...rowStyle, display: 'block', textDecoration: 'none', color: 'var(--ink)' }}>
           Campaigns <span style={{ color: 'var(--ink-3)' }}>→</span>
         </Link>
-        <Link href="/guests/marketing" style={{ ...rowStyle, display: 'block', textDecoration: 'none', color: 'var(--ink)' }}>
-          Marketing memory <span style={{ color: 'var(--ink-3)' }}>→</span>
-        </Link>
 
         <form onSubmit={onImport} encType="multipart/form-data" style={{ ...rowStyle, display: 'grid', gap: 8 }}>
           <label htmlFor="contacts-csv" style={{ fontSize: 13, color: 'var(--ink)' }}>Import a CSV</label>

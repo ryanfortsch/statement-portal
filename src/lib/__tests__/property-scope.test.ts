@@ -83,7 +83,6 @@ describe('no file re-grows a literal exclusion set', () => {
     'lib/checkout-schedule.ts',
     'app/turnovers/page.tsx',
     'app/turnovers/schedule/page.tsx',
-    'app/guests/marketing/page.tsx',
     'lib/ai/campaign-context.ts',
     'app/inspections/page.tsx',
     'lib/vendor-schedule.ts',
