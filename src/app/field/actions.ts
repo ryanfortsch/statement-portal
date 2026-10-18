@@ -294,6 +294,109 @@ export async function saveGearCellField(propertyId: string, itemKey: string, loc
   return res;
 }
 
+// ── Add a receipt: one rail per stop ──────────────────────────────────
+// A receipt is money a contractor spent for a home on their trip (batteries
+// for the smoke alarm, a shower rod). Before this rail it could only ride a
+// task completion, so a pure inspection stop with no task had nowhere to put
+// one. Now every stop has the same "Add a receipt" chip: the receipt becomes
+// a done work slip at that home homed straight onto this packet
+// (receipt_packet_id), which recomputePacketExpenses already counts. The
+// server clamps at RECEIPT_CAP_CENTS like every rail; the field states it.
+
+export type StopReceiptState = { ok: boolean; error?: string; uncertain?: boolean; cents?: number };
+
+async function findStopReceipt(contractorId: string, attempt: string, packetId: string): Promise<StopReceiptState & { missing?: boolean }> {
+  const id = fieldSubmissionId(contractorId, attempt);
+  if (!id) return { ok: false, error: 'Reopen the packet before adding a receipt.' };
+  const { data, error } = await fieldDb().from('work_slips')
+    .select('id, expense_cents')
+    .eq('id', id).eq('receipt_contractor_id', contractorId).eq('receipt_packet_id', packetId).maybeSingle();
+  if (error) return { ok: false, uncertain: true, error: 'Could not check whether your receipt was saved. Retry when connected.' };
+  if (!data) return { ok: false, missing: true };
+  // Finish the idempotent recompute if the first response was lost.
+  await recomputePacketExpenses(packetId).catch(() => {});
+  return { ok: true, cents: (data as { expense_cents: number | null }).expense_cents ?? 0 };
+}
+
+export async function checkStopReceipt(attempt: string, packetId: string): Promise<StopReceiptState> {
+  const contractor = await resolveContractorFromCookie();
+  if (!contractor) return { ok: false, uncertain: true, error: 'Reopen your portal link to check this receipt.' };
+  const result = await findStopReceipt(contractor.id, attempt, packetId);
+  return result.ok ? result : { ok: false, uncertain: true, error: result.error || 'The receipt is not confirmed yet. Retry to safely finish the same submission.' };
+}
+
+export async function addStopReceipt(_prev: StopReceiptState, formData: FormData): Promise<StopReceiptState> {
+  const contractor = await resolveContractorFromCookie();
+  if (!contractor) return { ok: false, error: 'Please reopen your portal link and try again.' };
+  const packetId = String(formData.get('packet_id') || '');
+  const stopId = String(formData.get('stop_id') || '');
+  const attempt = String(formData.get('submission_id') || '');
+  const submissionId = fieldSubmissionId(contractor.id, attempt);
+  if (!submissionId || !packetId || !stopId) return { ok: false, error: 'Reopen the packet before adding a receipt.' };
+  const prior = await findStopReceipt(contractor.id, attempt, packetId);
+  if (!prior.missing) return prior;
+
+  const what = String(formData.get('what') || '').trim();
+  let photoUrls: string[] = [];
+  try {
+    const parsed = JSON.parse(String(formData.get('photo_urls') || '[]'));
+    if (Array.isArray(parsed)) photoUrls = parsed.filter((u): u is string => typeof u === 'string').slice(0, 12).map((u) => u.slice(0, 500));
+  } catch {
+    /* no photos */
+  }
+  const expenseCents = parseReceiptDollars(formData.get('expense_dollars'));
+  if (expenseCents <= 0) return { ok: false, error: 'Enter the receipt total.' };
+  if (what.length < 2) return { ok: false, error: 'Say what it was for, like "batteries for the smoke alarm".' };
+
+  // The stop must be on a trip that is theirs and whose payout can still move.
+  const [{ data: st }, { data: pk }] = await Promise.all([
+    fieldDb().from('packet_stops').select('id, property_id').eq('id', stopId).eq('packet_id', packetId).maybeSingle(),
+    fieldDb().from('inspection_packets').select('id, status, paid_at, awarded_contractor_id').eq('id', packetId).maybeSingle(),
+  ]);
+  const stop = st as { id: string; property_id: string } | null;
+  const packet = pk as { id: string; status: string; paid_at: string | null; awarded_contractor_id: string | null } | null;
+  if (!stop || !packet || packet.awarded_contractor_id !== contractor.id) return { ok: false, error: 'This stop is not on one of your trips.' };
+  if (packet.paid_at || !['claimed', 'in_progress', 'submitted', 'approved'].includes(packet.status)) {
+    return { ok: false, error: 'This trip is already paid. Text the office about a late receipt.' };
+  }
+
+  const now = new Date().toISOString();
+  const { error } = await fieldDb().from('work_slips').insert({
+    id: submissionId,
+    property_id: stop.property_id,
+    title: `Receipt: ${what}`.slice(0, 200),
+    category: 'rising_tide',
+    priority: 'low',
+    // A record of money spent, not open work: it never lands on a board.
+    status: 'done',
+    completed_at: now,
+    closed_by_email: contractor.email,
+    photo_urls: photoUrls,
+    created_by_email: contractor.email,
+    reported_by_contractor_id: contractor.id,
+    expense_cents: expenseCents,
+    receipt_contractor_id: contractor.id,
+    receipt_packet_id: packetId,
+  });
+  if (error) {
+    // The primary key arbitrates concurrent retries, including a lost insert response.
+    const saved = await findStopReceipt(contractor.id, attempt, packetId);
+    return saved.ok ? saved : { ok: false, uncertain: true, error: 'Could not confirm your receipt. Retry to safely finish the same submission.' };
+  }
+  await recomputePacketExpenses(packetId).catch(() => {});
+  await logEvent({
+    packetId,
+    contractorId: contractor.id,
+    actorEmail: contractor.email,
+    propertyId: stop.property_id,
+    eventType: 'receipt_added',
+    payload: { work_slip_id: submissionId, stop_id: stopId, expense_cents: expenseCents },
+  });
+  revalidatePath(`/field/packet/${packetId}`);
+  revalidatePath(`/fieldwork/packets/${packetId}`);
+  return { ok: true, cents: expenseCents };
+}
+
 async function reqContext() {
   const h = await headers();
   return {

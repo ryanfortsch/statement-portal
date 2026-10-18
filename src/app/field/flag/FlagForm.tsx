@@ -6,6 +6,7 @@ import { confirmedSave } from '@/lib/confirmed-save';
 import { useFieldFormDraft, FieldDraftStatus } from '@/components/FieldFormDraft';
 import { PhotoUploader, useClearPhotoDraft } from '@/components/PhotoUploader';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
+import { ReceiptAmountField } from '@/components/ReceiptAmountField';
 import { reportFieldWorkSlip, checkFieldReportSubmission, type ReportState } from '../actions';
 
 /** A home the form can file against: a recent visit (with its window), or,
@@ -266,26 +267,17 @@ export function FlagForm({ homes, windowHours }: { homes: HomeOption[]; windowHo
         <PhotoUploader draftKey={draftKey || undefined} value={photos} onChange={setPhotos} folder="field-maintenance" disabled={isPending || !selected} onUploadingChange={setUploading} />
       </div>
 
-      {/* Receipt — bought something for the house out of pocket? The amount
-          rides the visit's payout, same rail as receipts on task completions.
-          Before this field, reimbursements arrived as prose in the description
-          and never reached pay (Delaney's $27.60 TP holders, Aug 23). */}
-      <div>
-        <span style={label}>
-          Receipt total $ <span style={optional}>(optional; if you bought something for the house, this is added to your payout)</span>
-        </span>
-        <input
-          name="expense_dollars"
-          disabled={!selected} value={details.expenseDollars}
-          onChange={e => formDraft.set('expenseDollars', e.target.value)}
-          type="number"
-          min={0}
-          max={500}
-          step="0.01"
-          placeholder="e.g. 27.60"
-          style={{ display: 'block', width: 140, font: 'inherit', fontSize: 15, color: 'var(--ink)', background: 'var(--paper)', border: '1px solid var(--rule)', borderRadius: 8, padding: '10px 12px', marginTop: 6 }}
-        />
-      </div>
+      {/* Receipt: bought something for the house out of pocket? The amount
+          rides the visit's payout, same rail as every receipt on the portal.
+          Before this field, reimbursements arrived as prose in the
+          description and never reached pay (Delaney's $27.60 TP holders,
+          Aug 23). */}
+      <ReceiptAmountField
+        value={details.expenseDollars}
+        onChange={(v) => formDraft.set('expenseDollars', v)}
+        disabled={!selected}
+        where={chosen && !chosen.visit ? 'rides your trip at this home, else your next payout' : 'added to your payout'}
+      />
 
       </fieldset>
       {attemptDraft.status === 'unavailable' && <p role="alert" style={{ fontSize: 13, color: 'var(--signal)' }}>Retry details could not be saved on this device. Keep this page open until the report is confirmed.</p>}

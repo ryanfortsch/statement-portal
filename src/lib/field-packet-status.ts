@@ -159,6 +159,7 @@ const PACKET_EVENT_LABEL: Record<string, string> = {
   streak_bonus: 'Streak bonus added',
   receipt_homed: 'Receipt added to the payout',
   receipt_unhomed: 'Receipt taken off the payout',
+  receipt_added: 'Receipt added by the contractor',
   recorded_past_visit: 'Recorded as a past visit',
   offer_pick_unavailable_held_as_draft: 'Held as a draft: a picked contractor could not claim',
   sent: 'Sent',

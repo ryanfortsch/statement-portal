@@ -23,7 +23,9 @@ for (const [name, path] of [
   ['form-draft', 'src/components/FieldFormDraft.tsx'],
   ['form-store', 'src/lib/field-form-drafts.ts'],
   ['component', 'src/app/field/flag/FlagForm.tsx'],
+  ['stop-receipt', 'src/app/field/packet/[packetId]/StopReceipt.tsx'],
   ['unsaved-work', 'src/lib/unsaved-work.ts'],
+  ['receipt', 'src/components/ReceiptAmountField.tsx'],
 ]) await writeFile(join(scratch, name + '.js'), compile(await readFile(join(root, path), 'utf8')));
 await writeFile(join(scratch, 'confirmed-save.js'), compile((await readFile(join(root,'src/lib/confirmed-save.ts'),'utf8')).replace('options.timeoutMs ?? 15_000', "options.timeoutMs ?? (location.search.includes('timeout=1') ? 250 : 15_000)")));
 await writeFile(join(scratch, 'router.js'), 'export const useRouter=()=>({refresh:()=>{window.refreshes++;}});');
@@ -34,6 +36,8 @@ await writeFile(join(scratch, 'actions.js'), `
   export const reportFieldWorkSlip = (previous, data) => new Promise((resolve, reject) => {
     window.calls.push({data:Object.fromEntries(data), resolve, reject});
   });
+  export const addStopReceipt = (previous, data) => reportFieldWorkSlip(previous, data);
+  export const checkStopReceipt = async () => { window.checks++; return {ok:!!window.confirmedReceipt,uncertain:!window.confirmedReceipt}; };
 `);
 await writeFile(join(scratch, 'link.js'), compile(`
   import React from 'react';
@@ -60,6 +64,7 @@ await writeFile(join(scratch, 'entry.js'), compile(`
   import {createRoot} from 'react-dom/client';
   import {FlagForm} from './component.js';
   import {MaintenanceComplete} from './maintenance.js';
+  import {StopReceipt} from './stop-receipt.js';
   import {hasUnsavedWork} from './unsaved-work.js';
   window.calls=[];window.checks=0;window.refreshes=0;window.guarded=hasUnsavedWork;
   const params=new URLSearchParams(location.search);
@@ -84,7 +89,7 @@ await writeFile(join(scratch, 'entry.js'), compile(`
           <button onClick={()=>setMounted(v=>!v)}>Toggle form</button>
         </>}
       </aside>
-      {mounted && (params.has('maintenance') ? <MaintenanceComplete packetId="packet-a" stopId="stop-a"/> : <FlagForm homes={homes} windowHours={72}/>)}
+      {mounted && (params.has('receipt') ? <div style={{display:'flex',flexWrap:'wrap',gap:8}}><StopReceipt packetId="packet-a" stopId="stop-a" existing={[]} chipStyle={{}}/></div> : params.has('maintenance') ? <MaintenanceComplete packetId="packet-a" stopId="stop-a"/> : <FlagForm homes={homes} windowHours={72}/>)}
     </>;
   }
   createRoot(document.getElementById('root')).render(<Fixture/>);
@@ -102,6 +107,7 @@ await new Promise((done,reject)=>{
       'next/link':join(scratch,'link.js'),
       '@/components/PhotoUploader':join(scratch,'upload.js'),
       '@/lib/unsaved-work':join(scratch,'unsaved-work.js'),
+      '@/components/ReceiptAmountField':join(scratch,'receipt.js'),
     }},performance:{hints:false},
   });
   compiler.run((error,stats)=>compiler.close(()=>error||stats?.hasErrors()
@@ -315,7 +321,9 @@ try{
     pass('a hung request releases the retry control without pretending it failed or resubmitting');
 
     await page.goto(origin+'/?maintenance=1');await page.evaluate(()=>localStorage.clear());await page.reload();await page.waitForSelector('form');
-    await click('+ add note or photo');await edit('resolution','Replaced the synthetic hinge');await edit('expense_dollars','12.50');
+    await click('+ add note or photo');await edit('resolution','Replaced the synthetic hinge');
+    // Receipts go through the stop's one Add a receipt chip; the task completion has no receipt field of its own.
+    assert.equal(await page.$('[name=expense_dollars]'),null);
     await page.evaluate(()=>{const form=document.querySelector('form');form.requestSubmit();form.requestSubmit();});await waitCalls(1);
     assert.equal(await page.$eval('fieldset',e=>e.disabled),true);
     await finish(null,true);await waitText('Could not confirm the save.');
@@ -325,6 +333,24 @@ try{
     assert.equal(await page.evaluate(()=>window.calls.length),1);assert.equal(await page.evaluate(()=>window.refreshes),1);
     assert.deepEqual(errors,[]);
     pass('maintenance double taps serialize; an uncertain completion keeps details and confirms before retrying the write');
+    await page.goto(origin+'/?receipt=1');await page.evaluate(()=>localStorage.clear());await page.reload();
+    await page.waitForFunction(()=>[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='Add a receipt'));
+    await click('Add a receipt');await page.waitForSelector('form');
+    assert.equal(await page.$eval('[name=expense_dollars]',e=>e.max),'500');await waitText('up to $500');
+    await edit('expense_dollars','612.40');await edit('what','A new shower rod');
+    await page.evaluate(()=>document.querySelector('form').requestSubmit());
+    assert.equal(await page.evaluate(()=>window.calls.length),0,'over the cap never reaches the server');
+    await edit('expense_dollars','27.60');await click('Add to my payout');await waitCalls(1);
+    const firstReceipt=await page.evaluate(()=>window.calls[0].data);
+    assert.equal(firstReceipt.expense_dollars,'27.60');assert.equal(firstReceipt.what,'A new shower rod');assert.ok(firstReceipt.submission_id);
+    await finish(null,true);await waitText('Check / retry receipt');
+    assert.equal(await page.$eval('[name=expense_dollars]',e=>e.matches(':disabled')),true);
+    await click('Check / retry receipt');await waitCalls(2);
+    assert.deepEqual(await page.evaluate(()=>window.calls[1].data),firstReceipt);
+    await finish({ok:true,cents:2760});await waitText('$27.60 added to this trip');
+    assert.equal(await page.evaluate(()=>window.refreshes),1);assert.deepEqual(errors,[]);
+    pass('a stop receipt states the cap on the field, refuses over it, and a retry after a lost response resends the first attempt exactly');
+
     console.log(`All ${checks} field report browser checks passed.`);
   }
 }catch(error){

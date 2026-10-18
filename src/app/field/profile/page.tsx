@@ -91,6 +91,13 @@ export default async function FieldProfilePage() {
           {onTimePct != null && <Stat label="On time" value={`${onTimePct}%`} />}
         </div>
       )}
+      {/* When "Approved, unpaid" turns into money, said where the figure is. */}
+      {hasActivity && owedCents > 0 && !isCreative && (
+        <p style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55, margin: '-18px 0 30px' }}>
+          Approved trips are paid to your payout method on file once the office records the payment, and a receipt
+          email comes the moment it&apos;s sent.
+        </p>
+      )}
 
       {/* Booked shoots still ahead — the contributor's calendar at a glance. */}
       {creative && creative.upNext.length > 0 && (

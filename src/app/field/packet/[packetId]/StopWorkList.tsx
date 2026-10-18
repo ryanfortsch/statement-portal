@@ -4,6 +4,7 @@ import { useFieldFormDraft, FieldDraftStatus } from '@/components/FieldFormDraft
 import { useCallback, useRef, useState } from 'react';
 import { StopSlipEditor } from './StopSlipEditor';
 import { PhotoUploader, PhotoThumbs, usePhotoDraftCleaner } from '@/components/PhotoUploader';
+import { ReceiptAmountField } from '@/components/ReceiptAmountField';
 import { confirmedSave } from '@/lib/confirmed-save';
 import { resolveSlipFromStop, checkFieldTaskCompletion } from '../../actions';
 
@@ -310,21 +311,14 @@ export function StopWorkList({
                       placeholder="What you did (optional)"
                       style={{ ...field, marginTop: 8, resize: 'vertical' }}
                     />
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 13, color: 'var(--ink-3)', flexWrap: 'wrap' }}>
-                      <span style={{ color: 'var(--ink-4)' }}>$</span>
-                      <input
-                        type="number"
-                        min={0}
-                        step={0.01}
-                        inputMode="decimal"
-                        placeholder="0.00"
-                        disabled={!formDraft.ready || saving || !!failedId}
-                        value={expense}
-                        onChange={(e) => setExpense(e.target.value)}
-                        style={{ ...field, width: 110, display: 'inline-block' }}
-                      />
-                      receipt total, if you bought something
-                    </label>
+                    {/* Receipts go through the stop's one "Add a receipt" chip,
+                        so a purchase is entered once per stop. A draft typed
+                        here before the chip existed keeps its amount. */}
+                    {expense && (
+                      <div style={{ marginTop: 8 }}>
+                        <ReceiptAmountField value={expense} onChange={setExpense} disabled={!formDraft.ready || saving || !!failedId} where="added to this trip's payout" />
+                      </div>
+                    )}
                     {err && !failedId && <div style={{ color: 'var(--signal)', fontSize: 13, marginTop: 8 }}>{err}</div>}
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
                       <button type="button" onClick={() => submitDone(i)} disabled={!formDraft.ready || !!failedId || saving || photoBusy || failedPhotos > 0} style={{ ...pillDark, opacity: saving ? 0.7 : 1 }}>
