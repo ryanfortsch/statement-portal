@@ -122,11 +122,19 @@ describe('the checkbox goes through the audited door', () => {
   const actions = read('src/app/statements/actions.ts');
 
   test('the Statement sent box is wired to markStatementSent', () => {
+    // The tick lives on the card's Send section and calls onMarkSent; the
+    // dashboard binds onMarkSent to markStatementSent and nothing else.
     assert.match(
       page,
-      /label="Statement sent"\s*done=\{!!task\?\.email_sent_at\}\s*onToggle=\{\(next\) => markStatementSent\(p, next\)\}/,
-      'the "Statement sent" checkbox no longer goes through markStatementSent',
+      /label="Statement sent"\s*done=\{!!closeTask\?\.email_sent_at\}\s*disabled=\{!closeTaskKnown\}\s*onToggle=\{\(next\) => onMarkSent\(next\)\}/,
+      'the "Statement sent" checkbox no longer goes through onMarkSent',
     );
+    assert.match(
+      page,
+      /onMarkSent=\{\(next\) => markStatementSent\(prop, next\)\}/,
+      'onMarkSent no longer goes through markStatementSent',
+    );
+    assert.equal((page.match(/label="Statement sent"/g) || []).length, 1, 'a second Statement sent box exists');
   });
 
   test('unticking confirms, then calls unmarkStatementSentAction', () => {
