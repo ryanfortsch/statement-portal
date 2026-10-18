@@ -109,6 +109,42 @@ async function isContractSigned(id: string): Promise<boolean> {
   return !!data && contractTermsLocked(data as { contract_signed_at: string | null });
 }
 
+/**
+ * The one writer of a prospect's contract terms. The edit form's Contract
+ * terms section (updateProjection) and the owner-redlines apply
+ * (applyContractRedlines) both save through it, so the lock lives in one
+ * place: a save that would change a rendered term is refused while the
+ * owner's signature is on file, and the write carries the is-null filter
+ * so a signature landing between this read and the write wins. Anything
+ * that is not a term (an owner's phone, the deck's numbers) still saves on
+ * a signed contract. `guardAlways` filters every write, for a caller that
+ * only ever writes terms.
+ */
+async function writeContractTerms(
+  id: string,
+  patch: Record<string, unknown>,
+  opts: { guardAlways?: boolean } = {},
+): Promise<{ ok: true; signed: boolean } | { ok: false; held: string[] } | { ok: false; error: string }> {
+  const { data: current, error: readErr } = await supabase
+    .from('projections')
+    .select(`contract_signed_at, ${CONTRACT_TERM_COLUMNS}`)
+    .eq('id', id)
+    .maybeSingle();
+  if (readErr) return { ok: false, error: readErr.message };
+  const before = current as unknown as ContractTermsSource | null;
+  const held = before ? changedContractTerms(before, { ...before, ...patch } as ContractTermsSource) : [];
+  const signed = !!current && contractTermsLocked(current as { contract_signed_at: string | null });
+  if (held.length > 0 && signed) return { ok: false, held };
+
+  const guarded = held.length > 0 || !!opts.guardAlways;
+  let write = supabase.from('projections').update(patch).eq('id', id);
+  if (guarded) write = write.is('contract_signed_at', null);
+  const { data: saved, error } = await write.select('id');
+  if (error) return { ok: false, error: error.message };
+  if (guarded && (!saved || saved.length === 0)) return { ok: false, held };
+  return { ok: true, signed };
+}
+
 /** 32-hex-char random token for the public onboarding link. */
 function newOnboardingToken(): string {
   return crypto.randomBytes(16).toString('hex');
@@ -433,24 +469,6 @@ export async function updateProjection(id: string, formData: FormData) {
 
   const basePayload = buildPayload(formData);
 
-  // A signed contract's terms are locked: the contract re-renders from
-  // this row, so a changed term would sit under the owner's signature.
-  // Everything else on the form (owner phone and email, the deck's
-  // numbers) still saves. A refused save changes nothing and lands back
-  // on the page naming the terms it held, rather than throwing, which
-  // production would show as a bare error digest.
-  const { data: current } = await supabase
-    .from('projections')
-    .select(`contract_signed_at, ${CONTRACT_TERM_COLUMNS}`)
-    .eq('id', id)
-    .maybeSingle();
-  const before = current as unknown as ContractTermsSource | null;
-  const termChanges = before ? changedContractTerms(before, { ...before, ...basePayload }) : [];
-  const termsLockedRedirect = `/prospects/${id}?terms_locked=${encodeURIComponent(termChanges.join(', '))}`;
-  if (termChanges.length > 0 && contractTermsLocked(current as { contract_signed_at: string | null })) {
-    redirect(termsLockedRedirect);
-  }
-
   // Drive-time resolution: avoid the Nominatim+OSRM round-trip on every
   // minor edit. The form's `drive_time_minutes` field defaults to '' when
   // the column was never populated, so a routine save would otherwise
@@ -490,21 +508,22 @@ export async function updateProjection(id: string, formData: FormData) {
     updated_at: new Date().toISOString(),
   };
 
-  // A save that changes terms only lands while the contract is unsigned,
-  // so an owner signing between the read above and this write keeps the
-  // terms they saw.
-  let write = supabase.from('projections').update(payload).eq('id', id);
-  if (termChanges.length > 0) write = write.is('contract_signed_at', null);
-  const { data: saved, error } = await write.select('id');
-
-  if (error) throw new Error(error.message);
-  if (termChanges.length > 0 && (!saved || saved.length === 0)) redirect(termsLockedRedirect);
+  // A signed contract's terms are locked: the contract re-renders from
+  // this row, so a changed term would sit under the owner's signature.
+  // writeContractTerms refuses such a save and changes nothing; the page
+  // comes back naming the terms it held, rather than throwing, which
+  // production would show as a bare error digest.
+  const result = await writeContractTerms(id, payload);
+  if (!result.ok) {
+    if ('error' in result) throw new Error(result.error);
+    redirect(`/prospects/${id}?terms_locked=${encodeURIComponent(result.held.join(', '))}`);
+  }
 
   revalidatePath('/properties');
   revalidatePath(`/prospects/${id}`);
   // On a signed contract the page may still carry an earlier refusal's
   // ?terms_locked= notice; land on the bare URL so a good save clears it.
-  if (current && contractTermsLocked(current as { contract_signed_at: string | null })) {
+  if (result.signed) {
     redirect(`/prospects/${id}`);
   }
 }
@@ -2273,16 +2292,11 @@ export async function applyContractRedlines(
     }),
   );
 
-  // The is-null filter closes the window between the read above and
-  // this write: an owner who signs mid-apply keeps the terms they saw.
-  const { data: applied, error: updateErr } = await supabase
-    .from('projections')
-    .update(payload)
-    .eq('id', projectionId)
-    .is('contract_signed_at', null)
-    .select('id');
-  if (updateErr) return { ok: false, error: updateErr.message };
-  if (!applied || applied.length === 0) return { ok: false, error: CONTRACT_LOCKED_MESSAGE };
+  // Saved through the same lock-checked writer as the edit form. Every
+  // write is filtered on the signature, so an owner who signs mid-apply
+  // keeps the terms they saw.
+  const written = await writeContractTerms(projectionId, payload, { guardAlways: true });
+  if (!written.ok) return { ok: false, error: 'error' in written ? written.error : CONTRACT_LOCKED_MESSAGE };
 
   revalidatePath(`/prospects/${projectionId}`);
   revalidatePath(`/projections/${projectionId}/contract`);

@@ -12,8 +12,8 @@ import { useState, type ReactNode } from 'react';
  * reads as a first-class part of the contract workflow.
  *
  * Closed: solid signal-colored button (stands out, invites the click).
- * Open: outline button (recedes — the panel below is now the focus) +
- * a one-line explainer above the panel.
+ * Open: outline button (recedes; the panel below is now the focus). The
+ * panel carries its own one-line explainer.
  *
  * The ContractRedlinesPanel is passed as children so this stays a thin
  * presentational wrapper with no knowledge of the panel internals.
@@ -44,14 +44,7 @@ export function RedlinesDisclosure({ children }: { children: ReactNode }) {
         <span aria-hidden style={{ fontSize: 13, lineHeight: 1 }}>&#10022;</span>
         {open ? 'Hide owner redlines' : 'Apply owner redlines with Claude'}
       </button>
-      {open && (
-        <div style={{ paddingTop: 16 }}>
-          <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 560 }}>
-            Paste the owner&rsquo;s email or call notes below. Claude reads them and maps each request to a specific contract edit you can review, accept, or refine before applying.
-          </p>
-          {children}
-        </div>
-      )}
+      {open && <div style={{ paddingTop: 16 }}>{children}</div>}
     </div>
   );
 }

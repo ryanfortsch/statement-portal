@@ -31,9 +31,10 @@ import { deriveLegacyFromOwners } from '../projections-types.ts';
 const read = (repoPath: string): string =>
   readFileSync(new URL(`../../../${repoPath}`, import.meta.url), 'utf8');
 
-/** The body of one exported function, up to the next top-level export. */
+/** The body of one function, up to the next top-level export. */
 function fnBody(src: string, name: string): string {
-  const start = src.indexOf(`export async function ${name}(`);
+  const exported = src.indexOf(`export async function ${name}(`);
+  const start = exported >= 0 ? exported : src.indexOf(`\nasync function ${name}(`);
   assert.ok(start >= 0, `${name} not found`);
   const next = src.indexOf('\nexport ', start + 1);
   return src.slice(start, next < 0 ? undefined : next);
@@ -140,18 +141,47 @@ describe('the renderer and the lock share one builder', () => {
 describe('every writer of contract terms honours the lock', () => {
   const actions = read('src/app/projections/actions.ts');
 
-  test('the prospect form holds changed terms on a signed contract', () => {
-    const body = fnBody(actions, 'updateProjection');
+  test('one writer holds the lock: changed terms are refused while signed, and the write cannot race a signature', () => {
+    const body = fnBody(actions, 'writeContractTerms');
     assert.match(body, /changedContractTerms\(/);
     assert.match(body, /contractTermsLocked\(/);
+    assert.match(body, /if \(held\.length > 0 && signed\) return \{ ok: false, held \}/);
     assert.match(body, /\.is\('contract_signed_at', null\)/, 'the term-changing write must not race a signature');
   });
 
-  // Each checks the signature before doing anything; the two that write
-  // also filter the write itself, so a signature landing mid-action wins.
+  test('the edit form and the owner-redlines apply both save through it', () => {
+    // One place for contract terms: Contract terms on the edit form is the
+    // direct editor, the redlines panel proposes edits and applies them
+    // through the same writer. Neither writes the row on its own.
+    const form = fnBody(actions, 'updateProjection');
+    assert.match(form, /await writeContractTerms\(id, payload\)/);
+    assert.doesNotMatch(form, /from\(['"]projections['"]\)\s*\.update\(/);
+    const apply = fnBody(actions, 'applyContractRedlines');
+    assert.match(apply, /await writeContractTerms\(projectionId, payload, \{ guardAlways: true \}\)/);
+    assert.doesNotMatch(apply, /from\(['"]projections['"]\)\s*\.update\(/);
+  });
+
+  test('the redlines panel has no field editor of its own', () => {
+    const panel = read('src/components/projections/ContractRedlinesPanel.tsx');
+    assert.doesNotMatch(panel, /Precise|precise/);
+    assert.doesNotMatch(panel, /ModeToggle|PreciseEditor/);
+  });
+
+  test('the form and the panel refuse a signed contract with one notice', () => {
+    const page = read('src/app/prospects/[id]/page.tsx');
+    const uses = page.match(/<ContractTermsLockedNotice\b/g) ?? [];
+    assert.equal(uses.length, 2, 'once over the edit form, once in place of the redlines panel');
+    assert.doesNotMatch(page, /Redlines are closed/);
+    const notice = read('src/components/projections/ContractTermsLockedNotice.tsx');
+    assert.match(notice, /CONTRACT_LOCKED_MESSAGE/, 'the page says what the server says when it refuses');
+  });
+
+  // Each checks the signature before doing anything; the one that writes
+  // on its own also filters the write, so a signature landing mid-action
+  // wins (applyContractRedlines filters through writeContractTerms).
   const guards: [string, RegExp, boolean][] = [
     ['proposeContractRedlines', /if \(contractTermsLocked\(data as ProjectionRow\)\) return \{ ok: false, error: CONTRACT_LOCKED_MESSAGE \}/, false],
-    ['applyContractRedlines', /if \(contractTermsLocked\(data as ProjectionRow\)\) return \{ ok: false, error: CONTRACT_LOCKED_MESSAGE \}/, true],
+    ['applyContractRedlines', /if \(contractTermsLocked\(data as ProjectionRow\)\) return \{ ok: false, error: CONTRACT_LOCKED_MESSAGE \}/, false],
     ['resetContractOverrides', /if \(await isContractSigned\(id\)\) return \{ ok: false, error: CONTRACT_LOCKED_MESSAGE \}/, true],
   ];
   for (const [name, check, writes] of guards) {
