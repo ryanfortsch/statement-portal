@@ -152,7 +152,10 @@ line, clustered slips one header, and a row carries no "Unclaimed" or OPEN pill.
 2026-10-15). The contract is not a stored document: `/contract/<token>`, the prospect page and
 every PDF re-render it from the `projections` row. So once `contract_signed_at` is set, every
 writer of a rendered term refuses (the prospect form, the three redline actions); the lock compares
-the same `buildTemplateVars` the renderer uses, so it guards exactly what the owner signed. The way
+the same `buildTemplateVars` the renderer uses, so it guards exactly what the owner signed. The
+prospect form's Contract terms section is the one direct editor; the owner-redlines panel (Interpret
+only) proposes edits, and both save through one writer, `writeContractTerms` in
+`src/app/projections/actions.ts`, which holds the lock and the signature filter. The way
 through is **Withdraw signature** (owners only, before countersign), which keeps the old signature
 in `contract_signature_history`. Each signature also seals the PDF it emailed, with its SHA-256,
 in the private `contract-records` bucket (`src/lib/contract-seal.ts`); the executed certificate

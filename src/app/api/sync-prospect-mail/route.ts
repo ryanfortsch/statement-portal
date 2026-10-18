@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { NextRequest, NextResponse } from 'next/server';
+import { prospectMailboxAccessToken, prospectMailboxes, type ProspectMailbox } from '@/lib/prospect-mailboxes';
 import type {
   GmailTouches,
   GmailTouchType,
@@ -17,10 +18,11 @@ import type {
  * onboarding) using subject keywords + attachment filenames, then store the
  * most recent send per type back on the projection's gmail_touches JSONB.
  *
- * Mailboxes: configured via env vars. Allie is the default
- * (GMAIL_REFRESH_TOKEN); Ryan is optional (GMAIL_REFRESH_TOKEN_RYAN). Add
- * more by extending the MAILBOXES array. Mailboxes with no refresh token
- * are silently skipped, so partial setup is fine.
+ * Mailboxes: configured via env vars in src/lib/prospect-mailboxes.ts.
+ * The bare GMAIL_REFRESH_TOKEN is the default (labelled Allie); Ryan's is
+ * optional (GMAIL_REFRESH_TOKEN_RYAN). Mailboxes with no refresh token are
+ * silently skipped, so partial setup is fine. Which address each token
+ * opens is Gmail's to say; the funnel's note asks it.
  *
  * Body (optional): { id: "<projection_uuid>" } to sync just one prospect.
  */
@@ -28,34 +30,15 @@ import type {
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
-type Mailbox = {
-  name: string;
-  refreshToken: string;
-  clientId: string;
-  clientSecret: string;
-};
+type Mailbox = ProspectMailbox;
 
 /**
- * Configured Gmail mailboxes. Each scan touches every mailbox with a non-empty
- * refresh token; the rest are skipped. To add a new mailbox, push another
- * entry that points at its env vars.
+ * Configured Gmail mailboxes (src/lib/prospect-mailboxes.ts, which the
+ * funnel's note reads too). Each scan touches every mailbox with a
+ * non-empty refresh token; the rest are skipped. To add a new mailbox, add
+ * an entry there.
  */
-const MAILBOXES: Mailbox[] = [
-  {
-    name: 'Allie',
-    refreshToken: process.env.GMAIL_REFRESH_TOKEN || process.env.GMAIL_REFRESH_TOKEN_ALLIE || '',
-    clientId: process.env.GMAIL_CLIENT_ID || '',
-    clientSecret: process.env.GMAIL_CLIENT_SECRET || '',
-  },
-  {
-    name: 'Ryan',
-    refreshToken: process.env.GMAIL_REFRESH_TOKEN_RYAN || '',
-    // Per-user OAuth client overrides if the OAuth app isn't shared across
-    // mailboxes; default to the same shared client + secret as Allie.
-    clientId: process.env.GMAIL_CLIENT_ID_RYAN || process.env.GMAIL_CLIENT_ID || '',
-    clientSecret: process.env.GMAIL_CLIENT_SECRET_RYAN || process.env.GMAIL_CLIENT_SECRET || '',
-  },
-].filter((m) => m.refreshToken && m.clientId && m.clientSecret);
+const MAILBOXES: Mailbox[] = prospectMailboxes();
 
 // Was a hand-rolled client that fell back to the anon key when
 // SUPABASE_SERVICE_ROLE_KEY was unset -- reuse the canonical service-role
@@ -65,21 +48,7 @@ function getSupabase(): SupabaseClient {
   return supabaseAdmin;
 }
 
-async function getAccessToken(mb: Mailbox): Promise<string> {
-  const res = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_id: mb.clientId,
-      client_secret: mb.clientSecret,
-      refresh_token: mb.refreshToken,
-      grant_type: 'refresh_token',
-    }),
-  });
-  if (!res.ok) throw new Error(`Failed to refresh ${mb.name}'s Gmail token: ${await res.text()}`);
-  const data = await res.json();
-  return data.access_token;
-}
+const getAccessToken = prospectMailboxAccessToken;
 
 type GmailHeader = { name: string; value: string };
 type GmailPart = { filename?: string; mimeType?: string; parts?: GmailPart[] };

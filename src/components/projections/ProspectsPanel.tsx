@@ -4,6 +4,8 @@ import { InactiveQuickAction } from '@/components/projections/ProspectInactiveCo
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import type { GmailTouchType, ProjectionRow } from '@/lib/projections-types';
 import { computeProjection, fmtMoneyRange } from '@/lib/projections-model';
+import { prospectMailboxes, prospectSyncNote } from '@/lib/prospect-mailboxes';
+import { gmailMailbox } from '@/lib/gmail-draft';
 
 /**
  * The prospect funnel body: the New-Prospect CTA + Gmail sync, the active
@@ -24,7 +26,13 @@ async function getProjections(): Promise<ProjectionRow[]> {
 }
 
 export async function ProspectsPanel() {
-  const projections = await getProjections();
+  // The note names the mailboxes the sync's tokens open, as Gmail reports
+  // them (gmailMailbox: cached, a miss remembered, capped), not a name
+  // remembered in the copy.
+  const [projections, syncMailboxes] = await Promise.all([
+    getProjections(),
+    Promise.all(prospectMailboxes().map((m) => gmailMailbox(m.key).catch(() => null))),
+  ]);
 
   // Three-way split. Promoted (became managed properties) and Inactive
   // (demoted: never signed, no longer viable) both leave the active scan
@@ -61,7 +69,7 @@ export async function ProspectsPanel() {
           <SyncGmailButton />
           <span className="rt-projections-cta-spacer" style={{ flex: 1 }} />
           <span className="rt-projections-cta-note" style={{ fontSize: 11, color: 'var(--ink-4)', fontStyle: 'italic' }}>
-            Sync scans Allie&rsquo;s sent folder for prospect emails and tags each row with the last deliverable seen.
+            {prospectSyncNote(syncMailboxes)}
           </span>
         </div>
       </section>
