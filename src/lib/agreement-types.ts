@@ -81,6 +81,60 @@ export function agreementStatus(a: Pick<GuestAgreementRow,
 }
 
 /**
+ * Which hand an agreement is waiting on, the three groups the Agreements
+ * list reads in: a draft to send or a guest signature to countersign is
+ * waiting on us, a sent link is waiting on the guest, and an executed or
+ * cancelled agreement is done.
+ */
+export type AgreementGroup = 'us' | 'guest' | 'done';
+
+export const AGREEMENT_GROUPS: { id: AgreementGroup; label: string }[] = [
+  { id: 'us', label: 'Waiting on us' },
+  { id: 'guest', label: 'Waiting on guest' },
+  { id: 'done', label: 'Done' },
+];
+
+export function agreementGroup(status: AgreementStatus): AgreementGroup {
+  if (status === 'draft' || status === 'signed') return 'us';
+  if (status === 'sent') return 'guest';
+  return 'done';
+}
+
+/** The one thing a waiting-on-us row needs next. */
+export function agreementNextStep(status: AgreementStatus): string | null {
+  if (status === 'draft') return 'Send the signing link';
+  if (status === 'signed') return 'Countersign';
+  return null;
+}
+
+/** A signing timestamp as the detail page prints it, in Eastern time: "Oct 18, 3:40 PM". */
+export function fmtAgreementStamp(iso: string): string {
+  return new Date(iso).toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: 'America/New_York',
+  });
+}
+
+/**
+ * The audit block on the detail page, as sentences: who signed and when,
+ * and when each copy went out. The raw trail (IP, browser, exact
+ * timestamps, the agreement id) sits behind the page's "Show ids" fold.
+ */
+export function agreementAuditSentences(a: Pick<GuestAgreementRow,
+  'guest_signed_name' | 'guest_signed_at' | 'guest_email_sent_at' | 'countersigned_at' | 'executed_email_sent_at'
+>): string[] {
+  if (!a.guest_signed_at) return [];
+  const out = [`${a.guest_signed_name?.trim() || 'The guest'} signed on ${fmtAgreementStamp(a.guest_signed_at)}.`];
+  if (a.guest_email_sent_at) out.push(`Their signed copy was emailed ${fmtAgreementStamp(a.guest_email_sent_at)}.`);
+  if (a.countersigned_at) out.push(`Countersigned ${fmtAgreementStamp(a.countersigned_at)}.`);
+  if (a.executed_email_sent_at) out.push(`The executed PDF was emailed ${fmtAgreementStamp(a.executed_email_sent_at)}.`);
+  return out;
+}
+
+/**
  * Whether an agreement can still be cancelled (voided), and the one question
  * to ask before doing it. An executed agreement (both sides signed) is a
  * contract on file and is never voided: `agreementStatus` lets voided win over

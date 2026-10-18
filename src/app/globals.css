@@ -1006,6 +1006,12 @@ td:has(.rt-info-icon:focus-within) {
   .rt-no-print { display: none !important; }
 }
 
+/* Guest agreement form: the mid-term dials show only while Mid-term is the
+   picked kind. The form is server-rendered with no client state, so the
+   checked radio decides (AgreementForm.tsx). */
+.rt-agreement-midterm { display: none; }
+.rt-agreement-form:has(input[name="kind"][value="mid_term"]:checked) .rt-agreement-midterm { display: block; }
+
 /* Field contractor portal — phone reachability. The per-stop Start/Resume
    button lives in a far-right sliver on desktop; on a phone that's the
    hardest thumb reach for the action tapped at every home, so the stop row
