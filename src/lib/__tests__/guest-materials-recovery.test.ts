@@ -55,7 +55,8 @@ describe('whole-checklist save queue', () => {
   });
 });
 
-const compiled = Object.fromEntries(Object.entries({ properties: '../../app/properties/actions.ts', readiness: '../../app/projections/actions.ts', owner: '../../app/statements/actions.ts', order: '../order-checklist-db.ts', orderActions: '../../app/properties/[id]/order-checklist/actions.ts' }).map(([name, file]) => [name,
+const PROSPECT = '0f6b6a8e-3c1d-4c8e-9a51-2b7d0c4e9f10';
+const compiled = Object.fromEntries(Object.entries({ properties: '../../app/properties/actions.ts', readiness: '../../app/projections/actions.ts', owner: '../../app/statements/actions.ts', walkState: '../home-walkthrough.ts', walkDb: '../home-walkthrough-db.ts', walkActions: '../../app/walkthrough-actions.ts' }).map(([name, file]) => [name,
   ts.transpileModule(readFileSync(new URL(file, import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText,
 ]));
 type Request = { table: string; method: string; body: Record<string, unknown>; params: URLSearchParams };
@@ -63,6 +64,7 @@ function fixture(options: { signedIn?: boolean; fail?: (r: Request) => boolean; 
   const requests: Request[] = [], rows = new Map<string, Record<string, unknown>>(), redirects: string[] = [], revalidated: string[] = [];
   rows.set('projections:prospect-a', { id: 'prospect-a', readiness_state: { have: { cups: 2 }, notes: { closet: 'old' }, checked: ['cups', 'other'] } });
   rows.set('properties:home-a', { id: 'home-a' });
+  rows.set('projections:' + PROSPECT, { id: PROSPECT, readiness_state: { have: { cups: 2 }, notes: { closet: 'old' }, checked: ['cups', 'other'] } });
   const client = createClient('https://synthetic.supabase.co', 'synthetic-key', { auth: { persistSession: false }, global: { fetch: async (input, init) => {
     const url = new URL(String(input)), method = init?.method || 'GET';
     const r: Request = { table: url.pathname.split('/').at(-1)!, method, body: init?.body ? JSON.parse(String(init.body)) : {}, params: url.searchParams }; requests.push(r);
@@ -92,8 +94,8 @@ function fixture(options: { signedIn?: boolean; fail?: (r: Request) => boolean; 
   // Real server-action bodies and the real PostgREST client; synthetic I/O only.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const load = (name: string): Record<string, (...args: any[]) => Promise<any>> => { const exports = {}; runInNewContext(compiled[name], { exports, console: { error() {} }, process: { env: { NEXT_PUBLIC_SUPABASE_URL: 'https://synthetic.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'synthetic-key' } }, require: (name: string) => deps[name] || {} }); return exports; };
-  const order = load('order'); deps['@/lib/order-checklist-db'] = order;
-  return { properties: load('properties'), readiness: load('readiness'), owner: load('owner'), order, orderActions: load('orderActions'), requests, rows, redirects, revalidated };
+  deps['@/lib/home-walkthrough'] = load('walkState'); deps['@/lib/home-walkthrough-db'] = load('walkDb');
+  return { properties: load('properties'), readiness: load('readiness'), owner: load('owner'), walk: load('walkActions'), requests, rows, redirects, revalidated };
 }
 const form = (extra: Record<string, string> = {}) => { const f = new FormData(); for (const [k,v] of Object.entries({ title: 'Synthetic title', body: 'Keep this text', ...extra })) f.set(k,v); return f; };
 const plain = (value: unknown) => JSON.parse(JSON.stringify(value));
@@ -129,34 +131,51 @@ for (const [kind, table, create, update] of [['note','property_notes','createPro
   test('authentication still precedes creates and edits', async () => { const f = fixture({ signedIn: false }); await assert.rejects(f.properties[create]('home-a', form()), /Not signed in/); await assert.rejects(f.properties[update]('home-a','id',form()), /Not signed in/); assert.equal(f.requests.length, 0); });
 });
 
-describe('checklist persistence confirmations', () => {
-  test('counts and notes preserve each other and migrate only the edited legacy checkbox', async () => {
-    const f = fixture(); await f.readiness.setReadinessHave('prospect-a','cups',4); await f.readiness.setReadinessNote('prospect-a','closet','New note');
-    const state = plain(f.rows.get('projections:prospect-a')?.readiness_state);
-    assert.deepEqual(state.have, { cups: 4 }); assert.deepEqual(state.checked, ['other']); assert.equal(state.notes.closet,'New note');
+describe('outfitting walkthrough persistence (home_walkthroughs)', () => {
+  const walkRows = (f: ReturnType<typeof fixture>) => [...f.rows.entries()].filter(([k]) => k.startsWith('home_walkthroughs:')).map(([, v]) => plain(v));
+  test('the first write carries the retired prospect state across, migrating only the edited legacy checkbox', async () => {
+    const f = fixture();
+    assert.equal((await f.walk.setWalkthroughHaveAction({ projectionId: PROSPECT }, 'cups', 4)).ok, true);
+    assert.equal((await f.walk.setWalkthroughNoteAction({ projectionId: PROSPECT }, 'closet', 'New note')).ok, true);
+    const rows = walkRows(f); assert.equal(rows.length, 1);
+    assert.deepEqual(rows[0].state.have, { cups: 4 }); assert.deepEqual(rows[0].state.checked, ['other']); assert.equal(rows[0].state.notes.closet, 'New note');
+    assert.equal(rows[0].projection_id, PROSPECT);
+    // The retired column is read, never written.
+    assert.equal(f.requests.some(r => r.table === 'projections' && r.method !== 'GET'), false);
   });
-  for (const stage of ['GET','PATCH']) test('missing prospect at '+stage+' does not report saved', async () => {
-    const f = fixture({ missing: r => r.table==='projections' && r.method===stage });
-    await assert.rejects(f.readiness.setReadinessHave('prospect-a','cups',4), /not found/);
-    if(stage==='GET')assert.equal(f.requests.length,1);
+  test('a failed read never replaces existing data with an empty state', async () => {
+    const f = fixture({ fail: r => r.method === 'GET' });
+    assert.equal((await f.walk.setWalkthroughNoteAction({ propertyId: 'home_c' }, 'order_notes', 'New')).ok, false);
+    assert.equal(f.requests.some(r => r.method !== 'GET'), false);
   });
-  test('failed checklist read never replaces existing data with an empty state', async () => {
-    const f = fixture({ fail: r => r.method==='GET' });
-    await assert.rejects(f.order.setOrderNote({ propertyId:'home-a',noteKey:'order_notes',value:'New',updatedByEmail:'staff@example.test' })); assert.equal(f.requests.length,1);
+  test('quantities and notes merge on one row; a blank note removes only its key', async () => {
+    const f = fixture(), home = { propertyId: 'home_c' };
+    f.rows.set('properties:home_c', { id: 'home_c' });
+    assert.equal((await f.walk.setWalkthroughHaveAction(home, 'cups', 4)).ok, true);
+    assert.equal((await f.walk.setWalkthroughNoteAction(home, 'order_notes', 'PO123')).ok, true);
+    assert.equal((await f.walk.setWalkthroughNoteAction(home, 'order_notes', '')).ok, true);
+    const rows = walkRows(f); assert.equal(rows.length, 1);
+    assert.deepEqual(rows[0].state.have, { cups: 4 }); assert.deepEqual(rows[0].state.notes, {}); assert.equal(rows[0].property_id, 'home_c');
   });
-  test('order quantities and notes merge; blank note removes only its key', async () => {
-    const f = fixture(), base = {propertyId:'home-a',updatedByEmail:'staff@example.test'};
-    assert.equal((await f.order.setOrderHave({...base,itemLabel:'cups',count:4})).ok,true);
-    assert.equal((await f.order.setOrderNote({...base,noteKey:'order_notes',value:'PO123'})).ok,true);
-    assert.equal((await f.order.setOrderNote({...base,noteKey:'order_notes',value:''})).ok,true);
-    const state = plain(f.rows.get('property_order_checklist:home-a')?.state); assert.deepEqual(state.have,{cups:4});assert.deepEqual(state.notes,{});
+  test('the prospect row becomes the property row once the home is promoted', async () => {
+    const f = fixture();
+    f.rows.set('properties:home_b', { id: 'home_b', projection_id: PROSPECT });
+    f.rows.set('home_walkthroughs:w1', { id: 'w1', projection_id: PROSPECT, property_id: null, state: { have: { cups: 1 } } });
+    assert.equal((await f.walk.setWalkthroughHaveAction({ propertyId: 'home_b' }, 'plates', 2)).ok, true);
+    const rows = walkRows(f); assert.equal(rows.length, 1);
+    assert.equal(rows[0].property_id, 'home_b'); assert.deepEqual(rows[0].state.have, { cups: 1, plates: 2 });
   });
-  test('order upsert without a returned record cannot report saved', async () => {
-    const f=fixture({missing:r=>r.method==='POST'});assert.equal((await f.order.setOrderHave({propertyId:'home-a',itemLabel:'cups',count:1,updatedByEmail:null})).ok,false);
+  test('a write without a returned record cannot report saved', async () => {
+    const f = fixture({ missing: r => r.method === 'POST' }); f.rows.set('properties:home_c', { id: 'home_c' });
+    assert.equal((await f.walk.setWalkthroughHaveAction({ propertyId: 'home_c' }, 'cups', 1)).ok, false);
   });
-  test('readiness and order action auth blocks all database calls', async () => {
-    const f=fixture({signedIn:false});await assert.rejects(f.readiness.setReadinessNote('prospect-a','closet','x'),/Not signed in/);
-    assert.equal((await f.orderActions.setOrderHaveAction({propertyId:'home-a',itemLabel:'cups',count:1})).ok,false);assert.equal(f.requests.length,0);
+  test('auth and input checks block every database call', async () => {
+    const f = fixture({ signedIn: false });
+    assert.equal((await f.walk.setWalkthroughNoteAction({ projectionId: PROSPECT }, 'closet', 'x')).ok, false);
+    assert.equal((await f.walk.setWalkthroughHaveAction({ propertyId: 'home_c' }, 'cups', 1)).ok, false);
+    const g = fixture();
+    assert.equal((await g.walk.setWalkthroughNoteAction({ propertyId: 'home_c' }, 'Bad Key!', 'x')).ok, false);
+    assert.equal(f.requests.length + g.requests.length, 0);
   });
 });
 
