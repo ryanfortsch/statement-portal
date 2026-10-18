@@ -331,7 +331,7 @@ function SetupScope() {
 function AdhocScope() {
   return (
     <div style={{ borderLeft: '3px solid var(--tide)', background: 'rgba(78,124,158,0.06)', padding: '12px 14px', marginBottom: 22, fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 560 }}>
-      <strong style={{ color: 'var(--ink)' }}>One-off job.</strong> Not a full inspection — just the task below.
+      <strong style={{ color: 'var(--ink)' }}>One-off job.</strong> Just the task below.
       Do it, mark it done with a photo if it helps, and you&apos;re set. Anything unclear, call the office.
     </div>
   );
@@ -960,7 +960,8 @@ export default async function PacketPage({
       {showSupplyStop && <SupplyRunCard run={supplyRun} pickedUp={anyStarted} />}
 
 
-      {isMaint && !isMine && (
+      {/* A one-off or a setup sent to the handymen frames itself below. */}
+      {isMaint && !isSetup && !isAdhoc && !isMine && (
         <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, marginBottom: 24, maxWidth: 520 }}>
           Each stop is a specific maintenance job at a home. Addresses, the work details, and entry details unlock
           as soon as you claim.

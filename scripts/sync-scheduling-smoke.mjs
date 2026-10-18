@@ -13,7 +13,7 @@ const root=process.cwd(),scratch=await mkdtemp(join(tmpdir(),'helm-sync-scheduli
 const compile=s=>ts.transpileModule(s,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext,jsx:ts.JsxEmit.ReactJSX}}).outputText;
 for(const [name,path] of [
  ['gmail','src/app/crm/SyncGmailButton.tsx'],['quo','src/app/crm/SyncQuoButton.tsx'],['contacts','src/app/crm/SyncQuoContactsButton.tsx'],
- ['plan','src/app/turnovers/PlanButton.tsx'],['adhoc','src/app/fieldwork/packets/adhoc/AdhocForm.tsx'],['offer','src/app/fieldwork/packets/OfferToPicker.tsx'],
+ ['plan','src/app/turnovers/PlanButton.tsx'],['adhoc','src/app/fieldwork/packets/new/SendJobForm.tsx'],['jobkinds','src/lib/field-job-kinds.ts'],['offer','src/app/fieldwork/packets/OfferToPicker.tsx'],
  ['runs','src/app/work/RunsRail.tsx'],['done','src/app/properties/[id]/MarkSlipDoneButton.tsx'],['resolve','src/app/properties/[id]/ResolveFlagButton.tsx'],
  ['contacted','src/app/properties/[id]/MarkContactedButton.tsx'],['summary','src/lib/manual-sync-result.ts'],['unsaved','src/lib/unsaved-work.ts'],
  ['opdate','src/lib/operating-date.ts'],['gmaillinks','src/lib/gmail-links.ts'],
@@ -21,7 +21,7 @@ for(const [name,path] of [
 await writeFile(join(scratch,'actions.js'),`
 export const save=(kind,args)=>new Promise((resolve,reject)=>window.calls.push({kind,args,resolve,reject}));
 export const setInspectionPlan=a=>save('planSave',a),deleteInspectionPlan=id=>save('planDelete',id);
-export const createAdHocPacketAction=(prev,data)=>save('adhoc',[...data.entries()]);
+export const sendJobAction=(prev,data)=>save('adhoc',[...data.entries()]);
 export const planRunsNow=()=>save('planRuns',null),publishRun=id=>save('publish',id);
 export const emailWorkOrder=a=>save('draft',a),markRunScheduled=a=>save('schedule',a);
 export const updateWorkSlipStatus=a=>save('done',a),resolveInspectionNote=id=>save('resolveWalk',id);
@@ -39,7 +39,7 @@ await writeFile(join(scratch,'picker.js'),compile(`import React from 'react';exp
 await writeFile(join(scratch,'entry.js'),compile(`
 import React,{useState} from 'react';import {createRoot} from 'react-dom/client';
 import {SyncGmailButton} from './gmail.js';import {SyncQuoButton} from './quo.js';import {SyncQuoContactsButton} from './contacts.js';
-import {PlanButton} from './plan.js';import {AdhocForm} from './adhoc.js';import {RunsRail} from './runs.js';
+import {PlanButton} from './plan.js';import {SendJobForm} from './adhoc.js';import {RunsRail} from './runs.js';
 import {MarkSlipDoneButton} from './done.js';import {ResolveFlagButton} from './resolve.js';import {MarkContactedButton} from './contacted.js';
 import {hasUnsavedWork} from './unsaved.js';import {save} from './actions.js';
 const params=new URLSearchParams(location.search),mode=params.get('mode');
@@ -54,13 +54,13 @@ function Fixture(){const [mounted,setMounted]=useState(true),[plan,setPlan]=useS
  return <>
  {(mode==='sync'||mode==='all')&&<section id="sync"><section id="gmail"><SyncGmailButton/></section><section id="quo"><SyncQuoButton/></section><section id="contacts"><SyncQuoContactsButton/></section></section>}
  {(mode==='plan'||mode==='all')&&<section id="plan"><PlanButton {...plan} guestyReservationId="stay-a" propertyId="home-a" checkInDate="2030-10-05" checkOutDate="2030-09-29" myEmail="staff@example.test" variant={params.has('byline')?'byline':'chip'}/></section>}
- {(mode==='adhoc'||mode==='all')&&<section id="adhoc"><RedirectBoundary><AdhocForm properties={properties} offerable={[{id:'crew-a',name:'Alex Synthetic'},{id:'crew-b',name:'Blair Synthetic'}]}/></RedirectBoundary></section>}
+ {(mode==='adhoc'||mode==='all')&&<section id="adhoc"><RedirectBoundary><SendJobForm trade="inspection" kinds={['inspection','adhoc','setup']} initialKind="adhoc" properties={properties} offerable={[{id:'crew-a',name:'Alex Synthetic'},{id:'crew-b',name:'Blair Synthetic'}]} contractors={[{id:'crew-a',name:'Alex Synthetic'}]}/></RedirectBoundary></section>}
  {mode==='runs'&&<section id="runs"><RunsRail standalone data={{runs:[run],roster:[],vendorNeeded:[],backlog:[],unclassifiedCount:0}}/></section>}
  {mode==='shortcuts'&&<section id="shortcuts"><section id="done"><MarkSlipDoneButton slipId="slip-a" propertyId="home-a"/></section><section id="walk"><ResolveFlagButton propertyId="home-a" flagId="walk-a" source="walk"/></section><section id="property"><ResolveFlagButton propertyId="home-a" flagId="note-a" source="property"/></section><section id="contacted"><MarkContactedButton propertyId="home-a"/></section></section>}
  </>;
 }createRoot(document.getElementById('root')).render(<Fixture/>);
 `));
-const alias={'./actions':'actions','../actions':'actions','./plan-actions':'actions','./runs-actions':'actions','@/app/work/actions':'actions','@/app/inspections/actions':'actions','@/app/properties/actions':'actions','../OfferToPicker':'offer','@/lib/use-soft-refresh':'refresh','@/lib/unsaved-work':'unsaved','@/lib/manual-sync-result':'summary','@/lib/operating-date':'opdate','@/lib/gmail-links':'gmaillinks','@/lib/team':'team','@/components/TeamPicker':'picker','next/navigation':'router','next/link':'link','next-auth/react':'session'};
+const alias={'./actions':'actions','../actions':'actions','./plan-actions':'actions','./runs-actions':'actions','@/app/work/actions':'actions','@/app/inspections/actions':'actions','@/app/properties/actions':'actions','../OfferToPicker':'offer','@/lib/field-job-kinds':'jobkinds','@/lib/use-soft-refresh':'refresh','@/lib/unsaved-work':'unsaved','@/lib/manual-sync-result':'summary','@/lib/operating-date':'opdate','@/lib/gmail-links':'gmaillinks','@/lib/team':'team','@/components/TeamPicker':'picker','next/navigation':'router','next/link':'link','next-auth/react':'session'};
 await new Promise((resolve,reject)=>{const compiler=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.js'),output:{path:scratch,filename:'bundle.js'},resolve:{modules:[join(root,'node_modules')],alias:Object.fromEntries(Object.entries(alias).map(([k,v])=>[k,join(scratch,v+'.js')]))},performance:{hints:false}});compiler.run((err,stats)=>compiler.close(()=>err||stats?.hasErrors()?reject(err||Error(stats.toString({all:false,errors:true}))):resolve()));});
 if(process.argv.includes('--compile-only')){console.log('Sync and scheduling fixture compiled.');await rm(scratch,{recursive:true,force:true});process.exit(0);}
 const server=createServer(async(req,res)=>{if(req.method!=='GET'){res.writeHead(405).end();return;}res.setHeader('Cache-Control','no-store');res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'");if(req.url==='/bundle.js'){res.setHeader('Content-Type','text/javascript; charset=utf-8');res.end(await readFile(join(scratch,'bundle.js')));}else{res.setHeader('Content-Type','text/html; charset=utf-8');res.end('<!doctype html><title>Synthetic sync and scheduling</title><style>body{font:14px system-ui;--ink:#222;--paper:#fff;--rule:#ccc}section{margin:20px}button{margin:4px}input,textarea,select{margin:4px}</style><div id="root"></div><script src="/bundle.js"></script>');}});
@@ -132,7 +132,7 @@ const submitJob=(mode,twice=false)=>page.$eval('#adhoc form',(form,mode,twice)=>
 const fillJob=async()=>{await edit('#adhoc [name="title"]','Synthetic job');await edit('#adhoc [name="property_id"]','home-b');await edit('#adhoc [name="visit_date"]','2030-10-04');await edit('#adhoc [name="visit_time"]','13:30');await edit('#adhoc [name="price_dollars"]','75');await edit('#adhoc [name="scope"]','Exact job details\nSecond line');await edit('#adhoc [name="bring_list"]','Filter and gloves');await page.$eval('#adhoc [name="supply_run"]',e=>e.click());await click('#adhoc','Alex');await click('#adhoc','Blair');};
 for(const mode of ['draft','publish']){
  await reset('adhoc');await fillJob();assert.equal(await beforeUnload(),true);await submitJob(mode,true);await waitCalls(1);const first=(await calls())[0].args;
- assert.equal(Object.fromEntries(first).mode,mode);assert.equal(Object.fromEntries(first).price_dollars,'75');assert.deepEqual(first.filter(([k])=>k==='offer_to').map(([,v])=>v),['crew-a','crew-b']);assert.equal(Object.fromEntries(first).supply_run,'on');
+ assert.equal(Object.fromEntries(first).mode,mode);assert.equal(Object.fromEntries(first).kind,'adhoc');assert.equal(Object.fromEntries(first).trade,'inspection');assert.equal(Object.fromEntries(first).price_dollars,'75');assert.deepEqual(first.filter(([k])=>k==='offer_to').map(([,v])=>v),['crew-a','crew-b']);assert.equal(Object.fromEntries(first).supply_run,'on');
  assert.equal(await page.$$eval('#adhoc input,#adhoc textarea,#adhoc select,#adhoc button',es=>es.every(e=>e.matches(':disabled'))),true);await submitJob(mode==='draft'?'publish':'draft');assert.equal((await calls()).length,1);
  await finish(0,{error:'Synthetic job rejected'});await ready('#adhoc input');await waitText('Synthetic job rejected');assert.equal(await value('#adhoc [name="title"]'),'Synthetic job');assert.equal(await value('#adhoc [name="property_id"]'),'home-b');assert.equal(await page.$eval('#adhoc [name="supply_run"]',e=>e.checked),true);
  await submitJob(mode);await waitCalls(2);assert.deepEqual((await calls())[1].args,first);await finish(1,null,true);await ready('#adhoc input');await waitText('Check the job list before retrying');assert.equal(await guard(),true);assert.equal(await value('#adhoc [name="scope"]'),'Exact job details\nSecond line');
@@ -143,6 +143,12 @@ for(const mode of ['draft','publish']){
 await reset('adhoc');await click('#adhoc','Alex');assert.equal(await guard(),true);await click('#adhoc','everyone');await clean();await fillJob();await submitJob('draft');await waitCalls(1);
 await page.evaluate(()=>{const e=Error('NEXT_REDIRECT');e.digest='NEXT_REDIRECT;push;/fieldwork/packets/synthetic;303;';window.calls[0].reject(e);});await waitText('Redirect received');await clean();assert.equal(await page.evaluate(()=>window.redirects.length),1);assert.doesNotMatch(await body(),/Could not confirm whether the job was created/);
 pass('contractor-only choices arm the draft guard and successful job creation still follows the Next redirect');
+await reset('adhoc');await edit('#adhoc [name="title"]','Synthetic job');await edit('#adhoc [name="property_id"]','home-b');await edit('#adhoc [name="visit_date"]','2030-10-04');await edit('#adhoc [name="price_dollars"]','75');
+await edit('#adhoc [name="kind"]','setup');await waitText('Record a past setup');assert.equal(await page.$('#adhoc [name="title"]'),null);assert.equal(await value('#adhoc [name="property_id"]'),'home-b');assert.equal(await value('#adhoc [name="visit_date"]'),'2030-10-04');assert.equal(await value('#adhoc [name="price_dollars"]'),'75');assert.equal(await guard(),true);
+await edit('#adhoc [name="kind"]','inspection');assert.equal(await page.$('#adhoc [name="scope"]'),null);assert.equal(await page.$('#adhoc [name="visit_time"]'),null);assert.equal(await page.$('#adhoc [name="supply_run"]'),null);assert.doesNotMatch(await body(),/Record a past setup/);
+await submitJob('draft');await waitCalls(1);assert.equal(Object.fromEntries((await calls())[0].args).kind,'inspection');assert.equal(Object.fromEntries((await calls())[0].args).property_id,'home-b');await finish(0,{error:'Synthetic inspection rejected'});await ready('#adhoc input');await waitText('Synthetic inspection rejected');
+await click('#adhoc','Discard changes');await clean();assert.equal(await value('#adhoc [name="kind"]'),'adhoc');assert.equal(await value('#adhoc [name="title"]'),'');
+pass('the kind select keeps the shared fields, swaps the kind-only ones, posts the kind and discards back to the starting kind');
 
 await reset('runs');await click('#runs','Plan now',true);await waitCalls(1);assert.equal((await calls())[0].kind,'planRuns');assert.equal(await beforeUnload(),true);await finish(0,{ok:false,error:'Planning denied'});await waitText('Planning denied');await ready('#runs button');
 await click('#runs','Plan now');await waitCalls(2);await finish(1,null,true);await waitText('Could not confirm planning');await ready('#runs button');await click('#runs','Plan now');await waitCalls(3);await finish(2,{ok:true,created:2,kept:3,noVacancy:1,classifying:4});await clean();await waitText('2 planned');await waitText('3 unchanged');await waitText('triaging 4');assert.equal(await page.$('#runs [role="alert"]'),null);

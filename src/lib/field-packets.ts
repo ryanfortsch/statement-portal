@@ -25,6 +25,7 @@ import { slipIdsOnLivePackets } from '@/lib/field-work-board';
 import { ACTIVE_WORK_SLIP_STATUSES } from '@/lib/work-types';
 import { ownerHoldOccupiesDay, type HoldDayRow } from '@/lib/field-stale-hold';
 import { stayNoteIsPast } from '@/lib/stay-note-slips';
+import type { JobTrade } from '@/lib/field-job-kinds';
 import { gearNeedsArrivals, slipInVisitWindow, type HomeArrival } from '@/lib/slip-visit-window';
 import { getContractorShootStats } from '@/lib/creative-shoots';
 import { getPropertyAccessMap, type PropertyAccess } from '@/lib/property-access';
@@ -2312,13 +2313,16 @@ export async function createMaintenancePacket(args: {
 
 // ── Property setup: a new home joins the program ──────────────────────
 /** Create a SETUP packet: staging a brand-new property for photos and
- *  outfitting it for vacation-rental operations. 2 to 4 hours, one home, done
- *  by inspection-trade specialists (trade stays 'inspection'; kind='setup').
+ *  outfitting it for vacation-rental operations. 2 to 4 hours, one home
+ *  (kind='setup'), sent to the trade the office picked: the inspectors by
+ *  default, the handymen when it was sent from their board.
  *  The job itself is an auto-created work slip, so the entire existing
  *  completion rail (notes + photos on mark-done, the Approve review, redo,
  *  pay) works unchanged. */
 export async function createSetupPacket(args: {
   propertyId: string;
+  /** Whose roster sees and claims it. Default: the inspectors. */
+  trade?: JobTrade;
   visitDate: string;
   /** Optional HH:MM start time; null/undefined = anytime that day. */
   visitTime?: string;
@@ -2329,7 +2333,7 @@ export async function createSetupPacket(args: {
   createdByEmail: string;
   publish: boolean;
   /** Show + offer this only to these contractors (they still claim it
-   *  themselves). Empty/undefined = the whole inspection roster, as always. */
+   *  themselves). Empty/undefined = the whole roster of that trade. */
   offeredTo?: string[];
   /** RECORD mode: the visit already happened (a forgotten past day). The
    *  contractor id who did the work. Creates the packet directly SUBMITTED and
@@ -2382,7 +2386,7 @@ export async function createSetupPacket(args: {
     .insert({
       title: `Set up ${prop.name}`,
       status: record ? 'submitted' : args.publish ? 'published' : 'draft',
-      trade: 'inspection',
+      trade: args.trade ?? 'inspection',
       kind: 'setup',
       supply_run: !!args.supplyRun,
       visit_date: args.visitDate,
@@ -2441,6 +2445,8 @@ export async function createSetupPacket(args: {
  */
 export async function createAdHocPacket(args: {
   propertyId: string;
+  /** Whose roster sees and claims it. Default: the inspectors. */
+  trade?: JobTrade;
   visitDate: string;
   visitTime?: string;
   title: string;
@@ -2451,7 +2457,7 @@ export async function createAdHocPacket(args: {
   createdByEmail: string;
   publish: boolean;
   /** Show + offer this only to these contractors (they still claim it
-   *  themselves). Empty/undefined = the whole inspection roster, as always. */
+   *  themselves). Empty/undefined = the whole roster of that trade. */
   offeredTo?: string[];
 }): Promise<string | null> {
   const properties = await loadFieldProperties();
@@ -2484,7 +2490,7 @@ export async function createAdHocPacket(args: {
     .insert({
       title,
       status: args.publish ? 'published' : 'draft',
-      trade: 'inspection',
+      trade: args.trade ?? 'inspection',
       kind: 'adhoc',
       supply_run: !!args.supplyRun,
       visit_date: args.visitDate,
