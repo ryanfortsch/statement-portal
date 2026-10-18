@@ -4,6 +4,7 @@ import { CopyValue } from './CopyValue';
 import { formatUsPhone } from '@/lib/phone';
 import type { GuestCodeBookingRow, LockCode } from '@/lib/guest-locks';
 import type { PropertyCleaner } from '@/lib/property-crew';
+import type { TrashDayFact } from '@/lib/civic';
 
 /**
  * The band above the tab strip.
@@ -28,6 +29,11 @@ import type { PropertyCleaner } from '@/lib/property-crew';
  * A missing fact NEVER renders a dash. It renders the name of the thing that
  * is missing, as a link to the one control that fills it, so an empty cell is
  * an errand rather than a shrug.
+ *
+ * The rail answers the driveway: how to get in (guest code, gate or garage,
+ * key), Wi-Fi, trash day, parking, who cleans and who owns it. Eight cells in
+ * one row on a desktop, four on a tablet, two columns on a phone, in the order
+ * a person standing at the house asks them.
  */
 
 type Alert = {
@@ -48,6 +54,11 @@ type Props = {
   wifiName: string | null;
   wifiPassword: string | null;
   keyCodeLocation: string | null;
+  gateCode: string | null;
+  garageCode: string | null;
+  parking: string | null;
+  /** Resolved through civicForProperty (src/lib/civic.ts), never the raw column. */
+  trashDay: TrashDayFact;
   ownerName: string | null;
   ownerPhone: string | null;
   ownerEmail: string | null;
@@ -90,6 +101,7 @@ function Fact({
   scope,
   fixLabel,
   fixHref,
+  quiet,
 }: {
   label: string;
   value?: string | null;
@@ -97,11 +109,17 @@ function Fact({
   /** Where the fact is true, when that is not obvious. "This stay", "Fleet". */
   scope?: string;
   fixLabel: string;
-  fixHref: string;
+  /** Absent means the gap is not ours to fill here; the label renders as plain text. */
+  fixHref?: string;
+  /**
+   * The gap is usually a real answer (no gate, no garage), so it reads in
+   * ink rather than as a red errand. The link still fills it.
+   */
+  quiet?: boolean;
 }) {
   return (
     <div style={{ minWidth: 0 }}>
-      <div className="eyebrow" style={{ marginBottom: 6, display: 'flex', gap: 6, alignItems: 'baseline' }}>
+      <div className="eyebrow" style={{ marginBottom: 6, display: 'flex', flexWrap: 'wrap', columnGap: 6, alignItems: 'baseline' }}>
         <span>{label}</span>
         {scope && value && (
           <span style={{ color: 'var(--ink-4)', letterSpacing: 0, textTransform: 'none', fontSize: 10 }}>
@@ -124,14 +142,16 @@ function Fact({
           </span>
           {copy && <CopyValue value={value} label={label} />}
         </div>
-      ) : (
+      ) : fixHref ? (
         <Link
           href={fixHref}
           className="rt-action-link"
-          style={{ fontSize: 12, color: 'var(--signal)', textDecoration: 'none' }}
+          style={{ fontSize: 12, color: quiet ? 'var(--ink-3)' : 'var(--signal)', textDecoration: 'none' }}
         >
           {fixLabel} →
         </Link>
+      ) : (
+        <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>{fixLabel}</span>
       )}
     </div>
   );
@@ -147,6 +167,10 @@ export function PropertyMasthead({
   wifiName,
   wifiPassword,
   keyCodeLocation,
+  gateCode,
+  garageCode,
+  parking,
+  trashDay,
   ownerName,
   ownerPhone,
   ownerEmail,
@@ -175,14 +199,28 @@ export function PropertyMasthead({
   const guestPinScope = stayPin ? 'this stay' : namedCode?.name ? namedCode.name : undefined;
 
   const cleaner = cleaners[0] ?? null;
-  const ownerChannel =
-    (ownerPreferredContact ?? '').toLowerCase().includes('email')
-      ? ownerEmail
-      : ownerPhone
-        ? formatUsPhone(ownerPhone)
-        : ownerEmail;
+  // A staff login gets no owner email (owner contact details stay with the
+  // owners), so an email-preferring owner falls back to the phone on file
+  // rather than reading as missing.
+  const ownerPhoneText = ownerPhone ? formatUsPhone(ownerPhone) : null;
+  const ownerChannel = (ownerPreferredContact ?? '').toLowerCase().includes('email')
+    ? (ownerEmail ?? ownerPhoneText)
+    : (ownerPhoneText ?? ownerEmail);
 
   const wifi = wifiName && wifiPassword ? `${wifiName} / ${wifiPassword}` : null;
+
+  // One cell for both: most homes have neither, a few have one, and the
+  // label says which code is which when both exist.
+  const gate = (gateCode ?? '').trim() || null;
+  const garage = (garageCode ?? '').trim() || null;
+  const gateGarage =
+    gate && garage ? `Gate ${gate} · Garage ${garage}` : gate ? gate : garage ? garage : null;
+  const gateGarageLabel = gate && !garage ? 'Gate code' : garage && !gate ? 'Garage code' : 'Gate / garage';
+
+  const trashValue =
+    trashDay.kind === 'day' ? trashDay.day : trashDay.kind === 'no_curbside' ? 'No curbside pickup' : null;
+  const trashScope =
+    trashDay.kind === 'day' ? (trashDay.source === 'row' ? 'DPW confirmed' : 'DPW list') : undefined;
 
   return (
     <section
@@ -274,15 +312,18 @@ export function PropertyMasthead({
         {seasonNote && <State label="Season">{seasonNote}</State>}
       </div>
 
-      {/* HOT FACTS — the answers that have to leave the screen in one gesture. */}
+      {/* HOT FACTS: the answers that have to leave the screen in one gesture,
+          in the order the driveway asks them. */}
+      <style>{`
+        .rt-band-rail { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 16px; }
+        @media (max-width: 1024px) { .rt-band-rail { grid-template-columns: repeat(4, minmax(0, 1fr)); row-gap: 18px; } }
+        @media (max-width: 640px) { .rt-band-rail { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+      `}</style>
       <div
-        className="rt-masthead-band"
+        className="rt-masthead-band rt-band-rail"
         style={{
           borderBottom: alerts.length > 0 ? '1px solid var(--rule)' : '1px solid var(--ink)',
           padding: '14px 0',
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-          gap: 20,
         }}
       >
         <Fact
@@ -294,6 +335,20 @@ export function PropertyMasthead({
           fixHref={`/properties/${propertyId}?tab=facts#guest-codes`}
         />
         <Fact
+          label={gateGarageLabel}
+          value={showCreds ? gateGarage : null}
+          copy
+          fixLabel={showCreds ? 'None on file' : 'Inactive'}
+          fixHref={`/properties/${propertyId}/edit#access`}
+          quiet
+        />
+        <Fact
+          label="Key / lockbox"
+          value={showCreds ? keyCodeLocation : null}
+          fixLabel="Add key location"
+          fixHref={`/properties/${propertyId}/edit#arrival`}
+        />
+        <Fact
           label="Wi-Fi"
           value={showCreds ? wifi : null}
           copy
@@ -301,10 +356,19 @@ export function PropertyMasthead({
           fixHref={`/properties/${propertyId}/edit#wifi`}
         />
         <Fact
-          label="Key / lockbox"
-          value={showCreds ? keyCodeLocation : null}
-          fixLabel="Add key location"
-          fixHref={`/properties/${propertyId}/edit#arrival`}
+          label="Trash day"
+          value={trashValue}
+          scope={trashScope}
+          copy={trashDay.kind === 'day'}
+          fixLabel={trashDay.kind === 'ask_dpw' ? 'Confirm with DPW' : 'See the city schedule'}
+          fixHref={trashDay.kind === 'ask_dpw' ? `/properties/${propertyId}/edit#trash` : undefined}
+        />
+        <Fact
+          label="Parking"
+          value={(parking ?? '').trim() || null}
+          copy
+          fixLabel="Add parking"
+          fixHref={`/properties/${propertyId}/edit#parking`}
         />
         <Fact
           label="Cleaner"
