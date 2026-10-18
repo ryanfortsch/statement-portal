@@ -187,6 +187,29 @@ describe('what a staff login sees', () => {
     assert.equal(moduleVisibleTo({} as never, 'staff'), true);
   });
 
+  test('Growth is a masthead tab for owners and a More entry for staff, with nothing gated', () => {
+    const growth = HELM_MODULES.find((m) => m.id === 'marketing');
+    assert.equal(growth?.masthead, 'owner');
+    assert.notEqual(growth?.access, 'owner', 'demoting the tab must not gate the route');
+    assert.equal(pathRequiresOwner('/marketing'), false);
+    assert.equal(pathRequiresOwner('/guests'), false);
+    assert.ok(primaryModulesFor('owner').some((m) => m.id === 'marketing'), 'owners keep the Growth tab');
+    assert.ok(!primaryModulesFor('staff').some((m) => m.id === 'marketing'), 'staff lose the Growth tab');
+    assert.ok(getOverflowModulesFlat('staff').some((m) => m.id === 'marketing'), 'staff find Growth in More');
+    assert.ok(!getOverflowModulesFlat('owner').some((m) => m.id === 'marketing'), 'owners do not see it twice');
+    // The flag only means something on a primary module, and never on one
+    // that is already owner-gated (that one is hidden from staff outright).
+    for (const m of HELM_MODULES.filter((x) => x.masthead === 'owner')) {
+      assert.ok(m.primary, `${m.id}: masthead 'owner' on a module that is not a masthead tab`);
+      assert.notEqual(m.access, 'owner', `${m.id}: masthead 'owner' and access 'owner' together`);
+    }
+    // Every role sees each module once, on the masthead or in More.
+    for (const role of ['owner', 'staff'] as const) {
+      const ids = [...primaryModulesFor(role), ...getOverflowModulesFlat(role)].map((m) => m.id);
+      assert.equal(new Set(ids).size, ids.length, `${role}: a module is listed twice`);
+    }
+  });
+
   test('Ask Helm keeps the statement and prospect tools from staff', () => {
     assert.ok(OWNER_ONLY_ASK_TOOLS.has('get_statements'));
     assert.ok(OWNER_ONLY_ASK_TOOLS.has('list_prospects'));

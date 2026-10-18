@@ -4,8 +4,8 @@
  * The mobile replacement for the horizontal HelmModuleNav strip.
  *
  * Mirrors the desktop nav's two-tier structure so the two feel congruent:
- * the same seven primary sections (Work, Turnovers, Field, Messaging,
- * Properties, Money, Growth) sit at the top as the daily-use set, then the
+ * the same primary sections (Work, Turnovers, Field, Messaging,
+ * Properties, Money, Growth; staff get five) sit at the top as the daily-use set, then the
  * Library lives under a "More" section that is the identical overflow set
  * the desktop "More" dropdown shows (HELM_MODULES minus the primary tabs
  * minus the hidden sub-tabs). Both surfaces read from the same source,
