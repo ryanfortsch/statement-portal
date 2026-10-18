@@ -3,6 +3,8 @@
 import { auth } from '@/auth';
 import { explainError, listConversationsInRange, type ConversationSummary } from '@/lib/stay-concierge';
 import { windowProblem } from '@/lib/conversation-window';
+import { listHelmConversationsInWindow } from '@/lib/helm-inbox';
+import { mergeConversationLists } from '@/lib/helm-inbox-core';
 
 export type ConversationWindowResult =
   | {
@@ -25,15 +27,22 @@ export async function loadConversationWindow(from: string, to: string): Promise<
   if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
   const problem = windowProblem(from, to);
   if (problem) return { ok: false, error: problem };
-  const res = await listConversationsInRange(from, to);
-  if (!res.ok) return { ok: false, error: explainError(res.error) };
+  // Helm's own threads (guest texts on the GUESTS line, email, the OTA
+  // pilot) for stays in the window, beside the concierge's. Each half fails
+  // soft, as on the page: the concierge down still shows Helm's threads.
+  const [res, helm] = await Promise.all([
+    listConversationsInRange(from, to),
+    listHelmConversationsInWindow(from, to).catch(() => []),
+  ]);
+  if (!res.ok && helm.length === 0) return { ok: false, error: explainError(res.error) };
+  const concierge = res.ok ? res.data.conversations : [];
   return {
     ok: true,
     // An older stay rarely has a draft waiting; its own count is the review
     // count, so the Needs review toggle keeps working across windows.
-    rows: res.data.conversations.map((c) => ({ ...c, review_count: c.pending_count })),
-    from: res.data.check_in_from || from,
-    to: res.data.check_in_to || to,
-    truncated: !!res.data.truncated,
+    rows: mergeConversationLists<ConversationSummary>(concierge, helm).map((c) => ({ ...c, review_count: c.pending_count })),
+    from: (res.ok && res.data.check_in_from) || from,
+    to: (res.ok && res.data.check_in_to) || to,
+    truncated: res.ok ? !!res.data.truncated : false,
   };
 }

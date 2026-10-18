@@ -44,5 +44,10 @@ describe('conversation windows', () => {
     assert.ok(src.includes('aria-label="Check-in dates"'), 'a date range');
     const action = read('src/app/messaging/conversation-actions.ts');
     assert.ok(action.includes('windowProblem(from, to)') && action.includes('listConversationsInRange(from, to)'), 'the action checks the window, then asks');
+    // Helm's own threads come along for an older window, found by the
+    // stay's check-in (the default list finds them by recent activity).
+    assert.ok(action.includes('listHelmConversationsInWindow(from, to)'), 'Helm threads ride in older windows too');
+    const inbox = read('src/lib/helm-inbox.ts');
+    assert.ok(inbox.includes(".gte('check_in', from)") && inbox.includes(".lte('check_in', to)") && inbox.includes(".neq('status', 'archived')"));
   });
 });

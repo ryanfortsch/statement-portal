@@ -812,27 +812,70 @@ export async function listHelmConversations(days = 60): Promise<HelmConversation
           .range(from, to),
       { label: 'helm threads', maxRows: 5000 },
     );
-    if (threads.length === 0) return [];
-
-    const bookingIds = threads.map((t) => t.booking_id).filter((x): x is string => !!x);
-    const [bookings, names, pending] = await Promise.all([
-      loadBookingsById(bookingIds),
-      fleetNameMap({ includeInactive: true }).catch(() => new Map<string, string>()),
-      pendingAutomationCounts(bookingIds),
-    ]);
-    const today = todayEastern();
-    return threads.map((t) => {
-      const booking = t.booking_id ? bookings.get(t.booking_id) ?? null : null;
-      const propertyId = t.property_id ?? booking?.property_id ?? '';
-      return summarizeThread(t, {
-        booking,
-        propertyName: propertyId ? names.get(propertyId) ?? null : null,
-        pendingCount: t.booking_id ? pending.get(t.booking_id) ?? 0 : 0,
-        today,
-      });
-    });
+    return await summarizeThreads(threads);
   } catch (err) {
     console.warn('[helm-inbox] list failed', err instanceof Error ? err.message : err);
+    return [];
+  }
+}
+
+/** Threads shaped as Conversations rows, with their stay, home and count. */
+async function summarizeThreads(threads: ThreadRow[]): Promise<HelmConversationSummary[]> {
+  if (threads.length === 0) return [];
+  const bookingIds = threads.map((t) => t.booking_id).filter((x): x is string => !!x);
+  const [bookings, names, pending] = await Promise.all([
+    loadBookingsById(bookingIds),
+    fleetNameMap({ includeInactive: true }).catch(() => new Map<string, string>()),
+    pendingAutomationCounts(bookingIds),
+  ]);
+  const today = todayEastern();
+  return threads.map((t) => {
+    const booking = t.booking_id ? bookings.get(t.booking_id) ?? null : null;
+    const propertyId = t.property_id ?? booking?.property_id ?? '';
+    return summarizeThread(t, {
+      booking,
+      propertyName: propertyId ? names.get(propertyId) ?? null : null,
+      pendingCount: t.booking_id ? pending.get(t.booking_id) ?? 0 : 0,
+      today,
+    });
+  });
+}
+
+/**
+ * Helm threads for stays that checked in inside [from, to] (YYYY-MM-DD), for
+ * the Conversations list's older windows (2026-10-18). The default list
+ * picks Helm threads by recent activity; an older stay's thread has gone
+ * quiet, so it is found through its booking's check-in instead. Archived
+ * threads stay out. Never throws.
+ */
+export async function listHelmConversationsInWindow(from: string, to: string): Promise<HelmConversationSummary[]> {
+  if (!isServiceConfigured) return [];
+  try {
+    const stays = await selectAllPaged<{ id: string }>(
+      (a, b) =>
+        supabaseAdmin
+          .from('bookings')
+          .select('id')
+          .gte('check_in', from)
+          .lte('check_in', to)
+          .order('id', { ascending: true })
+          .range(a, b),
+      { label: 'helm window stays', maxRows: 5000 },
+    );
+    const ids = stays.map((s) => s.id);
+    const threads: ThreadRow[] = [];
+    for (let i = 0; i < ids.length; i += 200) {
+      const { data, error } = await supabaseAdmin
+        .from('guest_threads')
+        .select(THREAD_COLS)
+        .neq('status', 'archived')
+        .in('booking_id', ids.slice(i, i + 200));
+      if (error) throw new Error(error.message);
+      threads.push(...((data ?? []) as ThreadRow[]));
+    }
+    return await summarizeThreads(threads);
+  } catch (err) {
+    console.warn('[helm-inbox] window list failed', err instanceof Error ? err.message : err);
     return [];
   }
 }
