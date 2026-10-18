@@ -49,6 +49,8 @@ export type CardController = {
   pending: PendingAction;
   editing: boolean;
   showHandled: boolean;
+  /** A draft exists to send (the server's, or one just saved). */
+  hasDraft: boolean;
   /** The text that would send right now: an open edit, a just-saved edit,
    *  or the draft. */
   currentText: () => string;
@@ -102,8 +104,10 @@ export type ApprovalCardProps = {
     english?: ReactNode;
     /** The English shown under an open editor. */
     englishWhileEditing?: ReactNode;
-    /** Stands in for the draft text (an inquiry with no draft yet). */
+    /** Stands in for the draft while there is none (an inquiry the AI could
+     *  not price), under `emptyLabel`. A saved reply replaces it at once. */
     override?: ReactNode;
+    emptyLabel?: string;
     /** Under the draft text. */
     after?: ReactNode;
   } | null;
@@ -127,9 +131,12 @@ export type ApprovalCardProps = {
    *  inquiry the AI still could not price). When `key` changes mid-redraft,
    *  the redraft ends with `error`. */
   redraftOutcome?: { key: string; error: string | null } | null;
-  /** Replaces the footer's contents. Default: send, Edit, Coach, then the
-   *  quiet exits. */
+  /** Replaces the footer's contents; returning null keeps the standard one
+   *  (send, Edit, Coach, then the quiet exits). */
   footer?: (ctl: CardController) => ReactNode;
+  /** Before Send now / Cancel send on a queued card (a 2027 request keeps
+   *  its Send a price there). */
+  queuedLead?: ReactNode;
   outcomes?: Outcomes;
   onResolved: (warning?: string) => void;
   onDecided: (decision: Decision) => void;
@@ -142,7 +149,7 @@ export function ApprovalCard(props: ApprovalCardProps) {
     id, status, sendAt, name, property, channel, preview, chips, queuedChips, accent, ageMinutes, createdAt, shortId,
     wait, layout = 'columns', said, between, reply, afterColumns, also, verbs, handledReasons,
     pastePlaceholder = 'Paste the reply you sent, by text or by email', approveLabel, approveBlocked,
-    scheduleBlocked, coachHint, externalBusy, redraftOutcome, footer, outcomes, onResolved, onDecided,
+    scheduleBlocked, coachHint, externalBusy, redraftOutcome, footer, queuedLead, outcomes, onResolved, onDecided,
     onRegenerating, regenStalled,
   } = props;
   const draft = reply?.text ?? '';
@@ -523,7 +530,7 @@ export function ApprovalCard(props: ApprovalCardProps) {
 
   const replyBlock = reply && (
     <FieldBlock
-      label={editing ? 'Editing reply' : reply.label || 'Proposed reply'}
+      label={editing ? 'Editing reply' : reply.override && !shownDraft.trim() ? reply.emptyLabel || 'No draft yet' : reply.label || 'Proposed reply'}
       labelTone={editing ? 'var(--ink)' : undefined}
     >
       {editing ? (
@@ -589,7 +596,7 @@ export function ApprovalCard(props: ApprovalCardProps) {
             </SecondaryButton>
           </div>
         </div>
-      ) : reply.override ? (
+      ) : reply.override && !shownDraft.trim() ? (
         reply.override
       ) : (
         <>
@@ -662,6 +669,7 @@ export function ApprovalCard(props: ApprovalCardProps) {
     pending,
     editing,
     showHandled,
+    hasDraft: !!shownDraft.trim(),
     currentText: () => (editing ? draftText : shownDraft),
     approve,
     startEdit,
@@ -671,6 +679,8 @@ export function ApprovalCard(props: ApprovalCardProps) {
     setError,
     parts: { send: sendPart, edit: editPart, coach: coachPart, redraft: redraftPart, handled: handledPart },
   };
+
+  const customFooter = footer ? footer(ctl) : null;
 
   return (
     <MobileInboxReview
@@ -779,13 +789,14 @@ export function ApprovalCard(props: ApprovalCardProps) {
         >
           {isScheduled ? (
             <>
+              {queuedLead}
               {queuedActions}
               <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
                 Cancel send to edit or coach
               </span>
             </>
-          ) : footer ? (
-            footer(ctl)
+          ) : customFooter != null ? (
+            customFooter
           ) : (
             <>
               {sendPart}

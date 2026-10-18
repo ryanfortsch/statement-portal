@@ -26,28 +26,29 @@ describe('Mark handled, streamlined', () => {
   });
 
   test('guests: one tap per reason, Undo after, paste optional and still a reason', () => {
-    const src = read('src/app/messaging/MessagingQueue.tsx');
-    assert.ok(src.includes('onClick={() => handleMarkHandled({ reason })}'));
-    assert.ok(src.includes("handleMarkHandled({ sent_text: sentText, reason: 'Already answered' })"), 'a pasted reply records its reason too');
+    // The drawer is the one card's since 2026-10-18; the guest card hands it
+    // its reasons and its undo.
+    const src = read('src/components/messaging/card/ApprovalCard.tsx');
+    assert.ok(src.includes('onClick={() => markHandled({ reason })}'));
+    assert.ok(src.includes("markHandled({ sent_text: sentText, reason: 'Already answered' })"), 'a pasted reply records its reason too');
     assert.ok(src.includes("{showPaste ? 'Hide' : 'Paste what you sent'}"), 'paste is behind its own link');
-    assert.ok(src.includes('onDecided({ id: approval.id, guest: guestLabel, property: propertyLabel });'), 'the undo toast still follows');
+    assert.ok(src.includes('onDecided({ id, name, property });'), 'the undo toast still follows');
     assert.ok(!/>\s*Skip\s*</.test(src), 'no Skip: the three reasons cover it');
+    const guest = read('src/app/messaging/MessagingQueue.tsx');
+    assert.ok(guest.includes('handledReasons={noReplyReasons}') && guest.includes('undo={undoDecision}'), 'the guest card wires its reasons and its undo');
   });
 
-  test('owners, cleaners, contractors: one tap with Undo on the one card, else the button asks once', () => {
+  test('owners, cleaners, contractors: one tap with Undo, like guests', () => {
     // Since 2026-10-18 the concierge keeps an undo for every audience (#88),
-    // so a queue on the one card gets the guest flow: a reason in one tap,
-    // then the toast. A queue not yet moved keeps the two-tap button.
-    const confirm = read('src/components/HandledConfirm.tsx');
-    assert.ok(confirm.includes("armed ? 'Sure? Mark handled' : 'Mark handled'"));
+    // so every queue gets the guest flow on the one card: a reason in one
+    // tap, then the toast. The two-tap "Sure? Mark handled" button, which
+    // stood in for a missing undo, is gone.
     for (const q of ['src/app/owner-messaging/OwnerMessagingQueue.tsx', 'src/app/cleaner-messaging/CleanerMessagingQueue.tsx', 'src/app/contractor-messaging/ContractorMessagingQueue.tsx']) {
       const src = read(q);
-      if (src.includes('<ApprovalCard')) {
-        assert.ok(src.includes('handledReasons='), `${q} renders the card without its reasons`);
-        assert.ok(/undo=\{undo\w+Decision\}/.test(src), `${q} renders the queue without its undo`);
-      } else {
-        assert.ok(src.includes('<HandledConfirm'), `${q} does not use the two-tap button`);
-      }
+      assert.ok(src.includes('<ApprovalCard'), `${q} is not on the one card`);
+      assert.ok(src.includes('handledReasons='), `${q} renders the card without its reasons`);
+      assert.ok(/undo=\{undo\w+Decision\}/.test(src), `${q} renders the queue without its undo`);
+      assert.ok(!src.includes('<HandledConfirm'), `${q} still asks twice`);
     }
     const card = read('src/components/messaging/card/ApprovalCard.tsx');
     assert.ok(card.includes('onClick={() => markHandled({ reason })}'), 'a reason is one tap on the card');

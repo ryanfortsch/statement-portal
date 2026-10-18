@@ -25,7 +25,9 @@ import { InboxHealth } from '@/components/InboxHealth';
 import { InboxBottomTools } from '@/components/InboxBottomTools';
 import { ConciergeAlertList } from '@/components/ConciergeAlerts';
 import { MessagingQueue } from './MessagingQueue';
-import { RecentDecisions } from './RecentDecisions';
+import { DecidedRecently } from '@/components/messaging/card/DecidedRecently';
+import { undoDecision } from './actions';
+import { guestFirstFromDraft, prettifySlug } from './format';
 import { ConversationsBrowser } from './Conversations';
 
 export const dynamic = 'force-dynamic';
@@ -94,9 +96,18 @@ function NotReachable({ message, retry = false }: { message: string; retry?: boo
 async function RecentDecisionsSection() {
   const recent = await listRecentApprovals(12);
   if (!recent.ok) return null;
-  const items = recent.data.approvals.filter((a) => a.reversible);
-  if (items.length === 0) return null;
-  return <RecentDecisions items={items} />;
+  const items = recent.data.approvals
+    .filter((a) => a.reversible)
+    .map((a) => ({
+      id: a.id,
+      status: a.status,
+      name: a.guest_first || guestFirstFromDraft(a.draft) || 'Guest',
+      property: a.listing_name || prettifySlug(a.listing_id) || 'unknown property',
+      quote: a.guest_text,
+      at: a.resolved_at || a.created_at,
+      decidedBy: a.decided_by,
+    }));
+  return <DecidedRecently items={items} undo={undoDecision} />;
 }
 
 // Urgent boundary: the pending-approval queue + reminders. Awaits ONLY the

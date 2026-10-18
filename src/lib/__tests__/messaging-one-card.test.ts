@@ -39,6 +39,12 @@ const MIGRATED: { queue: string; actions: string; page: string; undo: string }[]
     page: 'src/app/owner-messaging/page.tsx',
     undo: 'undoOwnerDecision',
   },
+  {
+    queue: 'src/app/messaging/MessagingQueue.tsx',
+    actions: 'src/app/messaging/actions.ts',
+    page: 'src/app/messaging/page.tsx',
+    undo: 'undoDecision',
+  },
 ];
 
 describe('the one approval card', () => {
@@ -87,6 +93,14 @@ describe('the one approval card', () => {
     assert.ok(q.includes('proposedActionItems(proposedActions, fileActions, setFileActions)'), 'follow-up work is Also on approve');
   });
 
+  test('the guest card folds the add-on, quote, work slip and handoff into Also on approve', () => {
+    const q = read('src/app/messaging/MessagingQueue.tsx');
+    const blocks = q + read('src/app/messaging/guest-card-blocks.tsx');
+    for (const key of ["key: 'quotes'", "key: 'addon'", "key: 'work'", "key: 'handoff'"]) assert.ok(blocks.includes(key), `${key} is not an Also on approve line`);
+    assert.ok(q.includes('also={also}'));
+    assert.ok(!q.includes('function SplitSendButton') && !q.includes('function SchedulePopover'), 'the guest card keeps no private copy of the send controls');
+  });
+
   test('a line of Also on approve that needs an answer opens by itself', () => {
     const also = read('src/components/messaging/card/AlsoOnApprove.tsx');
     assert.ok(also.includes('const showBodies = open || needsAnswer;'));
@@ -104,6 +118,7 @@ describe('the one approval card', () => {
       for (const verb of [q.undo, 'edit', 'redraft']) {
         assert.ok(new RegExp(`export async function ${verb === q.undo ? verb : `${verb}\\w*Draft`}\\b`).test(actions), `${q.actions} exports ${verb}`);
       }
+      assert.ok(read(q.queue).split('\n').length < 700, `${q.queue} grew back past 700 lines: put shared behaviour in the card`);
       assert.ok(read(q.page).includes(`<DecidedRecently items={items} undo={${q.undo}} />`), 'the page keeps a Decided recently ledger');
     });
   }

@@ -44,7 +44,7 @@ describe('the Send lens', () => {
   test('no error string names an env var or a Stripe key permission', () => {
     // payment-links-text.ts describes Stripe keys in its comments by design;
     // its two rendered sentences are pinned in payment-links-text.test.ts.
-    for (const file of ['src/app/messaging/send/payment-link-actions.ts', 'src/app/messaging/MessagingQueue.tsx', 'src/app/messaging/send/PaymentLinkPanel.tsx']) {
+    for (const file of ['src/app/messaging/send/payment-link-actions.ts', 'src/app/messaging/guest-card-blocks.tsx', 'src/app/messaging/send/PaymentLinkPanel.tsx']) {
       const src = read(file);
       assert.ok(!/STRIPE_KEY|restricted key|needs Checkout Sessions read|Stripe key is read-only|no Stripe key (in Helm|for this property')/.test(src), `${file} still talks to an engineer`);
       assert.ok(src.includes('not set up for'), `${file} lost the plain sentence`);

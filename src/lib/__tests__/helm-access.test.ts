@@ -409,12 +409,15 @@ describe('no card or link on a staff page lands on /not-available', () => {
   });
 
   test('the guest queue offers Send a price, the quote links and See all to owners only', () => {
-    const src = read('src/app/messaging/MessagingQueue.tsx');
+    // The guest card and its Also on approve lines (guest-card-blocks.tsx).
+    const src = read('src/app/messaging/MessagingQueue.tsx') + read('src/app/messaging/guest-card-blocks.tsx');
     assert.ok(src.includes("const canPrice = role === 'owner';"), 'the card must know the role');
     // Every Send a price link is behind canPrice, as a ternary with the
     // staff note or as a guard on the email card's secondary link.
     const primary = [...src.matchAll(/<PrimaryLink href=\{quoteHref\}/g)];
-    assert.ok(primary.length >= 4, 'the three Send a price primaries and Set a price should still exist');
+    // Queued, the 2027 footer (one for both its states since the one card,
+    // 2026-10-18) and Set a price on an inquiry.
+    assert.ok(primary.length >= 3, 'the Send a price primaries and Set a price should still exist');
     for (const m of primary) {
       assert.ok(src.slice(Math.max(0, m.index! - 80), m.index!).includes('canPrice ?'), 'a Send a price primary without canPrice');
     }
