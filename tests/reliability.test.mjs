@@ -178,6 +178,7 @@ test('dashboard renders failed count queries as unavailable, never an empty urge
 test('dashboard preserves legitimate zero counts and zero payout', async () => {
   const html = await dashboard();
   assert.match(html, /nothing overdue/); assert.match(html, /\$0/);
+  assert.match(html, /href="\/work\?filter=week"/, 'the tile opens the board on the same This week rule');
   assert.doesNotMatch(html, /Some numbers did not load/);
 });
 test('dashboard says a failed turnovers read, never a quiet week', async () => {
