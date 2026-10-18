@@ -17,6 +17,7 @@ import {
   civicForProperty,
   receptacleRuleFor,
   isCollectionDay,
+  trashDayFact,
   GLOUCESTER_CART_RULE,
 } from '../civic.ts';
 import type { HelmPropertyRow } from '../properties.ts';
@@ -141,4 +142,26 @@ test('isCollectionDay matches the weekday of a date, and nothing without a day',
   // 84 Thatcher: DPW-confirmed Friday set on the row wins over the split street.
   const c = civicForProperty(prop({ address: '84 Thatcher Road', trash_day: 'Friday' }));
   assert.equal(isCollectionDay(c.trashDay, '2026-10-09'), true);
+});
+
+test('the band trash fact names its source and never invites an unsafe day', () => {
+  // The street list answered.
+  assert.deepEqual(trashDayFact(prop({ address: '21 Horton Street' })), {
+    kind: 'day',
+    day: civicForProperty(prop({ address: '21 Horton Street' })).trashDay,
+    source: 'street',
+  });
+  // An operator set the day after phoning DPW, abbreviated or not.
+  assert.deepEqual(trashDayFact(prop({ address: '84 Thatcher Road', trash_day: 'Fri' })), {
+    kind: 'day',
+    day: 'Friday',
+    source: 'row',
+  });
+  // A split street has no day until DPW answers.
+  assert.deepEqual(trashDayFact(prop({ address: '84 Thatcher Road' })), { kind: 'ask_dpw' });
+  // Rockport has nothing at the curb, whatever the column says.
+  assert.deepEqual(trashDayFact(prop({ city: 'Rockport, MA', trash_day: 'DUMP' })), { kind: 'no_curbside' });
+  // Any other city without a row day points at the city, never at the column:
+  // stay-concierge would send the Gloucester cart clause for a typed day.
+  assert.deepEqual(trashDayFact(prop({ city: 'Beverly, MA', address: '5 Hale Street' })), { kind: 'city_schedule' });
 });

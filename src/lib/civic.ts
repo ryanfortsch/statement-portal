@@ -192,6 +192,36 @@ export function civicForProperty(p: HelmPropertyRow): CivicInfo {
 }
 
 /**
+ * The trash day as one short fact, for a surface with room for a word rather
+ * than the rule (the property band, read from a phone in the driveway).
+ *
+ * - `day`: a resolved weekday, with where it came from. `row` is a day an
+ *   operator set on the property (the column is only filled after phoning
+ *   DPW); `street` is the DPW street list.
+ * - `no_curbside`: Rockport. Nothing goes to the street, so there is no day.
+ * - `ask_dpw`: Gloucester with no day, because the route splits the street
+ *   or the street is missing from the list. Only DPW can answer it.
+ * - `city_schedule`: any other city without a day on the row. The band must
+ *   not invite an operator to type one: stay-concierge reads trash_day with
+ *   no city gate and would send a guest the Gloucester cart clause.
+ */
+export type TrashDayFact =
+  | { kind: 'day'; day: string; source: 'row' | 'street' }
+  | { kind: 'no_curbside' }
+  | { kind: 'ask_dpw' }
+  | { kind: 'city_schedule' };
+
+export function trashDayFact(p: HelmPropertyRow): TrashDayFact {
+  const cityShort = (p.city || '').split(',')[0].trim();
+  if (cityShort === 'Rockport') return { kind: 'no_curbside' };
+  const day = civicForProperty(p).trashDay;
+  if (day) {
+    return { kind: 'day', day, source: normalizeDay(p.trash_day) === day ? 'row' : 'street' };
+  }
+  return cityShort === 'Gloucester' ? { kind: 'ask_dpw' } : { kind: 'city_schedule' };
+}
+
+/**
  * True when `isoDate` (YYYY-MM-DD) falls on the property's resolved collection
  * weekday. Used by the cleaner schedule: a guest whose pickup is checkout
  * morning rolls the carts out on their last night, and the turnover cleaner

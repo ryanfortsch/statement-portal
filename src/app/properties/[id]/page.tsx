@@ -5,6 +5,7 @@ import { HelmFooter } from '@/components/HelmFooter';
 import { Stat } from '@/components/Stat';
 import { DownloadPropertyPdfButton } from '@/components/properties/DownloadPropertyPdfButton';
 import { trashNoticeFor } from '@/lib/trash-notice';
+import { trashDayFact } from '@/lib/civic';
 import { HomeGuideCustomizeForm } from '@/components/properties/HomeGuideCustomizeForm';
 import { PhotoThumbs } from '@/components/PhotoUploader';
 import { auth } from '@/auth';
@@ -841,6 +842,10 @@ export default async function PropertyDetailPage({
         wifiName={p.wifi_name}
         wifiPassword={p.wifi_password}
         keyCodeLocation={p.key_code_location}
+        gateCode={p.gate_code}
+        garageCode={p.garage_code}
+        parking={p.parking}
+        trashDay={trashDayFact(p)}
         ownerName={p.owner_full || p.owner_last}
         ownerPhone={p.owner_phone}
         ownerEmail={owner ? (p.owner_emails?.[0] ?? null) : null}
