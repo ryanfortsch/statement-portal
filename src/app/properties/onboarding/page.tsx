@@ -2,9 +2,14 @@ import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
-import { Stat } from '@/components/Stat';
 import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
-import { LAUNCH_PHASES, LAUNCH_WHO_LABELS, type LaunchStep } from '@/lib/launch-checklist';
+import {
+  LAUNCH_PHASES,
+  LAUNCH_WHO_LABELS,
+  launchBoardGroup,
+  requiredOpenSteps,
+  type LaunchStep,
+} from '@/lib/launch-checklist';
 import { loadLaunchForFleet, type LaunchLoad, type LaunchPropertyLite } from '@/lib/launch-context';
 import { PropertiesTabBar } from '../PropertiesTabBar';
 
@@ -83,17 +88,18 @@ export default async function OnboardingBoardPage() {
     })
     .filter((r): r is BoardRow => r !== null);
 
-  // Only homes with checklist rows are tracked: the nine homes onboarded
-  // before the checklist existed never got rows and would otherwise show
-  // as "in flight" forever on steps nobody is going to backfill.
-  const tracked = rows.filter((r) => r.load.rows.length > 0);
-  const untracked = rows.filter((r) => r.load.rows.length === 0);
+  // Only homes with checklist rows are tracked: the homes onboarded before
+  // the checklist existed never got rows and would otherwise show as "in
+  // flight" forever on steps nobody is going to backfill. The grouping is the
+  // same rule the property page uses to decide whether a home still shows
+  // its launch chip (src/lib/launch-checklist.ts launchBoardGroup).
+  const groupOf = (r: BoardRow) => launchBoardGroup(r.load.rows.length > 0, r.load.summary);
+  const tracked = rows.filter((r) => groupOf(r) !== 'untracked');
+  const untracked = rows.filter((r) => groupOf(r) === 'untracked');
 
-  const inFlight = tracked.filter((r) => !r.load.summary.live);
-  const looseEnds = tracked.filter((r) => r.load.summary.live && r.load.summary.requiredRemaining > 0);
-  const complete = tracked.filter((r) => r.load.summary.live && r.load.summary.requiredRemaining === 0);
-  const flagged = tracked.filter((r) => r.flags.length > 0).length;
-  const openRequired = tracked.reduce((n, r) => n + r.load.summary.requiredRemaining, 0);
+  const inFlight = rows.filter((r) => groupOf(r) === 'in_flight');
+  const looseEnds = rows.filter((r) => groupOf(r) === 'loose_ends');
+  const complete = rows.filter((r) => groupOf(r) === 'complete');
 
   const description =
     tracked.length === 0
@@ -110,27 +116,6 @@ export default async function OnboardingBoardPage() {
         description={description}
       />
       <PropertiesTabBar active="onboarding" />
-
-      <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 28 }}>
-        <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)' }}>
-          <div className="rt-helm-stat-strip" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)' }}>
-            <Stat label="In flight" value={inFlight.length} sub="not yet activated" />
-            <Stat
-              label="Live, loose ends"
-              value={looseEnds.length}
-              accent={looseEnds.length > 0}
-              sub={looseEnds.length ? 'required steps still open' : 'all quiet'}
-            />
-            <Stat
-              label="Needs a look"
-              value={flagged}
-              valueColor={flagged ? 'var(--negative)' : undefined}
-              sub="bookings landing, flat prices, no roster entry"
-            />
-            <Stat label="Open required steps" value={openRequired} sub="across tracked homes" last />
-          </div>
-        </div>
-      </section>
 
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 60, flex: 1 }}>
         <p style={{ margin: '0 0 22px', fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.6, maxWidth: 720 }}>
@@ -151,6 +136,7 @@ export default async function OnboardingBoardPage() {
           blurb="The first guest has already arrived, or the go-live date is stamped, but required steps were never confirmed. These are the gaps that bite later: the cleaner automation, pricing, the roster."
           rows={looseEnds}
           empty="Every live home has its required steps resolved."
+          requiredOnly
         />
         <Group
           title="Complete"
@@ -179,12 +165,16 @@ function Group({
   rows,
   empty,
   muted,
+  requiredOnly,
 }: {
   title: string;
   blurb: string;
   rows: BoardRow[];
   empty: string;
   muted?: boolean;
+  /** A live home's row lists only its required open steps: the optional
+   *  ones, and a 26-step progress bar, are not loose ends. */
+  requiredOnly?: boolean;
 }) {
   return (
     <section style={{ marginTop: 36 }}>
@@ -205,7 +195,7 @@ function Group({
       ) : (
         <div>
           {rows.map((r) => (
-            <HomeRow key={r.p.id} row={r} muted={muted} />
+            <HomeRow key={r.p.id} row={r} muted={muted} requiredOnly={requiredOnly} />
           ))}
         </div>
       )}
@@ -213,8 +203,9 @@ function Group({
   );
 }
 
-function HomeRow({ row, muted }: { row: BoardRow; muted?: boolean }) {
+function HomeRow({ row, muted, requiredOnly }: { row: BoardRow; muted?: boolean; requiredOnly?: boolean }) {
   const { p, load, flags } = row;
+  const openRequired = requiredOnly ? requiredOpenSteps(load.effective) : [];
   const { done, total, requiredRemaining, next, live } = load.summary;
   const pct = total === 0 ? 0 : Math.round((done / total) * 100);
   const nextPhase = next ? LAUNCH_PHASES.find((ph) => ph.key === next.phase)?.label : null;
@@ -249,22 +240,28 @@ function HomeRow({ row, muted }: { row: BoardRow; muted?: boolean }) {
         <div style={{ marginTop: 4, fontSize: 12, color: 'var(--ink-3)' }}>
           {[p.owner_last, liveLine].filter(Boolean).join(' · ')}
         </div>
-        <div style={{ marginTop: 12, height: 4, background: 'var(--rule)', position: 'relative', overflow: 'hidden', maxWidth: 260 }}>
-          <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${pct}%`, background: live ? 'var(--positive)' : 'var(--ink)' }} />
-        </div>
-        <div style={{ marginTop: 6, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.04em' }}>
-          <span className="font-mono">{done}/{total}</span> resolved
-          {requiredRemaining > 0 && (
-            <>
-              {' · '}
-              <span style={{ color: 'var(--signal)' }}>{requiredRemaining} required open</span>
-            </>
-          )}
-        </div>
+        {!requiredOnly && (
+          <>
+            <div style={{ marginTop: 12, height: 4, background: 'var(--rule)', position: 'relative', overflow: 'hidden', maxWidth: 260 }}>
+              <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${pct}%`, background: live ? 'var(--positive)' : 'var(--ink)' }} />
+            </div>
+            <div style={{ marginTop: 6, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.04em' }}>
+              <span className="font-mono">{done}/{total}</span> resolved
+              {requiredRemaining > 0 && (
+                <>
+                  {' · '}
+                  <span style={{ color: 'var(--signal)' }}>{requiredRemaining} required open</span>
+                </>
+              )}
+            </div>
+          </>
+        )}
       </div>
 
       <div style={{ minWidth: 0 }}>
-        {next ? (
+        {requiredOnly ? (
+          <RequiredOpen steps={openRequired} propertyId={p.id} />
+        ) : next ? (
           <NextStep step={next} phase={nextPhase ?? ''} propertyId={p.id} />
         ) : (
           <div style={{ fontSize: 13, color: 'var(--positive)' }}>Nothing required is open.</div>
@@ -289,6 +286,30 @@ function HomeRow({ row, muted }: { row: BoardRow; muted?: boolean }) {
           Open checklist →
         </Link>
       </div>
+    </div>
+  );
+}
+
+/** A live home's loose ends: every required step still open, each a link to
+ *  its card on the launch page. */
+function RequiredOpen({ steps, propertyId }: { steps: LaunchStep[]; propertyId: string }) {
+  return (
+    <div>
+      <div style={{ fontSize: 10, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>
+        Required, still open · {steps.length}
+      </div>
+      <ul style={{ margin: '6px 0 0', padding: 0, listStyle: 'none', display: 'grid', gap: 4 }}>
+        {steps.map((step) => (
+          <li key={step.key} style={{ fontSize: 13.5, lineHeight: 1.4 }}>
+            <Link href={`/properties/${propertyId}/launch#step-${step.key}`} style={{ color: 'var(--ink)', textDecoration: 'none' }}>
+              {step.title}
+            </Link>
+            <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.04em' }}>
+              {LAUNCH_WHO_LABELS[step.who]}
+            </span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
