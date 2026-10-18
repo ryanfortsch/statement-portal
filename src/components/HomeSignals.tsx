@@ -247,7 +247,7 @@ export async function HomeSignals({ owner }: { owner: boolean }) {
                 ? `${stats.overdueWork} overdue`
                 : 'nothing overdue'
           }
-          href={stats.overdueWork != null && stats.overdueWork > 0 ? '/work?filter=overdue' : '/work'}
+          href={stats.overdueWork != null && stats.overdueWork > 0 ? '/work?filter=overdue' : '/work?filter=week'}
           size="hero"
           accent={stats.overdueWork != null && stats.overdueWork > 0}
         />
