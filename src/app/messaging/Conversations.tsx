@@ -9,14 +9,30 @@
  * composer. Search and stay-status filters up top. The list itself comes
  * down with the page render (concierge caches the Guesty gather), so this
  * component only fetches when a thread is opened.
+ *
+ * The list reaches past its default window (2026-10-18): "Show earlier stays"
+ * steps back 120 days of check-ins at a time, and Dates jumps to the window
+ * asked for, both through the concierge (stay-concierge #90). Search covers
+ * everything loaded. Past two years, or when a window is too full to list,
+ * it says older conversations are in Guesty, with a link, instead of ending.
  */
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, useTransition, type ReactNode } from 'react';
 import { matchesInboxText } from '@/lib/inbox-search';
 import { Section } from '@/components/Section';
 import type { ConversationSummary } from '@/lib/stay-concierge';
 import { ThreadPanel } from './Thread';
 import { relativeTimeShort, formatStayDates, channelTone, prettifySlug } from './format';
+import { loadConversationWindow } from './conversation-actions';
+import {
+  GUESTY_INBOX_URL,
+  addDays,
+  earlierWindow,
+  formatWindow,
+  reachedFloor,
+  shortDay,
+  windowProblem,
+} from '@/lib/conversation-window';
 
 /** A row from either source. Helm-native threads (conversation_id 'helm:…')
  * may carry the OTA deep link; concierge rows never do. Pure string checks
@@ -36,7 +52,15 @@ type Props = {
   initialError: string | null;
   /** A thread to open on arrival (`/messaging?open=<id>`). */
   initialOpenId?: string | null;
+  /** The check-in window the first list covers. */
+  initialWindow?: CheckInWindow | null;
 };
+
+type CheckInWindow = { from: string; to: string; truncated?: boolean };
+
+function todayYmd(): string {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+}
 
 const DEFAULT_VISIBLE = 8;
 
@@ -55,7 +79,19 @@ const STAY_CHIP: Record<string, { label: string; tone: string }> = {
   checked_out: { label: 'Checked out', tone: 'var(--ink-4)' },
 };
 
-export function ConversationsBrowser({ initialConversations, initialError, initialOpenId = null }: Props) {
+export function ConversationsBrowser({ initialConversations, initialError, initialOpenId = null, initialWindow = null }: Props) {
+  const today = todayYmd();
+  const firstWindow: CheckInWindow = initialWindow ?? { from: addDays(today, -60), to: addDays(today, 60) };
+  // Rows reached past the first list: earlier windows stepped back into, or
+  // the dates asked for (which then replace the first list).
+  const [extra, setExtra] = useState<InboxConversation[]>([]);
+  const [windows, setWindows] = useState<CheckInWindow[]>([firstWindow]);
+  const [picked, setPicked] = useState<CheckInWindow | null>(null);
+  const [showDates, setShowDates] = useState(false);
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [reachError, setReachError] = useState<string | null>(null);
+  const [reaching, startReach] = useTransition();
   const [query, setQuery] = useState('');
   const [reviewOnly, setReviewOnly] = useState(false);
   const [filter, setFilter] = useState<StayFilter>('all');
@@ -70,10 +106,53 @@ export function ConversationsBrowser({ initialConversations, initialError, initi
     document.getElementById(`conversation-${initialOpenId}`)?.scrollIntoView({ block: 'start' });
   }, [initialOpenId]);
 
-  const matching = useMemo(() => initialConversations.filter(c =>
+  // The first list plus everything reached since, each conversation once.
+  const all = useMemo(() => {
+    const base = picked ? [] : initialConversations;
+    const seen = new Set<string>();
+    return [...base, ...extra].filter((c) => (seen.has(c.conversation_id) ? false : (seen.add(c.conversation_id), true)));
+  }, [initialConversations, extra, picked]);
+  const matching = useMemo(() => all.filter(c =>
     (filter === 'all' || c.stay_status === filter) && matchesInboxText(query, [c.guest_full, c.property_name, prettifySlug(c.listing_id), c.channel, c.last_preview])
-  ), [initialConversations, query, filter]);
-  const reviewCountsAvailable = initialConversations.every(c => c.review_count !== undefined);
+  ), [all, query, filter]);
+  const reviewCountsAvailable = all.every(c => c.review_count !== undefined);
+  const earliest = windows.reduce((min, w) => (w.from < min ? w.from : min), windows[0].from);
+  const latest = windows.reduce((max, w) => (w.to > max ? w.to : max), windows[0].to);
+  const atFloor = reachedFloor(earliest, today);
+  const anyTruncated = windows.some((w) => w.truncated);
+
+  const reach = (from: string, to: string, mode: 'earlier' | 'dates') => {
+    setReachError(null);
+    startReach(async () => {
+      const res = await loadConversationWindow(from, to);
+      if (!res.ok) {
+        setReachError(res.error);
+        return;
+      }
+      const window = { from: res.from, to: res.to, truncated: res.truncated };
+      if (mode === 'dates') {
+        setPicked(window);
+        setExtra(res.rows);
+        setWindows([window]);
+        setShowDates(false);
+      } else {
+        setExtra((cur) => [...cur, ...res.rows]);
+        setWindows((cur) => [...cur, window]);
+      }
+      setShowAll(true);
+    });
+  };
+  const stepBack = () => {
+    const w = earlierWindow(earliest);
+    reach(w.from, w.to, 'earlier');
+  };
+  const backToRecent = () => {
+    setPicked(null);
+    setExtra([]);
+    setWindows([firstWindow]);
+    setReachError(null);
+  };
+  const datesProblem = dateFrom || dateTo ? windowProblem(dateFrom, dateTo) : null;
   const readyCount = matching.filter(c => (c.review_count || 0) > 0).length;
   const filtered = reviewOnly && reviewCountsAvailable ? matching.filter(c => (c.review_count || 0) > 0) : matching;
 
@@ -84,7 +163,7 @@ export function ConversationsBrowser({ initialConversations, initialError, initi
   // filtered one.
   const visible = showAll ? filtered : filtered.slice(0, DEFAULT_VISIBLE);
   const openRow = openId
-    ? initialConversations.find((c) => c.conversation_id === openId)
+    ? all.find((c) => c.conversation_id === openId)
     : null;
   const rows =
     openRow && !visible.some((c) => c.conversation_id === openId)
@@ -92,7 +171,7 @@ export function ConversationsBrowser({ initialConversations, initialError, initi
       : visible;
   const hasMore = filtered.length > DEFAULT_VISIBLE;
 
-  if (initialError && initialConversations.length === 0) {
+  if (initialError && all.length === 0 && !picked) {
     return (
       <Section id="conversations" title="Conversations" eyebrow="live from Guesty and Helm" paddingTop={36}>
         <div style={{ borderTop: '1px solid var(--rule)', padding: '16px 0', fontSize: 13, color: 'var(--ink-3)' }}>
@@ -106,7 +185,7 @@ export function ConversationsBrowser({ initialConversations, initialError, initi
     <Section
       id="conversations"
       title="Conversations"
-      eyebrow={`${initialConversations.length} guests · in house, upcoming & recent`}
+      eyebrow={`${all.length} guests · check-ins ${formatWindow(earliest, latest)}`}
       paddingTop={36}
     >
       <div
@@ -169,7 +248,39 @@ export function ConversationsBrowser({ initialConversations, initialError, initi
             color: 'var(--ink)',
           }}
         />
+        <button type="button" className="rt-quiet-btn" aria-expanded={showDates} onClick={() => setShowDates((v) => !v)}>
+          {showDates ? 'Hide dates' : 'Dates'}
+        </button>
+        {picked && (
+          <button type="button" className="rt-quiet-btn" onClick={backToRecent}>
+            Back to recent stays
+          </button>
+        )}
       </div>
+
+      {showDates && (
+        <form
+          aria-label="Check-in dates"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!windowProblem(dateFrom, dateTo)) reach(dateFrom, dateTo, 'dates');
+          }}
+          style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', margin: '0 0 12px', fontSize: 13, color: 'var(--ink-3)' }}
+        >
+          <span className="eyebrow" style={{ color: 'var(--ink-3)' }}>Check-ins from</span>
+          <input type="date" value={dateFrom} max={today} onChange={(e) => setDateFrom(e.target.value)} aria-label="Check-ins from" style={{ padding: '6px 8px', border: '1px solid var(--rule)', background: 'var(--paper)', fontFamily: 'inherit', fontSize: 13 }} />
+          <span>to</span>
+          <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} aria-label="Check-ins to" style={{ padding: '6px 8px', border: '1px solid var(--rule)', background: 'var(--paper)', fontFamily: 'inherit', fontSize: 13 }} />
+          <button
+            type="submit"
+            disabled={reaching || !dateFrom || !dateTo || !!datesProblem}
+            style={{ fontSize: 10, letterSpacing: '0.18em', textTransform: 'uppercase', fontWeight: 600, color: 'var(--ink-2)', background: 'var(--paper)', border: '1px solid var(--ink-3)', padding: '8px 14px', cursor: 'pointer' }}
+          >
+            {reaching ? 'Loading…' : 'Show'}
+          </button>
+          {datesProblem && <span role="status" style={{ color: 'var(--signal)' }}>{datesProblem}</span>}
+        </form>
+      )}
 
       <div className="rt-conversation-status-filter">
         <button type="button" disabled={!reviewCountsAvailable} aria-pressed={reviewOnly} onClick={() => { setReviewOnly(v => !v); setShowAll(false); }}>{reviewCountsAvailable ? `Needs review (${readyCount})` : 'Review counts unavailable'}</button>
@@ -181,7 +292,7 @@ export function ConversationsBrowser({ initialConversations, initialError, initi
       <ul style={{ listStyle: 'none', margin: 0, padding: 0, borderTop: '1px solid var(--rule)' }}>
         {rows.length === 0 && (
           <li style={{ padding: '16px 0', fontSize: 13, color: 'var(--ink-4)', borderBottom: '1px solid var(--rule)' }}>
-            No conversations match.
+            No conversations match in check-ins {formatWindow(earliest, latest)}.
           </li>
         )}
         {rows.map((c) => (
@@ -218,6 +329,26 @@ export function ConversationsBrowser({ initialConversations, initialError, initi
           </button>
         </div>
       )}
+
+      {/* The list never just ends: it steps back a window at a time, and
+          past what Helm reaches it says where the rest is. */}
+      <div style={{ display: 'flex', gap: 14, alignItems: 'baseline', flexWrap: 'wrap', paddingTop: 14, fontSize: 12, color: 'var(--ink-3)' }}>
+        <span>Check-ins {formatWindow(earliest, latest)}.</span>
+        {!atFloor && (
+          <button type="button" className="rt-quiet-btn" onClick={stepBack} disabled={reaching} aria-busy={reaching || undefined}>
+            {reaching ? 'Loading earlier stays…' : `Show earlier stays (before ${shortDay(earliest)})`}
+          </button>
+        )}
+        {(atFloor || anyTruncated || reachError) && (
+          <span>
+            {reachError ? `${reachError} ` : anyTruncated ? 'Some of these dates held more stays than Helm lists at once. ' : ''}
+            Older conversations are in Guesty:{' '}
+            <a href={GUESTY_INBOX_URL} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--ink-2)', textDecoration: 'underline' }}>
+              open Guesty ↗
+            </a>
+          </span>
+        )}
+      </div>
     </Section>
   );
 }
