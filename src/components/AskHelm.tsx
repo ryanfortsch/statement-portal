@@ -190,10 +190,7 @@ export function AskHelm({
           />
         )}
         {!hero && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, gap: 12 }}>
-          <span style={{ fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.04em' }}>
-            Reads your data live. Always verify the figures.
-          </span>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginTop: 10, gap: 12 }}>
           <button
             type="submit"
             disabled={loading || !question.trim()}

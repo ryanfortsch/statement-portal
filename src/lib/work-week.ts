@@ -1,19 +1,22 @@
 /**
- * "This week" for open work: the home page's "Open work · this week" count.
+ * "This week" for the home page's "Open work · this week" count.
  *
- * A slip counts when its scheduled date, or a task when its due date, falls
- * on or before the sixth day after today in Gloucester: due this week, and
- * anything already overdue. Undated work is the backlog, not this week.
- * Same date fields and same "overdue" as the board (`workOverdue` in
- * work-board-view.ts).
+ * The window is the board's (`WORK_WEEK_DAYS` in work-board-view.ts): today
+ * and the six days after it, in Gloucester. The home counts the team's DATED
+ * work in it: a slip scheduled, or a task due, on or before the window's last
+ * day, overdue included. The board's My week also carries undated work
+ * assigned to me; team-wide, undated work is the backlog (some 280 slips),
+ * and a count of the backlog changes nothing anyone does today.
  *
  * Pure, so `npm test` pins the window.
  */
 
-/** The last day of the week window, YYYY-MM-DD: today plus six. */
+import { WORK_WEEK_DAYS } from './work-board-view.ts';
+
+/** The last day of the week window, YYYY-MM-DD. */
 export function workWeekEnd(today: string): string {
   const d = new Date(`${today}T12:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + 6);
+  d.setUTCDate(d.getUTCDate() + WORK_WEEK_DAYS - 1);
   return d.toISOString().slice(0, 10);
 }
 

@@ -193,6 +193,21 @@ export const HELM_MODULES: HelmModule[] = [
     group: 'operations',
     section: 'operations',
   },
+  // Not a tab: the pipeline links here under its list. Every home by day
+  // for the next 7, 14 or 30 days; the one place the occupancy calendar
+  // renders (the home page and the pipeline both let it go).
+  {
+    id: 'occupancy-calendar',
+    href: '/turnovers/calendar',
+    number: '02e',
+    title: 'Occupancy calendar',
+    description: 'Every home by day for the next 7, 14 or 30 days: who is in, who leaves, which nights are open.',
+    status: 'active',
+    primary: false,
+    hidden: true,
+    group: 'operations',
+    section: 'operations',
+  },
   // A Turnovers tab (TurnoverTabs). The crew's own side of the schedule:
   // Cape Ann Elite's bookings, read from the Jobber reminder texts they
   // send the Quo line, against our checkouts day by day.

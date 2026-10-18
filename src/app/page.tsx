@@ -1,4 +1,3 @@
-import Link from 'next/link';
 import { availableCount } from '@/lib/recovery';
 import { RetryDashboard } from '@/components/RetryDashboard';
 import { HelmHero } from '@/components/HelmHero';
@@ -14,7 +13,6 @@ import { TeamActivity } from '@/components/TeamActivity';
 import { HomeFeedTabs } from '@/components/HomeFeedTabs';
 import { ForMeFeed } from '@/components/ForMeFeed';
 import { AskHelm } from '@/components/AskHelm';
-import { OccupancyCalendar } from '@/components/OccupancyCalendar';
 import { CleaningsStrip } from '@/components/CleaningsStrip';
 import { AiStatusBanner } from '@/components/AiStatusBanner';
 import { ConciergeAlertsLine } from '@/components/ConciergeAlerts';
@@ -246,9 +244,14 @@ export default async function HelmHome() {
         <ConciergeAlertsLine />
       </Suspense>
 
-      <HelmHero eyebrow="HELM" title="Today" paddingTop={32} paddingBottom={28} />
+      <HelmHero eyebrow="HELM" title="Today" paddingTop={32} paddingBottom={20} />
 
-      {/* The personalized work feed leads; activity remains one tab away. */}
+      {/* ASK HELM: the page's one input, directly under the title. */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 28 }}>
+        <AskHelm showSuggestions={false} />
+      </section>
+
+      {/* The signed-in person's day leads; activity remains one tab away. */}
       <div>
         <HomeFeedTabs
           forMe={<ForMeFeed />}
@@ -342,41 +345,6 @@ export default async function HelmHome() {
           at 9 AM: is a cleaner coming, and when. Full page at
           /turnovers/cleanings. Renders nothing when the read fails. */}
       <CleaningsStrip />
-
-      {/* OCCUPANCY CALENDAR — next 7 days. The only place it renders now:
-          the Turnovers page links here (#occupancy-calendar). */}
-      {ops?.calendar && ops.calendar.rows.length > 0 && (
-        <section id="occupancy-calendar" className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 64, scrollMarginTop: 100 }}>
-          <div
-            className="flex items-baseline justify-between flex-wrap"
-            style={{ gap: 12, marginBottom: 14 }}
-          >
-            <div className="eyebrow">On the calendar</div>
-            <Link
-              href="/turnovers"
-              style={{
-                fontSize: 11,
-                letterSpacing: '.16em',
-                textTransform: 'uppercase',
-                fontWeight: 500,
-                color: 'var(--ink-3)',
-                textDecoration: 'none',
-              }}
-            >
-              All turnovers →
-            </Link>
-          </div>
-          <OccupancyCalendar calendar={ops.calendar} />
-        </section>
-      )}
-
-      {/* ASK HELM — inline, full content width, no example prompts */}
-      <section
-        className="max-w-[1100px] mx-auto px-10"
-        style={{ width: '100%', paddingTop: 12, paddingBottom: 40 }}
-      >
-        <AskHelm showSuggestions={false} />
-      </section>
 
       {/* Spacer keeps the footer pinned to the bottom whichever block is last. */}
       <div style={{ flex: 1 }} />

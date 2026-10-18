@@ -84,13 +84,14 @@ ORDER is the durable part and has not moved; the numbers drift with the repo.
 
 | Route | What it is |
 |---|---|
-| `/` | Live ops dashboard: Ask Helm, today's signals, For Me feed, 7-day occupancy calendar |
+| `/` | The signed-in person's day. Ask Helm under the title; the For Me feed in the order a day is worked (`src/lib/home-feed-order.ts`: my work, walks and meetings, then replies, then the clock-bound team items, then office queues, then payments; owners keep the clean-after card first); Today at the houses; two signals (Open work · this week, Turnovers · next 7 days) plus payout for owners; the cleanings strip. Concierge alerts are one line linking to `/messaging#alerts`. The feed's × only ever hides a row from your own feed |
 | `/statements` | Monthly owner statements. Ingest, reconcile, close, send |
 | `/revenue` | Portfolio revenue snapshot: stays, ADR, occupancy, owner payout |
 | `/forecast` | The business plan as an interactive model |
 | `/books` | In-house bookkeeping for the three LLCs, quarterly P&Ls, 1099s |
 | `/cost-analysis` | Housekeeping cost trends per property |
 | `/turnovers` | Turnover pipeline and the six-stage cleaning lifecycle |
+| `/turnovers/calendar` | The occupancy calendar, 7, 14 or 30 days. The only place it renders; the pipeline links to it |
 | `/turnovers/schedule` | Cleaner checkout schedule, merged with late checkouts and extensions |
 | `/turnovers/cleanings` | Cape Ann Elite's own bookings (A-1 Maintenance, via Jobber reminder texts to Quo) against our checkouts. A three-day strip of the same data sits on the home page |
 | `/inspections` | Property inspection runs |
