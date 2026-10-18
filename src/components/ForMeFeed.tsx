@@ -6,6 +6,7 @@ import { loadDailyBrief, type BriefEmail, type BriefInboundTouch, type BriefClea
 import { fieldDb, isFieldConfigured } from '@/lib/field-db';
 import { loadShootBoard, shootPaySummary } from '@/lib/creative-shoots';
 import { dollars } from '@/lib/field-types';
+import { statementsHref } from '@/lib/statements-month';
 import { FeedClearButton } from '@/components/FeedClearButton';
 import { listRecentPaymentLinks, type PaymentLinkRow } from '@/lib/payment-links';
 import { ageLabel, LINK_LOOKBACK_DAYS, money, paymentLinkStatus, stripeKeyFixUrl } from '@/lib/payment-links-text';
@@ -1032,7 +1033,7 @@ async function loadStatementQueue(): Promise<QueueCard | null> {
     const unsent = (total ?? 0) - (sent ?? 0);
     if (unsent <= 0) return null;
     const monthName = new Date(`${period.month}-01T00:00:00`).toLocaleDateString('en-US', { month: 'long' });
-    return { id: 'queue-statements', href: '/statements', text: `Statements: ${unsent} unsent for ${monthName}` };
+    return { id: 'queue-statements', href: statementsHref(period.month), text: `Statements: ${unsent} unsent for ${monthName}` };
   } catch {
     return null;
   }

@@ -25,6 +25,8 @@ import { closeTaskPatchRow } from '@/lib/close-task-write';
 import { revenueSignal } from '@/lib/guesty-revenue-signal';
 import { Suspense } from 'react';
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { isStatementMonth, previousCalendarMonth, statementsHref, statementsUploadHref } from '@/lib/statements-month';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { FinancialsTabs } from '@/components/FinancialsTabs';
 import { AddNoteModal } from '@/components/AddNoteModal';
@@ -2406,7 +2408,7 @@ function PropertyCard({
               <span style={{ fontSize: 11, color: 'var(--negative)' }}>{pdfError}</span>
             )}
             <Link
-              href={`/statements/upload?month=${month}&property=${prop.property_id}`}
+              href={statementsUploadHref(month, prop.property_id)}
               style={{
                 display: 'inline-flex', alignItems: 'center', gap: 8,
                 background: 'transparent', color: 'var(--ink-3)',
@@ -2469,6 +2471,18 @@ function DashboardContent() {
   const [countsRefresh, setCountsRefresh] = useState(0);
   // The month the page is showing, for callbacks that outlive a render.
   const shownMonthRef = useRef<string | null>(null);
+  // The month last asked for. A slower answer for an earlier month is
+  // dropped, so a quick September-then-August never lands on September.
+  const requestedMonthRef = useRef<string | null>(null);
+  // The month lives in the URL (/statements?month=YYYY-MM). The select
+  // pushes it; the effect below loads whatever the URL names, which also
+  // makes Back and Forward step between months.
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const urlMonth = searchParams.get('month');
+  // A link to a month with no statements yet lands on the newest month
+  // and says so, with the upload one click away.
+  const [missingMonth, setMissingMonth] = useState<string | null>(null);
   // Map of legacy property_id ("21_horton") → count of open owner-action
   // work slips on that property. Loaded once on mount and refreshed
   // alongside period data, so the per-card badge stays in sync after a
@@ -2804,6 +2818,7 @@ function DashboardContent() {
     if (quiet) {
       setRefreshing(n => n + 1);
     } else {
+      requestedMonthRef.current = month;
       setSwitchingMonth(month);
       setLoadError(null);
       // The Check sent emails result belongs to the month it ran on.
@@ -2822,6 +2837,8 @@ function DashboardContent() {
       // cleaning, repairs, gaps, drift probe) all happen server-side now --
       // same queries, one round trip, service role instead of the anon key.
       const res = await loadPeriodData(month);
+      // Another month was asked for while this one loaded: that one wins.
+      if (requestedMonthRef.current !== month) return;
       if ('error' in res) throw new Error(res.error);
       const periodData = res.period as unknown as StatementPeriod;
       const enrichedProps = res.props as unknown as PropertyStatement[];
@@ -2836,6 +2853,7 @@ function DashboardContent() {
         loadOwnerActionCounts(),
       ]);
     } catch (err) {
+      if (requestedMonthRef.current !== month) return;
       const message = err instanceof Error ? err.message : JSON.stringify(err);
       if (quiet) {
         setRefreshNotice({
@@ -2847,7 +2865,7 @@ function DashboardContent() {
       }
     } finally {
       if (quiet) setRefreshing(n => n - 1);
-      else setSwitchingMonth(null);
+      else if (requestedMonthRef.current === month) setSwitchingMonth(null);
       setInitialLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3123,9 +3141,9 @@ function DashboardContent() {
   }
 
   /**
-   * First load: the month list, then the newest month. The sync health and
-   * the owner contacts are secondary: each fails on its own, so neither can
-   * take the page down with it.
+   * First load: the month list. The effect below then loads the month the
+   * URL names, or the newest. The sync health and the owner contacts are
+   * secondary: each fails on its own, so neither can take the page down.
    */
   const init = useCallback(async () => {
     try {
@@ -3134,18 +3152,37 @@ function DashboardContent() {
       const data = res.periods;
       if (!data || data.length === 0) { setError('no_data'); setInitialLoading(false); return; }
       setPeriods(data);
-      await loadPeriod(data[0].month);
     } catch (err) {
       setLoadError({ month: null, message: err instanceof Error ? err.message : JSON.stringify(err) });
       setInitialLoading(false);
     }
     loadLastSync().catch(() => {});
     void loadOwnerCfg();
-  }, [loadPeriod, loadLastSync, loadOwnerCfg]);
+  }, [loadLastSync, loadOwnerCfg]);
 
   useEffect(() => {
     (async () => { await init(); })();
   }, [init]);
+
+  // Load the month the URL names: on arrival, on a pick from the select,
+  // and on Back/Forward. The live address bar is read, not the hook's
+  // snapshot, which can report an empty query mid-transition (the /work
+  // board lost its open groups to that, #1200); the hook value is only the
+  // change signal. No month in the URL means the newest month.
+  useEffect(() => {
+    if (periods.length === 0) return;
+    const live = new URLSearchParams(window.location.search).get('month');
+    const known = isStatementMonth(live) && periods.some(p => p.month === live);
+    const target = known ? live : periods[0].month;
+    (async () => {
+      if (isStatementMonth(live) && !known) {
+        setMissingMonth(live);
+        router.replace(statementsHref(target), { scroll: false });
+      }
+      if (target === shownMonthRef.current || target === requestedMonthRef.current) return;
+      await loadPeriod(target);
+    })();
+  }, [urlMonth, periods, loadPeriod, router]);
 
   async function syncInvoices() {
     if (!selectedMonth) return;
@@ -3498,7 +3535,7 @@ function DashboardContent() {
           <h1 className="font-serif" style={{ fontSize: 36, fontWeight: 300, letterSpacing: '-0.02em', color: 'var(--ink)', lineHeight: 1.1 }}>
             Upload your first <em style={{ color: 'var(--tide-deep)', fontWeight: 400 }}>owner statement</em> to get started.
           </h1>
-          <Link href={`/statements/upload?month=${selectedMonth}`} style={{
+          <Link href={statementsUploadHref(selectedMonth)} style={{
             display: 'inline-flex', marginTop: 28,
             background: 'var(--ink)', color: 'var(--paper)',
             fontSize: 11, fontWeight: 600, letterSpacing: '.18em', textTransform: 'uppercase',
@@ -3527,10 +3564,11 @@ function DashboardContent() {
             value={shownMonth}
             onChange={(e) => {
               if (e.target.value === '__new__') {
-                window.location.href = '/statements/upload';
+                router.push(statementsUploadHref(previousCalendarMonth()));
                 return;
               }
-              void loadPeriod(e.target.value);
+              setMissingMonth(null);
+              router.push(statementsHref(e.target.value), { scroll: false });
             }}
             aria-label="Statement period"
             className="font-serif"
@@ -3848,7 +3886,7 @@ function DashboardContent() {
               {refreshing > 0 && (
                 <span className="eyebrow" aria-live="polite" style={{ color: 'var(--ink-4)' }}>Refreshing…</span>
               )}
-              <Link href={`/statements/upload?month=${selectedMonth}`} style={{
+              <Link href={statementsUploadHref(selectedMonth)} style={{
                 display: 'inline-flex', alignItems: 'center', gap: 6,
                 background: 'var(--ink)', color: 'var(--paper)',
                 fontSize: 11, fontWeight: 600, letterSpacing: '.1em', textTransform: 'uppercase',
@@ -3863,6 +3901,16 @@ function DashboardContent() {
           </div>
         </div>
       </section>
+
+      {missingMonth && (
+        <Toast
+          tone="tide"
+          onDismiss={() => setMissingMonth(null)}
+          action={{ label: `Upload ${monthLong(missingMonth)}`, onClick: () => router.push(statementsUploadHref(missingMonth)) }}
+        >
+          There are no statements for {monthLabel(missingMonth)} yet, so this is {monthLabel(selectedMonth)}.
+        </Toast>
+      )}
 
       {/* ─── Read failures ─── each says what it costs and offers a Retry;
            none of them takes the rest of the page down. */}
@@ -4777,7 +4825,7 @@ function DashboardContent() {
             <h2 className="font-serif" style={{ fontSize: 24, fontWeight: 300, color: 'var(--ink)' }}>
               Nothing uploaded for {monthLabel(selectedMonth)}.
             </h2>
-            <Link href={`/statements/upload?month=${selectedMonth}`} style={{
+            <Link href={statementsUploadHref(selectedMonth)} style={{
               display: 'inline-flex', gap: 8, alignItems: 'center',
               marginTop: 18, padding: '10px 18px',
               background: 'var(--ink)', color: 'var(--paper)',

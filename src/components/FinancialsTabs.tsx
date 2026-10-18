@@ -26,7 +26,10 @@ export function FinancialsTabs({
     <SectionTabs
       current={current}
       tabs={[
-        { id: 'statements', label: 'Statements', href: '/statements', badge: <NavTabCount kind="statementsReview" /> },
+        // The pill sits beside the tab, not inside it: it is its own link to
+        // the month it counts (/statements?month=), which a bare tab click
+        // need not be.
+        { id: 'statements', label: 'Statements', href: '/statements', badgeOutside: true, badge: <NavTabCount kind="statementsReview" /> },
         { id: 'revenue', label: 'Revenue', href: '/revenue' },
         { id: 'forecast', label: 'Forecast', href: '/forecast' },
         { id: 'cost-analysis', label: 'Cost Analysis', href: '/cost-analysis' },

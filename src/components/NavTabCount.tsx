@@ -5,6 +5,7 @@ import type { ContractorTrade } from '@/lib/field-types';
 import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { jitteredInterval } from '@/lib/pending-count-client';
+import { statementsHref } from '@/lib/statements-month';
 
 /**
  * Queue-pressure pill on a nav sub-tab (WorkTabs' Field, FinancialsTabs'
@@ -21,6 +22,7 @@ type NavCounts = {
   fieldPackets?: number | null;
   fieldPacketsByTrade?: Partial<Record<ContractorTrade, number>> | null;
   statementsReview?: number;
+  statementsReviewMonth?: string | null;
 };
 
 const TTL_MS = 10_000;
@@ -49,6 +51,9 @@ function fetchNavCounts(): Promise<NavCounts | null> {
 
 export function NavTabCount({ kind, trade, href }: { kind: 'fieldPackets' | 'statementsReview'; trade?: ContractorTrade; href?: string }) {
   const [count, setCount] = useState<number | null>(null);
+  // The statements pill counts the newest period, which need not be the
+  // month the page shows, so it names its month and links to it.
+  const [month, setMonth] = useState<string | null>(null);
   const pathname = usePathname();
 
   useEffect(() => {
@@ -58,6 +63,7 @@ export function NavTabCount({ kind, trade, href }: { kind: 'fieldPackets' | 'sta
       if (!data) return;
       const n = kind === 'fieldPackets' ? (trade ? data.fieldPacketsByTrade?.[trade] : data.fieldPackets) : data.statementsReview;
       if (!cancelled && typeof n === 'number') setCount(n);
+      if (!cancelled && kind === 'statementsReview') setMonth(data.statementsReviewMonth ?? null);
     };
     cachedAt = 0;
     load();
@@ -88,7 +94,11 @@ export function NavTabCount({ kind, trade, href }: { kind: 'fieldPackets' | 'sta
   // matching the messaging pills' shape.
   const background = kind === 'fieldPackets' ? 'var(--ink)' : 'var(--signal)';
 
-  const label = `${count} ${kind === 'fieldPackets' ? 'packet' : 'item'}${count === 1 ? '' : 's'} awaiting review`;
+  const monthName = month ? new Date(`${month}-01T00:00:00`).toLocaleDateString('en-US', { month: 'long' }) : null;
+  const label = kind === 'fieldPackets'
+    ? `${count} packet${count === 1 ? '' : 's'} awaiting review`
+    : `${count} bank row${count === 1 ? '' : 's'} to review${monthName ? ` for ${monthName}` : ''}`;
+  const target = href ?? (kind === 'statementsReview' && month ? statementsHref(month) : undefined);
   const pill = (
     <span
       title={label}
@@ -114,7 +124,7 @@ export function NavTabCount({ kind, trade, href }: { kind: 'fieldPackets' | 'sta
       {count > 99 ? '99+' : count}
     </span>
   );
-  return href ? <Link href={href} aria-label={label} style={{ textDecoration: 'none' }}>{pill}</Link> : pill;
+  return target ? <Link href={target} aria-label={label} style={{ textDecoration: 'none' }}>{pill}</Link> : pill;
 }
 
 /** Reconcile only after a server-rendered packet state changes, never optimistically. */
