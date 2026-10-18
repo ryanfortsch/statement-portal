@@ -25,6 +25,7 @@ import {
 import { loadTurnoverNotes, type TurnoverNote } from '@/lib/turnover-notes';
 import { formatOperatorNote, noteRenderingIsStale } from '@/lib/cleaner-note';
 import { CAPE_ANN_REGION } from '@/lib/property-scope';
+import { homeLabel } from '@/lib/home-label';
 import {
   approveAndSendDigest,
   sendDigestUpdate,
@@ -160,7 +161,7 @@ function RowLine({ row }: { row: ScheduleRow }) {
  * claim can be checked before it goes in front of Rosa. See
  * src/lib/turnover-notes.ts.
  */
-function TurnoverNotes({ notes }: { notes: TurnoverNote[] }) {
+function TurnoverNotes({ notes, names }: { notes: TurnoverNote[]; names: ReadonlyMap<string, string> }) {
   const proposed = notes.filter((n) => n.status === 'proposed');
   const added = notes.filter((n) => n.status === 'added');
   if (proposed.length === 0 && added.length === 0) return null;
@@ -172,7 +173,7 @@ function TurnoverNotes({ notes }: { notes: TurnoverNote[] }) {
       {proposed.map((n) => (
         <div key={n.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 13, flex: '1 1 260px' }}>
-            <strong>{n.property_id}</strong>
+            <strong>{homeLabel(n.property_id, names)}</strong>
             {': '}
             {n.note_en}
             {n.evidence && (
@@ -211,7 +212,7 @@ function TurnoverNotes({ notes }: { notes: TurnoverNote[] }) {
       {added.map((n) => (
         <div key={n.id} style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 13, flex: '1 1 260px', color: 'var(--ink-3)' }}>
-            <strong>{n.property_id}</strong>
+            <strong>{homeLabel(n.property_id, names)}</strong>
             {': '}
             {n.note_pt}
           </span>
@@ -363,11 +364,21 @@ export async function ScheduleDigestCard({
   }
   // Optional. A missing notes table (pre-migration) must never take the
   // approval card down with it.
+  // The homes the notes are about, by name (a note prints "21 Horton:",
+  // never its id). A failed read falls back to the id made readable.
+  const noteHomeNames = new Map<string, string>();
   if (digest) {
     try {
       turnoverNotes = await loadTurnoverNotes(supabase, digest.service_date);
     } catch {
       turnoverNotes = [];
+    }
+    const ids = [...new Set(turnoverNotes.map((n) => n.property_id))];
+    if (ids.length > 0) {
+      const { data } = await supabase.from('properties').select('id, name').in('id', ids);
+      for (const p of (data ?? []) as Array<{ id: string; name: string | null }>) {
+        if (p.name) noteHomeNames.set(p.id, p.name);
+      }
     }
   }
 
@@ -491,7 +502,7 @@ export async function ScheduleDigestCard({
               <RowLine key={`skip-${r.propertyId}|${r.checkIn}`} row={r} />
             ))}
             <Proposals day={day} />
-            <TurnoverNotes notes={turnoverNotes} />
+            <TurnoverNotes notes={turnoverNotes} names={noteHomeNames} />
           </>
         )}
 

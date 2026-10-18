@@ -43,6 +43,14 @@ function revalidateAfterFlip(propertyId: string) {
   revalidatePath(`/properties/${propertyId}`);
 }
 
+/** When the switch moved, in Gloucester: "Sun, Oct 18, 10:42 AM" (the note prints on the home's own hub). */
+function flipStamp(iso: string | null): string {
+  if (!iso) return 'now';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return 'now';
+  return d.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' });
+}
+
 function hubUrl(propertyId: string, params: Record<string, string>): string {
   const q = new URLSearchParams(params);
   return `/channels/${propertyId}?${q.toString()}#cutover`;
@@ -91,7 +99,7 @@ export async function flipCalendarAuthorityAction(formData: FormData) {
         ? ` ${cs.count} block${cs.count === 1 ? '' : 's'} carrying a closed season noted; the hub warns before the booking window reaches ${cs.count === 1 ? 'its' : 'their'} end.`
         : '';
       const trimNote = result.mirrorTrimmed?.error ? ` Guesty's calendar rows past the Helm window were not cleared (${result.mirrorTrimmed.error}).` : '';
-      outcome = { flipped: 'helm', flip_note: `Helm runs ${propertyId} as of ${result.property.cutover_at ?? 'now'}.${mirrorNote}${adoptNote}${seasonNote}${trimNote}` };
+      outcome = { flipped: 'helm', flip_note: `Helm runs this home as of ${flipStamp(result.property.cutover_at)}.${mirrorNote}${adoptNote}${seasonNote}${trimNote}` };
     } catch (err) {
       if (err instanceof CutoverPreflightError) {
         const red = err.preflight.checks.filter((c) => !c.ok).map((c) => `${c.label}: ${c.detail}`);
@@ -110,7 +118,7 @@ export async function flipCalendarAuthorityAction(formData: FormData) {
       const result = await revertToGuesty(propertyId, actor);
       outcome = {
         flipped: 'guesty',
-        flip_note: `Guesty is the calendar authority for ${propertyId} again (${result.property.cutover_at ?? 'now'}). Guesty listing id ${result.property.guesty_listing_id ?? 'not restored: none was parked'}. Message automations for this home are paused until it is flipped back. Nothing was changed in Guesty or the OTAs.`,
+        flip_note: `Guesty is the calendar authority for this home again (${flipStamp(result.property.cutover_at)}). Guesty listing id ${result.property.guesty_listing_id ?? 'not restored: none was parked'}. Message automations for this home are paused until it is flipped back. Nothing was changed in Guesty or the OTAs.`,
       };
     } catch (err) {
       outcome = { flip_error: err instanceof Error ? err.message : String(err) };
