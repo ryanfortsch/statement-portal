@@ -112,16 +112,16 @@ export default async function PropertiesPage() {
 
       <PropertiesTabBar active="properties" />
 
-      {/* Cross-listing Stay Cape Ann tools. */}
+      {/* Every home's Stay Cape Ann launcher, one list (read-only). */}
       <div
         className="max-w-[1100px] mx-auto px-10 w-full"
         style={{ paddingBottom: 18, display: 'flex', gap: 20, flexWrap: 'wrap' }}
       >
         <Link
-          href="/properties/listing-copy-studio"
+          href="/properties/stay-cape-ann"
           style={{ fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'none', letterSpacing: '.03em' }}
         >
-          Stay Cape Ann listing copy →
+          Stay Cape Ann listings →
         </Link>
       </div>
 

@@ -22,6 +22,7 @@ for (const [name, path] of [['stabletime', 'src/lib/stable-time.ts'],
   ['unsaved-work', 'src/lib/unsaved-work.ts'],
   ['sca-launch', 'src/lib/sca-launch.ts'],
   ['sca-config', 'src/lib/sca-config.ts'],
+  ['sca-copy-notes', 'src/lib/sca-copy-notes.ts'],
 ]) await writeFile(join(scratch, name + '.js'), compile(await readFile(join(root, path), 'utf8')));
 await writeFile(join(scratch, 'actions.js'), `
   const call = (kind, args) => new Promise((resolve, reject) => {
@@ -132,7 +133,7 @@ await new Promise((done,reject)=>{
     resolve:{modules:[join(root,'node_modules')],alias:{'@/lib/stable-time':join(scratch,'stabletime.js'),
       './actions':join(scratch,'actions.js'),
       '@/components/PhotoUploader':join(scratch,'upload.js'),
-      ...Object.fromEntries(['unsaved-work','sca-launch','sca-config'].map(name=>['@/lib/'+name,join(scratch,name+'.js')])),
+      ...Object.fromEntries(['unsaved-work','sca-launch','sca-config','sca-copy-notes'].map(name=>['@/lib/'+name,join(scratch,name+'.js')])),
     }},performance:{hints:false},
   });
   compiler.run((error,stats)=>compiler.close(()=>error||stats?.hasErrors()
@@ -191,12 +192,12 @@ try{
     const finish=()=>page.evaluate(()=>window.succeed());
     const pass=name=>{checks++;console.log(`PASS ${name}`);};
 
-    await reset();await waitEnabled('Publish update');
+    await reset();await waitEnabled('Publish');
     assert.equal(await page.evaluate(()=>window.polls),1);assert.equal(await guard(),false);
     await edit('New unsaved name');await waitText('Unsaved changes.');
-    assert.equal(await guard(),true);assert.equal(await enabled('Publish update'),false);
+    assert.equal(await guard(),true);assert.equal(await enabled('Publish'),false);
     assert.equal(await page.evaluate(()=>{const event=new Event('beforeunload',{cancelable:true});window.dispatchEvent(event);return event.defaultPrevented;}),true);
-    await edit('Stay by the Harbor');await waitEnabled('Publish update');
+    await edit('Stay by the Harbor');await waitEnabled('Publish');
     assert.equal(await guard(),false);
     pass('live-update previews load automatically; editing guards exits and reverting clears the guard');
 
@@ -211,19 +212,19 @@ try{
     await waitText('Synthetic returned failure');assert.equal(await guard(),true);
     await click('Save draft');await waitCalls(3);await finish();await waitText('Draft saved.');
     await page.waitForFunction(()=>!window.guarded());
-    assert.equal(await enabled('Publish update'),false);
+    assert.equal(await enabled('Publish'),false);
     pass('failed saves preserve edits; successful Save draft clears unsaved state but cannot authorize the old preview');
 
     await reset('?stale=1');await waitText('This form differs from the preview.');
-    assert.equal(await guard(),false);assert.equal(await enabled('Publish update'),false);
-    await click('Refresh update PR');await waitCalls(1);
+    assert.equal(await guard(),false);assert.equal(await enabled('Publish'),false);
+    await click('Refresh the preview');await waitCalls(1);
     assert.equal(await guard(),true);assert.equal(await page.$eval(field,input=>input.matches(':disabled')),true);
-    await finish();await waitEnabled('Publish update');
+    await finish();await waitEnabled('Publish');
     assert.equal(await guard(),false);
-    await click('Publish update');await waitCalls(2);
+    await click('Publish');await waitCalls(2);
     assert.equal(await page.evaluate(()=>window.calls.at(-1).args[1].tagline),'Newer saved tagline');
     await page.evaluate(()=>window.calls.at(-1).resolve({ok:false,error:'Synthetic publish failure'}));
-    await waitText('Synthetic publish failure');await waitEnabled('Publish update');
+    await waitText('Synthetic publish failure');await waitEnabled('Publish');
     pass('reopening a saved-but-unpreviewed draft stays blocked until a successful PR refresh');
 
     await reset('?launch=1');await waitEnabled('Approve & go live →');
@@ -247,7 +248,7 @@ try{
     await waitText('Payments: not wired');
     assert.equal(await page.evaluate(()=>document.body.innerText.includes('Stripe account key')),false);
     assert.equal(await page.evaluate(()=>document.querySelectorAll('input[type=checkbox]').length),0);
-    await reset('?staff=1');await waitEnabled('Publish update');await waitText('Payments: wired');
+    await reset('?staff=1');await waitEnabled('Publish');await waitText('Payments: wired');
     assert.equal(await hasButton('Refresh site data'),true);
     assert.equal(await hasButton('Unlist…'),false);assert.equal(await hasButton('Verify payments (production)'),false);
     pass('staff get the listing, the preview, publishing and site refresh, and one line for payments');
@@ -263,32 +264,32 @@ try{
     await waitText('Drafted from the property record and 2 Listing photos.');
     assert.equal(await page.$eval('input[placeholder^="On Granite Point"]',input=>input.value),'AI tagline');
     assert.equal(await page.$eval('input[placeholder="Waterfront on Granite Point"]',input=>input.value),'Harbor views');
-    assert.equal(await guard(),true);assert.equal(await enabled('Publish update'),false);
+    assert.equal(await guard(),true);assert.equal(await enabled('Publish'),false);
     pass('Draft with AI fills tagline, About and highlights as unsaved work, keeps a typed pitch, and is open to staff');
 
     await reset('?error=1');await waitText('Could not check the preview.');
-    assert.equal(await enabled('Publish update'),false);
+    assert.equal(await enabled('Publish'),false);
     await waitEnabled('Check now');await page.evaluate(()=>{window.previewMode='error';});await click('Check now');
-    await waitText('Synthetic returned preview failure');assert.equal(await enabled('Publish update'),false);
+    await waitText('Synthetic returned preview failure');assert.equal(await enabled('Publish'),false);
     // Error text can commit before useTransition releases its busy button.
-    await waitEnabled('Check now');await page.evaluate(()=>{window.previewMode='success';});await click('Check now');await waitEnabled('Publish update');
+    await waitEnabled('Check now');await page.evaluate(()=>{window.previewMode='success';});await click('Check now');await waitEnabled('Publish');
     pass('thrown and returned preview failures block publishing and manual retry recovers');
 
     await reset('?hold=1');await page.waitForFunction(()=>window.held.length===1);
-    await edit('Refreshed preview name');await click('Refresh update PR');await waitCalls(1);
-    await page.evaluate(()=>{window.previewMode='no-url';});await finish();await waitEnabled('Publish update');
+    await edit('Refreshed preview name');await click('Refresh the preview');await waitCalls(1);
+    await page.evaluate(()=>{window.previewMode='no-url';});await finish();await waitEnabled('Publish');
     await page.evaluate(()=>window.held.shift()());
     // Let the old promise and React updates settle without waiting on the 12s poll.
     await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
-    assert.equal(await enabled('Publish update'),true);
+    assert.equal(await enabled('Publish'),true);
     assert.equal(await page.evaluate(()=>[...document.querySelectorAll('a')].some(a=>a.textContent==='Open preview ↗')),false);
     pass('late checks from an older preview cannot replace the refreshed content or restore a stale preview URL');
 
-    await reset();await waitEnabled('Publish update');await click('Start synthetic upload');
+    await reset();await waitEnabled('Publish');await click('Start synthetic upload');
     await waitText('Wait for the photo upload');assert.equal(await guard(),true);
-    assert.equal(await enabled('Save draft'),false);assert.equal(await enabled('Publish update'),false);
+    assert.equal(await enabled('Save draft'),false);assert.equal(await enabled('Publish'),false);
     await page.evaluate(()=>window.finishUpload());await waitText('Unsaved changes.');await waitEnabled('Save draft');
-    assert.equal(await guard(),true);assert.equal(await enabled('Publish update'),false);
+    assert.equal(await guard(),true);assert.equal(await enabled('Publish'),false);
     await page.evaluate(()=>window.unmount());await page.waitForFunction(()=>!window.guarded());
     assert.deepEqual(errors,[]);
     pass('uploads block saves and exits; completed photos are unsaved and unmount releases the guard');
@@ -305,7 +306,7 @@ try{
     assert.deepEqual(await page.evaluate(()=>window.calls.at(-1).args),['synthetic']);
     await page.evaluate(()=>window.calls.at(-1).resolve({ok:true,row:{...window.row,branch_name:null,pr_number:null}}));
     await page.waitForSelector('fieldset');assert.equal(await page.$eval(tagline,i=>i.value),'Saved tagline');
-    assert.equal(await guard(),false);await waitEnabled('Update live listing →');
+    assert.equal(await guard(),false);await waitEnabled('Preview changes →');
     pass('a live home with no launch record opens its live listing before anything edits it');
 
     await reset('?livedraft=1');
@@ -313,7 +314,7 @@ try{
     await page.waitForFunction(()=>document.querySelectorAll('#sleeping input[placeholder^="Room"]').length===2);
     await page.evaluate(()=>[...document.querySelectorAll('#sleeping button')].filter(b=>b.textContent==='Fail synthetic upload')[1].click());
     await waitText('Retry or remove the failed bedroom uploads');
-    assert.equal(await enabled('Save draft'),false);assert.equal(await enabled('Update live listing →'),false);assert.equal(await guard(),true);
+    assert.equal(await enabled('Save draft'),false);assert.equal(await enabled('Preview changes →'),false);assert.equal(await guard(),true);
     await page.evaluate(()=>[...document.querySelectorAll('#sleeping button')].filter(b=>b.textContent==='Remove')[0].click());
     await page.waitForFunction(()=>document.querySelectorAll('#sleeping input[placeholder^="Room"]').length===1);
     assert.equal(await page.$eval('#sleeping input[placeholder^="Room"]',i=>i.value),'');

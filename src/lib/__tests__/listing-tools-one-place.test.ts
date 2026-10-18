@@ -48,7 +48,7 @@ test('Draft with AI sits beside Pull from Guesty and in the Listing form, on one
 
 test('Bedroom photos redirects to the home launcher, the one place its photos are published', () => {
   const page = read('src/app/properties/bedroom-photos/page.tsx');
-  assert.ok(page.includes("redirect(id ? `/properties/${id}/stay-cape-ann#sleeping` : '/properties');"));
+  assert.ok(page.includes("redirect(id ? `/properties/${id}/stay-cape-ann#sleeping` : '/properties/stay-cape-ann');"));
   assert.ok(!exists('src/app/properties/bedroom-photos/BedroomPhotosClient.tsx'));
   assert.ok(!exists('src/app/properties/bedroom-photos/actions.ts'));
   for (const file of ['src/app/properties/[id]/page.tsx', 'src/app/properties/page.tsx', 'src/lib/helm-modules.ts']) {
@@ -72,4 +72,25 @@ test('a launcher PR writes over the live entry, never in place of it', () => {
   // A live listing opens on what guests see.
   const page = read('src/app/properties/[id]/stay-cape-ann/page.tsx');
   assert.ok(page.includes('liveDraft={liveDraft}') && page.includes('adoptable={adoptable}'));
+});
+
+test('the Listing Copy Studio is retired: one publish path per listing, reviewed from the launcher index', () => {
+  assert.ok(read('src/app/properties/listing-copy-studio/page.tsx').includes("redirect('/properties/stay-cape-ann?filter=review');"));
+  assert.ok(!exists('src/app/properties/listing-copy-studio/ListingCopyStudio.tsx'));
+  const actions = read('src/app/properties/[id]/stay-cape-ann/actions.ts');
+  for (const gone of ['stageListingCopyEdit', 'publishListingCopyBatch', 'listScaListingCopy', 'draftListingCopyFromGuesty', 'sca-listing-copy']) {
+    assert.ok(!actions.includes(gone), `${gone} is the studio's second publish path`);
+  }
+  // The index is read-only: it links each home's launcher and writes nothing.
+  const index = read('src/app/properties/stay-cape-ann/page.tsx');
+  assert.ok(index.includes('href={`/properties/${r.propertyId}/stay-cape-ann`}'));
+  assert.ok(index.includes('/properties/stay-cape-ann?filter=review'));
+  assert.ok(!/\.(insert|update|upsert|delete)\(/.test(index), 'the index never writes');
+  assert.ok(!index.includes("from '../[id]/stay-cape-ann/actions'"), 'the index calls no launcher action');
+  assert.ok(read('src/app/properties/page.tsx').includes('href="/properties/stay-cape-ann"'));
+  assert.ok(read('src/lib/helm-modules.ts').includes("href: '/properties/stay-cape-ann',"));
+  // One verb on a live listing.
+  const client = read('src/app/properties/[id]/stay-cape-ann/ScaLaunchClient.tsx');
+  assert.ok(client.includes("{busy === 'publish' ? 'Publishing…' : 'Publish'}"));
+  assert.ok(!client.includes("'Publish update'") && !client.includes('Stage edit'));
 });

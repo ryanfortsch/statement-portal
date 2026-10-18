@@ -391,14 +391,16 @@ export const HELM_MODULES: HelmModule[] = [
     primary: true,
     group: 'relationships',
   },
-  // Listing Copy Studio is reached from the Properties surface.
+  // Every home's Stay Cape Ann launcher on one read-only list, reached from
+  // the Properties surface. It replaced the Listing Copy Studio and the
+  // fleet Bedroom Photos page (2026-10-18), which both redirect here.
   // Registered here for search, surfaced in-context (hidden from menus).
   {
-    id: 'listing-copy-studio',
-    href: '/properties/listing-copy-studio',
+    id: 'stay-cape-ann-listings',
+    href: '/properties/stay-cape-ann',
     number: '05a',
-    title: 'Listing Copy Studio',
-    description: 'Review and rewrite the editorial copy on every Stay Cape Ann listing. Taglines, About, highlights.',
+    title: 'Stay Cape Ann listings',
+    description: 'Every home on staycapeann.com and its launcher. Copy to review, bedroom photos, live pages.',
     status: 'active',
     primary: false,
     hidden: true,
