@@ -29,6 +29,7 @@ import { FinalPayoutField } from './FinalPayoutField';
 import { loadTextWindow, fmtSpan } from '@/lib/field-text-window';
 import { RevealPay } from '../../roster/RevealPay';
 import { PendingButton } from '@/app/field/packet/[packetId]/PendingButton';
+import { JOB_KIND_LABEL, type JobKind } from '@/lib/field-job-kinds';
 
 export const dynamic = 'force-dynamic';
 
@@ -867,10 +868,11 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                   <div style={menuCard}>
                     <form action={addPacketStop} style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 250 }}>
                       <input type="hidden" name="packet_id" value={packet.id} />
+                      {/* The same kinds, in the same words, as the Send a job form. */}
                       <select name="stop_kind" defaultValue="inspection" style={{ ...priceInput, width: '100%' }}>
-                        <option value="inspection">Full inspection</option>
-                        <option value="adhoc">One-off job</option>
-                        <option value="setup">Property setup</option>
+                        {(Object.keys(JOB_KIND_LABEL) as JobKind[]).map((k) => (
+                          <option key={k} value={k}>{JOB_KIND_LABEL[k]}</option>
+                        ))}
                       </select>
                       <select name="property_id" required defaultValue="" style={{ ...priceInput, width: '100%' }}>
                         <option value="" disabled>Choose a property…</option>

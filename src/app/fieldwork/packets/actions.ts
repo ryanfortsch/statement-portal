@@ -20,6 +20,7 @@ import { sendInspectionReportEmail } from '@/lib/inspection-report-email';
 import { fmtVisitTime, canClaim, parseTrade, effectiveBaseCents, type PacketRow } from '@/lib/field-types';
 import { isAssignableStatus, isPayoutAdjustableStatus, isAttachableStatus, isWorkingStatus } from '@/lib/field-packet-status';
 import type { ContractorRow } from '@/lib/field-types';
+import { jobTrade, parseJobKind, type JobTrade } from '@/lib/field-job-kinds';
 
 async function staffEmail(): Promise<string> {
   const session = await auth();
@@ -247,18 +248,94 @@ export async function setPacketCompleteBy(formData: FormData): Promise<void> {
   revalidatePath('/fieldwork/packets');
 }
 
-export type SetupState = { error: string };
+export type SendJobState = { error: string };
 
-/** Create (and optionally publish) a property-SETUP packet: staging a new home
- *  for photos + outfitting it for operations. Publishing texts the inspection
- *  contractors like any other packet.
+/** The one "Send a job" form posts here, keyed by kind: a full inspection, a
+ *  one-off job or a property setup, sent to the trade whose board the office
+ *  came from. Each kind keeps its own rules below; this only routes.
  *
- *  useActionState-shaped, like createAdHocPacketAction: every refusal RETURNS
- *  a specific inline error so the form stays mounted with everything typed.
- *  The old void action returned early on a missing property, a future record
- *  date or a failed create, and the page re-rendered with nothing to say. */
-export async function createSetupPacketAction(_prev: SetupState, formData: FormData): Promise<SetupState> {
+ *  useActionState-shaped (same pattern as field/apply): every refusal
+ *  RETURNS a specific inline error so the form stays mounted with everything
+ *  typed. The old void actions swallowed a failed create and silently
+ *  re-landed on the form, which is how the ad_hoc enum bug (#1205) went
+ *  unnoticed for a month. */
+export async function sendJobAction(_prev: SendJobState, formData: FormData): Promise<SendJobState> {
   const email = await staffEmail();
+  const trade = jobTrade(String(formData.get('trade') || ''));
+  const raw = String(formData.get('kind') || '');
+  // A full inspection aimed at the handymen is refused, never quietly turned
+  // into a one-off job.
+  if (raw === 'inspection' && trade !== 'inspection') return { error: 'A full inspection goes to the inspectors. Send it from the Inspectors board.' };
+  const kind = parseJobKind(raw, trade);
+  if (kind === 'inspection') return createInspectionJob(email, formData);
+  if (kind === 'setup') return createSetupJob(email, trade, formData);
+  return createAdHocJob(email, trade, formData);
+}
+
+/** Who the office picked to see the job, checked against the trade's roster
+ *  BEFORE anything is created: a stale pick must never silently widen the
+ *  offer back to everyone. */
+async function offerPicks(formData: FormData, trade: JobTrade): Promise<{ picked: string[]; offeredTo: string[] }> {
+  const picked = formData
+    .getAll('offer_to')
+    .map((v) => String(v).trim())
+    .filter(Boolean);
+  if (!picked.length) return { picked, offeredTo: [] };
+  const { data: cs } = await fieldDb().from('contractors').select('*').in('id', picked);
+  const offeredTo = ((cs ?? []) as ContractorRow[]).filter((c) => canClaim(c) && c.trade === trade).map((c) => c.id);
+  return { picked, offeredTo };
+}
+
+function todayEastern(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+}
+
+/** A FULL INSPECTION of one home: the same packet the board's calendar
+ *  bundles, priced and windowed the same way (createPacketFromProperties),
+ *  for a single home picked by name instead of by a calendar cell. */
+async function createInspectionJob(email: string, formData: FormData): Promise<SendJobState> {
+  const propertyId = String(formData.get('property_id') || '');
+  const visitDate = String(formData.get('visit_date') || '');
+  const priceDollars = Number(formData.get('price_dollars') || 0);
+  const publish = String(formData.get('mode') || 'publish') !== 'draft';
+  if (!propertyId) return { error: 'Choose the home.' };
+  if (!visitDate) return { error: 'Pick the day.' };
+  if (visitDate < todayEastern()) return { error: 'An inspection needs today or a later day.' };
+  const { picked, offeredTo } = await offerPicks(formData, 'inspection');
+  if (offeredTo.length !== picked.length) {
+    return { error: "One of the inspectors you picked can't claim right now. Refresh the page and pick again." };
+  }
+
+  const res = await createPacketFromProperties({
+    propertyIds: [propertyId],
+    visitDate,
+    priceCentsOverride: priceDollars > 0 ? Math.round(priceDollars * 100) : undefined,
+    createdByEmail: email,
+    publish,
+    offeredTo,
+  });
+  if (!res.ok) {
+    if (res.error) return { error: `Couldn't save the inspection: ${res.error}. Try again in a moment.` };
+    return { error: `Nothing to inspect on ${fmtBundleDay(visitDate)}: ${describeDrops(res.dropped)}. Pick another day, or send a one-off job instead.` };
+  }
+  if (publish) {
+    await fieldDb().from('packet_events').insert({
+      packet_id: res.packetId,
+      actor_email: email,
+      event_type: 'published',
+      payload: offeredTo.length ? { offered_to: offeredTo } : null,
+    });
+    notifyContractorsOfPacket(res.packetId).catch(() => {});
+  }
+  revalidatePath('/fieldwork/packets');
+  redirect(`/fieldwork/packets/${res.packetId}`);
+}
+
+/** A property SETUP: staging a new home for photos and outfitting it for
+ *  operations. Publishing texts the trade's roster like any other packet.
+ *  A third way out, Record a past setup, lands it straight in the approve
+ *  queue for whoever did it. */
+async function createSetupJob(email: string, trade: JobTrade, formData: FormData): Promise<SendJobState> {
   const propertyId = String(formData.get('property_id') || '');
   const visitDate = String(formData.get('visit_date') || '');
   const visitTime = String(formData.get('visit_time') || '');
@@ -269,7 +346,7 @@ export async function createSetupPacketAction(_prev: SetupState, formData: FormD
   if (!propertyId) return { error: 'Choose the home.' };
   if (!visitDate) return { error: 'Pick the setup day.' };
 
-  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+  const today = todayEastern();
 
   // RECORD mode: the setup already happened on a past (or today's) date and
   // the office forgot to put it in - create it submitted, awarded to whoever
@@ -280,6 +357,7 @@ export async function createSetupPacketAction(_prev: SetupState, formData: FormD
     if (visitDate > today) return { error: 'A past setup needs a day that has already happened. Pick today or earlier.' };
     const packetId = await createSetupPacket({
       propertyId,
+      trade,
       visitDate,
       visitTime: visitTime || undefined,
       priceCentsOverride: priceDollars > 0 ? Math.round(priceDollars * 100) : undefined,
@@ -304,25 +382,17 @@ export async function createSetupPacketAction(_prev: SetupState, formData: FormD
     redirect(`/fieldwork/packets/${packetId}`);
   }
 
-  // Optional: aim the setup at specific specialists instead of the whole
-  // inspection roster, same rails as the board's bundle offer. It changes who
-  // SEES it and gets texted; the claim is untouched, they still tap Claim.
-  const picked = formData
-    .getAll('offer_to')
-    .map((v) => String(v).trim())
-    .filter(Boolean);
-  let offeredTo: string[] = [];
-  if (picked.length) {
-    const { data: cs } = await fieldDb().from('contractors').select('*').in('id', picked);
-    offeredTo = ((cs ?? []) as ContractorRow[]).filter((c) => canClaim(c) && c.trade === 'inspection').map((c) => c.id);
-  }
+  // Optional: aim the setup at specific people instead of the whole roster,
+  // same rails as the board's bundle offer. It changes who SEES it and gets
+  // texted; the claim is untouched, they still tap Claim.
+  const { picked, offeredTo } = await offerPicks(formData, trade);
   // A pick gone stale (deactivated since the form loaded) must never widen the
   // offer back to the whole roster. Same landing as the date guard below: hold
   // it as a draft so the office can re-aim it.
   const offerWentStale = picked.length > 0 && offeredTo.length === 0;
 
   // Fat-finger guard on the normal path: publishing a PAST date would list an
-  // already-gone day on the marketplace and SMS-blast inspectors about it (and
+  // already-gone day on the marketplace and SMS-blast the roster about it (and
   // the morning cron would re-text them daily until someone cancels). Land it
   // as a draft instead - the office sees it pinned in Drafts and can fix the
   // date or use Record.
@@ -330,6 +400,7 @@ export async function createSetupPacketAction(_prev: SetupState, formData: FormD
 
   const packetId = await createSetupPacket({
     propertyId,
+    trade,
     visitDate,
     visitTime: visitTime || undefined,
     priceCentsOverride: priceDollars > 0 ? Math.round(priceDollars * 100) : undefined,
@@ -362,19 +433,10 @@ export async function createSetupPacketAction(_prev: SetupState, formData: FormD
   redirect(`/fieldwork/packets/${packetId}`);
 }
 
-export type AdhocState = { error: string };
-
-/** Create a STANDALONE ad hoc one-off job. Priced up front (the estimate the
- *  finalize flow later locks); publishing sends it to the specialists to claim
- *  like any packet.
- *
- *  useActionState-shaped (same pattern as field/apply): any failure RETURNS a
- *  specific inline error so the form stays mounted with everything typed.
- *  The old void action swallowed a null from createAdHocPacket and silently
- *  re-landed on the form, which is how the ad_hoc enum bug (#1205) went
- *  unnoticed for a month. */
-export async function createAdHocPacketAction(_prev: AdhocState, formData: FormData): Promise<AdhocState> {
-  const email = await staffEmail();
+/** A ONE-OFF job: one task at one home for a set pay. Priced up front (the
+ *  estimate the finalize flow later locks); publishing sends it to the
+ *  trade's roster to claim like any packet. */
+async function createAdHocJob(email: string, trade: JobTrade, formData: FormData): Promise<SendJobState> {
   const propertyId = String(formData.get('property_id') || '');
   const visitDate = String(formData.get('visit_date') || '');
   const visitTime = String(formData.get('visit_time') || '');
@@ -389,26 +451,16 @@ export async function createAdHocPacketAction(_prev: AdhocState, formData: FormD
   if (!visitDate) return { error: 'Pick the day.' };
   if (!Number.isFinite(priceDollars) || priceDollars <= 0) return { error: 'Set the pay - a dollar amount above zero.' };
 
-  // Optional: aim the job at specific specialists instead of the whole
-  // inspection roster, same rails as the board's bundle offer and the setup
-  // form. It changes who SEES it and gets texted; the claim is untouched, they
-  // still tap Claim. Validated BEFORE anything is created so a stale pick
-  // can't silently widen the offer back to everyone.
-  const picked = formData
-    .getAll('offer_to')
-    .map((v) => String(v).trim())
-    .filter(Boolean);
-  let offeredTo: string[] = [];
-  if (picked.length) {
-    const { data: cs } = await fieldDb().from('contractors').select('*').in('id', picked);
-    offeredTo = ((cs ?? []) as ContractorRow[]).filter((c) => canClaim(c) && c.trade === 'inspection').map((c) => c.id);
-    if (offeredTo.length !== picked.length) {
-      return { error: "One of the specialists you picked can't claim right now. Refresh the page and pick again." };
-    }
+  // Optional: aim the job at specific people, validated BEFORE anything is
+  // created so a stale pick can't silently widen the offer back to everyone.
+  const { picked, offeredTo } = await offerPicks(formData, trade);
+  if (offeredTo.length !== picked.length) {
+    return { error: "One of the people you picked can't claim right now. Refresh the page and pick again." };
   }
 
   const packetId = await createAdHocPacket({
     propertyId,
+    trade,
     visitDate,
     visitTime: visitTime || undefined,
     title,
