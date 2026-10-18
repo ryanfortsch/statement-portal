@@ -17,6 +17,8 @@ import {
   type ScheduleRow,
 } from '@/lib/checkout-schedule';
 import { isCapeAnnOps, regionLabel, CAPE_ANN_REGION } from '@/lib/property-scope';
+import { operatingDate } from '@/lib/operating-date';
+import { expireStaleProposals } from '@/lib/schedule-proposal-expiry';
 import { formatOperatorNote, noteRenderingIsStale } from '@/lib/cleaner-note';
 import {
   listScheduleRecipients,
@@ -43,6 +45,7 @@ import {
   setNoCleanAction,
   applyProposalAction,
   dismissProposalAction,
+  restoreProposalAction,
   ensureTomorrowDraft,
   skipDigestAction,
   decideOwnerHoldAction,
@@ -64,6 +67,25 @@ export const dynamic = 'force-dynamic';
 const DAYS = 7;
 
 /** "Oct 16, 5:02 PM" in Eastern, for a sent digest's eyebrow. */
+/** A dismissed proposal as the fold reads it: the adjustment plus who or
+ *  what dismissed it (src/lib/schedule-proposal-expiry.ts). */
+type DismissedProposal = CheckoutAdjustment & { dismissed_note: string | null };
+
+/** One proposal, as both the waiting list and the dismissed fold print it. */
+function ProposalLine({ p, name }: { p: CheckoutAdjustment; name: string }) {
+  return (
+    <span style={{ fontSize: 13 }}>
+      <strong>{name}</strong> (stay {p.stay_check_in}
+      {' to '}
+      {p.original_check_out}):{' '}
+      {p.adjusted_checkout_time ? `checkout ${formatTime12(p.adjusted_checkout_time)}` : ''}
+      {p.adjusted_checkout_time && p.adjusted_check_out ? ', ' : ''}
+      {p.adjusted_check_out ? `until ${p.adjusted_check_out}` : ''}
+      {p.evidence && <span style={{ color: 'var(--ink-3)' }}> &ldquo;{p.evidence.slice(0, 110)}&rdquo;</span>}
+    </span>
+  );
+}
+
 function fmtSentAt(iso: string): string {
   return new Date(iso).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
@@ -124,7 +146,7 @@ function digestNotice(p: { err?: string; sent?: string; failed?: string; skipped
 }
 
 /** The page-head outcome for everything that is not a digest or a recipient. */
-function headNotice(p: { err?: string; saved?: string; applied?: string; removed?: string; dismissed?: string; noclean?: string; nocleanSent?: string; ownerhold?: string }): Notice | null {
+function headNotice(p: { err?: string; saved?: string; applied?: string; removed?: string; dismissed?: string; restored?: string; noclean?: string; nocleanSent?: string; ownerhold?: string }): Notice | null {
   if (p.err) return { tone: 'bad', text: ERR_COPY[p.err] ?? `Error: ${p.err}` };
   if (p.ownerhold) {
     // decideOwnerHoldAction lands here with back=page.
@@ -147,6 +169,7 @@ function headNotice(p: { err?: string; saved?: string; applied?: string; removed
   if (p.applied) return { tone: 'ok', text: 'Applied. The adjustment is live on the schedule and in the next digest.' };
   if (p.removed) return { tone: 'ok', text: 'Adjustment removed. The stay is back to the booking times.' };
   if (p.dismissed) return { tone: 'ok', text: 'Proposal dismissed.' };
+  if (p.restored) return { tone: 'ok', text: 'Restored. The proposal is waiting again.' };
   if (p.saved) return { tone: 'ok', text: 'Saved.' };
   return null;
 }
@@ -401,7 +424,13 @@ export default async function CheckoutSchedulePage({
     : null;
   const today = todayET();
 
-  const [daysRes, recipients, digestsRes, proposalsRes, propsRes, vendorData] = await Promise.all([
+  // A proposal about a stay that has already ended is no longer a question:
+  // dismiss it with a note before reading the list (the same rule the
+  // nightly /api/cron/expire-queues runs). A failure leaves the list as it
+  // was; it never blocks the schedule.
+  await expireStaleProposals(supabase, operatingDate()).catch(() => undefined);
+
+  const [daysRes, recipients, digestsRes, proposalsRes, dismissedRes, propsRes, vendorData] = await Promise.all([
     buildCheckoutSchedule(supabase, { startDate: today, days: DAYS })
       .then((d) => ({ ok: true as const, days: d, error: null as string | null }))
       .catch((err: unknown) => {
@@ -424,6 +453,16 @@ export default async function CheckoutSchedulePage({
       .eq('status', 'proposed')
       .order('created_at', { ascending: false })
       .limit(30),
+    // The fold under the list: proposals dismissed by a person or expired
+    // by the sweep, newest first. A removed ACTIVE adjustment carries no
+    // dismissed_at and never shows here.
+    supabase
+      .from('checkout_adjustments')
+      .select('*')
+      .eq('status', 'dismissed')
+      .not('dismissed_at', 'is', null)
+      .order('dismissed_at', { ascending: false })
+      .limit(20),
     supabase
       .from('properties')
       .select('id, name, default_checkout_time, default_checkin_time, is_active, kind, region')
@@ -439,6 +478,7 @@ export default async function CheckoutSchedulePage({
   const digestByDate = new Map<string, DigestRow>();
   for (const d of (digestsRes.data ?? []) as DigestRow[]) digestByDate.set(d.service_date, d);
   const proposals = (proposalsRes.data ?? []) as CheckoutAdjustment[];
+  const dismissedProposals = (dismissedRes.data ?? []) as DismissedProposal[];
   // The answer already given to "clean after?" for each owner stay in the
   // window, so the row's chip can say it and offer to change it. A missing
   // table (migration not applied) reads as no answers, never as an error.
@@ -504,6 +544,7 @@ export default async function CheckoutSchedulePage({
           applied: first(sp.applied),
           removed: first(sp.removed),
           dismissed: first(sp.dismissed),
+          restored: first(sp.restored),
           noclean: first(sp.noclean),
           nocleanSent: first(sp.noclean_sent),
           ownerhold: first(sp.ownerhold),
@@ -536,20 +577,18 @@ export default async function CheckoutSchedulePage({
         <NoticeLine notice={pageNotice} />
       </Section>
 
-      {proposals.length > 0 && (
-        <Section id="schedule-proposals" title="Detected but not applied" eyebrow={`${proposals.length} waiting`} paddingTop={8} paddingBottom={8}>
+      {(proposals.length > 0 || dismissedProposals.length > 0) && (
+        <Section
+          id="schedule-proposals"
+          title="Detected but not applied"
+          eyebrow={proposals.length > 0 ? `${proposals.length} waiting` : 'None waiting'}
+          paddingTop={8}
+          paddingBottom={8}
+        >
           <div style={{ borderTop: '1px solid var(--ink)' }}>
             {proposals.map((p) => (
               <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', borderTop: '1px solid var(--rule)', flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 13 }}>
-                  <strong>{propNames.get(p.property_id) ?? p.property_id}</strong> (stay {p.stay_check_in}
-                  {' to '}
-                  {p.original_check_out}):{' '}
-                  {p.adjusted_checkout_time ? `checkout ${formatTime12(p.adjusted_checkout_time)}` : ''}
-                  {p.adjusted_checkout_time && p.adjusted_check_out ? ', ' : ''}
-                  {p.adjusted_check_out ? `until ${p.adjusted_check_out}` : ''}
-                  {p.evidence && <span style={{ color: 'var(--ink-3)' }}> &ldquo;{p.evidence.slice(0, 110)}&rdquo;</span>}
-                </span>
+                <ProposalLine p={p} name={allPropNames.get(p.property_id) ?? p.property_id} />
                 <span style={{ display: 'flex', gap: 8, marginLeft: 'auto' }}>
                   <form action={applyProposalAction}>
                     <input type="hidden" name="id" value={p.id} />
@@ -563,6 +602,30 @@ export default async function CheckoutSchedulePage({
               </div>
             ))}
           </div>
+          {/* Expired and dismissed proposals, a fold away. A proposal whose
+              stay has ended is dismissed by src/lib/schedule-proposal-expiry.ts
+              with a note; Restore puts it back and the sweep leaves it be. */}
+          {dismissedProposals.length > 0 && (
+            <details style={{ marginTop: proposals.length > 0 ? 12 : 4 }}>
+              <summary style={{ fontSize: 12, color: 'var(--ink-3)', cursor: 'pointer', padding: '6px 0' }}>
+                Show dismissed · {dismissedProposals.length}
+              </summary>
+              <div>
+                {dismissedProposals.map((p) => (
+                  <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', borderTop: '1px solid var(--rule)', flexWrap: 'wrap', color: 'var(--ink-3)' }}>
+                    <span style={{ display: 'grid', gap: 2 }}>
+                      <ProposalLine p={p} name={allPropNames.get(p.property_id) ?? p.property_id} />
+                      {p.dismissed_note && <span style={{ fontSize: 12 }}>{p.dismissed_note}</span>}
+                    </span>
+                    <form action={restoreProposalAction} style={{ marginLeft: 'auto' }}>
+                      <input type="hidden" name="id" value={p.id} />
+                      <SubmitButton label="Restore" busyLabel="..." spinnerTone="ink" style={{ fontSize: 11, padding: '4px 12px', background: 'transparent', color: 'var(--ink-2)', border: '1px solid var(--rule)', borderRadius: 4, cursor: 'pointer' }} />
+                    </form>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
         </Section>
       )}
 

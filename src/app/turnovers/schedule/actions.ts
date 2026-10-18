@@ -13,6 +13,7 @@ import { randomBytes } from 'node:crypto';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
+import { displayNameForEmail } from '@/lib/team';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { insertAdjustment, normalizeTime, ScheduleUnavailableError } from '@/lib/checkout-schedule';
 import {
@@ -510,18 +511,59 @@ export async function applyProposalAction(formData: FormData): Promise<void> {
 }
 
 export async function dismissProposalAction(formData: FormData): Promise<void> {
-  await requireEmail();
+  const email = await requireEmail();
   const id = String(formData.get('id') || '');
   if (id) {
+    // dismissed_at is what puts the row in the schedule's "Show dismissed"
+    // fold, where it can be restored. A removed ACTIVE row never gets it.
+    const now = new Date().toISOString();
     await supabase
       .from('checkout_adjustments')
-      .update({ status: 'dismissed', updated_at: new Date().toISOString() })
+      .update({
+        status: 'dismissed',
+        dismissed_at: now,
+        dismissed_by: email,
+        dismissed_note: `Dismissed by ${displayNameForEmail(email)}`,
+        updated_at: now,
+      })
       .eq('id', id)
       .eq('status', 'proposed');
   }
   revalidatePath(PAGE);
   revalidatePath(CARD);
   redirect(backTarget(formData, '?dismissed=1'));
+}
+
+/**
+ * Restore from the "Show dismissed" fold: the proposal waits again. A
+ * restored row is a human decision, so restored_at keeps the nightly expiry
+ * (src/lib/schedule-proposal-expiry.ts) from dismissing it a second time.
+ */
+export async function restoreProposalAction(formData: FormData): Promise<void> {
+  await requireEmail();
+  const id = String(formData.get('id') || '');
+  let restored = false;
+  if (id) {
+    const now = new Date().toISOString();
+    const { data } = await supabase
+      .from('checkout_adjustments')
+      .update({
+        status: 'proposed',
+        dismissed_at: null,
+        dismissed_by: null,
+        dismissed_note: null,
+        restored_at: now,
+        updated_at: now,
+      })
+      .eq('id', id)
+      .eq('status', 'dismissed')
+      .not('dismissed_at', 'is', null)
+      .select('id');
+    restored = !!data && data.length > 0;
+  }
+  revalidatePath(PAGE);
+  revalidatePath(CARD);
+  redirect(`${PAGE}${restored ? '?restored=1' : '?err=proposal_gone'}#schedule-proposals`);
 }
 
 // ─── per-property default times ───────────────────────────────────────
