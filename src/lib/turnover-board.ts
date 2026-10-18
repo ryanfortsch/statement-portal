@@ -440,6 +440,7 @@ type ScheduleEntry = {
   guestName: string | null;
   checkIn: string;
   checkoutTime: string;
+  ownerStay: boolean;
   consumed: boolean;
 };
 
@@ -447,6 +448,45 @@ function displayGuest(name: string | null): string | null {
   const n = (name ?? '').trim();
   if (!n) return null;
   return /^(reservation|tbd|guest|n\/a|hold|blocked|airbnb|vrbo|not)$/i.test(n.split(/\s+/)[0]) ? null : n;
+}
+
+/**
+ * The turnover as the schedule paired it. When the schedule's checkout is the
+ * one Helm already knew of, nothing changes. When it is a later date for the
+ * same stay (an extension), the date moves and the stay's own clean signals
+ * stand unless the new day has its own. When it is a different departure
+ * altogether (an owner's stay that ended after the guest Helm knew of), the
+ * clean Helm saw belongs to the earlier checkout, so the turnover starts
+ * over from that day's signals alone.
+ */
+function repairDeparture(
+  t: Turnover,
+  sched: ScheduleEntry | null,
+  signals: Record<string, DepartureSignal>,
+): Turnover {
+  if (!sched || sched.date === t.previousCheckout) return t;
+  const sameStay = !!t.previousStayCheckIn && sched.checkIn === t.previousStayCheckIn;
+  const sig = signals[`${t.propertyId}|${sched.date}`] ?? null;
+  const fromSignal = sig && (sig.cleanedAt || sig.enteredAt)
+    ? {
+        cleaning: null,
+        cleaningSession: {
+          enteredAt: sig.enteredAt,
+          finishedAt: sig.cleanedAt,
+          entrySource: sig.enteredAt ? 'seam_lock' : null,
+          finishSource: sig.finishSource,
+          finishEstimated: sig.finishSource === 'estimate',
+        },
+      }
+    : null;
+  return {
+    ...t,
+    previousCheckout: sched.date,
+    previousStayCheckIn: sched.checkIn,
+    previousGuestName: sameStay ? t.previousGuestName : sched.guestName,
+    isSameDayTurnover: sched.date === t.checkIn.slice(0, 10),
+    ...(fromSignal ?? (sameStay ? {} : { cleaning: null, cleaningSession: null })),
+  };
 }
 
 export function composeBoard(input: BoardInput): Board {
@@ -471,6 +511,7 @@ export function composeBoard(input: BoardInput): Board {
         guestName: item.guestName,
         checkIn: item.checkIn,
         checkoutTime: item.checkoutTime,
+        ownerStay: !!item.ownerStay,
         consumed: false,
       });
     }
@@ -484,24 +525,39 @@ export function composeBoard(input: BoardInput): Board {
         guestName: s.guestName,
         checkIn: s.checkIn,
         checkoutTime: s.checkoutTime,
+        ownerStay: !!s.ownerStay,
         consumed: false,
       });
     }
   }
+  const byProperty = new Map<string, ScheduleEntry[]>();
   for (const e of entries) {
     byDay.set(`${e.propertyId}|${e.date}`, e);
     byStay.set(`${e.propertyId}|${e.checkIn}`, e);
+    const list = byProperty.get(e.propertyId) ?? [];
+    list.push(e);
+    byProperty.set(e.propertyId, list);
   }
 
   const rows: BoardRow[] = [];
 
-  for (const t of turnovers) {
-    const lc = boardLifecycle(t, nowMs, today);
+  for (const booked of turnovers) {
+    // Which checkout on the crew's schedule clears the way for this arrival:
+    // the same day, the same stay (an extension moves the date, never the
+    // stay's check-in), or else the latest checkout between the stay Helm
+    // knew of and the arrival. That last is an owner's own stay: a Guesty
+    // calendar block, never a booking, so the loader never sees it end.
+    const arrival = booked.checkIn.slice(0, 10);
     const sched =
-      (t.previousCheckout ? byDay.get(`${t.propertyId}|${t.previousCheckout}`) : undefined) ??
-      (t.previousStayCheckIn ? byStay.get(`${t.propertyId}|${t.previousStayCheckIn}`) : undefined) ??
+      (booked.previousCheckout ? byDay.get(`${booked.propertyId}|${booked.previousCheckout}`) : undefined) ??
+      (booked.previousStayCheckIn ? byStay.get(`${booked.propertyId}|${booked.previousStayCheckIn}`) : undefined) ??
+      (byProperty.get(booked.propertyId) ?? [])
+        .filter((e) => !e.consumed && e.date <= arrival && (!booked.previousCheckout || e.date > booked.previousCheckout))
+        .sort((a, b) => b.date.localeCompare(a.date))[0] ??
       null;
     if (sched) sched.consumed = true;
+    const t = repairDeparture(booked, sched, departureSignals);
+    const lc = boardLifecycle(t, nowMs, today);
 
     const outDate = sched?.date ?? t.previousCheckout;
     const outBase = outDate ? { date: outDate, time: sched?.checkoutTime ?? null } : null;
@@ -519,7 +575,7 @@ export function composeBoard(input: BoardInput): Board {
       ? {
           ...outBase,
           when: outWhen(day, outBase),
-          guest: displayGuest(sched?.guestName ?? t.previousGuestName),
+          guest: sched?.ownerStay ? 'Owner stay' : displayGuest(sched?.guestName ?? t.previousGuestName),
           scheduleCheckIn: sched?.checkIn ?? null,
         }
       : null;
@@ -570,7 +626,7 @@ export function composeBoard(input: BoardInput): Board {
       date: e.date,
       time: e.checkoutTime,
       when: outWhen(e.date, { date: e.date, time: e.checkoutTime }),
-      guest: displayGuest(e.guestName),
+      guest: e.ownerStay ? 'Owner stay' : displayGuest(e.guestName),
       scheduleCheckIn: e.checkIn,
     };
     rows.push({

@@ -377,6 +377,10 @@ export type CalendarData = {
  *  a checkout that has no turnover row of its own (nobody arrives after it). */
 export type DepartureSignal = {
   cleanedAt: string | null;
+  /** When the cleaner keyed in (lock-only). */
+  enteredAt: string | null;
+  /** cleaning_sessions.finish_source: 'estimate', 'quo', 'manual', ... */
+  finishSource: string | null;
   /** A cleaner keyed in (lock-only) and has not finished. */
   cleaningNow: boolean;
 };
@@ -1237,6 +1241,8 @@ export async function loadOperationsData(
       const cleanedAt = session?.finishedAt ?? cleaningByKey.get(key)?.completedAt ?? null;
       departureSignals[key] = {
         cleanedAt,
+        enteredAt: session?.enteredAt ?? null,
+        finishSource: session?.finishSource ?? null,
         cleaningNow: monitoredPropertyIds.has(pid) && !!session?.enteredAt && !cleanedAt,
       };
     }

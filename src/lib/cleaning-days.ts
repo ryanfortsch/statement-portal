@@ -55,6 +55,9 @@ export type CleaningItem = {
   sameDayTurnover: boolean;
   nextCheckinTime: string | null;
   status: CleaningStatus;
+  /** The checkout ends an owner's own stay (a Guesty calendar block, never
+   *  a booking), so there is no guest to name. */
+  ownerStay?: boolean;
 };
 
 export type CleaningDay = {
@@ -82,6 +85,7 @@ export type SkippedCheckout = {
   checkIn: string;
   /** Effective checkout time, HH:MM 24h. */
   checkoutTime: string;
+  ownerStay?: boolean;
 };
 
 /**
@@ -134,6 +138,7 @@ export function composeCleaningDay(day: ScheduleDay, report: VendorDayReport): C
       sameDayTurnover: row.sameDayTurnover,
       nextCheckinTime: row.nextCheckinTime,
       status,
+      ownerStay: !!row.ownerHold,
     };
   });
   for (const o of report.orphans) {
@@ -155,6 +160,7 @@ export function composeCleaningDay(day: ScheduleDay, report: VendorDayReport): C
     guestName: row.guestName || null,
     checkIn: row.checkIn,
     checkoutTime: row.time,
+    ownerStay: !!row.ownerHold,
   }));
   return finish(day.date, report.announced, items, skipped);
 }
