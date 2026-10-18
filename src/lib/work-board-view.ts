@@ -1,4 +1,5 @@
 import type { WorkSlipRow, TaskRow } from './work-types';
+import { dueThisWeek } from './work-week.ts'; // relative + .ts: node:test loads this file
 
 type BoardItem = Pick<WorkSlipRow | TaskRow, 'status' | 'priority' | 'created_at' | 'assigned_to_email'> & {
   scheduled_date?: string | null; due_date?: string | null;
@@ -35,23 +36,14 @@ export function workSignals(items: BoardItem[], today: string) {
   };
 }
 
-/** "This week" on the board: today and the six days after it. */
-export const WORK_WEEK_DAYS = 7;
-
-function plusDays(day: string, n: number): string {
-  const d = new Date(`${day}T12:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + n);
-  return d.toISOString().slice(0, 10);
-}
-
-/** On this week's plate: overdue, dated within the next seven days, or
- *  undated (nothing has parked it later). Only a date past the week is not. */
+/** This week, the home page's "Open work · this week" rule
+ *  (src/lib/work-week.ts): dated on or before today plus six, overdue
+ *  included. Undated work is the backlog, not this week. */
 export function workThisWeek(item: BoardItem, today: string): boolean {
-  const date = workDate(item);
-  return !date || date <= plusDays(today, WORK_WEEK_DAYS - 1);
+  return dueThisWeek(workDate(item), today);
 }
 
-/** My week: assigned to me and on this week's plate. */
+/** My week: assigned to me and due this week. */
 export function workMyWeek(item: BoardItem, me: string, today: string): boolean {
   return !!me && item.assigned_to_email === me && workThisWeek(item, today);
 }
