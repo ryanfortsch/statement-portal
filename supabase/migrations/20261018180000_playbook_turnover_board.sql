@@ -6,7 +6,9 @@
 --
 -- Same slug, so every link to the entry keeps working. Guarded so it never
 -- clobbers an in-app edit: the body is replaced only while it still equals the
--- seeded "Initial version". The new body is snapshotted as a revision once.
+-- entry's latest revision (every in-app save snapshots one), and the new body
+-- is snapshotted as a revision once. The Playbook renderer (Markdown.tsx) has
+-- no tables, so the parts of a line are a list.
 
 update public.playbook_entries e
 set
@@ -20,13 +22,11 @@ set
 
 > **21 Horton** · Out 10:00 · In 4:00 · SAME DAY · Cleaner booked 10:30 · Not walked · **START WALK**
 
-| Part | What it says | Where Helm gets it |
-|---|---|---|
-| **House** | Tap the name to open the row | |
-| **Out · In** | When the last guest leaves and the next one arrives. A weekday shows when it is not the day the row sits under ("Out Sat · In 4:00"). **Same day** means both happen that day. **Vacant** means nobody arrives within the next month. | The checkout schedule, late checkouts and extensions included, and the home's guest check-in time |
-| **Cleaner** | Cape Ann Elite's own booking for that checkout: **Cleaner booked 10:30**, **No cleaner booked**, **Cleaner before checkout**, **Cleaner after check-in**, **Not announced yet**. Then **Cleaning now** (a cleaner keyed in; smart-lock homes only), **Cleaned 1:40**, or **Clean not confirmed** once the checkout day has passed with no word. | Their Jobber reminder texts to the Quo line, the cleaner's text, the lock, or you |
-| **Walk** | **Walked**, **Walking**, **Walk today · Delaney** (planned), **Field · name** (a contractor packet has it), **Needs walk** (cleaned, and the guest arrives within about a day and a half), **Not walked** | Helm walks and Field packets |
-| **Verb** | One action: **Start walk**, **Plan walk** (not due yet), **Resume**, **Summary**, or **Review** (a Field walk came back) | |
+- **House**: tap the name to open the row.
+- **Out · In**: when the last guest leaves and the next one arrives, from the checkout schedule (late checkouts and extensions included) and the home's guest check-in time. A weekday shows when it is not the day the row sits under ("Out Sat · In 4:00"). **Same day** means both happen that day. **Vacant** means nobody arrives within the next month.
+- **Cleaner**: Cape Ann Elite's own booking for that checkout, read from their Jobber reminder texts: **Cleaner booked 10:30**, **No cleaner booked**, **Cleaner before checkout**, **Cleaner after check-in**, **Not announced yet**. Then what Helm saw of the clean itself: **Cleaning now** (a cleaner keyed in; smart-lock homes only), **Cleaned 1:40**, or **Clean not confirmed** once the checkout day has passed with no word from the cleaner, the lock or you.
+- **Walk**: **Walked**, **Walking**, **Walk today · Delaney** (planned), **Field · name** (a contractor packet has it), **Needs walk** (cleaned, and the guest arrives within about a day and a half), **Not walked**.
+- **Verb**: one action, **Start walk**, **Plan walk** (not due yet), **Resume**, **Summary**, or **Review** (a Field walk came back).
 
 A row sits under the day the house next turns: the checkout day, when the crew cleans, and otherwise the arrival day. A clean that is due and not confirmed moves to **Today**, whatever its dates.
 
@@ -36,7 +36,7 @@ Above the rows, a count of each state that wants a person (No cleaner booked, Cl
 
 ## Opening a row
 
-Tap the house name. The open row names who is **Leaving** and who is **Arriving**, then the stages:
+Tap the house name. The open row names who is **Leaving** (or **Owner stay**, when an owner's own stay ends) and who is **Arriving**, then the stages:
 
 - On a home with a smart lock, the **six-stage rail**: Checked out, Cleaner in, Cleaning, Cleaned, Walked, Guest-ready. The lock tells Helm when the cleaner's code (2222) opens the door.
 - On every other home, three steps: **Out**, **Cleaned**, **Walked**. Helm learns the clean when the cleaner texts the 24/7 line, or when you press **Mark cleaned**, then **Confirm**.
@@ -53,8 +53,8 @@ where e.slug = 'turnovers-and-the-cleaning-lifecycle'
   and e.body_md = (
     select r.body_md
     from public.playbook_revisions r
-    where r.entry_id = e.id and r.change_note = 'Initial version'
-    order by r.created_at
+    where r.entry_id = e.id
+    order by r.created_at desc
     limit 1
   );
 
@@ -67,5 +67,5 @@ where slug = 'turnovers-and-the-cleaning-lifecycle'
   and not exists (
     select 1 from public.playbook_revisions r
     where r.entry_id = public.playbook_entries.id
-      and r.change_note = 'The board, one line per house per day'
+      and r.body_md = public.playbook_entries.body_md
   );
