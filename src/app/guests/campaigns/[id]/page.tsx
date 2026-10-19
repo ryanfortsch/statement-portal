@@ -183,7 +183,7 @@ export default async function CampaignDetailPage({
       {justDrafted && (
         <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 24 }}>
           <div style={{ borderLeft: '3px solid var(--positive, #2d6b50)', padding: '12px 16px', background: 'var(--paper-2)', fontSize: 13, color: 'var(--ink)' }}>
-            Helm drafted this for you. Read it through, tweak anything that doesn&rsquo;t sound right, then send a test to yourself before the real send.
+            Drafted. Send a test to yourself before the real send.
           </div>
         </section>
       )}
@@ -192,7 +192,7 @@ export default async function CampaignDetailPage({
       {testSentTo && (
         <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 24 }}>
           <div style={{ borderLeft: '3px solid var(--positive, #2d6b50)', padding: '12px 16px', background: 'var(--paper-2)', fontSize: 13, color: 'var(--ink)' }}>
-            Test sent to <strong>{testSentTo}</strong>. Check the inbox (and spam) for the [TEST] copy.
+            Test sent to <strong>{testSentTo}</strong>.
           </div>
         </section>
       )}
@@ -307,7 +307,7 @@ export default async function CampaignDetailPage({
                 style={{ ...inputStyle, fontFamily: 'var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace)', fontSize: 13, lineHeight: 1.6, resize: 'vertical' }}
               />
               <p style={{ marginTop: 6, fontSize: 12, color: 'var(--ink-3)' }}>
-                Headings (#), **bold**, *italic*, [links](https://...), bullet lists (-), blockquotes (&gt;), horizontal rule (---). Save before previewing.
+                Markdown works. Save before previewing.
               </p>
             </Field>
 
@@ -335,9 +335,6 @@ export default async function CampaignDetailPage({
                     busyLabel="Saving…"
                   />
                 </div>
-                <p style={{ fontSize: 11, color: 'var(--ink-3)', margin: 0 }}>
-                  Each button saves this form first. A test arrives with a [TEST] subject prefix and doesn&rsquo;t lock the campaign. Review and send shows who gets it before anything goes out.
-                </p>
               </div>
             )}
           </form>

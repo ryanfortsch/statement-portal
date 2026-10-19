@@ -77,7 +77,7 @@ export function CampaignCreationForms({ segments, tones, defaultSegment }: Props
               }}
             />
             <p style={{ marginTop: 6, fontSize: 12, color: 'var(--ink-4)' }}>
-              Plain English. Mention the home, the window, the rate or angle. Vague briefs get a reasonable specific guess and you can edit.
+              Mention the home, the window, the rate or angle.
             </p>
           </div>
 

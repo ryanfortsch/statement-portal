@@ -31,7 +31,7 @@ export default async function NewCampaignPage() {
           New campaign
         </h1>
         <p style={{ marginTop: 8, fontSize: 14, color: 'var(--ink-3)', maxWidth: 580 }}>
-          Describe the campaign, pick a tone and an audience, and Helm drafts the subject, preheader and body in the Stay Cape Ann voice. Nothing sends from this page.
+          Nothing sends from this page.
         </p>
       </section>
 

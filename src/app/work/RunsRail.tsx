@@ -591,7 +591,7 @@ export function RunsRail({ data, standalone, myMailbox }: { data: RunsBoardData;
 
         {standalone && !hasAnything && (
           <p style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 18 }}>
-            Nothing to plan right now. No home has open handyman work; Plan now checks again.
+            Nothing to plan.
           </p>
         )}
 

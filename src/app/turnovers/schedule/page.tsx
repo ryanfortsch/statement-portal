@@ -641,8 +641,7 @@ export default async function CheckoutSchedulePage({
       {scheduleError && (
         <Section id="schedule-unavailable" title="Schedule unavailable" eyebrow="Read failure" paddingTop={8} paddingBottom={8}>
           <div style={{ borderTop: '2px solid var(--signal)', padding: '14px 0', fontSize: 13, color: 'var(--ink)' }}>
-            <strong>The live schedule could not be loaded.</strong> The days below are hidden rather than shown empty,
-            because an empty day here would read as a day off. Nothing can be sent until this clears.
+            <strong>The live schedule could not be loaded.</strong> Nothing can be sent until it loads.
             <div style={{ marginTop: 6, fontFamily: 'var(--font-mono), monospace', fontSize: 11, color: 'var(--ink-3)' }}>
               {scheduleError}
             </div>

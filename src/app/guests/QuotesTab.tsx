@@ -51,10 +51,7 @@ export async function QuotesTab() {
             color: 'var(--ink-3)',
           }}
         >
-          Custom quotes and booking requests for Stay Cape Ann. Compose the price here (a negotiated
-          nightly, a longer stay, a deposit plan), send the guest their link, and they accept and pay on
-          staycapeann.com. The reservation lands in Guesty at the quoted rate and the charge reaches the
-          owner statement like any other direct booking.
+          No quotes yet.
         </div>
       ) : (
         <div style={{ borderTop: '1px solid var(--ink)' }}>

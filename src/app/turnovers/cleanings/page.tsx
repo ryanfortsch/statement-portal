@@ -161,7 +161,7 @@ export default async function CleaningsPage({
                 {ingest?.at && <> · texts last read {fmtStamp(ingest.at)}</>}
               </>
             ) : (
-              <>No reminder texts on file yet. Re-read the reminders, or wait for the afternoon sweep.</>
+              <>No reminder texts yet.</>
             )}
           </div>
           {ingest?.error && (
