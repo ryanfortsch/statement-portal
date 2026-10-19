@@ -415,31 +415,22 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
 
       {/* Audit + notes */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 96 }}>
-        <div className="eyebrow" style={{ marginBottom: 12 }}>Audit</div>
-        <div style={{ fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.8, fontFamily: 'var(--font-mono), monospace' }}>
-          <div>id: {q.id}</div>
-          <div>status: {q.status}{status !== q.status ? ` (reads as ${status})` : ''}</div>
-          <div>created_at: {q.created_at}{q.created_by ? ` by ${q.created_by}` : ''}</div>
-          <div>updated_at: {q.updated_at}</div>
-          {q.edited_at && <div>edited_at: {q.edited_at}</div>}
-          {q.expires_at && <div>expires_at: {q.expires_at}</div>}
-          {q.sent_at && <div>sent_at: {q.sent_at}</div>}
-          {q.last_sent_at && <div>last_sent_at: {q.last_sent_at}</div>}
-          {q.viewed_at && <div>viewed_at: {q.viewed_at} (views: {q.view_count})</div>}
-          {q.accepted_at && <div>accepted_at: {q.accepted_at}</div>}
-          {q.accept_ip && <div>accept_ip: {q.accept_ip}</div>}
-          {q.agreement_version && <div>agreement_version: {q.agreement_version}</div>}
-          {q.agreement_accepted_at && <div>agreement_accepted_at: {q.agreement_accepted_at}</div>}
-          {q.deposit_paid_at && <div>deposit_paid_at: {q.deposit_paid_at}</div>}
-          {q.balance_paid_at && <div>balance_paid_at: {q.balance_paid_at}</div>}
-          {q.balance_reminder_sent_at && <div>balance_reminder_sent_at: {q.balance_reminder_sent_at}</div>}
-          {q.declined_at && <div>declined_at: {q.declined_at}</div>}
-          {q.voided_at && <div>voided_at: {q.voided_at}</div>}
-          {q.accept_error_at && <div>accept_error_at: {q.accept_error_at}</div>}
-          <div>terms_version: {q.terms_version ?? '(none)'}</div>
-          <div>guesty_listing_id: {q.guesty_listing_id}</div>
-          {q.source_ref && <div>source_ref: {q.source_ref}</div>}
-        </div>
+        <div className="eyebrow" style={{ marginBottom: 12 }}>Record</div>
+        <p style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.6, maxWidth: 640, margin: 0 }}>
+          {quoteRecordSentences(q).join(' ')}
+        </p>
+        <details style={{ marginTop: 10 }}>
+          <summary style={{ cursor: 'pointer', fontSize: 12, color: 'var(--ink-3)' }}>Show ids</summary>
+          <div style={{ marginTop: 8, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.8, fontFamily: 'var(--font-mono), monospace' }}>
+            <div>Quote: {q.id}</div>
+            <div>Guesty listing: {q.guesty_listing_id}</div>
+            {q.source_ref && <div>Source: {q.source_ref}</div>}
+            <div>Terms version: {q.terms_version ?? 'none'}</div>
+            {q.agreement_version && <div>Agreement version: {q.agreement_version}</div>}
+            {q.accept_ip && <div>Accepted from: {q.accept_ip}</div>}
+            {status !== q.status && <div>Stored as {SCA_QUOTE_STATUS_LABEL[q.status as ScaQuoteStatus] ?? q.status}, reads as {SCA_QUOTE_STATUS_LABEL[status]}</div>}
+          </div>
+        </details>
         {q.internal_notes && (
           <>
             <div className="eyebrow" style={{ margin: '24px 0 10px' }}>Internal notes</div>
@@ -581,6 +572,30 @@ function PriceRow({ k, v, bold, muted, tone }: { k: string; v: string; bold?: bo
 
 function fmtDollars(dollars: number): string {
   return fmtCents(Math.round(dollars * 100));
+}
+
+/** The quote's history as sentences, oldest first; the Workflow rows above
+ *  carry send, open and accept, so this is the rest of the record. */
+function quoteRecordSentences(q: {
+  created_at: string;
+  created_by: string | null;
+  edited_at: string | null;
+  agreement_accepted_at: string | null;
+  deposit_paid_at: string | null;
+  balance_reminder_sent_at: string | null;
+  balance_paid_at: string | null;
+  accept_error_at: string | null;
+  voided_at: string | null;
+}): string[] {
+  const out = [`Created ${fmtStamp(q.created_at)}${q.created_by ? ` by ${q.created_by}` : ''}.`];
+  if (q.edited_at) out.push(`Last edited ${fmtStamp(q.edited_at)}.`);
+  if (q.agreement_accepted_at) out.push(`Rental agreement accepted ${fmtStamp(q.agreement_accepted_at)}.`);
+  if (q.deposit_paid_at) out.push(`Deposit paid ${fmtStamp(q.deposit_paid_at)}.`);
+  if (q.balance_reminder_sent_at) out.push(`Balance reminder sent ${fmtStamp(q.balance_reminder_sent_at)}.`);
+  if (q.balance_paid_at) out.push(`Balance paid ${fmtStamp(q.balance_paid_at)}.`);
+  if (q.accept_error_at) out.push(`Acceptance failed ${fmtStamp(q.accept_error_at)}.`);
+  if (q.voided_at) out.push(`Voided ${fmtStamp(q.voided_at)}.`);
+  return out;
 }
 
 function fmtStamp(iso: string): string {
