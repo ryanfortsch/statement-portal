@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { CopyValue } from './CopyValue';
 import { formatUsPhone } from '@/lib/phone';
 import type { GuestCodeBookingRow, LockCode } from '@/lib/guest-locks';
+import { headerGuestCode } from '@/lib/masthead-guest-code';
 import type { PropertyCleaner } from '@/lib/property-crew';
 import type { TrashDayFact } from '@/lib/civic';
 
@@ -192,9 +193,11 @@ export function PropertyMasthead({
   const showCreds = isActive;
 
   // The PIN issued for the stay that is actually here, never a stale one from
-  // a finished stay. Falls back to a named active code on the lock.
+  // a finished stay. Falls back to a code on the lock that is plainly this
+  // guest's (a generic guest code, or one named for them), never whatever
+  // Helm code comes first: that was a contractor's Field PIN on 21 Horton.
   const stayPin = inHouse?.code?.code ?? null;
-  const namedCode = lockCodes.find((c) => c.code && c.source === 'helm') ?? null;
+  const namedCode = headerGuestCode(lockCodes, (inHouse ?? nextArrival)?.guest_name ?? null);
   const guestPin = stayPin ?? namedCode?.code ?? null;
   const guestPinScope = stayPin ? 'this stay' : namedCode?.name ? namedCode.name : undefined;
 
