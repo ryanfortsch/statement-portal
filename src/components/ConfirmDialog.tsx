@@ -1,6 +1,7 @@
 'use client';
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { typedWordMatches } from '@/lib/confirm-question';
 
 /**
  * One confirm style: the paper-and-ink modal the statements page already
@@ -12,9 +13,19 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
  *   const { ask, askText, notify } = useConfirm();
  *   if (!(await ask({ title: 'Void this receipt?', confirmLabel: 'Void', tone: 'danger', irreversible: true }))) return;
  *
- * Mount <ConfirmProvider> once around the page. A component rendered with
- * no provider above it falls back to the native dialogs, so moving one onto
- * another page never strands an action behind a dialog that cannot open.
+ * Replacing `if (!confirm(text)) return;` is one line:
+ * `if (!(await ask({ ...askFromSentence(text), confirmLabel: 'Delete' }))) return;`
+ *
+ * <ConfirmProvider> is mounted once for the whole app, in Providers (the root
+ * layout), so every page and every client component under it gets the modal.
+ * A component rendered with no provider above it (the smoke fixtures bundle
+ * components on their own) falls back to the native dialogs, so an action is
+ * never stranded behind a dialog that cannot open.
+ *
+ * The modal traps focus while it is open (Tab and Shift+Tab cycle inside it),
+ * Escape and a click on the backdrop cancel, and focus returns to whatever
+ * opened it. `typeToConfirm` is the gate for the few actions that destroy a
+ * lot at once: the confirm button stays off until the word is typed.
  */
 
 export type AskOptions = {
@@ -31,6 +42,12 @@ export type AskOptions = {
   tone?: 'default' | 'danger';
   /** Adds "This cannot be undone." under the body. */
   irreversible?: boolean;
+  /**
+   * The word to type before the confirm button wakes, for the most
+   * destructive actions only (a mass cancel, a wipe). Case and surrounding
+   * spaces are ignored.
+   */
+  typeToConfirm?: string;
 };
 
 export type AskTextOptions = AskOptions & {
@@ -74,7 +91,9 @@ function nativeText(o: { title: string; body?: ReactNode; list?: string[]; irrev
 
 /** Native dialogs, for a component rendered outside any provider. */
 const NATIVE: Confirm = {
-  ask: async (o) => confirm(nativeText(o)),
+  ask: async (o) => o.typeToConfirm
+    ? typedWordMatches(prompt(`${nativeText(o)}\n\nType ${o.typeToConfirm} to confirm.`), o.typeToConfirm)
+    : confirm(nativeText(o)),
   askText: async (o) => prompt(nativeText(o)),
   notify: async (o) => { alert(nativeText(o)); },
 };
@@ -85,21 +104,38 @@ export function useConfirm(): Confirm {
   return useContext(ConfirmContext) ?? NATIVE;
 }
 
+const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 export function ConfirmProvider({ children }: { children: ReactNode }) {
   const [pending, setPending] = useState<Pending | null>(null);
   const [text, setText] = useState('');
+  const [typed, setTyped] = useState('');
+  const dialog = useRef<HTMLDivElement | null>(null);
+  // Whatever had focus when the question opened gets it back on close.
+  const opener = useRef<HTMLElement | null>(null);
   // A second question while one is open answers the first with "no".
   const settle = useRef<(() => void) | null>(null);
 
   const open = useCallback((next: Pending) => {
+    if (!settle.current) {
+      opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    }
     settle.current?.();
     settle.current = () => {
       if (next.kind === 'ask') next.resolve(false);
       else if (next.kind === 'text') next.resolve(null);
       else next.resolve();
     };
-    setText('');
-    setPending(next);
+    // Outside the caller's transition: React 19 holds an async transition's
+    // state updates until its action finishes, so a question asked from
+    // inside startTransition(async () => { await ask(...) }) would never
+    // open and the action would wait on it forever. A microtask runs after
+    // startTransition has handed back its scope.
+    queueMicrotask(() => {
+      setText('');
+      setTyped('');
+      setPending(next);
+    });
   }, []);
 
   const value = useMemo<Confirm>(() => ({
@@ -108,25 +144,60 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
     notify: (o) => new Promise<void>(resolve => open({ kind: 'notify', o, resolve })),
   }), [open]);
 
+  const gate = pending && pending.kind !== 'notify' ? pending.o.typeToConfirm : undefined;
+  const textMissing = pending?.kind === 'text' && !pending.o.optional && !text.trim();
+  const gateShut = !!gate && !typedWordMatches(typed, gate);
+  const blocked = textMissing || gateShut;
+
   const close = useCallback((answer: 'yes' | 'no') => {
     if (!pending) return;
+    if (answer === 'yes' && blocked) return;
     settle.current = null;
     if (pending.kind === 'ask') pending.resolve(answer === 'yes');
     else if (pending.kind === 'text') pending.resolve(answer === 'yes' ? text : null);
     else pending.resolve();
     setPending(null);
-  }, [pending, text]);
+    const back = opener.current;
+    opener.current = null;
+    // After the modal unmounts, so focus does not land on a node being removed.
+    if (back) setTimeout(() => { if (back.isConnected) back.focus({ preventScroll: true }); }, 0);
+  }, [pending, text, blocked]);
 
   useEffect(() => {
     if (!pending) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close('no'); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); close('no'); } };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [pending, close]);
 
+  // The page behind stays put while a question is open.
+  const isOpen = !!pending;
+  useEffect(() => {
+    if (!isOpen) return;
+    const prior = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prior; };
+  }, [isOpen]);
+
+  // Focus trap: Tab and Shift+Tab cycle inside the dialog.
+  const trap = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'Tab' || !dialog.current) return;
+    const items = Array.from(dialog.current.querySelectorAll<HTMLElement>(FOCUSABLE));
+    if (items.length === 0) { e.preventDefault(); return; }
+    const first = items[0];
+    const last = items[items.length - 1];
+    const active = document.activeElement;
+    if (e.shiftKey && (active === first || !dialog.current.contains(active))) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && (active === last || !dialog.current.contains(active))) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
+
   const o = pending?.o;
   const danger = o?.tone === 'danger';
-  const textMissing = pending?.kind === 'text' && !pending.o.optional && !text.trim();
 
   return (
     <ConfirmContext.Provider value={value}>
@@ -142,10 +213,14 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
           }}
         >
           <div
+            ref={dialog}
             role="alertdialog"
             aria-modal="true"
             aria-labelledby="helm-confirm-title"
+            aria-describedby={o.body || (o.list && o.list.length > 0) ? 'helm-confirm-body' : undefined}
+            data-helm-confirm=""
             onClick={(e) => e.stopPropagation()}
+            onKeyDown={trap}
             style={{
               background: 'var(--paper)',
               border: '1px solid var(--ink)',
@@ -158,13 +233,17 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
             <h2 id="helm-confirm-title" className="font-serif" style={{ fontSize: 20, fontWeight: 500, margin: 0, color: 'var(--ink)', lineHeight: 1.25 }}>
               {o.title}
             </h2>
-            {o.body && (
-              <div style={{ fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.5, marginTop: 10 }}>{o.body}</div>
-            )}
-            {o.list && o.list.length > 0 && (
-              <ul style={{ margin: '10px 0 0', paddingLeft: 18, fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.6 }}>
-                {o.list.map((item, i) => <li key={i}>{item}</li>)}
-              </ul>
+            {(o.body || (o.list && o.list.length > 0)) && (
+              <div id="helm-confirm-body">
+                {o.body && (
+                  <div style={{ fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.5, marginTop: 10 }}>{o.body}</div>
+                )}
+                {o.list && o.list.length > 0 && (
+                  <ul style={{ margin: '10px 0 0', paddingLeft: 18, fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.6 }}>
+                    {o.list.map((item, i) => <li key={i}>{item}</li>)}
+                  </ul>
+                )}
+              </div>
             )}
             {pending.kind !== 'notify' && pending.o.irreversible && (
               <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--negative)', marginTop: 12 }}>This cannot be undone.</div>
@@ -185,6 +264,27 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
                 />
               </label>
             )}
+            {gate && (
+              <label style={{ display: 'block', marginTop: 14 }}>
+                <span className="eyebrow" style={{ display: 'block', marginBottom: 6 }}>
+                  Type <span style={{ fontFamily: 'var(--mono, monospace)', color: 'var(--ink)' }}>{gate}</span> to confirm
+                </span>
+                <input
+                  autoFocus={pending.kind !== 'text'}
+                  value={typed}
+                  onChange={(e) => setTyped(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); close('yes'); } }}
+                  autoComplete="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                  aria-label={`Type ${gate} to confirm`}
+                  style={{
+                    width: '100%', border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)',
+                    padding: '8px 10px', fontSize: 14, fontFamily: 'inherit', minHeight: 40,
+                  }}
+                />
+              </label>
+            )}
             <div style={{ marginTop: 20, display: 'flex', justifyContent: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
               {pending.kind !== 'notify' && (
                 <button
@@ -193,7 +293,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
                   style={{
                     background: 'transparent', border: '1px solid var(--rule)', color: 'var(--ink-3)',
                     fontSize: 11, fontWeight: 600, letterSpacing: '.1em', textTransform: 'uppercase',
-                    padding: '10px 16px', cursor: 'pointer',
+                    padding: '10px 16px', minHeight: 40, cursor: 'pointer',
                   }}
                 >
                   {pending.o.cancelLabel || 'Cancel'}
@@ -201,16 +301,16 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
               )}
               <button
                 type="button"
-                autoFocus={pending.kind !== 'text'}
-                disabled={textMissing}
+                autoFocus={pending.kind !== 'text' && !gate}
+                disabled={blocked}
                 onClick={() => close('yes')}
                 style={{
                   background: danger ? 'var(--negative)' : 'var(--ink)',
                   border: `1px solid ${danger ? 'var(--negative)' : 'var(--ink)'}`,
                   color: 'var(--paper)',
                   fontSize: 11, fontWeight: 600, letterSpacing: '.1em', textTransform: 'uppercase',
-                  padding: '10px 18px', cursor: textMissing ? 'not-allowed' : 'pointer',
-                  opacity: textMissing ? 0.4 : 1,
+                  padding: '10px 18px', minHeight: 40, cursor: blocked ? 'not-allowed' : 'pointer',
+                  opacity: blocked ? 0.4 : 1,
                 }}
               >
                 {pending.kind === 'notify' ? 'OK' : pending.o.confirmLabel}

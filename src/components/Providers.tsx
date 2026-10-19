@@ -17,13 +17,22 @@
 
 import { SessionProvider } from 'next-auth/react';
 import type { Session } from 'next-auth';
+import { ConfirmProvider } from '@/components/ConfirmDialog';
 
 /**
  * The root layout hands in the server-side session so client chrome (the
  * nav's owner/staff filtering via useHelmRole, UserMenu) renders with the
  * real session on the first paint instead of a `loading` beat during
  * which the Money tab would blink in or out.
+ *
+ * ConfirmProvider is the one confirm modal for the whole app: any client
+ * component calls useConfirm() and gets it, in place of the browser's
+ * confirm(), prompt() and alert().
  */
 export function Providers({ children, session }: { children: React.ReactNode; session?: Session | null }) {
-  return <SessionProvider session={session}>{children}</SessionProvider>;
+  return (
+    <SessionProvider session={session}>
+      <ConfirmProvider>{children}</ConfirmProvider>
+    </SessionProvider>
+  );
 }

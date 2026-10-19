@@ -40,6 +40,7 @@ assert.equal(rows.length,6,'five turnovers and one checkout with nobody behind i
 for(const [name,path] of [
  ['line','src/app/turnovers/BoardLine.tsx'],['rail','src/app/turnovers/TurnoverRail.tsx'],['plan','src/app/turnovers/PlanButton.tsx'],
  ['mark','src/app/turnovers/MarkCleaned.tsx'],['format','src/app/turnovers/turnover-format.ts'],['submit','src/components/SubmitButton.tsx'],
+ ['confirm','src/components/ConfirmDialog.tsx'],['confirmq','src/lib/confirm-question.ts'],
  ['unsaved','src/lib/unsaved-work.ts'],['opdate','src/lib/operating-date.ts'],
 ])await writeFile(join(scratch,name+'.js'),compile(await readFile(join(root,path),'utf8')));
 await writeFile(join(scratch,'actions.js'),`
@@ -62,7 +63,7 @@ import {BoardLine} from './line.js';import {rows,today} from './rows.js';
 window.calls=[];window.refreshes=0;window.confirm=()=>true;
 createRoot(document.getElementById('root')).render(<section id="board">{rows.map(r=><BoardLine key={r.id} row={r} today={today} myEmail="staff@example.test"/>)}</section>);
 `));
-const alias={'./BoardLine':'line','./TurnoverRail':'rail','./PlanButton':'plan','./MarkCleaned':'mark','./turnover-format':'format','@/components/SubmitButton':'submit','@/lib/unsaved-work':'unsaved','./unsaved-work':'unsaved','@/lib/operating-date':'opdate','@/lib/version-skew':'skew','@/lib/use-soft-refresh':'refresh','@/lib/team':'team','@/components/TeamPicker':'picker','../inspections/actions':'actions','./turnover-actions':'actions','./cleaning-actions':'actions','./plan-actions':'actions','next/link':'link'};
+const alias={'./BoardLine':'line','./TurnoverRail':'rail','./PlanButton':'plan','./MarkCleaned':'mark','./turnover-format':'format','@/components/SubmitButton':'submit','@/components/ConfirmDialog':'confirm','@/lib/confirm-question':'confirmq','@/lib/unsaved-work':'unsaved','./unsaved-work':'unsaved','@/lib/operating-date':'opdate','@/lib/version-skew':'skew','@/lib/use-soft-refresh':'refresh','@/lib/team':'team','@/components/TeamPicker':'picker','../inspections/actions':'actions','./turnover-actions':'actions','./cleaning-actions':'actions','./plan-actions':'actions','next/link':'link'};
 await new Promise((resolve,reject)=>{const compiler=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.js'),output:{path:scratch,filename:'bundle.js'},resolve:{modules:[join(root,'node_modules')],alias:Object.fromEntries(Object.entries(alias).map(([k,v])=>[k,join(scratch,v+'.js')]))},performance:{hints:false}});compiler.run((err,stats)=>compiler.close(()=>err||stats?.hasErrors()?reject(err||Error(stats.toString({all:false,errors:true}))):resolve()));});
 if(process.argv.includes('--compile-only')){console.log('Turnover board fixture compiled.');await rm(scratch,{recursive:true,force:true});process.exit(0);}
 

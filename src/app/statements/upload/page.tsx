@@ -9,7 +9,7 @@ import { FinancialsTabs } from '@/components/FinancialsTabs';
 import { HelmHero } from '@/components/HelmHero';
 import { downloadStatementPdf } from '@/lib/download-pdf';
 import { loadActiveProperties, loadExistingStatement, type ExistingStatement } from './actions';
-import { ConfirmProvider, useConfirm } from '@/components/ConfirmDialog';
+import { useConfirm } from '@/components/ConfirmDialog';
 import { formWithFreezeRetry } from '@/lib/freeze-confirm';
 import { PROPERTIES } from '@/lib/properties';
 import { previousCalendarMonth, statementsHref } from '@/lib/statements-month';
@@ -458,9 +458,7 @@ function relativeTimeShort(iso: string): string {
 export default function UploadPage() {
   return (
     <Suspense fallback={null}>
-      <ConfirmProvider>
-        <UploadPageInner />
-      </ConfirmProvider>
+      <UploadPageInner />
     </Suspense>
   );
 }

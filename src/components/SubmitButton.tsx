@@ -1,8 +1,10 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, type MouseEvent } from 'react';
 import { useFormStatus } from 'react-dom';
 import { reloadedForNewDeployment } from '@/lib/version-skew';
+import { useConfirm, type AskOptions } from '@/components/ConfirmDialog';
+import { askFromSentence } from '@/lib/confirm-question';
 
 // If a form action stays pending this long, suspect a stale bundle: after a
 // deploy, an old tab's action still commits server-side but the response
@@ -26,8 +28,11 @@ const FORCE_RELOAD_MS = 30000;
  *
  * `confirm`: a sentence that states the EFFECT of an irreversible or
  * outward-facing action ("pulls the door codes", "re-texts the roster"). The
- * click asks first and cancels the submit on no. Keep it to what the action
- * does; the button label already says what it is. Generalized from the field
+ * click asks first, in the app's confirm modal, and submits only on yes; the
+ * modal's confirm button carries this button's label. A string is split at
+ * its first "? " into the question and what it does; pass an object instead
+ * for a red button, "This cannot be undone." or a typed-word gate. Keep it to
+ * what the action does; the button label already says what it is. Generalized from the field
  * portal's PendingButton (src/app/field/packet/[packetId]/PendingButton.tsx,
  * now a re-export of this) after the 2026-07-07 feedback that mutating
  * buttons across Helm gave no signal while multi-second actions ran.
@@ -69,7 +74,7 @@ export function SubmitButton({
   formAction?: React.ComponentProps<'button'>['formAction'];
   name?: string;
   value?: string;
-  confirm?: string;
+  confirm?: string | ConfirmSpec;
 }) {
   const status = useFormStatus();
   // In a multi-button form, only the button whose formAction is in flight
@@ -80,24 +85,27 @@ export function SubmitButton({
     (!name || value === undefined || !status.data || status.data.get(name) === value);
   const busy = status.pending && mine && !disabled;
   const lockout = status.pending && !disabled;
+  const { ask } = useConfirm();
 
-  // Stuck-pending watchdog, two rungs. At 10s: the version-skew check — on a
-  // stale bundle this hard-reloads the tab (at most once per deploy), landing
-  // on the state the action already committed. At 30s: the response is lost
-  // (request shed), not slow. Re-probe for a deploy, then reload regardless.
-  // Both timers clear the moment the action actually resolves.
-  useEffect(() => {
-    if (!status.pending) return;
-    const t = setTimeout(() => void reloadedForNewDeployment(), STUCK_PENDING_MS);
-    const t2 = setTimeout(async () => {
-      if (await reloadedForNewDeployment()) return;
-      window.location.reload();
-    }, FORCE_RELOAD_MS);
-    return () => {
-      clearTimeout(t);
-      clearTimeout(t2);
-    };
-  }, [status.pending]);
+  // The question opens in the app's modal (ConfirmDialog), so the click is
+  // held, and a yes resubmits the form with this button as the submitter:
+  // its formAction and name/value ride along exactly as a plain click's.
+  const askFirst = confirmText
+    ? async (e: MouseEvent<HTMLButtonElement>) => {
+        const button = e.currentTarget;
+        const form = button.form;
+        if (!form) return;
+        e.preventDefault();
+        const spec: ConfirmSpec = typeof confirmText === 'string' ? askFromSentence(confirmText) : confirmText;
+        const ok = await ask({
+          ...spec,
+          confirmLabel: spec.confirmLabel ?? (typeof label === 'string' ? label : 'Confirm'),
+        });
+        if (ok && button.isConnected && !button.disabled) form.requestSubmit(button);
+      }
+    : undefined;
+
+  usePendingWatchdog(status.pending);
   const s = style ?? {};
   const spinner =
     spinnerTone === 'ink'
@@ -111,7 +119,7 @@ export function SubmitButton({
       value={value}
       disabled={disabled || lockout}
       aria-busy={busy || undefined}
-      onClick={confirmText ? (e) => { if (!window.confirm(confirmText)) e.preventDefault(); } : undefined}
+      onClick={askFirst}
       className={className}
       style={{
         ...s,
@@ -133,4 +141,30 @@ export function SubmitButton({
       {busy ? busyLabel : label}
     </button>
   );
+}
+
+/** A confirm spec for SubmitButton: ConfirmDialog's options, the verb optional. */
+export type ConfirmSpec = Omit<AskOptions, 'confirmLabel'> & { confirmLabel?: string };
+
+/**
+ * Stuck-pending watchdog, two rungs, shared by SubmitButton and Button. At
+ * 10s: the version-skew check; on a stale bundle this hard-reloads the tab
+ * (at most once per deploy), landing on the state the action already
+ * committed. At 30s: the response is lost (request shed), not slow. Re-probe
+ * for a deploy, then reload regardless. Both timers clear the moment the
+ * action actually resolves.
+ */
+export function usePendingWatchdog(pending: boolean) {
+  useEffect(() => {
+    if (!pending) return;
+    const t = setTimeout(() => void reloadedForNewDeployment(), STUCK_PENDING_MS);
+    const t2 = setTimeout(async () => {
+      if (await reloadedForNewDeployment()) return;
+      window.location.reload();
+    }, FORCE_RELOAD_MS);
+    return () => {
+      clearTimeout(t);
+      clearTimeout(t2);
+    };
+  }, [pending]);
 }

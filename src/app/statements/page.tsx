@@ -37,7 +37,7 @@ import { BankDepositReview } from '@/components/BankDepositReview';
 import { CleaningEventCredit } from '@/components/CleaningEventCredit';
 import { ReceiptCapture, ReceiptRowActions } from '@/components/ReceiptCapture';
 import { HandoffFileQueue } from '@/components/HandoffFileQueue';
-import { ConfirmProvider, useConfirm } from '@/components/ConfirmDialog';
+import { useConfirm } from '@/components/ConfirmDialog';
 
 /* ─── Types ─── */
 type Reservation = {
@@ -5404,9 +5404,7 @@ export default function Home() {
         <p className="eyebrow">Loading</p>
       </div>
     }>
-      <ConfirmProvider>
-        <DashboardContent />
-      </ConfirmProvider>
+      <DashboardContent />
     </Suspense>
   );
 }
