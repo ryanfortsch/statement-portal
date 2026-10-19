@@ -84,8 +84,7 @@ them risks paying somebody $40 short with nobody noticing. See
   Cash and card balances are never stored: they are the opening figure plus
   the ledger. Migration `20261019200000_books_balance_sheet.sql` (runs after
   the two above; also widens `chart_of_accounts.type` for `asset` and adds
-  the asset and loan accounts), **not yet applied to production as of
-  2026-10-19.**
+  the asset and loan accounts), applied to production 2026-10-19.
 - This is the companies' own books. It never reads or writes an owner
   statement, and Rising Tide's owner trust money (pass-through accounts) is
   listed beside its P&L, never in it.
