@@ -8,13 +8,12 @@ import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } fr
 import type { HelmPropertyRow } from '@/lib/properties';
 import {
   deriveStripeAccountKey,
-  registryEntryFor,
   registryEntryToDraft,
   type ScaFormDraft,
   type ScaLaunchRow,
 } from '@/lib/sca-launch';
 import * as gh from '@/lib/github';
-import { SCA_REGISTRY_PATH, SCA_PROD_BRANCH } from '@/lib/sca-config';
+import { scaLiveEntry } from '@/lib/sca-live';
 import { ScaLaunchClient } from './ScaLaunchClient';
 
 export const dynamic = 'force-dynamic';
@@ -43,17 +42,12 @@ async function getLaunch(id: string): Promise<ScaLaunchRow | null> {
 /**
  * The listing as it reads on staycapeann.com now, or null when it is not on
  * the site (or GitHub cannot be read, in which case the launcher opens on
- * its saved draft as it always did).
+ * its saved draft as it always did). The same check the property page's
+ * Stay Cape Ann line makes (src/lib/sca-live.ts), read fresh here.
  */
 async function getLiveDraft(listingId: string, fallback: Parameters<typeof registryEntryToDraft>[2]): Promise<ScaFormDraft | null> {
-  if (!listingId || !gh.isGithubConfigured()) return null;
-  try {
-    const file = await gh.getFile(SCA_REGISTRY_PATH, SCA_PROD_BRANCH);
-    const entry = file ? registryEntryFor(file.contentUtf8, listingId) : null;
-    return entry ? registryEntryToDraft(listingId, entry, fallback) : null;
-  } catch {
-    return null;
-  }
+  const live = await scaLiveEntry(listingId);
+  return live.entry ? registryEntryToDraft(listingId, live.entry, fallback) : null;
 }
 
 export default async function StayCapeAnnLaunchPage({

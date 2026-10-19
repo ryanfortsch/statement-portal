@@ -48,6 +48,8 @@ import { describeOperatingWindow } from '@/lib/forecast-operating-windows';
 import { getGuestCodeView } from '@/lib/guest-locks';
 import { getPropertyCleaners } from '@/lib/property-crew';
 import type { PaymentVerifySignal } from '@/lib/sca-launch';
+import { scaLiveEntry, type ScaLiveCheck } from '@/lib/sca-live';
+import { scaStatusLine } from '@/lib/sca-status-line';
 import { CollapsibleSection } from '@/components/properties/CollapsibleSection';
 import { CostToTurnSection } from './CostToTurnSection';
 import { HashOpenScript } from '@/components/properties/HashOpenScript';
@@ -489,7 +491,11 @@ export default async function PropertyDetailPage({
   };
   const pmsRegion = ((p as unknown as { region?: string | null }).region ?? null) as string | null;
   const pmsToday = todayInEastern();
-  const [pricing, listingRecord, automationsView, howWeSellIt, myMailbox] = await Promise.all([
+  // The site's own registry says whether the home is on staycapeann.com,
+  // the same check the launcher makes; a launch record alone does not
+  // (homes listed before Helm tracked launches have none).
+  const scaListingId = String(scaLaunch?.guesty_listing_id || p.guesty_listing_id || '').trim();
+  const [pricing, listingRecord, automationsView, howWeSellIt, myMailbox, scaLive] = await Promise.all([
     loadPricingBundle(p.id, pmsToday, shiftIsoDay(pmsToday, 365)).catch(() => null),
     getListingRecord(p.id).catch(() => null),
     getAutomationsPanelView(p.id).catch(() => null),
@@ -497,6 +503,7 @@ export default async function PropertyDetailPage({
     // Whose Gmail an owner email drafts in (Open Work): the session's own,
     // or none, and the button copies instead.
     sessionMailbox(myEmail).then((m) => m?.address ?? null).catch(() => null),
+    scaLiveEntry(scaListingId, { maxAgeMs: 120_000 }),
   ]);
 
   // Management-contract registry facts (property_contracts). The active row
@@ -1914,7 +1921,7 @@ export default async function PropertyDetailPage({
             listing, the printed documents), then what they pay (Rates &
             taxes), then what Helm sends them (Automations). */}
         <TabSection tab="guest">
-          <ScaStatusLine propertyId={p.id} launch={scaLaunch} />
+          <ScaStatusLine propertyId={p.id} launch={scaLaunch} live={scaLive} listingId={scaListingId} />
           {/* The listing as a guest reads it: each block opens its own
               editor. Deep link ?tab=guest#listing (the old ?tab=listing
               aliases here). */}
@@ -2346,33 +2353,35 @@ function pillStyle(color: string, solid = false): React.CSSProperties {
 
 /**
  * Stay Cape Ann on one line at the top of Guest & listing: where the direct
- * listing stands and the launcher link. A live listing whose payment probe
- * came back demo_mode takes bookings that collect nothing, so it must never
- * read as a plain "Live" (84 Thatcher: four bookings, $41,917, no payment
- * path); a failed snapshot refresh is the quieter twin and says so too.
+ * listing stands, the live listing, and the launcher link. What it says is
+ * scaStatusLine (src/lib/sca-status-line.ts), from the site's own registry.
  */
-function ScaStatusLine({ propertyId, launch }: { propertyId: string; launch: ScaLaunchStatus | null }) {
-  const live = launch?.status === 'live';
-  const demo = live && launch?.payment_verify_signal === 'demo_mode';
-  const stale = live && !demo && !!launch?.snapshot_refresh_error;
-  const review = launch?.status === 'pr_open';
-  const text = demo
-    ? 'Live, but bookings collect nothing: the last payment check found demo mode'
-    : stale
-      ? 'Live; the last refresh failed, so the page may be stale'
-      : live
-        ? 'Live on staycapeann.com'
-        : review
-          ? 'Launch in review'
-          : 'Not on staycapeann.com yet';
-  const tone = demo ? 'var(--negative)' : stale || review ? 'var(--signal)' : live ? 'var(--positive)' : 'var(--ink-3)';
+function ScaStatusLine({
+  propertyId,
+  launch,
+  live,
+  listingId,
+}: {
+  propertyId: string;
+  launch: ScaLaunchStatus | null;
+  live: ScaLiveCheck;
+  listingId: string;
+}) {
+  const line = scaStatusLine(launch, live, listingId);
+  const tone = { positive: 'var(--positive)', negative: 'var(--negative)', signal: 'var(--signal)', muted: 'var(--ink-3)' }[line.tone];
+  const link = { fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'none' } as const;
   return (
     <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 22, paddingBottom: 4, width: '100%' }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: '6px 14px', fontSize: 13 }}>
         <span className="eyebrow">Stay Cape Ann</span>
-        <span style={{ color: tone }}>{text}</span>
-        <Link href={`/properties/${propertyId}/stay-cape-ann`} style={{ fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'none' }}>
-          {live || review ? 'Open the launcher' : 'Launch it'} &rarr;
+        <span style={{ color: tone }}>{line.text}</span>
+        {line.listingUrl && (
+          <a href={line.listingUrl} target="_blank" rel="noreferrer" style={link}>
+            See the listing &#8599;
+          </a>
+        )}
+        <Link href={`/properties/${propertyId}/stay-cape-ann`} style={link}>
+          {line.verb} &rarr;
         </Link>
       </div>
     </section>
