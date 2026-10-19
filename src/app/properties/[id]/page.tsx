@@ -2178,19 +2178,23 @@ export default async function PropertyDetailPage({
           )}
         </div>
       </GuestSection>
-          {/* RATES & TAXES and AUTOMATIONS: the Helm-native records that
-              replace Guesty's Pricing & policies and Message Automation.
-              Deep links ?tab=guest#rates and #automations (the old
+          {/* Deep links ?tab=guest#rates and #automations (the old
               ?tab=rates and ?tab=automations alias here). */}
-          <CollapsibleSection
+          {/* WHAT THEY PAY: Helm's rate plan, taxes and day overrides, as
+              three questions, a calendar and a Price a stay line. On a
+              Guesty-run home (every home today) the head says once that this
+              is Helm's plan and Guesty's prices are what guests pay. */}
+          <GuestSection
             id="rates"
-            title="Rates & taxes"
-            summary={
-              pricing?.plan
-                ? `Base $${Math.round(pricing.plan.base_nightly_cents / 100).toLocaleString('en-US')} a night · ${pricing.plan.min_nights_default} night minimum`
-                : helmRun
-                ? 'No rate plan: Helm cannot price a night'
-                : 'No rate plan yet'
+            title="Pricing"
+            note={
+              helmRun
+                ? pricing?.plan
+                  ? 'What staycapeann.com, quotes and payment links charge'
+                  : 'No plan yet: Helm cannot price a night'
+                : !pricing?.plan
+                  ? "Helm's plan, not set yet · guests pay Guesty's prices today"
+                  : "Helm's plan · guests pay Guesty's prices today"
             }
           >
             <RatesPanel
@@ -2203,7 +2207,7 @@ export default async function PropertyDetailPage({
               today={pmsToday}
               housePolicy={housePolicyValues}
             />
-          </CollapsibleSection>
+          </GuestSection>
           <CollapsibleSection
             id="automations"
             title="Automations"
