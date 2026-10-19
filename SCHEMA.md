@@ -122,6 +122,12 @@ never key per-stay logic on `bookings.id` (`memory/project_bookings_duplicate_ro
   current inputs and freshness. Service-role callers use RPCs; direct writes and
   browser access are denied. Installation requires all five current source capture
   triggers to be enabled. No route is seeded or scheduled automatically.
+  The journal's dispatch command can now retain the exact availability POST body,
+  fixed staging endpoint, SHA-256 fingerprint and preparation/expiry timestamps.
+  HTTP delivery requires that record before sending; an accepted task receipt binds
+  the request fingerprint and receive time to the same attempt token. These are JSONB
+  journal fields, not new tables or migrations. Older records remain readable with
+  missing evidence marked explicitly; no task completion is inferred from acceptance.
 - **`booking_events`**: append-only change log per booking (`created`,
   `dates_changed`, `status_changed`, `cancelled`, `guest_changed`,
   `money_changed`, `feed_moved`, `note`) with `actor`, `before` and

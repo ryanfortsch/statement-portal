@@ -1263,3 +1263,57 @@ Handoff: branch `codex/channex-staging-pilot`, starting HEAD `99f4d804`, origina
 that main reference. Files changed: the new native concurrency runner and shared
 fixture, the existing PGlite verifier, `SCHEMA.md`, and this document. Unrelated contract
 notes remain excluded. The temporary PostgreSQL process is stopped and its data removed.
+
+
+### Exact availability request and receipt binding (October 19, 2026)
+
+The availability client now prepares a credential-free request record containing the
+fixed staging endpoint, POST method, exact serialized body, SHA-256 fingerprint,
+preparation time and five-second expiry. Its strict body accepts only one property's
+single room, ordered unique dates and counts matching a subset of the desired plan.
+Rates, minimum stays, guest fields, headers, mixed routes and duplicate JSON keys are
+rejected. The entire desired plan remains in the enqueue command; the dispatch record
+captures the actual changed-date subset selected by the complete provider read-back.
+
+The worker saves that record together with `submitting` in the existing journal append.
+The single-use transport permit requires an identical saved request and sends its exact
+body bytes. The clean acceptance receipt saves the task ID, request fingerprint and
+receive time under the same attempt token. Replaying validates this binding and prevents
+one task ID from being assigned to another attempt within the journal. A clean late
+receipt can be retained after lease expiry, but it does not settle the task or allow
+resending. A failed or uncertain receipt save leaves the original request and barrier
+intact. Receipt persistence cannot recover a task ID that was never saved.
+
+`inventoryAttemptAudit` exposes read-only per-attempt request/receipt history across
+retries and newer plans, including unresolved attempts. It always returns `canVerify:
+false`. Legacy commands remain readable and show null request/binding evidence; no
+backfill guesses what was sent. The new HTTP path refuses an unbound dispatch. Older
+code that cannot parse the new optional journal fields fails closed; deploy the journal
+reader and writer together. Existing SQL candidates need no schema change for these
+JSONB fields and remain unapplied. The SQL layer guards journal append/version and
+canonical freshness; request/receipt semantic validation remains in the server-side
+TypeScript reader/writer, not a database-level attestation.
+
+A bound task receipt establishes acceptance only. Reconciliation of a bound attempt now
+also requires its task ID and request fingerprint alongside the existing complete
+read-back/generation/digest evidence. There is still no adapter supplying trusted terminal
+task evidence, and neither a matching calendar nor an audit record grants completion.
+The contract was checked against Channex's [availability API](https://docs.channex.io/api-v.1-documentation/ari)
+and [task UI documentation](https://docs.channex.io/application-documentation/property-tasks).
+
+Validation: all 2,038 project tests in 240 suites pass, including 14 new cases for exact
+byte retention, malformed requests, wrong receipts, duplicate task binding, late receipts,
+retry history and legacy compatibility. The 60 local PGlite checks now assert the exact
+request is stored before simulated HTTP and that the matching task receipt survives in
+SQL; their restart check preserves the complete journal. All 30 native PostgreSQL
+multi-session checks still pass. Nonincremental TypeScript, targeted ESLint and diff
+checks pass. No provider or hosted database was contacted, no delivery process was enabled,
+and no paid service was added. The disposable PostgreSQL cluster was stopped and removed.
+
+Handoff: branch `codex/channex-staging-pilot`, starting HEAD `09e73b69`, original base
+`a148b0e6`; remote main verified `a86afe6b`. Relevant canonical availability sources
+match that main reference. Changed files: the new availability-request module and test,
+availability client, delivery runner, inventory worker/outbox/journal, delivery tests,
+local SQL consumer verifier, `SCHEMA.md` and this document. Unrelated contract notes remain
+excluded. Next integration work remains trusted task-completion evidence and complete
+canonical-schema validation, followed by the previously listed cutover requirements.

@@ -1,3 +1,4 @@
+import type { AvailabilityRequest } from './availability-request.ts';
 import { recordInventoryCommand, type InventoryJournalStore } from './inventory-journal.ts';
 import type { DispatchContext, InventoryJob } from './inventory-outbox.ts';
 /** Worker preparation only. No live provider transport or scheduling is installed.
@@ -7,6 +8,7 @@ import type { DispatchContext, InventoryJob } from './inventory-outbox.ts';
 export async function prepareInventoryDispatch(
   store: InventoryJournalStore, id: string, clock: () => number, leaseMs: number,
   refreshContext: (job: InventoryJob) => Promise<DispatchContext>,
+  request?: AvailabilityRequest,
 ): Promise<InventoryJob | null> {
   await recordInventoryCommand(store, { kind: 'expire', now: clock() });
   const claimed = await recordInventoryCommand(store, { kind: 'claim', id, now: clock(), leaseMs });
@@ -14,7 +16,7 @@ export async function prepareInventoryDispatch(
   const job = claimed.result;
   const context = await refreshContext(job);
   const dispatched = await recordInventoryCommand(store, {
-    kind: 'dispatch', id, token: job.token!, context, now: clock(),
+    kind: 'dispatch', id, token: job.token!, context, now: clock(), ...(request ? { request } : {}),
   });
   return dispatched.saved && dispatched.result && typeof dispatched.result === 'object' ? dispatched.result : null;
 }

@@ -156,7 +156,8 @@ export async function verifyBookingInventoryConsumer(db, check) {
     deliveryClient=new ChannexAvailabilityClient('fixture-key',route,async(input,init)=>{
       const path=new URL(String(input)).pathname;
       if(init.method==='POST'){
-        postCount++;assert.equal((await jobs()).at(-1).status,'submitting');
+        postCount++;const durable=(await jobs()).at(-1);assert.equal(durable.status,'submitting');
+        assert.equal(durable.request.body,init.body);assert.ok(durable.request.digest);
         const body=JSON.parse(init.body);assert.equal(path,'/api/v1/availability');
         assert.deepEqual(body.values,job.days.map(d=>({property_id:propertyId,room_type_id:roomTypeId,date:d.date,availability:d.available})));
         return Response.json({data:[{type:'task',id:'33333333-3333-4333-8333-333333333333'}],meta:{message:'Success',warnings:[]}});
@@ -170,6 +171,8 @@ export async function verifyBookingInventoryConsumer(db, check) {
     assert.equal((await deliverBookingInventoryOnce(store,deliveryClient,job.id)).status,'submitted');
     deliveryJob=(await jobs()).at(-1);assert.equal(deliveryJob.status,'submitted');assert.equal(postCount,1);
     assert.equal(deliveryJob.task,'33333333-3333-4333-8333-333333333333');
+    assert.equal(deliveryJob.receipt.requestDigest,deliveryJob.request.digest);
+    assert.ok(deliveryJob.receipt.receivedAt>=deliveryJob.dispatchedAt);
   });
   await check('matching provider read-back does not erase the unresolved task barrier',async()=>{
     const observed=await deliveryClient.observe(deliveryJob);assert.equal(observed.matches,true);

@@ -2,6 +2,7 @@
  * API contract: https://docs.channex.io/api-v.1-documentation/ari
  */
 import { z } from 'zod';
+import { createAvailabilityRequest, validateAvailabilityRequest } from './availability-request.ts';
 import { inventoryDigest, type InventoryJob } from './inventory-outbox.ts';
 import { todayInEastern } from '../sca-quotes-types.ts';
 
@@ -76,11 +77,11 @@ export class ChannexAvailabilityClient {
       previous = day.date;
     }
   }
-  async #request(path: string, body?: unknown) {
+  async #request(path: string, body?: string) {
     return this.#fetch(`${BASE}${path}`, {
       method: body === undefined ? 'GET' : 'POST', redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(15_000),
       headers: { 'user-api-key': this.#key, Accept: 'application/json', ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      ...(body === undefined ? {} : { body }),
     });
   }
   async #get(path: string) {
@@ -128,19 +129,23 @@ export class ChannexAvailabilityClient {
     const values = bound.days.filter(day => observed.days[day.date] !== day.available).map(day => ({
       property_id: this.route.propertyId, room_type_id: this.route.roomTypeId, date: day.date, availability: day.available,
     }));
-    const expires = stamp(this.#clock) + 5000;
+    const request = values.length ? createAvailabilityRequest(values, stamp(this.#clock)) : null;
     let used = false;
     return {
       changedDates: values.length,
+      request: request ? structuredClone(request) : null,
       submit: async (prepared: InventoryJob): Promise<AvailabilityOutcome> => {
         const now = stamp(this.#clock);
         this.#validate(prepared);
-        if (used || !values.length || now >= expires || prepared.id !== bound.id || prepared.version !== bound.version ||
+        if (used || !request || now >= request.expiresAt || prepared.id !== bound.id || prepared.version !== bound.version ||
             prepared.digest !== bound.digest || prepared.status !== 'submitting' || !prepared.token ||
             !Number.isSafeInteger(prepared.leaseUntil) || now >= prepared.leaseUntil!) throw new Error('Submission permit unavailable');
+        if (!prepared.request || JSON.stringify(validateAvailabilityRequest(prepared.request, prepared, now)) !== JSON.stringify(request)) {
+          throw new Error('Submission permit requires the saved exact request');
+        }
         used = true; // Consumed before any IO, including timeouts or malformed responses.
         try {
-          const response = await this.#request('/availability', { values });
+          const response = await this.#request('/availability', request.body);
           if (response.redirected) return { status: 'ambiguous' };
           const body = object(await response.json());
           if (response.status === 429 && !('data' in body) && !('meta' in body) && object(body.errors).code === 'http_too_many_requests') {

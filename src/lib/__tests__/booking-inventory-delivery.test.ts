@@ -3,13 +3,14 @@ import assert from 'node:assert/strict';
 import { ChannexAvailabilityClient, type AvailabilityRoute } from '../channex-staging/availability-client.ts';
 import { deliverBookingInventoryOnce } from '../channex-staging/booking-inventory-delivery.ts';
 import { consumeBookingInventory, type BookingInventoryState, type BookingInventoryConsumerStore } from '../channex-staging/booking-inventory-consumer.ts';
-import { emptyInventoryJournal, replayInventoryJournal, recordInventoryCommand } from '../channex-staging/inventory-journal.ts';
+import { emptyInventoryJournal, replayInventoryJournal, recordInventoryCommand, inventoryAttemptAudit } from '../channex-staging/inventory-journal.ts';
 import { prepareInventoryDispatch } from '../channex-staging/inventory-worker.ts';
 import { bookingInventoryDispatchContext } from '../channex-staging/booking-inventory-consumer.ts';
 import { inventoryDigest, type InventoryJob } from '../channex-staging/inventory-outbox.ts';
 const NOW = Date.parse('2027-01-01T15:00:00Z');
 const propertyId = '11111111-1111-4111-8111-111111111111', roomTypeId = '22222222-2222-4222-8222-222222222222';
 const TASK = '33333333-3333-4333-8333-333333333333';
+const TASK2 = '44444444-4444-4444-8444-444444444444';
 const route: AvailabilityRoute = { environment: 'staging', helmProperty: 'fixture', connection: 'test', generation: 1,
   propertyId, roomTypeId, propertyTitle: 'Fictional - Isolated Staging' };
 const json = (v: unknown, status = 200, headers?: HeadersInit) => new Response(JSON.stringify(v), { status, headers });
@@ -40,7 +41,7 @@ async function fixture() {
         if (failAppend === `after-${cmd.kind}`) throw new Error('Lost save response');
         return true;
       } } };
-  const calls: { path: string; method: string; body?: unknown }[] = [];
+  const calls: { path: string; method: string; body?: unknown; rawBody?: string }[] = [];
   const counts: Record<string, unknown> = { '2027-01-02': 0, '2027-01-03': 0 };
   let response: () => Promise<Response> = async () => json({ data: [{ type: 'task', id: TASK }], meta: { message: 'Success', warnings: [] } });
   const replies = { property: { data: { id: propertyId, attributes: { title: route.propertyTitle, currency: 'USD', timezone: 'America/New_York' } } },
@@ -50,8 +51,8 @@ async function fixture() {
     const url = new URL(String(input)); assert.equal(url.origin, 'https://staging.channex.io');
     assert.equal(init?.redirect, 'error'); assert.equal(init?.cache, 'no-store'); assert.ok(init?.signal);
     assert.equal(new Headers(init?.headers).get('user-api-key'), 'test-secret');
-    const call = { path: url.pathname, method: init?.method ?? 'GET', body: init?.body ? JSON.parse(String(init.body)) : undefined }; calls.push(call);
-    if (call.method === 'POST') { assert.equal(job().status, 'submitting'); afterPost(); return response(); }
+    const call = { path: url.pathname, method: init?.method ?? 'GET', body: init?.body ? JSON.parse(String(init.body)) : undefined, rawBody: init?.body ? String(init.body) : undefined }; calls.push(call);
+    if (call.method === 'POST') { assert.equal(job().status, 'submitting'); assert.equal(job().request?.body, init?.body); afterPost(); return response(); }
     if (url.pathname.includes('/properties/')) return json(replies.property);
     if (url.pathname.includes('/room_types/')) return json(replies.room);
     if (url.pathname.endsWith('/channels')) return json(replies.channels);
@@ -163,7 +164,7 @@ test('competing delivery runners can persist and submit only one attempt', async
 test('a consumed transport permit cannot be invoked twice', async () => {
   const f = await fixture(), permit = await f.client.prepare(f.job());
   const prepared = await prepareInventoryDispatch(f.store.journal, f.job().id, f.clock, 60000,
-    j => bookingInventoryDispatchContext(f.store, j, f.clock));
+    j => bookingInventoryDispatchContext(f.store, j, f.clock), permit.request!);
   assert.ok(prepared); assert.equal((await permit.submit(prepared)).status, 'accepted');
   await assert.rejects(() => permit.submit(prepared), /permit/); assert.equal(f.calls.filter(c => c.method === 'POST').length, 1);
 });
@@ -194,9 +195,10 @@ test('property pacing survives a new runner and blocks a second write within six
   const f = await fixture(); await f.run(); const old = f.job();
   // Synthetic terminal evidence only; the HTTP adapter never manufactures this.
   await recordInventoryCommand(f.store.journal, { kind: 'reconcile', id: old.id, token: old.token!,
-    evidence: { settled: true, complete: true, digest: old.digest, generation: old.generation } });
+    evidence: { settled: true, complete: true, digest: old.digest, generation: old.generation, task: old.task, requestDigest: old.request!.digest } });
   f.state.captureVersion++; f.state.inputs.rateDays = []; await consumeBookingInventory(f.store, f.clock);
   assert.equal((await f.run()).status, 'blocked'); assert.equal(f.calls.filter(c => c.method === 'POST').length, 1);
+  f.setResponse(async () => json({ data: [{ type: 'task', id: TASK2 }], meta: { message: 'Success', warnings: [] } }));
   f.advance(6000); assert.equal((await f.run()).status, 'submitted'); assert.equal(f.calls.filter(c => c.method === 'POST').length, 2);
 });
 
@@ -206,4 +208,102 @@ test('a newer booking plan cannot bypass property-wide rate-limit backoff', asyn
   f.advance(6000); f.state.captureVersion++; f.state.inputs.rateDays = []; await consumeBookingInventory(f.store, f.clock);
   assert.equal(f.job().attempts, 0); assert.equal(f.job().nextAttemptAt, NOW + 6000);
   assert.equal((await f.run()).status, 'blocked'); assert.equal(f.calls.filter(c => c.method === 'POST').length, 1);
+});
+
+
+test('exact request and its task receipt survive serialization without credentials', async () => {
+  const f = await fixture(); await f.run();
+  const history = JSON.parse(JSON.stringify(f.state.journal));
+  const audit = inventoryAttemptAudit(history);
+  assert.equal(audit.length, 1);
+  assert.equal(audit[0].request!.body, f.calls.find(c => c.method === 'POST')!.rawBody);
+  assert.equal(audit[0].receipt!.task, TASK);
+  assert.equal(audit[0].receipt!.binding!.requestDigest, audit[0].request!.digest);
+  assert.equal(audit[0].receipt!.binding!.receivedAt, NOW);
+  assert.equal(audit[0].desiredDigest, f.job().digest); assert.equal(audit[0].canVerify, false);
+  assert.doesNotMatch(JSON.stringify(history), /test-secret|user-api-key|guest_name|rate_plan|min_stay/);
+  audit[0].request!.body = 'changed copy';
+  assert.notEqual(f.job().request!.body, 'changed copy');
+});
+
+test('request changes after prepare cannot authorize a different POST', async () => {
+  for (const change of ['missing', 'body', 'digest', 'time']) {
+    const f = await fixture(), permit = await f.client.prepare(f.job());
+    const prepared = await prepareInventoryDispatch(f.store.journal, f.job().id, f.clock, 60000,
+      j => bookingInventoryDispatchContext(f.store, j, f.clock), permit.request!);
+    assert.ok(prepared);
+    if (change === 'missing') delete prepared.request;
+    if (change === 'body') prepared.request!.body += ' ';
+    if (change === 'digest') prepared.request!.digest = '0'.repeat(64);
+    if (change === 'time') { prepared.request!.preparedAt++; prepared.request!.expiresAt++; }
+    await assert.rejects(() => permit.submit(prepared));
+    assert.equal(f.calls.filter(c => c.method === 'POST').length, 0);
+  }
+});
+
+test('wrong request, token, timestamp or missing receipt cannot bind an accepted task', async () => {
+  const f = await fixture(); f.fail('accepted'); await assert.rejects(f.run); f.fail('');
+  const job = f.job(), receipt = { requestDigest: job.request!.digest, receivedAt: NOW };
+  for (const change of [{ token: 'wrong' }, { receipt: undefined }, { task: 'not-a-task' },
+    { receipt: { ...receipt, requestDigest: '0'.repeat(64) } }, { receipt: { ...receipt, receivedAt: NOW - 1 } }]) {
+    await assert.rejects(recordInventoryCommand(f.store.journal, { kind: 'accepted', id: job.id, token: job.token!, task: TASK, receipt, ...change }));
+    assert.equal(f.job().status, 'submitting');
+  }
+});
+
+test('lost receipt save retains the exact request but invents no task reference', async () => {
+  const f = await fixture(); f.fail('accepted'); await assert.rejects(f.run);
+  const audit = inventoryAttemptAudit(f.state.journal)[0];
+  assert.equal(audit.receipt, null); assert.equal(audit.outcome, 'unresolved');
+  assert.equal(audit.request!.body, f.calls.find(c => c.method === 'POST')!.rawBody);
+  f.fail(''); f.advance(61000); assert.equal((await f.run()).status, 'blocked');
+  assert.equal(f.calls.filter(c => c.method === 'POST').length, 1);
+});
+
+test('a clean late receipt can be recorded after lease expiry without clearing uncertainty evidence', async () => {
+  const f = await fixture();
+  f.setResponse(async () => {
+    f.advance(61000);
+    await recordInventoryCommand(f.store.journal, { kind: 'expire', now: f.clock() });
+    assert.equal(f.job().status, 'uncertain');
+    return json({ data: [{ type: 'task', id: TASK }], meta: { message: 'Success', warnings: [] } });
+  });
+  assert.equal((await f.run()).status, 'submitted');
+  assert.equal(inventoryAttemptAudit(f.state.journal)[0].receipt!.task, TASK);
+  assert.equal((await f.run()).status, 'blocked'); assert.equal(f.job().status, 'uncertain');
+});
+
+test('retries retain each exact request and distinct attempt token', async () => {
+  const f = await fixture();
+  f.setResponse(async () => json({ errors: { code: 'http_too_many_requests' } }, 429));
+  await f.run(); f.advance(60000);
+  // Refresh a plan for the same date window; the prior rejected attempt stays auditable.
+  f.state.captureVersion++; await consumeBookingInventory(f.store, f.clock);
+  f.counts['2027-01-03'] = 1;
+  f.setResponse(async () => json({ data: [{ type: 'task', id: TASK }], meta: { message: 'Success', warnings: [] } }));
+  assert.equal((await f.run()).status, 'submitted');
+  const audit = inventoryAttemptAudit(f.state.journal);
+  assert.equal(audit.length, 2); assert.equal(audit[0].outcome, 'rejected'); assert.equal(audit[0].receipt, null);
+  assert.notEqual(audit[0].token, audit[1].token); assert.notEqual(audit[0].request!.digest, audit[1].request!.digest);
+  assert.equal(audit[1].receipt!.binding!.requestDigest, audit[1].request!.digest);
+});
+
+test('an accepted task cannot be attached to a newer attempt even after restart', async () => {
+  const f = await fixture(); await f.run(); const old = f.job();
+  await recordInventoryCommand(f.store.journal, { kind: 'reconcile', id: old.id, token: old.token!, evidence: {
+    settled: true, complete: true, digest: old.digest, generation: old.generation, task: old.task, requestDigest: old.request!.digest } });
+  f.advance(6000); f.state.captureVersion++; f.state.inputs.rateDays = []; await consumeBookingInventory(f.store, f.clock);
+  await assert.rejects(f.run, /already bound/); assert.equal(f.job().status, 'submitting');
+  assert.equal(inventoryAttemptAudit(f.state.journal).filter(a => a.receipt).length, 1);
+  assert.equal((await f.run()).status, 'blocked');
+});
+
+test('calendar match, wrong task or wrong request digest cannot reconcile a bound attempt', async () => {
+  const f = await fixture(); await f.run(); const job = f.job();
+  const base = { settled: true, complete: true, digest: job.digest, generation: job.generation };
+  for (const evidence of [base, { ...base, task: TASK2, requestDigest: job.request!.digest },
+    { ...base, task: TASK, requestDigest: '0'.repeat(64) }]) {
+    const result = await recordInventoryCommand(f.store.journal, { kind: 'reconcile', id: job.id, token: job.token!, evidence });
+    assert.equal(result.saved, false); assert.equal(f.job().status, 'submitted');
+  }
 });

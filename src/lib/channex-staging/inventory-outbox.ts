@@ -3,6 +3,7 @@
  * before network IO. A memory instance cannot provide crash durability.
  */
 import { createHash } from 'node:crypto';
+import { validateAvailabilityRequest, validateAvailabilityReceipt, type AvailabilityRequest, type AvailabilityReceipt } from './availability-request.ts';
 
 export type InventoryDay = { date: string; available: 0 | 1; stopSell: boolean };
 export type InventoryIntent = {
@@ -14,6 +15,7 @@ export type InventoryStatus = 'pending' | 'leased' | 'submitting' | 'submitted'
 export type InventoryJob = InventoryIntent & {
   digest: string; status: InventoryStatus; attempts: number; nextAttemptAt: number;
   token?: string; leaseUntil?: number; task?: string;
+  request?: AvailabilityRequest; dispatchedAt?: number; receipt?: AvailabilityReceipt;
 };
 export type DispatchContext = {
   environment: 'staging'; connection: string; property: string; generation: number;
@@ -60,6 +62,7 @@ export function inventoryDigest(days: InventoryDay[]): string {
 export class MemoryInventoryOutbox {
   private jobs = new Map<string, InventoryJob>();
   private sequence = 0;
+  private receiptTasks = new Set<string>();
 
   list(): InventoryJob[] { return copy([...this.jobs.values()]); }
   enqueue(input: InventoryIntent, now: number): InventoryJob {
@@ -93,10 +96,11 @@ export class MemoryInventoryOutbox {
     if (j.status !== 'pending' || now < j.nextAttemptAt) return null;
     if ([...this.jobs.values()].some(other => other.id !== id && lane(other) === lane(j)
       && !terminal.has(other.status) && other.status !== 'pending')) return null;
+    j.request = undefined; j.receipt = undefined; j.dispatchedAt = undefined; j.task = undefined;
     j.status = 'leased'; j.token = `${id}:${++this.sequence}`; j.leaseUntil = now + leaseMs;
     return copy(j);
   }
-  beginDispatch(id: string, token: string, context: DispatchContext, now: number): InventoryJob {
+  beginDispatch(id: string, token: string, context: DispatchContext, now: number, request?: AvailabilityRequest): InventoryJob {
     integer(now);
     const j = this.owned(id, token, ['leased']);
     if (now >= j.leaseUntil!) throw new Error('Lease expired');
@@ -108,12 +112,20 @@ export class MemoryInventoryOutbox {
       j.status = 'needs-review';
       throw new Error('Dispatch context not safe');
     }
+    if (request) { j.request = validateAvailabilityRequest(request, j, now); j.dispatchedAt = now; }
     j.status = 'submitting'; j.attempts++;
     return copy(j);
   }
-  accepted(id: string, token: string, task: string): void {
+  accepted(id: string, token: string, task: string, receipt?: AvailabilityReceipt): void {
     if (!task.trim()) throw new Error('Missing task reference');
-    const j = this.owned(id, token, ['submitting']);
+    const j = this.owned(id, token, ['submitting', 'uncertain']);
+    if (j.task || (j.status === 'uncertain' && !j.request)) throw new Error('Receipt cannot replace a previous receipt');
+    if (j.request) {
+      const bound = validateAvailabilityReceipt(receipt, task, j);
+      if (this.receiptTasks.has(task.toLowerCase())) throw new Error('Task already bound to another attempt');
+      j.receipt = bound;
+    } else if (receipt) throw new Error('Receipt requires an exact request');
+    this.receiptTasks.add(task.toLowerCase());
     j.status = 'submitted'; j.task = task;
   }
   ambiguous(id: string, token: string): void {
@@ -143,10 +155,11 @@ export class MemoryInventoryOutbox {
    * Unknown/partial evidence deliberately leaves the lane blocked.
    */
   reconcile(id: string, token: string, evidence: {
-    settled: boolean; complete: boolean; digest: string; generation: number;
+    settled: boolean; complete: boolean; digest: string; generation: number; task?: string; requestDigest?: string;
   }): boolean {
     const j = this.owned(id, token, ['submitted', 'uncertain']);
     if (!evidence.settled || !evidence.complete || evidence.generation !== j.generation) return false;
+    if (j.request && (!j.receipt || !j.task || evidence.task !== j.task || evidence.requestDigest !== j.request.digest)) return false;
     j.status = evidence.digest === j.digest ? 'verified' : 'needs-review';
     return j.status === 'verified';
   }

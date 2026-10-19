@@ -27,19 +27,20 @@ export async function deliverBookingInventoryOnce(store: BookingInventoryConsume
     .map(cmd => cmd.kind === 'rejected' ? cmd.now + Math.max(60_000, cmd.retryAfterMs) : 0));
   if (now < lastAttempt + 6000 || now < retryUntil) return { status: 'blocked' as const };
   const permit = await client.prepare(job);
-  if (!permit.changedDates) return { status: 'already-matches' as const }; // Observation, not task settlement.
+  if (!permit.request) return { status: 'already-matches' as const }; // Observation, not task settlement.
   let freshUntil = 0;
   const prepared = await prepareInventoryDispatch(store.journal, id, clock, 60_000, async claimed => {
     const latest = await bookingInventoryDispatchContext(store, claimed, clock);
     freshUntil = latest.freshUntil; return latest;
-  });
+  }, permit.request);
   if (!prepared) return { status: 'blocked' as const };
   // Any exception after this point leaves the durable barrier intact. Never infer
   // non-acceptance or automatically retry a response/save whose outcome is unknown.
   if (clock() >= freshUntil) throw new Error('Inventory expired after submitting save; review without sending');
   const outcome = await permit.submit(prepared);
   const base = { id, token: prepared.token! };
-  const command = outcome.status === 'accepted' ? { kind: 'accepted' as const, ...base, task: outcome.task }
+  const command = outcome.status === 'accepted' ? { kind: 'accepted' as const, ...base, task: outcome.task,
+    receipt: { requestDigest: permit.request.digest, receivedAt: clock() } }
     : outcome.status === 'ambiguous' ? { kind: 'ambiguous' as const, ...base }
     : { kind: 'rejected' as const, ...base, failure: outcome.failure, now: clock(), retryAfterMs: outcome.retryAfterMs, jitter: 0 };
   const saved = await recordInventoryCommand(store.journal, command);

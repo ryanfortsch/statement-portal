@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { availabilityRequestSchema, availabilityReceiptSchema } from './availability-request.ts';
 import { MemoryInventoryOutbox } from './inventory-outbox.ts';
 
 const int = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
@@ -13,14 +14,14 @@ const context = z.object({ environment: z.literal('staging'), connection: id, pr
 const commandSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('enqueue'), intent, now: int }).strict(),
   z.object({ kind: z.literal('claim'), id, now: int, leaseMs: positive }).strict(),
-  z.object({ kind: z.literal('dispatch'), id, token: id, context, now: int }).strict(),
-  z.object({ kind: z.literal('accepted'), id, token: id, task: id }).strict(),
+  z.object({ kind: z.literal('dispatch'), id, token: id, context, now: int, request: availabilityRequestSchema.optional() }).strict(),
+  z.object({ kind: z.literal('accepted'), id, token: id, task: id, receipt: availabilityReceiptSchema.optional() }).strict(),
   z.object({ kind: z.literal('ambiguous'), id, token: id }).strict(),
   z.object({ kind: z.literal('rejected'), id, token: id, failure: z.enum(['retryable', 'permanent']),
     now: int, retryAfterMs: int, jitter: z.number().min(0).max(1) }).strict(),
   z.object({ kind: z.literal('expire'), now: int }).strict(),
   z.object({ kind: z.literal('reconcile'), id, token: id, evidence: z.object({ settled: z.boolean(),
-    complete: z.boolean(), digest: id, generation: positive }).strict() }).strict(),
+    complete: z.boolean(), digest: id, generation: positive, task: id.optional(), requestDigest: id.optional() }).strict() }).strict(),
 ]);
 const journalSchema = z.object({ format: z.literal(1), commands: z.array(commandSchema).max(10_000) }).strict();
 export type InventoryCommand = z.infer<typeof commandSchema>;
@@ -30,8 +31,8 @@ function apply(queue: MemoryInventoryOutbox, command: InventoryCommand) {
   switch (command.kind) {
     case 'enqueue': return queue.enqueue(command.intent, command.now);
     case 'claim': return queue.claim(command.id, command.now, command.leaseMs);
-    case 'dispatch': return queue.beginDispatch(command.id, command.token, command.context, command.now);
-    case 'accepted': return queue.accepted(command.id, command.token, command.task);
+    case 'dispatch': return queue.beginDispatch(command.id, command.token, command.context, command.now, command.request);
+    case 'accepted': return queue.accepted(command.id, command.token, command.task, command.receipt);
     case 'ambiguous': return queue.ambiguous(command.id, command.token);
     case 'rejected': return queue.rejected(command.id, command.token, command.failure, command.now, command.retryAfterMs, command.jitter);
     case 'expire': return queue.expire(command.now);
@@ -66,4 +67,24 @@ export async function recordInventoryCommand(store: InventoryJournalStore, input
   journal.commands.push(command);
   if (!await store.append(state.version, journal)) return { saved: false as const, result: undefined };
   return { saved: true as const, result };
+}
+
+/** Read-only attempt history. A receipt records acceptance, never completion.
+ * Legacy history stays visibly unbound; missing requests are never reconstructed.
+ */
+export function inventoryAttemptAudit(value: unknown) {
+  const { journal, queue } = replayInventoryJournal(value);
+  const jobs = new Map(queue.list().map(job => [job.id, job]));
+  return journal.commands.flatMap((command, index) => {
+    if (command.kind !== 'dispatch') return [];
+    const job = jobs.get(command.id)!;
+    const following = journal.commands.slice(index + 1).filter(next => 'token' in next && next.id === command.id && next.token === command.token);
+    const accepted = following.find(next => next.kind === 'accepted');
+    const outcome = following.find(next => ['accepted', 'ambiguous', 'rejected'].includes(next.kind));
+    return [{ id: command.id, token: command.token, property: job.property, connection: job.connection,
+      generation: job.generation, version: job.version, desiredDigest: job.digest, dispatchedAt: command.now,
+      request: command.request ?? null,
+      receipt: accepted?.kind === 'accepted' ? { task: accepted.task, binding: accepted.receipt ?? null } : null,
+      outcome: outcome?.kind ?? 'unresolved', canVerify: false as const }];
+  });
 }
