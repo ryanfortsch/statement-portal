@@ -25,7 +25,7 @@
 
 import { generateObject } from 'ai';
 import { z } from 'zod';
-import { CHART_OF_ACCOUNTS, type CoaAccount } from '@/lib/books';
+import { CHART_OF_ACCOUNTS, coaAccountFor } from '@/lib/books';
 import { vendorHintsForPrompt } from '@/lib/books-vendor-hints';
 
 export type CategorizableTransaction = {
@@ -184,7 +184,5 @@ export async function categorizeTransactions(
 
 /** Convenience: validate a category_key exists in the chart of accounts. */
 export function isValidCategoryKey(entityId: string, key: string): boolean {
-  return CHART_OF_ACCOUNTS.some(
-    (a: CoaAccount) => a.key === key && (a.scope === 'shared' || a.scope === entityId),
-  );
+  return !!coaAccountFor(entityId, key);
 }

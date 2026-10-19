@@ -138,7 +138,12 @@ export const LLC_ACCOUNTS: LlcAccountSeed[] = [
 // shared, some entity-specific). Sourced from the QB exports' active
 // account list. Phase 1b's categorizer matches transactions to these keys.
 
-export type CoaType = 'income' | 'expense' | 'cogs' | 'equity' | 'other_income' | 'other_expense';
+/**
+ * `liability` is a balance-sheet account a payment clears (sales tax owed,
+ * guest prepayments, a loan's principal). Like `equity`, it never enters
+ * the P&L; books-pnl.ts lists both under "Not in net income".
+ */
+export type CoaType = 'income' | 'expense' | 'cogs' | 'equity' | 'liability' | 'other_income' | 'other_expense';
 export type CoaScope = 'shared' | 'rising_tide' | 'goose_astoria' | 'goose_calderwood';
 
 export type CoaAccount = {
@@ -296,7 +301,7 @@ export const CHART_OF_ACCOUNTS: CoaAccount[] = [
   { key: 'owner_draw', name: 'Owner / Partner Distributions', type: 'equity', scope: 'shared', sort: 810 },
   { key: 'opening_balance_equity', name: 'Opening Balance Equity', type: 'equity', scope: 'shared', sort: 820 },
   { key: 'retained_earnings', name: 'Retained Earnings', type: 'equity', scope: 'shared', sort: 830 },
-  { key: 'intercompany_due', name: 'Intercompany Due To/From', type: 'equity', scope: 'shared', tax_hint: 'Rising Tide ↔ Goose entities', sort: 840 },
+  { key: 'intercompany_due', name: 'Intercompany Due To/From', type: 'equity', scope: 'shared', tax_hint: 'Rising Tide to and from the Goose entities', sort: 840 },
   // Goose-of-Astoria-specific intercompany sub-account. The 2025 GL
   // confirms that ALL Florida-property activity (3246 NE 27th: Tropishine
   // cleaning, FPL utilities, MasterTouch Pool, "Lighthouse Point" memo
@@ -307,9 +312,9 @@ export const CHART_OF_ACCOUNTS: CoaAccount[] = [
   { key: 'due_from_florida_property', parent_key: 'owner_draw', name: 'Due from Florida Property', type: 'equity', scope: 'goose_astoria', tax_hint: '3246 NE 27th Terrace allocation -- FL property activity routes here', sort: 850 },
 
   // ── LIABILITY-side categories (rare hits but the GLs use them) ──────
-  { key: 'sales_tax_payable', name: 'Sales Tax Payable', type: 'other_expense', scope: 'shared', tax_hint: 'MA lodging tax + CT sales tax cycle -- liability cleared monthly via DOR ACH', sort: 870 },
-  { key: 'customer_prepayments', name: 'Customer Prepayments', type: 'other_expense', scope: 'shared', tax_hint: 'Guest payments received in advance of stay', sort: 871 },
-  { key: 'heat_loan', name: 'Heat Loan', type: 'other_expense', scope: 'goose_calderwood', tax_hint: '11 Rockholm heating-system loan via Eastern Bank, paid down by Ryan personally', sort: 872 },
+  { key: 'sales_tax_payable', name: 'Sales Tax Payable', type: 'liability', scope: 'shared', tax_hint: 'MA lodging tax + CT sales tax cycle -- liability cleared monthly via DOR ACH', sort: 870 },
+  { key: 'customer_prepayments', name: 'Customer Prepayments', type: 'liability', scope: 'shared', tax_hint: 'Guest payments received in advance of stay', sort: 871 },
+  { key: 'heat_loan', name: 'Heat Loan', type: 'liability', scope: 'goose_calderwood', tax_hint: '11 Rockholm heating-system loan via Eastern Bank, paid down by Ryan personally', sort: 872 },
 
   // ── LEGACY income (Goose Astoria pre-2025 booking) ──────────────────
   { key: 'services_legacy', name: 'Services (legacy)', type: 'income', scope: 'goose_astoria', tax_hint: 'Pre-2025 income account; superseded by Rental Income + Cleaning Fares + per-channel fees from 2025-01 onward', sort: 70 },
@@ -323,6 +328,16 @@ export function accountsForEntity(entityId: string): CoaAccount[] {
   return CHART_OF_ACCOUNTS
     .filter(a => a.scope === 'shared' || a.scope === entityId)
     .sort((a, b) => a.sort - b.sort);
+}
+
+/**
+ * The chart-of-accounts entry a key names for this entity, or undefined
+ * when the key is not on its chart (another entity's account, a retired
+ * key, or a word the categorizer made up).
+ */
+export function coaAccountFor(entityId: string, key: string | null | undefined): CoaAccount | undefined {
+  if (!key) return undefined;
+  return CHART_OF_ACCOUNTS.find((a) => a.key === key && (a.scope === 'shared' || a.scope === entityId));
 }
 
 /** Bank/CC accounts for an entity. */

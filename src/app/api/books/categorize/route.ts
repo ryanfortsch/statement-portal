@@ -4,6 +4,7 @@ import { LLC_ENTITIES } from '@/lib/books';
 import { applyBooksFilter, parseBooksFilter } from '@/lib/books-review-filter';
 import {
   categorizeTransactions,
+  isValidCategoryKey,
   type CategorizableTransaction,
 } from '@/lib/books-categorizer';
 
@@ -127,14 +128,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // batch size). ai_reasoning is its own column so we never clobber
     // the JSONB raw (which carries posting_date, Chase's raw_category,
     // raw_type, and the original CSV row).
+    // A key that is not on this entity's chart (the prompt names a
+    // "transfer" that is not a key) lands as uncategorized, low, so it is
+    // counted on the P&L and asked about at review instead of silently
+    // naming an account nothing can confirm.
     let written = 0;
     for (const r of results) {
+      const onChart = isValidCategoryKey(entityId, r.category_key);
       const { error: updErr } = await supabase
         .from('ledger_transactions')
         .update({
-          ai_category_key: r.category_key,
-          ai_confidence: r.confidence,
-          ai_reasoning: r.reasoning,
+          ai_category_key: onChart ? r.category_key : 'uncategorized',
+          ai_confidence: onChart ? r.confidence : 'low',
+          ai_reasoning: onChart ? r.reasoning : `Proposed "${r.category_key}", which is not on the chart. ${r.reasoning}`,
         })
         .eq('id', r.transaction_id);
       if (!updErr) written++;

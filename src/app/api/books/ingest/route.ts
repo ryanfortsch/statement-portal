@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   parseChaseBankCsv,
   parseChaseCreditCardCsv,
-  computeDedupeHash,
+  ledgerRowsFromParsed,
   type ParsedTransaction,
 } from '@/lib/chase-csv';
 
@@ -23,8 +23,10 @@ import {
  * property repair).
  *
  * Dedupe: hash over (entity_id, account_id, txn_date, amount, normalized
- * description). Re-uploads + overlapping CSVs (month-by-month covering
- * the same quarter) collapse into the same hash and silently skip.
+ * description, and which repeat of an identical row it is within the
+ * file). Re-uploads + overlapping CSVs (month-by-month covering the same
+ * quarter) collapse into the same hash and silently skip; two identical
+ * charges on one day stay two rows.
  */
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -93,34 +95,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<BooksInge
       return NextResponse.json({ error: 'No transactions found in CSV (header-only or unrecognized format?)' }, { status: 400 });
     }
 
-    // Build rows + dedupe hashes.
-    const rowsToInsert = parsed.map((p) => {
-      const dedupe_hash = computeDedupeHash({
-        entity_id: acct.entity_id,
-        account_id: acct.id,
-        txn_date: p.txn_date,
-        amount: p.amount,
-        description: p.description,
-      });
-      return {
-        entity_id: acct.entity_id,
-        account_id: acct.id,
-        txn_date: p.txn_date,
-        description: p.description,
-        amount: p.amount,
-        source: p.source,
-        // Store the raw row + supplementary fields in `raw` so the review
-        // UI can show the original CSV cell + Chase's pre-category and
-        // type. JSONB column.
-        raw: {
-          posting_date: p.posting_date,
-          raw_category: p.raw_category,
-          raw_type: p.raw_type,
-          row: p.raw_row,
-        },
-        dedupe_hash,
-      };
-    });
+    // Build rows + dedupe hashes (a repeated identical charge keeps both).
+    const rowsToInsert = ledgerRowsFromParsed(acct, parsed);
 
     // Chunked upsert; PG handles ~1k rows per insert comfortably, but
     // we'll be defensive at 500.

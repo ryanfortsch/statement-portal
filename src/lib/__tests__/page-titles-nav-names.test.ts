@@ -73,6 +73,7 @@ const PAGES: Array<[string, string]> = [
   ['src/app/payments/balance-charges/page.tsx', 'title="Balance charges"'],
   ['src/app/books/[entity_id]/page.tsx', 'title={entity.short}'],
   ['src/app/books/accounts/page.tsx', 'title="Chart of accounts"'],
+  ['src/app/books/[entity_id]/pnl/page.tsx', 'title="Profit and loss"'],
   ['src/app/revenue/page.tsx', 'title="Revenue"'],
   ['src/app/playbook/page.tsx', 'title="Playbook"'],
   ['src/app/crm/page.tsx', 'title="Contacts"'],
