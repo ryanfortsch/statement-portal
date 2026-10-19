@@ -794,6 +794,9 @@ export type ReplyEnvelope = {
    *  for SMS. */
   mailbox: string;
   to: string[];
+  /** The contact name for each `to` entry, same order, '' when unknown. SMS
+   *  only; labels for the card, the send uses `to`. */
+  to_names?: string[];
   cc: string[];
   /** Where the owner's answer should go when that is not the From address,
    *  which happens when we answer as somebody whose mail Helm does not
