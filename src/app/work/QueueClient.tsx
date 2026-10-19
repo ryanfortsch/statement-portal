@@ -462,14 +462,8 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
             <BoardTab active={!onSlips} onClick={() => setTab('tasks')} label={OFFICE_TODOS_LABEL} count={tasks.length} />
           </div>
           <div className="flex items-center" style={{ gap: 12 }}>
-            {/* The tab carries the total; once a filter narrows the list
-                (a staff login opens on My week) this says how much of it is
-                on screen, so nothing is hidden without saying so. */}
-            {activeFilter !== 'all' && (
-              <span className="eyebrow">
-                {onSlips ? filteredSlips.length : filteredTasks.length} of {onSlips ? workSlips.length : tasks.length} shown
-              </span>
-            )}
+            {/* No "N of M shown": the filter chips carry both counts, with
+                the active one filled (2026-10-19, the noise pass). */}
             {onSlips && orderIsStale && (
               <Button
                 size="sm"
@@ -775,13 +769,6 @@ function Pill({
   );
 }
 
-/** "Brief · Oct 16": the day the nightly brief was written, in Eastern. */
-function briefDateLabel(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' }).format(d);
-}
-
 function laneColor(lane: WorkLane): string {
   switch (lane) {
     case 'supply':
@@ -915,15 +902,10 @@ function PropertyGroup({
           </button>
           {summary && <div style={{ fontSize: 12, marginTop: 5, color: signals.overdue ? 'var(--signal)' : 'var(--ink-3)' }}>{summary}</div>}
           {/* The brief's headline: what the work at this home IS, in one
-              line, so a collapsed home reads as more than a count. It
-              carries its name and the day it was written, so the line is
-              not an anonymous sentence. */}
+              line, so a collapsed home reads as more than a count. */}
           {brief && (
             <div style={{ marginTop: 6, maxWidth: 720 }}>
-              <div className="eyebrow" style={{ fontSize: 10 }}>
-                Brief{brief.generatedAt && briefDateLabel(brief.generatedAt) ? ` · ${briefDateLabel(brief.generatedAt)}` : ''}
-              </div>
-              <div style={{ fontSize: 12, marginTop: 2, color: 'var(--ink-2)', fontStyle: 'italic', lineHeight: 1.4 }}>
+              <div style={{ fontSize: 12, color: 'var(--ink-2)', fontStyle: 'italic', lineHeight: 1.4 }}>
                 {brief.headline}
               </div>
             </div>

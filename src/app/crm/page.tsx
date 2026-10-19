@@ -1,5 +1,6 @@
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
+import { HelmHero } from '@/components/HelmHero';
 import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
 import type { ContactRow, ContactType } from '@/lib/crm';
 import { CONTACT_TYPE_LABELS } from '@/lib/crm';
@@ -75,8 +76,8 @@ export default async function CrmPage() {
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
-      {/* Straight to the list: the number triage is a card on /messaging. */}
-      <div style={{ paddingTop: 32 }} />
+      {/* The nav name, then the list: the number triage is a card on /messaging. */}
+      <HelmHero plain eyebrow="Helm · Contacts" title="Contacts" />
 
       {error ? (
         <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, flex: 1, width: '100%' }}>
@@ -110,7 +111,7 @@ export default async function CrmPage() {
         />
       )}
 
-      <HelmFooter module="CRM" right="Source: Helm" />
+      <HelmFooter module="Contacts" right="Source: Helm" />
     </div>
   );
 }

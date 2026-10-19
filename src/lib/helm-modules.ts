@@ -753,7 +753,8 @@ export const HELM_MODULES: HelmModule[] = [
     id: 'crm',
     href: '/crm',
     number: '07',
-    title: 'CRM',
+    // "Contacts", not "CRM": a new hire knows the first word (2026-10-19).
+    title: 'Contacts',
     description: 'Owners, vendors, leads. Every call, text, email and visit logged in one place, as each contact\'s activity.',
     status: 'active',
     primary: false,

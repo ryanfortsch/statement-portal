@@ -19,6 +19,7 @@ import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { loadCleaningOutlook, cleaningFlags } from '@/lib/cleaning-schedule';
 import type { CleaningFlag } from '@/lib/cleaning-days';
 import { operatingDate } from '@/lib/operating-date';
+import { formatUsPhone } from '@/lib/phone';
 import { triageEmails } from '@/lib/ai/triage-emails';
 import { draftReply } from '@/lib/ai/draft-reply';
 import { replySignalFor, type HandledVia, type ReplySignals } from '@/lib/email-reply-signals';
@@ -945,7 +946,7 @@ async function createIssueSlipFromEmail(
 export async function loadDailyBrief(): Promise<DailyBrief> {
   const todayIso = today();
 
-  type ContactPick = { id: string; first_name: string | null; last_name: string | null; name: string | null };
+  type ContactPick = { id: string; first_name: string | null; last_name: string | null; name: string | null; phone: string | null; emails: string[] | null };
   type InboundTouchPick = {
     id: string;
     contact_id: string;
@@ -974,7 +975,6 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
     { data: checkouts },
     { data: checkins },
     { data: touches },
-    { data: contacts },
     { data: walksRecent },
     unreadEmails,
     cleaningFlagList,
@@ -1006,7 +1006,6 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
       .select('id, contact_id, channel, summary, touched_at, direction')
       .gte('touched_at', new Date(Date.now() - 14 * 86_400_000).toISOString())
       .order('touched_at', { ascending: false }),
-    supabase.from('contacts').select('id, first_name, last_name, name'),
     supabase
       .from('inspections')
       .select('id, property_id, started_at, completed_at')
@@ -1027,10 +1026,6 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
     propertyById.set(p.id, p.name);
   }
 
-  const contactById = new Map<string, ContactPick>();
-  for (const c of (contacts ?? []) as ContactPick[]) {
-    contactById.set(c.id, c);
-  }
 
   // bookings.channel is the enum token ('booking_com'); the home prints the
   // display label ('Booking.com'). An iCal-imported stay can carry no guest
@@ -1063,6 +1058,22 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
       }
     }
   }
+  // Only the contacts still waiting on a reply, read by id. This used to be a
+  // bare select of the whole contacts table, which PostgREST stops at 1,000
+  // rows: a contact past the cap lost its name and the home printed
+  // "Contact" (2026-10-19). A contact with no name reads as its number or
+  // email, so a row always says who wrote.
+  const waitingIds = [...latestInboundByContact.entries()]
+    .filter(([cid, inbound]) => { const lastOut = latestOutboundByContact.get(cid); return !(lastOut && lastOut >= inbound.touched_at); })
+    .map(([cid]) => cid);
+  const contactById = new Map<string, ContactPick>();
+  if (waitingIds.length > 0) {
+    const { data: contacts } = await supabase
+      .from('contacts')
+      .select('id, first_name, last_name, name, phone, emails')
+      .in('id', waitingIds);
+    for (const c of (contacts ?? []) as ContactPick[]) contactById.set(c.id, c);
+  }
   const inboundWaiting: BriefInboundTouch[] = [];
   for (const [contactId, inbound] of latestInboundByContact) {
     const lastOut = latestOutboundByContact.get(contactId);
@@ -1071,6 +1082,8 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
     const name = contact
       ? contact.name ||
         [contact.first_name, contact.last_name].filter(Boolean).join(' ').trim() ||
+        (contact.phone ? formatUsPhone(contact.phone) : null) ||
+        contact.emails?.[0] ||
         null
       : null;
     inboundWaiting.push({

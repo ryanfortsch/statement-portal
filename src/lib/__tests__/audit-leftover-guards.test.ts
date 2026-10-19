@@ -34,3 +34,9 @@ test('no cleaner mapped never links to a page that cannot map one', () => {
   assert.ok(!crew.includes('schedule-recipients'), 'the crew section links to the schedule recipients');
   assert.ok(crew.includes('Ask Ryan: no cleaner is mapped to'));
 });
+
+test('a staff login wears no badge it cannot clear', () => {
+  const route = read('src/app/api/nav-counts/route.ts');
+  assert.ok(route.includes("if ((await sessionRole()) !== 'owner') {"), 'nav counts are owner asks and must be zero for staff');
+  assert.ok(route.indexOf("!== 'owner'") < route.indexOf('loadFieldReview()'), 'the role check runs before any count is read');
+});
