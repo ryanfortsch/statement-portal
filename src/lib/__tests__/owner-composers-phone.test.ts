@@ -60,3 +60,8 @@ test('the competitor inventory is a list on a phone, its numbers labelled', () =
   assert.match(css, /\.rt-comp-row \{\s*display: flex !important;/);
   assert.match(css, /\.rt-comp-row > \[data-label\]::before \{\s*content: attr\(data-label\)/);
 });
+
+test('a guest link wraps instead of running off a phone screen', () => {
+  assert.ok(read('src/app/guests/quotes/[id]/page.tsx').includes("fontSize: 11, overflowWrap: 'anywhere' }}>{guestUrl}</span>"));
+  assert.ok(read('src/app/guests/agreements/[id]/page.tsx').includes("fontSize: 11, overflowWrap: 'anywhere' }}>{signPath}</span>"));
+});

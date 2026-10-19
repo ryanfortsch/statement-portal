@@ -59,10 +59,6 @@ export default async function NewQuotePage({ searchParams }: { searchParams: Pro
         >
           New quote
         </h1>
-        <p style={{ marginTop: 8, fontSize: 14, color: 'var(--ink-3)', maxWidth: 640 }}>
-          Pick the home and the dates, set the price, and save. The detail page has the guest link and
-          the send buttons; nothing goes out until you press one.
-        </p>
       </section>
 
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 96 }}>

@@ -122,7 +122,7 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
           </form>
         </div>
         <p style={{ marginTop: 12, fontSize: 12, color: 'var(--ink-4)', maxWidth: 640, lineHeight: 1.55 }}>
-          <span style={{ fontFamily: 'var(--font-mono), monospace', fontSize: 11 }}>{guestUrl}</span>
+          <span style={{ fontFamily: 'var(--font-mono), monospace', fontSize: 11, overflowWrap: 'anywhere' }}>{guestUrl}</span>
           . Anyone with the link can accept and pay, so share it only with the guest.
           {status === 'draft' ? ' The page reads as not found until the quote is sent or marked as sent.' : ''}
         </p>

@@ -31,10 +31,6 @@ export default async function NewAgreementPage() {
         >
           New rental agreement
         </h1>
-        <p style={{ marginTop: 8, fontSize: 14, color: 'var(--ink-3)', maxWidth: 640 }}>
-          A bespoke Stay Cape Ann agreement for a direct or mid-term stay. The document carries the
-          Rising Tide affiliation line, so the guest knows who bills them.
-        </p>
       </section>
 
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 96 }}>

@@ -35,11 +35,11 @@ export default async function EditQuotePage({ params }: { params: Promise<{ id: 
         >
           Edit quote
         </h1>
-        <p style={{ marginTop: 8, fontSize: 14, color: 'var(--ink-3)', maxWidth: 640 }}>
-          {quote.sent_at
-            ? 'This quote is already with the guest. The link stays the same; resend it from the detail page once you save so they see the new terms.'
-            : 'Still a draft. Nothing has gone out yet.'}
-        </p>
+        {quote.sent_at && (
+          <p style={{ marginTop: 8, fontSize: 14, color: 'var(--ink-3)', maxWidth: 640 }}>
+            Already with the guest: resend from the detail page after you save.
+          </p>
+        )}
       </section>
 
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 96 }}>
