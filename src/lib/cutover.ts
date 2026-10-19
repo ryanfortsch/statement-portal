@@ -232,9 +232,9 @@ export function evaluateCutoverPreflight(facts: CutoverFacts): CutoverPreflight 
       ok: base > 0 && !unlimited,
       detail:
         base <= 0
-          ? 'A plan row exists but its base rate is zero. Set it under Rates & taxes (property page, Guest & listing).'
+          ? 'A plan row exists but its base rate is zero. Set it under Pricing (property page, Guest & listing).'
           : unlimited
-          ? 'The booking window is unlimited, so Helm would sell every night ahead, however far. Set how many days ahead a stay may start under Rates & taxes (property page, Guest & listing) (and the same window on each OTA).'
+          ? 'The booking window is unlimited, so Helm would sell every night ahead, however far. Set how many days ahead a stay may start under Pricing (property page, Guest & listing) (and the same window on each OTA).'
           : `Base $${Math.round(base / 100).toLocaleString('en-US')} a night, ${facts.ratePlan.min_nights_default} night minimum${window != null ? `, bookable ${window} days ahead` : ''}.`,
       acknowledgement: false,
       href: ratesHref,
@@ -244,7 +244,7 @@ export function evaluateCutoverPreflight(facts: CutoverFacts): CutoverPreflight 
       key: 'rate_plan',
       label: 'Rate plan',
       ok: false,
-      detail: 'No property_rate_plans row. Without it Helm cannot price a night or quote a stay. Set it under Rates & taxes (property page, Guest & listing).',
+      detail: 'No rate plan yet. Without it Helm cannot price a night or quote a stay. Set it under Pricing (property page, Guest & listing).',
       acknowledgement: false,
       href: ratesHref,
     });
@@ -275,7 +275,7 @@ export function evaluateCutoverPreflight(facts: CutoverFacts): CutoverPreflight 
       key: 'tax_config',
       label: 'Tax configuration',
       ok: false,
-      detail: `No property_tax_config row and the home is outside Cape Ann (${region}); Helm refuses to quote a rate it does not know. Add the jurisdiction under Rates & taxes (property page, Guest & listing).`,
+      detail: `No tax rate saved and the home is outside Cape Ann (${region}); Helm refuses to quote a rate it does not know. Add the jurisdiction under Pricing (property page, Guest & listing).`,
       acknowledgement: false,
       href: ratesHref,
     });
@@ -439,7 +439,7 @@ export function evaluateCutoverPreflight(facts: CutoverFacts): CutoverPreflight 
     const gap = carry.bookingWindowGap;
     if (gap) {
       problems.push(
-        `Guesty takes no bookings from ${gap.closedFrom}; the Helm rate plan's booking window is ${gap.planWindow == null ? 'unlimited' : `${gap.planWindow} days`}, which would sell some of those nights. Set it to ${gap.maxPlanWindow} days or fewer under Rates & taxes (property page, Guest & listing), and the same window on each OTA, before the flip cancels Guesty's rule`,
+        `Guesty takes no bookings from ${gap.closedFrom}; the Helm rate plan's booking window is ${gap.planWindow == null ? 'unlimited' : `${gap.planWindow} days`}, which would sell some of those nights. Set it to ${gap.maxPlanWindow} days or fewer under Pricing (property page, Guest & listing), and the same window on each OTA, before the flip cancels Guesty's rule`,
       );
     }
     const rulesDropped = carry.guestyBlocks.filter((r) => isGuestyRule(r)).length;

@@ -11,7 +11,7 @@ import { TURNOVER_BUFFER_MAX_DAYS } from '@/lib/availability';
 import { isIsoDay, nightsBetween, shiftIsoDay } from '@/lib/sca-quotes-types';
 
 /**
- * Server actions for the property Rates & taxes tab (RatesPanel.tsx).
+ * Server actions for the property page's Pricing section (RatesPanel.tsx).
  *
  * The plan and the per-day overrides go through src/lib/property-rates.ts;
  * the quote tester goes through src/lib/rate-plan.ts quoteStay. Nothing here
@@ -153,7 +153,7 @@ export async function saveTaxConfigAction(propertyId: string, _prev: RatesFormSt
     const { error } = await supabaseAdmin.from('property_tax_config').upsert(row, { onConflict: 'property_id' }).select(TAX_CONFIG_COLS).single();
     if (error) return { error: `Save failed: ${error.message}` };
     revalidatePath(`/properties/${propertyId}`);
-    return { error: null, ok: true, message: 'Tax config saved.' };
+    return { error: null, ok: true, message: 'Taxes saved.' };
   } catch (e) {
     return { error: e instanceof Error ? e.message : 'Save failed' };
   }
@@ -260,7 +260,7 @@ export async function testQuoteAction(propertyId: string, input: TestQuoteInput)
   if (checkOut <= checkIn) return { ok: false, error: 'Checkout must be after check-in.' };
   try {
     const [bundle, fleet] = await Promise.all([loadPricingBundle(propertyId, checkIn, checkOut), getFleetProperty(propertyId)]);
-    if (!bundle.plan) return { ok: false, error: 'No rate plan yet. Save one above, then test a quote.' };
+    if (!bundle.plan) return { ok: false, error: 'No rate plan yet. Set the nightly price above, then price the stay.' };
     const quote = quoteStay({
       plan: bundle.plan,
       days: bundle.days,
@@ -276,7 +276,7 @@ export async function testQuoteAction(propertyId: string, input: TestQuoteInput)
     return { ok: true, quote, taxSource: bundle.tax ? 'config' : 'ma_legacy', tax: bundle.tax };
   } catch (e) {
     if (e instanceof TaxJurisdictionUnknownError) {
-      return { ok: false, error: 'No tax config for this home and it is not on Cape Ann. Save the tax jurisdiction first; Helm will not guess 11.7%.' };
+      return { ok: false, error: 'No tax rate saved for this home, and it is not on Cape Ann. Save its taxes above first; Helm will not guess 11.7%.' };
     }
     return { ok: false, error: e instanceof Error ? e.message : 'Quote failed' };
   }

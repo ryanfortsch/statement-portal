@@ -473,7 +473,7 @@ export default async function PropertyDetailPage({
 
   // PMS plumbing: who runs this home's calendar (properties.calendar_authority,
   // read off the select('*') row), plus the three Helm-native records the
-  // Rates & taxes, Listing and Automations sections render. Each loader is
+  // Pricing, Listing and Automations sections render. Each loader is
   // null-safe so a missing migration on a preview env degrades to an empty
   // panel instead of a 500.
   const helmRun = isHelmRun(p as unknown as { calendar_authority?: string | null });
@@ -809,7 +809,7 @@ export default async function PropertyDetailPage({
           { id: 'now', label: 'Now', badge: openSlips.length || undefined },
           { id: 'facts', label: 'Facts' },
           { id: 'owner', label: 'Owner & money', badge: crmContactsFull.length || undefined },
-          // Rates & taxes, Listing and Automations (the Helm-native PMS
+          // Listing, Pricing and Automations (the Helm-native PMS
           // records) are sections of this tab; the badge is sends waiting
           // on an approval there.
           { id: 'guest', label: 'Guest & listing', badge: automationsView?.counts.awaiting || undefined },
@@ -1086,7 +1086,7 @@ export default async function PropertyDetailPage({
               href={`/properties/${p.id}?tab=guest#rates`}
               style={{ color: 'var(--signal)', textDecoration: 'none', fontSize: 12 }}
             >
-              Set on the rate plan &rarr;
+              Set under Pricing &rarr;
             </Link>
           ) : (
             <div style={{ color: 'var(--ink-3)', lineHeight: 1.55 }}>Guesty tells the guest</div>

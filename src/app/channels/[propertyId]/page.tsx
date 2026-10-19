@@ -539,7 +539,7 @@ export default async function ChannelsPropertyPage({
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 80 }}>
         <div className="eyebrow" style={{ marginBottom: 14 }}>On the property record</div>
         <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)' }}>
-          <Tile href={`/properties/${propertyId}?tab=guest#rates`} title="Rates and policies" body={bundle?.plan ? `Base $${Math.round(bundle.plan.base_nightly_cents / 100)} a night, ${bundle.plan.min_nights_default} night minimum, cleaning $${Math.round(bundle.plan.cleaning_fee_cents / 100)}.` : helmRun ? 'No rate plan yet. Helm cannot price a night without one.' : 'The plan Helm will price from after the flip; the seed mirrors Guesty.'} />
+          <Tile href={`/properties/${propertyId}?tab=guest#rates`} title="Pricing" body={bundle?.plan ? `Base $${Math.round(bundle.plan.base_nightly_cents / 100)} a night, ${bundle.plan.min_nights_default} night minimum, cleaning $${Math.round(bundle.plan.cleaning_fee_cents / 100)}.` : helmRun ? 'No rate plan yet. Helm cannot price a night without one.' : 'The plan Helm will price from after the flip.'} />
           <Tile href={`/properties/${propertyId}?tab=guest#listing`} title="Listing content" body="Title, summary, the space, rooms and beds, amenities and photos: the guest-facing record Helm feeds to staycapeann.com." />
           <Tile href={`/properties/${propertyId}?tab=guest#automations`} title="Automations" body={property.automations_enabled ? 'On for this home. Fleet defaults with per-property overrides; sends need approval unless a rule says auto.' : 'Off for this home. Review the fleet rules and overrides before the flip.'} last />
         </div>
@@ -655,7 +655,7 @@ function AttentionPanel({ carry, propertyId, helmRun, unfiltered, now }: { carry
             why={`Guesty takes no bookings from ${carry.bookingWindowGap.closedFrom}. After the flip only Helm's rate plan and each OTA's own setting keep those nights off sale, and the plan's booking window is ${carry.bookingWindowGap.planWindow == null ? 'unlimited' : `${carry.bookingWindowGap.planWindow} days`}. Set it to ${carry.bookingWindowGap.maxPlanWindow} days or fewer, and the same window on each OTA.`}
           >
             <li>
-              <Link href={`/properties/${propertyId}?tab=guest#rates`} style={{ fontSize: 12, color: 'var(--ink)' }}>Open Rates & taxes →</Link>
+              <Link href={`/properties/${propertyId}?tab=guest#rates`} style={{ fontSize: 12, color: 'var(--ink)' }}>Open Pricing →</Link>
             </li>
           </Item>
         )}
