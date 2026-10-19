@@ -18,6 +18,7 @@ import {
   voidAgreement,
 } from '../actions';
 import { SubmitButton } from '@/components/SubmitButton';
+import { isOwnerSession } from '@/lib/helm-access-server';
 import { CopyLinkButton } from './CopyLinkButton';
 
 export const dynamic = 'force-dynamic';
@@ -35,6 +36,9 @@ export default async function AgreementDetailPage({ params }: { params: Promise<
   const a = data as GuestAgreementRow;
   const status = agreementStatus(a);
   const voidable = agreementVoidability(a);
+  // Countersigning binds Rising Tide, so the action requires an owner. A
+  // staff login gets a line saying so instead of a button that would fail.
+  const owner = await isOwnerSession();
 
   const signPath = `/agreement/${a.signing_token}`;
   const pdfHref = `/api/agreement-pdf?id=${encodeURIComponent(a.id)}`;
@@ -174,12 +178,14 @@ export default async function AgreementDetailPage({ params }: { params: Promise<
                 : 'Countersign to execute (emails the final PDF + archives to Drive)'
             }
           >
-            {a.guest_signed_at && !a.countersigned_at && !a.voided_at && (
+            {a.guest_signed_at && !a.countersigned_at && !a.voided_at && (owner ? (
               <form action={countersignAgreement}>
                 <input type="hidden" name="id" value={a.id} />
                 <SubmitButton label="Countersign as Allie" busyLabel="Executing…" style={actionPrimary} />
               </form>
-            )}
+            ) : (
+              <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>An owner countersigns it.</span>
+            ))}
           </WorkflowRow>
         </div>
       </section>
