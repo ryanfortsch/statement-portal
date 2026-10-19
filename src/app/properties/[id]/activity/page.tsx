@@ -107,9 +107,6 @@ export default async function PropertyActivityPage({
         >
           {p.name}
         </h1>
-        <p style={{ margin: 0, fontSize: 13, color: 'var(--ink-3)' }}>
-          Every slip, inspection, note and contact touch recorded against this property.
-        </p>
       </section>
 
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 24, width: '100%' }}>

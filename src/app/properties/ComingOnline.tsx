@@ -124,9 +124,6 @@ export function ComingOnline({
             <span className="font-serif" style={{ fontSize: 17, color: 'var(--ink)' }}>
               Live, with loose ends <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>{looseEnds.length}</span>
             </span>
-            <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
-              Required Launch steps never confirmed on homes that already have guests
-            </span>
           </summary>
           <div>
             {looseEnds.map((r) => (

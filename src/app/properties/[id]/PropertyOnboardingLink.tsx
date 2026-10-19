@@ -242,11 +242,7 @@ export function PropertyOnboardingLink({
           <span suppressHydrationWarning style={{ fontSize: 12, color: submittedAt ? 'var(--positive)' : 'var(--ink-4)', letterSpacing: '.04em', whiteSpace: 'nowrap' }}>
             {statusLine}
           </span>
-        ) : (
-          <span style={{ fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.5 }}>
-            A public form the owner fills in; the answers land on this record.
-          </span>
-        )}
+        ) : null}
         {!hasOwnerEmail && (
           <span style={{ fontSize: 12, color: 'var(--ink-4)' }}>Add an owner email above to enable the invite.</span>
         )}

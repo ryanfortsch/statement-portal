@@ -305,9 +305,7 @@ export function WalkthroughCapture({
       {phase === 'input' && (
         <>
           <p style={{ margin: '0 0 10px', fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.5, maxWidth: 720 }}>
-            Narrate a full walkthrough, room by room: beds, TVs, quirks, codes, anything you see.
-            Say where you are ("in the primary bedroom... now the main bath") and keep talking.
-            Helm sorts every fact into rooms, fields, and notes; you review before anything saves.
+            Say which room you are in as you go.
           </p>
           <div style={{ position: 'relative' }}>
             <textarea
@@ -371,10 +369,6 @@ export function WalkthroughCapture({
 
       {phase === 'review' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <p style={{ margin: 0, fontSize: 12, color: 'var(--ink-3)' }}>
-            Uncheck anything wrong, then apply. Room facts merge into the room cards below;
-            fields and notes flow through the same guarded path as Quick Capture.
-          </p>
           {rooms.map((room) => {
             const items = roomItems.filter((i) => i.roomName === room.name);
             if (items.length === 0) return null;

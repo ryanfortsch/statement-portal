@@ -201,9 +201,7 @@ export function DocumentsPanel({
       {/* List */}
       {documents.length === 0 ? (
         <p style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55 }}>
-          Nothing filed yet. Upload insurance policies, tax certificates, inspection reports, or
-          anything worth keeping with this property. The executed management contract files itself
-          here automatically when a prospect is promoted.
+          Nothing filed yet.
         </p>
       ) : (
         <div style={{ borderTop: '1px solid var(--ink)' }}>

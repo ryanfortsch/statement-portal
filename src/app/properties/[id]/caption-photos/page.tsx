@@ -49,9 +49,7 @@ export default async function CaptionPhotosPage({
           Photo <em style={{ color: 'var(--tide-deep)', fontWeight: 400 }}>captions</em>
         </h1>
         <p style={{ marginTop: 14, fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: 720 }}>
-          Pulls this listing&apos;s photos straight from Guesty and drafts a caption for each one, in
-          the voice of the captions already on our other listings. Review and edit inline, then push
-          each caption back to the live listing. Nothing saves to Guesty until you click Save.
+          Nothing goes to Guesty until you click Save.
         </p>
       </section>
 

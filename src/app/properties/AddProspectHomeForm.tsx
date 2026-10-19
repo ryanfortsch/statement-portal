@@ -51,9 +51,6 @@ export function AddProspectHomeForm() {
           <input name="city" value={draft.city} onChange={event => setDraft(prev => ({ ...prev, city: event.target.value }))} disabled={pending} placeholder="Rockport" style={inp} />
         </label>
         <button type="submit" disabled={pending} aria-busy={pending} style={{ background: 'var(--ink)', color: 'var(--paper)', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', padding: '10px 18px', borderRadius: 6 }}>{pending ? 'Adding…' : 'Add home'}</button>
-        <div style={{ fontSize: 11.5, color: 'var(--ink-4)', lineHeight: 1.5, width: '100%' }}>
-          Field packets and work slips can point at it before it signs. It joins the roster when it is onboarded.
-        </div>
         {error && <p role="alert" style={{ color: 'var(--negative)' }}>{error} <a href="/properties" target="_blank" rel="noopener noreferrer">Check properties</a></p>}
       </form>
     </details>
