@@ -6,8 +6,6 @@ import { headers } from 'next/headers';
 import { fieldSubmissionId } from '@/lib/field-submission-id';
 import { fieldDb } from '@/lib/field-db';
 import { maybeAwardStreakBonus } from '@/lib/field-streaks';
-import { geocodeAddress } from '@/lib/geocode';
-import { haversineMiles } from '@/lib/proximity';
 import { resolveContractorFromCookie, endContractorSession } from '@/lib/field-auth';
 import { canClaim, canFlagAnyHome, type ContractorRow, type PacketRow, type PacketStopRow } from '@/lib/field-types';
 import { isWorkingStatus } from '@/lib/field-packet-status';
@@ -17,10 +15,12 @@ import { loadRecentVisits } from '@/lib/field-report';
 import { parseReceiptDollars, resolveReceiptPacket, homeReceipt } from '@/lib/field-receipts';
 import { programPacketCodes, revokePacketCodes } from '@/lib/field-locks';
 import { saveW9 } from '@/lib/field-w9';
-import { savePayment } from '@/lib/field-pay';
+import { savePayment, revealPayment, PAYMENT_METHODS } from '@/lib/field-pay';
+import { homeBaseFor } from '@/lib/field-home-base';
+import { cleanTown, contractorPhone, payoutChanged, phoneDigits } from '@/lib/field-contractor-details';
 import { HELM_CORE_TEMPLATE_ID } from '@/lib/inspections-types';
 import { generateDeck } from '@/lib/inspection-deck';
-import { sendClaimConfirmation, sendPacketSubmittedEmail, sendContractorOnboardedEmail, sendContractorQuestionEmail, sendStreakBonusOfficeEmail, sendShootBrief, notifyOfficeShootDeclined } from '@/lib/field-notify';
+import { sendClaimConfirmation, sendPacketSubmittedEmail, sendContractorOnboardedEmail, sendContractorQuestionEmail, sendStreakBonusOfficeEmail, sendShootBrief, notifyOfficeShootDeclined, sendPayoutChangedEmails } from '@/lib/field-notify';
 
 /** "Send a note" from the portal's Reach-out affordance. Auth'd by the
  *  contractor cookie so we know who is asking; emails Ryan with reply-to set to
@@ -487,15 +487,9 @@ export async function completeOnboarding(
   // Geocode a home base for the marketplace's "near you" ranking, derived
   // from the W-9 city/state/ZIP the contractor just entered — the form used
   // to ask for a separate "home base (town or ZIP)" that duplicated it.
-  // Deliberately town-level (no street line): coarse coords are all ranking
-  // needs, and we don't store house-precision coordinates on the contractor
-  // row. Best-effort: a failed lookup just leaves coords null (no ranking),
-  // and an implausible hit (>150 mi from HQ) stores nothing rather than an
-  // absurd mis-geocode — city+state+ZIP make the old wrong-state problem
-  // (one real inspector's bare town landed 472 mi away) unlikely, but the
-  // guard stays.
-  const HQ = { lat: 42.6209, lng: -70.645 };
-  const PLAUSIBLE_COMMUTE_MILES = 150;
+  // Town-level, with the plausible-commute guard (src/lib/field-home-base.ts,
+  // shared with the profile's Edit details). Best-effort: a failed lookup
+  // just leaves coords as they were (no ranking).
   let homeLat = contractor.home_lat;
   let homeLng = contractor.home_lng;
   const homeTown = [
@@ -503,8 +497,8 @@ export async function completeOnboarding(
     `${String(formData.get('w9_state') || '').trim()} ${String(formData.get('w9_zip') || '').trim()}`.trim(),
   ].filter(Boolean).join(', ');
   if (homeTown) {
-    const best = await geocodeAddress(homeTown);
-    if (best && haversineMiles(HQ, best) <= PLAUSIBLE_COMMUTE_MILES) {
+    const best = await homeBaseFor(homeTown);
+    if (best) {
       homeLat = best.lat;
       homeLng = best.lng;
     }
@@ -651,6 +645,94 @@ export async function setSmsOptIn(optIn: boolean): Promise<{ ok: boolean; error?
   if (error || !data) return { ok: false, error: 'Could not save your text preference. Please try again.' };
   revalidatePath('/field/profile');
   return { ok: true };
+}
+
+export type DetailsState = { error: string };
+
+/**
+ * The profile's Edit details: phone, payout method and handle, home town.
+ * Retained-submission shaped like completeOnboarding: any failure RETURNS a
+ * specific error and the form keeps what was typed; success redirects back
+ * to the profile with a Saved line.
+ *
+ * Payout goes through savePayment, the same encrypted path onboarding uses,
+ * and only when it changes: compared in the clear against what is on file,
+ * so a retry of the same save neither rewrites it nor tells the office twice.
+ * The office is emailed what it was and what it is now; the contractor gets a
+ * receipt at the email on file. The W-9 is never touched here.
+ */
+export async function updateContractorDetails(_prev: DetailsState, formData: FormData): Promise<DetailsState> {
+  const contractor = await resolveContractorFromCookie();
+  if (!contractor) redirect('/field');
+
+  const phone = contractorPhone(String(formData.get('phone') || ''));
+  if (!phone) return { error: 'Add a 10-digit mobile number, like (978) 555-0123.' };
+
+  const town = cleanTown(String(formData.get('home_town') || ''));
+  const townWas = cleanTown(String(formData.get('home_town_was') || ''));
+  const townChanged = !!town && town.toLowerCase() !== townWas.toLowerCase();
+  let home: { lat: number; lng: number } | null = null;
+  if (townChanged) {
+    home = await homeBaseFor(town);
+    if (!home) return { error: 'We could not place that town near Cape Ann. Try the town and state, like Beverly, MA.' };
+  }
+
+  const method = String(formData.get('payment_method') || '').trim();
+  const details = String(formData.get('payment_details') || '');
+  if (method && !(PAYMENT_METHODS as readonly string[]).includes(method)) return { error: 'Pick a payout method from the list.' };
+  const payout =
+    method && payoutChanged({ method: contractor.payment_method, details: await revealPayment(contractor.id) }, { method, details });
+  if (payout) {
+    const payErr = await savePayment(contractor.id, method, details);
+    if (payErr) return { error: payErr };
+  }
+
+  const phoneChanged = phoneDigits(phone) !== phoneDigits(contractor.phone);
+  if (phoneChanged || home) {
+    const { data: saved, error } = await fieldDb()
+      .from('contractors')
+      .update({
+        ...(phoneChanged ? { phone } : {}),
+        ...(home ? { home_lat: home.lat, home_lng: home.lng } : {}),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', contractor.id)
+      .select('id')
+      .maybeSingle();
+    if (error || !saved) {
+      return {
+        error: payout
+          ? 'Your payout change is saved, but your phone and town could not be. Please try again.'
+          : 'Could not save your details. What you typed is kept; please try again.',
+      };
+    }
+  }
+
+  if (payout || phoneChanged || home) {
+    await logEvent({
+      contractorId: contractor.id,
+      actorEmail: contractor.email,
+      eventType: 'details_changed',
+      payload: {
+        changed: [phoneChanged && 'phone', home && 'home_town', payout && 'payout'].filter(Boolean),
+        ...(home ? { home_town: town } : {}),
+        ...(payout ? { payment_method: method } : {}),
+      },
+    }).catch(() => {});
+  }
+  if (payout) {
+    const { data: after } = await fieldDb().from('contractors').select('payment_method, payment_hint').eq('id', contractor.id).maybeSingle();
+    const next = after as { payment_method: string | null; payment_hint: string | null } | null;
+    await sendPayoutChangedEmails(
+      { full_name: contractor.full_name, email: contractor.email, phone },
+      { method: contractor.payment_method, hint: contractor.payment_hint },
+      { method: next?.payment_method ?? method, hint: next?.payment_hint ?? null },
+    ).catch(() => {});
+  }
+
+  revalidatePath('/field/profile');
+  revalidatePath('/field');
+  redirect(`/field/profile?saved=${Date.now().toString(36)}#details`);
 }
 
 /** Start (or resume) the inspection for one stop, then drop the contractor

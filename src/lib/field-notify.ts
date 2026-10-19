@@ -1044,6 +1044,56 @@ export async function sendBackgroundCheckNotice(
   return { texted, emailed };
 }
 
+/**
+ * A contractor changed how they are paid from their profile. The office (whoever
+ * approves field pay, operations on copy) is told what it was and what it is
+ * now, so the next payment goes to the right place; the contractor gets a
+ * receipt at the email on file, so a change they did not make is caught by
+ * the person it would hurt. Hints only: an account number is masked to its
+ * last four, as on the roster.
+ */
+export async function sendPayoutChangedEmails(
+  contractor: Pick<ContractorRow, 'full_name' | 'email' | 'phone'>,
+  before: { method: string | null; hint: string | null },
+  after: { method: string; hint: string | null },
+): Promise<{ office: boolean; contractor: boolean }> {
+  const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const line = (p: { method: string | null; hint: string | null }) =>
+    p.method ? (p.hint && p.hint !== p.method ? `${p.method} · ${p.hint}` : p.method) : 'nothing on file';
+  const was = line(before);
+  const now = line(after);
+  const name = esc(contractor.full_name);
+  const officeHtml = shell(`
+    <h1 style="font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 14px;">${name} changed how they're paid</h1>
+    <p>Now: <strong>${esc(now)}</strong><br/>Was: ${esc(was)}</p>
+    <p>Pay to the new details from now on. The full details are on the roster (Reveal). If this looks wrong, call ${name}${contractor.phone ? ` at ${esc(contractor.phone)}` : ''} before the next payment.</p>
+    ${btn(`${fieldBaseUrl()}/fieldwork/roster`, 'Open roster')}
+  `);
+  const office = await sendTransactionalViaResend({
+    ...fieldPayNotice(),
+    subject: `Field: ${contractor.full_name} changed their payout details`,
+    fromName: FROM_NAME,
+    replyTo: contractor.email,
+    html: officeHtml,
+    text: `${contractor.full_name} changed how they're paid. Now: ${now}. Was: ${was}. Pay to the new details from now on; full details are on the roster.`,
+  }).catch(() => false);
+
+  const first = esc(contractor.full_name.split(' ')[0]);
+  const contractorMail = contractor.email
+    ? await sendTransactionalViaResend({
+        to: contractor.email,
+        subject: 'Your payout details changed',
+        fromName: FROM_NAME,
+        html: shell(`
+          <h1 style="font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 14px;">Your payout details changed</h1>
+          <p>Hi ${first}, your Rising Tide payouts now go to <strong>${esc(now)}</strong>. If you didn't make this change, call the office at (978) 865-2500 right away.</p>
+        `),
+        text: `Your Rising Tide payouts now go to ${now}. If you didn't make this change, call the office at (978) 865-2500 right away.`,
+      }).catch(() => false)
+    : false;
+  return { office, contractor: contractorMail };
+}
+
 /** A contractor tapped "Send a note" in the portal. Goes to whoever approves
  *  field pay (operations on copy), with reply-to set to the contractor so the
  *  answer goes straight from the inbox, and their phone surfaced for a quick

@@ -9,6 +9,9 @@ import { useState } from 'react';
  * W-9 address). Whatever the method, the pieces are assembled into one hidden
  * `payment_details` value so the server action + savePayment stay unchanged
  * (one encrypted blob, masked to last-4 for the office hint).
+ *
+ * `keepLabel` is the profile's Edit details: the method starts on "keep what
+ * is on file" and nothing below it shows until a new method is picked.
  */
 const HANDLE: Record<string, { label: string; placeholder: string }> = {
   Venmo: { label: 'Venmo username', placeholder: '@username' },
@@ -21,10 +24,13 @@ export function PaymentFields({
   methods,
   inputStyle,
   labelStyle,
+  keepLabel,
 }: {
   methods: readonly string[];
   inputStyle: React.CSSProperties;
   labelStyle: React.CSSProperties;
+  /** Optional choice: a blank method keeps the one on file. */
+  keepLabel?: string;
 }) {
   const [method, setMethod] = useState('');
   const [handle, setHandle] = useState('');
@@ -50,8 +56,8 @@ export function PaymentFields({
 
       <div>
         <label style={labelStyle}>Method</label>
-        <select name="payment_method" required value={method} onChange={(e) => setMethod(e.target.value)} style={inputStyle}>
-          <option value="" disabled>Select…</option>
+        <select name="payment_method" required={!keepLabel} value={method} onChange={(e) => setMethod(e.target.value)} style={inputStyle}>
+          {keepLabel ? <option value="">{keepLabel}</option> : <option value="" disabled>Select…</option>}
           {methods.map((m) => (
             <option key={m} value={m}>{m}</option>
           ))}
@@ -114,7 +120,7 @@ export function PaymentFields({
 
       {isCheck && (
         <div style={{ fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.5 }}>
-          We&apos;ll mail your checks to the address on your W-9 above.
+          We&apos;ll mail your checks to the address on your W-9.
         </div>
       )}
     </>

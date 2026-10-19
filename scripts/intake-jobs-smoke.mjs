@@ -14,7 +14,7 @@ const compile=s=>ts.transpileModule(s,{compilerOptions:{target:ts.ScriptTarget.E
 for(const [name,path] of [
  ['apply','src/app/field/apply/ApplyForm.tsx'],['video','src/app/field/apply/ApplyVideo.tsx'],['onboarding','src/app/field/onboarding/OnboardingForm.tsx'],
  ['payment','src/app/field/onboarding/PaymentFields.tsx'],['tin','src/app/field/onboarding/TinInput.tsx'],['phone','src/components/PhoneInput.tsx'],['phone-lib','src/lib/phone.ts'],
- ['sms','src/app/field/SmsToggle.tsx'],['checklist','src/app/properties/[id]/OnboardingItemToggle.tsx'],
+ ['sms','src/app/field/SmsToggle.tsx'],['details','src/app/field/profile/EditDetailsForm.tsx'],['bgcheck','src/lib/field-background-check.ts'],['checklist','src/app/properties/[id]/OnboardingItemToggle.tsx'],
  ['attachments','src/app/fieldwork/packets/[id]/StopAttachments.tsx'],['text','src/app/fieldwork/packets/[id]/PacketTextEditor.tsx'],['order','src/app/fieldwork/packets/[id]/StopList.tsx'],
  ['retained','src/lib/use-retained-submission.ts'],['unsaved','src/lib/unsaved-work.ts'],
  ['button','src/components/Button.tsx'],
@@ -29,6 +29,7 @@ await writeFile(join(scratch,'actions.js'),`
 export const save=(kind,args)=>new Promise((resolve,reject)=>window.calls.push({kind,args,resolve,reject}));
 export const submitApplication=(prev,data)=>save('apply',[...data.entries()].filter(([k,v])=>typeof v==='string'));
 export const completeOnboarding=(prev,data)=>save('onboarding',[...data.entries()]);
+export const updateContractorDetails=(prev,data)=>save('details',[...data.entries()]);
 export const setSmsOptIn=target=>save('sms',target),setOnboardingItemAction=args=>save('checklist',args);
 export const updateStopSlipContent=(packetId,id,text)=>save('job',{packetId,id,text});
 export const updateStopSlipNote=(packetId,id,text)=>save('note',{packetId,id,text});
@@ -43,7 +44,7 @@ await writeFile(join(scratch,'router.js'),`export {unstable_rethrow} from 'next/
 await writeFile(join(scratch,'refresh.js'),'export const useSoftRefresh=()=>()=>window.refreshes++;');
 await writeFile(join(scratch,'entry.js'),compile(`
 import React,{useState} from 'react';import {createRoot} from 'react-dom/client';
-import {ApplyForm} from './apply.js';import {OnboardingForm} from './onboarding.js';import {SmsToggle} from './sms.js';
+import {ApplyForm} from './apply.js';import {OnboardingForm} from './onboarding.js';import {SmsToggle} from './sms.js';import {EditDetailsForm} from './details.js';
 import {OnboardingItemToggle} from './checklist.js';
 import {StopAttachments,PacketInstructions} from './attachments.js';import {StopList} from './order.js';
 import {hasUnsavedWork} from './unsaved.js';
@@ -60,12 +61,13 @@ window.confirmAttach=()=>setAttached([slipA,{...slipB,attachmentId:'attachment-b
 if(!mounted)return null;return <>
 {(mode==='apply'||mode==='all')&&<section id="apply"><RedirectBoundary><ApplyForm source="synthetic-source" trade={params.has('creative')?'creative':'inspection'}/></RedirectBoundary></section>}
 {mode==='onboarding'&&<section id="onboarding"><RedirectBoundary><OnboardingForm defaultName="Synthetic Person" defaultPhone="9785550100" taxClassifications={['Individual','LLC']} paymentMethods={['Check','Venmo','Direct deposit (ACH)']} isCreative={params.has('creative')}/></RedirectBoundary></section>}
+{mode==='details'&&<section id="details"><RedirectBoundary><EditDetailsForm phone="9785550100" homeTown="Gloucester, MA" payout="Venmo · @synthetic" paymentMethods={['Venmo','Zelle','Check','Direct deposit (ACH)']}/></RedirectBoundary></section>}
 {(mode==='controls'||mode==='all')&&<section id="controls"><section id="sms"><SmsToggle initial={true}/></section><section id="checklist"><OnboardingItemToggle propertyId="home-a" itemKey="photos" status={check} derived={params.has('derived')}/></section></section>}
 {(mode==='text'||mode==='all')&&<section id="text"><section id="packet"><PacketInstructions packetId="packet-a" instructions={notes} editable={!params.has('readonly')}/></section><section id="stop"><StopAttachments packetId="packet-a" stopId="stop-a" stopWorkSlipId="job-a" stopSlip={{id:'job-a',text:'Existing job description'}} attached={attached} attachable={[slipA,slipB]} instructions={params.has('empty')?null:'Existing stop instructions'} editable={!params.has('readonly')} visitDate="2030-10-01"/></section></section>}
 {mode==='order'&&<section id="order"><StopList packetId="packet-a" canReorder={!params.has('readonly')} items={ids.map(id=>({id,node:<div data-stop={id} style={{height:60}}>Stop {id}</div>}))}/></section>}
 </>;}createRoot(document.getElementById('root')).render(<Fixture/>);
 `));
-const alias={'@/lib/version-skew':'skew','@/lib/confirm-question':'confirm-question','@/components/ConfirmDialog':'confirm-dialog','@/lib/use-pending-watchdog':'watchdog','@/lib/button-class':'button-class','@/components/Button':'button','./actions':'actions','../actions':'actions','./onboarding-actions':'actions','./ApplyVideo':'video','./PaymentFields':'payment','./TinInput':'tin','./PacketTextEditor':'text','@/components/PhoneInput':'phone','@/lib/phone':'phone-lib','@/lib/use-retained-submission':'retained','./unsaved-work':'unsaved','@/lib/unsaved-work':'unsaved','@/lib/use-soft-refresh':'refresh','@vercel/blob/client':'blob','next/navigation':'router'};
+const alias={'@/lib/version-skew':'skew','@/lib/confirm-question':'confirm-question','@/components/ConfirmDialog':'confirm-dialog','@/lib/use-pending-watchdog':'watchdog','@/lib/button-class':'button-class','@/components/Button':'button','./actions':'actions','../actions':'actions','./onboarding-actions':'actions','./ApplyVideo':'video','./PaymentFields':'payment','../onboarding/PaymentFields':'payment','@/lib/field-background-check':'bgcheck','./TinInput':'tin','./PacketTextEditor':'text','@/components/PhoneInput':'phone','@/lib/phone':'phone-lib','@/lib/use-retained-submission':'retained','./unsaved-work':'unsaved','@/lib/unsaved-work':'unsaved','@/lib/use-soft-refresh':'refresh','@vercel/blob/client':'blob','next/navigation':'router'};
 await new Promise((resolve,reject)=>{const compiler=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.js'),output:{path:scratch,filename:'bundle.js'},resolve:{modules:[join(root,'node_modules')],alias:Object.fromEntries(Object.entries(alias).map(([k,v])=>[k,join(scratch,v+'.js')]))},performance:{hints:false}});compiler.run((err,stats)=>compiler.close(()=>err||stats?.hasErrors()?reject(err||Error(stats.toString({all:false,errors:true}))):resolve()));});
 if(process.argv.includes('--compile-only')){console.log('Intake and job fixture compiled.');await rm(scratch,{recursive:true,force:true});process.exit(0);}
 const server=createServer(async(req,res)=>{if(req.method!=='GET'){res.writeHead(405).end();return;}res.setHeader('Cache-Control','no-store');res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'");if(req.url==='/bundle.js'){res.setHeader('Content-Type','text/javascript; charset=utf-8');res.end(await readFile(join(scratch,'bundle.js')));}else{res.setHeader('Content-Type','text/html; charset=utf-8');res.end('<!doctype html><title>Synthetic intake and job controls</title><style>body{font:14px system-ui;--ink:#222;--paper:#fff;--rule:#ccc}section{margin:20px}button{margin:4px}input,textarea,select{margin:4px}</style><div id="root"></div><script src="/bundle.js"></script>');}});
@@ -121,6 +123,17 @@ for(const creative of [false,true]){
  await submit('#onboarding');await waitCalls(3);assert.deepEqual((await calls())[2].args,first);await redirect(2);await waitText('Redirect received');await clean();
  pass((creative?'creative':'inspection')+' onboarding retries the same answers once and preserves successful redirect');
 }
+
+await reset('details');assert.equal(await value('#details [name="payment_method"]'),'');assert.equal(await page.$('#details [placeholder="@username"]'),null);assert.match(await text(),/Your W-9 stays as filed/);
+await edit('#details [name="phone"]','9785550177');await edit('#details [name="home_town"]','Beverly, MA');await edit('#details [name="payment_method"]','Venmo');await edit('#details [placeholder="@username"]','@synthetic-new');await submit('#details',true);await waitCalls(1);const firstDetails=(await calls())[0].args;
+assert.deepEqual(Object.fromEntries(firstDetails),{phone:'(978) 555-0177',home_town_was:'Gloucester, MA',home_town:'Beverly, MA',payment_details:'@synthetic-new',payment_method:'Venmo'});
+assert.equal(await page.$$eval('#details input,#details select,#details button',es=>es.every(e=>e.matches(':disabled'))),true);
+await finish(0,{error:'We could not place that town near Cape Ann.'});await ready('#details input[name="phone"]');await waitText('We could not place that town');assert.equal(await value('#details [name="home_town"]'),'Beverly, MA');assert.equal(await value('#details [placeholder="@username"]'),'@synthetic-new');assert.equal(await guard(),true);
+await submit('#details');await waitCalls(2);assert.deepEqual((await calls())[1].args,firstDetails);await finish(1,null,true);await ready('#details input[name="phone"]');await waitText('Could not confirm your details were saved');assert.equal(await value('#details [name="phone"]'),'(978) 555-0177');
+pass('Edit details sends one save per tap, keeps phone, town and the new payout handle through a refusal and a lost response');
+await submit('#details');await waitCalls(3);assert.deepEqual((await calls())[2].args,firstDetails);await redirect(2);await waitText('Redirect received');await clean();
+await reset('details');await submit('#details');await waitCalls(1);assert.equal(Object.fromEntries((await calls())[0].args).payment_method,'',"a blank method keeps the payout on file");await redirect(0);await waitText('Redirect received');await clean();
+pass('Edit details retries the same answers, lands on the redirect, and an untouched payout submits as keep');
 
 await reset('controls');await click('#sms','Text me when new work is posted',true);await waitCalls(1);assert.equal((await calls())[0].args,false);assert.equal(await page.$eval('#sms [role="switch"]',e=>e.getAttribute('aria-checked')),'true');await finish(0,{ok:false,error:'Preference rejected'});await clean();await waitText('Preference rejected');
 await click('#sms','Retry turning texts off',true);await waitCalls(2);assert.equal((await calls())[1].args,false);await finish(1,null,true);await clean();await waitText('Could not confirm your text preference');await click('#sms','Retry turning texts off');await waitCalls(3);await finish(2);await clean();assert.equal(await page.$eval('#sms [role="switch"]',e=>e.getAttribute('aria-checked')),'false');
