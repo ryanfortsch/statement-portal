@@ -1,5 +1,6 @@
-/** The listing editor that remains (the property page's Listing section) in React/Chromium:
- * Draft with AI fills the Guesty description fields and Save listing saves them.
+/** The property page's Listing section in React/Chromium: a read view per block,
+ * Edit opens one block, Draft with AI fills the Guesty description fields and Save keeps them;
+ * Cancel restores a block, the amenity catalog edits in a drawer, and each block posts only its part.
  * Synthetic content and controlled Server Action promises only; no model, no database.
  * (Until 2026-10-18 this fixture drove the Listing Copy Studio, which is retired.)
  * --serve exposes the same fixture for manual browser checks. */
@@ -23,6 +24,8 @@ const compile = source => ts.transpileModule(source, { compilerOptions: {
 for (const [name, path] of [
   ['component', 'src/app/properties/[id]/ListingPanel.tsx'],
   ['policy', 'src/app/properties/[id]/HousePolicyReadout.tsx'],
+  ['copyshape', 'src/lib/listing-copy-shape.ts'],
+  ['drawer', 'src/components/Drawer.tsx'],
   ['stabletime', 'src/lib/stable-time.ts'],
   ['confirm-dialog', 'src/components/ConfirmDialog.tsx'],
   ['confirm-question', 'src/lib/confirm-question.ts'],
@@ -33,7 +36,7 @@ await writeFile(join(scratch, 'actions.js'), `
     window.calls.push({kind, args, resolve, reject});
   });
   export const draftListingWithAiAction = (...args) => call('draft', args);
-  export const saveListingContentAction = (propertyId, prev, fd) => call('save', [propertyId, Object.fromEntries([...fd.entries()].filter(([k]) => typeof fd.get(k) === 'string'))]);
+  export const saveListingContentAction = (propertyId, prev, fd) => call('save', [propertyId, Object.fromEntries([...fd.entries()].filter(([k]) => typeof fd.get(k) === 'string')), fd.getAll('amenities')]);
   const unused = () => Promise.resolve({ ok: true });
   export const addPhotoUrlAction = unused, deletePhotoAction = unused, movePhotoAction = unused,
     recordUploadedPhotoAction = unused, setHeroAction = unused, updatePhotoAction = unused;
@@ -43,6 +46,10 @@ await writeFile(join(scratch, 'link.js'), compile(`
   export default function Link({href, children, ...rest}) { return <a href={href} {...rest}>{children}</a>; }
 `));
 await writeFile(join(scratch, 'blob.js'), `export const upload = () => Promise.reject(new Error('No uploads in this fixture'));`);
+await writeFile(join(scratch, 'sellit.js'), compile(`
+  import React from 'react';
+  export function HowWeSellIt() { return <div>How we sell it editor</div>; }
+`));
 await writeFile(join(scratch, 'entry.js'), compile(`
   import React, {useState} from 'react';
   import {createRoot} from 'react-dom/client';
@@ -58,8 +65,8 @@ await writeFile(join(scratch, 'entry.js'), compile(`
   function Fixture() {
     const [content, setContent] = useState(base);
     window.setContent = patch => setContent(c => ({...c, ...patch}));
-    return <ListingPanel propertyId="synthetic" content={content} photos={[]} rooms={[]} bedSummaryText=""
-      catalog={[{group: 'Basics', items: ['Wifi', 'Washer']}]} consumers={{}} helmRun={false}
+    return <ListingPanel propertyId="synthetic" content={content} photos={[]} beds={{text: '', perRoom: []}}
+      catalog={[{group: 'Basics', items: ['Wifi', 'Washer']}]} helmRun={false}
       registry={{title: 'Registry title', bedrooms: 3, bathrooms: 2}} housePolicy={policy}/>;
   }
   createRoot(document.getElementById('root')).render(<Fixture/>);
@@ -70,6 +77,9 @@ await new Promise((done, reject) => {
     resolve:{modules:[join(root,'node_modules')],alias:{
       './listing-actions':join(scratch,'actions.js'),
       './HousePolicyReadout':join(scratch,'policy.js'),
+      './HowWeSellIt':join(scratch,'sellit.js'),
+      '@/lib/listing-copy-shape':join(scratch,'copyshape.js'),
+      '@/components/Drawer':join(scratch,'drawer.js'),
       '@/lib/stable-time':join(scratch,'stabletime.js'),
       '@/components/ConfirmDialog':join(scratch,'confirm-dialog.js'),
       '@/lib/confirm-question':join(scratch,'confirm-question.js'),
@@ -120,7 +130,12 @@ try {
       if (!b || b.disabled) throw Error(`Button not ready: ${text}`);
       b.click();
     }, text);
-    const reset = async () => { await page.goto(origin); await page.waitForSelector('textarea[name="space"]'); };
+    const reset = async () => { await page.goto(origin); await page.waitForSelector('[name="space"]'); };
+    const clickLabel = label => page.evaluate(label => {
+      const b = document.querySelector(`button[aria-label="${label}"]`);
+      if (!b || b.disabled) throw Error(`Button not ready: ${label}`);
+      b.click();
+    }, label);
     const val = name => page.$eval(`[name="${name}"]`, e => e.value);
     const edit = (selector,value) => page.$eval(selector,(input,value)=>{
       const proto=input.tagName==='TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
@@ -136,6 +151,13 @@ try {
     const pass = name=>{checks++;console.log(`PASS ${name}`);};
 
     await reset();
+    assert.equal(await page.$('textarea[name="summary"]'), null, 'the listing opens read-only');
+    assert.equal(await page.$('input[aria-label="Note for Draft with AI"]'), null, 'Draft with AI waits for an open block');
+    await waitText('Saved title'); await waitText('Saved summary');
+    pass('the listing opens as content a guest reads, with no form open');
+
+    await clickLabel('Edit title and summary'); await page.waitForSelector('textarea[name="summary"]');
+    assert.equal(await page.$('textarea[name="space"]'), null, 'Edit opens one block');
     await edit('input[aria-label="Note for Draft with AI"]','The view at low tide');
     decisions.push(false); await click('Draft with AI'); await waitCalls(1);
     assert.equal(confirmations.length,1); assert.match(confirmations[0],/Fill blanks only keeps your text/);
@@ -160,8 +182,9 @@ try {
     assert.deepEqual(await page.evaluate(()=>['summary','space','access','neighborhood'].map(n=>document.querySelector(`[name="${n}"]`).value)),before);
     pass('returned and thrown failures keep every field as it was and allow a retry');
 
-    await page.$eval('form', f => f.requestSubmit()); await waitCalls(5);
+    await page.$eval('form[aria-label="Listing copy"]', f => f.requestSubmit()); await waitCalls(5);
     const saved = await page.evaluate(()=>window.calls.at(-1).args[1]);
+    assert.equal(saved.part,'copy'); assert.equal(saved.interaction,'Text us');
     assert.equal(saved.summary,'Second summary'); assert.equal(saved.space,'Hand edit'); assert.equal(saved.title,'Saved title');
     await finish({error:null,ok:true,message:'Saved.'}); await waitText('Saved.');
     pass('Save listing saves the drafted text with the hand edits');
@@ -169,8 +192,41 @@ try {
     await page.evaluate(()=>window.setContent({updated_at:'2026-10-18T13:00:00Z',summary:'Newer saved summary',space:'Newer space'}));
     await page.waitForFunction(()=>document.querySelector('[name="summary"]').value==='Newer saved summary');
     assert.equal(await val('space'),'Newer space');
-    assert.deepEqual(errors,[]);
+    assert.equal(await page.$('textarea[name="space"]'), null, 'a newer record closes the open blocks');
     pass('a newer saved record replaces an old draft instead of being overwritten by it');
+
+    await page.evaluate(()=>window.setContent({updated_at:'2026-10-18T14:00:00Z',summary:'A harbor house.\n✓ Private dock\n✓ Walk to town'}));
+    await waitText('A harbor house.'); await waitText('Private dock');
+    assert.ok(!(await page.evaluate(()=>document.body.textContent.includes('✓ Private dock'))), 'a highlight reads as a list item, not a raw line');
+    await clickLabel('Edit about'); await page.waitForSelector('textarea[name="space"]');
+    await edit('textarea[name="space"]','Thrown away');
+    await click('Cancel');
+    await page.waitForFunction(()=>!document.querySelector('textarea[name="space"]'));
+    assert.equal(await val('space'),'Newer space');
+    pass('Cancel closes the block and keeps the saved text');
+
+    await clickLabel('Edit amenities'); await page.waitForSelector('[role="dialog"] input[name="amenities"]');
+    assert.equal(await page.$$eval('input[name="amenities"]', l => l.length), 2, 'the catalog renders only in the drawer');
+    await page.$eval('[role="dialog"] input[value="Washer"]', e => e.click());
+    const beforeAmen = await page.evaluate(()=>window.calls.length);
+    await page.$eval('form[aria-label="Amenities"]', f => f.requestSubmit()); await waitCalls(beforeAmen + 1);
+    const amen = await page.evaluate(()=>window.calls.at(-1).args);
+    assert.equal(amen[1].part,'amenities'); assert.equal(amen[1].title, undefined, 'saving amenities never posts the copy');
+    assert.deepEqual(amen[2],['Wifi','Washer']);
+    await finish({error:null,ok:true,message:'Amenities saved.'});
+    await page.evaluate(()=>window.setContent({updated_at:'2026-10-18T15:00:00Z',amenities:['Wifi','Washer']}));
+    await page.waitForFunction(()=>!document.querySelector('[role="dialog"]'));
+    await waitText('Wifi · Washer');
+    pass('the amenity catalog edits in a drawer and saves only the amenities');
+
+    await clickLabel('Edit home type and size'); await page.waitForSelector('form[aria-label="Home type and size"]');
+    const beforeBasics = await page.evaluate(()=>window.calls.length);
+    await page.$eval('form[aria-label="Home type and size"]', f => f.requestSubmit()); await waitCalls(beforeBasics + 1);
+    const basics = await page.evaluate(()=>window.calls.at(-1).args[1]);
+    assert.equal(basics.part,'basics'); assert.equal(basics.bedrooms,'3'); assert.equal(basics.summary, undefined);
+    await finish({error:null,ok:true,message:'Listing saved.'});
+    assert.deepEqual(errors,[]);
+    pass('home type and size posts only its own part');
     console.log(`All ${checks} listing editor browser checks passed.`);
   }
 } catch (error) {

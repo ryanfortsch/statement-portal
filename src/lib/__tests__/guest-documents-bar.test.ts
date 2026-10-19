@@ -59,7 +59,7 @@ test('the PDF file, the tile and the bar share each document name', () => {
   }
 });
 
-test('each tool has one name on its tile, breadcrumb and page title', () => {
+test('each tool has one name on its link, breadcrumb and page title', () => {
   const page = read('src/app/properties/[id]/page.tsx');
   const tools: Array<[string, string, RegExp]> = [
     ['caption-photos', 'Photo captions', /Photo <em[^>]*>captions<\/em>/],
@@ -67,13 +67,13 @@ test('each tool has one name on its tile, breadcrumb and page title', () => {
   ];
   for (const [slug, name, h1] of tools) {
     const src = read(`src/app/properties/[id]/${slug}/page.tsx`);
-    assert.ok(page.includes(`title="${name}"`), `the ${slug} tile is not "${name}"`);
+    // The Tools lines (Facts, and Guest & listing under the listing) name it.
+    assert.ok(page.includes(`<ToolLink href={\`/properties/\${p.id}/${slug}\`}>${name}</ToolLink>`), `the ${slug} tool link is not "${name}"`);
     assert.ok(src.includes(`{ label: '${name}' }`), `the ${slug} breadcrumb is not "${name}"`);
     assert.match(src, h1, `the ${slug} title is not "${name}"`);
   }
-  // Guesty fields is one screen for both directions, and says so.
-  assert.match(page, /eyebrow="Helm ⇄ Guesty"\s*\n\s*title="Guesty fields"/);
-  assert.ok(page.includes('<ToolLink href={`/properties/${p.id}/sync-guesty`}>Guesty fields</ToolLink>'));
+  const guestTab = page.slice(page.indexOf('<TabSection tab="guest">'), page.indexOf('</PropertyTabs>'));
+  assert.ok(guestTab.includes('>Photo captions</ToolLink>') && guestTab.includes('>Guesty fields</ToolLink>'), 'Guest & listing lost its Tools line');
   // Launch is the 26-step list; the Stay Cape Ann tool is not also a launch.
   assert.ok(read('src/app/properties/[id]/stay-cape-ann/page.tsx').includes("{ label: 'Stay Cape Ann' }"));
 });

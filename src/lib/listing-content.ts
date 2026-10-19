@@ -23,6 +23,7 @@ import type { PropertyRoom, RoomBed } from './property-rooms-shared.ts';
 import type { RatePlanRow } from './rate-plan.ts';
 import { CAPE_ANN_REGION } from './property-scope.ts';
 import { applyHousePolicyToListing, HOUSE_POLICY_COLS, type HousePolicy } from './house-policy.ts';
+import { descriptionBlocksFrom, splitSummary, type ScaDescriptionBlock } from './listing-copy-shape.ts';
 
 // ── Row shapes ──────────────────────────────────────────────────────────────
 
@@ -292,11 +293,8 @@ export function bedSummary(rooms: readonly Pick<PropertyRoom, 'name' | 'room_typ
 
 // ── Pure: the staycapeann.com Listing shape ─────────────────────────────────
 
-/** Mirror of stay-cape-ann lib/types.ts DescriptionBlock. */
-export type ScaDescriptionBlock =
-  | { kind: 'prose'; text: string }
-  | { kind: 'heading'; text: string }
-  | { kind: 'bullets'; items: string[] };
+/** Mirror of stay-cape-ann lib/types.ts DescriptionBlock (defined with its shapers). */
+export type { ScaDescriptionBlock } from './listing-copy-shape.ts';
 
 /**
  * Mirror of stay-cape-ann lib/types.ts Listing (the fields Helm can fill).
@@ -330,60 +328,9 @@ const REGION_STATE: Record<string, string> = {
   lighthouse_point_fl: 'FL',
 };
 
-/** Guesty's "The space" text into SCA's About blocks: ☆ headings, → bullets, prose. */
-export function descriptionBlocksFrom(space: string | null | undefined): ScaDescriptionBlock[] {
-  const blocks: ScaDescriptionBlock[] = [];
-  if (!space) return blocks;
-  let bullets: string[] = [];
-  let prose: string[] = [];
-  const flush = () => {
-    if (bullets.length) {
-      blocks.push({ kind: 'bullets', items: bullets });
-      bullets = [];
-    }
-    if (prose.length) {
-      blocks.push({ kind: 'prose', text: prose.join(' ') });
-      prose = [];
-    }
-  };
-  for (const raw of space.replace(/\r\n/g, '\n').split('\n')) {
-    const line = raw.trim();
-    if (!line) {
-      flush();
-      continue;
-    }
-    const heading = /^[☆★✦✧*]+\s*(.+?)\s*[☆★✦✧*]*$/.exec(line);
-    if (heading && /^[☆★✦✧*]/.test(line)) {
-      flush();
-      blocks.push({ kind: 'heading', text: heading[1].trim() });
-      continue;
-    }
-    const bullet = /^(?:→|-|•|✓|\*)\s+(.+)$/.exec(line);
-    if (bullet) {
-      if (prose.length) flush();
-      bullets.push(bullet[1].trim());
-      continue;
-    }
-    if (bullets.length) flush();
-    prose.push(line);
-  }
-  flush();
-  return blocks;
-}
-
-/** The ✓ lines of a Guesty summary become SCA highlights; the rest is the tagline. */
-export function splitSummary(summary: string | null | undefined): { tagline: string; highlights: string[] } {
-  const highlights: string[] = [];
-  const rest: string[] = [];
-  for (const raw of (summary ?? '').replace(/\r\n/g, '\n').split('\n')) {
-    const line = raw.trim();
-    if (!line) continue;
-    const m = /^(?:✓|✔|•|-|→)\s*(.+)$/.exec(line);
-    if (m) highlights.push(m[1].trim());
-    else rest.push(line);
-  }
-  return { tagline: rest.join(' ').trim(), highlights };
-}
+// descriptionBlocksFrom and splitSummary live in listing-copy-shape.ts, which
+// the client editor imports too, so its read view renders what toScaListing builds.
+export { descriptionBlocksFrom, splitSummary } from './listing-copy-shape.ts';
 
 const dollars = (c: number | null | undefined): number => Math.round(Number(c ?? 0)) / 100;
 
