@@ -38,3 +38,22 @@ test('the reminders panels and the booking record header', () => {
   const booking = read('src/app/channels/bookings/[id]/page.tsx');
   assert.ok(!booking.includes('description={`${booking.check_in} to ${booking.check_out}'));
 });
+
+test('the Work board, the Channels inquiry rows and the Forecast banner (walk of 2026-10-18)', () => {
+  const board = read('src/app/work/QueueClient.tsx');
+  assert.ok(!board.includes('`Due ${task.due_date}`'), 'an Office to-do prints its raw due date again');
+  assert.ok(!board.includes('`Scheduled ${slip.scheduled_date}`'), 'a slip prints its raw scheduled date again');
+  assert.ok(board.includes('`Due ${houseDay(task.due_date)}`'));
+  const channels = read('src/app/channels/page.tsx');
+  assert.ok(!channels.includes('{b.check_in} → {b.check_out}'), 'a Channels row prints the raw ISO range again');
+  assert.ok(channels.includes('houseRange(b.check_in, b.check_out)'));
+  const forecast = read('src/app/forecast/page.tsx');
+  assert.ok(!forecast.includes('<strong>{operatingLatestDate}</strong>'), 'the Action needed banner prints the raw date again');
+  assert.ok(forecast.includes('houseDay(operatingLatestDate)') && forecast.includes('houseDay(latestDate)'));
+});
+
+test('/cost-analysis lands on Actuals once /forecast has streamed in', () => {
+  assert.ok(read('src/app/cost-analysis/page.tsx').includes("redirect('/forecast#actuals')"));
+  assert.ok(read('src/app/forecast/ActualsSection.tsx').includes('id="actuals"'));
+  assert.ok(read('src/app/forecast/page.tsx').includes('<HashOpenScript />'), 'nothing scrolls to #actuals after the skeleton');
+});

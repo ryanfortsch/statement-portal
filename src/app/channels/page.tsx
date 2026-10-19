@@ -30,6 +30,7 @@ import { authorityBadge, importFreshness, pullFreshness, relativeAge, sourceGlyp
 import { setBookingStatus } from './inquiry-actions';
 import { expiredInquiryNote } from '@/lib/inquiry-expiry';
 import { operatingDate } from '@/lib/operating-date';
+import { houseRange } from '@/lib/house-date';
 import { SyncNowButton, BackfillButton } from './SyncButtons';
 
 export const dynamic = 'force-dynamic';
@@ -416,8 +417,9 @@ function InquiriesBlock({
         <div style={{ borderTop: '2px solid var(--signal)', borderBottom: '1px solid var(--rule)' }}>
           {shown.map((b, i) => (
             <div key={b.id} style={{ display: 'grid', gridTemplateColumns: '150px 1fr 1fr 1fr auto', gap: 12, padding: '14px 0', alignItems: 'baseline', borderBottom: i === shown.length - 1 ? 'none' : '1px solid var(--rule)' }}>
-              <span className="font-mono" style={{ fontSize: 11, color: 'var(--ink-3)' }}>
-                {b.check_in} → {b.check_out}
+              <span className="tabular-nums" style={{ fontSize: 12, color: 'var(--ink-3)' }}>
+                {houseRange(b.check_in, b.check_out)}
+                {b.nights != null && <span style={{ display: 'block', fontSize: 11, color: 'var(--ink-4)' }}>{nightsLabel(b.nights)}</span>}
               </span>
               <Link href={`/channels/bookings/${b.id}`} className="font-serif" style={{ fontSize: 15, color: 'var(--ink)', textDecoration: 'none' }}>
                 {nameOf.get(b.property_id) ?? b.property_id}
@@ -465,8 +467,9 @@ function InquiriesBlock({
           <div style={{ borderBottom: '1px solid var(--rule)' }}>
             {expired.rows.map((b) => (
               <div key={b.id} style={{ display: 'grid', gridTemplateColumns: '150px 1fr 1fr auto', gap: 12, padding: '10px 0', alignItems: 'baseline', borderTop: '1px solid var(--rule)', color: 'var(--ink-3)' }}>
-                <span className="font-mono" style={{ fontSize: 11 }}>
-                  {b.check_in} → {b.check_out}
+                <span className="tabular-nums" style={{ fontSize: 12 }}>
+                  {houseRange(b.check_in, b.check_out)}
+                  {b.nights != null && <span style={{ display: 'block', fontSize: 11, color: 'var(--ink-4)' }}>{nightsLabel(b.nights)}</span>}
                 </span>
                 <Link href={`/channels/bookings/${b.id}`} className="font-serif" style={{ fontSize: 14, color: 'var(--ink-2)', textDecoration: 'none' }}>
                   {nameOf.get(b.property_id) ?? b.property_id}
@@ -530,7 +533,7 @@ function ConflictStay({ b, second }: { b: Booking; second?: boolean }) {
   return (
     <div style={{ fontSize: 12, color: 'var(--ink)', marginTop: second ? 4 : 0 }}>
       <Link href={`/channels/bookings/${b.id}`} style={{ fontWeight: 600, color: 'var(--ink)', textDecoration: 'none' }}>{CHANNEL_LABELS[b.channel] ?? b.channel}</Link>
-      <span className="font-mono" style={{ marginLeft: 8, color: 'var(--ink-3)' }}>{b.check_in} → {b.check_out}</span>
+      <span className="tabular-nums" style={{ marginLeft: 8, color: 'var(--ink-3)' }}>{houseRange(b.check_in, b.check_out)}{b.nights != null ? ` · ${nightsLabel(b.nights)}` : ''}</span>
       {b.guest_name && <span style={{ marginLeft: 10, color: 'var(--ink-3)' }}>· {b.guest_name}</span>}
       <span style={{ marginLeft: 10, color: 'var(--ink-3)' }}>
         · {STATUS_LABELS[b.status] ?? b.status} · {SOURCE_LABELS[b.source] ?? b.source}
@@ -596,6 +599,12 @@ function Stat({ label, value, sub, accent, last }: { label: string; value: strin
       {sub && <div style={{ fontSize: 11, color: accent ? 'var(--negative)' : 'var(--ink-3)', marginTop: 4 }}>{sub}</div>}
     </div>
   );
+}
+
+/** The night count beside a house range: the range leaves out the year, so
+ *  a 370-night ask would otherwise read like a five-night one. */
+function nightsLabel(n: number): string {
+  return `${n} night${n === 1 ? '' : 's'}`;
 }
 
 function shortDate(iso: string) {

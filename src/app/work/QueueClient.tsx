@@ -34,6 +34,7 @@ import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import { useOwnerEmailDraft } from '@/lib/use-owner-email-draft';
 import { CopiedEmailNotice } from '@/components/CopiedEmailNotice';
 import { operatingDate } from '@/lib/operating-date';
+import { houseDay } from '@/lib/house-date';
 import { compareWork, workMyWeek, workOverdue, workSignals, workThisWeek, workUnassigned } from '@/lib/work-board-view';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { groupSlipsByLane, LANE_LABELS, slipDetailLine, slipDisplayTitle, type WorkLane } from '@/lib/work-slip-lanes';
@@ -1204,7 +1205,7 @@ function WorkSlipRowItem({
           <div style={{ marginTop: 3, fontSize: 11, color: isOverdue ? 'var(--negative)' : 'var(--ink-4)', letterSpacing: '.06em' }}>
             {isOverdue && <span style={{ fontWeight: 700 }}>OVERDUE · </span>}
             {slip.assigned_to_label || (slip.assigned_to_email ? displayNameForEmail(slip.assigned_to_email) : slip.assigned_to_type === 'owner' ? 'Owner' : 'Unassigned')}
-            {slip.scheduled_date ? ` · ${slip.scheduled_date === operatingDate() ? 'Due today' : `Scheduled ${slip.scheduled_date}`}` : ''}
+            {slip.scheduled_date ? ` · ${slip.scheduled_date === operatingDate() ? 'Due today' : `Scheduled ${houseDay(slip.scheduled_date)}`}` : ''}
             {slip.location ? ` · ${slip.location}` : ''}
             {reporterName && <span style={{ color: 'var(--tide-deep)' }}> · flagged by {reporterName}</span>}
             {slip.last_verified_open_at && (
@@ -1391,7 +1392,7 @@ function TaskRowItem({
           <div style={{ marginTop: 4, fontSize: 11, color: isOverdue ? 'var(--negative)' : 'var(--ink-4)', letterSpacing: '.06em' }}>
             {isOverdue && <span style={{ fontWeight: 700 }}>OVERDUE · </span>}
             {task.assigned_to_email ? displayNameForEmail(task.assigned_to_email) : 'Unassigned'}
-            {task.due_date ? ` · ${task.due_date === operatingDate() ? 'Due today' : `Due ${task.due_date}`}` : ''}
+            {task.due_date ? ` · ${task.due_date === operatingDate() ? 'Due today' : `Due ${houseDay(task.due_date)}`}` : ''}
           </div>
         </div>
         {commentCount > 0 && (
