@@ -5,8 +5,9 @@ import { auth } from '@/auth';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { fieldDb } from '@/lib/field-db';
 import { loadPacketDetail, loadPacketSupplyRun, loadCleaningStatusForStops, loadOpenSlipsForStops, stopPresence, arrivalPropertiesForDay, SUPPLY_CLOSET, SUPPLY_CLOSET_COORDS, SUPPLY_CLOSET_CODE, type SupplyRun, type CleaningStatus, type StopOpenSlips , loadOfficeAssignedPacketIds } from '@/lib/field-packets';
-import { canClaim, cityShort, fmtVisitTime, onboardingComplete, dollars, packetHeadline, effectiveBaseCents, isPayoutFinal, totalPayoutCents, type AccessBundle, type ContractorRow, type PacketStopDetail, type WorkSlipLite , clockLabel, tripWindowLabel } from '@/lib/field-types';
+import { canClaim, isEmployee, cityShort, fmtVisitTime, onboardingComplete, dollars, packetHeadline, effectiveBaseCents, isPayoutFinal, totalPayoutCents, type AccessBundle, type ContractorRow, type PacketStopDetail, type WorkSlipLite , clockLabel, tripWindowLabel } from '@/lib/field-types';
 import { getTeamMember } from '@/lib/team';
+import { backgroundCheckLine } from '@/lib/field-background-check';
 import { WORK_SLIP_CATEGORY_LABELS, type WorkSlipCategory } from '@/lib/work-types';
 import { isWorkingStatus } from '@/lib/field-packet-status';
 import { claimPacket, submitPacket, undoStartStop, reopenStop } from '../../actions';
@@ -675,6 +676,7 @@ export default async function PacketPage({
   // vetted (background-cleared), else an anonymized "Home N" so an un-cleared
   // browser can't read off which specific homes sit empty on which days.
   const vetted = canClaim(contractor);
+  const bgCheck = backgroundCheckLine(contractor.background_check_status);
   const stopLabel = (s: PacketStopDetail, i: number): string =>
     isMine ? s.property.address : vetted ? s.property.name : `Home ${i + 1}`;
   // Lost-claim landing: the ?taken=1 bounce used to fall into the redirect
@@ -1368,8 +1370,15 @@ export default async function PacketPage({
           )}
           {!isMine && packet.status === 'published' && !visitPassed && !canClaim(contractor) && (
             onboardingComplete(contractor) ? (
+              // The check's one line, read off the real status (see
+              // src/lib/field-background-check.ts). A payroll record is
+              // closed to paid packets for good, whatever its check says.
               <p style={{ color: 'var(--signal)', fontSize: 14, margin: 0 }}>
-                Your background check hasn&apos;t started yet. You&apos;ll be able to claim as soon as the office kicks it off.
+                {isEmployee(contractor)
+                  ? "You're on payroll, so paid packets aren't claimed here."
+                  : bgCheck.tone === 'waiting'
+                    ? `${bgCheck.line} You can claim this packet once it's running.`
+                    : bgCheck.line}
               </p>
             ) : (
               <Link href="/field/onboarding" style={{ color: 'var(--signal)', fontSize: 14 }}>

@@ -12,7 +12,7 @@ import { suggestPackets, persistSuggestions, revalidatePacket, pruneClosedSlipSt
 import { revokePacketCodes, programPacketCodes, revokePacketPropertyCode } from '@/lib/field-locks';
 import { revealTin } from '@/lib/field-w9';
 import { revealPayment } from '@/lib/field-pay';
-import { sendInviteEmail, notifyContractorsOfPacket, sendPaidEmail, sendChangesRequestedEmail, sendClaimConfirmation, sendApprovedEmail, sendReassignedEmail, sendEstimateRaisedEmail, sendTripStopAddedEmail, sendTripStopRemovedEmail, sendStartTimeEmail, sendStreakBonusOfficeEmail } from '@/lib/field-notify';
+import { sendInviteEmail, notifyContractorsOfPacket, sendPaidEmail, sendChangesRequestedEmail, sendClaimConfirmation, sendApprovedEmail, sendReassignedEmail, sendEstimateRaisedEmail, sendTripStopAddedEmail, sendTripStopRemovedEmail, sendStartTimeEmail, sendStreakBonusOfficeEmail, sendBackgroundCheckNotice } from '@/lib/field-notify';
 import { maybeAwardStreakBonus } from '@/lib/field-streaks';
 import { homeReceipt, unhomeReceipt } from '@/lib/field-receipts';
 import { openWorkSlipsForInspectionIssues } from '@/lib/inspection-issue-slips';
@@ -1869,15 +1869,21 @@ export async function resendInvite(formData: FormData): Promise<void> {
  *  QuickBooks per the established boundary — this just drives the on-file flag
  *  the 1099 rollup reads, keyed by the contractor's vendor_key (stamped here
  *  so future name-matching stays stable). */
-/** Set a contractor's background-check status. Claiming is gated on 'cleared'
- *  (canClaim), so this is what lets a vetted inspector start taking work. */
+/** Set a contractor's background-check status. Claiming opens at 'pending'
+ *  (running) and stays open at 'cleared' (canClaim), so this is what lets a
+ *  vetted inspector start taking work.
+ *
+ *  A move to running or cleared texts and emails the contractor who can now
+ *  claim, the message the portal home has always promised. Once per change: the update only
+ *  matches a row whose status differs, so a double tap or a second tab
+ *  changes nothing the second time and sends nothing. */
 export async function setContractorBackgroundCheck(formData: FormData): Promise<void> {
   const staff = await ownerEmail();
   const contractorId = String(formData.get('contractor_id') || '');
   const statusIn = String(formData.get('bg_status') || '');
   const allowed = ['not_started', 'pending', 'cleared', 'failed'];
   if (!contractorId || !allowed.includes(statusIn)) return;
-  await fieldDb()
+  const { data } = await fieldDb()
     .from('contractors')
     .update({
       background_check_status: statusIn,
@@ -1885,7 +1891,18 @@ export async function setContractorBackgroundCheck(formData: FormData): Promise<
       background_check_by_email: staff,
       updated_at: new Date().toISOString(),
     })
-    .eq('id', contractorId);
+    .eq('id', contractorId)
+    .neq('background_check_status', statusIn)
+    .select('full_name, email, phone, portal_token, status, agreement_signed_at, w9_on_file, background_check_status, employment_status');
+  const changed = ((data ?? []) as ContractorRow[])[0];
+  // Both messages say they can claim, so they go only when it is true: a
+  // check marked before setup is finished, or on a payroll record, says
+  // nothing (the portal home tells them where they stand).
+  if (changed && canClaim(changed)) {
+    after(async () => {
+      await sendBackgroundCheckNotice(changed, statusIn as ContractorRow['background_check_status']).catch(() => {});
+    });
+  }
   revalidatePath('/fieldwork/roster');
 }
 

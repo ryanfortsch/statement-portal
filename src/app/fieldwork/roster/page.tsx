@@ -31,7 +31,7 @@ import {
 
 const BG_LABEL: Record<string, string> = {
   not_started: 'Not started',
-  pending: 'Pending',
+  pending: 'Running',
   cleared: 'Cleared',
   failed: 'Failed',
 };
@@ -573,15 +573,29 @@ function ContractorCard({
           {owner && <span style={{ fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>Background</span>}
           {/* Clearing a check is the one gate between a person and an
               owner's house: owners only. */}
+          {/* Running and cleared text and email the contractor (the
+              portal home promises both); failed sends nothing, so the
+              office calls. */}
           {owner && (['pending', 'cleared', 'failed'] as const)
             .filter((s) => s !== c.background_check_status)
-            .map((s) => (
-              <form key={s} action={setContractorBackgroundCheck} style={{ margin: 0 }} title={`Mark background check ${s}`}>
-                <input type="hidden" name="contractor_id" value={c.id} />
-                <input type="hidden" name="bg_status" value={s} />
-                <SubmitButton label={s} busyLabel="Marking…" style={s === 'cleared' ? { ...actBtn, color: 'var(--positive)', borderColor: 'var(--positive)' } : actBtn} spinnerTone="ink" />
-              </form>
-            ))}
+            .map((s) => {
+              const word = (BG_LABEL[s] ?? s).toLowerCase();
+              const first = c.full_name.split(' ')[0];
+              const tell = c.phone ? 'text and email' : 'email';
+              const effect =
+                s === 'failed'
+                  ? `Mark ${first}'s check failed? They can no longer claim work, and nothing is sent to them: call them.`
+                  : s === 'pending'
+                    ? `Mark ${first}'s check running? They can claim work from now, and we ${tell} them that it is running.`
+                    : `Mark ${first}'s check cleared? We ${tell} them that they are all set.`;
+              return (
+                <form key={s} action={setContractorBackgroundCheck} style={{ margin: 0 }} title={`Mark background check ${word}`}>
+                  <input type="hidden" name="contractor_id" value={c.id} />
+                  <input type="hidden" name="bg_status" value={s} />
+                  <SubmitButton label={word} busyLabel="Marking…" confirm={effect} style={s === 'cleared' ? { ...actBtn, color: 'var(--positive)', borderColor: 'var(--positive)' } : actBtn} spinnerTone="ink" />
+                </form>
+              );
+            })}
         </div>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginLeft: 'auto' }}>
           {/* Their portal link, first-class next to the other row actions
