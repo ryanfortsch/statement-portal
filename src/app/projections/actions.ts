@@ -18,6 +18,7 @@ import type {
   WithdrawnSignature,
 } from '@/lib/projections-types';
 import { deriveLegacyFromOwners } from '@/lib/projections-types';
+import { renewalOwners, renewalPlace } from '@/lib/contract-renewal';
 import type { HomeGuideOverrides } from '@/lib/properties';
 import { getDriveTimeMinutes } from '@/lib/projections-distance';
 import { geocodeAddress } from '@/lib/geocode';
@@ -409,25 +410,19 @@ export async function startContractRenewal(propertyId: string): Promise<void> {
     sale_reputation_fee: number | string | null;
   } | null;
 
-  const ownerParty = lastContract?.owner_party?.trim() || property.owner_full?.trim() || property.owner_last?.trim() || 'Owner';
   // Owner cards: property.owners when populated, else one best-effort card
   // from the last contract's party so the form never opens empty (the
-  // operator tweaks names before sending anyway).
-  let owners: Owner[] | null = Array.isArray(property.owners) && property.owners.length > 0 ? property.owners : null;
-  if (!owners) {
-    const words = ownerParty.replace(/\(.*\)/, '').trim().split(/\s+/);
-    owners = [
-      {
-        first_name: words[0] ?? '',
-        last_name: words.slice(1).join(' '),
-        email: property.owner_emails?.[0] ?? null,
-        phone: property.owner_phone ?? null,
-        full_legal: ownerParty,
-      },
-    ];
-  }
+  // operator tweaks names before sending anyway). The register's party
+  // rides on the first card's full_legal, which is what a form save reads.
+  const { owners, party: ownerParty } = renewalOwners({
+    owners: property.owners,
+    registerParty: lastContract?.owner_party,
+    ownerFull: property.owner_full,
+    ownerLast: property.owner_last,
+    email: property.owner_emails?.[0],
+    phone: property.owner_phone,
+  });
 
-  const city = property.city?.trim() || 'Gloucester';
   const feePctRaw = Number(property.management_fee_pct ?? lastContract?.fee_pct ?? 25);
   const availabilityDays = (() => {
     const m = lastContract?.min_availability?.match(/(\d{2,3})/);
@@ -438,17 +433,16 @@ export async function startContractRenewal(propertyId: string): Promise<void> {
 
   const payload = {
     owners,
+    // prospect_full_legal comes from the cards, so the draft names the same
+    // party the first form save will.
     ...deriveLegacyFromOwners(owners),
-    // The register's party string wins over card-derived scalars: it is
-    // the name as written on the last signed agreement.
     prospect_name: ownerParty,
-    prospect_full_legal: ownerParty,
     prospect_email: property.owner_emails?.[0] ?? null,
     prospect_phone: property.owner_phone ?? null,
     property_address: property.address || property.name || propertyId,
-    property_city: `${city}, MA`,
+    // properties.city already carries the state ("Gloucester, MA").
+    ...renewalPlace(property.city),
     property_type: 'House',
-    market: ['Rockport', 'Gloucester', 'Beverly'].includes(city) ? city : 'Gloucester',
     bedrooms: Math.min(6, Math.max(1, property.bedrooms ?? 3)),
     home_value: 0,
     presentation_month: new Date().getMonth() + 1,
