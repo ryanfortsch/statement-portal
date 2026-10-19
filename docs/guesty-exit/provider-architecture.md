@@ -2,6 +2,75 @@
 
 Decision draft, October 7, 2026. Goal: replace Guesty across the portfolio after a successful Calderwood pilot. This is an architecture deliverable, not an implemented production connector or an approval to disconnect channels. Contract timetable remains in `calderwood-cutover-readiness.md`; `SCHEMA.md` remains authoritative for existing tables. No new platform purchase is required for the next milestone.
 
+## Current delivery status — October 19, 2026
+
+The pilot is **Airbnb-only for new sales**: Ryan authorized pausing Booking.com;
+Vrbo is deferred. The Booking.com pause is **not executed**: its extranet requires
+sign-in. Guesty's only listing-specific connection action is Disconnect, which
+would interrupt service for existing reservations, so the connection stays in
+place. Existing stays on every channel remain in scope. Manual guest or cleaner
+messages are not an acceptable launch fallback. Preserve Guesty's existing
+message times, including 3 PM code delivery with a rare operator hold; PriceLabs
+continues to own dynamic rates and minimum stays.
+
+The current implementation batch adds a complete **synthetic booking ingestion
+transaction**, the missing link between provider revisions and Helm's canonical
+calendar. `canonical-revisions.ts` normalizes only the exact isolated Calderwood
+mapping, an Offline source and `HELMTEST-` confirmation codes. Customer, payment,
+notes and access-code fields are discarded. `canonical-revisions.sql` maps remote
+booking IDs to the fictional `HELMTEST-calderwood` property, invokes the existing
+create/move RPCs, and commits the canonical booking, audit, inventory invalidation
+and immutable-to-the-app revision receipt together. Cancellation pauses waiting
+automation rows; sent, sending and failed history is preserved. Older revisions
+are retained without overwriting newer state. Same-ID payload changes, ambiguous
+ordering, ownership changes and overlaps fail without an ACK. This is not yet a
+live OTA conflict inbox or a general-purpose production importer.
+
+A saved receipt is independently read and compared before Channex ACK. Lost
+responses, duplicate notifications and retrying after an ACK outage reuse the
+same canonical booking. The `/api/webhooks/channex-staging` route verifies
+Channex's timestamp/raw-body HMAC, limits notice size, pulls the authoritative
+revision and validates the notice's booking identity. The authenticated preview
+button uses the same pipeline to drain the first feed page, avoiding pagination
+skips after ACK. Neither route proves a complete initial calendar or sends a
+message. HMAC handling follows the [Channex webhook contract](https://docs.channex.io/api-v.1-documentation/webhook-collection);
+revision processing follows the [booking revision contract](https://docs.channex.io/api-v.1-documentation/bookings-collection).
+
+Activation is disabled. The route requires the exact preview branch, existing
+`CHANNEX_STAGING_ENABLED`, and `CHANNEX_CANONICAL_REHEARSAL_ENABLED=true`.
+Signed notices additionally require `CHANNEX_CANONICAL_SIGNING_SECRET`. Existing
+staging Channex and dedicated staging database credentials are used; no production
+credential fallback exists. The SQL owner must explicitly configure the fictional
+property's capture and importer scopes. No webhook, signing key, polling schedule,
+new paid service or sender was activated in this batch.
+
+**Hosted prerequisite check:** a read-only `to_regclass` query in the verified
+**Helm Channex Staging** project `jgkblfozftcvymvwhhii` found no `public.properties`,
+`public.bookings`, `public.automation_sends`, inventory capture scopes or canonical
+revision receipts. `helm_cleaner_rehearsal.delivery` exists. Therefore the next
+installation needs a reviewed canonical schema baseline; applying the importer
+alone cannot work. Do not replace the existing rehearsal records or blindly
+replay historical migrations, whose ordering fails on an empty database.
+
+Validation: 2,058 unit tests, TypeScript and scoped ESLint passed. The database
+suite includes 15 import scenarios against real repository table/RPC definitions;
+60 native PostgreSQL checks passed in total, including concurrent duplicates,
+out-of-order cancellation, importer disable and concurrent capture/authority
+withdrawal. The local fixture remains a subset, not proof of the hosted schema.
+
+Remaining delivery sequence:
+
+1. Install a reviewed canonical baseline and the integration candidates in the
+   isolated database, then run **one hosted create → change → cancel rehearsal**
+   through signed notification, durable receipt, calendar and availability.
+2. Prove **automated guest and cleaner delivery**, original timing, message
+   history/deduplication, holds, cancellation and carried-over stays. Verify
+   PriceLabs parity and full future-calendar reconciliation in the same pilot.
+3. Confirm production Channex access and fixed costs, verify Booking.com/Vrbo new
+   sales are paused, then schedule the owner-account cutover within the agreed
+   Guesty contract exit plan. This remains a live-launch gate, not a claim that
+   the pilot is already operating independently.
+
 ## 1. Reuse Helm's system of record
 
 Use existing `properties`, `channel_listings`, `bookings`, `booking_events`, `booking_finance` and `property_calendar_days`. Do not make the synthetic Beach ownership journal the production booking ledger. Provider-specific revisions and delivery jobs are integration records around the existing ledger, not competing reservation truth.

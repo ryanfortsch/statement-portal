@@ -135,6 +135,24 @@ never key per-stay logic on `bookings.id` (`memory/project_bookings_duplicate_ro
   the request fingerprint and receive time to the same attempt token. These are JSONB
   journal fields, not new tables or migrations. Older records remain readable with
   missing evidence marked explicitly; no task completion is inferred from acceptance.
+- **Candidate only, not applied:** `docs/guesty-exit/staging-storage/canonical-revisions.sql`
+  wraps the existing booking RPCs for the synthetic Calderwood Channex rehearsal.
+  Private `helm_channex_revisions.scope`, `.bookings` and `.receipts` hold the
+  disabled-by-default fictional-property scope, exact remote/canonical identity
+  and minimal revision receipts. Service-role clients have only commit/read RPC
+  access; browser roles and direct app table writes are denied. Only the exact
+  staging mapping and `HELMTEST-` codes are accepted. A commit writes a synthetic
+  `manual` / `other` stay through `helm_create_booking` or `helm_move_booking`,
+  audit and inventory capture, then retains a receipt atomically. No actual OTA
+  channel identity, guest payload or financial data is imported. Cancellation
+  uses the existing waiting-message pause. Duplicate/stale revisions cannot
+  create extra bookings or restore cancelled inventory; the adapter ACKs only
+  after an independent receipt read. Import, capture-disable and property
+  authority locks prevent an unrecorded/unauthorized transaction. This does not
+  implement production conflict quarantine, complete coverage or live sends.
+  The October 19 read-only hosted check confirms the isolated staging database
+  lacks canonical properties/bookings/automation tables and these candidates;
+  a reviewed baseline is required before installation.
 - **`booking_events`**: append-only change log per booking (`created`,
   `dates_changed`, `status_changed`, `cancelled`, `guest_changed`,
   `money_changed`, `feed_moved`, `note`) with `actor`, `before` and

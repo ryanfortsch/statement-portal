@@ -1,3 +1,4 @@
+import { verifyCanonicalRevisions } from './verify-canonical-revisions.mjs';
 // Usage: node scripts/verify-booking-inventory-concurrency.mjs /path/to/pg/bin /path/to/pg/lib/index.js
 // Owns a NEW temporary PostgreSQL cluster. No connection string/env database,
 // TCP listener, hosted data, provider calls, or application dependency required.
@@ -178,6 +179,50 @@ try{
     for(const job of replay.queue.list())assert.equal(inventoryDigest(job.days),job.digest);
   });
   await verifyBookingInventorySchema({exec:sql=>monitor.query(sql),query:(sql,args)=>monitor.query(sql,args)},check);
+  await verifyCanonicalRevisions({exec:sql=>monitor.query(sql),query:(sql,args)=>monitor.query(sql,args)},check);
+
+  await check('canonical import race: concurrent duplicate notices create one canonical update',async()=>{
+    const prior=(await query("select revision from helm_channex_revisions.receipts order by committed_at desc limit 1")).rows[0].revision;
+    const revision={...prior,id:'984badb7-7810-42c2-a951-86c98977d001',status:'modified',receivedAt:'2026-10-19T15:00:00.000001Z',checkIn:'2027-03-01',checkOut:'2027-03-04'};
+    const before=(await query("select count(*)::int n from booking_events where booking_id in (select canonical_id from helm_channex_revisions.bookings)")).rows[0].n;
+    await a.query('begin');
+    const first=(await a.query('select helm_pilot_revision_commit($1) receipt',[revision])).rows[0].receipt;
+    const pending=b.query('select helm_pilot_revision_commit($1) receipt',[revision]);
+    await blocked(pending,pidB,pidA);await a.query('commit');
+    assert.deepEqual((await pending).rows[0].receipt,first);
+    assert.equal((await query("select count(*)::int n from booking_events where booking_id in (select canonical_id from helm_channex_revisions.bookings)")).rows[0].n,before+1);
+  });
+  await check('canonical import race: older revision waiting behind newer cancellation stays stale',async()=>{
+    const prior=(await query("select revision from helm_channex_revisions.receipts order by committed_at desc limit 1")).rows[0].revision;
+    const cancelled={...prior,id:'984badb7-7810-42c2-a951-86c98977d002',status:'cancelled',receivedAt:'2026-10-19T15:00:02.000001Z'};
+    const older={...prior,id:'984badb7-7810-42c2-a951-86c98977d003',receivedAt:'2026-10-19T15:00:01.000001Z'};
+    await a.query('begin');await a.query('select helm_pilot_revision_commit($1)',[cancelled]);
+    const pending=b.query('select helm_pilot_revision_commit($1) receipt',[older]);
+    await blocked(pending,pidB,pidA);await a.query('commit');
+    assert.equal((await pending).rows[0].receipt.outcome,'stale');
+    assert.equal((await query("select status from bookings where property_id='HELMTEST-calderwood'")).rows[0].status,'cancelled');
+  });
+  for (const [name, disable, restore, error] of [
+    ['capture', "update helm_inventory_capture_scopes set enabled=false where property_id='HELMTEST-calderwood'", "update helm_inventory_capture_scopes set enabled=true where property_id='HELMTEST-calderwood'", /inventory_capture_required/],
+    ['authority', "update properties set calendar_authority='guesty' where id='HELMTEST-calderwood'", "update properties set calendar_authority='helm' where id='HELMTEST-calderwood'", /synthetic_helm_property_required/],
+  ]) await check(`canonical import race: ${name} withdrawal blocks import before a receipt can be committed`,async()=>{
+    const prior=(await query("select revision from helm_channex_revisions.receipts order by committed_at desc limit 1")).rows[0].revision;
+    const revision={...prior,id:'984badb7-7810-42c2-a951-86c98977d005',status:'modified',receivedAt:'2026-10-19T15:00:04.000001Z'};
+    await a.query('begin');await a.query(disable);
+    const pending=b.query('select helm_pilot_revision_commit($1)',[revision]);
+    const rejected=assert.rejects(pending,error);
+    await blocked(pending,pidB,pidA);await a.query('commit');await rejected;
+    assert.equal((await query('select helm_pilot_revision_receipt($1) receipt',[revision.id])).rows[0].receipt,null);
+    await query(restore);
+  });
+  await check('canonical import race: disabling importer wins over a later waiting notification',async()=>{
+    const prior=(await query("select revision from helm_channex_revisions.receipts order by committed_at desc limit 1")).rows[0].revision;
+    await a.query('begin');await a.query('update helm_channex_revisions.scope set enabled=false');
+    const pending=b.query('select helm_pilot_revision_commit($1)',[{...prior,id:'984badb7-7810-42c2-a951-86c98977d004',receivedAt:'2026-10-19T15:00:03.000001Z'}]);
+    const rejected=assert.rejects(pending,/revision_import_disabled/);
+    await blocked(pending,pidB,pidA);await a.query('commit');await rejected;
+  });
+
   console.log(`PASS: ${passed} native PostgreSQL concurrency/schema checks; observed lock waits; no provider or hosted connections.`);
 }catch(error){console.error('FAIL:',error.message);process.exitCode=1;}
 finally{

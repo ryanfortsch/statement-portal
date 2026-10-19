@@ -1,3 +1,4 @@
+import { verifyCanonicalRevisions } from './verify-canonical-revisions.mjs';
 // Local PostgreSQL integration checks, no network or hosted database access.
 // Pass the installed @electric-sql/pglite/dist/index.js path as the sole argument.
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -229,6 +230,7 @@ try {
     assert.deepEqual((await query("select helm_booking_inventory_read('home') as state"))[0].state, before);
   });
   await verifyBookingInventorySchema(db, check);
+  await verifyCanonicalRevisions(db, check);
   console.log(`PASS: ${passed} local PostgreSQL integration checks; canonical RPC bodies exercised; no external connections.`);
 } catch (error) {
   console.error('FAIL:', error.message);

@@ -1,3 +1,4 @@
+import { CanonicalBookingImport } from './CanonicalBookingImport';
 import Link from 'next/link';
 import MessageTimingReview from './MessageTimingReview';
 import MessageWorkflowCoverage from './MessageWorkflowCoverage';
@@ -28,8 +29,14 @@ export default async function CalderwoodPage({ searchParams }: { searchParams: P
   const summary = result ? summarizeCalderwoodReview(result) : null;
   return <main className="mx-auto max-w-6xl space-y-6 p-6">
     <Link href="/channels/staging" className="text-sm underline">Back to staging workspace</Link>
-    <header><p className="text-sm text-slate-500">Migration review · Read only</p><h1 className="text-2xl font-semibold">65 Calderwood</h1>
+    <header><p className="text-sm text-slate-500">Migration review · Isolated staging</p><h1 className="text-2xl font-semibold">65 Calderwood</h1>
       <p className="mt-2 text-sm text-slate-600">Read current reservations through Helm’s existing Guesty connection. Guesty continues managing the live calendar.</p></header>
+    <section className="rounded-lg border bg-slate-50 p-5 text-sm">
+      <h2 className="font-semibold">Calderwood pilot scope</h2>
+      <p className="mt-2">Airbnb is the planned channel for new pilot bookings. Booking.com’s pause is authorized but awaiting confirmation in its extranet; Vrbo is deferred. Every existing stay still needs calendar protection and automated service.</p>
+      <p className="mt-2">Automated guest and cleaner messages are required for launch. Keep the existing Guesty timing, including the 3 PM key-code message and the rare delay hold. PriceLabs continues to own dynamic minimum stays and pricing.</p>
+    </section>
+    <CanonicalBookingImport enabled={process.env.CHANNEX_CANONICAL_REHEARSAL_ENABLED === 'true'} />
     <form method="get" className="flex flex-wrap items-end gap-4 rounded-lg border p-4">
       <input type="hidden" name="load" value="1" />
       <label className="grid gap-1 text-sm">From<input className="rounded border p-2" type="date" name="from" required defaultValue={from} /></label>
