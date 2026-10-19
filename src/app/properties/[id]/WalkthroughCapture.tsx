@@ -5,6 +5,7 @@ import { parseWalkthroughAction, applyWalkthroughAction } from './onboarding-act
 import { useRecoverableAction } from '@/lib/use-recoverable-action';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
+import { useConfirm } from '@/components/ConfirmDialog';
 import { captureColumn, isHighStakesColumn } from '@/lib/property-capture-catalog';
 import type { CaptureItem } from '@/lib/property-capture-catalog';
 import type { WalkthroughProposal } from '@/lib/ai/property-walkthrough';
@@ -61,6 +62,7 @@ export function WalkthroughCapture({
   onBack?: (completed: boolean, text: string) => void;
 }) {
   const softRefresh = useSoftRefresh();
+  const { ask } = useConfirm();
   const [phase, setPhase] = useState<Phase>('input');
   const [text, setText] = useState(initialText);
   const [rooms, setRooms] = useState<{ name: string; roomType: RoomType }[]>([]);
@@ -259,9 +261,14 @@ export function WalkthroughCapture({
     }, 'Could not confirm the walkthrough save. Your review is kept. Retry to check and save the remaining work.');
   }
 
-  function reset() {
+  async function reset() {
     if (busy.current) return;
-    if (phase !== 'done' && !confirm('Discard this walkthrough review? Any changes already saved will stay on the property.')) return;
+    if (phase !== 'done' && !(await ask({
+      title: 'Discard this walkthrough review?',
+      body: 'Any changes already saved stay on the property.',
+      confirmLabel: 'Discard review',
+    }))) return;
+    if (busy.current) return;
     stopListening();
     progress.current = { rooms: 0, roomFacts: 0, columns: 0, notes: 0, skipped: [] as string[] };
     // Handed here by the single input box: "start over" belongs back at

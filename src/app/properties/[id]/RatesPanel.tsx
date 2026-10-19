@@ -14,6 +14,8 @@ import {
 import type { RateDayRow, RatePlanRow, TaxConfigRow } from '@/lib/rate-plan';
 import { regionLabel } from '@/lib/property-scope';
 import { clearRatesConfirm } from '@/lib/irreversible-confirms';
+import { useConfirm } from '@/components/ConfirmDialog';
+import { askFromSentence } from '@/lib/confirm-question';
 import { HousePolicyReadout, type HousePolicyValues } from './HousePolicyReadout';
 import { etStamp } from '@/lib/stable-time';
 
@@ -314,6 +316,8 @@ function SeasonsTool({ propertyId, today, hasPlan, days }: { propertyId: string;
   const clear = clearSeasonAction.bind(null, propertyId);
   const [wState, writeAction, writing] = useActionState<RatesFormState, FormData>(write, { error: null });
   const [cState, clearAction, clearing] = useActionState<RatesFormState, FormData>(clear, { error: null });
+  const [, startClear] = useTransition();
+  const { ask } = useConfirm();
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       <SectionHead title="Seasons" note="bulk-write day overrides" />
@@ -373,10 +377,13 @@ function SeasonsTool({ propertyId, today, hasPlan, days }: { propertyId: string;
         action={clearAction}
         // Clearing deletes every override in the range, PriceLabs seeds
         // included, and nothing brings them back: ask once, with the count.
-        onSubmit={(e) => {
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (clearing) return;
           const fd = new FormData(e.currentTarget);
           const msg = clearRatesConfirm(String(fd.get('from') ?? ''), String(fd.get('to') ?? ''), days, today);
-          if (!window.confirm(msg)) e.preventDefault();
+          if (!(await ask({ ...askFromSentence(msg), confirmLabel: 'Clear range', tone: 'danger', irreversible: true }))) return;
+          startClear(() => clearAction(fd));
         }}
         style={{ display: 'flex', flexDirection: 'column', gap: 14, border: '1px solid var(--rule)', padding: '16px 18px' }}
       >

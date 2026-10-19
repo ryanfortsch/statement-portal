@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition, type CSSProperties, type ReactNode } from 'react';
 import { PhotoUploader } from '@/components/PhotoUploader';
+import { useConfirm, type AskOptions } from '@/components/ConfirmDialog';
 import { scaDraftPreviewSignature, type ScaFormDraft, type ScaLaunchRow, type PaymentVerifySignal } from '@/lib/sca-launch';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import {
@@ -120,6 +121,7 @@ export function ScaLaunchClient(props: Props) {
   const [aiBrief, setAiBrief] = useState('');
   const [guestyInfo, setGuestyInfo] = useState<{ bedrooms: number | null; bathrooms: number | null; accommodates: number | null; photos: number; amenities: number } | null>(null);
   const [, startTransition] = useTransition();
+  const { ask, choose } = useConfirm();
   const noticeRef = useRef<HTMLDivElement | null>(null);
 
   // The notice banner renders at the top of a long form, but the buttons that
@@ -205,10 +207,15 @@ export function ScaLaunchClient(props: Props) {
     set('sleepingArrangements', [...(form.sleepingArrangements ?? []), { name: '', beds: '', photo: [] }]);
     setRoomKeys((keys) => [...keys, newRoomKey()]);
   }
-  function removeRoom(i: number) {
+  async function removeRoom(i: number) {
     const key = roomKeys[i];
     if (key && uploadingSlots.has(key)) return;
-    if (key && failedSlots.has(key) && !window.confirm('Remove this bedroom and its failed uploads?')) return;
+    if (key && failedSlots.has(key) && !(await ask({
+      title: 'Remove this bedroom and its failed uploads?',
+      body: 'The photos that did not upload are dropped with it.',
+      confirmLabel: 'Remove bedroom',
+      tone: 'danger',
+    }))) return;
     setFailedSlots((prev) => {
       if (!key || !prev.has(key)) return prev;
       const next = new Set(prev);
@@ -248,6 +255,12 @@ export function ScaLaunchClient(props: Props) {
     });
   }
 
+  /** Ask first, and only then mark the button busy and run. */
+  function runAfterYes(name: string, question: AskOptions, fn: () => Promise<void>) {
+    if (busyRef.current || uploadingSlots.size > 0) return;
+    void ask(question).then((yes) => { if (yes) run(name, fn); });
+  }
+
   const onSave = () =>
     run('save', async () => {
       const res = await saveScaDraft(props.propertyId, form);
@@ -285,11 +298,18 @@ export function ScaLaunchClient(props: Props) {
         form.publicName?.trim() ||
         form.highlights.some((h) => h.trim())
       );
-      const overwrite =
-        hasExistingCopy &&
-        window.confirm(
-          'Replace the current listing copy with the Guesty copy? This overwrites tagline, About, and highlights (and the dining pick) with what the OTA listing shows now.',
-        );
+      const pick = hasExistingCopy
+        ? await choose({
+            title: 'Replace the listing copy with the Guesty copy?',
+            body: 'Replace overwrites the tagline, About and highlights (and the dining pick) with what the OTA listing shows now. Fill blanks only keeps your copy.',
+            choices: [
+              { value: 'replace', label: 'Replace with Guesty copy' },
+              { value: 'fill', label: 'Fill blanks only' },
+            ],
+          })
+        : 'fill';
+      if (pick === null) return;
+      const overwrite = pick === 'replace';
       setForm((f) => {
         // overwrite: take the new value but keep the old if Guesty returned
         // empty. blanks-only: keep the old value, fill in only when empty.
@@ -327,14 +347,26 @@ export function ScaLaunchClient(props: Props) {
   // Draft with AI: new copy in the Stay Cape Ann voice, where Pull from Guesty
   // copies the OTA listing as it reads. Same fill rule as the pull: replace
   // only on a yes, otherwise fill the blank fields and keep typed copy.
-  const onDraftAi = () =>
+  const onDraftAi = async () => {
+    if (busyRef.current || uploadingSlots.size > 0) return;
+    const hasCopy = !!(form.tagline?.trim() || form.description?.trim() || form.highlights.some((h) => h.trim()));
+    const allFilled = !!(form.pitch?.trim() && form.tagline?.trim() && form.description?.trim() && form.highlights.some((h) => h.trim()));
+    const pick = hasCopy
+      ? await choose({
+          title: 'Replace the tagline, About and highlights with a new AI draft?',
+          body: allFilled
+            ? 'Every field already has copy, so Keep my copy changes nothing.'
+            : 'Fill blanks only keeps your copy and drafts just the empty fields.',
+          choices: [
+            { value: 'replace', label: 'Replace with AI draft' },
+            ...(allFilled ? [] : [{ value: 'fill' as const, label: 'Fill blanks only' }]),
+          ],
+          cancelLabel: allFilled ? 'Keep my copy' : 'Cancel',
+        })
+      : 'fill';
+    if (pick === null) return;
+    const overwrite = pick === 'replace';
     run('draft-ai', async () => {
-      const hasCopy = !!(form.tagline?.trim() || form.description?.trim() || form.highlights.some((h) => h.trim()));
-      const allFilled = !!(form.pitch?.trim() && form.tagline?.trim() && form.description?.trim() && form.highlights.some((h) => h.trim()));
-      const overwrite =
-        hasCopy &&
-        window.confirm('Replace the tagline, About and highlights with a new AI draft? Cancel keeps your copy and fills only the blank fields.');
-      if (hasCopy && !overwrite && allFilled) return;
       const res = await draftScaCopyWithAi(props.propertyId, aiBrief);
       if (!res.ok) {
         setNotice({ kind: 'err', text: res.error });
@@ -356,6 +388,7 @@ export function ScaLaunchClient(props: Props) {
       const source = d.photos ? `the property record and ${d.photos} Listing photo${d.photos === 1 ? '' : 's'}` : 'the property record';
       setNotice({ kind: 'ok', text: `Drafted from ${source}. Review it, then Save draft.` });
     });
+  };
 
   const onAdopt = () =>
     run('adopt', async () => {
@@ -413,10 +446,13 @@ export function ScaLaunchClient(props: Props) {
       }
     });
 
-  const onPublishUpdate = () =>
-    run('publish', async () => {
-      if (!previewMatches) return;
-      if (!window.confirm('Publish these changes? The live page updates within a couple minutes.')) return;
+  const onPublishUpdate = () => {
+    if (!previewMatches) return;
+    runAfterYes('publish', {
+      title: 'Publish these changes?',
+      body: 'Guests see them on staycapeann.com within a couple minutes.',
+      confirmLabel: 'Publish',
+    }, async () => {
       const res = await publishScaUpdate(props.propertyId, form);
       if (res.ok) {
         setRow(res.row);
@@ -424,6 +460,7 @@ export function ScaLaunchClient(props: Props) {
         setNotice({ kind: 'ok', text: 'Published. The live page refreshes within a couple minutes.' });
       } else setNotice({ kind: 'err', text: res.error ?? 'Publish failed' });
     });
+  };
 
   const onTogglePayment = (step: 'publishable' | 'secret' | 'webhook', value: boolean) =>
     run(`pay-${step}`, async () => {
@@ -443,20 +480,31 @@ export function ScaLaunchClient(props: Props) {
       } else setNotice({ kind: 'err', text: res.error });
     });
 
-  const onGoLive = (override: boolean) =>
-    run('golive', async () => {
-      if (!previewMatches) return;
-      if (override && !window.confirm('Go live now, skipping the readiness checks? This merges the PR and the page goes public immediately.')) return;
+  const onGoLive = (override: boolean) => {
+    if (!previewMatches) return;
+    const goLive = async () => {
       const res = await goLiveSca(props.propertyId, override, form);
       if (res.ok) {
         setRow(res.row);
         setNotice({ kind: 'ok', text: 'Live. The property is on staycapeann.com.' });
       } else setNotice({ kind: 'err', text: res.error ?? 'Go-live failed' });
-    });
+    };
+    if (!override) { run('golive', goLive); return; }
+    runAfterYes('golive', {
+      title: 'Go live now, skipping the readiness checks?',
+      body: 'This merges the PR and the page goes public on staycapeann.com immediately, even with the payment checklist unticked.',
+      confirmLabel: 'Go live now',
+      tone: 'danger',
+    }, goLive);
+  };
 
   const onUnlist = () =>
-    run('unlist', async () => {
-      if (!window.confirm('Open a PR to remove this listing from staycapeann.com?')) return;
+    runAfterYes('unlist', {
+      title: 'Remove this listing from staycapeann.com?',
+      body: 'This opens a PR that takes the page off the site. The page stays up until that PR is merged.',
+      confirmLabel: 'Open removal PR',
+      tone: 'danger',
+    }, async () => {
       const res = await unlistSca(props.propertyId);
       if (res.ok) {
         setRow(res.row);
@@ -535,8 +583,12 @@ export function ScaLaunchClient(props: Props) {
             <button
               type="button"
               style={{ ...btnBase, padding: '3px 9px', fontSize: 11 }}
-              onClick={() => {
-                if (dirty && !window.confirm('Replace your edits with the saved draft?')) return;
+              onClick={async () => {
+                if (dirty && !(await ask({
+                  title: 'Replace your edits with the saved draft?',
+                  body: 'What you typed since opening this page is dropped.',
+                  confirmLabel: 'Use the saved draft',
+                }))) return;
                 replaceForm(savedDraftAside, true);
                 setSavedDraftAside(null);
               }}

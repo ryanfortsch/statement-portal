@@ -23,6 +23,8 @@ for (const [name, path] of [['stabletime', 'src/lib/stable-time.ts'],
   ['sca-launch', 'src/lib/sca-launch.ts'],
   ['sca-config', 'src/lib/sca-config.ts'],
   ['sca-copy-notes', 'src/lib/sca-copy-notes.ts'],
+  ['confirm-dialog', 'src/components/ConfirmDialog.tsx'],
+  ['confirm-question', 'src/lib/confirm-question.ts'],
 ]) await writeFile(join(scratch, name + '.js'), compile(await readFile(join(root, path), 'utf8')));
 await writeFile(join(scratch, 'actions.js'), `
   const call = (kind, args) => new Promise((resolve, reject) => {
@@ -133,6 +135,8 @@ await new Promise((done,reject)=>{
     resolve:{modules:[join(root,'node_modules')],alias:{'@/lib/stable-time':join(scratch,'stabletime.js'),
       './actions':join(scratch,'actions.js'),
       '@/components/PhotoUploader':join(scratch,'upload.js'),
+      '@/components/ConfirmDialog':join(scratch,'confirm-dialog.js'),
+      '@/lib/confirm-question':join(scratch,'confirm-question.js'),
       ...Object.fromEntries(['unsaved-work','sca-launch','sca-config','sca-copy-notes'].map(name=>['@/lib/'+name,join(scratch,name+'.js')])),
     }},performance:{hints:false},
   });

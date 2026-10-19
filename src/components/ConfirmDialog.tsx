@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { typedWordMatches } from '@/lib/confirm-question';
 
 /**
@@ -10,7 +10,7 @@ import { typedWordMatches } from '@/lib/confirm-question';
  * does, and says "This cannot be undone." when that is true, instead of a
  * grey OK/Cancel box with a paragraph in it.
  *
- *   const { ask, askText, notify } = useConfirm();
+ *   const { ask, askText, choose, notify } = useConfirm();
  *   if (!(await ask({ title: 'Void this receipt?', confirmLabel: 'Void', tone: 'danger', irreversible: true }))) return;
  *
  * Replacing `if (!confirm(text)) return;` is one line:
@@ -26,6 +26,11 @@ import { typedWordMatches } from '@/lib/confirm-question';
  * Escape and a click on the backdrop cancel, and focus returns to whatever
  * opened it. `typeToConfirm` is the gate for the few actions that destroy a
  * lot at once: the confirm button stays off until the word is typed.
+ *
+ * `choose` is for a question with two real answers besides "never mind"
+ * ("Replace all" or "Fill blanks only"): it resolves to the picked value, or
+ * null on Cancel, Escape or the backdrop. Without a provider it falls back to
+ * the old two-way native question: OK picks the first choice, Cancel the second.
  */
 
 export type AskOptions = {
@@ -64,16 +69,28 @@ export type NotifyOptions = {
   tone?: 'default' | 'danger';
 };
 
+export type ChooseOptions<T extends string = string> = {
+  title: string;
+  body?: ReactNode;
+  list?: string[];
+  /** The answers, most likely first: the first is the dark button. */
+  choices: { value: T; label: string; tone?: 'default' | 'danger' }[];
+  cancelLabel?: string;
+};
+
 type Confirm = {
   ask: (o: AskOptions) => Promise<boolean>;
   /** Resolves to the typed text, or null when cancelled. */
   askText: (o: AskTextOptions) => Promise<string | null>;
+  /** Resolves to the picked choice's value, or null when cancelled. */
+  choose: <T extends string>(o: ChooseOptions<T>) => Promise<T | null>;
   notify: (o: NotifyOptions) => Promise<void>;
 };
 
 type Pending =
   | { kind: 'ask'; o: AskOptions; resolve: (v: boolean) => void }
   | { kind: 'text'; o: AskTextOptions; resolve: (v: string | null) => void }
+  | { kind: 'choose'; o: ChooseOptions; resolve: (v: string | null) => void }
   | { kind: 'notify'; o: NotifyOptions; resolve: () => void };
 
 function plain(node: ReactNode): string {
@@ -95,6 +112,7 @@ const NATIVE: Confirm = {
     ? typedWordMatches(prompt(`${nativeText(o)}\n\nType ${o.typeToConfirm} to confirm.`), o.typeToConfirm)
     : confirm(nativeText(o)),
   askText: async (o) => prompt(nativeText(o)),
+  choose: async (o) => (confirm(nativeText(o)) ? o.choices[0]?.value : o.choices[1]?.value) ?? null,
   notify: async (o) => { alert(nativeText(o)); },
 };
 
@@ -102,6 +120,25 @@ const ConfirmContext = createContext<Confirm | null>(null);
 
 export function useConfirm(): Confirm {
   return useContext(ConfirmContext) ?? NATIVE;
+}
+
+/**
+ * A submit button's onClick that asks first: the click is held, and a yes
+ * resubmits the form with the same button as submitter, so its formAction
+ * and name/value ride along exactly as a plain click's.
+ *
+ *   <button type="submit" onClick={(e) => askThenSubmit(e, ask, { title: 'Resend?', confirmLabel: 'Resend' })}>
+ */
+export async function askThenSubmit(
+  e: ReactMouseEvent<HTMLButtonElement>,
+  ask: Confirm['ask'],
+  question: AskOptions,
+): Promise<void> {
+  const button = e.currentTarget;
+  const form = button.form;
+  if (!form) return;
+  e.preventDefault();
+  if ((await ask(question)) && button.isConnected && !button.disabled) form.requestSubmit(button);
 }
 
 const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -123,7 +160,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
     settle.current?.();
     settle.current = () => {
       if (next.kind === 'ask') next.resolve(false);
-      else if (next.kind === 'text') next.resolve(null);
+      else if (next.kind === 'text' || next.kind === 'choose') next.resolve(null);
       else next.resolve();
     };
     // Outside the caller's transition: React 19 holds an async transition's
@@ -141,20 +178,23 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
   const value = useMemo<Confirm>(() => ({
     ask: (o) => new Promise<boolean>(resolve => open({ kind: 'ask', o, resolve })),
     askText: (o) => new Promise<string | null>(resolve => open({ kind: 'text', o, resolve })),
+    choose: <T extends string>(o: ChooseOptions<T>) =>
+      new Promise<T | null>(resolve => open({ kind: 'choose', o, resolve: (v) => resolve(v as T | null) })),
     notify: (o) => new Promise<void>(resolve => open({ kind: 'notify', o, resolve })),
   }), [open]);
 
-  const gate = pending && pending.kind !== 'notify' ? pending.o.typeToConfirm : undefined;
+  const gate = pending && (pending.kind === 'ask' || pending.kind === 'text') ? pending.o.typeToConfirm : undefined;
   const textMissing = pending?.kind === 'text' && !pending.o.optional && !text.trim();
   const gateShut = !!gate && !typedWordMatches(typed, gate);
   const blocked = textMissing || gateShut;
 
-  const close = useCallback((answer: 'yes' | 'no') => {
+  const close = useCallback((answer: 'yes' | 'no', choice?: string) => {
     if (!pending) return;
     if (answer === 'yes' && blocked) return;
     settle.current = null;
     if (pending.kind === 'ask') pending.resolve(answer === 'yes');
     else if (pending.kind === 'text') pending.resolve(answer === 'yes' ? text : null);
+    else if (pending.kind === 'choose') pending.resolve(answer === 'yes' ? choice ?? null : null);
     else pending.resolve();
     setPending(null);
     const back = opener.current;
@@ -163,11 +203,18 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
     if (back) setTimeout(() => { if (back.isConnected) back.focus({ preventScroll: true }); }, 0);
   }, [pending, text, blocked]);
 
+  // Capture phase, and stopped there: an Escape meant for the question must
+  // not also close the editor or modal it was asked from.
   useEffect(() => {
     if (!pending) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); close('no'); } };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      close('no');
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
   }, [pending, close]);
 
   // The page behind stays put while a question is open.
@@ -197,7 +244,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
   };
 
   const o = pending?.o;
-  const danger = o?.tone === 'danger';
+  const danger = !!o && 'tone' in o && o.tone === 'danger';
 
   return (
     <ConfirmContext.Provider value={value}>
@@ -206,7 +253,9 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
         <div
           onClick={() => close('no')}
           style={{
-            position: 'fixed', inset: 0, zIndex: 120,
+            // Above every other modal in Helm (the highest is 1000), since a
+            // question is often asked from inside one.
+            position: 'fixed', inset: 0, zIndex: 2000,
             background: 'rgba(30, 46, 52, 0.35)',
             display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
             padding: '96px 16px 40px', overflow: 'auto',
@@ -245,7 +294,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
                 )}
               </div>
             )}
-            {pending.kind !== 'notify' && pending.o.irreversible && (
+            {(pending.kind === 'ask' || pending.kind === 'text') && pending.o.irreversible && (
               <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--negative)', marginTop: 12 }}>This cannot be undone.</div>
             )}
             {pending.kind === 'text' && (
@@ -299,22 +348,46 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
                   {pending.o.cancelLabel || 'Cancel'}
                 </button>
               )}
-              <button
-                type="button"
-                autoFocus={pending.kind !== 'text' && !gate}
-                disabled={blocked}
-                onClick={() => close('yes')}
-                style={{
-                  background: danger ? 'var(--negative)' : 'var(--ink)',
-                  border: `1px solid ${danger ? 'var(--negative)' : 'var(--ink)'}`,
-                  color: 'var(--paper)',
-                  fontSize: 11, fontWeight: 600, letterSpacing: '.1em', textTransform: 'uppercase',
-                  padding: '10px 18px', minHeight: 40, cursor: blocked ? 'not-allowed' : 'pointer',
-                  opacity: blocked ? 0.4 : 1,
-                }}
-              >
-                {pending.kind === 'notify' ? 'OK' : pending.o.confirmLabel}
-              </button>
+              {pending.kind === 'choose' ? (
+                [...pending.o.choices].reverse().map((c, i, all) => {
+                  const primary = i === all.length - 1;
+                  const red = c.tone === 'danger';
+                  return (
+                    <button
+                      key={c.value}
+                      type="button"
+                      autoFocus={primary}
+                      onClick={() => close('yes', c.value)}
+                      style={{
+                        background: primary ? (red ? 'var(--negative)' : 'var(--ink)') : 'transparent',
+                        border: `1px solid ${red ? 'var(--negative)' : 'var(--ink)'}`,
+                        color: primary ? 'var(--paper)' : red ? 'var(--negative)' : 'var(--ink)',
+                        fontSize: 11, fontWeight: 600, letterSpacing: '.1em', textTransform: 'uppercase',
+                        padding: '10px 18px', minHeight: 40, cursor: 'pointer',
+                      }}
+                    >
+                      {c.label}
+                    </button>
+                  );
+                })
+              ) : (
+                <button
+                  type="button"
+                  autoFocus={pending.kind !== 'text' && !gate}
+                  disabled={blocked}
+                  onClick={() => close('yes')}
+                  style={{
+                    background: danger ? 'var(--negative)' : 'var(--ink)',
+                    border: `1px solid ${danger ? 'var(--negative)' : 'var(--ink)'}`,
+                    color: 'var(--paper)',
+                    fontSize: 11, fontWeight: 600, letterSpacing: '.1em', textTransform: 'uppercase',
+                    padding: '10px 18px', minHeight: 40, cursor: blocked ? 'not-allowed' : 'pointer',
+                    opacity: blocked ? 0.4 : 1,
+                  }}
+                >
+                  {pending.kind === 'notify' ? 'OK' : pending.o.confirmLabel}
+                </button>
+              )}
             </div>
           </div>
         </div>

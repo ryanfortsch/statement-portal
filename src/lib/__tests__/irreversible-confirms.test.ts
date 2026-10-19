@@ -88,6 +88,8 @@ describe('the questions', () => {
   });
 });
 
+// Since Phase 4 (2026-10-18) each of these asks in the app's modal
+// (ConfirmDialog), never window.confirm; native-dialogs.test.ts holds that.
 describe('each control still asks', () => {
   test('listings: retire and the blanked URL', () => {
     // The wiring card is the Edit wiring fold on each hub (2026-10-18).
@@ -96,12 +98,12 @@ describe('each control still asks', () => {
     assert.ok(page.includes("confirm={feedStopConfirm('retire', 'Guesty'"), 'Guesty retire lost its confirm');
     assert.ok(page.includes("clearedConfirm={feedStopConfirm('clear_url'"), 'blank URL save lost its confirm');
     const form = read('src/app/channels/listings/FeedUrlForm.tsx');
-    assert.ok(form.includes('if (!value && !window.confirm(clearedConfirm)) e.preventDefault();'));
+    assert.ok(form.includes("if (!(await ask({ ...askFromSentence(clearedConfirm), confirmLabel: 'Save with no URL', tone: 'danger' }))) return;"));
   });
 
   test('hub: These cancellations are real, and Release', () => {
     const hub = read('src/app/channels/[propertyId]/page.tsx');
-    assert.ok(hub.includes('confirm={massCancelConfirm(label, held, bcom)}'));
+    assert.ok(hub.includes('...askFromSentence(massCancelConfirm(label, held, bcom)),'));
     assert.ok(hub.includes('confirm={releaseClosureConfirm(r.check_in, r.check_out)}'));
   });
 
@@ -117,9 +119,9 @@ describe('each control still asks', () => {
 
   test("door codes, rates, and a guest's card", () => {
     const codes = read('src/app/properties/[id]/GuestCodesPanel.tsx');
-    assert.ok(codes.includes('window.confirm(revokeCodeConfirm(b.guest_name, b.check_in, b.check_out))'));
+    assert.ok(codes.includes('...askFromSentence(revokeCodeConfirm(b.guest_name, b.check_in, b.check_out)),'));
     const rates = read('src/app/properties/[id]/RatesPanel.tsx');
-    assert.ok(rates.includes('clearRatesConfirm(') && rates.includes('if (!window.confirm(msg)) e.preventDefault();'));
+    assert.ok(rates.includes('clearRatesConfirm(') && rates.includes("if (!(await ask({ ...askFromSentence(msg), confirmLabel: 'Clear range', tone: 'danger', irreversible: true }))) return;"));
     const charges = read('src/app/payments/balance-charges/page.tsx');
     assert.equal(charges.split('confirm={balanceChargeConfirm(').length - 1, 2, 'both charge buttons ask');
   });

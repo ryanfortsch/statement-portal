@@ -5,6 +5,13 @@ import { saveRoomAction, deleteRoomAction } from './onboarding-actions';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { ROOM_TYPES, type PropertyRoom, type RoomType } from '@/lib/property-rooms-shared';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
+import { useConfirm } from '@/components/ConfirmDialog';
+
+const DISCARD_ROOM = {
+  title: 'Discard your unsaved room changes?',
+  body: 'What you typed in this room is dropped. Saved rooms are untouched.',
+  confirmLabel: 'Discard changes',
+} as const;
 
 /**
  * Room-by-room records for the Onboarding tab. Cards summarize each space
@@ -16,18 +23,21 @@ export function RoomsEditor({ propertyId, rooms }: { propertyId: string; rooms: 
   const [editing, setEditing] = useState<string | 'new' | null>(null);
   const [busy, setBusy] = useState(false);
   const current = useRef<{ id: string | null; dirty: boolean; busy: boolean }>({ id: null, dirty: false, busy: false });
+  const { ask } = useConfirm();
 
-  function edit(next: string) {
+  async function edit(next: string) {
     if (current.current.busy || next === current.current.id) return;
-    if (current.current.dirty && !window.confirm('Discard your unsaved room changes?')) return;
+    if (current.current.dirty && !(await ask(DISCARD_ROOM))) return;
+    if (current.current.busy) return;
     current.current = { id: next, dirty: false, busy: false };
     setEditing(next);
   }
 
-  function close(id: string, confirmedSave: boolean) {
+  async function close(id: string, confirmedSave: boolean) {
     // A response from an old editor must never close a newer room's form.
     if (current.current.id !== id) return;
-    if (!confirmedSave && (current.current.busy || (current.current.dirty && !window.confirm('Discard your unsaved room changes?')))) return;
+    if (!confirmedSave && (current.current.busy || (current.current.dirty && !(await ask(DISCARD_ROOM))))) return;
+    if (current.current.id !== id) return;
     current.current = { id: null, dirty: false, busy: false };
     setBusy(false);
     setEditing(null);
@@ -125,6 +135,7 @@ function RoomForm({
   onBusyChange: (id: string, busy: boolean) => void;
 }) {
   const softRefresh = useSoftRefresh();
+  const { ask } = useConfirm();
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState(room?.name ?? '');
@@ -197,9 +208,16 @@ function RoomForm({
     });
   }
 
-  function remove() {
+  async function remove() {
     if (!room || saving.current) return;
-    if (!window.confirm(`Delete room "${room.name}"?`)) return;
+    if (!(await ask({
+      title: `Delete the room "${room.name}"?`,
+      body: 'Its beds, TV, amenities and quirks come off the property record.',
+      confirmLabel: 'Delete room',
+      tone: 'danger',
+      irreversible: true,
+    }))) return;
+    if (saving.current) return;
     saving.current = true;
     onBusyChange(id, true);
     setOperation('delete');

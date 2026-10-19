@@ -21,39 +21,54 @@
 
 import { useEffect, useState } from 'react';
 import { useFormStatus } from 'react-dom';
+import { askThenSubmit, useConfirm } from '@/components/ConfirmDialog';
 
 export function CopyLinkButton({ text, label = 'Copy' }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false);
+  // Browser blocked the clipboard (e.g. an http context): show the link,
+  // selected, beside the button so the user can copy it themselves.
+  const [manual, setManual] = useState(false);
   return (
-    <button
-      type="button"
-      onClick={async () => {
-        try {
-          await navigator.clipboard.writeText(text);
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1800);
-        } catch {
-          // Browser blocked clipboard (e.g. http context). Fall back to
-          // a select-all so the user can cmd-c themselves.
-          window.prompt('Copy this link:', text);
-        }
-      }}
-      style={{
-        background: copied ? 'var(--signal)' : 'transparent',
-        color: copied ? 'var(--paper)' : 'var(--ink)',
-        fontSize: 11,
-        fontWeight: 600,
-        letterSpacing: '.18em',
-        textTransform: 'uppercase',
-        padding: '9px 16px',
-        border: copied ? '1px solid var(--signal)' : '1px solid var(--ink)',
-        cursor: 'pointer',
-        whiteSpace: 'nowrap',
-        transition: 'background 120ms, color 120ms, border-color 120ms',
-      }}
-    >
-      {copied ? 'Copied' : label}
-    </button>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+      <button
+        type="button"
+        onClick={async () => {
+          try {
+            await navigator.clipboard.writeText(text);
+            setManual(false);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1800);
+          } catch {
+            setManual(true);
+          }
+        }}
+        style={{
+          background: copied ? 'var(--signal)' : 'transparent',
+          color: copied ? 'var(--paper)' : 'var(--ink)',
+          fontSize: 11,
+          fontWeight: 600,
+          letterSpacing: '.18em',
+          textTransform: 'uppercase',
+          padding: '9px 16px',
+          border: copied ? '1px solid var(--signal)' : '1px solid var(--ink)',
+          cursor: 'pointer',
+          whiteSpace: 'nowrap',
+          transition: 'background 120ms, color 120ms, border-color 120ms',
+        }}
+      >
+        {copied ? 'Copied' : label}
+      </button>
+      {manual && (
+        <input
+          readOnly
+          autoFocus
+          value={text}
+          aria-label="Link to copy"
+          onFocus={(e) => e.currentTarget.select()}
+          style={{ minWidth: 220, flex: '1 1 220px', padding: '8px 10px', fontSize: 12, border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)', fontFamily: 'inherit' }}
+        />
+      )}
+    </span>
   );
 }
 
@@ -180,13 +195,16 @@ export function CountersignButton() {
  */
 export function SendCopyButton({ resend }: { resend: boolean }) {
   const { pending } = useFormStatus();
+  const { ask } = useConfirm();
   return (
     <button
       type="submit"
       disabled={pending}
-      onClick={(e) => {
-        if (resend && !window.confirm('Email this copy to the owner again?')) e.preventDefault();
-      }}
+      onClick={resend ? (e) => askThenSubmit(e, ask, {
+        title: 'Email this copy to the owner again?',
+        body: 'A second copy of the sealed contract lands in their inbox.',
+        confirmLabel: 'Resend',
+      }) : undefined}
       style={{
         background: resend ? 'transparent' : 'var(--ink)',
         color: resend ? 'var(--ink-3)' : 'var(--paper)',
@@ -213,16 +231,17 @@ export function SendCopyButton({ resend }: { resend: boolean }) {
  */
 export function WithdrawSignatureButton() {
   const { pending } = useFormStatus();
+  const { ask } = useConfirm();
   return (
     <button
       type="submit"
       disabled={pending}
-      onClick={(e) => {
-        if (!window.confirm(
-          'Withdraw the owner’s signature so the contract terms can change?\n\n' +
-          'Their signature and its sealed copy stay on record. They will need to sign again at the same link, so tell them what changed.',
-        )) e.preventDefault();
-      }}
+      onClick={(e) => askThenSubmit(e, ask, {
+        title: 'Withdraw the owner’s signature so the contract terms can change?',
+        body: 'Their signature and its sealed copy stay on record. They will need to sign again at the same link, so tell them what changed.',
+        confirmLabel: 'Withdraw signature',
+        tone: 'danger',
+      })}
       style={{
         background: 'transparent',
         color: 'var(--ink-3)',

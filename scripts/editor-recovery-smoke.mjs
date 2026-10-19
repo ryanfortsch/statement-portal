@@ -26,6 +26,7 @@ for(const [name,path] of [['stabletime','src/lib/stable-time.ts'],
   ['room-types','src/lib/property-rooms-shared.ts'],
   ['picker','src/components/TeamPicker.tsx'],
   ['unsaved-work','src/lib/unsaved-work.ts'],
+  ['confirm-dialog','src/components/ConfirmDialog.tsx'],['confirm-question','src/lib/confirm-question.ts'],
 ])await writeFile(join(scratch,name+'.js'),compile(await readFile(join(root,path),'utf8')));
 await writeFile(join(scratch,'actions.js'),`
   export const save=(kind,args)=>new Promise((resolve,reject)=>window.calls.push({kind,args,resolve,reject}));
@@ -106,7 +107,7 @@ await writeFile(join(scratch,'entry.js'),compile(`
 await new Promise((done,reject)=>{
   const compiler=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.js'),output:{path:scratch,filename:'bundle.js'},resolve:{modules:[join(root,'node_modules')],alias:{'@/lib/stable-time':join(scratch,'stabletime.js'),'./PropertyCheckboxes':join(scratch,'propcheck.js'),'../PropertyCheckboxes':join(scratch,'propcheck.js'),
     '../actions':join(scratch,'actions.js'),'../../actions':join(scratch,'actions.js'),'./actions':join(scratch,'actions.js'),'./onboarding-actions':join(scratch,'actions.js'),
-    '@/lib/use-soft-refresh':join(scratch,'refresh.js'),'@/lib/unsaved-work':join(scratch,'unsaved-work.js'),
+    '@/lib/use-soft-refresh':join(scratch,'refresh.js'),'@/lib/unsaved-work':join(scratch,'unsaved-work.js'),'@/components/ConfirmDialog':join(scratch,'confirm-dialog.js'),'@/lib/confirm-question':join(scratch,'confirm-question.js'),
     './slip-controls':join(scratch,'slip-controls.js'),'../../[id]/slip-controls':join(scratch,'slip-controls.js'),'@/lib/work-types':join(scratch,'work-types.js'),'../../[id]/BackToBoardLink':join(scratch,'back.js'),'@/lib/gmail-links':join(scratch,'gmail-links.js'),'@/lib/copy-email':join(scratch,'copy-email.js'),'@/components/CopiedEmailNotice':join(scratch,'copied-notice.js'),'next-auth/react':join(scratch,'session.js'),
     '@/lib/team':join(scratch,'team.js'),'@/lib/meetings-core':join(scratch,'meetings-core.js'),'@/components/TeamPicker':join(scratch,'picker.js'),
     '@/lib/crm':join(scratch,'crm-types.js'),'@/lib/playbook':join(scratch,'playbook-types.js'),

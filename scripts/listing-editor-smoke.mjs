@@ -24,6 +24,8 @@ for (const [name, path] of [
   ['component', 'src/app/properties/[id]/ListingPanel.tsx'],
   ['policy', 'src/app/properties/[id]/HousePolicyReadout.tsx'],
   ['stabletime', 'src/lib/stable-time.ts'],
+  ['confirm-dialog', 'src/components/ConfirmDialog.tsx'],
+  ['confirm-question', 'src/lib/confirm-question.ts'],
 ]) await writeFile(join(scratch, name + '.js'), compile(await readFile(join(root, path), 'utf8')));
 await writeFile(join(scratch, 'actions.js'), `
   const call = (kind, args) => new Promise((resolve, reject) => {
@@ -68,6 +70,8 @@ await new Promise((done, reject) => {
       './listing-actions':join(scratch,'actions.js'),
       './HousePolicyReadout':join(scratch,'policy.js'),
       '@/lib/stable-time':join(scratch,'stabletime.js'),
+      '@/components/ConfirmDialog':join(scratch,'confirm-dialog.js'),
+      '@/lib/confirm-question':join(scratch,'confirm-question.js'),
       'next/link':join(scratch,'link.js'),
       '@vercel/blob/client':join(scratch,'blob.js'),
     }},performance:{hints:false},
@@ -132,7 +136,7 @@ try {
     await reset();
     await edit('input[aria-label="Note for Draft with AI"]','The view at low tide');
     decisions.push(false); await click('Draft with AI'); await waitCalls(1);
-    assert.equal(confirmations.length,1); assert.match(confirmations[0],/Cancel keeps your text/);
+    assert.equal(confirmations.length,1); assert.match(confirmations[0],/Fill blanks only keeps your text/);
     assert.deepEqual(await page.evaluate(()=>window.calls[0].args),['synthetic','The view at low tide']);
     await waitText('Drafting…');
     await finish({ok:true,draft,photos:2}); await waitText('Drafted from the property record and 2 Listing photos.');

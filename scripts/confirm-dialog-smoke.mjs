@@ -23,10 +23,10 @@ await writeFile(join(scratch,'skew.js'),'export const reloadedForNewDeployment=(
 await writeFile(join(scratch,'entry.js'),compile(`
 import React from 'react';import {createRoot} from 'react-dom/client';
 import {ConfirmProvider,useConfirm} from './confirm.js';import {SubmitButton} from './submit.js';
-window.calls=[];
+window.calls=[];window.underneathEscapes=0;window.addEventListener('keydown',e=>{if(e.key==='Escape')window.underneathEscapes++;});
 for(const k of ['confirm','prompt','alert'])window[k]=()=>{window.native=(window.native||0)+1;throw Error('native '+k);};
 function Fixture(){
-  const {ask,askText,notify}=useConfirm();
+  const {ask,askText,choose,notify}=useConfirm();
   const [inFlight,startTransition]=React.useTransition();
   const act=async fd=>{window.calls.push({action:'act',...Object.fromEntries(fd.entries())});};
   const wipe=async fd=>{window.calls.push({action:'wipe',...Object.fromEntries(fd.entries())});};
@@ -40,6 +40,7 @@ function Fixture(){
     </form>
     <button type="button" id="asktext" onClick={async()=>{window.answer=await askText({title:'Pass on this job?',inputLabel:'Reason',confirmLabel:'Pass'});}}>Ask text</button>
     <button type="button" id="intransition" onClick={()=>startTransition(async()=>{window.transitionAnswer=await ask({title:'Publish these changes?',confirmLabel:'Publish'});})}>{inFlight?'Publishing':'Publish in a transition'}</button>
+    <button type="button" id="choose" onClick={async()=>{window.picked=await choose({title:'Replace the copy with an AI draft?',choices:[{value:'replace',label:'Replace with AI draft'},{value:'fill',label:'Fill blanks only'}]});}}>Choose</button>
     <button type="button" id="notify" onClick={async()=>{await notify({title:'Download failed',body:'Synthetic.'});window.notified=true;}}>Notify</button>
     <div style={{height:2000}}/>
   </main>;
@@ -89,6 +90,7 @@ pass('focus is trapped inside the dialog');
 await page.keyboard.press('Escape');await closed();
 await page.waitForFunction(()=>document.activeElement?.textContent?.trim()==='Retire');
 assert.deepEqual(await calls(),[]);
+assert.equal(await page.evaluate(()=>window.underneathEscapes),0,'the Escape stops at the dialog, so a modal underneath stays open');
 assert.equal(await page.evaluate(()=>document.body.style.overflow),'','scrolling comes back');
 pass('Escape cancels, submits nothing, and hands focus back to the button');
 
@@ -142,6 +144,16 @@ assert.equal(await passDisabled(),true,'an empty answer cannot be sent');
 await page.keyboard.type('Booked elsewhere');assert.equal(await passDisabled(),false);
 await dialogButton('Pass');await closed();
 assert.equal(await page.evaluate(()=>window.answer),'Booked elsewhere');
+await page.click('#choose');await page.waitForSelector(dlg);
+assert.deepEqual(await page.$$eval(dlg+' button',bs=>bs.map(b=>b.textContent.trim())),['Cancel','Fill blanks only','Replace with AI draft'],'the likeliest answer is the last, dark button');
+assert.equal(await focused(),'Replace with AI draft');
+await dialogButton('Fill blanks only');await closed();assert.equal(await page.evaluate(()=>window.picked),'fill');
+await page.click('#choose');await page.waitForSelector(dlg);await dialogButton('Replace with AI draft');await closed();
+assert.equal(await page.evaluate(()=>window.picked),'replace');
+await page.click('#choose');await page.waitForSelector(dlg);await page.keyboard.press('Escape');await closed();
+assert.equal(await page.evaluate(()=>window.picked),null,'Escape picks nothing');
+pass('choose: two real answers and a Cancel; Escape picks nothing');
+
 await page.click('#notify');await page.waitForSelector(dlg);
 assert.deepEqual(await page.$$eval(dlg+' button',bs=>bs.map(b=>b.textContent.trim())),['OK'],'a notice has one button');
 await dialogButton('OK');await closed();assert.equal(await page.evaluate(()=>window.notified),true);

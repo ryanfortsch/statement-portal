@@ -21,6 +21,7 @@ import { TeamPicker } from '@/components/TeamPicker';
 import { displayNameForEmail } from '@/lib/team';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
+import { useConfirm } from '@/components/ConfirmDialog';
 import { GLOUCESTER_TZ } from '@/lib/stable-time';
 
 type PropertyForPicker = { id: string; name: string; title: string | null; city: string; is_active: boolean };
@@ -64,6 +65,7 @@ const STATUS_HINTS: Partial<Record<TaskStatus, string>> = {
  */
 export function TaskDetail({ task, comments, properties, myEmail }: Props) {
   const softRefresh = useSoftRefresh();
+  const { ask } = useConfirm();
   const [isPending, startTransition] = useTransition();
 
   // The confirmed to-do: what the server last accepted, field by field.
@@ -206,9 +208,10 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
     }
   }
 
-  function removeComment(c: TaskCommentRow) {
+  async function removeComment(c: TaskCommentRow) {
     if (deletingTask.current || deletingComments.current.has(c.id) || c.author_email !== myEmail) return;
-    if (!confirm('Delete this comment?')) return;
+    if (!(await ask({ title: 'Delete this comment?', confirmLabel: 'Delete comment', tone: 'danger', irreversible: true }))) return;
+    if (deletingTask.current || deletingComments.current.has(c.id)) return;
     deletingComments.current.add(c.id);
     setCommentDeletePending([...deletingComments.current]);
     setCommentDeleteErrors((prev) => ({ ...prev, [c.id]: '' }));

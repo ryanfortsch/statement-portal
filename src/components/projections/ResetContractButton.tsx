@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react';
 import { resetContractOverrides } from '@/app/projections/actions';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
+import { useConfirm } from '@/components/ConfirmDialog';
 
 /**
  * Clears the contract overrides + legacy custom_clauses on the projection,
@@ -26,16 +27,18 @@ export function ResetContractButton({
   hasOverrides: boolean;
 }) {
   const softRefresh = useSoftRefresh();
+  const { ask } = useConfirm();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  const onClick = () => {
-    if (!window.confirm(
-      'Clear all contract edits and revert to the standard template?\n\n' +
-      'The prospect record, projection inputs, signing token, and onboarding intake stay intact. ' +
-      'Only the Redlines-applied overrides + legacy Rider clauses are wiped. ' +
-      'You can re-run the Redlines tool to bring edits back.',
-    )) return;
+  const onClick = async () => {
+    if (pending) return;
+    if (!(await ask({
+      title: 'Clear all contract edits and revert to the standard template?',
+      body: 'Only the Redlines overrides and legacy Rider clauses are wiped. The prospect record, projection inputs, signing token and onboarding intake stay as they are. Re-running the Redlines tool brings the edits back.',
+      confirmLabel: 'Revert to template',
+      tone: 'danger',
+    }))) return;
     setError(null);
     startTransition(async () => {
       const res = await resetContractOverrides(projectionId);
