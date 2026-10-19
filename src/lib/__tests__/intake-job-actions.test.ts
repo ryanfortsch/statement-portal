@@ -45,7 +45,7 @@ function fixture(kind: keyof typeof modules, options: {
     '@/lib/ai/screen-applicant': { screenApplication: async () => null },
     '@/lib/field-notify': { sendNewApplicantEmail: async () => { effects.push('applicant-notification'); }, sendContractorOnboardedEmail: async () => { effects.push('onboarded-notification'); } },
     '@/lib/field-w9': { saveW9: async () => null }, '@/lib/field-pay': { savePayment: async () => null },
-    '@/lib/geocode': { geocodeAddress: async () => null },
+    '@/lib/field-home-base': { homeBaseFor: async () => null },
   };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const exports: Record<string, (...args: any[]) => Promise<any>> = {};

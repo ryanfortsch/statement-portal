@@ -9,6 +9,9 @@ import { STREAK_MILESTONES, STREAK_CYCLE_DAYS, type StreakInfo } from '@/lib/fie
 import { FieldShell } from '../FieldShell';
 import { ContractorHeader } from '../ContractorHeader';
 import { SmsToggle } from '../SmsToggle';
+import { EditDetailsForm } from './EditDetailsForm';
+import { loadHomeTown } from '@/lib/field-home-base';
+import { PAYMENT_METHODS } from '@/lib/field-pay';
 import { ReviewText } from './ReviewText';
 
 export const dynamic = 'force-dynamic';
@@ -41,11 +44,19 @@ const eyebrow: React.CSSProperties = {
   margin: 0,
 };
 
-export default async function FieldProfilePage() {
+export default async function FieldProfilePage({ searchParams }: { searchParams: Promise<{ saved?: string }> }) {
   const contractor = await resolveContractorFromCookie();
   if (!contractor) redirect('/field');
 
-  const { payStats, reliability, rating, reviews, history, streak, shoots } = await loadContractorProfile(contractor.id);
+  const [{ payStats, reliability, rating, reviews, history, streak, shoots }, homeTown, sp] = await Promise.all([
+    loadContractorProfile(contractor.id),
+    loadHomeTown(contractor.id),
+    searchParams,
+  ]);
+  // ?saved=<stamp> after a good save: a fresh stamp per save, so the form
+  // below remounts clean (its unsaved-work guard released) even when
+  // nothing on the row changed.
+  const justSaved = !!sp.saved;
 
   // Creative pay follows delivered posts + view counts, not packets — so the
   // packet streak bonus and on-time reliability simply don't apply to them,
@@ -193,7 +204,9 @@ export default async function FieldProfilePage() {
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 14, color: 'var(--ink)', fontWeight: 500 }}>Text me when new work is posted</div>
             <div style={{ fontSize: 12.5, color: 'var(--ink-3)', marginTop: 3, lineHeight: 1.5 }}>
-              We text your phone the moment a packet opens near you. Turn it off anytime.
+              {contractor.phone
+                ? 'We text your phone the moment a packet opens near you. Turn it off anytime.'
+                : 'Add a mobile number under Edit details below and we text you the moment a packet opens near you.'}
             </div>
           </div>
           <SmsToggle initial={contractor.sms_opt_in} />
@@ -202,6 +215,30 @@ export default async function FieldProfilePage() {
 
       {/* Account */}
       <AccountCard contractor={contractor} />
+
+      {/* Edit details: phone, payout, home town. The W-9 stays as filed. */}
+      <section id="details" style={{ marginBottom: 28, scrollMarginTop: 24 }}>
+        {justSaved && (
+          <div role="status" style={{ fontSize: 13, color: 'var(--positive)', marginBottom: 10 }}>
+            Saved. Your details are up to date.
+          </div>
+        )}
+        <details style={{ borderTop: '1px solid var(--rule)', paddingTop: 14 }}>
+          <summary style={{ fontSize: 14, fontWeight: 600, color: 'var(--tide-deep)', cursor: 'pointer', listStyle: 'none', display: 'flex', alignItems: 'center', gap: 8 }}>
+            Edit details <span aria-hidden className="rt-chev" style={{ fontSize: 12, transition: 'transform .15s ease', display: 'inline-block' }}>▾</span>
+          </summary>
+          <div style={{ fontSize: 12.5, color: 'var(--ink-4)', margin: '8px 0 18px', lineHeight: 1.5 }}>
+            Your phone, how you&apos;re paid and your home town.
+          </div>
+          <EditDetailsForm
+            key={sp.saved ?? 'form'}
+            phone={contractor.phone}
+            homeTown={homeTown}
+            payout={payoutLine(contractor)}
+            paymentMethods={PAYMENT_METHODS}
+          />
+        </details>
+      </section>
     </FieldShell>
   );
 }
@@ -414,16 +451,18 @@ const BG_MARK: Record<ReturnType<typeof backgroundCheckLine>['tone'], { icon: st
   hold: { icon: '✕', tint: 'var(--negative)' },
 };
 
+/** The payout method on file as the contractor reads it, or null. */
+function payoutLine(c: ContractorRow): string | null {
+  if (!c.payment_method) return null;
+  return c.payment_hint ? `${c.payment_method} · ${c.payment_hint}` : c.payment_method;
+}
+
 /** Account standing: a small completion meter + the legal/identity/payout
  *  checklist. Surfaces the real payout method captured at onboarding. */
 function AccountCard({ contractor }: { contractor: ContractorRow }) {
   const bgCheck = backgroundCheckLine(contractor.background_check_status);
   const bg = BG_MARK[bgCheck.tone];
-  const payout = contractor.payment_method
-    ? contractor.payment_hint
-      ? `${contractor.payment_method} · ${contractor.payment_hint}`
-      : contractor.payment_method
-    : null;
+  const payout = payoutLine(contractor);
 
   // Creative contributors have no packets and no background check to wait
   // on (the home says so), so their checklist carries no check line.
