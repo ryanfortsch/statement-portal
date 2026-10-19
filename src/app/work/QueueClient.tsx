@@ -31,6 +31,7 @@ import { TeamPicker } from '@/components/TeamPicker';
 import { PhotoUploader } from '@/components/PhotoUploader';
 import { displayNameForEmail } from '@/lib/team';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
+import { useConfirm } from '@/components/ConfirmDialog';
 import { useOwnerEmailDraft } from '@/lib/use-owner-email-draft';
 import { CopiedEmailNotice } from '@/components/CopiedEmailNotice';
 import { operatingDate } from '@/lib/operating-date';
@@ -1444,6 +1445,7 @@ function WorkSlipModal({
   onClose: () => void;
 }) {
   const router = useRouter();
+  const { ask } = useConfirm();
   const [propertyId, setPropertyId] = useState(prefillPropertyId ?? '');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -1479,9 +1481,14 @@ function WorkSlipModal({
   const dirty = snapshot !== original.current;
   useUnsavedWorkGuard(dirty || submitting || uploading || uncertain);
 
-  function requestClose() {
+  async function requestClose() {
     if (saving.current || uploadBusy.current) return;
-    if ((dirty || uncertain) && !window.confirm('Discard this unfinished work slip?')) return;
+    if ((dirty || uncertain) && !(await ask({
+      title: 'Discard this unfinished work slip?',
+      body: 'Nothing was filed. What you typed is dropped.',
+      confirmLabel: 'Discard slip',
+    }))) return;
+    if (saving.current || uploadBusy.current) return;
     onClose();
   }
 
@@ -1711,6 +1718,7 @@ function TaskModal({
   onClose: () => void;
 }) {
   const router = useRouter();
+  const { ask } = useConfirm();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<TaskPriority>('normal');
@@ -1725,9 +1733,14 @@ function TaskModal({
   const dirty = snapshot !== original.current;
   useUnsavedWorkGuard(dirty || submitting || uncertain);
 
-  function requestClose() {
+  async function requestClose() {
     if (saving.current) return;
-    if ((dirty || uncertain) && !window.confirm('Discard this unfinished to-do?')) return;
+    if ((dirty || uncertain) && !(await ask({
+      title: 'Discard this unfinished to-do?',
+      body: 'Nothing was filed. What you typed is dropped.',
+      confirmLabel: 'Discard to-do',
+    }))) return;
+    if (saving.current) return;
     onClose();
   }
 

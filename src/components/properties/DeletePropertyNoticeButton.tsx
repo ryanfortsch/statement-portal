@@ -1,14 +1,18 @@
 'use client';
 
+import { useRef } from 'react';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import { useRecoverableAction } from '@/lib/use-recoverable-action';
+import { useConfirm } from '@/components/ConfirmDialog';
+import { askFromSentence } from '@/lib/confirm-question';
 
 /**
  * Confirm-then-delete button for a property notice (or note, via the
- * optional `label`). Calls the existing server action after `confirm()`
- * so an accidental click on the edit page doesn't drop a record without
- * warning. Pending-aware: disables and shows "Deleting…" while the
- * action runs.
+ * optional `label`). Calls the existing server action after the app's
+ * confirm modal says yes, so an accidental click on the edit page doesn't
+ * drop a record without warning. `confirmText` is one string, question
+ * first ("Delete the X notice from Y? This can't be undone."). Pending-aware:
+ * disables and shows "Deleting…" while the action runs.
  */
 export function DeletePropertyNoticeButton({
   action,
@@ -20,13 +24,19 @@ export function DeletePropertyNoticeButton({
   label?: string;
 }) {
   const { busy, pending, error, run } = useRecoverableAction();
+  const { ask } = useConfirm();
+  // A second submit while the question is open is the same click, not a new one.
+  const asking = useRef(false);
   useUnsavedWorkGuard(pending);
   return (
     <form
       action={action}
-      onSubmit={(event) => {
+      onSubmit={async (event) => {
         event.preventDefault();
-        if (busy.current || !window.confirm(confirmText)) return;
+        if (busy.current || asking.current) return;
+        asking.current = true;
+        const yes = await ask({ ...askFromSentence(confirmText), confirmLabel: label, tone: 'danger' }).finally(() => { asking.current = false; });
+        if (!yes || busy.current) return;
         run(async () => { await action(); }, 'Could not confirm deletion. Check the record, then retry if it is still present.');
       }}
     >

@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from 'react';
 import { useRecoverableAction } from '@/lib/use-recoverable-action';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
+import { useConfirm } from '@/components/ConfirmDialog';
 
 import type { AddressMatch } from '@/lib/competitors/types';
 import { setListingAddress, clearListingAddress } from '@/app/competitors/actions';
@@ -34,6 +35,7 @@ export function AddressEditor({
   onClose,
 }: Props) {
   const { pending: isPending, busy, error, setError, run } = useRecoverableAction();
+  const { ask } = useConfirm();
   const [dirty, setDirty] = useState(false);
   useUnsavedWorkGuard(dirty || isPending);
   function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -47,16 +49,25 @@ export function AddressEditor({
       onClose();
     }, 'Could not confirm the address was saved. Your fields are kept; try again.');
   }
-  function onClear() {
-    if (busy.current || !confirm('Remove the user-verified address? Listing will revert to the research overlay. Unsaved edits will be discarded after removal succeeds.')) return;
+  async function onClear() {
+    if (busy.current) return;
+    if (!(await ask({
+      title: 'Remove the verified address?',
+      body: 'The listing goes back to the research overlay. Unsaved edits are dropped once the removal succeeds.',
+      confirmLabel: 'Remove verification',
+      tone: 'danger',
+    }))) return;
+    if (busy.current) return;
     run(async () => {
       await clearListingAddress(competitorId, listingSlug);
       setDirty(false);
       onClose();
     }, 'Could not confirm removal. Your fields are kept; try again.');
   }
-  function cancel() {
-    if (busy.current || (dirty && !confirm('Discard these address edits?'))) return;
+  async function cancel() {
+    if (busy.current) return;
+    if (dirty && !(await ask({ title: 'Discard these address edits?', confirmLabel: 'Discard edits' }))) return;
+    if (busy.current) return;
     setDirty(false);
     setError(null);
     onClose();

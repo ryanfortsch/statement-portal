@@ -62,8 +62,11 @@ describe('the modal keeps its promises', () => {
     assert.match(dialog, /back\.focus\(/);
   });
 
-  test('Escape and the backdrop cancel', () => {
-    assert.match(dialog, /e\.key === 'Escape'\) \{ e\.preventDefault\(\); close\('no'\);/);
+  test('Escape and the backdrop cancel, and the Escape stops at the dialog', () => {
+    // Capture phase and stopped there, so it never also closes the editor or
+    // modal the question was asked from.
+    assert.match(dialog, /if \(e\.key !== 'Escape'\) return;\s*e\.preventDefault\(\);\s*e\.stopImmediatePropagation\(\);\s*close\('no'\);/);
+    assert.match(dialog, /window\.addEventListener\('keydown', onKey, true\)/);
     assert.match(dialog, /onClick=\{\(\) => close\('no'\)\}\s*style=\{\{\s*position: 'fixed'/);
   });
 
@@ -84,20 +87,41 @@ describe('the modal keeps its promises', () => {
     assert.match(dialog, /queueMicrotask\(\(\) => \{[\s\S]*?setPending\(next\);/);
   });
 
+  test('it sits above every other modal', () => {
+    assert.match(dialog, /zIndex: 2000/);
+  });
+
+  test('choose resolves to the picked value, or null on cancel', () => {
+    assert.match(dialog, /else if \(pending\.kind === 'choose'\) pending\.resolve\(answer === 'yes' \? choice \?\? null : null\);/);
+    assert.match(dialog, /onClick=\{\(\) => close\('yes', c\.value\)\}/);
+  });
+
+  test('askThenSubmit holds the click and resubmits with the same button on yes', () => {
+    const helper = dialog.slice(dialog.indexOf('export async function askThenSubmit('));
+    assert.match(helper, /e\.preventDefault\(\);\s*if \(\(await ask\(question\)\) && button\.isConnected && !button\.disabled\) form\.requestSubmit\(button\);/);
+  });
+
   test('the provider is mounted once for the whole app', () => {
     assert.match(read('src/components/Providers.tsx'), /<ConfirmProvider>\{children\}<\/ConfirmProvider>/);
     assert.match(read('src/app/layout.tsx'), /<Providers session=\{session\}[^>]*>/);
   });
 });
 
+describe('the typed-word gate guards the broadest destructive action', () => {
+  test('the channel hub mass cancel wants "cancel" typed', () => {
+    const hub = code(read('src/app/channels/[propertyId]/page.tsx'));
+    assert.match(hub, /massCancelConfirm\(label, held, bcom\)\),[\s\S]{0,260}typeToConfirm: 'cancel',/);
+  });
+});
+
 describe('SubmitButton asks through the modal', () => {
   const src = code(read('src/components/SubmitButton.tsx'));
 
-  test('no native confirm, and a yes resubmits with the same button', () => {
+  test('no native confirm; the click goes through askThenSubmit', () => {
     assert.ok(!/window\.confirm\(/.test(src), 'SubmitButton still calls window.confirm');
     assert.match(src, /const \{ ask \} = useConfirm\(\);/);
-    assert.match(src, /e\.preventDefault\(\);[\s\S]*await ask\(/);
-    assert.match(src, /form\.requestSubmit\(button\)/);
+    assert.match(src, /askThenSubmit\(e, ask, \{/);
+    assert.match(src, /onClick=\{askFirst\}/);
   });
 
   test('the modal button is named for the action', () => {

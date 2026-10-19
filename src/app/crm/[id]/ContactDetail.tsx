@@ -17,6 +17,7 @@ import { ContactMeetings } from './ContactMeetings';
 import type { ContactMeetingRow } from '@/lib/meetings-core';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
+import { useConfirm } from '@/components/ConfirmDialog';
 import { PropertyCheckboxes } from '../PropertyCheckboxes';
 import { GLOUCESTER_TZ } from '@/lib/stable-time';
 
@@ -33,6 +34,7 @@ type Props = {
 
 export function ContactDetail({ contact, touches, properties, linkedSlips, meetings, myEmail }: Props) {
   const softRefresh = useSoftRefresh();
+  const { ask } = useConfirm();
   const [, startTransition] = useTransition();
   const [editing, setEditing] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
@@ -57,9 +59,14 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, meeti
   const contactDirty = snapshot !== savedSnapshot;
   useUnsavedWorkGuard(contactDirty || submitting || deleting);
 
-  function cancelContact() {
+  async function cancelContact() {
     if (savingContact.current || deletingContact.current) return;
-    if (contactDirty && !window.confirm('Discard your unsaved contact changes?')) return;
+    if (contactDirty && !(await ask({
+      title: 'Discard your unsaved contact changes?',
+      body: 'The contact goes back to what was last saved.',
+      confirmLabel: 'Discard changes',
+    }))) return;
+    if (savingContact.current || deletingContact.current) return;
     const [t, n, e, p, o, tags, note, ids] = JSON.parse(savedSnapshot);
     setType(t); setName(n); setEmails(e); setPhone(p); setOrganization(o);
     setTagsInput(tags); setNotes(note); setLinkedPropertyIds(ids);
@@ -122,7 +129,14 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, meeti
 
   async function removeContact() {
     if (savingContact.current || deletingContact.current || touchPosting.current || deletingTouches.current.size) return;
-    if (!confirm(`Delete contact "${contact.name}"? This cannot be undone.`)) return;
+    if (!(await ask({
+      title: `Delete the contact "${contact.name}"?`,
+      body: 'Their logged calls, texts, emails, notes and meetings are deleted with them.',
+      confirmLabel: 'Delete contact',
+      tone: 'danger',
+      irreversible: true,
+    }))) return;
+    if (savingContact.current || deletingContact.current) return;
     deletingContact.current = true;
     setDeleting(true);
     try {

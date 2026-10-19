@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, type MouseEvent } from 'react';
+import { useEffect } from 'react';
 import { useFormStatus } from 'react-dom';
 import { reloadedForNewDeployment } from '@/lib/version-skew';
-import { useConfirm, type AskOptions } from '@/components/ConfirmDialog';
+import { askThenSubmit, useConfirm, type AskOptions } from '@/components/ConfirmDialog';
 import { askFromSentence } from '@/lib/confirm-question';
 
 // If a form action stays pending this long, suspect a stale bundle: after a
@@ -90,19 +90,12 @@ export function SubmitButton({
   // The question opens in the app's modal (ConfirmDialog), so the click is
   // held, and a yes resubmits the form with this button as the submitter:
   // its formAction and name/value ride along exactly as a plain click's.
-  const askFirst = confirmText
-    ? async (e: MouseEvent<HTMLButtonElement>) => {
-        const button = e.currentTarget;
-        const form = button.form;
-        if (!form) return;
-        e.preventDefault();
-        const spec: ConfirmSpec = typeof confirmText === 'string' ? askFromSentence(confirmText) : confirmText;
-        const ok = await ask({
-          ...spec,
-          confirmLabel: spec.confirmLabel ?? (typeof label === 'string' ? label : 'Confirm'),
-        });
-        if (ok && button.isConnected && !button.disabled) form.requestSubmit(button);
-      }
+  const spec: ConfirmSpec | null = !confirmText ? null : typeof confirmText === 'string' ? askFromSentence(confirmText) : confirmText;
+  const askFirst = spec
+    ? (e: React.MouseEvent<HTMLButtonElement>) => askThenSubmit(e, ask, {
+        ...spec,
+        confirmLabel: spec.confirmLabel ?? (typeof label === 'string' ? label : 'Confirm'),
+      })
     : undefined;
 
   usePendingWatchdog(status.pending);

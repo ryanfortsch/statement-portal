@@ -52,6 +52,7 @@ import { type CalendarRowVM } from '../calendar/MultiCalendarGrid';
 import { PropertyMonthCalendar } from './PropertyMonthCalendar';
 import { confirmBookingComEchoAction, flipCalendarAuthorityAction, readGuestyCalendarAheadAction } from './cutover-actions';
 import { massCancelConfirm, releaseClosureConfirm } from '@/lib/irreversible-confirms';
+import { askFromSentence } from '@/lib/confirm-question';
 import { acknowledgeMassCancel, releaseOrphanedOtaHold, syncOneListing, tickExportSubscribed } from '../listings/actions';
 import { releaseAnswers } from '@/lib/ical-cancel-policy';
 
@@ -994,7 +995,16 @@ function MassCancelAlert({ feed, run, label, now, kind }: { feed: FeedHealth; ru
               busyLabel="Cancelling and syncing…"
               spinnerTone="ink"
               style={{ ...secondaryButton, borderColor: 'var(--signal)', color: 'var(--signal)' }}
-              confirm={massCancelConfirm(label, held, bcom)}
+              // Many stays at once, on the live channels: the one confirm in
+              // Helm that wants the word typed.
+              confirm={{
+                ...askFromSentence(massCancelConfirm(label, held, bcom)),
+                confirmLabel: held === 1 ? 'Cancel it' : 'Cancel them',
+                cancelLabel: held === 1 ? 'Keep it held' : 'Keep them held',
+                tone: 'danger',
+                irreversible: true,
+                typeToConfirm: 'cancel',
+              }}
             />
           </form>
           <span style={{ fontSize: 11, color: 'var(--ink-4)', lineHeight: 1.5, maxWidth: 360 }}>

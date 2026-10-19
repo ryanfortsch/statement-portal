@@ -1,6 +1,8 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import { useRef, type ReactNode } from 'react';
+import { useConfirm } from '@/components/ConfirmDialog';
+import { askFromSentence } from '@/lib/confirm-question';
 
 /**
  * The per-channel iCal URL form. Saving it with the URL blanked stops Helm
@@ -19,15 +21,26 @@ export function FeedUrlForm({
   clearedConfirm: string;
   children: ReactNode;
 }) {
+  const { ask } = useConfirm();
+  // Set for the one resubmit after a yes, so it goes straight through.
+  const confirmed = useRef(false);
   return (
     <form
       action={action}
       style={{ display: 'contents' }}
-      onSubmit={(e) => {
+      onSubmit={async (e) => {
+        if (confirmed.current) { confirmed.current = false; return; }
         if (!hadUrl) return;
-        const field = e.currentTarget.elements.namedItem('ical_import_url');
+        const form = e.currentTarget;
+        const field = form.elements.namedItem('ical_import_url');
         const value = field instanceof HTMLInputElement ? field.value.trim() : '';
-        if (!value && !window.confirm(clearedConfirm)) e.preventDefault();
+        if (value) return;
+        e.preventDefault();
+        const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
+        if (!(await ask({ ...askFromSentence(clearedConfirm), confirmLabel: 'Save with no URL', tone: 'danger' }))) return;
+        if (!form.isConnected) return;
+        confirmed.current = true;
+        form.requestSubmit(submitter ?? undefined);
       }}
     >
       {children}

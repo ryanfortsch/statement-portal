@@ -20,6 +20,7 @@ import type { ListingContentRow, ListingPhotoRow } from '@/lib/listing-content';
 import type { PropertyRoom } from '@/lib/property-rooms-shared';
 import { HousePolicyReadout, type HousePolicyValues } from './HousePolicyReadout';
 import { etStamp } from '@/lib/stable-time';
+import { useConfirm } from '@/components/ConfirmDialog';
 
 /**
  * The property page's Listing section (Guest & listing tab): Guesty's Details & layout, Overview and
@@ -122,21 +123,34 @@ function ContentForm({
   const [aiDraft, setAiDraft] = useState<{ forKey: string; n: number; values: ListingAiDraft } | null>(null);
   const [aiNote, setAiNote] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const [drafting, startDraft] = useTransition();
+  const { choose } = useConfirm();
   const applied = aiDraft && aiDraft.forKey === formKey ? aiDraft : null;
   const dv = (name: keyof ListingAiDraft, fallback: string): string => applied?.values[name] ?? fallback;
   const fk = (name: keyof ListingAiDraft): string => (applied ? `${name}-${applied.n}` : name);
 
-  const onDraft = () => {
+  const onDraft = async () => {
     const fd = formRef.current ? new FormData(formRef.current) : null;
     const current = Object.fromEntries(
       (['title', 'summary', 'space', 'access', 'neighborhood'] as const).map((k) => [k, String(fd?.get(k) ?? '').trim()]),
     ) as ListingAiDraft;
     const body = ['summary', 'space', 'access', 'neighborhood'] as const;
     const hasCopy = body.some((k) => current[k]);
-    const overwrite =
-      hasCopy &&
-      window.confirm('Replace the summary, the space, guest access and the neighborhood with a new AI draft? Cancel keeps your text and fills only the blank fields.');
-    if (hasCopy && !overwrite && body.every((k) => current[k])) return;
+    const allFilled = body.every((k) => current[k]);
+    const pick = hasCopy
+      ? await choose({
+          title: 'Replace the summary, the space, guest access and the neighborhood with a new AI draft?',
+          body: allFilled
+            ? 'Every field already has text, so Keep my text changes nothing.'
+            : 'Fill blanks only keeps your text and drafts just the empty fields.',
+          choices: [
+            { value: 'replace', label: 'Replace with AI draft' },
+            ...(allFilled ? [] : [{ value: 'fill' as const, label: 'Fill blanks only' }]),
+          ],
+          cancelLabel: allFilled ? 'Keep my text' : 'Cancel',
+        })
+      : 'fill';
+    if (pick === null) return;
+    const overwrite = pick === 'replace';
     setAiNote(null);
     startDraft(async () => {
       try {
@@ -341,6 +355,7 @@ function uploadErrorText(e: unknown): string {
 
 function Gallery({ propertyId, photos, consumers }: { propertyId: string; photos: ListingPhotoRow[]; consumers: Record<string, string[]> }) {
   const [pending, start] = useTransition();
+  const { ask } = useConfirm();
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [url, setUrl] = useState('');
@@ -437,8 +452,13 @@ function Gallery({ propertyId, photos, consumers }: { propertyId: string; photos
               busy={busy === p.id && pending}
               onMove={(dir) => run(p.id, () => movePhotoAction(propertyId, p.id, dir))}
               onHero={() => run(p.id, () => setHeroAction(propertyId, p.id))}
-              onDelete={() => {
-                if (typeof window !== 'undefined' && !window.confirm('Remove this photo from the gallery?')) return;
+              onDelete={async () => {
+                if (!(await ask({
+                  title: 'Remove this photo from the gallery?',
+                  body: 'Every listing that reads this gallery stops showing it.',
+                  confirmLabel: 'Remove photo',
+                  tone: 'danger',
+                }))) return;
                 run(p.id, () => deletePhotoAction(propertyId, p.id));
               }}
               onSave={(caption, roomHint) => run(p.id, () => updatePhotoAction(propertyId, p.id, { caption, room_hint: roomHint }))}

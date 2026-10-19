@@ -6,6 +6,7 @@ import { togglePropertyNoteResolved } from '@/app/properties/actions';
 import type { FlagSource } from '@/lib/property-flags';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
+import { useConfirm } from '@/components/ConfirmDialog';
 
 /**
  * One Resolve verb for both note tables.
@@ -37,13 +38,19 @@ export function ResolveFlagButton({
   const [pending, startTransition] = useTransition();
   const lock = useRef(false);
   const softRefresh = useSoftRefresh();
+  const { ask } = useConfirm();
   useUnsavedWorkGuard(pending);
   const [resolved, setResolved] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  function resolve() {
+  async function resolve() {
     if (lock.current || resolved) return;
-    if (guestFacing && !window.confirm('Resolving this also takes it out of the Guest KB, so the guest AI stops mentioning it. Resolve?')) return;
+    if (guestFacing && !(await ask({
+      title: 'Resolve this and take it out of the Guest KB?',
+      body: 'The guest AI stops mentioning it to guests. You can reopen it from its own page.',
+      confirmLabel: 'Resolve',
+    }))) return;
+    if (lock.current) return;
     lock.current = true;
     setErr(null);
     startTransition(async () => {

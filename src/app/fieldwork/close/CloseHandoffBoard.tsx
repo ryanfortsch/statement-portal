@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { statementsHref } from '@/lib/statements-month';
+import { useConfirm } from '@/components/ConfirmDialog';
 import {
   HANDOFF_KINDS,
   HANDOFF_STATUS_LABEL,
@@ -82,6 +83,7 @@ export function CloseHandoffBoard({
   me: string;
 }) {
   const router = useRouter();
+  const { ask } = useConfirm();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -158,7 +160,13 @@ export function CloseHandoffBoard({
   }
 
   async function remove(item: HandoffItem) {
-    if (!window.confirm(`Delete this item? It comes off the handoff for good${item.status === 'sent' ? " and off Ryan's queue" : ''}.`)) return;
+    if (!(await ask({
+      title: 'Delete this item?',
+      body: `It comes off the handoff${item.status === 'sent' ? " and off Ryan's queue" : ''}.`,
+      confirmLabel: 'Delete item',
+      tone: 'danger',
+      irreversible: true,
+    }))) return;
     const data = await call(`/api/close-handoff/${item.id}`, { method: 'DELETE' }, item.id);
     if (data) router.refresh();
   }

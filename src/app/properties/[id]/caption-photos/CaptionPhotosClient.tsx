@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
+import { useConfirm } from '@/components/ConfirmDialog';
 import {
   loadListingPhotosAction,
   generateCaptionsAction,
@@ -85,6 +86,7 @@ function writeStoredDrafts(propertyId: string, pending: Record<string, string>) 
  * live listing. Every write is one explicit click; the AI never pushes.
  */
 export function CaptionPhotosClient({ propertyId }: Props) {
+  const { ask } = useConfirm();
   const [loadState, setLoadState] = useState<LoadState>('loading');
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -201,9 +203,11 @@ export function CaptionPhotosClient({ propertyId }: Props) {
   async function saveAllChanged() {
     if (changedIds.length === 0) return;
     const total = changedIds.length;
-    const ok = window.confirm(
-      `Push ${total} caption${total === 1 ? '' : 's'} to the live Guesty listing? This updates what guests see on Airbnb, VRBO, and staycapeann.com.`,
-    );
+    const ok = await ask({
+      title: `Push ${total} caption${total === 1 ? '' : 's'} to the live Guesty listing?`,
+      body: 'This updates what guests see on Airbnb, VRBO and staycapeann.com.',
+      confirmLabel: `Push ${total === 1 ? 'caption' : 'captions'}`,
+    });
     if (!ok) return;
     setSavingAll(true);
     setBulkResult(null);

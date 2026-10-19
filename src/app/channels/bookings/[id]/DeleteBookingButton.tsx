@@ -2,6 +2,7 @@
 
 import { useFormStatus } from 'react-dom';
 import { deleteBooking } from './actions';
+import { askThenSubmit, useConfirm } from '@/components/ConfirmDialog';
 
 /**
  * The Delete button on the booking record. Renders INSIDE the booking edit
@@ -19,10 +20,11 @@ import { deleteBooking } from './actions';
 export function DeleteBookingButton({ deletable, reason }: { deletable: boolean; reason?: string }) {
   const status = useFormStatus();
   const busy = status.pending && status.action === deleteBooking;
+  const { ask } = useConfirm();
   const label = deletable ? 'Delete' : 'Delete (kept as cancelled)';
-  const confirmText = deletable
-    ? 'Delete this row for good? Nothing downstream references it, so it simply disappears.'
-    : `This row cannot be deleted: ${reason ?? 'it is history, not a typo'}. It will be kept as a soft cancel with that reason. Continue?`;
+  const question = deletable
+    ? { title: 'Delete this row for good?', body: 'Nothing downstream references it, so it simply disappears.', confirmLabel: 'Delete row', tone: 'danger' as const, irreversible: true }
+    : { title: 'Keep this row as cancelled?', body: `It cannot be deleted: ${reason ?? 'it is history, not a typo'}. It is kept as a soft cancel with that reason.`, confirmLabel: 'Cancel the row', tone: 'danger' as const };
   return (
     <button
       type="submit"
@@ -30,9 +32,7 @@ export function DeleteBookingButton({ deletable, reason }: { deletable: boolean;
       disabled={status.pending}
       aria-busy={busy || undefined}
       title={deletable ? 'Permanently delete this row' : reason ?? 'Kept as a soft cancel'}
-      onClick={(e) => {
-        if (!confirm(confirmText)) e.preventDefault();
-      }}
+      onClick={(e) => askThenSubmit(e, ask, question)}
       style={{
         background: 'transparent',
         color: 'var(--negative)',

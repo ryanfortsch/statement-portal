@@ -9,6 +9,7 @@ import { captureColumn, isHighStakesColumn, type CaptureItem } from '@/lib/prope
 import { useRecoverableAction } from '@/lib/use-recoverable-action';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
+import { useConfirm } from '@/components/ConfirmDialog';
 import { looksLikeWalkthrough } from '@/lib/capture-routing';
 import { WalkthroughCapture } from './WalkthroughCapture';
 
@@ -28,6 +29,7 @@ type Phase = 'input' | 'review' | 'done';
 
 export function QuickCapture({ propertyId, propertyName }: { propertyId: string; propertyName: string }) {
   const softRefresh = useSoftRefresh();
+  const { ask } = useConfirm();
   const [phase, setPhase] = useState<Phase>('input');
   // When the text reads like a walk, the room-by-room parser takes it. This
   // is the whole reason there is now one box instead of two: the operator
@@ -363,9 +365,14 @@ export function QuickCapture({ propertyId, propertyName }: { propertyId: string;
     }, 'Could not confirm the save. Your review is kept. Retry to check and save the remaining work.');
   }
 
-  function reset() {
+  async function reset() {
     if (busy.current) return;
-    if (phase !== 'done' && !confirm('Discard this capture review? Any changes already saved will stay on the property.')) return;
+    if (phase !== 'done' && !(await ask({
+      title: 'Discard this capture review?',
+      body: 'Any changes already saved stay on the property.',
+      confirmLabel: 'Discard review',
+    }))) return;
+    if (busy.current) return;
     stopListening();
     progress.current = { columns: 0, notes: 0, skipped: [] };
     setPhase('input');
@@ -560,7 +567,18 @@ export function QuickCapture({ propertyId, propertyName }: { propertyId: string;
               >
                 {pending ? 'Saving…' : `Apply ${includedCount} change${includedCount === 1 ? '' : 's'}`}
               </button>
-              <button type="button" onClick={() => { if (!busy.current && confirm('Return to the original note? Review edits will be discarded; saved changes stay on the property.')) setPhase('input'); }} style={linkBtn}>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (busy.current) return;
+                  if (await ask({
+                    title: 'Return to the original note?',
+                    body: 'Your edits to this review are dropped. Changes already saved stay on the property.',
+                    confirmLabel: 'Back to the note',
+                  }) && !busy.current) setPhase('input');
+                }}
+                style={linkBtn}
+              >
                 Back to edit
               </button>
             </div>

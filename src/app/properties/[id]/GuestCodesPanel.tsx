@@ -12,6 +12,8 @@ import {
 } from './guest-code-actions';
 import type { GuestCodeView } from '@/lib/guest-locks';
 import { revokeCodeConfirm } from '@/lib/irreversible-confirms';
+import { useConfirm } from '@/components/ConfirmDialog';
+import { askFromSentence } from '@/lib/confirm-question';
 import { etStamp } from '@/lib/stable-time';
 
 export function GuestCodesPanel({
@@ -22,6 +24,7 @@ export function GuestCodesPanel({
   view: GuestCodeView;
 }) {
   const [pending, start] = useTransition();
+  const { ask } = useConfirm();
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [sel, setSel] = useState('');
@@ -237,9 +240,14 @@ export function GuestCodesPanel({
                         <button
                           type="button"
                           disabled={pending}
-                          onClick={() => {
-                            if (!window.confirm(revokeCodeConfirm(b.guest_name, b.check_in, b.check_out))) return;
-                            run(b.code!.id, () => revokeGuestCodeAction(propertyId, b.code!.id));
+                          onClick={async () => {
+                            const code = b.code!;
+                            if (!(await ask({
+                              ...askFromSentence(revokeCodeConfirm(b.guest_name, b.check_in, b.check_out)),
+                              confirmLabel: 'Revoke code',
+                              tone: 'danger',
+                            }))) return;
+                            run(code.id, () => revokeGuestCodeAction(propertyId, code.id));
                           }}
                           style={revokeBtn(pending && busy === b.code.id)}
                         >

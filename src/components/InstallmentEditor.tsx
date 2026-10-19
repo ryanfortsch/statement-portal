@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { computeNightsInMonthSplit, type Installment, type InstallmentDraft } from '@/lib/installments';
 import { effectiveCommission, wasCommissionStripped } from '@/lib/revenue-math';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
+import { useConfirm, type AskOptions } from '@/components/ConfirmDialog';
 
 /**
  * /api/installments refuses with 409 { needs_confirm } when a month the
@@ -23,11 +24,20 @@ function flagFailureNote(data: { flag_failures?: string[] }, lead: string): stri
   return `${lead} These months could NOT be flagged and need a manual Refresh Statement or re-ingest: ${data.flag_failures.join('; ')}.`;
 }
 
-async function staleMonthsGate(res: Response): Promise<'none' | 'proceed' | 'declined'> {
+async function staleMonthsGate(
+  res: Response,
+  ask: (o: AskOptions) => Promise<boolean>,
+): Promise<'none' | 'proceed' | 'declined'> {
   if (res.status !== 409) return 'none';
   const data = await res.clone().json().catch(() => null) as { needs_confirm?: boolean; frozen?: boolean; error?: string } | null;
   if (!data?.needs_confirm && !data?.frozen) return 'none';
-  return confirm(data.error || 'A month this split touches already has a statement. Proceed?') ? 'proceed' : 'declined';
+  const yes = await ask({
+    title: 'A month this split touches already has a statement',
+    body: data.error || 'Changing the split changes what that month should pay.',
+    confirmLabel: 'Change it anyway',
+    tone: 'danger',
+  });
+  return yes ? 'proceed' : 'declined';
 }
 
 /**
@@ -99,6 +109,7 @@ export function InstallmentEditor({
   onClose: () => void;
 }) {
   const softRefresh = useSoftRefresh();
+  const { ask } = useConfirm();
   const [drafts, setDrafts] = useState<InstallmentDraft[]>([]);
   const [existing, setExisting] = useState<Installment[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -241,7 +252,7 @@ export function InstallmentEditor({
         body: JSON.stringify(body),
       });
       let res = await post(payload);
-      const gate = await staleMonthsGate(res);
+      const gate = await staleMonthsGate(res, ask);
       if (gate === 'declined') return;
       if (gate === 'proceed') res = await post({ ...payload, force: true });
       const data = await res.json();
@@ -263,12 +274,17 @@ export function InstallmentEditor({
   }
 
   async function clearSplit() {
-    if (!confirm(`Remove the installment split for ${booking.guest_name}? The booking will recognize entirely in its checkout month, like a normal stay.`)) return;
+    if (!(await ask({
+      title: `Remove the installment split for ${booking.guest_name}?`,
+      body: 'The booking recognizes entirely in its checkout month, like a normal stay.',
+      confirmLabel: 'Remove split',
+      tone: 'danger',
+    }))) return;
     setBusy(true); setError(null);
     try {
       const url = `/api/installments?confirmation_code=${encodeURIComponent(booking.confirmation_code)}`;
       let res = await fetch(url, { method: 'DELETE' });
-      const gate = await staleMonthsGate(res);
+      const gate = await staleMonthsGate(res, ask);
       if (gate === 'declined') return;
       if (gate === 'proceed') res = await fetch(`${url}&force=true`, { method: 'DELETE' });
       const data = await res.json();

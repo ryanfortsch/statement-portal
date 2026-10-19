@@ -30,6 +30,7 @@ import type { RunsBoardData, MaintenanceRunCard, RosterPerson, VendorNeededSlip 
 import { planRunsNow, publishRun, emailWorkOrder, markRunScheduled } from './runs-actions';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
+import { useConfirm } from '@/components/ConfirmDialog';
 
 const LABEL: React.CSSProperties = {
   fontSize: 10,
@@ -109,6 +110,7 @@ function WorkOrderComposer({
   // The draft lands in the sender's own mailbox; the link is handed only to
   // the session that owns it, and anyone else is told where it is.
   const sessionEmail = useSession().data?.user?.email;
+  const { ask } = useConfirm();
   const ccLine = shortAddresses(alwaysCcFor(sessionEmail));
   const [error, setError] = useState('');
   // Close-out step: once the vendor confirms the day, one click stamps
@@ -128,9 +130,16 @@ function WorkOrderComposer({
     : !marked && schedDate !== initialDate;
   useUnsavedWorkGuard(dirty || sending || marking);
 
-  function requestClose() {
+  async function requestClose() {
     if (sendLock.current || markLock.current) return;
-    if (dirty && !window.confirm('Discard your unsaved work order changes?')) return;
+    if (dirty && !(await ask({
+      title: 'Discard your unsaved work order changes?',
+      body: done
+        ? 'The work order already went out. The scheduled date you picked is dropped.'
+        : 'Nothing was sent. The recipient and note you set are dropped.',
+      confirmLabel: 'Discard changes',
+    }))) return;
+    if (sendLock.current || markLock.current) return;
     onClose();
   }
 

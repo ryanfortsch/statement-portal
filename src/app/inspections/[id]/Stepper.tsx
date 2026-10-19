@@ -5,6 +5,7 @@ import { useFieldFormDraft, FieldDraftStatus } from '@/components/FieldFormDraft
 import { confirmedSave } from '@/lib/confirmed-save';
 import { checkFieldTaskCompletion } from '@/app/field/actions';
 import { useRouter } from 'next/navigation';
+import { useConfirm } from '@/components/ConfirmDialog';
 import Link from 'next/link';
 import {
   saveResult,
@@ -160,6 +161,7 @@ export function Stepper({
   onCompleteTask,
 }: Props) {
   const router = useRouter();
+  const { ask } = useConfirm();
   // A contractor walks from a packet (/field/inspect passes packetId) and the
   // server refuses their Complete without a photo on every Issue; staff are
   // not held to it, so the card's copy differs.
@@ -326,12 +328,14 @@ export function Stepper({
   /** ← Exit, guarded: confirm before leaving with saves in flight or failed
    *  (device backup protects them when browser storage is available). The button also
    *  sits one fat-finger from the progress counter on a phone. */
-  function exitStepper() {
+  async function exitStepper() {
     if (savingCount > 0 || failedKeys.length > 0) {
-      const ok = window.confirm(
+      const ok = await ask(
         failedKeys.length > 0
-          ? (draftStorageAvailable ? 'Some marks are saved on this device but have not synced. Leave and return later?' : 'Some marks have not synced and could not be saved on this device. Leaving may lose them. Leave anyway?')
-          : 'A mark is still saving. Leave anyway?',
+          ? draftStorageAvailable
+            ? { title: 'Leave with marks not synced yet?', body: 'They are saved on this device and sync when you come back to this walk.', confirmLabel: 'Leave for now', cancelLabel: 'Stay' }
+            : { title: 'Leave with marks not synced?', body: 'They could not be saved on this device either, so leaving may lose them.', confirmLabel: 'Leave anyway', cancelLabel: 'Stay', tone: 'danger' }
+          : { title: 'A mark is still saving. Leave anyway?', body: 'Wait a moment and it lands; leave now and it may not.', confirmLabel: 'Leave anyway', cancelLabel: 'Stay' },
       );
       if (!ok) return;
     }

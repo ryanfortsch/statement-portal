@@ -7,6 +7,7 @@ import { TeamPicker } from '@/components/TeamPicker';
 import { displayNameForEmail } from '@/lib/team';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { operatingDate } from '@/lib/operating-date';
+import { useConfirm } from '@/components/ConfirmDialog';
 
 type Props = {
   guestyReservationId: string;
@@ -41,6 +42,7 @@ export function PlanButton({
   variant = 'chip',
 }: Props) {
   const softRefresh = useSoftRefresh();
+  const { ask } = useConfirm();
   const [open, setOpen] = useState(false);
   const incoming = { id: planId, date: plannedForDate ?? defaultPlannedFor(checkInDate), notes: plannedNotes ?? '', assignee: assignedToEmail };
   const source = JSON.stringify(incoming);
@@ -63,9 +65,14 @@ export function PlanButton({
     setPicked(saved.date); setNotes(saved.notes); setAssignee(saved.assignee);
     setErr(null); setUncertain(false); setOpen(true);
   }
-  function requestClose() {
+  async function requestClose() {
     if (lock.current) return;
-    if ((dirty || uncertain) && !window.confirm('Discard your unsaved walk plan changes?')) return;
+    if ((dirty || uncertain) && !(await ask({
+      title: 'Discard your unsaved walk plan changes?',
+      body: 'The plan stays as it was last saved.',
+      confirmLabel: 'Discard changes',
+    }))) return;
+    if (lock.current) return;
     setOpen(false); setErr(null); setUncertain(false);
   }
 
@@ -93,7 +100,13 @@ export function PlanButton({
 
   async function clearPlan() {
     if (!saved.id || lock.current) return;
-    if (dirty && !window.confirm('Remove this plan and discard your unsaved changes?')) return;
+    if (dirty && !(await ask({
+      title: 'Remove this walk plan and discard your unsaved changes?',
+      body: 'The walk goes back to unplanned, and what you just changed is dropped.',
+      confirmLabel: 'Remove plan',
+      tone: 'danger',
+    }))) return;
+    if (lock.current) return;
     lock.current = true;
     setErr(null); setUncertain(false); setSubmitting(true);
     try {

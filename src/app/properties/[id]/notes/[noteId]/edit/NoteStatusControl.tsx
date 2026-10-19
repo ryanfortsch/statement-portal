@@ -4,6 +4,7 @@ import { useRef, useState, useTransition } from 'react';
 import { reopenPropertyNote, togglePropertyNoteResolved } from '@/app/properties/actions';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
+import { useConfirm } from '@/components/ConfirmDialog';
 
 /**
  * An issue's status on its own page: open with Resolve, or resolved with
@@ -28,6 +29,7 @@ export function NoteStatusControl({
   const [pending, startTransition] = useTransition();
   const lock = useRef(false);
   const softRefresh = useSoftRefresh();
+  const { ask } = useConfirm();
   useUnsavedWorkGuard(pending);
   const [err, setErr] = useState<string | null>(null);
 
@@ -47,8 +49,12 @@ export function NoteStatusControl({
     });
   }
 
-  function onResolve() {
-    if (guestFacing && !window.confirm('Resolving this also takes it out of the Guest KB, so the guest AI stops mentioning it. Resolve?')) return;
+  async function onResolve() {
+    if (guestFacing && !(await ask({
+      title: 'Resolve this and take it out of the Guest KB?',
+      body: 'The guest AI stops mentioning it to guests. Reopen brings it back.',
+      confirmLabel: 'Resolve',
+    }))) return;
     run(() => togglePropertyNoteResolved(propertyId, noteId, true));
   }
 
