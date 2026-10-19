@@ -4,6 +4,7 @@ import { useMemo, useState, type CSSProperties } from 'react';
 import Link from 'next/link';
 import {
   PLAYBOOK_CATEGORIES,
+  STATUS_LABELS,
   categoryLabel,
   excerptFor,
   type PlaybookEntryRow,
@@ -175,7 +176,7 @@ export function PlaybookClient({
                   </span>
                   {e.status !== 'published' && (
                     <span style={{ ...CHIP_BASE, color: 'var(--ink-4)', border: '1px solid var(--rule)' }}>
-                      {e.status}
+                      {STATUS_LABELS[e.status]}
                     </span>
                   )}
                   {e.property_id && propertyName[e.property_id] && (

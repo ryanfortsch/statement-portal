@@ -11,10 +11,21 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 
 const root = new URL('../../../', import.meta.url);
 const read = (repoPath: string): string => readFileSync(new URL(repoPath, root), 'utf8');
+
+/** Every page.tsx under a folder, as repo paths. */
+function listPages(dir: string): string[] {
+  const out: string[] = [];
+  for (const name of readdirSync(new URL(dir + '/', root))) {
+    const path = `${dir}/${name}`;
+    if (statSync(new URL(path, root)).isDirectory()) out.push(...listPages(path));
+    else if (name === 'page.tsx') out.push(path);
+  }
+  return out;
+}
 
 /** Every `<HelmHero ... />` element in a page, as source text. */
 function heroes(src: string): string[] {
@@ -63,6 +74,8 @@ const PAGES: Array<[string, string]> = [
   ['src/app/books/[entity_id]/page.tsx', 'title={entity.short}'],
   ['src/app/books/accounts/page.tsx', 'title="Chart of accounts"'],
   ['src/app/revenue/page.tsx', 'title="Revenue"'],
+  ['src/app/playbook/page.tsx', 'title="Playbook"'],
+  ['src/app/inspections/[id]/page.tsx', 'title={property.name}'],
 ];
 
 for (const [page, title] of PAGES) {
@@ -87,4 +100,16 @@ test('the plain head prints no accent and no paragraph of its own', () => {
   assert.ok(plain.includes('{title}'));
   assert.ok(!plain.includes('<em'), 'no italic accent in the plain head');
   assert.ok(!plain.includes('description'), 'no explainer in the plain head');
+});
+
+test('the editorial headline is left only where it was kept on purpose', () => {
+  const kept = new Set(['src/app/(home)/page.tsx', 'src/app/statements/upload/page.tsx']);
+  const editorial: string[] = [];
+  for (const page of listPages('src/app')) {
+    const src = read(page);
+    for (const hero of heroes(src)) {
+      if (!/\splain[\s/]/.test(hero) && !kept.has(page)) editorial.push(page);
+    }
+  }
+  assert.deepEqual(editorial, [], 'an operations page opened on the editorial headline');
 });

@@ -29,12 +29,7 @@ export default async function PlaybookPage() {
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
 
-      <HelmHero
-        eyebrow="Helm · Playbook"
-        title="How we run"
-        emphasis="the business."
-        description="The standard operating procedures, the eccentricities, and the institutional knowledge of Rising Tide, written down once and searchable everywhere. Ask Helm reads from here too."
-      />
+      <HelmHero plain eyebrow="Helm · Playbook" title="Playbook" />
 
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 8 }}>
         <div
