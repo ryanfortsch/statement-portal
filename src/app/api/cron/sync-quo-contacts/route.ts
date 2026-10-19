@@ -3,7 +3,7 @@ import { authorizeCron } from '@/lib/cron-auth';
 import { POST as syncPost } from '../../sync-quo-contacts/route';
 
 export const runtime = 'nodejs';
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 async function handle(request: NextRequest) {
   const denied = await authorizeCron(request);

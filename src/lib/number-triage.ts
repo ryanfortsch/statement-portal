@@ -8,6 +8,8 @@ import { todayET } from '@/lib/checkout-schedule';
 import { operatingDate } from '@/lib/operating-date';
 import { selectAllPaged } from '@/lib/paged-select';
 import { splitByAge, suggestionActivity, unknownNumberActivity } from '@/lib/triage-age';
+import { buildNumberIndex, knownSourceLabel, type KnownSource } from '@/lib/known-numbers';
+import { loadNumberDirectory } from '@/lib/known-numbers-server';
 
 /**
  * The number triage card on /messaging: who texted or called a Quo line
@@ -19,7 +21,16 @@ import { splitByAge, suggestionActivity, unknownNumberActivity } from '@/lib/tri
  * Each list is read whole (selectAllPaged): the card counts the last 30
  * days and folds the rest (src/lib/triage-age.ts), so a cap would misstate
  * both. A failed read of either queue reads as empty, as it did on /crm.
+ *
+ * A number Helm can already name is not a stranger (src/lib/known-numbers.ts):
+ * one already on a contact, on the Field roster or a trade vendor's leaves
+ * the card; an owner's comes with the household picked; a prospect or an
+ * address-book name comes named. An address-book entry for a number that is
+ * already a row here, or that belongs to a household, is the same person
+ * twice and folds into that row.
  */
+/** phone -> who Helm knows the number as, for a row still on the card. */
+export type KnownForRow = { source: KnownSource; label: string; name: string; contactId: string | null };
 export type TriageContact = { id: string; name: string; phone: string | null; type: ContactType };
 
 export type NumberTriage = {
@@ -30,6 +41,8 @@ export type NumberTriage = {
   /** phone -> "Beth Dowling · 17 Beach · arriving today", for numbers that
    *  belong to a guest on a real stay. Absent for everyone else. */
   guestByPhone: Record<string, string>;
+  /** phone -> "Owner" / "Dana Hale", with the contact to attach to. */
+  knownByPhone: Record<string, KnownForRow>;
   /** Who a number can be attached to, and the homes a new contact can link. */
   contacts: TriageContact[];
   properties: Array<{ id: string; name: string }>;
@@ -61,28 +74,40 @@ export async function loadNumberTriage(): Promise<NumberTriage | null> {
         .range(from, to),
     ).catch(() => [] as ContactReconcileSuggestionRow[]),
   ]);
-  const empty: NumberTriage = { unknownNumbers: [], olderUnknownNumbers: [], suggestions: [], olderSuggestions: [], guestByPhone: {}, contacts: [], properties: [] };
+  const empty: NumberTriage = { unknownNumbers: [], olderUnknownNumbers: [], suggestions: [], olderSuggestions: [], guestByPhone: {}, knownByPhone: {}, contacts: [], properties: [] };
   if (unknowns.length === 0 && suggestions.length === 0) return empty;
 
-  const [contacts, properties] = await Promise.all([
-    selectAllPaged<TriageContact>((from, to) =>
-      supabase.from('contacts').select('id, name, phone, type').order('name').order('id').range(from, to),
-    ).catch(() => [] as TriageContact[]),
-    supabase.from('properties').select('id, name').order('name').then(({ data }) => (data ?? []) as Array<{ id: string; name: string }>, () => []),
-  ]);
+  const directory = await loadNumberDirectory();
+  const contacts: TriageContact[] = directory.contacts.map(({ id, name, phone, type }) => ({ id, name, phone, type }));
+  const properties = directory.properties.map(({ id, name }) => ({ id, name }));
+  const index = buildNumberIndex(directory);
+
+  const strangers = unknowns.filter((u) => !index.resolve(u.phone)?.settled);
+  const rowPhones = new Set(strangers.map((u) => normalizePhone(u.phone)));
+  const openSuggestions = suggestions.filter((sg) => {
+    if (sg.suggestion_type !== 'add_contact') return true;
+    if (rowPhones.has(normalizePhone(sg.phone))) return false;
+    const known = index.resolve(sg.phone);
+    return !known?.settled && !known?.contact;
+  });
+  const knownByPhone: Record<string, KnownForRow> = {};
+  for (const u of strangers) {
+    const known = index.resolve(u.phone);
+    if (known) knownByPhone[u.phone] = { source: known.source, label: knownSourceLabel(known.source), name: known.name, contactId: known.contact?.id ?? null };
+  }
 
   // One rule for both lists: older than 30 Eastern days with no decision
   // folds. Not dismissed, not deleted; it can still be attached.
   const today = operatingDate();
-  const unknownSplit = splitByAge(unknowns, unknownNumberActivity, today);
-  const suggestionSplit = splitByAge(suggestions, suggestionActivity, today);
+  const unknownSplit = splitByAge(strangers, unknownNumberActivity, today);
+  const suggestionSplit = splitByAge(openSuggestions, suggestionActivity, today);
 
   // Name the strangers who are actually our guests.
   const guestByPhone: Record<string, string> = {};
-  if (unknowns.length > 0) {
+  if (strangers.length > 0) {
     const stays = await loadGuestStaysByPhone(supabase, todayET()).catch(() => ({} as Awaited<ReturnType<typeof loadGuestStaysByPhone>>));
     const propName = new Map(properties.map((p) => [p.id, p.name]));
-    for (const u of unknowns) {
+    for (const u of strangers) {
       const m = stays[normalizePhone(u.phone)];
       if (m) guestByPhone[u.phone] = guestStayLabel(m, m.propertyId ? propName.get(m.propertyId) ?? null : null);
     }
@@ -94,6 +119,7 @@ export async function loadNumberTriage(): Promise<NumberTriage | null> {
     suggestions: suggestionSplit.recent,
     olderSuggestions: suggestionSplit.older,
     guestByPhone,
+    knownByPhone,
     contacts,
     properties,
   };

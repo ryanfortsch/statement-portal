@@ -20,6 +20,7 @@ export function NewContactModal({
   onClose,
   onCreated,
   initialPhone,
+  initialName,
   initialType,
   title,
   submitLabel,
@@ -29,6 +30,7 @@ export function NewContactModal({
   onClose: () => void;
   onCreated: (id: string) => void;
   initialPhone?: string;
+  initialName?: string;
   initialType?: ContactType;
   title?: string;
   submitLabel?: string;
@@ -45,7 +47,7 @@ export function NewContactModal({
 }) {
   // The contact an operations manager adds most is a vendor or a cleaner.
   const [type, setType] = useState<ContactType>(initialType ?? 'vendor');
-  const [name, setName] = useState('');
+  const [name, setName] = useState(initialName ?? '');
   const [emails, setEmails] = useState('');
   const [phone, setPhone] = useState(initialPhone ?? '');
   const [organization, setOrganization] = useState('');

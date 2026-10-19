@@ -779,6 +779,13 @@ The webhook ingest stamps `quo_unknown_numbers.quo_line` from the event's `phone
   (`hmac;1;<timestamp>;<base64-digest>`, signed payload `<timestamp>.<JSON.stringify(body)>`, secret
   base64-decoded), persists into `quo_events` (unique on `quo_event_id`, so replays 200), and
   dispatches per event type.
+- **A number Helm can already name is never a new number** (`src/lib/known-numbers.ts`, since
+  2026-10-19). One resolver reads every place a phone lives: contacts, the owners registry, a Quo
+  address-book name that strictly matches an owner household (given name and surname, one
+  candidate), the Field roster, trade vendors, prospects. The webhook files a household's text onto
+  it (fill-empty phone), capture skips the Field roster and trade vendors, the address-book route
+  sweeps the queue after its pass (`known-numbers-sweep.ts`), and the New numbers card names what
+  is left. Add a phone-bearing table to the directory there, never a second lookup.
 - **Subscribe to** `message.received`, `message.delivered`, and `call.completed` as the minimum.
   `call.completed` is what creates the call touch; `call.summary.completed`,
   `call.transcript.completed` and `call.recording.completed` only enrich an existing touch and are
