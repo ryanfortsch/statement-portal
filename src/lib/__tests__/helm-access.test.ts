@@ -64,6 +64,12 @@ describe('who is an owner', () => {
 });
 
 describe('what a staff login may open', () => {
+  test('the Stripe lookup is open to staff, read-only; balance charges are not (2026-10-19)', () => {
+    assert.equal(pathRequiresOwner('/payments'), false);
+    assert.equal(apiRequiresOwner('/api/payments/lookup'), false);
+    assert.equal(pathRequiresOwner('/payments/balance-charges'), true);
+  });
+
   test('the money and owner-relationship pages are owners-only', () => {
     for (const p of [
       '/statements',
@@ -71,7 +77,7 @@ describe('what a staff login may open', () => {
       '/books',
       '/forecast',
       '/revenue',
-      '/payments',
+      '/payments/balance-charges',
       '/properties/contracts',
       '/properties/prospects',
       '/prospects/abc',
@@ -362,7 +368,8 @@ describe('the section strips never offer a tab the proxy would bounce', () => {
     'src/components/FieldTabs.tsx': 1,
     // Statements' href is built by statementsHref() to carry the month, so
     // it is not a literal; the other four are.
-    'src/components/FinancialsTabs.tsx': 4,
+    // The Stripe lookup left the owner list on 2026-10-19 (read-only, staff).
+    'src/components/FinancialsTabs.tsx': 3,
     'src/components/GrowthTabs.tsx': 2,
     'src/components/WorkTabs.tsx': 0,
     'src/components/TurnoverTabs.tsx': 0,

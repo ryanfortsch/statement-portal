@@ -186,9 +186,9 @@ function GuestCard({
     : 'Opens the quote form with this guest filled in. Pick their home there. The reply above is unaffected.';
   const stayLabel = formatStayDates(approval.check_in, approval.check_out);
   // "Did they pay?" one click away: the Stripe lookup prefilled with this
-  // guest's email and stay. Owners only, like the lookup (canPrice is the
-  // owner check above); a rental inquiry has no stay to look up.
-  const lookupHref = canPrice && !inquiry
+  // guest's email and stay, for every login (the lookup is read-only and
+  // open to staff); a rental inquiry has no stay to look up.
+  const lookupHref = !inquiry
     ? stripeLookupHref({
         email: approval.guest_email,
         name: pre?.guest_last ? `${approval.guest_first || ''} ${pre.guest_last}` : null,

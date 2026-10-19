@@ -19,15 +19,16 @@ test('no email falls back to the name; with neither there is no link', () => {
   assert.equal(stripeLookupHref({ email: 'a@b.c', checkOut: 'soon' }), '/payments?email=a%40b.c');
 });
 
-test('the guest card and the booking record link to the lookup for owners only', () => {
+test('the guest card and the booking record link to the lookup for every login', () => {
+  // Open to staff, read-only, since 2026-10-19 (Dotti).
   const card = read('src/app/messaging/MessagingQueue.tsx');
   const at = card.indexOf('stripeLookupHref({');
   assert.ok(at > 0, 'the guest card builds the link');
-  assert.ok(card.slice(Math.max(0, at - 200), at).includes('canPrice'), 'and only for an owner (canPrice is the owner check)');
+  assert.ok(card.includes('const lookupHref = !inquiry'), 'for any login; an inquiry has no stay');
   const booking = read('src/app/channels/bookings/[id]/page.tsx');
   const bAt = booking.indexOf('stripeLookupHref({');
   assert.ok(bAt > 0, 'the booking record builds the link');
-  assert.ok(booking.slice(Math.max(0, bAt - 200), bAt).includes('owner'), 'and only for an owner');
+  assert.ok(booking.includes('const lookupHref = !isBlock'), 'for any login; a hold has no guest');
 });
 
 test('the page is named for what it does and shows progress while it searches', () => {
@@ -35,8 +36,9 @@ test('the page is named for what it does and shows progress while it searches', 
   assert.ok(page.includes('title="Stripe lookup"'), 'the hero says Stripe lookup');
   assert.ok(page.includes('<Suspense key={searchKey}'), 'the results stream behind a fallback that says it is searching');
   assert.ok(read('src/components/FinancialsTabs.tsx').includes("label: 'Stripe lookup'"), 'the Money strip says Stripe lookup');
-  // Access is unchanged: still an owner page and an owner route.
+  // The lookup is open to staff, read-only; charging a saved card is not.
   const access = read('src/lib/helm-access.ts');
-  assert.ok(access.includes("  '/payments',"), '/payments stays owner-only');
-  assert.ok(access.includes("  '/api/payments',"), '/api/payments stays owner-only');
+  assert.ok(!access.includes("  '/payments',"), '/payments is staff-open');
+  assert.ok(!access.includes("  '/api/payments',"), '/api/payments/lookup is staff-open');
+  assert.ok(access.includes("  '/payments/balance-charges',"), 'balance charges stay owners only');
 });
