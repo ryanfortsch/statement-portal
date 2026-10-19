@@ -46,6 +46,9 @@ type Props = {
 
 /** Rows an opened Older fold renders; each carries a contact picker. */
 const OLDER_SHOWN = 100;
+/** The inbox opens on the newest few numbers; the rest wait behind Show all,
+ *  so a backlog never pushes the guest drafts off the screen. */
+const RECENT_SHOWN = 3;
 
 /** What a new contact from this line most likely is. No guest type exists. */
 function defaultTypeForLine(line: UnknownNumberRow['quo_line']): ContactType {
@@ -71,6 +74,7 @@ export function NumberTriage({ unknownNumbers, olderUnknownNumbers = [], suggest
   const [suggestionTypeFor, setSuggestionTypeFor] = useState<Record<string, ContactType>>({});
   const [suggestionErr, setSuggestionErr] = useState<Record<string, string>>({});
   const [showOlder, setShowOlder] = useState(false);
+  const [showAll, setShowAll] = useState(false);
 
   // Contacts for the attach picker: phone-less ones first (the likely
   // targets, e.g. an owner missing their number), each sorted by name.
@@ -272,10 +276,15 @@ export function NumberTriage({ unknownNumbers, olderUnknownNumbers = [], suggest
         ))}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {recentCount === 0 && <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>Nothing new in the last 30 days.</div>}
-          {visibleUnknowns.map(renderUnknown)}
-          {visibleSuggestions.map(renderSuggestion)}
+          {(showAll ? visibleUnknowns : visibleUnknowns.slice(0, RECENT_SHOWN)).map(renderUnknown)}
+          {(showAll ? visibleSuggestions : visibleSuggestions.slice(0, Math.max(0, RECENT_SHOWN - visibleUnknowns.length))).map(renderSuggestion)}
         </div>
-        {olderCount > 0 && (
+        {!showAll && recentCount > RECENT_SHOWN && (
+          <button type="button" onClick={() => setShowAll(true)} style={{ marginTop: 12, background: 'none', border: 'none', padding: '4px 0', fontSize: 12, color: 'var(--ink-3)', cursor: 'pointer', fontFamily: 'inherit' }}>
+            Show all {recentCount}
+          </button>
+        )}
+        {olderCount > 0 && (showAll || recentCount <= RECENT_SHOWN) && (
           <div style={{ marginTop: 14, borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
             <button type="button" aria-expanded={showOlder} onClick={() => setShowOlder((v) => !v)} style={{ background: 'none', border: 'none', padding: '4px 0', fontSize: 12, color: 'var(--ink-3)', cursor: 'pointer', fontFamily: 'inherit' }}>
               {showOlder ? '▾' : '▸'} Older · {olderCount}

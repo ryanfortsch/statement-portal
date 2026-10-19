@@ -1,33 +1,25 @@
 /**
- * Why a waiting card is still waiting, in one line on the card (2026-10-18).
+ * Why a waiting card is still waiting, in one line on the card (2026-10-18),
+ * and only when someone has to act on it (2026-10-19: a line that changes
+ * nothing the operator does is noise, so retries and old drafts say nothing).
  *
  * Before this the queue said nothing: a stale card's age turned red with no
  * words, a scheduled send that failed went quietly back to pending (on the
  * guest queue it was even filed as rejected and read as Handled), a drafting
  * outage left cards with nothing in them. The concierge now keeps the last
- * send failure and the retry count on every card (stay-concierge #89); this
- * turns them, and the age, into one sentence.
+ * send failure on every card (stay-concierge #89); this turns it into one
+ * short sentence.
  *
  * Only what the payload says. A reason the concierge does not report is not
  * guessed at here.
  */
 
-export type WaitTone = 'stale' | 'failed' | 'retrying' | 'held' | 'paused';
+export type WaitTone = 'failed' | 'held' | 'paused';
 export type WaitLineText = { tone: WaitTone; text: string; detail?: string };
-
-/** The concierge's retry ceiling for a scheduled send (scheduler.py). */
-export const SEND_ATTEMPT_CEILING = 5;
-/** When a waiting draft reads as stale: the age turns red at four hours. */
-export const STALE_MINUTES = 4 * 60;
 
 export type WaitInput = {
   status: string;
-  ageMinutes: number | null | undefined;
-  sendAttempts?: number;
   lastSendError?: string;
-  /** Where a stale card was most likely answered instead: 'Guesty' for an
-   *  OTA thread, 'by text', 'by email'. */
-  answeredWhere?: string;
   /** The draft is empty. */
   noDraft?: boolean;
   /** The drafting AI is down (AiStatus), with its own reason when it gave one. */
@@ -53,63 +45,31 @@ export function sendErrorWords(error: string): string {
   return e.length > 80 ? `${e.slice(0, 77)}…` : e;
 }
 
-function hours(minutes: number): string {
-  const h = Math.floor(minutes / 60);
-  return h >= 48 ? `${Math.floor(h / 24)} days` : `${h}h`;
-}
-
+/** One line under a waiting card, or none. */
 export function waitReason(input: WaitInput): WaitLineText | null {
-  const { status, ageMinutes, lastSendError, answeredWhere } = input;
-  const attempts = input.sendAttempts ?? 0;
-  const error = (lastSendError || '').trim();
+  const { status } = input;
+  const error = (input.lastSendError || '').trim();
 
+  // A queued send that is retrying needs nobody: it either goes out or comes
+  // back as a failed card below. The one exception is an empty texting
+  // account, which no retry can fix.
   if (status === 'scheduled' && error) {
-    if (error === 'rate_limited') return { tone: 'retrying', text: 'Not sent yet: Guesty asked us to wait. It retries on its own.' };
-    return {
-      tone: 'retrying',
-      text: `Not sent: ${sendErrorWords(error)}. Retrying${attempts ? ` (try ${attempts} of ${SEND_ATTEMPT_CEILING})` : ''}.`,
-      detail: error,
-    };
+    if (/^quo_error:.*\b402\b/.test(error)) return { tone: 'failed', text: 'Not sent: the texting account is out of credit.', detail: error };
+    return null;
   }
 
   if (status === 'pending' && error) {
-    if (error === 'newer_activity') {
-      return { tone: 'held', text: 'Held back: they wrote again after you scheduled this. Check the reply still fits, then send.' };
-    }
-    if (error === 'interrupted') {
-      return { tone: 'failed', text: 'Sending was interrupted. Check the thread for whether it went out before you send again.' };
-    }
-    return {
-      tone: 'failed',
-      text: `${attempts >= SEND_ATTEMPT_CEILING ? `Failed after ${attempts} tries` : 'Not sent'}: ${sendErrorWords(error)}. Send again or mark handled.`,
-      detail: error,
-    };
+    if (error === 'newer_activity') return { tone: 'held', text: 'They wrote again. Check the reply still fits.' };
+    if (error === 'interrupted') return { tone: 'failed', text: 'May have sent. Check the thread first.' };
+    return { tone: 'failed', text: `Not sent: ${sendErrorWords(error)}.`, detail: error };
   }
 
   if (status === 'pending' && input.noDraft) {
-    if (input.aiPaused) {
-      return { tone: 'paused', text: `No draft: drafting is paused${input.aiPaused.reason ? ` (${input.aiPaused.reason.replace(/\.$/, '')})` : ''}. Write the reply yourself or wait for it to come back.` };
-    }
-    if (input.unverifiedHomes) {
-      return {
-        tone: 'paused',
-        text: `No draft: the calendar could not confirm ${input.unverifiedHomes === 1 ? 'the home' : `${input.unverifiedHomes} homes`}. Check availability before you price it.`,
-      };
-    }
+    if (input.aiPaused) return { tone: 'paused', text: 'No draft: drafting is paused.', detail: input.aiPaused.reason };
+    if (input.unverifiedHomes) return { tone: 'paused', text: 'No draft: check availability first.' };
   }
 
-  if (status === 'pending' && ageMinutes != null && ageMinutes >= STALE_MINUTES) {
-    const where = answeredWhere ? (answeredWhere.startsWith('by ') ? ` ${answeredWhere}` : ` in ${answeredWhere}`) : '';
-    return { tone: 'stale', text: `Drafted ${hours(ageMinutes)} ago; check whether it was already answered${where}.` };
-  }
-
+  // An old draft says nothing more: its age already shows on the card, in red
+  // once it is four hours old.
   return null;
-}
-
-/** Where a guest card was most likely answered instead, from its channel:
- *  an OTA thread in Guesty, a Helm thread by text, an email card by email. */
-export function guestAnsweredWhere(conversationId: string | null | undefined, module: string | null | undefined): string {
-  if ((module || '') === 'email') return 'by email';
-  if ((conversationId || '').startsWith('helm:')) return 'by text';
-  return 'Guesty';
 }

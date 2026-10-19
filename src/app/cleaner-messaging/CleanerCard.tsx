@@ -79,10 +79,7 @@ export function CleanerCard({
       shortId={approval.short_id}
       wait={waitReason({
         status: approval.status,
-        ageMinutes: proactive ? null : approval.age_minutes,
-        sendAttempts: approval.send_attempts,
         lastSendError: approval.last_send_error,
-        answeredWhere: 'by text',
         noDraft: !approval.draft.trim(),
         aiPaused,
       })}

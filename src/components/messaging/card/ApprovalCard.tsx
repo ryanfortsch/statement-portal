@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useTransition, type ReactNode } from 'react';
 import { MobileInboxReview } from '@/components/MobileInboxReview';
 import { MessageOutcomes } from '@/components/MessageOutcomes';
-import { QueuedBadge, QUEUED_TONE, SchedulePopover, SplitSendButton } from '@/components/ScheduleSend';
+import { QUEUED_TONE, SchedulePopover, SplitSendButton } from '@/components/ScheduleSend';
 import { ageToneColor, relativeTimeShort, sendsInLabel } from '@/app/messaging/format';
 import type { MessageOutcomes as Outcomes } from '@/lib/message-outcomes';
 import { PrimaryButton, QuietButton, SecondaryButton } from './buttons';
@@ -479,7 +479,6 @@ export function ApprovalCard(props: ApprovalCardProps) {
           flexWrap: 'wrap',
         }}
       >
-        <QueuedBadge />
         <span className="font-serif" style={{ fontSize: 15, fontWeight: 500, letterSpacing: '-0.01em' }}>
           {name}
         </span>
@@ -696,7 +695,7 @@ export function ApprovalCard(props: ApprovalCardProps) {
           border: '1px solid var(--rule)',
           borderLeft: isScheduled
             ? `3px solid ${QUEUED_TONE}`
-            : wait && (wait.tone === 'failed' || wait.tone === 'stale')
+            : wait && wait.tone === 'failed'
               ? '3px solid var(--signal)'
               : accent
                 ? `3px solid ${accent}`
@@ -721,12 +720,9 @@ export function ApprovalCard(props: ApprovalCardProps) {
             </span>
             {chips}
             {isScheduled && (
-              <>
-                <QueuedBadge />
-                <span className="eyebrow" style={{ color: 'var(--ink-3)' }} title={sendAt}>
-                  {sendsInLabel(sendAt || '')}
-                </span>
-              </>
+              <span className="eyebrow" style={{ color: 'var(--ink-3)' }} title={sendAt}>
+                {sendsInLabel(sendAt || '')}
+              </span>
             )}
           </div>
           {/* A queued card's countdown is its one time readout; Hide folds it. */}

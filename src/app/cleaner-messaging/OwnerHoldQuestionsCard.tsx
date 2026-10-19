@@ -2,7 +2,6 @@ import { Section } from '@/components/Section';
 import { SubmitButton } from '@/components/SubmitButton';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { formatTime12 } from '@/lib/checkout-schedule';
-import { holdNights } from '@/lib/owner-hold-questions-core';
 import { loadOwnerHoldQuestions, type OwnerHoldQuestionCard } from '@/lib/owner-hold-questions';
 import { decideOwnerHoldAction } from '../turnovers/schedule/actions';
 import { buttonClass } from '@/lib/button-class';
@@ -62,12 +61,6 @@ export async function OwnerHoldQuestionsCard({ notice }: { notice?: string | nul
             {NOTICE[notice]}
           </div>
         )}
-        {pending.length > 0 && (
-          <div style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.6, marginBottom: 6 }}>
-            Guesty has these homes blocked for the owner. Each is on the cleaner schedule for the morning after
-            the block until you say otherwise.
-          </div>
-        )}
         {pending.map((c) => (
           <HoldRow key={`${c.propertyId}|${c.checkIn}`} card={c} today={data.today} />
         ))}
@@ -88,10 +81,11 @@ export async function OwnerHoldQuestionsCard({ notice }: { notice?: string | nul
 
 /** One owner block with its answer buttons. Shared with the home feed. */
 export function HoldRow({ card: c, today, back = 'card' }: { card: OwnerHoldQuestionCard; today: string; back?: 'card' | 'home' | 'page' }) {
+  // One line: the home, the dates, when it empties, and whether a guest is
+  // coming in behind it. The hold's own reason ("Owner block") is what every
+  // row here is, so it is not repeated (2026-10-19).
   const pending = c.status === 'pending';
-  const nights = holdNights(c.checkIn, c.checkOut);
-  const noteText = [c.reason, c.note].filter((s): s is string => !!s && s.trim().length > 0).join(' · ');
-  const when = c.checkOut === today ? 'today' : fmt(c.checkOut);
+  const out = c.checkOut === today ? `out today ${formatTime12(c.checkoutTime)}` : `out ${formatTime12(c.checkoutTime)}`;
   return (
     <div
       id={`owner-hold-${c.propertyId}-${c.checkIn}`}
@@ -110,19 +104,17 @@ export function HoldRow({ card: c, today, back = 'card' }: { card: OwnerHoldQues
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 15, fontWeight: 600 }}>{c.propertyName}</span>
           <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
-            {fmt(c.checkIn, SHORT_FMT)} to {fmt(c.checkOut, SHORT_FMT)} · {nights} night{nights === 1 ? '' : 's'}
+            {fmt(c.checkIn, SHORT_FMT)} to {fmt(c.checkOut, SHORT_FMT)} · {out}
           </span>
-          {noteText && <span style={{ fontSize: 12, color: 'var(--ink-4)', fontStyle: 'italic' }}>Guesty: {noteText}</span>}
+          {c.arrivingGuest && pending && (
+            <span style={{ fontSize: 12, color: 'var(--signal)', fontWeight: 600 }}>Guest arrives that day</span>
+          )}
           {!pending && (
             <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: c.status === 'clean' ? 'var(--ink-3)' : 'var(--signal)', border: `1px solid ${c.status === 'clean' ? 'var(--rule)' : 'var(--signal)'}`, borderRadius: 3, padding: '2px 7px' }}>
               {c.status === 'clean' ? 'clean after' : 'no cleaning'}
               {c.decidedBy ? ` · ${c.decidedBy.split('@')[0]}` : ''}
             </span>
           )}
-        </div>
-        <div style={{ fontSize: 12, color: pending ? 'var(--ink)' : 'var(--ink-3)', marginTop: 3 }}>
-          Checkout lands {when} at {formatTime12(c.checkoutTime)}
-          {c.arrivingGuest ? `, and ${c.arrivingGuest} arrives that afternoon` : ''}.
         </div>
       </div>
       <div style={{ display: 'flex', gap: 8 }}>

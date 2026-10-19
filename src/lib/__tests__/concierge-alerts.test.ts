@@ -77,7 +77,17 @@ test('a staff login never sees an alert whose link lands on the owner inbox', ()
     { kind: 'something_new', item_key: 'f' },
   ];
   assert.deepEqual(conciergeAlertsFor('staff', items).map((i) => i.item_key), ['a', 'd', 'f']);
-  assert.deepEqual(conciergeAlertsFor('owner', items).map((i) => i.item_key), ['a', 'b', 'c', 'd', 'e', 'f']);
+  assert.deepEqual(conciergeAlertsFor('owner', items).map((i) => i.item_key), ['a', 'b', 'd', 'e', 'f'], 'an owner notice with no guest is not an alert either');
+});
+
+test('an alert nobody can act on does not show', () => {
+  const items = [
+    { kind: 'review_sweep_skipped', item_key: 'r' },
+    { kind: 'owner_guest_notice_no_guest', item_key: 'n' },
+    { kind: 'owner_guest_message_no_guest', item_key: 'm' },
+    { kind: 'send_delivery_failed', item_key: 'a' },
+  ];
+  assert.deepEqual(conciergeAlertsFor('owner', items).map((i) => i.item_key), ['a']);
 });
 
 test('the reflection report and the AI outage are not alerts', () => {

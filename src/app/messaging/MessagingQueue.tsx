@@ -32,7 +32,7 @@ import {
 } from './actions';
 import { RentalInquiryPanel } from './RentalInquiryPanel';
 import { addonItem, handoffItem, quotesItem } from './guest-card-blocks';
-import { guestAnsweredWhere, waitReason } from '@/lib/card-wait-reason';
+import { waitReason } from '@/lib/card-wait-reason';
 import { stripeLookupHref } from '@/lib/stripe-lookup-link';
 import { HeldPitches, type HeldPitch } from './HeldPitches';
 import { inquiryDraftState, inquiryMessageText, inquiryQuoteHref } from '@/lib/rental-inquiry';
@@ -77,7 +77,7 @@ export function MessagingQueue({
    *  draft written: they wait here with Release, not two folds deep. */
   held?: HeldPitch[];
 }) {
-  const { approvals, context: quotes, updatedTick, refresh, watchRegen, stalledId } = useApprovalQueue<Approval, GuestQuoteContext>(
+  const { approvals, context: quotes, refresh, watchRegen, stalledId } = useApprovalQueue<Approval, GuestQuoteContext>(
     initialPending,
     'guests',
     initialQuotes,
@@ -91,7 +91,6 @@ export function MessagingQueue({
   return (
     <ApprovalQueue
       approvals={approvals}
-      updatedTick={updatedTick}
       onRefresh={onRefresh}
       undo={undoDecision}
       emptyMessage="No guest replies waiting."
@@ -454,11 +453,7 @@ function GuestCard({
       shortId={approval.short_id}
       wait={waitReason({
         status: approval.status,
-        // A proactive card was never answered elsewhere: its age is not staleness.
-        ageMinutes: kind ? null : approval.age_minutes,
-        sendAttempts: approval.send_attempts,
         lastSendError: approval.last_send_error,
-        answeredWhere: guestAnsweredWhere(approval.conversation_id, approval.module),
         noDraft: !approval.draft.trim(),
         aiPaused,
         unverifiedHomes: inquiry ? inquiry.homes.filter((h) => h.availability === 'unknown').length : 0,
