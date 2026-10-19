@@ -81,53 +81,69 @@ function dimension(v: unknown): number | null {
 
 // ── Content ─────────────────────────────────────────────────────────────────
 
+/**
+ * The blocks the Listing section saves one at a time, by the form's hidden
+ * `part` field. Each writes only its own columns (a partial upsert leaves the
+ * rest of the row as it is), so saving the amenities never blanks the copy.
+ * A post with no part writes all three, as the one-form editor did.
+ */
+const LISTING_PARTS = ['copy', 'basics', 'amenities'] as const;
+type ListingPart = (typeof LISTING_PARTS)[number];
+
 export async function saveListingContentAction(propertyId: string, _prev: ListingFormState, fd: FormData): Promise<ListingFormState> {
   const by = await actor();
   if (!by) return { error: 'Not signed in' };
   if (!isServiceConfigured) return { error: 'Service role not configured' };
   try {
-    // Checked catalog items plus anything typed into the extras box, deduped
-    // on a folded key so 'Pack ’n Play' and "Pack 'n play" stay one item.
-    const seen = new Set<string>();
-    const amenities: string[] = [];
-    const push = (s: string) => {
-      const t = s.trim();
-      if (!t) return;
-      const k = t.toLowerCase().replace(/[’‘`´]/g, "'").replace(/\s+/g, ' ');
-      if (seen.has(k)) return;
-      seen.add(k);
-      amenities.push(t);
-    };
-    for (const v of fd.getAll('amenities')) push(String(v));
-    for (const v of str(fd, 'amenities_extra').split(/[\n,]/)) push(v);
-    const notIncluded = str(fd, 'amenities_not_included')
-      .split(/[\n,]/)
-      .map((s) => s.trim())
-      .filter(Boolean);
+    const named = fd.getAll('part').map(String).filter((v): v is ListingPart => (LISTING_PARTS as readonly string[]).includes(v));
+    const parts = new Set<ListingPart>(named.length ? named : LISTING_PARTS);
+    const patch: ListingContentPatch = { property_id: propertyId, source: 'helm' };
 
-    const patch: ListingContentPatch = {
-      property_id: propertyId,
-      title: textOrNull(fd, 'title'),
-      summary: textOrNull(fd, 'summary'),
-      space: textOrNull(fd, 'space'),
-      access: textOrNull(fd, 'access'),
-      interaction: textOrNull(fd, 'interaction'),
-      neighborhood: textOrNull(fd, 'neighborhood'),
+    if (parts.has('copy')) {
+      patch.title = textOrNull(fd, 'title');
+      patch.summary = textOrNull(fd, 'summary');
+      patch.space = textOrNull(fd, 'space');
+      patch.access = textOrNull(fd, 'access');
+      patch.interaction = textOrNull(fd, 'interaction');
+      patch.neighborhood = textOrNull(fd, 'neighborhood');
       // House rules and accommodates are not written here: the House policy
       // columns on properties are their one home (src/lib/house-policy.ts).
-      notes: textOrNull(fd, 'notes'),
-      property_type: textOrNull(fd, 'property_type'),
-      room_type: textOrNull(fd, 'room_type'),
-      bedrooms: numOrNull(fd, 'bedrooms', 0, 50),
-      bathrooms: numOrNull(fd, 'bathrooms', 0, 50),
-      beds: numOrNull(fd, 'beds', 0, 100),
-      amenities,
-      amenities_not_included: notIncluded,
-      source: 'helm',
-    };
+      patch.notes = textOrNull(fd, 'notes');
+    }
+
+    if (parts.has('basics')) {
+      patch.property_type = textOrNull(fd, 'property_type');
+      patch.room_type = textOrNull(fd, 'room_type');
+      patch.bedrooms = numOrNull(fd, 'bedrooms', 0, 50);
+      patch.bathrooms = numOrNull(fd, 'bathrooms', 0, 50);
+      patch.beds = numOrNull(fd, 'beds', 0, 100);
+    }
+
+    if (parts.has('amenities')) {
+      // Checked catalog items plus anything typed into the extras box, deduped
+      // on a folded key so 'Pack ’n Play' and "Pack 'n play" stay one item.
+      const seen = new Set<string>();
+      const amenities: string[] = [];
+      const push = (s: string) => {
+        const t = s.trim();
+        if (!t) return;
+        const k = t.toLowerCase().replace(/[’‘`´]/g, "'").replace(/\s+/g, ' ');
+        if (seen.has(k)) return;
+        seen.add(k);
+        amenities.push(t);
+      };
+      for (const v of fd.getAll('amenities')) push(String(v));
+      for (const v of str(fd, 'amenities_extra').split(/[\n,]/)) push(v);
+      patch.amenities = amenities;
+      patch.amenities_not_included = str(fd, 'amenities_not_included')
+        .split(/[\n,]/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+    }
+
     await upsertListingContent(patch, by);
     revalidatePath(`/properties/${propertyId}`);
-    return { error: null, ok: true, message: 'Listing saved.' };
+    return { error: null, ok: true, message: parts.size === 1 && parts.has('amenities') ? 'Amenities saved.' : 'Listing saved.' };
   } catch (e) {
     return { error: e instanceof Error ? e.message : 'Save failed' };
   }

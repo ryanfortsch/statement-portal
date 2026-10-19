@@ -69,10 +69,9 @@ import { getPropertyRooms } from '@/lib/property-rooms';
 import { RatesPanel } from './RatesPanel';
 import { ListingPanel } from './ListingPanel';
 import { AutomationsPanel } from './AutomationsPanel';
-import { HowWeSellIt } from './HowWeSellIt';
 import { loadHowWeSellIt } from '@/lib/how-we-sell-it';
 import { loadPricingBundle } from '@/lib/property-rates';
-import { getListingRecord, bedSummary, AMENITY_CATALOG, FIELD_CONSUMERS } from '@/lib/listing-content';
+import { getListingRecord, bedSummary, AMENITY_CATALOG } from '@/lib/listing-content';
 import { getAutomationsPanelView } from '@/lib/automations';
 import { isHelmRun, isCapeAnnOps } from '@/lib/property-scope';
 import { shiftIsoDay, todayInEastern } from '@/lib/sca-quotes-types';
@@ -1911,155 +1910,52 @@ export default async function PropertyDetailPage({
         </TabSection>
 
         {/* ════════════ GUEST & LISTING ════════════ */}
+        {/* One job per section, top to bottom: what a guest sees (the
+            listing, the printed documents), then what they pay (Rates &
+            taxes), then what Helm sends them (Automations). */}
         <TabSection tab="guest">
-          {/* Launcher tiles, not a bare row of links: each growth tool gets
-              a card with its one-line pitch (lifted from the old hover-only
-              title attrs) so the tab reads as a workbench instead of the
-              emptiest page in Helm. */}
-          <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 24, paddingBottom: 48, width: '100%' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
-              {/* One name per tool: the tile, the page's breadcrumb and its
-                  title say the same thing. */}
-              {/* No Listing copy tile: Draft with AI lives in the forms that
-                  save it, the Listing section below (Guesty fields) and the
-                  Stay Cape Ann launcher (tagline, About, highlights). */}
-              <GrowthTile
-                eyebrow="Guesty"
-                title="Photo captions"
-                description="Drafts a caption for every Guesty gallery photo in our listings' voice; you approve before anything pushes."
-                href={`/properties/${p.id}/caption-photos`}
-              />
-              {/* Both directions on one screen, an arrow per field. */}
-              <GrowthTile
-                eyebrow="Helm ⇄ Guesty"
-                title="Guesty fields"
-                description="Helm's Wi-Fi, parking and trash to the live listing; the listing's bedrooms, baths, size and map pin to Helm's blanks."
-                href={`/properties/${p.id}/sync-guesty`}
-              />
-              {/* A live listing whose payment probe came back demo_mode takes
-                  bookings that collect nothing, so it must never render as a
-                  plain "Live ✓" (84 Thatcher: four bookings, $41,917, no
-                  payment path). A stale snapshot is the quieter twin of the
-                  same problem and says so rather than reading healthy. */}
-              <GrowthTile
-                eyebrow="Direct booking"
-                title="Stay Cape Ann"
-                description={
-                  scaLaunch?.status === 'live'
-                    ? scaLaunch.payment_verify_signal === 'demo_mode'
-                      ? 'Live, but the last payment probe found demo mode: bookings collect nothing. Check this property’s Stripe key.'
-                      : scaLaunch.snapshot_refresh_error
-                        ? 'Live on staycapeann.com. The last snapshot refresh failed, so the page may be stale.'
-                        : 'Live on staycapeann.com. Its copy and bedroom photos are edited here.'
-                    : scaLaunch?.status === 'pr_open'
-                      ? 'Launch in review, a PR is open.'
-                      : 'Launch this property on staycapeann.com.'
-                }
-                href={`/properties/${p.id}/stay-cape-ann`}
-                status={
-                  scaLaunch?.status === 'live'
-                    ? scaLaunch.payment_verify_signal === 'demo_mode'
-                      ? 'Demo mode'
-                      : scaLaunch.snapshot_refresh_error
-                        ? 'Live, stale'
-                        : 'Live ✓'
-                    : scaLaunch?.status === 'pr_open'
-                      ? 'In review'
-                      : undefined
-                }
-              />
-              {/* No Bedroom photos tile: the launcher's Sleeping arrangements
-                  carry the same uploader, on the live listing. */}
-            </div>
-          </section>
-          {/* RATES & TAXES, LISTING, AUTOMATIONS: the Helm-native records
-              that replace Guesty's Pricing & policies, listing content and
-              Message Automation (property_rate_plans / property_rate_days /
-              property_tax_config, property_listing_content and photos,
-              message_automations). Authoritative once this home is
-              helm-run; a draft before. Deep links: ?tab=guest#rates,
-              #listing, #automations (the old ?tab=rates etc. alias here). */}
-          <CollapsibleSection
-            id="rates"
-            title="Rates & taxes"
-            summary={
-              pricing?.plan
-                ? `Base $${Math.round(pricing.plan.base_nightly_cents / 100).toLocaleString('en-US')} a night · ${pricing.plan.min_nights_default} night minimum`
-                : helmRun
-                ? 'No rate plan: Helm cannot price a night'
-                : 'No rate plan yet'
-            }
-          >
-            <RatesPanel
-              propertyId={p.id}
-              plan={pricing?.plan ?? null}
-              tax={pricing?.tax ?? null}
-              days={pricing ? [...pricing.days.values()] : []}
-              helmRun={helmRun}
-              region={pmsRegion}
-              today={pmsToday}
-              housePolicy={housePolicyValues}
-            />
-          </CollapsibleSection>
-          <CollapsibleSection
+          <ScaStatusLine propertyId={p.id} launch={scaLaunch} />
+          {/* The listing as a guest reads it: each block opens its own
+              editor. Deep link ?tab=guest#listing (the old ?tab=listing
+              aliases here). */}
+          <GuestSection
             id="listing"
             title="Listing"
-            summary={`${listingRecord?.photos.length ?? 0} photo${listingRecord?.photos.length === 1 ? '' : 's'} · ${helmRun ? 'what staycapeann.com reads once it reads Helm' : 'draft; Guesty holds the live listing'}`}
+            note={helmRun ? 'staycapeann.com reads this once it reads Helm' : 'Draft · Guesty holds the live listing'}
           >
             <ListingPanel
               propertyId={p.id}
               content={listingRecord?.content ?? null}
               photos={listingRecord?.photos ?? []}
-              rooms={propertyRooms}
-              bedSummaryText={bedSummary(propertyRooms).text}
+              beds={bedSummary(propertyRooms)}
               catalog={AMENITY_CATALOG}
-              consumers={FIELD_CONSUMERS}
               helmRun={helmRun}
               registry={{ title: p.title ?? null, bedrooms: p.bedrooms ?? null, bathrooms: p.bathrooms ?? null }}
               housePolicy={housePolicyValues}
+              // How we sell it: the selling points the campaign AI reads on
+              // every draft (property_marketing). Cape Ann homes only: the
+              // campaigns sell nothing else.
+              sellIt={isCapeAnnOps({ region: pmsRegion }) ? howWeSellIt : null}
             />
-          </CollapsibleSection>
-          {/* HOW WE SELL IT: the selling points the campaign AI reads on every
-              draft (property_marketing). Was Marketing Memory under Growth;
-              sleeps and bedrooms come from the registry, not from here. Cape
-              Ann homes only: the campaigns sell nothing else. */}
-          {isCapeAnnOps({ region: pmsRegion }) && <CollapsibleSection
-            id="how-we-sell-it"
-            title="How we sell it"
-            summary={!howWeSellIt.ok ? 'could not be loaded' : howWeSellIt.row?.tagline || 'Nothing written yet'}
-          >
-            {howWeSellIt.ok ? (
-              <HowWeSellIt propertyId={p.id} row={howWeSellIt.row} />
-            ) : (
-              <div role="alert" style={{ fontSize: 13, color: 'var(--ink-3)' }}>
-                This could not be loaded. Nothing you saved has changed.{' '}
-                <a href={`/properties/${p.id}?tab=guest#how-we-sell-it`}>Retry</a>
-              </div>
-            )}
-          </CollapsibleSection>}
-          <CollapsibleSection
-            id="automations"
-            title="Automations"
-            summary={automationsView ? `${automationsView.counts.awaiting} awaiting approval · ${automationsView.counts.scheduled} scheduled` : 'not loaded'}
-          >
-            <AutomationsPanel propertyId={p.id} view={automationsView} />
-          </CollapsibleSection>
+          </GuestSection>
+          <ToolsLine>
+            <ToolLink href={`/properties/${p.id}/caption-photos`}>Photo captions</ToolLink>
+            {/* A helm-run home has no live Guesty listing to compare with. */}
+            {!helmRun && <ToolLink href={`/properties/${p.id}/sync-guesty`}>Guesty fields</ToolLink>}
+          </ToolsLine>
       {/* GUEST DOCUMENTS: the printed pieces for the house. Each opens with
           one screen-only bar (Back, Print, Download PDF) that never prints;
           its Back lands here. */}
-      <CollapsibleSection
+      <GuestSection
         id="guest-documents"
         title="Guest documents"
-        summary={deliverablesSummary}
-        headerAction={
+        note={deliverablesSummary}
+        right={
           <Link href={`/properties/${p.id}/notices/new`} style={primaryActionStyle}>
             + New notice
           </Link>
         }
       >
-        <p style={{ margin: '0 0 18px', fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.55, maxWidth: 720 }}>
-          Filled from the fact sheet on Facts.
-        </p>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
           {/* Home guide tile */}
           <div style={{ border: '1px solid var(--rule)', padding: '18px 18px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -2227,34 +2123,14 @@ export default async function PropertyDetailPage({
             language as the WiFi placard so a stack of these in a glass
             case reads as one consistent set. */}
         <div id="guest-placards" style={{ marginTop: 32, paddingTop: 22, borderTop: '1px solid var(--rule)' }}>
-          <div className="flex items-baseline justify-between" style={{ marginBottom: 6 }}>
-            <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-              Guest placards
-            </h3>
-            <Link
-              href={`/properties/${p.id}/notices/new`}
-              style={{
-                fontSize: 11,
-                fontWeight: 500,
-                letterSpacing: '.18em',
-                textTransform: 'uppercase',
-                color: 'var(--ink)',
-                textDecoration: 'none',
-                padding: '8px 14px',
-                border: '1px solid var(--ink)',
-              }}
-            >
-              + New notice
-            </Link>
-          </div>
-          <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 720 }}>
-            Property-specific 4 × 6 placards for things the standardized deliverables don&rsquo;t cover.
-            Same Stay Cape Ann brand language; sized for the same glass case slot as the WiFi placard.
-          </p>
+          {/* + New notice is the section's own header verb. */}
+          <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: '0 0 12px' }}>
+            Guest placards
+          </h3>
 
           {propertyNotices.length === 0 ? (
-            <div style={{ padding: '14px 0', fontSize: 13, color: 'var(--ink-4)', fontStyle: 'italic' }}>
-              No notices yet.
+            <div style={{ padding: '4px 0', fontSize: 13, color: 'var(--ink-4)' }}>
+              No placards yet.
             </div>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
@@ -2301,7 +2177,40 @@ export default async function PropertyDetailPage({
             </div>
           )}
         </div>
-      </CollapsibleSection>
+      </GuestSection>
+          {/* RATES & TAXES and AUTOMATIONS: the Helm-native records that
+              replace Guesty's Pricing & policies and Message Automation.
+              Deep links ?tab=guest#rates and #automations (the old
+              ?tab=rates and ?tab=automations alias here). */}
+          <CollapsibleSection
+            id="rates"
+            title="Rates & taxes"
+            summary={
+              pricing?.plan
+                ? `Base $${Math.round(pricing.plan.base_nightly_cents / 100).toLocaleString('en-US')} a night · ${pricing.plan.min_nights_default} night minimum`
+                : helmRun
+                ? 'No rate plan: Helm cannot price a night'
+                : 'No rate plan yet'
+            }
+          >
+            <RatesPanel
+              propertyId={p.id}
+              plan={pricing?.plan ?? null}
+              tax={pricing?.tax ?? null}
+              days={pricing ? [...pricing.days.values()] : []}
+              helmRun={helmRun}
+              region={pmsRegion}
+              today={pmsToday}
+              housePolicy={housePolicyValues}
+            />
+          </CollapsibleSection>
+          <CollapsibleSection
+            id="automations"
+            title="Automations"
+            summary={automationsView ? `${automationsView.counts.awaiting} awaiting approval · ${automationsView.counts.scheduled} scheduled` : 'not loaded'}
+          >
+            <AutomationsPanel propertyId={p.id} view={automationsView} />
+          </CollapsibleSection>
         </TabSection>
 
       </PropertyTabs>
@@ -2424,44 +2333,72 @@ function pillStyle(color: string, solid = false): React.CSSProperties {
   };
 }
 
-/** Bordered launcher tile shared by the Listing & Growth and Operations
- *  tabs, same tile grammar as the Guest Deliverables grid so the workbench
- *  tabs read alike. */
-function GrowthTile({
-  eyebrow,
-  title,
-  description,
-  href,
-  status,
-}: {
-  eyebrow: string;
-  title: string;
-  description: string;
-  href: string;
-  status?: string;
-}) {
+/**
+ * Stay Cape Ann on one line at the top of Guest & listing: where the direct
+ * listing stands and the launcher link. A live listing whose payment probe
+ * came back demo_mode takes bookings that collect nothing, so it must never
+ * read as a plain "Live" (84 Thatcher: four bookings, $41,917, no payment
+ * path); a failed snapshot refresh is the quieter twin and says so too.
+ */
+function ScaStatusLine({ propertyId, launch }: { propertyId: string; launch: ScaLaunchStatus | null }) {
+  const live = launch?.status === 'live';
+  const demo = live && launch?.payment_verify_signal === 'demo_mode';
+  const stale = live && !demo && !!launch?.snapshot_refresh_error;
+  const review = launch?.status === 'pr_open';
+  const text = demo
+    ? 'Live, but bookings collect nothing: the last payment check found demo mode'
+    : stale
+      ? 'Live; the last refresh failed, so the page may be stale'
+      : live
+        ? 'Live on staycapeann.com'
+        : review
+          ? 'Launch in review'
+          : 'Not on staycapeann.com yet';
+  const tone = demo ? 'var(--negative)' : stale || review ? 'var(--signal)' : live ? 'var(--positive)' : 'var(--ink-3)';
   return (
-    <div style={{ border: '1px solid var(--rule)', padding: '18px 18px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
-        <div className="eyebrow">{eyebrow}</div>
-        {status && (
-          <span style={{ fontSize: 10, letterSpacing: '.14em', textTransform: 'uppercase', fontWeight: 600, color: status.includes('✓') ? 'var(--positive)' : 'var(--signal)' }}>
-            {status}
-          </span>
-        )}
-      </div>
-      <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-        {title}
-      </h3>
-      <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
-        {description}
-      </p>
-      <div style={{ marginTop: 'auto' }}>
-        <Link href={href} style={primaryActionStyle}>
-          Open →
+    <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 22, paddingBottom: 4, width: '100%' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: '6px 14px', fontSize: 13 }}>
+        <span className="eyebrow">Stay Cape Ann</span>
+        <span style={{ color: tone }}>{text}</span>
+        <Link href={`/properties/${propertyId}/stay-cape-ann`} style={{ fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'none' }}>
+          {live || review ? 'Open the launcher' : 'Launch it'} &rarr;
         </Link>
       </div>
-    </div>
+    </section>
+  );
+}
+
+/**
+ * An always-open Guest & listing section: the same hairline and serif head
+ * as CollapsibleSection, with no fold, so what a guest sees is on the page
+ * when the tab opens. The anchor clears the masthead and the tab strip.
+ */
+function GuestSection({
+  id,
+  title,
+  note,
+  right,
+  children,
+}: {
+  id: string;
+  title: string;
+  note?: React.ReactNode;
+  right?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <section id={id} className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 18, paddingBottom: 18, width: '100%', scrollMarginTop: 120 }}>
+      <div style={{ borderTop: '1px solid var(--ink)', padding: '12px 0 10px', display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, flexWrap: 'wrap', minWidth: 0 }}>
+          <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
+            {title}
+          </h2>
+          {note && <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>{note}</span>}
+        </div>
+        {right}
+      </div>
+      {children}
+    </section>
   );
 }
 

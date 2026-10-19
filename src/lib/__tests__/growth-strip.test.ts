@@ -173,14 +173,15 @@ describe('Marketing Memory lives on the property page as How we sell it', () => 
     assert.ok(!read('src/app/guests/contacts/ManageListMenu.tsx').includes('/guests/marketing'));
   });
 
-  test('the Guest & listing tab carries the section, for Cape Ann homes, with a retry on a failed read', () => {
+  test('the Guest & listing tab carries the block, for Cape Ann homes, with a retry on a failed read', () => {
     const page = read('src/app/properties/[id]/page.tsx');
-    assert.ok(page.includes('id="how-we-sell-it"') && page.includes('title="How we sell it"'));
-    assert.ok(page.includes('{isCapeAnnOps({ region: pmsRegion }) && <CollapsibleSection'));
-    assert.ok(page.includes('<HowWeSellIt propertyId={p.id} row={howWeSellIt.row} />'));
-    assert.ok(page.includes('This could not be loaded. Nothing you saved has changed.'));
+    // A block of the Listing section since 2026-10-19: read here, Edit opens the editor.
     const guestTab = page.slice(page.indexOf('<TabSection tab="guest">'));
-    assert.ok(guestTab.indexOf('id="how-we-sell-it"') > 0, 'the section sits on the Guest & listing tab');
+    assert.ok(guestTab.includes('sellIt={isCapeAnnOps({ region: pmsRegion }) ? howWeSellIt : null}'), 'the block sits on the Guest & listing tab, Cape Ann homes only');
+    const panel = read('src/app/properties/[id]/ListingPanel.tsx');
+    assert.ok(panel.includes('id="how-we-sell-it"') && panel.includes('title="How we sell it"'));
+    assert.ok(panel.includes('<HowWeSellIt propertyId={propertyId} row={row} onSaved={() => setEditing(false)} />'));
+    assert.ok(panel.includes('This could not be loaded. Nothing you saved has changed.'));
   });
 
   test('the editor has no sleeps or bedrooms, and the table is service-role only', () => {

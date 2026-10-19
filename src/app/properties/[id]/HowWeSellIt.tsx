@@ -9,7 +9,8 @@ import { saveHowWeSellIt } from './how-we-sell-it-actions';
  * The "How we sell it" editor on the property page's Guest & listing tab:
  * the selling points the campaign AI reads on every draft. One home, one
  * form. The draft survives a server revalidation and a failed save, and the
- * page asks before leaving with unsaved edits.
+ * page asks before leaving with unsaved edits. The Listing section opens it
+ * from its read view and closes it on `onSaved`.
  */
 export type HowWeSellItValues = {
   tagline: string | null;
@@ -32,7 +33,7 @@ function toDraft(row: HowWeSellItValues | null): Draft {
   };
 }
 
-export function HowWeSellIt({ propertyId, row }: { propertyId: string; row: HowWeSellItValues | null }) {
+export function HowWeSellIt({ propertyId, row, onSaved }: { propertyId: string; row: HowWeSellItValues | null; onSaved?: () => void }) {
   const [draft, setDraft] = useState(() => toDraft(row));
   const [baseline, setBaseline] = useState(() => toDraft(row));
   const [saved, setSaved] = useState(false);
@@ -53,6 +54,7 @@ export function HowWeSellIt({ propertyId, row }: { propertyId: string; row: HowW
           await saveHowWeSellIt(data);
           setBaseline(submitted);
           setSaved(true);
+          onSaved?.();
         }, 'Could not confirm this save. Your edits are still here. Please retry.');
       }}
       style={{ display: 'grid', gap: 12, maxWidth: 720 }}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useRef, useState, useTransition } from 'react';
+import { useActionState, useRef, useState, useTransition, type ReactNode } from 'react';
 import { upload } from '@vercel/blob/client';
 import {
   addPhotoUrlAction,
@@ -17,125 +17,191 @@ import {
 } from './listing-actions';
 import Link from 'next/link';
 import type { ListingContentRow, ListingPhotoRow } from '@/lib/listing-content';
-import type { PropertyRoom } from '@/lib/property-rooms-shared';
+import { descriptionBlocksFrom, splitSummary } from '@/lib/listing-copy-shape';
 import { HousePolicyReadout, type HousePolicyValues } from './HousePolicyReadout';
+import { HowWeSellIt, type HowWeSellItValues } from './HowWeSellIt';
 import { etStamp } from '@/lib/stable-time';
 import { useConfirm } from '@/components/ConfirmDialog';
+import { Drawer } from '@/components/Drawer';
+import { buttonClass } from '@/lib/button-class';
 
 /**
- * The property page's Listing section (Guest & listing tab): Guesty's Details & layout, Overview and
- * Marketing screens as one record Helm owns (property_listing_content +
- * property_listing_photos, rooms from public.property_rooms).
+ * The property page's Listing section (Guest & listing tab): the listing as
+ * a guest reads it, one block at a time, each with its own Edit.
  *
- * Every field prints who consumes it (staycapeann.com snapshot, the guest
- * AI through kb-facts, message automations, the OTA push layer to come), so
- * the operator knows what an edit reaches. OTA copy itself is still edited
- * in the OTA app until a push layer exists; this record is what that layer
- * will read.
+ *   Title and summary   the title, the tagline and the highlights
+ *   About               the space and the neighborhood, as About blocks
+ *   Guest access...     the OTA-only copy (access, interaction, notes)
+ *   How we sell it      the campaign AI's selling points (Cape Ann homes)
+ *   Amenities           read here; the catalog edits in a drawer
+ *   Rooms and beds      read here; edited on Facts
+ *   Photos              the gallery; Edit photos manages it
+ *   Home type and size  property type, room type, the counts
  *
- * Server-only helpers (bedSummary, the catalog, the consumer map) are
- * computed on the page and passed in, so this client bundle never imports
- * the service-role client.
+ * The three copy blocks are one form, so Draft with AI can fill all of them
+ * and one Save keeps the draft. Every other block saves only its own columns
+ * (the action's `part`), so saving amenities never blanks the copy.
+ *
+ * The read view uses the same shapers toScaListing does (listing-copy-shape),
+ * so the tagline, highlights and About blocks here are what staycapeann.com
+ * would show. Server-only data (the catalog, the bed summary) is computed on
+ * the page and passed in, so this bundle never imports the service-role
+ * client.
  */
 
 export type ListingPanelProps = {
   propertyId: string;
   content: ListingContentRow | null;
   photos: ListingPhotoRow[];
-  rooms: PropertyRoom[];
-  bedSummaryText: string;
+  /** bedSummary(rooms) from the page: the fleet line and one line per sleeping room. */
+  beds: { text: string; perRoom: Array<{ name: string; beds: string }> };
   catalog: ReadonlyArray<{ group: string; items: string[] }>;
-  consumers: Record<string, string[]>;
   helmRun: boolean;
   registry: { title: string | null; bedrooms: number | null; bathrooms: number | null };
   /** House rules and occupancy are read from the House policy columns on properties. */
   housePolicy: HousePolicyValues;
+  /** How we sell it (Cape Ann homes only); null or absent hides the block. */
+  sellIt?: { ok: true; row: HowWeSellItValues | null } | { ok: false } | null;
 };
 
 const fold = (s: string): string => s.toLowerCase().replace(/[’‘`´]/g, "'").replace(/\s+/g, ' ').trim();
 
-export function ListingPanel({ propertyId, content, photos, rooms, bedSummaryText, catalog, consumers, helmRun, registry, housePolicy }: ListingPanelProps) {
+export function ListingPanel({ propertyId, content, photos, beds, catalog, registry, housePolicy, sellIt }: ListingPanelProps) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 30, paddingBottom: 8 }}>
-      <div style={{ borderLeft: `3px solid ${helmRun ? 'var(--positive)' : 'var(--signal)'}`, padding: '10px 14px', background: 'var(--paper-2)', fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.55 }}>
-        <div style={{ fontWeight: 600, color: 'var(--ink)', marginBottom: 2 }}>
-          {helmRun
-            ? 'This record is what staycapeann.com will read once it reads Helm. The guest AI and automations read the property facts, not this record.'
-            : 'Draft record: Guesty still holds the live listing for this home.'}
-        </div>
-        Per-channel copy (Airbnb, Vrbo, Booking.com) is edited in each OTA until a push layer exists. Each field below says who reads it today.
-        {content?.source === 'guesty_seed' && (
-          <div style={{ marginTop: 6, fontSize: 12, color: 'var(--ink-3)' }}>
-            Seeded from Guesty listing <span className="font-mono">{content.source_ref}</span>; edits here make it Helm&rsquo;s.
-          </div>
+    <div style={{ display: 'flex', flexDirection: 'column' }}>
+      <CopyBlocks propertyId={propertyId} content={content} registry={registry} />
+      {sellIt && <SellItBlock propertyId={propertyId} sellIt={sellIt} />}
+      <AmenitiesBlock propertyId={propertyId} content={content} catalog={catalog} />
+      <Block title="Rooms and beds" note={beds.text || undefined} action={<Link href={`/properties/${propertyId}?tab=facts#rooms`} style={facts}>Edit on Facts &rarr;</Link>}>
+        {beds.perRoom.length === 0 ? (
+          <Empty>No beds on file.</Empty>
+        ) : (
+          <dl style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '10px 24px', margin: 0 }}>
+            {beds.perRoom.map((r) => (
+              <div key={r.name}>
+                <dt style={termStyle}>{r.name}</dt>
+                <dd style={{ margin: '2px 0 0', fontSize: 14, color: 'var(--ink)' }}>{r.beds}</dd>
+              </div>
+            ))}
+          </dl>
         )}
-      </div>
-
-      <ContentForm propertyId={propertyId} content={content} catalog={catalog} consumers={consumers} registry={registry} housePolicy={housePolicy} />
-
-      {/* Rooms are a fact about the house: edited once, on Facts. */}
-      <section style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <SectionHead title="Rooms and beds" note={bedSummaryText || 'no beds on file'} />
-        <ConsumedBy who={consumers.rooms} />
-        <div style={{ fontSize: 13, color: 'var(--ink-3)' }}>
-          {rooms.length === 0 ? 'No rooms on file.' : `${rooms.length} ${rooms.length === 1 ? 'room' : 'rooms'} on file.`}{' '}
-          <Link href={`/properties/${propertyId}?tab=facts#rooms`} style={{ color: 'var(--tide-deep)', textDecoration: 'none' }}>
-            Edit on Facts &rarr;
-          </Link>
-        </div>
-      </section>
-
-      <Gallery propertyId={propertyId} photos={photos} consumers={consumers} />
+      </Block>
+      <Gallery propertyId={propertyId} photos={photos} />
+      <BasicsBlock propertyId={propertyId} content={content} registry={registry} housePolicy={housePolicy} />
     </div>
   );
 }
 
-// ── Content ─────────────────────────────────────────────────────────────────
+// ── Blocks ──────────────────────────────────────────────────────────────────
 
-function ContentForm({
-  propertyId,
-  content,
-  catalog,
-  consumers,
-  registry,
-  housePolicy,
-}: {
-  propertyId: string;
-  content: ListingContentRow | null;
-  catalog: ListingPanelProps['catalog'];
-  consumers: Record<string, string[]>;
-  registry: ListingPanelProps['registry'];
-  housePolicy: HousePolicyValues;
-}) {
+function Block({ id, title, note, action, children }: { id?: string; title: string; note?: ReactNode; action?: ReactNode; children: ReactNode }) {
+  return (
+    <section id={id} style={{ borderTop: '1px solid var(--rule)', padding: '16px 0 22px', scrollMarginTop: 120 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap', minWidth: 0 }}>
+          <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', margin: 0, color: 'var(--ink)' }}>{title}</h3>
+          {note && <span style={{ fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.04em' }}>{note}</span>}
+        </div>
+        {action}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function EditButton({ what, onClick, disabled, label = 'Edit' }: { what: string; onClick: () => void; disabled?: boolean; label?: string }) {
+  return (
+    <button type="button" className={buttonClass('secondary', 'sm')} aria-label={label === 'Edit' ? `Edit ${what.toLowerCase()}` : undefined} onClick={onClick} disabled={disabled}>
+      {label}
+    </button>
+  );
+}
+
+function Empty({ children }: { children: ReactNode }) {
+  return <div style={{ fontSize: 13, color: 'var(--ink-4)' }}>{children}</div>;
+}
+
+function Paragraphs({ text, style }: { text: string; style?: React.CSSProperties }) {
+  const paras = text.replace(/\r\n/g, '\n').split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+  return (
+    <>
+      {paras.map((p, i) => (
+        <p key={i} style={{ margin: '0 0 10px', fontSize: 14, lineHeight: 1.6, color: 'var(--ink-2)', whiteSpace: 'pre-line', maxWidth: 720, ...style }}>{p}</p>
+      ))}
+    </>
+  );
+}
+
+// ── Copy: title and summary, About, guest access and notes ─────────────────
+
+const COPY_FIELDS = ['title', 'summary', 'space', 'access', 'interaction', 'neighborhood', 'notes'] as const;
+type CopyField = (typeof COPY_FIELDS)[number];
+type CopyValues = Record<CopyField, string>;
+type CopyBlockId = 'summary' | 'about' | 'access';
+const BLOCK_FIELDS: Record<CopyBlockId, readonly CopyField[]> = {
+  summary: ['title', 'summary'],
+  about: ['space', 'neighborhood'],
+  access: ['access', 'interaction', 'notes'],
+};
+const AI_BODY = ['summary', 'space', 'access', 'neighborhood'] as const;
+
+function savedCopy(content: ListingContentRow | null, registry: ListingPanelProps['registry']): CopyValues {
+  return {
+    title: content?.title ?? registry.title ?? '',
+    summary: content?.summary ?? '',
+    space: content?.space ?? '',
+    access: content?.access ?? '',
+    interaction: content?.interaction ?? '',
+    neighborhood: content?.neighborhood ?? '',
+    notes: content?.notes ?? '',
+  };
+}
+
+function CopyBlocks({ propertyId, content, registry }: { propertyId: string; content: ListingContentRow | null; registry: ListingPanelProps['registry'] }) {
   const action = saveListingContentAction.bind(null, propertyId);
   const [state, formAction, pending] = useActionState<ListingFormState, FormData>(action, { error: null });
-  const have = new Set((content?.amenities ?? []).map(fold));
-  const catalogKeys = new Set(catalog.flatMap((g) => g.items.map(fold)));
-  const extras = (content?.amenities ?? []).filter((a) => !catalogKeys.has(fold(a)));
   const formKey = content?.updated_at ?? 'new';
-
-  // Draft with AI fills the five Guesty description fields in place, and
-  // Save listing saves them. The fields are uncontrolled, so a draft remounts
-  // just those five with the merged text; it belongs to the form version it
-  // was drafted on and is dropped once a save brings a newer record.
-  const formRef = useRef<HTMLFormElement>(null);
+  const [values, setValues] = useState<CopyValues>(() => savedCopy(content, registry));
+  const [open, setOpen] = useState<ReadonlySet<CopyBlockId>>(() => new Set());
+  // A save (or anyone's newer save) brings a newer record: adopt it and
+  // close the blocks. Render-phase adjustment, so no flash of the old text.
+  const [adopted, setAdopted] = useState(formKey);
   const [aiBrief, setAiBrief] = useState('');
-  const [aiDraft, setAiDraft] = useState<{ forKey: string; n: number; values: ListingAiDraft } | null>(null);
   const [aiNote, setAiNote] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const [drafting, startDraft] = useTransition();
   const { choose } = useConfirm();
-  const applied = aiDraft && aiDraft.forKey === formKey ? aiDraft : null;
-  const dv = (name: keyof ListingAiDraft, fallback: string): string => applied?.values[name] ?? fallback;
-  const fk = (name: keyof ListingAiDraft): string => (applied ? `${name}-${applied.n}` : name);
+  if (adopted !== formKey) {
+    setAdopted(formKey);
+    setValues(savedCopy(content, registry));
+    setOpen(new Set());
+    setAiNote(null);
+  }
 
+  const set = (field: CopyField, value: string) => setValues((v) => ({ ...v, [field]: value }));
+  const openBlock = (b: CopyBlockId) => setOpen((o) => new Set(o).add(b));
+  const cancelBlock = (b: CopyBlockId) => {
+    const saved = savedCopy(content, registry);
+    setValues((v) => {
+      const next = { ...v };
+      for (const f of BLOCK_FIELDS[b]) next[f] = saved[f];
+      return next;
+    });
+    setOpen((o) => {
+      const next = new Set(o);
+      next.delete(b);
+      return next;
+    });
+  };
+  const nothingWritten = COPY_FIELDS.every((f) => !values[f].trim());
+  const editing = open.size > 0;
+
+  // Draft with AI fills the four Guesty description fields (and a blank
+  // title); Save keeps them. It opens every copy block so nothing it wrote
+  // goes unseen.
   const onDraft = async () => {
-    const fd = formRef.current ? new FormData(formRef.current) : null;
-    const current = Object.fromEntries(
-      (['title', 'summary', 'space', 'access', 'neighborhood'] as const).map((k) => [k, String(fd?.get(k) ?? '').trim()]),
-    ) as ListingAiDraft;
-    const body = ['summary', 'space', 'access', 'neighborhood'] as const;
-    const hasCopy = body.some((k) => current[k]);
-    const allFilled = body.every((k) => current[k]);
+    const current = Object.fromEntries((['title', ...AI_BODY] as const).map((k) => [k, values[k].trim()])) as ListingAiDraft;
+    const hasCopy = AI_BODY.some((k) => current[k]);
+    const allFilled = AI_BODY.every((k) => current[k]);
     const pick = hasCopy
       ? await choose({
           title: 'Replace the summary, the space, guest access and the neighborhood with a new AI draft?',
@@ -159,126 +225,414 @@ function ContentForm({
           setAiNote({ kind: 'err', text: res.error });
           return;
         }
-        const values = { ...current };
-        for (const k of body) values[k] = overwrite ? res.draft[k] || current[k] : current[k] || res.draft[k];
-        // The title is a name, not copy: a draft only fills a blank one.
-        values.title = current.title || res.draft.title;
-        setAiDraft((prev) => ({ forKey: formKey, n: (prev?.n ?? 0) + 1, values }));
+        setValues((v) => {
+          const next = { ...v };
+          for (const k of AI_BODY) {
+            const mine = v[k].trim();
+            next[k] = overwrite ? res.draft[k] || mine : mine || res.draft[k];
+          }
+          // The title is a name, not copy: a draft only fills a blank one.
+          next.title = v.title.trim() || res.draft.title;
+          return next;
+        });
+        setOpen(new Set(['summary', 'about', 'access']));
         const source = res.photos ? `the property record and ${res.photos} Listing photo${res.photos === 1 ? '' : 's'}` : 'the property record';
-        setAiNote({ kind: 'ok', text: `Drafted from ${source}. Review it, then Save listing.` });
+        setAiNote({ kind: 'ok', text: `Drafted from ${source}. Review it, then Save.` });
       } catch {
         setAiNote({ kind: 'err', text: 'Could not draft the listing. Try again.' });
       }
     });
   };
 
+  const footer = (b: CopyBlockId) => (
+    <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginTop: 4 }}>
+      <button type="submit" className={buttonClass('primary', 'sm')} disabled={pending || drafting} aria-busy={pending}>
+        {pending ? 'Saving…' : 'Save'}
+      </button>
+      <button type="button" className={buttonClass('quiet')} onClick={() => cancelBlock(b)} disabled={pending}>
+        Cancel
+      </button>
+    </div>
+  );
+  // A closed block still posts its fields, unchanged, so one Save never
+  // blanks the copy in a block nobody opened.
+  const hidden = (b: CopyBlockId) => BLOCK_FIELDS[b].map((f) => <input key={f} type="hidden" name={f} value={values[f]} />);
+
+  const { tagline, highlights } = splitSummary(values.summary);
+  const about = descriptionBlocksFrom(values.space);
+
   return (
-    <form ref={formRef} key={formKey} action={formAction} style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
-      <SectionHead title="Content" note={content?.updated_at ? `Saved ${fmtStamp(content.updated_at)}${content.updated_by ? ` by ${content.updated_by}` : ''}` : 'Not saved yet'} />
+    <form action={formAction} aria-label="Listing copy" style={{ margin: 0 }}>
+      <input type="hidden" name="part" value="copy" />
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-          <button type="button" onClick={onDraft} disabled={drafting || pending} style={{ ...ghostBtn, opacity: drafting ? 0.6 : 1 }}>
-            {drafting ? 'Drafting…' : 'Draft with AI'}
-          </button>
-          <input
-            value={aiBrief}
-            onChange={(e) => setAiBrief(e.target.value)}
-            maxLength={2000}
-            placeholder="Optional: what makes it special, e.g. the view at low tide"
-            aria-label="Note for Draft with AI"
-            style={{ ...input, flex: '1 1 260px', width: 'auto' }}
-          />
+      {(editing || nothingWritten) && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '4px 0 16px' }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button type="button" className={buttonClass('secondary', 'sm')} onClick={onDraft} disabled={drafting || pending} aria-busy={drafting}>
+              {drafting ? 'Drafting…' : 'Draft with AI'}
+            </button>
+            <input
+              value={aiBrief}
+              onChange={(e) => setAiBrief(e.target.value)}
+              maxLength={2000}
+              placeholder="Optional: what makes it special, e.g. the view at low tide"
+              aria-label="Note for Draft with AI"
+              style={{ ...input, flex: '1 1 260px', width: 'auto' }}
+            />
+          </div>
+          {aiNote && <span role="status" style={{ fontSize: 12, color: aiNote.kind === 'ok' ? 'var(--positive)' : 'var(--negative)' }}>{aiNote.text}</span>}
         </div>
-        {aiNote && <span role="status" style={{ fontSize: 12, color: aiNote.kind === 'ok' ? 'var(--positive)' : 'var(--negative)' }}>{aiNote.text}</span>}
-      </div>
+      )}
 
-      <TextField key={fk('title')} name="title" label="Title" hint="the guest-facing name; the registry title is the fallback" consumers={consumers.title} defaultValue={dv('title', content?.title ?? registry.title ?? '')} />
-      <TextField key={fk('summary')} name="summary" label="Summary" hint="the short pitch; ✓ lines become staycapeann.com highlights" consumers={consumers.summary} defaultValue={dv('summary', content?.summary ?? '')} rows={4} />
-      <TextField key={fk('space')} name="space" label="The space" hint="room by room; ☆ headings and → bullets render as sections" consumers={consumers.space} defaultValue={dv('space', content?.space ?? '')} rows={10} />
-      <TextField key={fk('access')} name="access" label="Guest access" hint="what the guest may use; never the door code" consumers={consumers.access} defaultValue={dv('access', content?.access ?? '')} rows={3} />
-      <TextField name="interaction" label="Interaction with guests" consumers={consumers.interaction} defaultValue={content?.interaction ?? ''} rows={2} />
-      <TextField key={fk('neighborhood')} name="neighborhood" label="Neighborhood" consumers={consumers.neighborhood} defaultValue={dv('neighborhood', content?.neighborhood ?? '')} rows={5} />
-      <TextField name="notes" label="Other things to note" hint="Guesty's Notes field" consumers={consumers.notes} defaultValue={content?.notes ?? ''} rows={3} />
-      <HousePolicyReadout propertyId={propertyId} values={housePolicy} fields={['houseRules', 'maxOccupancy']} />
-
-      <div>
-        <div className="eyebrow" style={{ marginBottom: 10 }}>Facts</div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '12px 18px' }}>
-          <Small name="property_type" label="Property type" defaultValue={content?.property_type ?? ''} placeholder="House" consumers={consumers.property_type} />
-          <Small name="room_type" label="Room type" defaultValue={content?.room_type ?? ''} placeholder="Entire home/apt" consumers={consumers.room_type} />
-          <Small name="bedrooms" label="Bedrooms" defaultValue={content?.bedrooms ?? registry.bedrooms ?? ''} consumers={consumers.bedrooms} numeric />
-          <Small name="bathrooms" label="Bathrooms" defaultValue={content?.bathrooms ?? registry.bathrooms ?? ''} consumers={consumers.bathrooms} numeric />
-          <Small name="beds" label="Beds" defaultValue={content?.beds ?? ''} consumers={consumers.beds} numeric />
-        </div>
-      </div>
-
-      <div>
-        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
-          <div className="eyebrow">Amenities</div>
-          <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>{content?.amenities.length ?? 0} on file</span>
-        </div>
-        <ConsumedBy who={consumers.amenities} />
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 16, marginTop: 10 }}>
-          {catalog.map((g) => (
-            <div key={g.group}>
-              <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--ink-3)', marginBottom: 6 }}>{g.group}</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                {g.items.map((item) => (
-                  <label key={item} style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: 'var(--ink-2)', cursor: 'pointer' }}>
-                    <input type="checkbox" name="amenities" value={item} defaultChecked={have.has(fold(item))} /> {item}
-                  </label>
-                ))}
+      <Block
+        title="Title and summary"
+        note={content?.updated_at ? `Saved ${etStamp(content.updated_at)}${content.updated_by ? ` by ${content.updated_by}` : ''}` : undefined}
+        action={!open.has('summary') && <EditButton what="Title and summary" onClick={() => openBlock('summary')} />}
+      >
+        {open.has('summary') ? (
+          <div style={editorStyle}>
+            <TextField name="title" label="Title" value={values.title} onChange={(v) => set('title', v)} />
+            <TextField name="summary" label="Summary" hint="✓ lines become the highlights; the rest is the tagline" value={values.summary} onChange={(v) => set('summary', v)} rows={4} />
+            {footer('summary')}
+          </div>
+        ) : (
+          <>
+            {hidden('summary')}
+            {!values.title.trim() && !values.summary.trim() ? (
+              <Empty>Nothing written yet.</Empty>
+            ) : (
+              <div style={{ maxWidth: 720 }}>
+                {values.title.trim() && (
+                  <div className="font-serif" style={{ fontSize: 24, lineHeight: 1.25, letterSpacing: '-0.01em', color: 'var(--ink)' }}>{values.title}</div>
+                )}
+                {tagline && <p style={{ margin: '8px 0 0', fontSize: 15, lineHeight: 1.55, color: 'var(--ink-2)' }}>{tagline}</p>}
+                {highlights.length > 0 && (
+                  <ul style={{ listStyle: 'none', padding: 0, margin: '12px 0 0', display: 'grid', gap: 4 }}>
+                    {highlights.map((h, i) => (
+                      <li key={i} style={{ fontSize: 13, color: 'var(--ink-2)' }}>
+                        <span aria-hidden style={{ color: 'var(--positive)', marginRight: 8 }}>✓</span>
+                        {h}
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
-            </div>
-          ))}
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14, marginTop: 14 }}>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span style={labelStyle}>Other amenities</span>
-            <textarea name="amenities_extra" rows={3} defaultValue={extras.join('\n')} placeholder="One per line, anything not in the list" style={{ ...input, resize: 'vertical', fontFamily: 'inherit' }} />
-          </label>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span style={labelStyle}>Not included</span>
-            <textarea name="amenities_not_included" rows={3} defaultValue={(content?.amenities_not_included ?? []).join('\n')} placeholder="One per line, e.g. No washer" style={{ ...input, resize: 'vertical', fontFamily: 'inherit' }} />
-          </label>
-        </div>
-      </div>
+            )}
+          </>
+        )}
+      </Block>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-        <button type="submit" disabled={pending} style={{ ...primaryBtn, opacity: pending ? 0.6 : 1 }}>
-          {pending ? 'Saving…' : 'Save listing'}
-        </button>
-        {state.error && <span style={{ fontSize: 12, color: 'var(--negative)' }}>{state.error}</span>}
-        {!state.error && state.ok && state.message && <span style={{ fontSize: 12, color: 'var(--positive)' }}>{state.message}</span>}
-      </div>
+      <Block title="About" action={!open.has('about') && <EditButton what="About" onClick={() => openBlock('about')} />}>
+        {open.has('about') ? (
+          <div style={editorStyle}>
+            <TextField name="space" label="The space" hint="room by room; ☆ headings and → bullets become sections" value={values.space} onChange={(v) => set('space', v)} rows={10} />
+            <TextField name="neighborhood" label="Neighborhood" value={values.neighborhood} onChange={(v) => set('neighborhood', v)} rows={5} />
+            {footer('about')}
+          </div>
+        ) : (
+          <>
+            {hidden('about')}
+            {about.length === 0 && !values.neighborhood.trim() ? (
+              <Empty>Nothing written yet.</Empty>
+            ) : (
+              <div style={{ maxWidth: 720 }}>
+                {about.map((b, i) =>
+                  b.kind === 'heading' ? (
+                    <div key={i} style={{ ...termStyle, margin: i === 0 ? '0 0 6px' : '14px 0 6px' }}>{b.text}</div>
+                  ) : b.kind === 'bullets' ? (
+                    <ul key={i} style={{ margin: '0 0 10px', paddingLeft: 18, listStyle: 'disc', display: 'grid', gap: 3 }}>
+                      {b.items.map((item, j) => (
+                        <li key={j} style={{ fontSize: 14, lineHeight: 1.5, color: 'var(--ink-2)' }}>{item}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p key={i} style={{ margin: '0 0 10px', fontSize: 14, lineHeight: 1.6, color: 'var(--ink-2)' }}>{b.text}</p>
+                  ),
+                )}
+                {values.neighborhood.trim() && (
+                  <>
+                    <div style={{ ...termStyle, margin: about.length ? '14px 0 6px' : '0 0 6px' }}>The neighborhood</div>
+                    <Paragraphs text={values.neighborhood} />
+                  </>
+                )}
+              </div>
+            )}
+          </>
+        )}
+      </Block>
+
+      <Block title="Guest access and notes" action={!open.has('access') && <EditButton what="Guest access and notes" onClick={() => openBlock('access')} />}>
+        {open.has('access') ? (
+          <div style={editorStyle}>
+            <TextField name="access" label="Guest access" hint="what the guest may use; never the door code" value={values.access} onChange={(v) => set('access', v)} rows={3} />
+            <TextField name="interaction" label="Interaction with guests" value={values.interaction} onChange={(v) => set('interaction', v)} rows={2} />
+            <TextField name="notes" label="Other things to note" value={values.notes} onChange={(v) => set('notes', v)} rows={3} />
+            {footer('access')}
+          </div>
+        ) : (
+          <>
+            {hidden('access')}
+            <dl style={{ display: 'grid', gap: 12, margin: 0, maxWidth: 720 }}>
+              {(
+                [
+                  ['Guest access', values.access],
+                  ['Interaction with guests', values.interaction],
+                  ['Other things to note', values.notes],
+                ] as const
+              ).map(([label, text]) => (
+                <div key={label}>
+                  <dt style={termStyle}>{label}</dt>
+                  <dd style={{ margin: '3px 0 0' }}>
+                    {text.trim() ? <Paragraphs text={text} style={{ margin: '0 0 6px' }} /> : <Empty>Not written.</Empty>}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </>
+        )}
+      </Block>
+
+      {state.error && <div role="alert" style={{ fontSize: 12, color: 'var(--negative)', margin: '-8px 0 14px' }}>{state.error}</div>}
+      {!state.error && state.ok && state.message && (
+        <div role="status" style={{ fontSize: 12, color: 'var(--positive)', margin: '-8px 0 14px' }}>{state.message}</div>
+      )}
     </form>
   );
 }
 
-function TextField({ name, label, hint, consumers, defaultValue, rows }: { name: string; label: string; hint?: string; consumers?: string[]; defaultValue: string; rows?: number }) {
+function TextField({ name, label, hint, value, onChange, rows }: { name: CopyField; label: string; hint?: string; value: string; onChange: (v: string) => void; rows?: number }) {
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-        <span style={labelStyle}>{label}</span>
-        <ConsumedBy who={consumers} inline />
-      </div>
+      <span style={labelStyle}>{label}</span>
       {rows && rows > 1 ? (
-        <textarea name={name} rows={rows} defaultValue={defaultValue} style={{ ...input, resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.5 }} />
+        <textarea name={name} rows={rows} value={value} onChange={(e) => onChange(e.target.value)} style={{ ...input, resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.5 }} />
       ) : (
-        <input name={name} defaultValue={defaultValue} style={input} />
+        <input name={name} value={value} onChange={(e) => onChange(e.target.value)} style={input} />
       )}
       {hint && <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>{hint}</span>}
     </label>
   );
 }
 
-function Small({ name, label, defaultValue, placeholder, consumers, numeric }: { name: string; label: string; defaultValue: string | number; placeholder?: string; consumers?: string[]; numeric?: boolean }) {
+// ── How we sell it ──────────────────────────────────────────────────────────
+
+function SellItBlock({ propertyId, sellIt }: { propertyId: string; sellIt: NonNullable<ListingPanelProps['sellIt']> }) {
+  const [editing, setEditing] = useState(false);
+  if (!sellIt.ok) {
+    return (
+      <Block id="how-we-sell-it" title="How we sell it">
+        <div role="alert" style={{ fontSize: 13, color: 'var(--ink-3)' }}>
+          This could not be loaded. Nothing you saved has changed.{' '}
+          <a href={`/properties/${propertyId}?tab=guest#how-we-sell-it`}>Retry</a>
+        </div>
+      </Block>
+    );
+  }
+  const row = sellIt.row;
+  const points = (row?.selling_points ?? []).filter((p) => p.trim());
+  const lines: Array<[string, string | null]> = [
+    ['Tagline', row?.tagline ?? null],
+    ['Lead with', row?.primary_selling_point ?? null],
+    ['Best for', row?.best_for ?? null],
+    ['Notes', row?.notes ?? null],
+  ];
+  const anything = lines.some(([, v]) => v && v.trim()) || points.length > 0 || row?.on_water;
+  return (
+    <Block
+      id="how-we-sell-it"
+      title="How we sell it"
+      note={row?.on_water ? 'On the water' : undefined}
+      action={editing ? <EditButton what="How we sell it" label="Cancel" onClick={() => setEditing(false)} /> : <EditButton what="How we sell it" onClick={() => setEditing(true)} />}
+    >
+      {editing ? (
+        <HowWeSellIt propertyId={propertyId} row={row} onSaved={() => setEditing(false)} />
+      ) : !anything ? (
+        <Empty>Nothing written yet.</Empty>
+      ) : (
+        <dl style={{ display: 'grid', gap: 10, margin: 0, maxWidth: 720 }}>
+          {lines
+            .filter(([, v]) => v && v.trim())
+            .map(([label, v]) => (
+              <div key={label}>
+                <dt style={termStyle}>{label}</dt>
+                <dd style={{ margin: '3px 0 0', fontSize: 14, lineHeight: 1.55, color: 'var(--ink-2)' }}>{v}</dd>
+              </div>
+            ))}
+          {points.length > 0 && (
+            <div>
+              <dt style={termStyle}>Selling points</dt>
+              <dd style={{ margin: '3px 0 0' }}>
+                <ul style={{ margin: 0, paddingLeft: 18, listStyle: 'disc', display: 'grid', gap: 3 }}>
+                  {points.map((p, i) => (
+                    <li key={i} style={{ fontSize: 14, color: 'var(--ink-2)' }}>{p}</li>
+                  ))}
+                </ul>
+              </dd>
+            </div>
+          )}
+        </dl>
+      )}
+    </Block>
+  );
+}
+
+// ── Amenities: read here, the catalog in a drawer ───────────────────────────
+
+function AmenitiesBlock({ propertyId, content, catalog }: { propertyId: string; content: ListingContentRow | null; catalog: ListingPanelProps['catalog'] }) {
+  const action = saveListingContentAction.bind(null, propertyId);
+  const [state, formAction, pending] = useActionState<ListingFormState, FormData>(action, { error: null });
+  const [drawer, setDrawer] = useState(false);
+  const formKey = content?.updated_at ?? 'new';
+  const [adopted, setAdopted] = useState(formKey);
+  if (adopted !== formKey) {
+    setAdopted(formKey);
+    setDrawer(false);
+  }
+  const amenities = content?.amenities ?? [];
+  const have = new Set(amenities.map(fold));
+  const catalogKeys = new Set(catalog.flatMap((g) => g.items.map(fold)));
+  const extras = amenities.filter((a) => !catalogKeys.has(fold(a)));
+  const groups = catalog.map((g) => ({ group: g.group, items: g.items.filter((i) => have.has(fold(i))) })).filter((g) => g.items.length > 0);
+  if (extras.length) groups.push({ group: 'Other', items: extras });
+  const notIncluded = content?.amenities_not_included ?? [];
+
+  return (
+    <Block
+      title="Amenities"
+      note={amenities.length ? `${amenities.length} on file` : undefined}
+      action={<EditButton what="Amenities" onClick={() => setDrawer(true)} />}
+    >
+      {groups.length === 0 && notIncluded.length === 0 ? (
+        <Empty>None on file.</Empty>
+      ) : (
+        <dl style={{ display: 'grid', gap: 10, margin: 0, maxWidth: 820 }}>
+          {groups.map((g) => (
+            <div key={g.group} style={{ display: 'grid', gridTemplateColumns: 'minmax(110px, 160px) 1fr', gap: 12, alignItems: 'baseline' }}>
+              <dt style={termStyle}>{g.group}</dt>
+              <dd style={{ margin: 0, fontSize: 13, lineHeight: 1.55, color: 'var(--ink-2)' }}>{g.items.join(' · ')}</dd>
+            </div>
+          ))}
+          {notIncluded.length > 0 && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(110px, 160px) 1fr', gap: 12, alignItems: 'baseline' }}>
+              <dt style={termStyle}>Not included</dt>
+              <dd style={{ margin: 0, fontSize: 13, lineHeight: 1.55, color: 'var(--ink-3)' }}>{notIncluded.join(' · ')}</dd>
+            </div>
+          )}
+        </dl>
+      )}
+      {!drawer && !state.error && state.ok && state.message && <div role="status" style={{ fontSize: 12, color: 'var(--positive)', marginTop: 10 }}>{state.message}</div>}
+
+      {drawer && (
+        <Drawer title="Amenities" eyebrow="Listing" onClose={() => setDrawer(false)}>
+          <form action={formAction} aria-label="Amenities" style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+            <input type="hidden" name="part" value="amenities" />
+            {catalog.map((g) => (
+              <fieldset key={g.group} style={{ border: 'none', margin: 0, padding: 0 }}>
+                <legend style={{ ...termStyle, marginBottom: 6 }}>{g.group}</legend>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 4 }}>
+                  {g.items.map((item) => (
+                    <label key={item} style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, color: 'var(--ink-2)', cursor: 'pointer' }}>
+                      <input type="checkbox" name="amenities" value={item} defaultChecked={have.has(fold(item))} /> {item}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+            ))}
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span style={labelStyle}>Other amenities</span>
+              <textarea name="amenities_extra" rows={3} defaultValue={extras.join('\n')} placeholder="One per line, anything not in the list" style={{ ...input, resize: 'vertical', fontFamily: 'inherit' }} />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span style={labelStyle}>Not included</span>
+              <textarea name="amenities_not_included" rows={3} defaultValue={notIncluded.join('\n')} placeholder="One per line, e.g. No washer" style={{ ...input, resize: 'vertical', fontFamily: 'inherit' }} />
+            </label>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', position: 'sticky', bottom: -40, background: 'var(--paper)', padding: '12px 0' }}>
+              <button type="submit" className={buttonClass('primary', 'sm')} disabled={pending} aria-busy={pending}>
+                {pending ? 'Saving…' : 'Save amenities'}
+              </button>
+              <button type="button" className={buttonClass('quiet')} onClick={() => setDrawer(false)} disabled={pending}>
+                Cancel
+              </button>
+              {state.error && <span role="alert" style={{ fontSize: 12, color: 'var(--negative)' }}>{state.error}</span>}
+            </div>
+          </form>
+        </Drawer>
+      )}
+    </Block>
+  );
+}
+
+// ── Home type and size ──────────────────────────────────────────────────────
+
+function BasicsBlock({
+  propertyId,
+  content,
+  registry,
+  housePolicy,
+}: {
+  propertyId: string;
+  content: ListingContentRow | null;
+  registry: ListingPanelProps['registry'];
+  housePolicy: HousePolicyValues;
+}) {
+  const action = saveListingContentAction.bind(null, propertyId);
+  const [state, formAction, pending] = useActionState<ListingFormState, FormData>(action, { error: null });
+  const [editing, setEditing] = useState(false);
+  const formKey = content?.updated_at ?? 'new';
+  const [adopted, setAdopted] = useState(formKey);
+  if (adopted !== formKey) {
+    setAdopted(formKey);
+    setEditing(false);
+  }
+  const bedrooms = content?.bedrooms ?? registry.bedrooms;
+  const bathrooms = content?.bathrooms ?? registry.bathrooms;
+  const parts = [
+    content?.property_type,
+    content?.room_type,
+    bedrooms != null ? `${bedrooms} bedroom${bedrooms === 1 ? '' : 's'}` : null,
+    bathrooms != null ? `${bathrooms} bath${bathrooms === 1 ? '' : 's'}` : null,
+    content?.beds != null ? `${content.beds} bed${content.beds === 1 ? '' : 's'}` : null,
+  ].filter((v): v is string => !!v && String(v).trim() !== '');
+
+  return (
+    <Block title="Home type and size" action={!editing && <EditButton what="Home type and size" onClick={() => setEditing(true)} />}>
+      {editing ? (
+        <form action={formAction} aria-label="Home type and size" style={editorStyle}>
+          <input type="hidden" name="part" value="basics" />
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '12px 18px' }}>
+            <Small name="property_type" label="Property type" defaultValue={content?.property_type ?? ''} placeholder="House" />
+            <Small name="room_type" label="Room type" defaultValue={content?.room_type ?? ''} placeholder="Entire home/apt" />
+            <Small name="bedrooms" label="Bedrooms" defaultValue={bedrooms ?? ''} numeric />
+            <Small name="bathrooms" label="Bathrooms" defaultValue={bathrooms ?? ''} numeric />
+            <Small name="beds" label="Beds" defaultValue={content?.beds ?? ''} numeric />
+          </div>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button type="submit" className={buttonClass('primary', 'sm')} disabled={pending} aria-busy={pending}>
+              {pending ? 'Saving…' : 'Save'}
+            </button>
+            <button type="button" className={buttonClass('quiet')} onClick={() => setEditing(false)} disabled={pending}>
+              Cancel
+            </button>
+            {state.error && <span role="alert" style={{ fontSize: 12, color: 'var(--negative)' }}>{state.error}</span>}
+          </div>
+        </form>
+      ) : parts.length === 0 ? (
+        <Empty>Not set.</Empty>
+      ) : (
+        <div style={{ fontSize: 14, color: 'var(--ink)' }}>{parts.join(' · ')}</div>
+      )}
+      <div style={{ marginTop: 12 }}>
+        <HousePolicyReadout propertyId={propertyId} values={housePolicy} fields={['maxOccupancy', 'houseRules']} />
+      </div>
+    </Block>
+  );
+}
+
+function Small({ name, label, defaultValue, placeholder, numeric }: { name: string; label: string; defaultValue: string | number; placeholder?: string; numeric?: boolean }) {
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
       <span style={labelStyle}>{label}</span>
       <input name={name} defaultValue={defaultValue} placeholder={placeholder} inputMode={numeric ? 'decimal' : undefined} style={input} />
-      <ConsumedBy who={consumers} inline />
     </label>
   );
 }
@@ -353,7 +707,8 @@ function uploadErrorText(e: unknown): string {
   return raw ? `Upload failed: ${raw}` : 'Upload failed.';
 }
 
-function Gallery({ propertyId, photos, consumers }: { propertyId: string; photos: ListingPhotoRow[]; consumers: Record<string, string[]> }) {
+function Gallery({ propertyId, photos }: { propertyId: string; photos: ListingPhotoRow[] }) {
+  const [managing, setManaging] = useState(false);
   const [pending, start] = useTransition();
   const { ask } = useConfirm();
   const [busy, setBusy] = useState<string | null>(null);
@@ -425,102 +780,120 @@ function Gallery({ propertyId, photos, consumers }: { propertyId: string; photos
   };
 
   const ordered = [...photos].sort((a, b) => a.sort_order - b.sort_order);
+  // Read in the order a guest meets them: the hero first.
+  const shown = [...ordered].sort((a, b) => Number(b.is_hero) - Number(a.is_hero));
   const hero = photos.find((p) => p.is_hero) ?? null;
 
   return (
-    <section style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <SectionHead title="Photos" note={`${photos.length} in the gallery${hero ? '' : photos.length ? ', no hero yet' : ''}`} />
-      <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', fontSize: 12, color: 'var(--ink-3)' }}>
-        <ConsumedBy who={consumers.photos} inline label="Gallery" />
-        <ConsumedBy who={consumers.hero} inline label="Hero" />
-      </div>
+    <Block
+      title="Photos"
+      note={photos.length ? `${photos.length} in the gallery${hero ? '' : ', no hero yet'}` : undefined}
+      action={<EditButton what="Photos" label={managing ? 'Done' : 'Edit photos'} onClick={() => setManaging((m) => !m)} disabled={pending} />}
+    >
+      {!managing ? (
+        shown.length === 0 ? (
+          <Empty>No photos yet.</Empty>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 12 }}>
+            {shown.map((p) => (
+              <figure key={p.id} style={{ margin: 0 }}>
+                <div style={{ position: 'relative', aspectRatio: '4 / 3', background: 'var(--paper-3)', overflow: 'hidden', border: `1px solid ${p.is_hero ? 'var(--signal)' : 'var(--rule)'}` }}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={p.thumbnail_url ?? p.url} alt={p.caption ?? ''} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                  {p.is_hero && <span style={{ ...heroBadge, position: 'absolute', top: 6, left: 6 }}>Hero</span>}
+                </div>
+                {p.caption && <figcaption style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 5, lineHeight: 1.4 }}>{p.caption}</figcaption>}
+              </figure>
+            ))}
+          </div>
+        )
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {ordered.length > 0 && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 14 }}>
+              {ordered.map((p, i) => (
+                <PhotoCard
+                  key={p.id}
+                  photo={p}
+                  index={i}
+                  count={ordered.length}
+                  busy={busy === p.id && pending}
+                  onMove={(dir) => run(p.id, () => movePhotoAction(propertyId, p.id, dir))}
+                  onHero={() => run(p.id, () => setHeroAction(propertyId, p.id))}
+                  onDelete={async () => {
+                    if (!(await ask({
+                      title: 'Remove this photo from the gallery?',
+                      body: 'Every listing that reads this gallery stops showing it.',
+                      confirmLabel: 'Remove photo',
+                      tone: 'danger',
+                    }))) return;
+                    run(p.id, () => deletePhotoAction(propertyId, p.id));
+                  }}
+                  onSave={(caption, roomHint) => run(p.id, () => updatePhotoAction(propertyId, p.id, { caption, room_hint: roomHint }))}
+                />
+              ))}
+            </div>
+          )}
 
-      {ordered.length === 0 && (
-        <div style={{ borderTop: '1px solid var(--rule)', padding: '18px 0', fontSize: 12, color: 'var(--ink-4)' }}>
-          No photos yet. Upload below or paste a URL. A seeded home gets its Guesty gallery copied to Blob by the seed script.
-        </div>
-      )}
-
-      {ordered.length > 0 && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 14 }}>
-          {ordered.map((p, i) => (
-            <PhotoCard
-              key={p.id}
-              photo={p}
-              index={i}
-              count={ordered.length}
-              busy={busy === p.id && pending}
-              onMove={(dir) => run(p.id, () => movePhotoAction(propertyId, p.id, dir))}
-              onHero={() => run(p.id, () => setHeroAction(propertyId, p.id))}
-              onDelete={async () => {
-                if (!(await ask({
-                  title: 'Remove this photo from the gallery?',
-                  body: 'Every listing that reads this gallery stops showing it.',
-                  confirmLabel: 'Remove photo',
-                  tone: 'danger',
-                }))) return;
-                run(p.id, () => deletePhotoAction(propertyId, p.id));
-              }}
-              onSave={(caption, roomHint) => run(p.id, () => updatePhotoAction(propertyId, p.id, { caption, room_hint: roomHint }))}
-            />
-          ))}
-        </div>
-      )}
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14, marginTop: 4 }}>
-        <div style={{ border: '1px solid var(--rule)', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div className="eyebrow">Upload</div>
-          <input ref={fileRef} type="file" accept="image/*" style={{ fontSize: 12, color: 'var(--ink-2)' }} />
-          <input value={fileCaption} onChange={(e) => setFileCaption(e.target.value)} placeholder="Caption (optional)" style={input} />
-          <button
-            type="button"
-            disabled={pending}
-            onClick={() => {
-              const f = fileRef.current?.files?.[0];
-              if (!f) {
-                setMsg({ ok: false, text: 'Pick a photo first.' });
-                return;
-              }
-              uploadPhoto(f);
-            }}
-            style={{ ...primaryBtn, alignSelf: 'flex-start', opacity: pending ? 0.6 : 1 }}
-          >
-            {busy === 'upload' && pending
-              ? uploadPct != null && uploadPct > 0 && uploadPct < 100
-                ? `Uploading ${uploadPct}%`
-                : 'Uploading…'
-              : 'Upload to gallery'}
-          </button>
-          <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>Stored on Vercel Blob under listings/{propertyId}/. JPEG, PNG, WebP or HEIC, 12 MB max.</span>
-        </div>
-        <div style={{ border: '1px solid var(--rule)', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div className="eyebrow">Add by URL</div>
-          <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…" style={input} />
-          <input value={urlCaption} onChange={(e) => setUrlCaption(e.target.value)} placeholder="Caption (optional)" style={input} />
-          <button
-            type="button"
-            disabled={pending || !url.trim()}
-            onClick={() =>
-              run('url', async () => {
-                const r = await addPhotoUrlAction(propertyId, { url, caption: urlCaption });
-                if (r.ok) {
-                  setUrl('');
-                  setUrlCaption('');
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14, marginTop: 4 }}>
+            <div style={{ border: '1px solid var(--rule)', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div className="eyebrow">Upload</div>
+              <input ref={fileRef} type="file" accept="image/*" style={{ fontSize: 12, color: 'var(--ink-2)' }} />
+              <input value={fileCaption} onChange={(e) => setFileCaption(e.target.value)} placeholder="Caption (optional)" style={input} />
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => {
+                  const f = fileRef.current?.files?.[0];
+                  if (!f) {
+                    setMsg({ ok: false, text: 'Pick a photo first.' });
+                    return;
+                  }
+                  uploadPhoto(f);
+                }}
+                className={buttonClass('primary', 'sm')}
+                style={{ alignSelf: 'flex-start' }}
+              >
+                {busy === 'upload' && pending
+                  ? uploadPct != null && uploadPct > 0 && uploadPct < 100
+                    ? `Uploading ${uploadPct}%`
+                    : 'Uploading…'
+                  : 'Upload to gallery'}
+              </button>
+              <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>JPEG, PNG, WebP or HEIC, 12 MB max.</span>
+            </div>
+            <div style={{ border: '1px solid var(--rule)', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div className="eyebrow">Add by link</div>
+              <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…" aria-label="Photo link" style={input} />
+              <input value={urlCaption} onChange={(e) => setUrlCaption(e.target.value)} placeholder="Caption (optional)" style={input} />
+              <button
+                type="button"
+                disabled={pending || !url.trim()}
+                onClick={() =>
+                  run('url', async () => {
+                    const r = await addPhotoUrlAction(propertyId, { url, caption: urlCaption });
+                    if (r.ok) {
+                      setUrl('');
+                      setUrlCaption('');
+                    }
+                    return r;
+                  })
                 }
-                return r;
-              })
-            }
-            style={{ ...ghostBtn, alignSelf: 'flex-start', opacity: pending || !url.trim() ? 0.6 : 1 }}
-          >
-            {busy === 'url' && pending ? 'Adding…' : 'Add photo'}
-          </button>
-          <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>For a photo already hosted (Drive export, the SCA repo). The seed script copies Guesty photos here itself.</span>
+                className={buttonClass('secondary', 'sm')}
+                style={{ alignSelf: 'flex-start' }}
+              >
+                {busy === 'url' && pending ? 'Adding…' : 'Add photo'}
+              </button>
+            </div>
+          </div>
         </div>
-      </div>
-      {msg && <div style={{ fontSize: 12, color: msg.ok ? 'var(--positive)' : 'var(--negative)' }}>{msg.text}</div>}
-    </section>
+      )}
+      {msg && <div role={msg.ok ? 'status' : 'alert'} style={{ fontSize: 12, color: msg.ok ? 'var(--positive)' : 'var(--negative)', marginTop: 10 }}>{msg.text}</div>}
+    </Block>
   );
 }
+
+const PHOTO_SOURCE_LABEL: Record<string, string> = { guesty_seed: 'From Guesty', drive: 'From Drive' };
 
 function PhotoCard({
   photo,
@@ -551,17 +924,17 @@ function PhotoCard({
         <img src={photo.thumbnail_url ?? photo.url} alt={photo.caption ?? ''} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
         <div style={{ position: 'absolute', top: 6, left: 6, display: 'flex', gap: 4 }}>
           <span className="font-mono" style={{ fontSize: 10, background: 'var(--paper)', color: 'var(--ink-3)', padding: '2px 6px' }}>{index + 1}</span>
-          {photo.is_hero && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', background: 'var(--signal)', color: 'var(--paper)', padding: '3px 6px' }}>Hero</span>}
-          {photo.source !== 'helm' && <span style={{ fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', background: 'var(--paper)', color: 'var(--ink-4)', padding: '3px 6px' }}>{photo.source.replace('_', ' ')}</span>}
+          {photo.is_hero && <span style={heroBadge}>Hero</span>}
+          {PHOTO_SOURCE_LABEL[photo.source] && <span style={{ fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', background: 'var(--paper)', color: 'var(--ink-4)', padding: '3px 6px' }}>{PHOTO_SOURCE_LABEL[photo.source]}</span>}
         </div>
       </div>
       <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <input value={caption} onChange={(e) => setCaption(e.target.value)} placeholder="Caption" style={{ ...input, fontSize: 12, padding: '6px 8px' }} />
-        <input value={roomHint} onChange={(e) => setRoomHint(e.target.value)} placeholder="Room (e.g. Bedroom 2) for the sleeping card" style={{ ...input, fontSize: 12, padding: '6px 8px' }} />
+        <input value={caption} onChange={(e) => setCaption(e.target.value)} placeholder="Caption" aria-label="Caption" style={{ ...input, fontSize: 12, padding: '6px 8px' }} />
+        <input value={roomHint} onChange={(e) => setRoomHint(e.target.value)} placeholder="Room (e.g. Bedroom 2) for the sleeping card" aria-label="Room" style={{ ...input, fontSize: 12, padding: '6px 8px' }} />
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button type="button" onClick={() => onMove(-1)} disabled={busy || index === 0} style={quietLink} title="Move earlier">↑</button>
-            <button type="button" onClick={() => onMove(1)} disabled={busy || index === count - 1} style={quietLink} title="Move later">↓</button>
+            <button type="button" onClick={() => onMove(-1)} disabled={busy || index === 0} style={quietLink} aria-label="Move earlier">↑</button>
+            <button type="button" onClick={() => onMove(1)} disabled={busy || index === count - 1} style={quietLink} aria-label="Move later">↓</button>
             {!photo.is_hero && <button type="button" onClick={onHero} disabled={busy} style={quietLink}>Make hero</button>}
           </div>
           <div style={{ display: 'flex', gap: 10 }}>
@@ -574,29 +947,7 @@ function PhotoCard({
   );
 }
 
-// ── Shared bits ─────────────────────────────────────────────────────────────
-
-function ConsumedBy({ who, inline, label }: { who?: string[]; inline?: boolean; label?: string }) {
-  if (!who || who.length === 0) return null;
-  return (
-    <span style={{ fontSize: 10, letterSpacing: '.06em', color: 'var(--ink-4)', display: inline ? 'inline' : 'block' }}>
-      {label ? `${label} ` : ''}consumed by {who.join(', ')}
-    </span>
-  );
-}
-
-function SectionHead({ title, note }: { title: string; note?: string | null }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, borderBottom: '1px solid var(--ink)', paddingBottom: 8 }}>
-      <h3 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', margin: 0, color: 'var(--ink)' }}>{title}</h3>
-      {note && <span style={{ fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.04em' }}>{note}</span>}
-    </div>
-  );
-}
-
-function fmtStamp(iso: string): string {
-  return etStamp(iso);
-}
+// ── Shared styles ───────────────────────────────────────────────────────────
 
 const labelStyle: React.CSSProperties = {
   fontSize: 11,
@@ -605,6 +956,18 @@ const labelStyle: React.CSSProperties = {
   textTransform: 'uppercase',
   color: 'var(--ink-3)',
 };
+
+const termStyle: React.CSSProperties = {
+  fontSize: 10,
+  fontWeight: 600,
+  letterSpacing: '.14em',
+  textTransform: 'uppercase',
+  color: 'var(--ink-4)',
+};
+
+const editorStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 820 };
+
+const facts: React.CSSProperties = { fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'none' };
 
 const input: React.CSSProperties = {
   background: 'var(--paper)',
@@ -617,28 +980,14 @@ const input: React.CSSProperties = {
   boxSizing: 'border-box',
 };
 
-const primaryBtn: React.CSSProperties = {
-  background: 'var(--ink)',
+const heroBadge: React.CSSProperties = {
+  fontSize: 9,
+  fontWeight: 700,
+  letterSpacing: '.14em',
+  textTransform: 'uppercase',
+  background: 'var(--signal)',
   color: 'var(--paper)',
-  border: '1px solid var(--ink)',
-  padding: '9px 16px',
-  fontSize: 11,
-  fontWeight: 600,
-  letterSpacing: '.16em',
-  textTransform: 'uppercase',
-  cursor: 'pointer',
-};
-
-const ghostBtn: React.CSSProperties = {
-  background: 'transparent',
-  color: 'var(--ink-3)',
-  border: '1px solid var(--rule)',
-  padding: '9px 14px',
-  fontSize: 11,
-  fontWeight: 500,
-  letterSpacing: '.16em',
-  textTransform: 'uppercase',
-  cursor: 'pointer',
+  padding: '3px 6px',
 };
 
 const quietLink: React.CSSProperties = {
