@@ -36,7 +36,7 @@ skips after ACK. Neither route proves a complete initial calendar or sends a
 message. HMAC handling follows the [Channex webhook contract](https://docs.channex.io/api-v.1-documentation/webhook-collection);
 revision processing follows the [booking revision contract](https://docs.channex.io/api-v.1-documentation/bookings-collection).
 
-The authenticated preview import is being enabled on the exact pilot branch with
+The authenticated preview import is enabled on the exact pilot branch with
 `CHANNEX_CANONICAL_REHEARSAL_ENABLED=true`. Signed notices additionally require
 `CHANNEX_CANONICAL_SIGNING_SECRET`; no webhook, signing key, polling schedule,
 new paid service or sender has been activated. Existing Channex and dedicated
@@ -71,14 +71,17 @@ Validation: 2,058 application tests, nonincremental TypeScript, 85 PGlite checks
 60 native PostgreSQL checks and 22 exact-installer/integration checks passed.
 The separate rehearsal artifact check also verifies late-failure rollback,
 repeatability, preservation of the cleaner record, no recipient/provider data,
-and refusal when a sender is enabled. Source files remain outside automatic
+and refusal when a sender is enabled. Preview `a8d30768` deployed successfully;
+the enabled recovery action passed its provider isolation/feed check and returned
+zero revisions, matching the empty Calderwood Channex booking list. An empty feed
+proves neither a booking round trip nor database writes through the deployed app.
+Source files remain outside automatic
 production migrations. The installer must not be rerun over the installed pilot;
 use reviewed incremental SQL for any subsequent schema change.
 
 Remaining delivery sequence:
 
-1. Verify the enabled preview importer against the existing Channex staging
-   connection, then exercise an actual provider create → change → cancel cycle
+1. Exercise an actual provider create → change → cancel cycle
    through signed notification, durable receipt, calendar and availability.
    Database installation and the constructed-revision cycle are complete.
 2. Prove **automated guest and cleaner delivery**, original timing, message
