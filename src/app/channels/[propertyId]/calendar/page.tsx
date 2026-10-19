@@ -143,7 +143,7 @@ export default async function PropertyMonthGridPage({
       </section>
 
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 28 }}>
-        <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)' }}>
+        <div className="rt-helm-stat-strip" style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)' }}>
           <Stat label="Booked nights" value={String(summary.booked)} sub={`of ${monthCells.length} in ${grid.label.split(' ')[0]}`} />
           <Stat
             label="Held"
@@ -332,9 +332,9 @@ function Field({ label, children }: { label: React.ReactNode; children: React.Re
 
 function Stat({ label, value, sub, last }: { label: string; value: string; sub?: string; last?: boolean }) {
   return (
-    <div style={{ padding: '22px 0 20px', borderRight: last ? 'none' : '1px solid var(--rule)', paddingRight: 16 }}>
+    <div className="rt-helm-stat" style={{ padding: '22px 0 20px', borderRight: last ? 'none' : '1px solid var(--rule)', paddingRight: 16 }}>
       <div className="eyebrow" style={{ color: 'var(--ink-3)' }}>{label}</div>
-      <div className="font-serif tabular-nums" style={{ fontSize: 34, fontWeight: 300, letterSpacing: '-0.02em', marginTop: 6 }}>{value}</div>
+      <div className="font-serif tabular-nums rt-helm-stat-value" style={{ fontSize: 34, fontWeight: 300, letterSpacing: '-0.02em', marginTop: 6 }}>{value}</div>
       {sub && <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 4 }}>{sub}</div>}
     </div>
   );

@@ -421,6 +421,18 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
   .rt-helm-stat-strip > .rt-helm-stat:nth-last-child(-n+2) {
     border-bottom: none;
   }
+  /* An odd count (a five-up strip, the owner home's three): the last cell
+     takes the whole row, so no right rule hangs beside empty space, and the
+     cell above it keeps its bottom rule. */
+  .rt-helm-stat-strip > *:nth-child(odd):last-child { grid-column: 1 / -1; }
+  .rt-helm-stat-strip > *:nth-child(odd):last-child .rt-helm-stat,
+  .rt-helm-stat-strip > .rt-helm-stat:nth-child(odd):last-child {
+    border-right: none !important;
+  }
+  .rt-helm-stat-strip > *:nth-child(even):nth-last-child(2) .rt-helm-stat,
+  .rt-helm-stat-strip > .rt-helm-stat:nth-child(even):nth-last-child(2) {
+    border-bottom: 1px solid var(--rule);
+  }
   /* The Cleanings strip is three DAYS, not KPI tiles, and each day carries
      a time plus a property name plus a nowrap status flag. Two columns on a
      phone leaves roughly 60px for the name, so the name overflowed straight
@@ -433,6 +445,21 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
     padding: 14px 16px !important;
   }
   .rt-cleanings-day:last-child { border-bottom: none; }
+
+  /* /guests/contacts rows: five desktop columns left the name about 20px on
+     a phone, so the tags stacked and the status word was cut off. The name
+     and email lead the row with the status beside them; tags and the added
+     date share a second line. The row number is an index, not information. */
+  .rt-contact-row {
+    grid-template-columns: minmax(0, 1fr) auto !important;
+    grid-template-areas: "who status" "tags added";
+    gap: 6px 12px !important;
+  }
+  .rt-contact-row > .rt-contact-num { display: none; }
+  .rt-contact-row > .rt-contact-who { grid-area: who; }
+  .rt-contact-row > .rt-contact-status { grid-area: status; }
+  .rt-contact-row > .rt-contact-tags { grid-area: tags; justify-content: flex-start !important; max-width: none !important; }
+  .rt-contact-row > .rt-contact-added { grid-area: added; }
 
   .rt-helm-stat { padding: 14px 12px !important; }
   .rt-helm-stat-value { font-size: 22px !important; }

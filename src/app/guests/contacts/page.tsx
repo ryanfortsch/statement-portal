@@ -50,6 +50,7 @@ export default async function GuestContactsPage({
       {/* STATS STRIP */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 36 }}>
         <div
+          className="rt-helm-stat-strip"
           style={{
             borderTop: '1px solid var(--ink)',
             borderBottom: '1px solid var(--ink)',
@@ -214,6 +215,7 @@ function ContactRow({ contact, number }: { contact: GuestContact; number: string
       style={{ display: 'block', textDecoration: 'none', color: 'inherit', opacity: isSubscribed ? 1 : 0.55 }}
     >
       <div
+        className="rt-contact-row"
         style={{
           display: 'grid',
           gridTemplateColumns: '48px 1fr auto 90px auto',
@@ -223,10 +225,10 @@ function ContactRow({ contact, number }: { contact: GuestContact; number: string
           borderBottom: '1px solid var(--rule)',
         }}
       >
-        <span className="font-mono" style={{ fontSize: 10, color: 'var(--ink-4)', letterSpacing: '.08em' }}>
+        <span className="font-mono rt-contact-num" style={{ fontSize: 10, color: 'var(--ink-4)', letterSpacing: '.08em' }}>
           {number}
         </span>
-        <div style={{ minWidth: 0 }}>
+        <div className="rt-contact-who" style={{ minWidth: 0 }}>
           <div style={{ fontSize: 14, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {displayName(contact)}
           </div>
@@ -236,7 +238,7 @@ function ContactRow({ contact, number }: { contact: GuestContact; number: string
             </div>
           )}
         </div>
-        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', maxWidth: 280, justifyContent: 'flex-end' }}>
+        <div className="rt-contact-tags" style={{ display: 'flex', gap: 4, flexWrap: 'wrap', maxWidth: 280, justifyContent: 'flex-end' }}>
           {contact.tags.slice(0, 4).map((t) => (
             <span
               key={t}
@@ -257,7 +259,7 @@ function ContactRow({ contact, number }: { contact: GuestContact; number: string
           )}
         </div>
         <span
-          className="tabular-nums"
+          className="tabular-nums rt-contact-added"
           title={contact.created_at ? new Date(contact.created_at).toLocaleString('en-US') : ''}
           style={{
             fontSize: 11,
@@ -269,6 +271,7 @@ function ContactRow({ contact, number }: { contact: GuestContact; number: string
           {formatAdded(contact.created_at)}
         </span>
         <span
+          className="rt-contact-status"
           style={{
             fontSize: 10,
             letterSpacing: '.18em',
@@ -293,9 +296,9 @@ function Stat({
   label: string; value: string; sub?: string; accent?: boolean; last?: boolean;
 }) {
   return (
-    <div style={{ padding: '20px 22px', borderRight: last ? 'none' : '1px solid var(--rule)' }}>
+    <div className="rt-helm-stat" style={{ padding: '20px 22px', borderRight: last ? 'none' : '1px solid var(--rule)' }}>
       <div className="eyebrow" style={{ marginBottom: 8 }}>{label}</div>
-      <div className="font-serif tabular-nums" style={{
+      <div className="font-serif tabular-nums rt-helm-stat-value" style={{
         fontSize: 28,
         fontWeight: 400,
         color: accent ? 'var(--signal)' : 'var(--ink)',

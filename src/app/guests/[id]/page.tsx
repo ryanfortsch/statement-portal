@@ -46,6 +46,7 @@ export default async function ContactDetailPage({ params }: { params: Promise<{ 
       {/* META STRIP */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 36 }}>
         <div
+          className="rt-helm-stat-strip"
           style={{
             borderTop: '1px solid var(--ink)',
             borderBottom: '1px solid var(--ink)',
@@ -299,7 +300,7 @@ function formatStayDateRange(checkIn: string | null, checkOut: string | null): s
 
 function Field({ label, value, last = false }: { label: string; value: string; last?: boolean }) {
   return (
-    <div style={{ padding: '20px 22px', borderRight: last ? 'none' : '1px solid var(--rule)' }}>
+    <div className="rt-helm-stat" style={{ padding: '20px 22px', borderRight: last ? 'none' : '1px solid var(--rule)' }}>
       <div className="eyebrow" style={{ marginBottom: 8 }}>{label}</div>
       <div className="font-serif" style={{ fontSize: 18, fontWeight: 400, color: 'var(--ink)' }}>
         {value}

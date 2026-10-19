@@ -67,6 +67,7 @@ export default async function AgreementDetailPage({ params }: { params: Promise<
       {/* Meta strip */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 28 }}>
         <div
+          className="rt-helm-stat-strip"
           style={{
             borderTop: '1px solid var(--ink)',
             borderBottom: '1px solid var(--ink)',
@@ -342,7 +343,7 @@ function WorkflowRow({
 
 function Field({ label, value, last }: { label: string; value: string; last?: boolean }) {
   return (
-    <div style={{ padding: '14px 16px 14px 0', borderRight: last ? 'none' : '1px solid var(--rule)' }}>
+    <div className="rt-helm-stat" style={{ padding: '14px 16px 14px 0', borderRight: last ? 'none' : '1px solid var(--rule)' }}>
       <div className="eyebrow" style={{ fontSize: 10, marginBottom: 6 }}>{label}</div>
       <div style={{ fontSize: 14, color: 'var(--ink)' }}>{value}</div>
     </div>
