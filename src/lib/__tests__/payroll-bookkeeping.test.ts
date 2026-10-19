@@ -128,8 +128,9 @@ describe('the forecast carries the salary on its own line', () => {
       PHONE_ALLOWANCE_MONTHLY;
     assert.ok(Math.abs(payrollCost(2026, 11) - expected) < 1e-9);
     assert.ok(Math.abs(payrollCost(2028, 7) - expected) < 1e-9);
-    // The number the letter and the earlier costing agreed on: about $6,226.
-    assert.ok(expected > 6200 && expected < 6250, `monthly all-in ${expected.toFixed(2)}`);
+    // The number the letter and the costing agreed on: about $6,885 at the
+    // $72,000 salary (2026-10-19).
+    assert.ok(expected > 6860 && expected < 6910, `monthly all-in ${expected.toFixed(2)}`);
   });
 
   test('the per-job field line ends the month she joins payroll; creative and misc carry on', () => {
