@@ -109,17 +109,7 @@ export default async function StayCapeAnnLaunchPage({
         ]}
       />
 
-      <HelmHero
-        eyebrow="Helm · Properties"
-        title="Stay Cape"
-        emphasis="Ann"
-        description={
-          isOwner
-            ? `Put ${property.name} on staycapeann.com. Helm opens a reviewable pull request with the listing, surfaces a live preview, and walks you through wiring this property's own Stripe account. You approve to go live.`
-            : `Put ${property.name} on staycapeann.com. Write the listing here and review the preview. An owner wires the payments and takes it live.`
-        }
-        paddingTop={28}
-      />
+      <HelmHero plain eyebrow="Helm · Properties · Stay Cape Ann" title={property.name} paddingTop={24} />
 
       <main className="max-w-[1100px] mx-auto px-10 w-full" style={{ paddingBottom: 80 }}>
         <ScaLaunchClient

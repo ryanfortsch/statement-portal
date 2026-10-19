@@ -574,10 +574,10 @@ export default async function PropertyContractsPage({ searchParams }: { searchPa
       <style>{css}</style>
       <HelmMasthead />
       <HelmHero
+        plain
         eyebrow="Helm · Properties"
-        title="Management"
-        emphasis="contracts."
-        description={`${live.length} live ${plural(live.length, 'agreement')} across ${properties.length} managed homes.`}
+        title="Contracts"
+        line={`${live.length} live ${plural(live.length, 'agreement')} across ${properties.length} managed homes.`}
       />
       <PropertiesTabBar active="contracts" />
 

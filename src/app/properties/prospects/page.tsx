@@ -16,12 +16,7 @@ export default function ProspectsPage() {
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
 
-      <HelmHero
-        eyebrow="Helm · Properties"
-        title="All Rising Tide"
-        emphasis="prospects."
-        description="The prospect funnel, in one place."
-      />
+      <HelmHero plain eyebrow="Helm · Properties" title="Prospects" />
 
       <PropertiesTabBar active="prospects" />
 

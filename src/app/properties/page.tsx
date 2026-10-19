@@ -96,7 +96,7 @@ export default async function PropertiesPage() {
   const inactive = properties.filter((p) => !p.is_active);
   const prospectCount = inactive.filter((p) => p.kind === 'prospect').length;
   const inactiveManaged = inactive.filter((p) => p.kind === 'managed').length;
-  const heroDescription = !error
+  const countLine = !error
     ? `${active.length} active${prospectCount ? `, ${prospectCount} ${prospectCount === 1 ? 'prospect' : 'prospects'}` : ''}${inactiveManaged ? `, ${inactiveManaged} inactive` : ''}.`
     : undefined;
 
@@ -104,12 +104,7 @@ export default async function PropertiesPage() {
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
 
-      <HelmHero
-        eyebrow="Helm · Properties"
-        title="All Rising Tide"
-        emphasis="properties."
-        description={heroDescription}
-      />
+      <HelmHero plain eyebrow="Helm · Properties" title="Properties" line={countLine} />
 
       <PropertiesTabBar active="properties" />
 
