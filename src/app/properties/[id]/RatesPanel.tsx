@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useState, useTransition, type ReactNode } from 'react';
+import { createContext, useActionState, useContext, useState, useTransition, type ReactNode } from 'react';
 import {
   clearSeasonAction,
   saveRatePlanAction,
@@ -56,10 +56,16 @@ import {
  * hours, cancellation and house rules are the House policy columns on
  * properties and are read, not edited, here.
  *
- * Who may edit these is unchanged: anyone who reaches the page, as before.
+ * Who may edit: anyone on a Guesty-run home (the plan prices nothing yet);
+ * on a Helm-run home only an owner, since these are the prices guests pay
+ * (2026-10-19). A staff login there gets `readOnly` and the actions refuse.
  * On a Guesty-run home the page's section head says once that this is
  * Helm's plan and Guesty's prices are what guests pay today.
  */
+
+/** On a home Helm runs, these are the prices guests pay: a staff login reads
+ *  them and an owner sets them (2026-10-19). The server actions refuse too. */
+const ReadOnly = createContext(false);
 
 export function RatesPanel({
   propertyId,
@@ -69,6 +75,7 @@ export function RatesPanel({
   region,
   today,
   housePolicy,
+  readOnly = false,
 }: {
   propertyId: string;
   plan: RatePlanRow | null;
@@ -80,8 +87,11 @@ export function RatesPanel({
   helmRun: boolean;
   region: string | null;
   today: string;
+  /** A staff login on a Helm-run home: no Edit, no forms. */
+  readOnly?: boolean;
 }) {
   return (
+    <ReadOnly.Provider value={readOnly}>
     <div style={{ display: 'flex', flexDirection: 'column' }}>
       <PlanBlock
         q="night"
@@ -160,6 +170,7 @@ export function RatesPanel({
       <NightsThatDiffer propertyId={propertyId} plan={plan} days={days} today={today} />
       <PriceAStay propertyId={propertyId} today={today} hasPlan={!!plan} guestsIncluded={plan?.guests_included ?? 2} />
     </div>
+    </ReadOnly.Provider>
   );
 }
 
@@ -185,6 +196,8 @@ function Sentence({ lines }: { lines: string[] }) {
 }
 
 function EditButton({ what, label = 'Edit', onClick }: { what: string; label?: string; onClick: () => void }) {
+  const readOnly = useContext(ReadOnly);
+  if (readOnly) return null;
   return (
     <button type="button" className={buttonClass('secondary', 'sm')} aria-label={label === 'Edit' ? `Edit ${what}` : undefined} onClick={onClick}>
       {label}
@@ -228,9 +241,10 @@ function PlanBlock({
   footer?: ReactNode;
 }) {
   const [editing, setEditing] = useCloseOnNewer(plan?.updated_at ?? 'new');
+  const readOnly = useContext(ReadOnly);
   // With no plan, the nightly price is the one thing to set, and every other
-  // question waits for it (the save needs a base rate).
-  const open = editing || (!plan && q === 'night');
+  // question waits for it (the save needs a base rate). Read-only never opens.
+  const open = !readOnly && (editing || (!plan && q === 'night'));
   return (
     <Block
       title={title}
@@ -244,7 +258,7 @@ function PlanBlock({
       ) : plan ? (
         read(plan)
       ) : (
-        <div style={{ fontSize: 13, color: 'var(--ink-4)' }}>Set the nightly price first.</div>
+        <div style={{ fontSize: 13, color: 'var(--ink-4)' }}>{readOnly ? 'Not set.' : 'Set the nightly price first.'}</div>
       )}
       {footer && <div style={{ marginTop: 12 }}>{footer}</div>}
     </Block>
@@ -400,6 +414,7 @@ function TaxForm({ propertyId, tax, region, onCancel }: { propertyId: string; ta
 // ── Nights that differ: the day overrides on a calendar ─────────────────────
 
 function NightsThatDiffer({ propertyId, plan, days, today }: { propertyId: string; plan: RatePlanRow | null; days: RateDayRow[]; today: string }) {
+  const readOnly = useContext(ReadOnly);
   const write = writeSeasonAction.bind(null, propertyId);
   const clear = clearSeasonAction.bind(null, propertyId);
   const [wState, writeAction, writing] = useActionState<RatesFormState, FormData>(write, { error: null });
@@ -518,7 +533,7 @@ function NightsThatDiffer({ propertyId, plan, days, today }: { propertyId: strin
         </div>
       </div>
 
-      {range && (
+      {range && !readOnly && (
         <form action={writeAction} onSubmit={() => setLast('write')} aria-label="Nights that differ" style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 16, maxWidth: 820 }}>
           {!plan && <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>Set the nightly price first; these nights sit on top of it.</div>}
           <div style={grid}>

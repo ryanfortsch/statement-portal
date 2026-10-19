@@ -160,3 +160,25 @@ describe('the Pricing section speaks plainly', () => {
     assert.ok(!/Guesty/.test(panel), 'the panel repeats the Guesty sentence');
   });
 });
+
+describe('on a home Helm runs, an owner sets the prices (Dotti, 2026-10-19)', () => {
+  test('every rate writer goes through the Helm-run owner check; the quote tester does not write', () => {
+    const src = read('src/app/properties/[id]/rates-actions.ts');
+    assert.ok(src.includes('isHelmRun(data as { calendar_authority: string | null }) && !(await isOwnerSession())'));
+    for (const name of ['saveRatePlanAction', 'saveTaxConfigAction', 'writeSeasonAction', 'clearSeasonAction']) {
+      const m = src.match(new RegExp(`export async function ${name}\\b[\\s\\S]*?(?=\\nexport async function |$)`));
+      assert.ok(m && m[0].includes('await rateWriter(propertyId)'), `${name} skips the owner check`);
+    }
+    const tester = src.match(/export async function testQuoteAction[\s\S]*?(?=\nexport async function |$)/)![0];
+    assert.ok(!tester.includes('rateWriter('), 'pricing a test stay stays open');
+  });
+
+  test('a staff login on a Helm-run home reads the plan with no Edit and no forms', () => {
+    const page = read('src/app/properties/[id]/page.tsx');
+    assert.ok(page.includes('readOnly={helmRun && !owner}'));
+    const panel = read('src/app/properties/[id]/RatesPanel.tsx');
+    assert.ok(panel.includes('if (readOnly) return null;'), 'EditButton hides');
+    assert.ok(panel.includes("const open = !readOnly && (editing || (!plan && q === 'night'));"), 'no plan form opens');
+    assert.ok(panel.includes('{range && !readOnly && ('), 'no nights form');
+  });
+});

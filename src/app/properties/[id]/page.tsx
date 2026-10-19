@@ -2207,6 +2207,7 @@ export default async function PropertyDetailPage({
                 region={pmsRegion}
                 today={pmsToday}
                 housePolicy={housePolicyValues}
+                readOnly={helmRun && !owner}
               />
             )}
           </GuestSection>

@@ -2,6 +2,8 @@
 
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
+import { isOwnerSession } from '@/lib/helm-access-server';
+import { isHelmRun } from '@/lib/property-scope';
 import { supabaseAdmin, isServiceConfigured } from '@/lib/supabase-admin';
 import { getFleetProperty } from '@/lib/fleet';
 import { getRateDays, setRateDays, clearRateDays, upsertRatePlan, loadPricingBundle, type RateDayWrite, type RatePlanPatch } from '@/lib/property-rates';
@@ -71,11 +73,27 @@ async function actor(): Promise<string | null> {
   return session?.user?.email ?? null;
 }
 
+/**
+ * Who may write this home's prices. On a home Helm runs these are the prices
+ * guests pay, so only an owner sets them (Dotti, 2026-10-19); on a Guesty-run
+ * home the plan prices nothing yet and anyone signed in may draft it.
+ */
+async function rateWriter(propertyId: string): Promise<{ by: string } | { error: string }> {
+  const by = await actor();
+  if (!by) return { error: 'Not signed in' };
+  const { data } = await supabaseAdmin.from('properties').select('calendar_authority').eq('id', propertyId).maybeSingle();
+  if (data && isHelmRun(data as { calendar_authority: string | null }) && !(await isOwnerSession())) {
+    return { error: 'An owner sets the prices on a home Helm runs.' };
+  }
+  return { by };
+}
+
 // ── Rate plan ───────────────────────────────────────────────────────────────
 
 export async function saveRatePlanAction(propertyId: string, _prev: RatesFormState, fd: FormData): Promise<RatesFormState> {
-  const by = await actor();
-  if (!by) return { error: 'Not signed in' };
+  const w = await rateWriter(propertyId);
+  if ('error' in w) return { error: w.error };
+  const by = w.by;
   if (!isServiceConfigured) return { error: 'Service role not configured' };
   try {
     const base = dollarsToCents(fd, 'base_nightly');
@@ -120,8 +138,9 @@ export async function saveRatePlanAction(propertyId: string, _prev: RatesFormSta
 // ── Tax config ──────────────────────────────────────────────────────────────
 
 export async function saveTaxConfigAction(propertyId: string, _prev: RatesFormState, fd: FormData): Promise<RatesFormState> {
-  const by = await actor();
-  if (!by) return { error: 'Not signed in' };
+  const w = await rateWriter(propertyId);
+  if ('error' in w) return { error: w.error };
+  const by = w.by;
   if (!isServiceConfigured) return { error: 'Service role not configured' };
   try {
     const jurisdiction = str(fd, 'jurisdiction').toUpperCase();
@@ -179,8 +198,9 @@ function parseRange(fd: FormData): { from: string; to: string } {
  * setRateDays' note), so a price season does not wipe a min-nights season.
  */
 export async function writeSeasonAction(propertyId: string, _prev: RatesFormState, fd: FormData): Promise<RatesFormState> {
-  const by = await actor();
-  if (!by) return { error: 'Not signed in' };
+  const w = await rateWriter(propertyId);
+  if ('error' in w) return { error: w.error };
+  const by = w.by;
   if (!isServiceConfigured) return { error: 'Service role not configured' };
   try {
     const { from, to } = parseRange(fd);
@@ -228,8 +248,8 @@ export async function writeSeasonAction(propertyId: string, _prev: RatesFormStat
 
 /** Drop every override in the range; the plan's own rate and rules return. */
 export async function clearSeasonAction(propertyId: string, _prev: RatesFormState, fd: FormData): Promise<RatesFormState> {
-  const by = await actor();
-  if (!by) return { error: 'Not signed in' };
+  const w = await rateWriter(propertyId);
+  if ('error' in w) return { error: w.error };
   if (!isServiceConfigured) return { error: 'Service role not configured' };
   try {
     const { from, to } = parseRange(fd);
