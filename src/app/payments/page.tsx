@@ -114,8 +114,7 @@ export default async function PaymentsPage({
 
         {!asked && (
           <p className="eyebrow" style={{ color: 'var(--ink-3)', marginTop: 28 }}>
-            Search by the guest&apos;s email for the surest answer. A name or part of a
-            description works too.
+            Search by the guest&apos;s email.
           </p>
         )}
 

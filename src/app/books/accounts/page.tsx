@@ -171,9 +171,7 @@ export default function BooksAccountsPage() {
       {/* ── CHART OF ACCOUNTS (hierarchical) ── */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 40, flex: 1 }}>
         <div className="eyebrow" style={{ marginBottom: 4 }}>Chart of accounts</div>
-        <p style={{ fontSize: 12, color: 'var(--ink-4)', marginBottom: 16, maxWidth: 720, lineHeight: 1.5 }}>
-          From the QuickBooks exports of 2026-05-27. The categorizer skips <em style={{ color: 'var(--tide-deep)' }}>pass-through</em> categories; a scope tag names the one entity a category is for.
-        </p>
+        <div style={{ marginBottom: 16 }} />
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 28 }}>
           {coaByType.map((g) => (
             <div key={g.type}>

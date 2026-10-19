@@ -30,9 +30,6 @@ export default function NewProjectionPage() {
         >
           A new <em style={{ color: 'var(--tide-deep)', fontWeight: 400 }}>prospect.</em>
         </h1>
-        <p style={{ marginTop: 14, fontSize: 14, lineHeight: 1.55, color: 'var(--ink-3)', maxWidth: 580 }}>
-          Who owns it and where it is. Everything else is edited on the next screen.
-        </p>
       </section>
 
       <section className="max-w-[860px] mx-auto px-10" style={{ paddingBottom: 80, flex: 1, width: '100%' }}>

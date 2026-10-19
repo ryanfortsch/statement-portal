@@ -95,7 +95,7 @@ export function CustomClausesField({
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {rows.length === 0 && (
         <p style={{ margin: 0, fontSize: 12, color: 'var(--ink-4)', fontStyle: 'italic' }}>
-          No custom clauses. The contract will use the standard set only. Click &ldquo;Add clause&rdquo; to attach one.
+          No custom clauses.
         </p>
       )}
 

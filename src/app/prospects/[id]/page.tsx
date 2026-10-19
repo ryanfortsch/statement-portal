@@ -510,9 +510,7 @@ export default async function ProjectionDetailPage({
               </div>
               {!projection.inactive_at && (
                 <p style={{ margin: '0 0 10px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: 480 }}>
-                  Demote a deal that didn&rsquo;t happen — never signed, no longer a viable
-                  opportunity. <strong>Nothing is deleted:</strong> the projection, contract draft,
-                  and intake stay on file in the Inactive section, and it can be reactivated any time.
+                  Nothing is deleted. Reactivate any time.
                 </p>
               )}
               <InactivePanel
@@ -545,9 +543,7 @@ export default async function ProjectionDetailPage({
                 Reset contract
               </div>
               <p style={{ margin: '0 0 10px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: 480 }}>
-                Clears every redline override + Rider clause applied to this prospect&rsquo;s contract.
-                The contract reverts to the standard template. <strong>Prospect record, inputs,
-                signing token, and onboarding intake stay intact.</strong>
+                Back to the standard contract. The record stays.
               </p>
               {projection.contract_signed_at && (
                 <p style={{ margin: '0 0 10px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: 480, fontStyle: 'italic' }}>
@@ -807,7 +803,7 @@ function SignedStageBody({ projection, notice }: { projection: ProjectionRow; no
     <>
       {!signedAt && (
         <p style={{ marginTop: 0, marginBottom: 12, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 720 }}>
-          Send this link to the owner once the contract terms are settled. They&rsquo;ll type their full legal name and submit; their name + timestamp + IP / user-agent are recorded as their electronic signature (ESIGN/UETA-compliant).
+          Send once the terms are settled.
         </p>
       )}
       {signedAt && signedName && (
@@ -1073,7 +1069,7 @@ function CountersignRow({ projectionId }: { projectionId: string }) {
         background: 'var(--paper-2)',
       }}>
         <div style={{ fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 460 }}>
-          The owner has signed. Countersign for Rising Tide and email the owner the fully executed contract (Allie is CC&rsquo;d). The contract and its certificate name you as the signer. The send takes ~10 seconds while the PDF renders with both signatures.
+          Countersigning emails the owner the executed contract, with Allie on copy, and names you as the signer.
         </div>
         <CountersignButton />
       </div>
@@ -1116,7 +1112,7 @@ function OnboardingStageBody({
     <>
       {!submitted && (
         <p style={{ marginTop: 0, marginBottom: 12, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 720 }}>
-          Send this link to the owner once the contract is signed. They&rsquo;ll fill in property details, utilities, access, and an emergency contact. Their answers land back here.
+          Send once the contract is signed.
         </p>
       )}
       {onboardingTouch && !submitted && (

@@ -317,12 +317,6 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save', lastSave
 
       {/* ─── Contract terms ────────────────────────────────────────────────── */}
       <Section eyebrow="06" title="Contract terms">
-        <p style={{ fontSize: 12, color: 'var(--ink-4)', marginBottom: 16, marginTop: -4, lineHeight: 1.55, maxWidth: 620 }}>
-          Defaults match Rising Tide&rsquo;s standard contract. Edit per-deal terms
-          below; they flow through to the contract render. Boilerplate clauses
-          (responsibilities, termination, force majeure, etc.) are not editable
-          from here.
-        </p>
         <Row>
           <Field label="Term start" hint="Agreement commences">
             <input
@@ -399,13 +393,6 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save', lastSave
 
       {/* ─── Custom clauses (optional, per-deal) ────────────────────────── */}
       <Section eyebrow="07" title="Custom clauses (optional)">
-        <p style={{ fontSize: 12, color: 'var(--ink-4)', marginBottom: 16, marginTop: -4, lineHeight: 1.55, maxWidth: 620 }}>
-          Per-deal addenda that get rendered as a &ldquo;Rider&rdquo; page after Sale
-          Protection in the contract. Add as many as the deal requires; leave
-          empty for the standard contract. Rough notes are fine —
-          &ldquo;Refine with AI&rdquo; rewrites a clause into contract language
-          for you to review before saving.
-        </p>
         <CustomClausesField initial={v.custom_clauses ?? null} projectionId={v.id ?? null} />
       </Section>
 
@@ -441,9 +428,6 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save', lastSave
             Saved at {formatSavedAt(lastSavedAt)}
           </span>
         ) : null}
-        <span style={{ fontSize: 11, color: 'var(--ink-4)', fontStyle: 'italic' }}>
-          If the contract preview is open in another tab, refresh that tab to see the new values.
-        </span>
       </div>
     </form>
   );
