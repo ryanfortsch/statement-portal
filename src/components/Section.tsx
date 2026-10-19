@@ -10,6 +10,7 @@
  */
 
 import type { ReactNode } from 'react';
+import { EmptyState } from '@/components/EmptyState';
 
 type Props = {
   /** Anchor id on the section wrapper. Used by sticky in-page nav. */
@@ -22,8 +23,10 @@ type Props = {
   right?: ReactNode;
   /** True when there is no data to render. Shows `emptyMessage` instead of `children`. */
   empty?: boolean;
-  /** Copy shown when `empty` is true. */
+  /** Copy shown when `empty` is true: one sentence (EmptyState). */
   emptyMessage?: string;
+  /** The one verb an empty section offers: a link, or a Button from client code. */
+  emptyAction?: { label: string; href: string } | ReactNode;
   /** Top padding. Defaults match the existing rhythm at 24px. */
   paddingTop?: number;
   /** Bottom padding. Defaults to 48px. */
@@ -38,6 +41,7 @@ export function Section({
   right,
   empty = false,
   emptyMessage = '',
+  emptyAction,
   paddingTop = 24,
   paddingBottom = 48,
   children,
@@ -69,16 +73,11 @@ export function Section({
         )}
       </div>
       {empty ? (
-        <div
-          style={{
-            borderTop: '1px solid var(--ink)',
-            padding: '20px 0',
-            fontSize: 12,
-            color: 'var(--ink-4)',
-          }}
-        >
-          {emptyMessage}
-        </div>
+        emptyMessage || emptyAction ? (
+          <EmptyState action={emptyAction}>{emptyMessage}</EmptyState>
+        ) : (
+          <div style={{ borderTop: '1px solid var(--ink)', padding: '20px 0' }} />
+        )
       ) : (
         children
       )}

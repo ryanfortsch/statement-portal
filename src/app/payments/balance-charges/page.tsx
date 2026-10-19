@@ -8,6 +8,7 @@ import { supabaseAdmin as supabase, isServiceConfigured } from '@/lib/supabase-a
 import { getStripeKeysMap } from '@/lib/stripe-sync';
 import { chargeBalance } from './actions';
 import { balanceChargeConfirm } from '@/lib/irreversible-confirms';
+import { EmptyState } from '@/components/EmptyState';
 
 /**
  * Saved-card balance charges for far-future direct bookings.
@@ -77,7 +78,7 @@ export default async function BalanceChargesPage({
       <div className="min-h-screen" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
         <HelmMasthead />
         <main className="max-w-[900px] mx-auto px-10 py-16">
-          <p>Supabase service role is not configured in this environment.</p>
+          <EmptyState>Ask Ryan: this page is not set up.</EmptyState>
         </main>
       </div>
     );
@@ -139,7 +140,7 @@ export default async function BalanceChargesPage({
         )}
 
         <Section title={`Due now (${due.length})`}>
-          {due.length === 0 && <Empty text="Nothing is due. Rows go hot on their charge date." />}
+          {due.length === 0 && <Empty text="Nothing is due; a balance shows here on its charge date." />}
           {due.map((r) => (
             <Card key={r.id} id={`row-${r.id}`}>
               <RowHeader

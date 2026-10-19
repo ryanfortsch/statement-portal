@@ -34,7 +34,9 @@ const win=floor?{from:'2024-09-01',to:'2024-12-29'}:{from:'2026-08-19',to:'2026-
 window.older=[row('c9','Augusta Earlier','2026-08-02','2026-08-06','checked_out')];
 createRoot(document.getElementById('root')).render(<main><ConversationsBrowser initialConversations={rows} initialError={null} initialWindow={win}/></main>);
 `);
-const alias={'./conversation-actions':join(scratch,'actions.js'),'./Thread':join(scratch,'thread.js'),'@':join(root,'src')};
+// Section's empty line (EmptyState) imports next/link, which only runs inside Next.
+await writeFile(join(scratch,'link.js'),`import React from 'react';export default function Link({href,children,prefetch,...p}){return React.createElement('a',{href,...p},children);}`);
+const alias={'next/link':join(scratch,'link.js'),'./conversation-actions':join(scratch,'actions.js'),'./Thread':join(scratch,'thread.js'),'@':join(root,'src')};
 await new Promise((resolve,reject)=>{const compiler=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.tsx'),output:{path:scratch,filename:'bundle.js'},
  resolve:{extensions:['.tsx','.ts','.js'],modules:[join(root,'node_modules')],alias},module:{rules:[{test:/\.tsx?$/,use:join(scratch,'ts-loader.cjs')}]},performance:{hints:false}});
  compiler.run((err,stats)=>compiler.close(()=>err||stats?.hasErrors()?reject(err||Error(stats.toString({all:false,errors:true}))):resolve()));});

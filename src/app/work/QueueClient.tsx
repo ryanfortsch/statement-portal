@@ -44,6 +44,7 @@ import { groupSlipsByLane, LANE_LABELS, slipDetailLine, slipDisplayTitle, type W
 import type { WorkBriefHeadline } from '@/lib/work-briefs';
 import { dismissStaleSlips, loadStaleSlips, organizePendingCount, organizeWorkNow, type StaleHomeView } from './organize-actions';
 import { GLOUCESTER_TZ } from '@/lib/stable-time';
+import { EmptyState } from '@/components/EmptyState';
 
 type PropertyForPicker = {
   id: string;
@@ -516,15 +517,20 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
       {onSlips && (
         <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, width: '100%', flex: 1 }}>
           {slipsByProperty.length === 0 ? (
-            <EmptyBlock
-              message={
-                activeFilter === 'snoozed'
-                  ? 'Nothing snoozed. Snooze a slip from its detail page.'
-                  : activeFilter === 'my-week'
-                    ? `Nothing assigned to you is due this week. All ${workSlips.length} open slips are under All, and your undated ones under More, My items.`
-                    : 'No work slips match this filter.'
-              }
-            />
+            <EmptyState
+              center
+              action={activeFilter === 'all' ? undefined : (
+                <Button size="sm" onClick={() => setFilter('all')}>
+                  {`Show all ${workSlips.length} open`}
+                </Button>
+              )}
+            >
+              {activeFilter === 'snoozed'
+                ? 'Nothing is snoozed; Snooze is on each slip’s own page.'
+                : activeFilter === 'my-week'
+                  ? 'Nothing assigned to you is due this week.'
+                  : 'No work slips match this filter.'}
+            </EmptyState>
           ) : (
             <CollapsibleList
               items={slipsByProperty}
@@ -562,7 +568,12 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
       {!onSlips && (
         <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, width: '100%', flex: 1 }}>
           {filteredTasks.length === 0 ? (
-            <EmptyBlock message="No office to-dos match this filter." />
+            <EmptyState
+              center
+              action={activeFilter === 'all' ? undefined : <Button size="sm" onClick={() => setFilter('all')}>Show all to-dos</Button>}
+            >
+              No office to-dos match this filter.
+            </EmptyState>
           ) : (
             <CollapsibleList
               items={filteredTasks}
@@ -1368,14 +1379,6 @@ function TaskRowItem({
       >
         ✓ Done
       </Button>
-    </div>
-  );
-}
-
-function EmptyBlock({ message }: { message: string }) {
-  return (
-    <div style={{ borderTop: '1px solid var(--ink)', padding: '40px 0', textAlign: 'center' }}>
-      <p style={{ color: 'var(--ink-3)' }}>{message}</p>
     </div>
   );
 }
