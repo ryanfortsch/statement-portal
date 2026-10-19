@@ -1318,3 +1318,37 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
 .rt-inbox-search-heading { display: flex; align-items: center; gap: 16px; border-bottom: 1px solid var(--rule); margin-bottom: 4px; }
 .rt-inbox-search-status { flex-shrink: 0; min-width: 78px; }
 .rt-inbox-search-filters select { flex: 1; min-width: 0; }
+
+/* Owner composers on a phone (2026-10-17 audit). The quote composer and the
+   campaign editor are two columns on a desk: under 880px they are one, the
+   form first and what the guest sees (the quote summary, the email preview)
+   under it, no longer pinned. Three-up field rows and label-plus-field pairs
+   stack under 640px. */
+@media (max-width: 879px) {
+  .rt-composer { grid-template-columns: minmax(0, 1fr) !important; gap: 32px !important; }
+  .rt-composer-aside { position: static !important; }
+}
+@media (max-width: 640px) {
+  .rt-form-grid3,
+  .rt-form-pair { grid-template-columns: minmax(0, 1fr) !important; }
+  .rt-quote-extra { grid-template-columns: minmax(0, 1fr) 104px auto !important; }
+  /* The guest record's lists: the date leads its row, the rest under it. */
+  .rt-guest-event-row { grid-template-columns: minmax(0, 1fr) !important; gap: 4px !important; }
+  .rt-guest-review-row {
+    grid-template-columns: minmax(0, 1fr) auto !important;
+    grid-template-areas: "stars date" "text text";
+    gap: 4px 12px !important;
+  }
+  .rt-guest-review-row > :nth-child(1) { grid-area: stars; }
+  .rt-guest-review-row > :nth-child(2) { grid-area: text; }
+  .rt-guest-review-row > :nth-child(3) { grid-area: date; }
+  .rt-guest-stay-row {
+    grid-template-columns: minmax(0, 1fr) auto !important;
+    grid-template-areas: "home nights" "dates chan";
+    gap: 4px 12px !important;
+  }
+  .rt-guest-stay-row > :nth-child(1) { grid-area: dates; }
+  .rt-guest-stay-row > :nth-child(2) { grid-area: home; min-width: 0; }
+  .rt-guest-stay-row > :nth-child(3) { grid-area: nights; text-align: right; }
+  .rt-guest-stay-row > :nth-child(4) { grid-area: chan; text-align: right; }
+}

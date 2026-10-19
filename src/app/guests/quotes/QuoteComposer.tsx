@@ -323,7 +323,7 @@ export function QuoteComposer({
   const showTermsOverride = !!preview && !previewStale && !!preview.terms_violation;
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 340px', gap: 48, alignItems: 'start' }}>
+    <div className="rt-composer" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 340px', gap: 48, alignItems: 'start' }}>
       {/* ── Left: the form ── */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 36 }}>
         <FormBlock title="Property">
@@ -347,7 +347,7 @@ export function QuoteComposer({
         </FormBlock>
 
         <FormBlock title="Stay">
-          <div style={grid3}>
+          <div className="rt-form-grid3" style={grid3}>
             <Field label="Check-in" required>
               <input type="date" value={checkIn} onChange={(e) => setCheckIn(e.target.value)} style={inputStyle} />
             </Field>
@@ -403,7 +403,7 @@ export function QuoteComposer({
         </FormBlock>
 
         <FormBlock title="Price" hint="Nightly and total are the same number two ways; edit either.">
-          <div style={grid3}>
+          <div className="rt-form-grid3" style={grid3}>
             <Field label="Nightly rate ($)">
               <input
                 type="number"
@@ -441,7 +441,7 @@ export function QuoteComposer({
             <div className="eyebrow" style={{ fontSize: 10, marginBottom: 8 }}>Extra lines</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {extras.map((l) => (
-                <div key={l.key} style={{ display: 'grid', gridTemplateColumns: '1fr 140px auto', gap: 10, alignItems: 'center' }}>
+                <div key={l.key} className="rt-quote-extra" style={{ display: 'grid', gridTemplateColumns: '1fr 140px auto', gap: 10, alignItems: 'center' }}>
                   <input
                     type="text"
                     value={l.label}
@@ -478,7 +478,7 @@ export function QuoteComposer({
             </div>
           </div>
 
-          <div style={grid3}>
+          <div className="rt-form-grid3" style={grid3}>
             <Field label="Discount label">
               <input type="text" value={discountLabel} onChange={(e) => setDiscountLabel(e.target.value)} placeholder="Returning guest" style={inputStyle} />
             </Field>
@@ -521,7 +521,7 @@ export function QuoteComposer({
             />
           </div>
           {plan === 'split' && splitOk && (
-            <div style={{ ...grid3, marginTop: 16 }}>
+            <div className="rt-form-grid3" style={{ ...grid3, marginTop: 16 }}>
               <Field label="Deposit">
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                   <select value={depositMode} onChange={(e) => setDepositMode(e.target.value as 'pct' | 'amount')} style={inputStyle}>
@@ -565,7 +565,7 @@ export function QuoteComposer({
         </FormBlock>
 
         <FormBlock title="Guest">
-          <div style={grid3}>
+          <div className="rt-form-grid3" style={grid3}>
             <Field label="First name">
               <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder="Emily" style={inputStyle} />
             </Field>
@@ -574,7 +574,7 @@ export function QuoteComposer({
             </Field>
             <div />
           </div>
-          <div style={grid3}>
+          <div className="rt-form-grid3" style={grid3}>
             <Field label="Email" hint="Needed to email the quote.">
               <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="guest@example.com" style={inputStyle} />
             </Field>
@@ -596,7 +596,7 @@ export function QuoteComposer({
         </FormBlock>
 
         <FormBlock title="Terms">
-          <div style={grid3}>
+          <div className="rt-form-grid3" style={grid3}>
             <Field label="Quote expires" hint="Local time. The link stops working after this.">
               <input type="datetime-local" value={expiresLocal} onChange={(e) => setExpiresLocal(e.target.value)} style={inputStyle} />
             </Field>
@@ -645,8 +645,8 @@ export function QuoteComposer({
         </div>
       </div>
 
-      {/* ── Right: what the guest will see ── */}
-      <aside style={{ position: 'sticky', top: 24 }}>
+      {/* ── Right: what the guest will see (under the form on a phone) ── */}
+      <aside className="rt-composer-aside" style={{ position: 'sticky', top: 24 }}>
         <SummaryCard
           title={property?.title || property?.name || 'Your stay'}
           checkIn={checkIn}

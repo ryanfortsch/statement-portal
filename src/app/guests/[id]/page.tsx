@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getContact, listContactEvents, listContactStays, type ContactStay } from '@/lib/guests';
-import { displayName, formatTagLabel } from '@/lib/guests-types';
+import { displayName, formatTagLabel, GUEST_EVENT_LABEL, GUEST_SOURCE_LABEL, GUEST_STATUS_LABEL, type GuestEventType } from '@/lib/guests-types';
 import { listReviewsForContact, type ReviewRow } from '@/lib/reviews';
 import { unsubscribeContact, resubscribeContact } from '../actions';
 import { SubmitButton } from '@/components/SubmitButton';
@@ -54,9 +54,9 @@ export default async function ContactDetailPage({ params }: { params: Promise<{ 
             gridTemplateColumns: 'repeat(4, 1fr)',
           }}
         >
-          <Field label="Status" value={contact.status} />
+          <Field label="Status" value={GUEST_STATUS_LABEL[contact.status] ?? contact.status} />
           <Field label="Subscribed" value={contact.subscribed_at ? formatDate(contact.subscribed_at) : '—'} />
-          <Field label="Source" value={contact.source ?? '—'} />
+          <Field label="Source" value={contact.source ? GUEST_SOURCE_LABEL[contact.source] ?? contact.source : '—'} />
           <Field label="Sent / Opened" value={`${contact.total_sent} / ${contact.total_opened}`} last />
         </div>
       </section>
@@ -157,6 +157,7 @@ export default async function ContactDetailPage({ params }: { params: Promise<{ 
             {events.map((e) => (
               <div
                 key={e.id}
+                className="rt-guest-event-row"
                 style={{
                   display: 'grid',
                   gridTemplateColumns: '180px 1fr',
@@ -170,16 +171,10 @@ export default async function ContactDetailPage({ params }: { params: Promise<{ 
                 </span>
                 <div style={{ fontSize: 13, color: 'var(--ink)' }}>
                   <span style={{ textTransform: 'uppercase', letterSpacing: '.08em', fontSize: 11, color: 'var(--ink-3)', marginRight: 10 }}>
-                    {e.event_type}
+                    {GUEST_EVENT_LABEL[e.event_type as GuestEventType] ?? e.event_type.replace(/_/g, ' ')}
                   </span>
-                  {e.metadata && Object.keys(e.metadata).length > 0 && (
-                    <code className="font-mono" style={{ fontSize: 11, color: 'var(--ink-4)' }}>
-                      {Object.entries(e.metadata)
-                        .filter(([k]) => k !== 'raw')
-                        .slice(0, 3)
-                        .map(([k, v]) => `${k}=${typeof v === 'string' ? v : JSON.stringify(v)}`)
-                        .join(' · ')}
-                    </code>
+                  {eventDetail(e.metadata) && (
+                    <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>{eventDetail(e.metadata)}</span>
                   )}
                 </div>
               </div>
@@ -215,6 +210,7 @@ function ReviewSummary({ review: r }: { review: ReviewRow }) {
 
   return (
     <div
+      className="rt-guest-review-row"
       style={{
         display: 'grid',
         gridTemplateColumns: '120px 1fr auto',
@@ -247,6 +243,7 @@ function StayRow({ stay: s }: { stay: ContactStay }) {
 
   return (
     <div
+      className="rt-guest-stay-row"
       style={{
         display: 'grid',
         gridTemplateColumns: '180px 1fr auto auto',
@@ -283,6 +280,17 @@ function StayRow({ stay: s }: { stay: ContactStay }) {
       </span>
     </div>
   );
+}
+
+/** The part of an event's record a person needs: why, and who did it. The
+ *  rest (Resend's email id, the raw webhook type) is plumbing. */
+function eventDetail(meta: Record<string, unknown> | null): string {
+  if (!meta) return '';
+  const parts: string[] = [];
+  if (typeof meta.reason === 'string' && meta.reason) parts.push(meta.reason);
+  const who = typeof meta.by === 'string' ? meta.by : typeof meta.imported_by === 'string' ? meta.imported_by : typeof meta.triggered_by === 'string' ? meta.triggered_by : '';
+  if (who) parts.push(`by ${who}`);
+  return parts.join(' · ');
 }
 
 function formatStayDateRange(checkIn: string | null, checkOut: string | null): string {
