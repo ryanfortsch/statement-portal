@@ -2,6 +2,7 @@
 
 import type { ReplyEnvelope } from '@/lib/stay-concierge';
 import { prettyPhone } from '@/lib/payment-links-text';
+import { toLine } from '@/lib/envelope-recipients';
 
 /** The owner's own subject line, so an email reads as the email it is.
  *  Carried on the envelope because that is where the service already put
@@ -70,7 +71,7 @@ function fromAside(envelope: ReplyEnvelope): string {
 export function Envelope({ envelope }: { envelope?: ReplyEnvelope }) {
   if (!envelope) return null;
   const isEmail = envelope.channel === 'email';
-  const to = envelope.to.map((t) => (isEmail ? t : prettyPhone(t))).join(', ');
+  const to = toLine(envelope);
   if (!to && !envelope.from_address) return null;
 
   const rows: { label: string; value: string; aside?: string }[] = [];
