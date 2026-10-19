@@ -58,13 +58,7 @@ export default async function MarketingPage({ searchParams }: { searchParams: Se
 
   return (
     <div className="flex-1 flex flex-col">
-      <HelmHero
-        eyebrow="Helm · Marketing"
-        title="How the"
-        emphasis="sites"
-        titleSuffix="are doing."
-        description="Site traffic, conversions, top sources, and Core Web Vitals for both Rising Tide sites. Refreshed nightly from Google Analytics and Vercel Speed Insights."
-      />
+      <HelmHero plain eyebrow="Helm · Marketing" title="Marketing" />
 
       {/* CONTROLS */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 28 }}>
@@ -440,13 +434,7 @@ function Vital({
 function ConfigError() {
   return (
     <div className="flex-1 flex flex-col">
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 80, width: '100%' }}>
-        <div className="eyebrow">Helm &middot; Marketing</div>
-        <h1 className="font-serif" style={{ fontSize: 36, fontWeight: 300, marginTop: 12 }}>Not set up.</h1>
-        <p style={{ marginTop: 14, fontSize: 14, lineHeight: 1.55, color: 'var(--ink-3)', maxWidth: 580 }}>
-          Ask Ryan: this page is not set up.
-        </p>
-      </section>
+      <HelmHero plain eyebrow="Helm · Marketing" title="Marketing" line="Ask Ryan: this page is not set up." />
     </div>
   );
 }

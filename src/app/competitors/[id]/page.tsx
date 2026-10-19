@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { HelmHero } from '@/components/HelmHero';
+import { houseDay } from '@/lib/house-date';
 import { HelmFooter } from '@/components/HelmFooter';
 import { getCompetitor, summarizeCompetitor, computeAddressCoverage, formatBedroomLabel, type CompetitorId } from '@/lib/competitors';
 import { getRecentCompetitorEvents, getLastSyncAt } from '@/lib/competitors/events';
@@ -44,10 +45,10 @@ export default async function CompetitorDetail({ params }: { params: Promise<{ i
       </section>
 
       <HelmHero
-        eyebrow={`Helm · Competitors · Snapshot ${competitor.meta.snapshotDate}`}
+        plain
+        eyebrow="Helm · Competitors"
         title={competitor.meta.name}
-        emphasis=""
-        description={`${summary.totalListings} listings · ${summary.cityBreakdown.length} towns · ${summary.totalSleeps.toLocaleString()} guest beds. ${competitor.meta.tagline}.`}
+        line={`${summary.totalListings} listings · ${summary.cityBreakdown.length} towns · ${summary.totalSleeps.toLocaleString()} guest beds · snapshot ${houseDay(competitor.meta.snapshotDate)}`}
         paddingTop={20}
       />
 
