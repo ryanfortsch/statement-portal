@@ -115,3 +115,20 @@ describe('Guest & listing', () => {
     assert.ok(page.includes('sca={scaSnapshot}'), 'the page stopped passing the live copy');
   });
 });
+
+describe('a Guesty-run home keeps the tab quiet (2026-10-19)', () => {
+  test('Automations is one line and Edit rules while Guesty sends', () => {
+    const panel = read('src/app/properties/[id]/AutomationsPanel.tsx');
+    assert.ok(panel.includes('const guestyRuns = !on && !helmRun;'));
+    for (const gate of ['{!guestyRuns && problems.length > 0 && (', '{!guestyRuns && <div style={{ marginTop: 18 }}>', '{!guestyRuns && (history.length > 0 || counts.noContact > 0) && (']) {
+      assert.ok(panel.includes(gate), `Automations shows ${gate} while Guesty sends`);
+    }
+  });
+
+  test('a guest document tile says something only when it cannot print yet', () => {
+    const page = read('src/app/properties/[id]/page.tsx');
+    for (const gone of ['One-page editorial guide', 'On-arrival counter card', 'Auto-generated QR', 'Required for the Gloucester STR permit', 'The collection day in big type']) {
+      assert.ok(!page.includes(gone), `a tile still describes itself: ${gone}`);
+    }
+  });
+});
