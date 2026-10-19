@@ -86,7 +86,7 @@ describe('the modal keeps its promises', () => {
 
   test('the provider is mounted once for the whole app', () => {
     assert.match(read('src/components/Providers.tsx'), /<ConfirmProvider>\{children\}<\/ConfirmProvider>/);
-    assert.match(read('src/app/layout.tsx'), /<Providers session=\{session\}>/);
+    assert.match(read('src/app/layout.tsx'), /<Providers session=\{session\}[^>]*>/);
   });
 });
 

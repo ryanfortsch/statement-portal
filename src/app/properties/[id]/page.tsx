@@ -77,7 +77,7 @@ import { getAutomationsPanelView } from '@/lib/automations';
 import { isHelmRun, isCapeAnnOps } from '@/lib/property-scope';
 import { shiftIsoDay, todayInEastern } from '@/lib/sca-quotes-types';
 import type { OwnerCard } from '@/app/properties/actions';
-import { roleForEmail } from '@/lib/helm-access';
+import { isOwnerSession } from '@/lib/helm-access-server';
 import { sessionMailbox } from '@/lib/gmail-draft';
 
 export const dynamic = 'force-dynamic';
@@ -467,7 +467,7 @@ export default async function PropertyDetailPage({
   const knownFacts = propertyNotes.filter((n) => n.kind !== 'issue');
   // Owner money on this page (the fee, bank digits, owner emails, payouts,
   // the contract) renders for owners only. Staff keep the operations.
-  const owner = roleForEmail(session?.user?.email) === 'owner';
+  const owner = await isOwnerSession();
   // The executed management agreement files itself into Documents with its
   // fee terms. Owner money, so a staff login's Documents list omits it.
   const visibleDocuments = owner ? documents : documents.filter((d) => d.source !== 'contract-auto');

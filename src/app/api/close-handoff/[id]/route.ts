@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import { roleForEmail } from '@/lib/helm-access';
+import { isOwnerSession } from '@/lib/helm-access-server';
 import { deleteHandoffItem, loadHandoffItem, removeHandoffFile, updateHandoffItem } from '@/lib/close-handoff-db';
 
 /**
@@ -28,7 +28,7 @@ async function who(): Promise<{ email: string; owner: boolean } | null> {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return null;
-  return { email, owner: roleForEmail(email) === 'owner' };
+  return { email, owner: await isOwnerSession() };
 }
 
 export async function PATCH(

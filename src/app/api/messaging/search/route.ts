@@ -2,7 +2,7 @@ import { auth } from '@/auth';
 import { NextResponse } from 'next/server';
 import { isStayConciergeConfigured, listInboxSearchApprovals } from '@/lib/stay-concierge';
 import { inboxAudiencesFor, loadInboxSearch } from '@/lib/inbox-search';
-import { roleForEmail } from '@/lib/helm-access';
+import { sessionRole } from '@/lib/helm-access-server';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -15,7 +15,7 @@ export async function GET() {
   if (!isStayConciergeConfigured()) return NextResponse.json({ error: 'Messaging search is unavailable.' }, { status: 503, headers });
   // Owner correspondence is behind the owner page gate; the search panel on
   // every inbox page must not hand it to a staff login through the back.
-  const audiences = inboxAudiencesFor(roleForEmail(session.user.email));
+  const audiences = inboxAudiencesFor((await sessionRole()) ?? 'staff');
   const data = await loadInboxSearch(listInboxSearchApprovals, audiences);
   if (data.unavailable.length === audiences.length * 2) return NextResponse.json({ error: 'Messages could not be loaded. Try again.' }, { status: 502, headers });
   return NextResponse.json(data, { headers });

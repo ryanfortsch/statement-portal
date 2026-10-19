@@ -47,7 +47,7 @@ test('listing content stays open to staff', () => {
 
 test('the page passes the role and the client renders Steps 3 and 4 for owners only', () => {
   const page = read(PAGE);
-  assert.ok(page.includes("const isOwner = roleForEmail(session?.user?.email) === 'owner';"));
+  assert.ok(page.includes('const isOwner = await isOwnerSession();'));
   assert.ok(page.includes('isOwner={isOwner}'));
 
   const client = read(CLIENT);

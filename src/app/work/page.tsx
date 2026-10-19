@@ -6,7 +6,7 @@ import { fieldDb } from '@/lib/field-db';
 import type { WorkSlipRow, TaskRow } from '@/lib/work-types';
 import { ACTIVE_WORK_SLIP_STATUSES, ACTIVE_TASK_STATUSES } from '@/lib/work-types';
 import { loadWorkBriefHeadlines, type WorkBriefHeadline } from '@/lib/work-briefs';
-import { roleForEmail } from '@/lib/helm-access';
+import { sessionRole } from '@/lib/helm-access-server';
 import { defaultWorkFilter } from '@/lib/work-board-view';
 import { sessionMailbox } from '@/lib/gmail-draft';
 import { QueueClient } from './QueueClient';
@@ -119,7 +119,7 @@ export default async function WorkQueuePage() {
   ]);
   // A staff login opens on its own week; an owner on everything
   // (lib/work-board-view.ts). Owners also get "Review stale slips".
-  const role = myEmail ? roleForEmail(myEmail) : null;
+  const role = await sessionRole();
 
   return (
     <>

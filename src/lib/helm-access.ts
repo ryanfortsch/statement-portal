@@ -54,6 +54,48 @@ export function isOwnerEmail(email: string | null | undefined): boolean {
 }
 
 /**
+ * "View as staff": an owner walks Helm as a staff login sees it, because no
+ * owner can sign in as the staff hire and a preview cannot be read without
+ * an SSO session. The switch is one httpOnly cookie, written only by the
+ * owner-checked server action in `src/app/view-as-actions.ts` and read on
+ * the server (the proxy, `helm-access-server.ts`, the root layout). Nothing
+ * reads or sets it from a URL, and the browser never reads it at all: the
+ * client chrome gets the resolved view from the root layout.
+ */
+export const VIEW_AS_COOKIE = 'helm_view_as';
+export const VIEW_AS_STAFF = 'staff';
+
+/**
+ * The role Helm acts on: the one resolver every gate and every piece of
+ * chrome reads. It can only take an owner DOWN. A login `roleForEmail`
+ * calls staff stays staff whatever the cookie says, and a missing or
+ * garbled cookie leaves the real role, so the cookie never opens a door.
+ */
+export function effectiveRole(email: string | null | undefined, viewAs: string | null | undefined): HelmRole {
+  const real = roleForEmail(email);
+  if (real !== 'owner') return real;
+  return viewAs === VIEW_AS_STAFF ? 'staff' : 'owner';
+}
+
+/** What the client chrome needs: the role, and which way the switch points. */
+export type HelmView = {
+  role: HelmRole;
+  /** An owner login currently seeing Helm as staff (the banner shows). */
+  viewingAsStaff: boolean;
+  /** An owner login in owner view (the menu offers View as staff). */
+  mayViewAsStaff: boolean;
+};
+
+/** No session, or before the layout hands one in: staff, no switch. */
+export const STAFF_VIEW: HelmView = { role: 'staff', viewingAsStaff: false, mayViewAsStaff: false };
+
+export function helmView(email: string | null | undefined, viewAs: string | null | undefined): HelmView {
+  const ownerLogin = roleForEmail(email) === 'owner';
+  const role = effectiveRole(email, viewAs);
+  return { role, viewingAsStaff: ownerLogin && role === 'staff', mayViewAsStaff: ownerLogin && role === 'owner' };
+}
+
+/**
  * Page prefixes only an owner may open. Matched as a whole path segment
  * (`/statements` covers `/statements/close`, never `/statements-foo`).
  *
@@ -171,3 +213,21 @@ export function roleMayOpen(role: HelmRole, href: string): boolean {
 
 /** Where the proxy sends a staff login that opened an owner page. */
 export const NOT_AVAILABLE_PATH = '/not-available';
+
+/**
+ * Where Back to owner view lands when it is clicked on /not-available: the
+ * page the proxy turned away (its `from`), so the owner is back where they
+ * were. Same-origin paths only; anything else, or no `from`, goes home.
+ * Elsewhere it returns null: the same page simply loads again.
+ */
+export function ownerViewReturnPath(pathname: string, search: string, origin: string): string | null {
+  if (pathname !== NOT_AVAILABLE_PATH) return null;
+  const from = new URLSearchParams(search).get('from');
+  if (!from) return '/';
+  try {
+    const url = new URL(from, origin);
+    return url.origin === origin ? url.pathname + url.search : '/';
+  } catch {
+    return '/';
+  }
+}

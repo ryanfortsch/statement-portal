@@ -6,6 +6,7 @@ import { auth } from "@/auth";
 import { CommandPalette } from "@/components/CommandPalette";
 import { VersionGuard } from "@/components/VersionGuard";
 import { Providers } from "@/components/Providers";
+import { sessionView } from "@/lib/helm-access-server";
 
 const fraunces = Fraunces({
   variable: "--font-fraunces",
@@ -67,15 +68,16 @@ export default async function RootLayout({
 }>) {
   // Read once here and hand to the client SessionProvider, so the nav knows
   // the owner/staff role on first paint (see Providers). Null on the public
-  // token pages, which is fine: they render no Helm chrome.
-  const session = await auth();
+  // token pages, which is fine: they render no Helm chrome. The view is the
+  // effective role (View as staff included), resolved here on the server.
+  const [session, view] = await Promise.all([auth(), sessionView()]);
   return (
     <html
       lang="en"
       className={`${fraunces.variable} ${inter.variable} ${mono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        <Providers session={session}>
+        <Providers session={session} view={view}>
           {children}
           <CommandPalette />
           <VersionGuard />

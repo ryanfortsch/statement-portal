@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { generateText, stepCountIs } from 'ai';
 import { auth } from '@/auth';
 import { createAskTools } from '@/lib/ask/tools';
-import { roleForEmail } from '@/lib/helm-access';
+import { sessionRole } from '@/lib/helm-access-server';
 
 /**
  * Ask Helm — Claude-powered natural-language Q&A over Helm's data.
@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Question is too long.' }, { status: 400 });
   }
 
-  const role = roleForEmail(session.user.email);
+  const role = (await sessionRole()) ?? 'staff';
   const { tools, getSources } = createAskTools({ role });
 
   try {
