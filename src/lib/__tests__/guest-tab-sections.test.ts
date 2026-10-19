@@ -81,4 +81,27 @@ describe('Guest & listing', () => {
       assert.ok(!ui.includes(word), `the Listing section says "${word}"`);
     }
   });
+
+  test('Automations opens on what sends next; the rules wait in a drawer', () => {
+    const tab = guestTab();
+    assert.ok(/<GuestSection\s+id="automations"/.test(tab), 'Automations is not an open section');
+    const panel = read('src/app/properties/[id]/AutomationsPanel.tsx');
+    const body = panel.slice(panel.indexOf('export function AutomationsPanel'), panel.indexOf('// ── Pieces'));
+    const waiting = body.indexOf('Waiting for approval');
+    const next = body.indexOf('Next to send');
+    const drawer = body.indexOf('<Drawer title="Rules for this home"');
+    const card = body.indexOf('<RuleCard');
+    assert.ok(waiting > 0 && next > waiting && drawer > next, 'the sends no longer lead the section');
+    assert.ok(card > drawer, 'a rule card renders outside the Edit rules drawer');
+  });
+
+  test('a rule card is its name, trigger and state, two verbs, and More', () => {
+    const panel = read('src/app/properties/[id]/AutomationsPanel.tsx');
+    const card = panel.slice(panel.indexOf('function RuleCard('), panel.indexOf('type MenuItem'));
+    assert.equal(card.split('<button').length - 1, 2, 'a rule card shows more than two verbs');
+    assert.ok(card.includes('<MoreMenu'), 'the rest of the verbs left the menu');
+    for (const verb of ['Require approval', 'Mark configured in Airbnb', 'Send a test', 'Remove override']) {
+      assert.ok(card.includes(verb), `${verb} is gone`);
+    }
+  });
 });
