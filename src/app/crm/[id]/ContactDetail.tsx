@@ -189,7 +189,17 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, meeti
     }
   }
 
-  function removeTouch(id: string) {
+  async function removeTouch(id: string) {
+    if (deletingTouches.current.has(id) || deletingContact.current) return;
+    // A logged call or note is gone for good once deleted, so it asks first
+    // (outside the transition, where the dialog can open).
+    if (!(await ask({
+      title: 'Delete this activity?',
+      body: 'It is removed from the contact for everyone.',
+      confirmLabel: 'Delete',
+      tone: 'danger',
+      irreversible: true,
+    }))) return;
     if (deletingTouches.current.has(id) || deletingContact.current) return;
     deletingTouches.current.add(id);
     setTouchDeletePending([...deletingTouches.current]);

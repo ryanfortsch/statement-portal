@@ -257,7 +257,7 @@ export default async function OnboardingFormPage({ params }: { params: Promise<{
           <div className="eyebrow">Welcome{greetingName ? `, ${greetingName.split(/[, ]/)[0]}` : ''}</div>
           <h1>Tell us about <em>your home.</em></h1>
           <p className="rt-pub-lead">
-            A few details about <strong>{propertyAddress}</strong>{' '}so we can deliver the best possible service from day one. Your answers save automatically as you type — feel free to pause and come back. Tap Submit at the bottom when you&rsquo;re done.
+            A few details about <strong>{propertyAddress}</strong>{' '}so we can deliver the best possible service from day one. Your answers save automatically as you type, so feel free to pause and come back. Tap Submit at the bottom when you&rsquo;re done.
           </p>
         </section>
 
@@ -288,7 +288,7 @@ export default async function OnboardingFormPage({ params }: { params: Promise<{
             <Field name="property_address" label="Property address" required defaultValue={ob.property_address ?? propertyAddress} />
             <Row>
               <Field name="property_type" label="Property type" required defaultValue={ob.property_type} hint="Single-family, Condo, Townhouse, etc." />
-              <Field name="hoa" label="HOA" defaultValue={ob.hoa} hint="Yes / No — name if applicable" />
+              <Field name="hoa" label="HOA" defaultValue={ob.hoa} hint="Yes / No, with the name if applicable" />
             </Row>
             <Row>
               <Field name="bedrooms" label="Bedrooms" type="number" required defaultValue={ob.bedrooms} />
@@ -297,7 +297,7 @@ export default async function OnboardingFormPage({ params }: { params: Promise<{
               <Field name="livable_floors" label="Livable floors" type="number" defaultValue={ob.livable_floors} />
             </Row>
             <Row>
-              <Field name="basement" label="Basement" defaultValue={ob.basement} hint="Yes / No — finished or unfinished" />
+              <Field name="basement" label="Basement" defaultValue={ob.basement} hint="Yes / No, finished or unfinished" />
               <Field name="parking" label="Parking" defaultValue={ob.parking} hint="Garage / Driveway / Street" />
             </Row>
           </Section>
@@ -329,7 +329,7 @@ export default async function OnboardingFormPage({ params }: { params: Promise<{
 
           {/* ── STR ── */}
           <Section eyebrow="04" title="Short-term Rental Information">
-            <Field name="currently_listed" label="Currently listed?" defaultValue={ob.currently_listed} hint="Platform(s) if yes — Airbnb, VRBO, etc." />
+            <Field name="currently_listed" label="Currently listed?" defaultValue={ob.currently_listed} hint="Platform(s) if yes: Airbnb, VRBO, etc." />
             <Field name="listing_urls" label="Existing listing URL(s)" defaultValue={ob.listing_urls} />
             <Field
               name="room_occupancy_cert"
@@ -354,13 +354,13 @@ export default async function OnboardingFormPage({ params }: { params: Promise<{
               <Field name="smart_lock_brand" label="Smart lock brand" defaultValue={ob.smart_lock_brand} />
               <Field name="smart_lock_code" label="Model / access code" defaultValue={ob.smart_lock_code} />
             </Row>
-            <Field name="security_cameras" label="Security camera(s)" defaultValue={ob.security_cameras} hint="Yes / No — locations if yes" />
+            <Field name="security_cameras" label="Security camera(s)" defaultValue={ob.security_cameras} hint="Yes / No, with locations if yes" />
           </Section>
 
           {/* ── Access & Notes ── */}
           <Section eyebrow="05" title="Property Access & Notes">
             <Field name="key_code_location" label="Key / code location" defaultValue={ob.key_code_location} />
-            <Field name="alarm_system" label="Alarm system" defaultValue={ob.alarm_system} hint="Yes / No — code if applicable" />
+            <Field name="alarm_system" label="Alarm system" defaultValue={ob.alarm_system} hint="Yes / No, with the code if applicable" />
             <Field name="known_issues" label="Known issues" defaultValue={ob.known_issues} hint="Appliances, HVAC, roof, etc." textarea />
             <Field name="upcoming_maintenance" label="Upcoming maintenance" defaultValue={ob.upcoming_maintenance} hint="Any scheduled work we should know about" textarea />
             <Field name="notes" label="Notes for Rising Tide" defaultValue={ob.notes} textarea />

@@ -288,7 +288,7 @@ export function PlanButton({
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           rows={2}
-          placeholder="e.g., morning slot — guest arrives 4 PM"
+          placeholder="e.g., morning slot, guest arrives 4 PM"
           style={{
             width: '100%',
             background: 'transparent',

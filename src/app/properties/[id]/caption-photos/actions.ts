@@ -326,7 +326,7 @@ export async function saveCaptionAction(
   } catch (err) {
     return {
       ok: false,
-      error: `Wrote the caption, but Helm couldn’t read the listing back to verify it (${errMsg(err)}). It may have saved — check this photo in Guesty before re-saving.`,
+      error: `Wrote the caption, but Helm couldn’t read the listing back to verify it (${errMsg(err)}). It may have saved. Check this photo in Guesty before re-saving.`,
     };
   }
   const afterByKey = new Map(after.map((p) => [keyOf(p), norm(p.caption)]));
@@ -398,7 +398,7 @@ export async function saveCaptionAction(
     return {
       ok: false,
       error:
-        'Guesty accepted the update but the caption did not appear on the listing, so the API write is not effective for this listing. Nothing was harmed — caption it in Guesty directly.',
+        'Guesty accepted the update but the caption did not appear on the listing, so the API write is not effective for this listing. Nothing was harmed. Caption it in Guesty directly.',
     };
   }
 

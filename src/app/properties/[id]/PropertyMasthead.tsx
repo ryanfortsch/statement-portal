@@ -378,8 +378,9 @@ export function PropertyMasthead({
           value={cleaner ? `${cleaner.display_name} · ${formatUsPhone(cleaner.phone)}` : null}
           scope={cleaner?.fleetWide ? 'fleet' : undefined}
           copy
+          // No page maps a cleaner to a home (it is set in the database), so
+          // the gap is plain text, never a link to a page that cannot fix it.
           fixLabel="No cleaner mapped"
-          fixHref="/turnovers/settings#schedule-recipients"
         />
         <Fact
           label="Owner"

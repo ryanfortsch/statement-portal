@@ -111,13 +111,16 @@ export async function listSegments(): Promise<GuestSegment[]> {
   return (data ?? []) as GuestSegment[];
 }
 
+/** The campaigns list shows the newest this many; the page says so at the cap. */
+export const CAMPAIGN_LIST_LIMIT = 50;
+
 export async function listCampaigns(): Promise<GuestCampaign[]> {
   if (!isConfigured) return [];
   const { data } = await supabase
     .from('audience_campaigns')
     .select('*')
     .order('created_at', { ascending: false })
-    .limit(50);
+    .limit(CAMPAIGN_LIST_LIMIT);
   return (data ?? []) as GuestCampaign[];
 }
 

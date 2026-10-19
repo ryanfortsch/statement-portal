@@ -175,9 +175,9 @@ export function renewalSummary(c: PropertyContractRow): string {
     return `Auto-renews yearly; ${initial ?? '—'}-day non-renewal notice`;
   }
   if (c.renewal_type === 'mutual_agreement') {
-    return 'Renews only by mutual written agreement — no auto-renew';
+    return 'Renews only by mutual written agreement, no auto-renew';
   }
-  return 'Fixed term — no renewal clause';
+  return 'Fixed term, no renewal clause';
 }
 
 export type UpcomingNotice = {

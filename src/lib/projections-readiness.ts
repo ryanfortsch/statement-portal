@@ -131,7 +131,7 @@ export const READINESS_GROUPS: ReadinessGroup[] = [
     items: [
       { label: 'Smart lock', qty: 1, per: 'flat', note: 'Per exterior door; add one for side / back entries' },
       { label: 'WiFi thermostat', qty: 1, per: 'flat' },
-      { label: 'Security camera', qty: 1, per: 'flat', note: 'Exterior only — never interior' },
+      { label: 'Security camera', qty: 1, per: 'flat', note: 'Exterior only, never interior' },
       { label: 'Router / modem', qty: 1, per: 'flat' },
       { label: 'Garage keypad', qty: 1, per: 'flat', note: 'If applicable' },
     ],

@@ -175,7 +175,7 @@ export function EditFormShell({
             <strong>Save failed.</strong> {state.error}
             <span style={{ display: 'block', marginTop: 4, color: 'var(--ink-3)' }}>
               Your entries are still in the form (and drafted locally). Fix the issue and hit Save
-              again — nothing is lost.
+              again. Nothing is lost.
             </span>
           </div>
         )}

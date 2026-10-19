@@ -294,7 +294,7 @@ export function parseAirDnaCsv(text: string): ParseResult {
 
     const market = cells[iMarket]?.trim().toLowerCase();
     if (!market) {
-      warnings.push(`Line ${lineNumber}: missing market — skipped`);
+      warnings.push(`Line ${lineNumber}: missing market, skipped`);
       continue;
     }
 

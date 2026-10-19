@@ -182,7 +182,7 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save', lastSave
           </Field>
         </Row>
         <Row>
-          <Field label="Monthly breakdown slide" hint="When on, the deck includes an extra Year 1 slide with revenue / cleaning / management fee / owner payout broken out per month. Off by default — leave on for owners who want line-item detail.">
+          <Field label="Monthly breakdown slide" hint="When on, the deck includes an extra Year 1 slide with revenue / cleaning / management fee / owner payout broken out per month. Off by default; turn it on for owners who want line-item detail.">
             <label style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '10px 12px', border: '1px solid var(--rule)', cursor: 'pointer', fontSize: 14 }}>
               <input
                 type="checkbox"
@@ -278,7 +278,7 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save', lastSave
           directly (otherwise it shows ramped Year 1 → full Year 1).
         </p>
         <Row>
-          <Field label="Revenue override — Low ($)">
+          <Field label="Revenue override, low ($)">
             <MoneyInput
               name="revenue_override_low"
               min={0}
@@ -286,7 +286,7 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save', lastSave
               defaultValue={v.revenue_override_low ?? ''}
             />
           </Field>
-          <Field label="Revenue override — High ($)">
+          <Field label="Revenue override, high ($)">
             <MoneyInput
               name="revenue_override_high"
               min={0}
@@ -296,7 +296,7 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save', lastSave
           </Field>
         </Row>
         <Row>
-          <Field label="Hero range — Low ($)" hint="Cover page lower bound">
+          <Field label="Hero range, low ($)" hint="Cover page lower bound">
             <MoneyInput
               name="hero_low_override"
               min={0}
@@ -304,7 +304,7 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save', lastSave
               defaultValue={v.hero_low_override ?? ''}
             />
           </Field>
-          <Field label="Hero range — High ($)" hint="Cover page upper bound">
+          <Field label="Hero range, high ($)" hint="Cover page upper bound">
             <MoneyInput
               name="hero_high_override"
               min={0}

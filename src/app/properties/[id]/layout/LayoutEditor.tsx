@@ -180,7 +180,7 @@ export function LayoutEditor({ propertyId, initialDeck, initialAddable, isCustom
         ? displayError || 'Could not save. Retry your changes.'
         : touched || isCustomized
           ? 'All changes saved'
-          : 'Standard layout — edit to customize';
+          : 'Standard layout. Edit to customize';
 
   const statusColor =
     status === 'error' ? 'var(--signal)' : status === 'saving' ? 'var(--ink-3)' : 'var(--ink-4)';

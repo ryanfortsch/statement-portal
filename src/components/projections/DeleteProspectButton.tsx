@@ -68,13 +68,13 @@ export function DeleteProspectButton({
     <div style={panelStyle}>
       <div style={headerStyle}>Permanently delete this prospect</div>
       <p style={bodyStyle}>
-        This wipes <strong>{prospectName}</strong> and everything tied to this projection — the
+        This wipes <strong>{prospectName}</strong> and everything tied to this projection: the
         contract draft, every redline override that&rsquo;s been applied, the onboarding intake,
         the signing audit. There is no undo.
       </p>
       <p style={bodyStyle}>
         If you just want to reset the contract edits back to the standard template,
-        use <strong>Reset contract</strong> instead — the prospect record stays intact.
+        use <strong>Reset contract</strong> instead. The prospect record stays intact.
       </p>
       <label style={labelStyle}>
         Type <code style={codeStyle}>{prospectLastName}</code> to confirm

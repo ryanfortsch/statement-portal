@@ -5,9 +5,14 @@ import { useFormStatus } from 'react-dom';
 import { PhotoUploader } from '@/components/PhotoUploader';
 import { ReceiptAmountField } from '@/components/ReceiptAmountField';
 import { completeBoardSlip } from '../actions';
+import { usePendingWatchdog } from '@/lib/use-pending-watchdog';
 
 function SubmitBtn({ label }: { label: string }) {
   const { pending } = useFormStatus();
+  // On a weak signal the response can be lost after the save lands; the
+  // watchdog reloads onto what was saved instead of spinning forever (the
+  // server refuses a second completion, so a retry never files twice).
+  usePendingWatchdog(pending);
   // Pill, not slab: this button repeats on every slip, so its visual weight
   // sets the whole board's noise floor. Still a 36px+ touch target.
   return (

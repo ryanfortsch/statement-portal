@@ -181,7 +181,7 @@ export const ICAL_HINTS: Record<BookingChannel, string> = {
   airbnb: 'Listing → Calendar → Availability → Sync calendars → Export calendar.',
   vrbo: 'Listing → Calendar → Reservation manager → Import/Export → Export calendar.',
   booking_com: 'Extranet → Rates & Availability → Sync calendars → Export calendar.',
-  direct: 'No external feed for direct stays — bookings land via the Helm direct-booking form.',
+  direct: 'No external feed for direct stays. Bookings land via the Helm direct-booking form.',
   manual: 'Manual entries do not have an iCal feed.',
   block: 'Owner blocks are entered in Helm; no inbound feed.',
   guesty: 'Guesty → Listing → Calendar → Export. One feed carries every channel; Helm parses each into its real channel.',

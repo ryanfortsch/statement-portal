@@ -1046,8 +1046,8 @@ export async function parsePropertyCaptureAction(
   const session = await auth();
   if (!session?.user?.email) return { ok: false, error: 'Not signed in.' };
   const text = rawText.trim();
-  if (!text) return { ok: false, error: 'Nothing to process — type or dictate a note first.' };
-  if (text.length > 4000) return { ok: false, error: 'That note is very long — trim it under 4000 characters.' };
+  if (!text) return { ok: false, error: 'Nothing to process. Type or dictate a note first.' };
+  if (text.length > 4000) return { ok: false, error: 'That note is very long. Trim it under 4000 characters.' };
 
   const sb = getServiceClient();
   const { data: prop, error: propErr } = await sb
@@ -1245,7 +1245,7 @@ export async function applyPropertyCaptureAction(
   }
 
   if (columnsApplied === 0 && notesApplied === 0) {
-    return { ok: false, error: 'Nothing to apply — every item was empty.' };
+    return { ok: false, error: 'Nothing to apply: every item was empty.' };
   }
 
   return { ok: true, columns: columnsApplied, notes: notesApplied, skipped };

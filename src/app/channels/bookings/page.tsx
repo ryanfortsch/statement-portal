@@ -29,7 +29,10 @@ export default async function ChannelsBookingsPage({ searchParams }: { searchPar
   const propertyId = one(sp.property).trim();
   const channel = (one(sp.channel).trim() || undefined) as BookingChannel | undefined;
   const status = one(sp.status).trim() as BookingStatus | '';
-  const range = (one(sp.range).trim() || 'upcoming') as 'upcoming' | 'past_30' | 'all';
+  // An unknown value falls back to Upcoming, the same thing the select shows,
+  // instead of quietly listing all time under an "Upcoming" label.
+  const rawRange = one(sp.range).trim();
+  const range: 'upcoming' | 'past_30' | 'all' = rawRange === 'past_30' || rawRange === 'all' ? rawRange : 'upcoming';
   const guestId = one(sp.guest).trim();
   const deleted = one(sp.deleted) === '1';
 

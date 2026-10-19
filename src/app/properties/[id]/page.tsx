@@ -1172,14 +1172,7 @@ export default async function PropertyDetailPage({
       >
         {propertyCleaners.length === 0 ? (
           <div style={{ padding: '14px 0', color: 'var(--ink-3)', fontSize: 13, lineHeight: 1.6, maxWidth: 720 }}>
-            No cleaner is mapped to {p.name}. Inbound texts from this house fall back to matching on
-            the message body, and the cleaner line on the header band stays empty.{' '}
-            <Link
-              href="/turnovers/settings#schedule-recipients"
-              style={{ color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}
-            >
-              Open Cleaner settings
-            </Link>
+            Ask Ryan: no cleaner is mapped to {p.name}.
           </div>
         ) : (
           <div style={{ borderTop: '1px solid var(--ink)' }}>
