@@ -982,13 +982,6 @@ export default async function PacketPage({
       {showSupplyStop && <SupplyRunCard run={supplyRun} pickedUp={anyStarted} />}
 
 
-      {/* A one-off or a setup sent to the handymen frames itself below. */}
-      {isMaint && !isSetup && !isAdhoc && !isMine && (
-        <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, marginBottom: 24, maxWidth: 520 }}>
-          Each stop is a specific maintenance job at a home. Addresses, the work details, and entry details unlock
-          as soon as you claim.
-        </p>
-      )}
       {/* The three-pillar scope sells the standard BEFORE claiming. Once the
           packet is theirs (working, submitted, approved) it's ~300px of
           scrolling between the inspector and their stops — drop it. */}
@@ -1006,7 +999,7 @@ export default async function PacketPage({
         <PacketRouteMap stops={routeStops} />
       ) : (
         <p style={{ fontSize: 13, color: 'var(--ink-4)', lineHeight: 1.6, margin: '4px 0 20px' }}>
-          The route and exact addresses are shared the moment you claim.
+          Addresses and entry unlock when you claim.
         </p>
       )}
 

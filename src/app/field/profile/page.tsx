@@ -106,8 +106,7 @@ export default async function FieldProfilePage({ searchParams }: { searchParams:
       {/* When "Approved, unpaid" turns into money, said where the figure is. */}
       {hasActivity && owedCents > 0 && !isCreative && (
         <p style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55, margin: '-18px 0 30px' }}>
-          Approved trips are paid to your payout method on file once the office records the payment, and a receipt
-          email comes the moment it&apos;s sent.
+          Paid to your payout method once the office records it, with a receipt email.
         </p>
       )}
 
@@ -227,9 +226,7 @@ export default async function FieldProfilePage({ searchParams }: { searchParams:
           <summary style={{ fontSize: 14, fontWeight: 600, color: 'var(--tide-deep)', cursor: 'pointer', listStyle: 'none', display: 'flex', alignItems: 'center', gap: 8 }}>
             Edit details <span aria-hidden className="rt-chev" style={{ fontSize: 12, transition: 'transform .15s ease', display: 'inline-block' }}>▾</span>
           </summary>
-          <div style={{ fontSize: 12.5, color: 'var(--ink-4)', margin: '8px 0 18px', lineHeight: 1.5 }}>
-            Your phone, how you&apos;re paid and your home town.
-          </div>
+          <div style={{ height: 18 }} />
           <EditDetailsForm
             key={sp.saved ?? 'form'}
             phone={contractor.phone}

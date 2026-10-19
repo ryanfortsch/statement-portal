@@ -347,7 +347,7 @@ export function StopAttachments({
             </details>
           ) : shownAttached.length === 0 ? (
             <div style={{ fontSize: 12, color: 'var(--ink-4)' }}>
-              No open work slips on this property. Create one in Work and it will show up here.
+              No open work slips.
             </div>
           ) : null}
 

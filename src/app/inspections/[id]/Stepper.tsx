@@ -1764,24 +1764,8 @@ function NoteModal({
           <div style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>
             Pin to property folder
           </div>
-          <div style={{ marginTop: 2, fontSize: 11, color: 'var(--ink-3)', lineHeight: 1.4 }}>
-            Visible on the property folder, persists across walks so whoever walks next sees it on arrival.
-          </div>
         </div>
       </label>
-
-      <div
-        style={{
-          marginTop: 14,
-          padding: '8px 12px',
-          background: 'var(--paper-2)',
-          fontSize: 11,
-          color: 'var(--ink-3)',
-          lineHeight: 1.5,
-        }}
-      >
-        Notes are observations only — no action required. They won&apos;t appear in work queues or affect scoring.
-      </div>
 
       {err && <ErrorBlock error={err} />}
 

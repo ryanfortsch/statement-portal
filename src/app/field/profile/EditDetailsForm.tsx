@@ -65,7 +65,6 @@ export function EditDetailsForm({
           <label style={labelStyle}>Home town</label>
           <input type="hidden" name="home_town_was" value={homeTown ?? ''} />
           <input name="home_town" type="text" defaultValue={homeTown ?? ''} placeholder="Gloucester, MA" autoComplete="address-level2" style={inputStyle} />
-          <div style={hint}>Where you start from. Work near you is matched by distance from here.</div>
         </div>
 
         <div style={{ border: '1px solid var(--rule)', borderRadius: 10, padding: '16px 18px', background: 'var(--paper-2, #fff)', display: 'flex', flexDirection: 'column', gap: 14 }}>

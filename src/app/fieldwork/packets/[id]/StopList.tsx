@@ -159,11 +159,6 @@ export function StopList({ packetId, items, canReorder }: { packetId: string; it
 
   return (
     <div style={{ userSelect: dragId ? 'none' : undefined }}>
-      {draggable && (
-        <div style={{ fontSize: 11, color: 'var(--ink-4)', marginBottom: 2 }}>
-          Drag <span style={{ letterSpacing: '-0.12em' }}>⋮⋮</span> or tap the arrows to set the visit order; 1 is first.
-        </div>
-      )}
       {order.map((id, i) => {
         const it = byId.get(id);
         if (!it) return null;

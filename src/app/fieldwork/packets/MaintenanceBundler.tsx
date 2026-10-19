@@ -76,7 +76,7 @@ export function MaintenanceBundler({ slips, assignable }: {
       </h2>
       {slips.length === 0 && (
         <p style={{ color: 'var(--ink-4)', fontSize: 13 }}>
-          Nothing to bundle. An unassigned maintenance slip on the Work board shows up here.
+          Nothing to bundle.
         </p>
       )}
       {groups.map(({ pid, items }) => (

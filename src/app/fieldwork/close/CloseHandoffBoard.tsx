@@ -210,11 +210,6 @@ export function CloseHandoffBoard({
           </div>
           {/* What happens after Sent, for the person who never sees a
               statement: the owner-only footer used to be the only place. */}
-          {!owner && summary.sent > 0 && (
-            <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 4 }}>
-              Sent items are with Ryan. He files each into the owner statement, and it turns to Filed here.
-            </div>
-          )}
         </div>
         {summary.open > 0 && (
           <button type="button" onClick={sendMonth} disabled={busy !== null} style={PRIMARY}>
@@ -347,9 +342,8 @@ export function CloseHandoffBoard({
 
       {owner && summary.pending > 0 && (
         <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 8 }}>
-          Repair costs and card charges file into the statement from the home&apos;s card on{' '}
-          <Link href={statementsHref(month)} style={{ color: 'var(--tide-deep)' }}>Statements</Link>, through the same receipt step as any
-          other receipt. Cleaning issues can be noted on the period there.
+          File them from each home&apos;s card on{' '}
+          <Link href={statementsHref(month)} style={{ color: 'var(--tide-deep)' }}>Statements</Link>.
         </div>
       )}
     </div>
