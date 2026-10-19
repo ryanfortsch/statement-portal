@@ -91,19 +91,24 @@ status `block`).** `bookings` holds one row per source per stay by design;
 never key per-stay logic on `bookings.id` (`memory/project_bookings_duplicate_rows.md`).
 
 - **Candidate only, not applied:** `docs/guesty-exit/staging-storage/booking-inventory-events.sql`
-  attaches change capture to canonical `bookings` transactions. The proposed
+  attaches change capture to canonical `bookings` transactions, property calendar
+  authority, availability rules, date closures and rental seasons. The proposed
   `helm_inventory_capture_scopes` holds each property's disabled-by-default
   capture flag and monotonic version. `helm_booking_inventory_events` stores
   only property/version, optional internal booking ID, fixed reason and timestamp.
   Service role can read; only the owner configures scopes and trigger functions
-  append records. RLS excludes browser roles. Configuration drains booking writes
-  with a transaction-held table lock; keep owner configuration transactions short.
+  append records. RLS excludes browser roles. Configuration drains writes to all
+  five captured source tables with transaction-held table locks; keep owner
+  configuration transactions short. Ordinary edits take property version locks.
   Enable/disable changes create
   checkpoints; booking insert/update/delete events invalidate the full property
   window, including both sides of a property move. These records do not grant
   publishing authority or contain an availability payload. No consumer or
-  provider transport is activated by this SQL. Rate-day/plan, rental-period and
-  rolling-time invalidations remain separate, unimplemented inputs.
+  provider transport is activated by this SQL. Prices, minimum stays and unrelated
+  metadata updates do not create availability events. Source inserts/deletes do
+  invalidate the canonical input set. Enabled capture also blocks source TRUNCATE.
+  Rolling time is handled by the consumer's bounded plan freshness, not a trigger;
+  multi-session contention and full-schema deployment remain unverified.
 - **Candidate only, not applied:** `staging-storage/booking-inventory-planning.sql`
   (under `docs/guesty-exit`) adds `helm_booking_inventory_consumers`: owner-reviewed
   single-unit staging configuration, processed capture/configuration versions,
@@ -113,7 +118,8 @@ never key per-stay logic on `bookings.id` (`memory/project_bookings_duplicate_ro
   configuration again, then appends the queue command and advances the checkpoint
   atomically. The dispatch append also checks authority, enablement, versions,
   current inputs and freshness. Service-role callers use RPCs; direct writes and
-  browser access are denied. No route is seeded or scheduled automatically.
+  browser access are denied. Installation requires all five current source capture
+  triggers to be enabled. No route is seeded or scheduled automatically.
 - **`booking_events`**: append-only change log per booking (`created`,
   `dates_changed`, `status_changed`, `cancelled`, `guest_changed`,
   `money_changed`, `feed_moved`, `note`) with `actor`, `before` and

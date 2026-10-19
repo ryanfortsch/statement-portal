@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { resolve, join } from 'node:path';
 import assert from 'node:assert/strict';
+import { verifyAvailabilityInputCapture } from './verify-availability-input-capture.mjs';
 import { verifyBookingInventoryConsumer } from './verify-booking-inventory-consumer.mjs';
 if (!process.argv[2]) throw new Error('Pass the absolute PGlite module path');
 const { PGlite } = await import(pathToFileURL(resolve(process.argv[2])).href);
@@ -36,6 +37,8 @@ try {
   await db.exec(section(plumbing, 'alter table public.bookings\n', '-- ── 5.'));
   await db.exec(`create table public.automation_sends (booking_id uuid, status text, error text, updated_at timestamptz);`);
   await db.exec(section(plumbing, 'create or replace function public.helm_row_conflicts(', '-- ── 12.'));
+  await db.exec(section(plumbing, 'create table if not exists public.property_rate_plans', '-- Quote-side jurisdiction'));
+  await db.exec(read('supabase/migrations/20260916120000_property_rental_periods.sql'));
   await db.exec(capture);
   let passed = 0;
   async function check(name, fn) { await fn(); passed++; console.log(`PASS ${name}`); }
@@ -63,7 +66,7 @@ try {
     assert.equal((await events())[0].reason, 'capture_enabled');
     assert.equal((await events())[0].booking_id, null);
   });
-  await check('scope configuration takes the booking-write barrier until commit', async () => {
+  await check('scope configuration drains every captured source until commit', async () => {
     for (const sql of [
       "update helm_inventory_capture_scopes set enabled=true where property_id='home'",
       "insert into helm_inventory_capture_scopes(property_id) values ('unscoped')"
@@ -71,8 +74,10 @@ try {
       await db.exec('begin');
       try {
         await db.exec(sql);
-        const locks = await query("select mode from pg_locks where relation='public.bookings'::regclass and pid=pg_backend_pid() and granted");
-        assert.ok(locks.some(l => l.mode === 'ShareLock'));
+        for (const table of ['bookings','properties','property_rate_plans','property_rate_days','property_rental_periods']) {
+          const locks = await query('select mode from pg_locks where relation=$1::regclass and pid=pg_backend_pid() and granted',[`public.${table}`]);
+          assert.ok(locks.some(l => l.mode === 'ShareLock'),table);
+        }
       } finally { await db.exec('rollback'); }
     }
   });
@@ -241,8 +246,8 @@ try {
     assert.deepEqual(await booking(hold.id), beforeBooking);
     await create(); assert.equal(await version(), v + 1);
   });
-  await verifyBookingInventoryConsumer(db, check,
-    section(plumbing, 'create table if not exists public.property_rate_plans', '-- Quote-side jurisdiction'));
+  await verifyAvailabilityInputCapture(db, check, capture);
+  await verifyBookingInventoryConsumer(db, check);
   await check('consumer cursor and uncertain dispatch survive database restart', async () => {
     const before = (await query("select helm_booking_inventory_read('home') as state"))[0].state;
     await db.close(); db = new PGlite(dataDir);

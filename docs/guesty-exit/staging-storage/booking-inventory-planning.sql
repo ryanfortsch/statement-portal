@@ -2,6 +2,19 @@
 -- and the canonical booking/rate/season tables. No seeded route or provider calls.
 -- Reviewed single-unit staging routes only. No linked-resource inference.
 begin;
+-- An older booking-only capture installation is insufficient. Refuse to install
+-- the consumer until all current canonical input triggers are enabled.
+do $$
+begin
+ if (select count(*) from pg_catalog.pg_trigger where not tgisinternal and tgenabled='O' and (
+   (tgname='helm_capture_booking_inventory_change' and tgrelid='public.bookings'::regclass
+     and tgfoid=to_regprocedure('public.helm_capture_booking_inventory_change()'))
+   or (tgname='helm_capture_availability_input_change'
+     and tgrelid in ('public.properties'::regclass,'public.property_rate_plans'::regclass,
+       'public.property_rate_days'::regclass,'public.property_rental_periods'::regclass)
+     and tgfoid=to_regprocedure('public.helm_capture_availability_input_change()'))
+ )) <> 5 then raise exception 'Install current availability-input capture before planning'; end if;
+end $$;
 create table if not exists public.helm_booking_inventory_consumers (
  property_id text primary key references public.helm_inventory_capture_scopes(property_id),
  configuration_version bigint not null default 1 check(configuration_version between 1 and 9007199254740991),

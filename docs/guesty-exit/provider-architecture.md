@@ -1169,3 +1169,44 @@ Next: review transactional invalidation/concurrency for every availability write
 review the candidate schema in an isolated full-schema environment, and establish
 terminal-task evidence before enabling any hosted delivery. Verified source coverage,
 initial calendar population, mapping review and production certification remain gates.
+
+### Transactional capture for every projected availability source (October 18, 2026)
+
+The candidate `booking-inventory-events.sql` now captures calendar-authority changes,
+the four projected availability rules, date closures and rental-season boundaries
+alongside bookings. Each relevant source edit advances the same property version
+and appends an internal invalidation in its own transaction. Moving an input row
+invalidates both properties. If capture fails, the source edit and version changes
+roll back together. A setting changed and then restored still invalidates an older
+plan or dispatch, even when a fresh input comparison returns identical values.
+
+Price, minimum-stay, quote-only and metadata updates do not create these events.
+An inserted/deleted rule, date or season row does invalidate the canonical input set,
+including an open date with default values. No source payload or pricing values are
+stored in the event journal. PriceLabs ownership is unchanged.
+
+Scope configuration now drains writes to all five captured tables before taking
+scope-row locks. These owner-only transactions must remain short because their
+SHARE locks hold source writes across properties until commit. Ordinary source edits
+use property-row version locks, without those global SHARE locks. TRUNCATE is refused
+while any capture scope is enabled. The planning SQL also refuses installation if
+any of the five required capture triggers is missing or disabled. Existing candidate
+event constraints upgrade in place without changing prior event rows.
+
+Validation: 60 local PostgreSQL checks pass, adding 18 checks for input mutations,
+ignored pricing edits, rollback, scope configuration locks, truncation, upgrade/reapply,
+installation dependency and stale-plan/dispatch rejection after input restoration.
+All 2,024 project tests in 240 suites pass; nonincremental TypeScript, targeted ESLint
+and diff checks pass. Fixtures use the repository rate/season definitions before
+installing capture. These are single-session PGlite checks, not evidence of actual
+multi-session contention or compatibility with the complete hosted schema. No native
+PostgreSQL server was available locally for a separate-session contention run.
+
+Handoff: branch `codex/channex-staging-pilot`, starting HEAD `ba2be30e`, original base
+`a148b0e6`, remote main verified `25d7655f`. Canonical booking/plumbing, availability,
+rate and season sources match that main reference. Changed files: both candidate SQL
+files, both booking-inventory verifiers, the new availability-input verifier,
+`SCHEMA.md`, and this document. Unrelated contract notes remain excluded. The candidate
+SQL has not been applied to a hosted database, and no runtime delivery is enabled.
+Separate-session contention/full-schema review and trustworthy terminal-task evidence
+remain next integration gates; matching calendar counts still cannot settle a task.

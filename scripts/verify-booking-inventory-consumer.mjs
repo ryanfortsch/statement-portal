@@ -8,11 +8,14 @@ import { deliverBookingInventoryOnce } from '../src/lib/channex-staging/booking-
 import { prepareInventoryDispatch } from '../src/lib/channex-staging/inventory-worker.ts';
 import { replayInventoryJournal, recordInventoryCommand } from '../src/lib/channex-staging/inventory-journal.ts';
 import { shiftIsoDay, todayInEastern } from '../src/lib/sca-quotes-types.ts';
-export async function verifyBookingInventoryConsumer(db, check, rateSchema) {
+export async function verifyBookingInventoryConsumer(db, check) {
   const query = async (sql,args=[]) => (await db.query(sql,args)).rows;
-  await db.exec(rateSchema);
-  await db.exec(readFileSync(new URL('../supabase/migrations/20260916120000_property_rental_periods.sql', import.meta.url), 'utf8'));
   const sql = readFileSync(new URL('../docs/guesty-exit/staging-storage/booking-inventory-planning.sql',import.meta.url),'utf8');
+  await check('planning installation refuses an incomplete or disabled input capture boundary',async()=>{
+    await db.exec('alter table property_rate_days disable trigger helm_capture_availability_input_change');
+    try{await assert.rejects(()=>db.exec(sql),/Install current availability-input capture/);}
+    finally{await db.exec('rollback; alter table property_rate_days enable trigger helm_capture_availability_input_change');}
+  });
   await db.exec(sql);
   const read = async () => (await query("select helm_booking_inventory_read('home') as state"))[0].state;
   const stamp=Date.now(),start=shiftIsoDay(todayInEastern(new Date(stamp)),10),end=shiftIsoDay(start,8);
@@ -111,6 +114,35 @@ export async function verifyBookingInventoryConsumer(db, check, rateSchema) {
     assert.equal(prepared,null);assert.equal((await jobs()).at(-1).status,'leased');
     // Simulate lease timeout without sleeping or touching an external provider.
     await recordInventoryCommand(store.journal,{kind:'expire',now:Date.now()+6000});
+  });
+  await check('every non-booking source round trip invalidates an otherwise identical dispatch context',async()=>{
+    for(const mutate of [
+      ()=>db.exec("update properties set calendar_authority='guesty' where id='home'; update properties set calendar_authority='helm' where id='home'"),
+      ()=>db.exec("update property_rate_plans set advance_notice_hours=25 where property_id='home'; update property_rate_plans set advance_notice_hours=24 where property_id='home'"),
+      ()=>query("update property_rate_days set closed=not closed where property_id='home' and date=$1",[start]).then(()=>query("update property_rate_days set closed=not closed where property_id='home' and date=$1",[start])),
+      ()=>db.exec("insert into property_rental_periods(property_id,start_month,start_day,end_month,end_day) values('home',1,1,12,31); delete from property_rental_periods where property_id='home'"),
+    ]){
+      await create(start,shiftIsoDay(start,1));assert.equal((await run()).status,'queued');
+      const before=await read(),job=(await jobs()).at(-1);
+      const prepared=await prepareInventoryDispatch(store.journal,job.id,Date.now,5000,async j=>{
+        const context=await bookingInventoryDispatchContext(store,j,Date.now);assert.equal(context.complete,true);
+        await mutate();return context;
+      });
+      const after=await read();assert.deepEqual(after.inputs,before.inputs);assert.equal(after.inputsMatchPlan,true);
+      assert.equal(after.captureVersion,before.captureVersion+2);assert.equal(prepared,null);
+      assert.equal((await jobs()).at(-1).status,'leased');
+      await recordInventoryCommand(store.journal,{kind:'expire',now:Date.now()+6000});
+    }
+  });
+  await check('source change and restoration during planning still reject the older capture version',async()=>{
+    await create(start,shiftIsoDay(start,1));const before=await read(),commit=store.commit;
+    store.commit=async(...args)=>{
+      await db.exec("update property_rate_plans set booking_window_days=200 where property_id='home'; update property_rate_plans set booking_window_days=365 where property_id='home'");
+      return commit(...args);
+    };
+    try{assert.equal((await run()).status,'superseded');}finally{store.commit=commit;}
+    const after=await read();assert.deepEqual(after.inputs,before.inputs);assert.equal(after.journalVersion,before.journalVersion);
+    assert.equal(after.planVersion,before.planVersion);assert.equal(after.captureVersion,before.captureVersion+2);
   });
   let deliveryJob, deliveryClient, postCount=0;
   await check('canonical SQL queue reaches availability transport only after durable submitting',async()=>{
