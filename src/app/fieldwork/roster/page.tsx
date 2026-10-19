@@ -199,7 +199,7 @@ export default async function ContractorsPage({
 
         {/* Hiring lives here now: the applicants for this trade first, with
             the one invite door. The retired Hiring page redirects here. */}
-        <Applicants apps={applications} trade={trade} owner={owner} base={base} />
+        <Applicants apps={applications} trade={trade} base={base} />
 
         {/* The rate card folds away: a set-up chore that, open, pushed the
             people below the fold on every visit (Dotti, 2026-09-21:
@@ -568,15 +568,13 @@ function ContractorCard({
       {/* Actions */}
       <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center', marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--rule)' }}>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-          {/* The check's state rides the status pill; this row is the
-              owner's lever to change it. */}
-          {owner && <span style={{ fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>Background</span>}
-          {/* Clearing a check is the one gate between a person and an
-              owner's house: owners only. */}
-          {/* Running and cleared text and email the contractor (the
-              portal home promises both); failed sends nothing, so the
-              office calls. */}
-          {owner && (['pending', 'cleared', 'failed'] as const)
+          {/* The check's state rides the status pill; this row changes it.
+              Staff run the hiring lifecycle since 2026-10-19 (Dotti), so the
+              ops manager clears a check; each change confirms first.
+              Running and cleared text and email the contractor (the portal
+              home promises both); failed sends nothing, so the office calls. */}
+          <span style={{ fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>Background</span>
+          {(['pending', 'cleared', 'failed'] as const)
             .filter((s) => s !== c.background_check_status)
             .map((s) => {
               const word = (BG_LABEL[s] ?? s).toLowerCase();
@@ -601,18 +599,18 @@ function ContractorCard({
           {/* Their portal link, first-class next to the other row actions
               (was buried in the quiet compliance strip below). */}
           <CopyCode value="Copy portal link" copyValue={`${base}/field/${c.portal_token}`} mono={false} />
-          {/* Pause / reactivate / retire, the property board grant and the
-              link controls are owner-only: each one changes what a person
-              can reach, and setContractorStatus('archived') pulls door codes
-              and republishes their work. */}
-          {owner && c.status === 'active' && (
+          {/* Pause, reactivate, the property board grant and Resend invite
+              are staff's (2026-10-19). Employment, Rotate link and Retire stay
+              with the owners: Retire pulls door codes and republishes their
+              work, and the server refuses it for staff. */}
+          {c.status === 'active' && (
             <form action={setContractorStatus} style={{ margin: 0 }}>
               <input type="hidden" name="contractor_id" value={c.id} />
               <input type="hidden" name="status" value="paused" />
               <SubmitButton label="Pause" busyLabel="Pausing…" style={actBtn} spinnerTone="ink" />
             </form>
           )}
-          {owner && (c.status === 'paused' || c.status === 'archived') && (
+          {(c.status === 'paused' || (owner && c.status === 'archived')) && (
             <form action={setContractorStatus} style={{ margin: 0 }}>
               <input type="hidden" name="contractor_id" value={c.id} />
               <input type="hidden" name="status" value="active" />
@@ -626,24 +624,20 @@ function ContractorCard({
               <SubmitButton label={isEmployee(c) ? 'Mark contractor' : 'Mark employee'} busyLabel="Saving…" style={isEmployee(c) ? { ...actBtn, color: 'var(--tide-deep)', borderColor: 'var(--tide-deep)' } : actBtn} spinnerTone="ink" />
             </form>
           )}
-          {owner && (
-            <form action={setContractorWorkBoard} style={{ margin: 0 }} title="The all-properties work-slip board in their Field portal. It reveals the full portfolio, so grant deliberately.">
-              <input type="hidden" name="contractor_id" value={c.id} />
-              <input type="hidden" name="grant" value={c.work_board_access ? 'false' : 'true'} />
-              <SubmitButton
-                label={c.work_board_access ? 'Revoke property board' : 'Grant property board'}
-                busyLabel="Saving…"
-                style={c.work_board_access ? { ...actBtn, color: 'var(--positive)', borderColor: 'var(--positive)' } : actBtn}
-                spinnerTone="ink"
-              />
-            </form>
-          )}
-          {owner && (
-            <form action={resendInvite} style={{ margin: 0 }}>
-              <input type="hidden" name="contractor_id" value={c.id} />
-              <SubmitButton label="Resend invite" busyLabel="Resending…" style={actBtn} spinnerTone="ink" />
-            </form>
-          )}
+          <form action={setContractorWorkBoard} style={{ margin: 0 }} title="The all-properties work-slip board in their Field portal. It reveals the full portfolio, so grant deliberately.">
+            <input type="hidden" name="contractor_id" value={c.id} />
+            <input type="hidden" name="grant" value={c.work_board_access ? 'false' : 'true'} />
+            <SubmitButton
+              label={c.work_board_access ? 'Revoke property board' : 'Grant property board'}
+              busyLabel="Saving…"
+              style={c.work_board_access ? { ...actBtn, color: 'var(--positive)', borderColor: 'var(--positive)' } : actBtn}
+              spinnerTone="ink"
+            />
+          </form>
+          <form action={resendInvite} style={{ margin: 0 }}>
+            <input type="hidden" name="contractor_id" value={c.id} />
+            <SubmitButton label="Resend invite" busyLabel="Resending…" style={actBtn} spinnerTone="ink" />
+          </form>
           {owner && (
             <form action={rotateContractorToken} style={{ margin: 0 }}>
               <input type="hidden" name="contractor_id" value={c.id} />

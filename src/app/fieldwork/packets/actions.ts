@@ -1619,7 +1619,7 @@ export async function approvePacket(formData: FormData): Promise<void> {
  *  Reopens it (in_progress) and resets the stops so they re-inspect; the prior
  *  inspection rows stay as an audit trail. */
 export async function requestChanges(formData: FormData): Promise<void> {
-  const email = await ownerEmail();
+  const email = await staffEmail();
   const packetId = String(formData.get('packet_id') || '');
   const note = String(formData.get('note') || '').trim();
   const { data } = await fieldDb()
@@ -1760,7 +1760,7 @@ export async function removeStop(formData: FormData): Promise<void> {
 
 /** Invite a contractor: create the row + email their personal portal link. */
 export async function inviteContractor(formData: FormData): Promise<void> {
-  const email = await ownerEmail();
+  const email = await staffEmail();
   const fullName = String(formData.get('full_name') || '').trim();
   const contractorEmail = String(formData.get('email') || '').trim().toLowerCase();
   const phone = String(formData.get('phone') || '').trim() || null;
@@ -1802,10 +1802,17 @@ export async function inviteContractor(formData: FormData): Promise<void> {
  *  Archived is cut off entirely — the token + session stop resolving — so we
  *  also drop their sessions. */
 export async function setContractorStatus(formData: FormData): Promise<void> {
-  const email = await ownerEmail();
+  const email = await staffEmail();
   const id = String(formData.get('contractor_id') || '');
   const status = String(formData.get('status') || '');
   if (!['active', 'paused', 'archived'].includes(status)) return;
+  // Staff pause and reactivate; retiring pulls door codes and republishes the
+  // person's work, and reactivating a retired one restores access: owners only.
+  if (status === 'archived') await ownerEmail();
+  if (status === 'active') {
+    const { data: cur } = await fieldDb().from('contractors').select('status').eq('id', id).maybeSingle();
+    if ((cur as { status?: string } | null)?.status === 'archived') await ownerEmail();
+  }
   await fieldDb().from('contractors').update({ status, updated_at: new Date().toISOString() }).eq('id', id);
   if (status === 'archived') {
     // Hard offboard: kill sessions, AND pull any live door codes + release the
@@ -1857,7 +1864,7 @@ export async function rotateContractorToken(formData: FormData): Promise<void> {
 
 /** Re-send the existing portal link (no rotation). */
 export async function resendInvite(formData: FormData): Promise<void> {
-  await ownerEmail();
+  await staffEmail();
   const id = String(formData.get('contractor_id') || '');
   const { data } = await fieldDb().from('contractors').select('*').eq('id', id).maybeSingle();
   const c = (data as ContractorRow | null) ?? null;
@@ -1878,7 +1885,7 @@ export async function resendInvite(formData: FormData): Promise<void> {
  *  matches a row whose status differs, so a double tap or a second tab
  *  changes nothing the second time and sends nothing. */
 export async function setContractorBackgroundCheck(formData: FormData): Promise<void> {
-  const staff = await ownerEmail();
+  const staff = await staffEmail();
   const contractorId = String(formData.get('contractor_id') || '');
   const statusIn = String(formData.get('bg_status') || '');
   const allowed = ['not_started', 'pending', 'cleared', 'failed'];
@@ -1935,7 +1942,7 @@ export async function setContractorEmployment(formData: FormData): Promise<void>
 }
 
 export async function setContractorWorkBoard(formData: FormData): Promise<void> {
-  const email = await ownerEmail();
+  const email = await staffEmail();
   const contractorId = String(formData.get('contractor_id') || '');
   const grant = formData.get('grant') === 'true';
   if (!contractorId) return;
