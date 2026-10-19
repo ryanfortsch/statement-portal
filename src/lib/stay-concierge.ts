@@ -18,6 +18,7 @@ import type { MessageOutcomeCarrier } from '@/lib/message-outcomes';
 import type { RentalInquiry } from '@/lib/rental-inquiry';
 
 import type { ConciergeAttention } from '@/lib/concierge-alerts';
+import type { ReviewAsksPayload } from '@/lib/review-ask-state';
 
 export type Approval = MessageOutcomeCarrier & {
   id: string;
@@ -1830,4 +1831,15 @@ export function releaseHeldEmail(sourceId: string, actor?: string) {
 export async function listInboxSearchApprovals(audience: import('./inbox-search').InboxAudience, recent = false) {
   const paths = { guests: 'approvals', owners: 'owner-approvals', cleaners: 'cleaner-approvals', contractors: 'contractor-approvals' };
   return request<{ approvals: import('./inbox-search').SearchableApproval[]; count: number }>(`/api/${paths[audience]}${recent ? '/recent?hours=168' : ''}`);
+}
+
+// --- Review asks, for the Reviews tab ------------------------------------
+
+/** What the review ledger knows about each of these Guesty reservations: the
+ *  first ask and the follow-up, the card behind each, and what the thread
+ *  said. Local reads on the concierge side, nothing written, so a page load
+ *  costs no Guesty call. Max 300 ids per call. */
+export function getReviewAsks(reservationIds: string[]) {
+  const ids = [...new Set(reservationIds.filter(Boolean))].slice(0, 300);
+  return request<ReviewAsksPayload>(`/api/review-asks?ids=${encodeURIComponent(ids.join(','))}`);
 }

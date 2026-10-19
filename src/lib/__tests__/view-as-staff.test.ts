@@ -172,8 +172,10 @@ describe('the cookie is written only by the owner-checked action', () => {
   test('no URL reads or sets the switch', () => {
     // These are the only files that mention the switch at all. None reads
     // a query string or a path for it: a page or route that grew a
-    // ?viewAs= would have to be added here, and should not be.
-    assert.deepEqual(filesMatching(/view[_-]?as/i), [
+    // ?viewAs= would have to be added here, and should not be. "review asks"
+    // (the Reviews tab's ask history) is a different word that happens to
+    // contain the same letters.
+    assert.deepEqual(filesMatching(/(?<!re)view[_-]?as/i), [
       'src/app/view-as-actions.ts',
       'src/components/HelmMasthead.tsx',
       'src/components/UserMenu.tsx',
