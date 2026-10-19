@@ -31,6 +31,7 @@ import { planRunsNow, publishRun, emailWorkOrder, markRunScheduled } from './run
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import { useConfirm } from '@/components/ConfirmDialog';
+import { Button } from '@/components/Button';
 
 const LABEL: React.CSSProperties = {
   fontSize: 10,
@@ -247,44 +248,18 @@ function WorkOrderComposer({
               onChange={(e) => setSchedDate(e.target.value)}
               style={{ border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)', fontSize: 12, padding: '4px 6px' }}
             />
-            <button
-              type="button"
-              onClick={onMarkScheduled}
-              disabled={marking}
-              style={{
-                background: 'var(--ink)',
-                color: 'var(--paper)',
-                border: '1px solid var(--ink)',
-                padding: '4px 10px',
-                ...LABEL,
-                cursor: marking ? 'default' : 'pointer',
-                opacity: marking ? 0.6 : 1,
-              }}
-            >
-              {marking ? 'Saving…' : 'Mark scheduled'}
-            </button>
+            <Button variant="primary" size="sm" onClick={onMarkScheduled} pending={marking} pendingLabel="Saving">
+              Mark scheduled
+            </Button>
             <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
               stamps each slip: Scheduled · due that day · Vendor: {done.vendorName}
             </span>
             {markError && <span role="alert" style={{ fontSize: 11, color: 'var(--negative)' }}>{markError}</span>}
           </div>
         )}
-        <button
-          type="button"
-          onClick={requestClose}
-          disabled={marking}
-          style={{
-            alignSelf: 'flex-start',
-            background: 'none',
-            border: '1px solid var(--rule)',
-            color: 'var(--ink-3)',
-            padding: '4px 10px',
-            ...LABEL,
-            cursor: marking ? 'default' : 'pointer',
-          }}
-        >
+        <Button size="sm" onClick={requestClose} disabled={marking} style={{ alignSelf: 'flex-start' }}>
           Close work order
-        </button>
+        </Button>
       </div>
     );
   }
@@ -337,34 +312,24 @@ function WorkOrderComposer({
         style={{ border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)', fontSize: 12.5, padding: '6px 8px', resize: 'vertical' }}
       />
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <button
-          type="button"
+        <Button
+          variant="primary"
+          size="sm"
           onClick={onSend}
-          disabled={sending || !toEmail.trim() || !toName.trim()}
-          style={{
-            background: 'var(--ink)',
-            color: 'var(--paper)',
-            border: '1px solid var(--ink)',
-            padding: '5px 12px',
-            ...LABEL,
-            cursor: sending ? 'default' : 'pointer',
-            opacity: sending || !toEmail.trim() || !toName.trim() ? 0.5 : 1,
-          }}
+          disabled={!toEmail.trim() || !toName.trim()}
+          pending={sending}
+          pendingLabel={copyMode ? 'Copying' : 'Drafting'}
         >
-          {copyMode ? (sending ? 'Copying…' : 'Copy email') : (sending ? 'Drafting…' : 'Create Gmail draft')}
-        </button>
+          {copyMode ? 'Copy email' : 'Create Gmail draft'}
+        </Button>
         <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
           {copyMode
             ? `Helm has no Gmail for you, so this copies the email to paste into your own mail · photos as links${ccLine ? ` · cc ${ccLine}` : ''}`
             : `Drafts in ${myMailbox ? `your Gmail (${myMailbox})` : 'your Gmail'}; you review and send · photos attached${ccLine ? ` · cc ${ccLine}` : ''}`}
         </span>
-        <button
-          type="button"
-          onClick={requestClose}
-          style={{ background: 'none', border: 'none', color: 'var(--ink-3)', fontSize: 11, cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: 3 }}
-        >
+        <Button variant="quiet" onClick={requestClose}>
           Cancel
-        </button>
+        </Button>
         {error && <span role="alert" style={{ fontSize: 11, color: 'var(--negative)' }}>{error}</span>}
       </div>
     </fieldset>
@@ -461,74 +426,26 @@ function RunCard({ run, roster, myMailbox }: { run: MaintenanceRunCard; roster: 
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 2, flexWrap: 'wrap' }}>
         {run.status === 'draft' && !published && !confirmingPublish && (
-          <button
-            type="button"
-            onClick={() => setConfirmingPublish(true)}
-            style={{
-              background: 'var(--ink)',
-              color: 'var(--paper)',
-              border: '1px solid var(--ink)',
-              padding: '4px 10px',
-              ...LABEL,
-              cursor: 'pointer',
-            }}
-          >
+          <Button variant="primary" size="sm" onClick={() => setConfirmingPublish(true)}>
             Publish
-          </button>
+          </Button>
         )}
         {run.status === 'draft' && !published && confirmingPublish && (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
               Post this run for a contractor to claim{run.postedPriceCents != null ? ` at ${fmtPrice(run.postedPriceCents)}` : ''}?
             </span>
-            <button
-              type="button"
-              onClick={onPublish}
-              disabled={publishing}
-              style={{
-                background: 'var(--ink)',
-                color: 'var(--paper)',
-                border: '1px solid var(--ink)',
-                padding: '4px 10px',
-                ...LABEL,
-                cursor: publishing ? 'default' : 'pointer',
-                opacity: publishing ? 0.6 : 1,
-              }}
-            >
-              {publishing ? 'Publishing…' : error ? 'Retry publish' : 'Confirm'}
-            </button>
-            <button
-              type="button"
-              onClick={() => { setConfirmingPublish(false); setError(''); }}
-              disabled={publishing}
-              style={{
-                background: 'none',
-                border: '1px solid var(--rule)',
-                color: 'var(--ink-3)',
-                padding: '4px 10px',
-                ...LABEL,
-                cursor: publishing ? 'default' : 'pointer',
-              }}
-            >
+            <Button variant="primary" size="sm" onClick={onPublish} pending={publishing} pendingLabel="Publishing">
+              {error ? 'Retry publish' : 'Confirm'}
+            </Button>
+            <Button size="sm" onClick={() => { setConfirmingPublish(false); setError(''); }} disabled={publishing}>
               Cancel
-            </button>
+            </Button>
           </span>
         )}
-        <button
-          type="button"
-          onClick={() => setComposing(true)}
-          disabled={composing}
-          style={{
-            background: 'none',
-            border: '1px solid var(--rule)',
-            color: 'var(--ink)',
-            padding: '4px 10px',
-            ...LABEL,
-            cursor: 'pointer',
-          }}
-        >
+        <Button size="sm" onClick={() => setComposing(true)} disabled={composing}>
           Email…
-        </button>
+        </Button>
         <Link
           href={`/fieldwork/packets/${run.packetId}`}
           prefetch={false}
@@ -558,21 +475,9 @@ function VendorGroup({ propertyName, slips, roster, myMailbox }: { propertyName:
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
         <span className="font-serif" style={{ fontSize: 14, fontWeight: 500 }}>{propertyName}</span>
-        <button
-          type="button"
-          onClick={() => setComposing(true)}
-          disabled={composing}
-          style={{
-            background: 'none',
-            border: '1px solid var(--rule)',
-            color: 'var(--ink)',
-            padding: '2px 8px',
-            ...LABEL,
-            cursor: 'pointer',
-          }}
-        >
+        <Button size="sm" onClick={() => setComposing(true)} disabled={composing}>
           Email…
-        </button>
+        </Button>
       </div>
       {slips.map((s) => (
         <div key={s.id} style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: 12.5, flexWrap: 'wrap' }}>
@@ -660,22 +565,10 @@ export function RunsRail({ data, standalone, myMailbox }: { data: RunsBoardData;
           </h2>
           {note && <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>{note}</span>}
           {planError && <span role="alert" style={{ fontSize: 11, color: 'var(--negative)' }}>{planError}</span>}
-          <button
-            type="button"
-            onClick={onPlanNow}
-            disabled={planning}
-            style={{
-              background: 'none',
-              border: '1px solid var(--rule)',
-              color: 'var(--ink)',
-              padding: '4px 10px',
-              ...LABEL,
-              cursor: planning ? 'default' : 'pointer',
-              opacity: planning ? 0.6 : 1,
-            }}
-          >
-            {planning ? 'Planning…' : 'Plan now'}
-          </button>
+          {/* No watchdog: the planner can run past 30 seconds on a full week. */}
+          <Button size="sm" onClick={onPlanNow} pending={planning} pendingLabel="Planning" watchdog={false}>
+            Plan now
+          </Button>
         </div>
         {data.runs.length > 0 && (
           <div style={{ display: 'flex', gap: 12, marginTop: 14, flexWrap: 'wrap' }}>

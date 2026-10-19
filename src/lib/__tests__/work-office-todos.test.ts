@@ -76,7 +76,8 @@ describe('an office to-do is closed the way a slip is', () => {
     const page = code(read('src/app/work/tasks/[id]/TaskDetail.tsx'));
     assert.ok(page.includes('TASK_PICKER_STATUSES.map'), 'the status chips render the picker list');
     assert.ok(!/<option value="archived"/.test(page), 'Archived is not an option');
-    assert.ok(page.includes("'Mark Done'"), 'Mark Done is on the page');
+    // The verb is a Button's text since Phase 4 (2026-10-18), not a string literal.
+    assert.ok(/>\s*Mark Done\s*</.test(page) || page.includes("'Mark Done'"), 'Mark Done is on the page');
     assert.ok(/saveField\('status', TASK_DISMISSED_STATUS\)/.test(page), 'Dismiss writes the dismissed status');
   });
 
