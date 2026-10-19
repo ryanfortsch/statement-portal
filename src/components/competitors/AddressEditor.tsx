@@ -115,6 +115,7 @@ export function AddressEditor({
       </div>
 
       <div
+        className="rt-form-pair"
         style={{
           display: 'grid',
           gridTemplateColumns: '1fr 1fr',

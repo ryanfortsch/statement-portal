@@ -48,6 +48,7 @@ export function RecentChanges({ events, lastSyncAt }: Props) {
 function EventRow({ event: e }: { event: CompetitorEvent }) {
   return (
     <div
+      className="rt-comp-event"
       style={{
         display: 'grid',
         gridTemplateColumns: '90px 1fr 130px',

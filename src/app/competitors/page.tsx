@@ -72,6 +72,7 @@ function CompetitorRow({
       style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}
     >
       <div
+        className="rt-comp-index-row"
         style={{
           display: 'grid',
           gridTemplateColumns: '64px 1fr auto',
@@ -104,6 +105,7 @@ function CompetitorRow({
           <p style={{ marginTop: 6, fontSize: 13, color: 'var(--ink-3)' }}>{meta.tagline}</p>
 
           <div
+            className="rt-comp-cells"
             style={{
               marginTop: 16,
               display: 'grid',
