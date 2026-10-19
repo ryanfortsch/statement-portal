@@ -666,6 +666,9 @@ describe('the data behind the page gate refuses a staff session', () => {
     const agreements = read('src/app/guests/agreements/actions.ts');
     const countersign = agreements.match(/export async function countersignAgreement[\s\S]*?(?=\nexport async function |$)/);
     assert.ok(countersign && countersign[0].includes('await requireOwnerEmail();'), 'countersignAgreement must require an owner');
+    const page = read('src/app/guests/agreements/[id]/page.tsx');
+    assert.ok(page.includes('const owner = await isOwnerSession();'), 'the agreement page reads the role');
+    assert.ok(/!a\.voided_at && \(owner \? \(\s*<form action=\{countersignAgreement\}>/.test(page), 'staff get no Countersign button that would fail');
     const campaigns = read('src/app/guests/campaigns/actions.ts');
     const send = campaigns.match(/export async function sendCampaign\(formData[\s\S]*?(?=\nexport async function |$)/);
     assert.ok(send && send[0].includes('await requireOwnerEmail();'), 'sendCampaign must require an owner');
