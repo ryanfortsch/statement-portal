@@ -17,6 +17,7 @@
  * it says older conversations are in Guesty, with a link, instead of ending.
  */
 
+import { reviewAskContext } from '@/lib/review-ask-context';
 import { useEffect, useMemo, useState, useTransition, type ReactNode } from 'react';
 import { matchesInboxText } from '@/lib/inbox-search';
 import { Section } from '@/components/Section';
@@ -502,7 +503,7 @@ export function ConversationRow({
           title={c.last_preview || undefined}
         >
           {c.last_preview
-            ? `${c.last_who === 'host' ? 'Sent: ' : ''}${c.last_preview}`
+            ? `${c.last_who === 'host' ? 'Sent: ' : ''}${reviewAskContext(c.last_preview) ?? c.last_preview}`
             : ''}
         </span>
         <span
