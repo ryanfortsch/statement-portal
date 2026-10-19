@@ -1352,3 +1352,49 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
   .rt-guest-stay-row > :nth-child(3) { grid-area: nights; text-align: right; }
   .rt-guest-stay-row > :nth-child(4) { grid-area: chan; text-align: right; }
 }
+
+/* Competitors on a phone (2026-10-17 audit). The nine-column inventory
+   becomes a list: the name with its edit button, the address under it, then
+   town, beds, baths, sleeps, pets and the link as one wrapped line, each
+   number labelled because the header row no longer sits above it. The
+   header keeps its sort buttons as a wrapped row. The detail page's coverage
+   box and breakdowns stack, and the index rows drop the row number. */
+@media (max-width: 640px) {
+  .rt-comp-head {
+    display: flex !important;
+    flex-wrap: wrap;
+    gap: 6px 16px !important;
+  }
+  .rt-comp-head > .rt-comp-head-label { display: none; }
+  .rt-comp-row {
+    display: flex !important;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 14px !important;
+  }
+  .rt-comp-row > :nth-child(1) { order: 1; flex: 1 1 calc(100% - 64px); min-width: 0; }
+  .rt-comp-row > :nth-child(9) { order: 2; margin-left: auto; }
+  .rt-comp-row > :nth-child(2) { order: 3; flex: 0 0 100%; }
+  .rt-comp-row > :nth-child(n+3):nth-child(-n+8) { order: 4; text-align: left !important; }
+  .rt-comp-row > [data-label]::before {
+    content: attr(data-label) " ";
+    font-family: var(--font-inter), sans-serif;
+    font-size: 9px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--ink-4);
+  }
+  .rt-comp-coverage { grid-template-columns: minmax(0, 1fr) !important; gap: 16px !important; }
+  .rt-comp-breakdowns { grid-template-columns: minmax(0, 1fr) !important; gap: 32px !important; }
+  .rt-comp-event {
+    grid-template-columns: auto minmax(0, 1fr) !important;
+    grid-template-areas: "chip time" "name name";
+    gap: 4px 12px !important;
+  }
+  .rt-comp-event > :nth-child(1) { grid-area: chip; }
+  .rt-comp-event > :nth-child(2) { grid-area: name; }
+  .rt-comp-event > :nth-child(3) { grid-area: time; }
+  .rt-comp-index-row { grid-template-columns: minmax(0, 1fr) !important; gap: 12px !important; padding: 22px 0 !important; }
+  .rt-comp-index-row > :first-child { display: none; }
+  .rt-comp-cells { grid-template-columns: repeat(2, max-content) !important; column-gap: 28px !important; row-gap: 10px !important; }
+}

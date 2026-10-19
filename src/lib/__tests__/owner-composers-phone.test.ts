@@ -46,3 +46,17 @@ test('the phone rules are in globals.css', () => {
   assert.match(css, /\.rt-composer-aside \{ position: static !important; \}/);
   assert.match(css, /\.rt-form-grid3,\s*\.rt-form-pair \{ grid-template-columns: minmax\(0, 1fr\) !important; \}/);
 });
+
+test('the competitor inventory is a list on a phone, its numbers labelled', () => {
+  const inv = read('src/components/competitors/CompetitorInventory.tsx');
+  assert.ok(inv.includes('className="rt-comp-head"') && inv.includes('className="rt-comp-row"'));
+  for (const label of ['BR', 'BA', 'Sleeps', 'Pets']) {
+    assert.ok(inv.includes(`data-label="${label}"`), `the ${label} cell carries its label`);
+  }
+  const detail = read('src/app/competitors/[id]/page.tsx');
+  assert.ok(detail.includes('className="rt-comp-coverage"') && detail.includes('rt-comp-breakdowns'));
+  assert.ok(read('src/app/competitors/page.tsx').includes('className="rt-comp-index-row"'));
+  const css = read('src/app/globals.css');
+  assert.match(css, /\.rt-comp-row \{\s*display: flex !important;/);
+  assert.match(css, /\.rt-comp-row > \[data-label\]::before \{\s*content: attr\(data-label\)/);
+});

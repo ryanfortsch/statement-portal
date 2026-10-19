@@ -80,6 +80,7 @@ export default async function CompetitorDetail({ params }: { params: Promise<{ i
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 40 }}>
         <div className="eyebrow" style={{ marginBottom: 12 }}>Address research</div>
         <div
+          className="rt-comp-coverage"
           style={{
             border: '1px solid var(--rule)',
             padding: '20px 22px',
@@ -114,7 +115,7 @@ export default async function CompetitorDetail({ params }: { params: Promise<{ i
 
       {/* TWO-COLUMN BREAKDOWNS */}
       <section
-        className="max-w-[1100px] mx-auto px-10"
+        className="max-w-[1100px] mx-auto px-10 rt-comp-breakdowns"
         style={{ width: '100%', paddingBottom: 56, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 56 }}
       >
         <Breakdown

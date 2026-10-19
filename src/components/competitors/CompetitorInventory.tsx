@@ -168,6 +168,7 @@ export function CompetitorInventory({ listings, cities, competitorId }: Props) {
       <div role="table" style={{ display: 'block' }}>
         <div
           role="row"
+          className="rt-comp-head"
           style={{
             display: 'grid',
             gridTemplateColumns: GRID_TEMPLATE,
@@ -187,9 +188,9 @@ export function CompetitorInventory({ listings, cities, competitorId }: Props) {
           <SortHeader label="BR"         active={sortKey === 'bedrooms'}  dir={sortDir} onClick={() => setSort('bedrooms')} align="right" />
           <SortHeader label="BA"         active={sortKey === 'bathrooms'} dir={sortDir} onClick={() => setSort('bathrooms')} align="right" />
           <SortHeader label="Sleeps"     active={sortKey === 'maxGuests'} dir={sortDir} onClick={() => setSort('maxGuests')} align="right" />
-          <span style={{ textAlign: 'center' }}>Pets</span>
-          <span style={{ textAlign: 'right' }}>Link</span>
-          <span style={{ textAlign: 'center' }}>Edit</span>
+          <span className="rt-comp-head-label" style={{ textAlign: 'center' }}>Pets</span>
+          <span className="rt-comp-head-label" style={{ textAlign: 'right' }}>Link</span>
+          <span className="rt-comp-head-label" style={{ textAlign: 'center' }}>Edit</span>
         </div>
 
         {sorted.map((l) => {
@@ -198,6 +199,7 @@ export function CompetitorInventory({ listings, cities, competitorId }: Props) {
             <div key={l.slug}>
               <div
                 role="row"
+                className="rt-comp-row"
                 style={{
                   display: 'grid',
                   gridTemplateColumns: GRID_TEMPLATE,
@@ -212,12 +214,12 @@ export function CompetitorInventory({ listings, cities, competitorId }: Props) {
                 <span className="font-serif" style={{ fontSize: 16, color: 'var(--ink)' }}>{l.name}</span>
                 <AddressCell address={l.address} />
                 <span style={{ color: 'var(--ink-3)' }}>{l.city}</span>
-                <span className="font-mono tabular-nums" style={{ textAlign: 'right', color: 'var(--ink)' }}>
+                <span data-label="BR" className="font-mono tabular-nums" style={{ textAlign: 'right', color: 'var(--ink)' }}>
                   {l.bedrooms === 0 ? <span style={{ fontSize: 11, letterSpacing: '.04em' }}>STD</span> : l.bedrooms}
                 </span>
-                <span className="font-mono tabular-nums" style={{ textAlign: 'right', color: 'var(--ink)' }}>{formatBath(l.bathrooms)}</span>
-                <span className="font-mono tabular-nums" style={{ textAlign: 'right', color: 'var(--ink)' }}>{l.maxGuests}</span>
-                <span style={{ textAlign: 'center' }}>
+                <span data-label="BA" className="font-mono tabular-nums" style={{ textAlign: 'right', color: 'var(--ink)' }}>{formatBath(l.bathrooms)}</span>
+                <span data-label="Sleeps" className="font-mono tabular-nums" style={{ textAlign: 'right', color: 'var(--ink)' }}>{l.maxGuests}</span>
+                <span data-label="Pets" style={{ textAlign: 'center' }}>
                   {l.petFriendly ? (
                     <span
                       title="Pet friendly"
