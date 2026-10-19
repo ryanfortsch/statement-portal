@@ -54,6 +54,12 @@ export const DELIVERY_LABELS: Record<AutomationDelivery, string> = {
   ota_manual: 'Paste into the OTA app',
 };
 
+/** A rule's name as a person reads it: 'checkout_reminder' -> 'Checkout reminder'. */
+export function ruleName(key: string): string {
+  const words = key.replace(/[_-]+/g, ' ').trim();
+  return words ? words[0].toUpperCase() + words.slice(1) : 'Rule';
+}
+
 /** A message_automations row as the engine reads it. */
 export type AutomationRule = {
   id: string;

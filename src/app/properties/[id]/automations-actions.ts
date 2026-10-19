@@ -14,7 +14,7 @@ import {
   type RuleInput,
   otaPasteText,
 } from '@/lib/automations';
-import type { AutomationDelivery, AutomationTrigger, SendMode } from '@/lib/automations-core';
+import { ruleName, sendStatusLabel, type AutomationDelivery, type AutomationTrigger, type SendMode } from '@/lib/automations-core';
 
 /**
  * Server actions for the property Automations tab (/properties/[id]).
@@ -95,7 +95,7 @@ export async function saveRuleOverrideAction(propertyId: string, form: RuleFormI
   };
   const r = await upsertPropertyRule(propertyId, input, who);
   bump(propertyId);
-  return r.ok ? { ok: true, message: `Saved ${r.rule.key} for this home.` } : { ok: false, message: r.error };
+  return r.ok ? { ok: true, message: `Saved ${ruleName(r.rule.key)} for this home.` } : { ok: false, message: r.error };
 }
 
 export async function setRuleEnabledAction(propertyId: string, key: string, enabled: boolean): Promise<AutomationActionResult> {
@@ -103,7 +103,7 @@ export async function setRuleEnabledAction(propertyId: string, key: string, enab
   if (!who) return { ok: false, message: 'Not signed in' };
   const r = await setPropertyRuleFlags(propertyId, key, { enabled }, who);
   bump(propertyId);
-  return r.ok ? { ok: true, message: enabled ? `${key} is on for this home.` : `${key} is silenced for this home.` } : { ok: false, message: r.error };
+  return r.ok ? { ok: true, message: enabled ? `${ruleName(key)} is on for this home.` : `${ruleName(key)} is silenced for this home.` } : { ok: false, message: r.error };
 }
 
 export async function setRuleSendModeAction(propertyId: string, key: string, sendMode: SendMode): Promise<AutomationActionResult> {
@@ -112,7 +112,7 @@ export async function setRuleSendModeAction(propertyId: string, key: string, sen
   const r = await setPropertyRuleFlags(propertyId, key, { send_mode: sendMode }, who);
   bump(propertyId);
   return r.ok
-    ? { ok: true, message: sendMode === 'auto' ? `${key} sends on its own.` : `${key} waits for your approval.` }
+    ? { ok: true, message: sendMode === 'auto' ? `${ruleName(key)} sends on its own.` : `${ruleName(key)} waits for your approval.` }
     : { ok: false, message: r.error };
 }
 
@@ -122,7 +122,7 @@ export async function setRuleConfiguredInOtaAction(propertyId: string, key: stri
   const r = await setPropertyRuleFlags(propertyId, key, { configured_in_ota: configured }, who);
   bump(propertyId);
   return r.ok
-    ? { ok: true, message: configured ? `${key} is marked as handled by the OTA's own scheduled message.` : `${key} will park OTA guests for a paste again.` }
+    ? { ok: true, message: configured ? `${ruleName(key)}: Airbnb sends its own.` : `${ruleName(key)}: Airbnb guests get a copy to paste again.` }
     : { ok: false, message: r.error };
 }
 
@@ -131,7 +131,7 @@ export async function deleteRuleOverrideAction(propertyId: string, key: string):
   if (!who) return { ok: false, message: 'Not signed in' };
   const r = await deletePropertyRule(propertyId, key);
   bump(propertyId);
-  return r.ok ? { ok: true, message: `Removed this home's ${key}; the fleet default applies again.` } : { ok: false, message: r.error ?? 'Delete failed.' };
+  return r.ok ? { ok: true, message: `Removed this home's ${ruleName(key)}; the fleet default applies again.` } : { ok: false, message: r.error ?? 'Delete failed.' };
 }
 
 export async function approveSendAction(propertyId: string, sendId: string, body?: string | null): Promise<AutomationActionResult> {
@@ -146,15 +146,15 @@ export async function approveSendAction(propertyId: string, sendId: string, body
     case 'awaiting_approval':
       return {
         ok: false,
-        message: 'Still waiting: the message has missing fields, or it now goes on another rail (a phone or email arrived since the card was made). Check who it goes to on the card and approve again, or skip it.',
+        message: 'Not sent: a field is missing, or a phone or email arrived and it now goes another way. Check who it goes to, then approve again or skip it.',
       };
     case 'skipped_cancelled':
     case 'skipped_dates_moved':
       return { ok: false, message: 'Not sent: the stay changed since this was planned.' };
     case 'failed':
-      return { ok: false, message: 'The send failed. The ledger row carries the reason.' };
+      return { ok: false, message: 'Not sent. The reason is on it under past sends.' };
     default:
-      return { ok: true, message: `Recorded as ${r.status}.` };
+      return { ok: true, message: `${sendStatusLabel(r.status)}.` };
   }
 }
 
