@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
       },
     });
   }
-  return new NextResponse(pnlWorkbook(load.report, load.txns) as BodyInit, {
+  return new NextResponse(pnlWorkbook(load.report, load.txns, load.journal) as BodyInit, {
     headers: {
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'Content-Disposition': `attachment; filename="${base}.xlsx"`,

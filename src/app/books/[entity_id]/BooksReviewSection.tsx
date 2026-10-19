@@ -72,6 +72,7 @@ const TYPE_WORD: Record<string, string> = {
   cogs: 'Cost of goods',
   equity: 'Equity',
   liability: 'Liability',
+  asset: 'Asset',
   other_income: 'Other income',
   other_expense: 'Other expense',
 };

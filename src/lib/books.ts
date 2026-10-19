@@ -18,9 +18,10 @@
  * will extend this as needed from the transaction history.
  *
  * SCOPE BOUNDARY: Helm preps, it does not FILE. 1099s and tax returns get
- * filed by Ryan / Jim (the CPA). A balance sheet (double-entry, opening
- * balances, depreciation) is a later phase; phases 1-3 are cash-basis
- * P&L + 1099 prep.
+ * filed by Ryan / Jim (the CPA). Each LLC's cash-basis P&L is
+ * books-pnl.ts and its year-end balance sheet books-balance-sheet.ts
+ * (opening balances, year-end journal entries); the year's depreciation
+ * stays the CPA's entry.
  */
 
 export type LlcEntityKind = 'management' | 'holding';
@@ -140,10 +141,12 @@ export const LLC_ACCOUNTS: LlcAccountSeed[] = [
 
 /**
  * `liability` is a balance-sheet account a payment clears (sales tax owed,
- * guest prepayments, a loan's principal). Like `equity`, it never enters
- * the P&L; books-pnl.ts lists both under "Not in net income".
+ * guest prepayments, a loan's principal). `asset` is one a payment buys
+ * (a building improvement, a deposit). Like `equity`, neither enters the
+ * P&L: books-pnl.ts lists them under "Not in net income" and
+ * books-balance-sheet.ts carries their balances.
  */
-export type CoaType = 'income' | 'expense' | 'cogs' | 'equity' | 'liability' | 'other_income' | 'other_expense';
+export type CoaType = 'income' | 'expense' | 'cogs' | 'equity' | 'liability' | 'asset' | 'other_income' | 'other_expense';
 export type CoaScope = 'shared' | 'rising_tide' | 'goose_astoria' | 'goose_calderwood';
 
 export type CoaAccount = {
@@ -155,6 +158,12 @@ export type CoaAccount = {
   tax_hint?: string;
   /** Auto-filled from Statements data (Phase 1c) -- don't ask the categorizer. */
   pass_through?: boolean;
+  /**
+   * A contra account (Accumulated Depreciation): its balance is entered
+   * positive and subtracts from its section on the balance sheet. App-side
+   * only; chart_of_accounts has no column for it.
+   */
+  contra?: boolean;
   sort: number;
 };
 
@@ -315,6 +324,21 @@ export const CHART_OF_ACCOUNTS: CoaAccount[] = [
   { key: 'sales_tax_payable', name: 'Sales Tax Payable', type: 'liability', scope: 'shared', tax_hint: 'MA lodging tax + CT sales tax cycle -- liability cleared monthly via DOR ACH', sort: 870 },
   { key: 'customer_prepayments', name: 'Customer Prepayments', type: 'liability', scope: 'shared', tax_hint: 'Guest payments received in advance of stay', sort: 871 },
   { key: 'heat_loan', name: 'Heat Loan', type: 'liability', scope: 'goose_calderwood', tax_hint: '11 Rockholm heating-system loan via Eastern Bank, paid down by Ryan personally', sort: 872 },
+  // Loans carry their principal on the balance sheet. A mortgage payment
+  // mixes interest, principal and escrow; the 1098's interest moves to
+  // expense with one year-end journal entry (books-balance-sheet.ts).
+  { key: 'mortgage_3_locust', name: 'Mortgage, 3 Locust', type: 'liability', scope: 'goose_astoria', tax_hint: 'Principal owed. The Florida house mortgage is not here: it files to Due from Florida Property', sort: 873 },
+  { key: 'mortgage_65_calderwood', name: 'Mortgage, 65 Calderwood', type: 'liability', scope: 'goose_calderwood', tax_hint: 'Principal owed', sort: 874 },
+  { key: 'loans_payable', name: 'Other Loans Payable', type: 'liability', scope: 'shared', tax_hint: 'Principal owed on any other loan', sort: 875 },
+  { key: 'owner_funds_held_in_trust', name: 'Owner Funds Held in Trust', type: 'liability', scope: 'rising_tide', tax_hint: 'The owners\' money in the per-property accounts; pass-through rows move it', sort: 876 },
+
+  // ── ASSETS (balance sheet; cash itself is the bank accounts) ─────────
+  { key: 'fixed_assets', name: 'Fixed Assets', type: 'asset', scope: 'shared', tax_hint: 'At cost; the CPA posts the year\'s depreciation', sort: 750 },
+  { key: 'land', parent_key: 'fixed_assets', name: 'Land', type: 'asset', scope: 'shared', tax_hint: 'Not depreciated', sort: 751 },
+  { key: 'buildings_improvements', parent_key: 'fixed_assets', name: 'Buildings & Improvements', type: 'asset', scope: 'shared', tax_hint: 'A capital improvement (new roof, new system) files here, not Repairs', sort: 752 },
+  { key: 'furniture_equipment', parent_key: 'fixed_assets', name: 'Furniture & Equipment', type: 'asset', scope: 'shared', tax_hint: 'Items over $2,500 each; smaller buys stay an expense', sort: 753 },
+  { key: 'accumulated_depreciation', parent_key: 'fixed_assets', name: 'Accumulated Depreciation', type: 'asset', scope: 'shared', contra: true, tax_hint: 'Contra-asset from the CPA\'s depreciation schedule', sort: 754 },
+  { key: 'other_assets', name: 'Other Assets', type: 'asset', scope: 'shared', tax_hint: 'Deposits, escrow, money lent', sort: 760 },
 
   // ── LEGACY income (Goose Astoria pre-2025 booking) ──────────────────
   { key: 'services_legacy', name: 'Services (legacy)', type: 'income', scope: 'goose_astoria', tax_hint: 'Pre-2025 income account; superseded by Rental Income + Cleaning Fares + per-channel fees from 2025-01 onward', sort: 70 },

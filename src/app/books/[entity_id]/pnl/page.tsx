@@ -6,7 +6,7 @@ import { HelmFooter } from '@/components/HelmFooter';
 import { FinancialsTabs } from '@/components/FinancialsTabs';
 import { EmptyState } from '@/components/EmptyState';
 import { LLC_ENTITIES } from '@/lib/books';
-import { MONTH_NAMES, parsePnlYear, pnlStatusLine, type PnlLine, type PnlReport, type PnlSubtotal } from '@/lib/books-pnl';
+import { MONTH_NAMES, outsideKind, parsePnlYear, pnlStatusLine, type PnlLine, type PnlReport, type PnlSubtotal } from '@/lib/books-pnl';
 import { loadPnl } from '@/lib/books-pnl-db';
 import { buttonClass } from '@/lib/button-class';
 
@@ -184,7 +184,8 @@ export default async function BooksPnlPage({
               {!report.final && report.counts.transactions > 0 && (
                 <Link href={`/books/${entity_id}`} style={{ fontSize: 12, color: 'var(--ink-3)' }}>Review in the ledger →</Link>
               )}
-              <span style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+              <span style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'baseline' }}>
+                <Link href={`/books/${entity_id}/balance-sheet?year=${year}`} style={{ fontSize: 12, color: 'var(--ink-3)', marginRight: 6 }}>Balance sheet →</Link>
                 <a href={exportHref('xlsx')} className={buttonClass('primary', 'sm')}>Download for the CPA</a>
                 <a href={exportHref('csv')} className={buttonClass('quiet', 'sm')}>CSV</a>
               </span>
@@ -221,7 +222,7 @@ export default async function BooksPnlPage({
                       <tr key={o.key} style={{ borderTop: '1px solid var(--rule)' }}>
                         <td style={{ padding: 6 }}>{o.name}</td>
                         <td style={{ padding: 6, color: 'var(--ink-3)' }}>
-                          {o.pass_through ? 'Owner trust' : o.type === 'liability' ? 'Liability' : 'Equity'}
+                          {o.pass_through ? 'Owner trust' : outsideKind(o)}
                         </td>
                         <td style={cellStyle}>{money(o.money_in)}</td>
                         <td style={cellStyle}>{money(o.money_out)}</td>

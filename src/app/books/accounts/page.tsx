@@ -27,10 +27,11 @@ const TYPE_LABEL: Record<CoaType, string> = {
   cogs: 'Cost of Goods',
   equity: 'Equity',
   liability: 'Liabilities',
+  asset: 'Assets',
   other_income: 'Other Income (Pass-Through)',
   other_expense: 'Other Expense (Pass-Through)',
 };
-const TYPE_ORDER: CoaType[] = ['income', 'cogs', 'expense', 'other_income', 'other_expense', 'liability', 'equity'];
+const TYPE_ORDER: CoaType[] = ['income', 'cogs', 'expense', 'other_income', 'other_expense', 'asset', 'liability', 'equity'];
 
 /**
  * Build a depth map for the chart so children render indented under their
