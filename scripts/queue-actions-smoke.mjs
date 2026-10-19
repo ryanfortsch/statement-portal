@@ -144,6 +144,9 @@ for(const [scope,kind] of [['slip','doneSlip'],['task','doneTask']]){
 // Locate real CRM rows by the accessible picker; no test-only production IDs.
 const crmRow=async(kind,index)=>{
  const selector=kind==='phone'?'select[aria-label^="Attach "]':'select[aria-label^="Contact type for "]';
+ // The card opens on the newest three; open the rest before picking a row.
+ await page.evaluate(()=>{const b=[...document.querySelectorAll('#crm button')].find(b=>/^Show all \d+$/.test(b.textContent.trim()));if(b)b.click();});
+ await page.waitForFunction(()=>![...document.querySelectorAll('#crm button')].some(b=>/^Show all \d+$/.test(b.textContent.trim())));
  await page.$$eval('#crm '+selector,(es,index)=>{document.querySelectorAll('[data-test-row]').forEach(e=>e.removeAttribute('data-test-row'));es[index].parentElement.parentElement.setAttribute('data-test-row','');},index);
  return '[data-test-row]';
 };

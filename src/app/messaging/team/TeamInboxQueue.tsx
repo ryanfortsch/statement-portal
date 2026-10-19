@@ -75,7 +75,6 @@ export function TeamInboxQueue({
   return (
     <ApprovalQueue
       approvals={shown}
-      updatedTick={cleaners.updatedTick + contractors.updatedTick}
       onRefresh={onRefresh}
       undo={(id, kind) => (kind === 'contractor' ? undoContractorDecision(id) : undoCleanerDecision(id))}
       emptyMessage={

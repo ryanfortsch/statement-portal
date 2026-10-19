@@ -387,7 +387,7 @@ export async function ScheduleDigestCard({
     return (
       <Section id="schedule-digest" title="Cleaner schedule digest" eyebrow="Daily · day before">
         <div style={{ borderTop: '1px solid var(--ink)', padding: '16px 0', fontSize: 13, color: 'var(--ink-3)', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-          <span>No digest drafted yet. Tomorrow&rsquo;s is drafted each afternoon, or draft it now.</span>
+          <span>No digest yet.</span>
           <form action={ensureTomorrowDraft}>
             <SubmitButton
               label="Draft tomorrow's digest"
@@ -491,11 +491,10 @@ export async function ScheduleDigestCard({
         )}
         {day && (
           <>
-            <div style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 4 }}>
-              {day.counts.checkouts === 0 && !day.skipped?.length
-                ? 'No checkouts that day.'
-                : `${day.counts.checkouts} checkout${day.counts.checkouts === 1 ? '' : 's'}${day.counts.sameDay ? `, ${day.counts.sameDay} same-day turn${day.counts.sameDay === 1 ? '' : 's'}` : ''}${day.counts.adjusted ? `, ${day.counts.adjusted} adjusted` : ''}${day.skipped?.length ? `, ${day.skipped.length} marked no cleaning needed` : ''}. Live as of now.`}
-            </div>
+            {/* The rows are the count; only an empty day needs saying. */}
+            {day.counts.checkouts === 0 && !day.skipped?.length && (
+              <div style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 4 }}>No checkouts that day.</div>
+            )}
             {day.rows.map((r) => (
               <RowLine key={`${r.propertyId}|${r.checkIn}`} row={r} />
             ))}
@@ -516,12 +515,6 @@ export async function ScheduleDigestCard({
             {settings.autosend_enabled
               ? `Sends automatically at ${formatTime12(`${String(settings.send_hour_et).padStart(2, '0')}:00`)} ET.`
               : 'Sends only when you approve it.'}
-            {settings.autosend_enabled && settings.last_autosend_at && (
-              <span style={{ color: 'var(--ink-4)' }}>
-                {' '}Last sent{' '}
-                {new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' }).format(new Date(settings.last_autosend_at))}.
-              </span>
-            )}
           </span>
           <form action={toggleAutosendAction}>
             <input type="hidden" name="enabled" value={settings.autosend_enabled ? 'false' : 'true'} />
@@ -716,10 +709,17 @@ export async function ScheduleDigestCard({
               <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>
                 {digest.status === 'sent' ? 'Sent' : 'Last attempt'}{' '}
                 {digest.sent_at &&
-                  new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' }).format(new Date(digest.sent_at))}{' '}
-                by {digest.sent_by}
-                {' · '}
-                {lastBatch.results.map((r) => `${r.name} ${r.ok ? '✓' : `✕ (${r.error?.slice(0, 60) ?? 'failed'})`}`).join(' · ')}
+                  new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' }).format(new Date(digest.sent_at))}
+                {/* Only a text that did not arrive is worth a word. */}
+                {lastBatch.results.some((r) => !r.ok) && (
+                  <span
+                    style={{ color: 'var(--signal)', fontWeight: 600 }}
+                    title={lastBatch.results.filter((r) => !r.ok).map((r) => `${r.name}: ${r.error ?? 'failed'}`).join('\n')}
+                  >
+                    {' · not delivered to '}
+                    {lastBatch.results.filter((r) => !r.ok).map((r) => r.name).join(', ')}
+                  </span>
+                )}
               </div>
             )}
             <pre
@@ -749,9 +749,6 @@ export async function ScheduleDigestCard({
                   disabled={!anyEnabled || !day}
                   style={{ fontSize: 12, padding: '8px 14px', background: 'transparent', color: 'var(--ink)', border: '1px solid var(--ink)', borderRadius: 5, cursor: 'pointer' }}
                 />
-                <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>
-                  Schedule changed since? This texts the fresh version, marked as an update.
-                </span>
               </form>
             )}
             {digest.service_date < tomorrowET() && (
@@ -766,9 +763,6 @@ export async function ScheduleDigestCard({
                   spinnerTone="paper"
                   style={{ fontSize: 12, padding: '8px 14px', background: 'var(--ink)', color: 'var(--paper)', border: 'none', borderRadius: 5, cursor: 'pointer' }}
                 />
-                <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>
-                  Drafted each afternoon; this drafts it now.
-                </span>
               </form>
             )}
           </div>

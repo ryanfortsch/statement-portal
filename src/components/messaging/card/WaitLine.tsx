@@ -1,9 +1,9 @@
 import type { WaitReason } from './types';
 
 /** Why a waiting card is still waiting, in one line under its header. Red
- *  for a send that failed or a draft gone stale, ink for the rest. */
+ *  for a send that failed, ink for the rest. */
 export function WaitLine({ wait }: { wait: WaitReason }) {
-  const signal = wait.tone === 'failed' || wait.tone === 'stale';
+  const signal = wait.tone === 'failed';
   return (
     <p
       className="rt-wait-line"

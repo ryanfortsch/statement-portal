@@ -39,7 +39,7 @@ export function OwnerMessagingQueue({
   /** The drafting AI is down: a card with no draft says so. */
   aiPaused?: { reason?: string } | null;
 }) {
-  const { approvals, updatedTick, refresh, watchRegen, stalledId } = useApprovalQueue(initialPending, 'owners');
+  const { approvals, refresh, watchRegen, stalledId } = useApprovalQueue(initialPending, 'owners');
   const { softRefresh } = useQueueRefresh(PAGE_REFRESH_MS);
   const onRefresh = useCallback(() => {
     refresh();
@@ -49,7 +49,6 @@ export function OwnerMessagingQueue({
   return (
     <ApprovalQueue
       approvals={approvals}
-      updatedTick={updatedTick}
       onRefresh={onRefresh}
       undo={undoOwnerDecision}
       emptyMessage="No owner replies waiting."
@@ -118,10 +117,7 @@ function OwnerCard({
     shortId: approval.short_id,
     wait: waitReason({
       status: approval.status,
-      ageMinutes: approval.age_minutes,
-      sendAttempts: approval.send_attempts,
       lastSendError: approval.last_send_error,
-      answeredWhere: channel === 'email' ? 'by email' : 'by text',
       noDraft: !allReactions && !approval.draft.trim(),
       aiPaused,
     }),

@@ -75,7 +75,7 @@ export async function InboxHealth({ diagnostics = false, placement = 'top' }: { 
     </p>}
     {(health?.held?.length ?? 0) > 0 && <div style={{ marginTop: 14 }}>
       <p style={{ margin: 0, fontSize: 12, color: 'var(--ink-3)' }}>
-        Held as pitches, no draft written (past 7 days). If one is a real guest, release it and a draft appears in the queue within a couple of minutes.
+        Held as pitches this week
       </p>
       <ul style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 12, lineHeight: 1.7 }}>
         {health!.held!.map(item => <li key={item.source_id}>

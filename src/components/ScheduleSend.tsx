@@ -232,25 +232,3 @@ export function SchedulePopover({
     </div>
   );
 }
-
-/** Filled pill marking a queued (scheduled) card. */
-export function QueuedBadge() {
-  return (
-    <span
-      style={{
-        fontSize: 9,
-        letterSpacing: '0.12em',
-        textTransform: 'uppercase',
-        fontWeight: 700,
-        color: 'var(--paper)',
-        background: QUEUED_TONE,
-        padding: '2px 7px',
-        borderRadius: 2,
-        whiteSpace: 'nowrap',
-      }}
-      title="Queued to send automatically at the time shown. Cancel to edit."
-    >
-      Queued
-    </span>
-  );
-}

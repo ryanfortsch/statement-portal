@@ -20,7 +20,6 @@ export type QueueCardHelpers = {
 
 export function ApprovalQueue<T extends { id: string; status?: string; send_at?: string }>({
   approvals,
-  updatedTick,
   onRefresh,
   undo,
   emptyMessage,
@@ -29,7 +28,6 @@ export function ApprovalQueue<T extends { id: string; status?: string; send_at?:
   renderCard,
 }: {
   approvals: T[];
-  updatedTick: number;
   /** Fetch the queue now and catch the page up. */
   onRefresh: () => void;
   /** The audience's undo for a Mark handled. A mixed queue gets the
@@ -83,7 +81,7 @@ export function ApprovalQueue<T extends { id: string; status?: string; send_at?:
       <Section
         id="needs-review"
         title={title}
-        right={<QueueRefreshControl onRefresh={onResolved} refreshTick={updatedTick} />}
+        right={<QueueRefreshControl onRefresh={onResolved} />}
         empty={approvals.length === 0 && !toolbar && !after}
         emptyMessage={emptyMessage}
       >

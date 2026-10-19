@@ -35,6 +35,13 @@ describe('one card on /messaging', () => {
     assert.ok(card.includes('id="new-numbers"'), 'the alert link lands on the card');
   });
 
+  test('the card opens on the newest three numbers; the rest wait behind Show all', () => {
+    const card = read('src/components/messaging/NumberTriage.tsx');
+    assert.ok(card.includes('const RECENT_SHOWN = 3;'));
+    assert.ok(card.includes('visibleUnknowns.slice(0, RECENT_SHOWN)'), 'a backlog never fills the inbox');
+    assert.ok(card.includes('Show all {recentCount}'));
+  });
+
   test('the concierge alert for an unknown Owners-line texter opens the card', () => {
     assert.ok(read('src/lib/concierge-alerts.ts').includes("{ label: 'Open New numbers', href: '/messaging#new-numbers' }"));
   });

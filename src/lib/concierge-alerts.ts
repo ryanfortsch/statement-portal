@@ -78,7 +78,15 @@ export function conciergeAlertHref(kind: string): string {
  * lives on the Quality lens. An AI outage already has the "Drafts paused"
  * banner on both pages that would show it.
  */
-export const NOT_ALERTS: ReadonlySet<string> = new Set(['reflection_report', 'ai_down']);
+export const NOT_ALERTS: ReadonlySet<string> = new Set([
+  'reflection_report',
+  'ai_down',
+  // Nobody acts on these (2026-10-19): the review sweep runs again on its own,
+  // and an owner's notice with no guest staying has nobody to go to.
+  'review_sweep_skipped',
+  'owner_guest_notice_no_guest',
+  'owner_guest_message_no_guest',
+]);
 
 /**
  * The alerts a role may act on. An owner-line alert (`owner_*`,

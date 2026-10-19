@@ -29,9 +29,6 @@ type QueueState<T, C> = {
    * dropdown), which is keyed by approval id and so has to travel with a
    * rewritten card rather than wait for the next page render. */
   context: C | undefined;
-  /** Bumps on every successful load, so "Updated Xs ago" counts from data
-   * that actually arrived rather than from a refresh we merely dispatched. */
-  updatedTick: number;
   /** Fetch now (a card action just changed the queue). */
   refresh: () => void;
   /** Watch for `id` to be replaced by its coached rewrite. */
@@ -64,7 +61,6 @@ export function useApprovalQueue<T extends { id: string; status?: string }, C = 
   const countRevision = JSON.stringify(approvals.map(a => [a.id, a.status]).sort());
   useEffect(() => { invalidatePendingCounts(); }, [audience, countRevision]);
   const [context, setContext] = useState<C | undefined>(initialContext);
-  const [updatedTick, setUpdatedTick] = useState(0);
   const [stalledId, setStalledId] = useState<string | null>(null);
   // Bumping this restarts the polling loop, which is how a fresh watch gets
   // its first close-cadence tick without waiting out the pending timer.
@@ -90,7 +86,6 @@ export function useApprovalQueue<T extends { id: string; status?: string }, C = 
       ownsDataRef.current = true;
       setApprovals(data.approvals);
       if (data.context !== undefined) setContext(data.context);
-      setUpdatedTick((t) => t + 1);
       const watch = watchRef.current;
       // The coached card is gone: its rewrite is live under a new id, and the
       // card unmounts on this same state update.
@@ -146,5 +141,5 @@ export function useApprovalQueue<T extends { id: string; status?: string }, C = 
     setWatchSeq((n) => n + 1);
   }, []);
 
-  return { approvals, context, updatedTick, refresh, watchRegen, stalledId };
+  return { approvals, context, refresh, watchRegen, stalledId };
 }

@@ -7,10 +7,9 @@ import { useRouter } from 'next/navigation';
  * One shared refresh brain for the four messaging queues (guests, owners,
  * cleaners, contractors), which each carried an identical copy of the same
  * confusing header: a "refreshes every 15s" eyebrow beside a chip whose
- * timer only reset on remount, so it could read "Refresh · 1 min ago" next
- * to a 15-second promise (Dotti, 2026-08-20). Now there is ONE control,
- * "Updated Xs ago · Refresh", and its timer resets on every actual refresh:
- * interval-fired, visibility catch-up, a card action, or a click.
+ * timer only reset on remount (Dotti, 2026-08-20). Now there is ONE quiet
+ * Refresh button; the hook below refreshes on its own interval, on
+ * visibility catch-up and after a card action.
  *
  * The interval skips ticks while the tab is hidden (each tick is a full
  * server render; hidden tabs polling in wall-clock lockstep is the burst
@@ -48,30 +47,15 @@ export function useQueueRefresh(baseMs = 15_000): {
   return { softRefresh, refreshTick };
 }
 
-export function QueueRefreshControl({
-  onRefresh,
-  refreshTick,
-}: {
-  onRefresh: () => void;
-  refreshTick: number;
-}) {
-  // Seconds since the LAST refresh, not since mount: the tick prop bumps on
-  // every refresh, and this effect restarts the counter from zero.
-  const [seconds, setSeconds] = useState(0);
-  useEffect(() => {
-    setSeconds(0);
-    const t = setInterval(() => setSeconds((s) => s + 1), 1_000);
-    return () => clearInterval(t);
-  }, [refreshTick]);
-  const label =
-    seconds < 5 ? 'just now' : seconds < 60 ? `${seconds}s ago` : `${Math.round(seconds / 60)} min ago`;
+/** Refresh, and nothing else: the queue refreshes itself every few seconds,
+ *  so an "Updated Xs ago" stamp beside it was a second clock to read
+ *  (cut 2026-10-19). */
+export function QueueRefreshControl({ onRefresh }: { onRefresh: () => void }) {
   return (
     <button
       type="button"
       onClick={onRefresh}
       className="rt-queue-refresh"
-      aria-label={`Refresh inbox. Updated ${label}`}
-      title="The queue also refreshes itself every few seconds while this tab is visible."
       style={{
         fontSize: 10,
         letterSpacing: '0.16em',
@@ -84,7 +68,7 @@ export function QueueRefreshControl({
         cursor: 'pointer',
       }}
     >
-      <span className="rt-refresh-age">Updated {label} · </span>Refresh
+      Refresh
     </button>
   );
 }
