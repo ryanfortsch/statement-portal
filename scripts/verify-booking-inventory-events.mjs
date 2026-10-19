@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { resolve, join } from 'node:path';
 import assert from 'node:assert/strict';
 import { installBookingInventoryFixture } from './booking-inventory-fixture.mjs';
+import { verifyBookingInventorySchema } from './verify-booking-inventory-schema.mjs';
 import { verifyAvailabilityInputCapture } from './verify-availability-input-capture.mjs';
 import { verifyBookingInventoryConsumer } from './verify-booking-inventory-consumer.mjs';
 if (!process.argv[2]) throw new Error('Pass the absolute PGlite module path');
@@ -72,7 +73,7 @@ try {
   });
   await check('move and cancel RPCs capture changes and retain automation cancellation', async () => {
     await move(hold.id, '2027-01-13', '2027-01-15'); assert.equal(await version(), 3);
-    await query("insert into automation_sends values($1,'scheduled',null,now())", [hold.id]);
+    await query("insert into automation_sends(booking_id,property_id,fire_at,planned_check_in,planned_check_out) select id,property_id,now(),check_in,check_out from bookings where id=$1", [hold.id]);
     await cancel(hold.id); assert.equal(await version(), 4);
     assert.equal((await booking(hold.id)).status, 'cancelled');
     assert.equal((await query('select status from automation_sends where booking_id=$1', [hold.id]))[0].status, 'cancelled');
@@ -157,7 +158,7 @@ try {
   });
   await check('cancel enqueue failure restores booking and pending automation', async () => {
     const row = await create('broken'); const v = await version('broken');
-    await query("insert into automation_sends values($1,'scheduled',null,now())", [row.id]);
+    await query("insert into automation_sends(booking_id,property_id,fire_at,planned_check_in,planned_check_out) select id,property_id,now(),check_in,check_out from bookings where id=$1", [row.id]);
     await db.exec("alter table helm_booking_inventory_events add constraint test_cancel_failure check(property_id <> 'broken' or reason <> 'booking_update')");
     await assert.rejects(() => cancel(row.id), /test_cancel_failure/);
     assert.equal((await booking(row.id)).status, 'block'); assert.equal(await version('broken'), v);
@@ -227,6 +228,7 @@ try {
     await db.close(); db = new PGlite(dataDir);
     assert.deepEqual((await query("select helm_booking_inventory_read('home') as state"))[0].state, before);
   });
+  await verifyBookingInventorySchema(db, check);
   console.log(`PASS: ${passed} local PostgreSQL integration checks; canonical RPC bodies exercised; no external connections.`);
 } catch (error) {
   console.error('FAIL:', error.message);

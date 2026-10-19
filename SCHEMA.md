@@ -109,8 +109,15 @@ never key per-stay logic on `bookings.id` (`memory/project_bookings_duplicate_ro
   invalidate the canonical input set. Enabled capture also blocks source TRUNCATE.
   Rolling time is handled by the consumer's bounded plan freshness, not a trigger.
   Thirty local PostgreSQL 17.10 multi-session checks verify source/plan/dispatch
-  ordering and enable checkpoints; complete hosted-schema compatibility remains
-  unverified. The reusable runner is `scripts/verify-booking-inventory-concurrency.mjs`.
+  ordering and enable checkpoints. Ten additional schema-behavior checks run in
+  both native PostgreSQL and PGlite against repository table definitions, foreign
+  keys, indexes, timestamps and RLS, including the real automation ledger. The
+  reusable runners share `scripts/booking-inventory-fixture.mjs`; its explicit
+  subset excludes customer seeds, unrelated migrations and the cutover function.
+  Complete hosted-schema compatibility remains unverified. An empty-database
+  lexicographic migration replay fails at `20260430_create_inspections.sql` because
+  `properties` has not been created yet. Do not treat this curated local fixture
+  as a replay or as evidence of the hosted migration state.
 - **Candidate only, not applied:** `staging-storage/booking-inventory-planning.sql`
   (under `docs/guesty-exit`) adds `helm_booking_inventory_consumers`: owner-reviewed
   single-unit staging configuration, processed capture/configuration versions,

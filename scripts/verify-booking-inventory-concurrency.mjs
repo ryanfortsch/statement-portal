@@ -8,6 +8,7 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { once } from 'node:events';
+import { verifyBookingInventorySchema } from './verify-booking-inventory-schema.mjs';
 import { installBookingInventoryFixture } from './booking-inventory-fixture.mjs';
 import { consumeBookingInventory, bookingInventoryDispatchContext } from '../src/lib/channex-staging/booking-inventory-consumer.ts';
 import { replayInventoryJournal, recordInventoryCommand } from '../src/lib/channex-staging/inventory-journal.ts';
@@ -176,7 +177,8 @@ try{
     assert.equal(replay.journal.commands.length,state.journalVersion);
     for(const job of replay.queue.list())assert.equal(inventoryDigest(job.days),job.digest);
   });
-  console.log(`PASS: ${passed} native PostgreSQL multi-session checks; observed lock waits; no provider or hosted connections.`);
+  await verifyBookingInventorySchema({exec:sql=>monitor.query(sql),query:(sql,args)=>monitor.query(sql,args)},check);
+  console.log(`PASS: ${passed} native PostgreSQL concurrency/schema checks; observed lock waits; no provider or hosted connections.`);
 }catch(error){console.error('FAIL:',error.message);process.exitCode=1;}
 finally{
   await Promise.allSettled(clients.map(c=>c.end()));

@@ -1317,3 +1317,49 @@ availability client, delivery runner, inventory worker/outbox/journal, delivery 
 local SQL consumer verifier, `SCHEMA.md` and this document. Unrelated contract notes remain
 excluded. Next integration work remains trusted task-completion evidence and complete
 canonical-schema validation, followed by the previously listed cutover requirements.
+
+
+### Canonical schema subset and constraint checks (October 19, 2026)
+
+The shared local fixture now loads real repository definitions for the calendar
+mirror, guests and message-send ledger instead of minimal stand-ins. It includes
+booking indexes, the actual `duplicate_of` foreign key, property insert/timestamp
+triggers, channel/PMS indexes and constraints, and the unmodified PMS timestamp/RLS
+blocks. The service role explicitly has RLS bypass without superuser privileges;
+repository grants are still required. Only fictional rows are inserted. Customer
+seeds, fleet message templates, unrelated cleaner/review migrations, and the
+`flip_calendar_authority` function are excluded. No production migration or runtime
+application code changed.
+
+Ten new behavioral checks run in both database engines. They cover invalid foreign
+keys with no committed capture, duplicate promotion through `ON DELETE SET NULL`,
+listing/guest deletion effects, cancellation preserving sent/in-flight messages,
+ledger constraints/deduplication, rule deletion preserving send history, and a ledger
+failure rolling back the booking, audit and inventory event together. Existing
+property/timestamp triggers coexist with capture. Direct service-role source edits
+are captured while browser roles cannot access the private tables. The synthetic
+Guesty calendar mirror is unchanged by these canonical operations.
+
+A separate empty-database probe reproduced the first lexicographic replay failure:
+`20260430_create_inspections.sql` raises SQLSTATE `42P01` for missing
+`public.properties`; the properties migration sorts later on the same date. The
+probe rolled back to zero public tables, before any seed rows could execute. This
+is an existing replay-order gap, not evidence of a broken hosted database. We have
+not reordered old migrations, skipped errors in a purported full replay, or obtained
+a hosted schema snapshot. Full-schema compatibility remains an integration gate:
+compare a schema-only target snapshot and relevant applied migrations before using
+the candidate SQL. A passing curated subset cannot establish that gate.
+
+Validation: 70 PGlite 0.5.9 checks and 40 native PostgreSQL 17.10 checks pass (30
+multi-session cases plus the same 10 new schema cases). All 2,038 project tests in
+240 suites, nonincremental TypeScript, targeted ESLint and diff checks pass. Local
+clusters were stopped and removed. No hosted database, provider transport, message
+sender, paid service or deployment was used for this validation.
+
+Handoff: branch `codex/channex-staging-pilot`, starting HEAD `bc9fef7e`, original base
+`a148b0e6`, verified remote main `b9afdc83`. All nine migration files consumed by the
+fixture match that main reference; this does not imply the entire branch is current
+with main. Changed files: the shared fixture, PGlite/native runners, new
+`verify-booking-inventory-schema.mjs`, `SCHEMA.md` and this document. Unrelated contract
+notes remain excluded. Hosted-schema comparison and trusted terminal-task evidence
+remain the next gates; Guesty continues to operate the live property.
