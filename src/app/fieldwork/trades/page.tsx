@@ -113,10 +113,7 @@ export default async function TradesPage({
       <section className="max-w-[900px] mx-auto px-10" style={{ width: '100%', paddingTop: 28, paddingBottom: 48 }}>
         <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--tide-deep)', fontWeight: 600, marginBottom: 2 }}>Field</div>
         <div className="font-serif" style={{ fontSize: 26, fontWeight: 400 }}>Trades &amp; vendors</div>
-        <p style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 4, marginBottom: 20, maxWidth: 620 }}>
-          Who we call when something breaks. Outside companies we hire by the job: plumbers, electricians, appliance
-          techs, pest control. Separate from the roster, which is our own 1099 crew.
-        </p>
+        <div style={{ marginBottom: 20 }} />
 
         {!loaded.ok && (
           <div role="alert" style={{ border: '1px solid var(--signal)', background: 'rgba(200,90,58,0.06)', color: 'var(--signal)', padding: '12px 16px', fontSize: 13, borderRadius: 8, marginBottom: 24, lineHeight: 1.5 }}>

@@ -239,9 +239,7 @@ export function SendJobForm({
           <summary style={{ fontSize: 13, color: 'var(--tide-deep)', fontWeight: 600, cursor: 'pointer' }}>
             Already happened? Record a past setup ▾
           </summary>
-          <div style={{ fontSize: 12.5, color: 'var(--ink-4)', margin: '10px 0 12px' }}>
-            Lands in the approve queue. Nothing is published and nobody is texted.
-          </div>
+          <div style={{ height: 12 }} />
           <label style={lbl}>
             Done by *
             <select name="done_by" required={recording} defaultValue="" style={inp}>

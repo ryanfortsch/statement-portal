@@ -314,9 +314,6 @@ export default async function PacketsBoard({
             <h2 style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 4 }}>
               {focus === 'drafts' ? 'Visits to reschedule' : 'Drafts'} · {visibleDrafts.length}
             </h2>
-            <div style={{ fontSize: 12, color: 'var(--ink-4)', marginBottom: 8 }}>
-              Saved but not published yet. Publish sends it to the roster.
-            </div>
             <div style={{ border: '1px dashed var(--rule)', borderRadius: 10, overflow: 'hidden', background: 'var(--paper-2, #fff)' }}>
               {visibleDrafts.map((p) => (
                 <DraftRow key={p.id} p={p} />

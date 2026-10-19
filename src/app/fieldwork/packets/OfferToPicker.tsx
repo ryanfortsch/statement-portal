@@ -25,7 +25,7 @@ export function OfferToPicker({ contractors, onChange }: { contractors: Offerabl
       <div style={{ fontSize: 13, color: 'var(--ink-3)', fontWeight: 500 }}>
         Offer to{' '}
         <span style={{ color: 'var(--ink-4)', fontWeight: 400 }}>
-          (optional; nobody picked means every specialist sees it)
+          (optional)
         </span>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 8 }} role="group" aria-label="Who this packet is offered to">

@@ -45,8 +45,7 @@ export default async function PropertyWorkPage({
     <FieldShell contractorName={contractor.full_name}>
       <h1 className="font-serif" style={{ fontSize: 30, fontWeight: 300, margin: '16px 0 6px' }}>Property work</h1>
       <p style={{ fontSize: 14, color: 'var(--ink-3)', margin: '0 0 20px', maxWidth: 560, lineHeight: 1.55 }}>
-        Every home&apos;s open work slips. Mark what you fix, file what you spot. These are unscheduled and unpaid
-        extras unless the office puts one on a trip; anything unclear, call the office.
+        Unpaid extras unless the office adds one to a trip.
       </p>
 
       {sp.ontrip === '1' && (

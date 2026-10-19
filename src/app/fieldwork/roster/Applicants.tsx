@@ -118,11 +118,6 @@ export function Applicants({
           </div>
         )}
       </div>
-      {active.length > 0 && (
-        <div style={{ fontSize: 11, color: 'var(--ink-4)', marginBottom: 10 }}>
-          Sorted by an AI first pass. Advisory only; you make the call.
-        </div>
-      )}
 
       {active.map((a) => (
         <ApplicantCard key={a.id} a={a} owner={owner} />
