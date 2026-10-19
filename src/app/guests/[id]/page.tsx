@@ -150,7 +150,7 @@ export default async function ContactDetailPage({ params }: { params: Promise<{ 
         <div className="eyebrow" style={{ marginBottom: 14 }}>Timeline</div>
         {events.length === 0 ? (
           <div style={{ borderTop: '1px solid var(--ink)', padding: '24px 0', fontSize: 13, color: 'var(--ink-4)' }}>
-            No events recorded yet. Engagement events arrive after the first send.
+            No events yet.
           </div>
         ) : (
           <div style={{ borderTop: '1px solid var(--ink)' }}>

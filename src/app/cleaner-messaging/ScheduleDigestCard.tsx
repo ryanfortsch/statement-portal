@@ -322,7 +322,7 @@ function Recipients({ recipients, serviceDate }: { recipients: ScheduleRecipient
       ))}
       {enabled.length === 0 && (
         <span style={{ fontSize: 12, color: 'var(--signal)', fontWeight: 600 }}>
-          No recipient enabled - the send button stays dead until one is on.
+          Turn on a recipient to send.
         </span>
       )}
       {enabled[0] && (
@@ -561,9 +561,7 @@ export async function ScheduleDigestCard({
                 resize: 'vertical',
               }}
             />
-            <div style={{ fontSize: 11, color: 'var(--ink-4)', margin: '6px 0 12px' }}>
-              Live from the schedule. Edited text goes as typed.
-            </div>
+            <div style={{ height: 12 }} />
             {/* Special instructions and the tail every text carries, folded
                 (2026-10-18) unless a note exists or still needs translating.
                 A closed details still submits its fields with the form. */}

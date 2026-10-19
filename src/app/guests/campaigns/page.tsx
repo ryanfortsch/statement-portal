@@ -33,9 +33,6 @@ export default async function GuestCampaignsPage() {
             New Campaign
           </Link>
         </div>
-        <p style={{ marginTop: 8, fontSize: 14, color: 'var(--ink-3)', maxWidth: 580 }}>
-          Newsletters and broadcasts, saved or sent.
-        </p>
       </section>
 
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, flex: 1, width: '100%' }}>

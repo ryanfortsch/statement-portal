@@ -2057,9 +2057,7 @@ function LinenLocationModal({
           lineHeight: 1.5,
         }}
       >
-        This replaces the Sheets line on this card for everyone, on this visit
-        and every one after. Say where they actually are, in the words you
-        would use standing at the door.
+        This changes it for every walk after this one.
       </div>
 
       {err && <ErrorBlock error={err} />}
