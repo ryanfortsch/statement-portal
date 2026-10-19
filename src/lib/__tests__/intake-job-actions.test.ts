@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
 import { createClient } from '@supabase/supabase-js';
+import { contractorPhone } from '../field-contractor-details.ts';
 
 const modules = {
   apply: '../../app/field/apply/actions.ts', field: '../../app/field/actions.ts',
@@ -46,6 +47,7 @@ function fixture(kind: keyof typeof modules, options: {
     '@/lib/field-notify': { sendNewApplicantEmail: async () => { effects.push('applicant-notification'); }, sendContractorOnboardedEmail: async () => { effects.push('onboarded-notification'); } },
     '@/lib/field-w9': { saveW9: async () => null }, '@/lib/field-pay': { savePayment: async () => null },
     '@/lib/field-home-base': { homeBaseFor: async () => null },
+    '@/lib/field-contractor-details': { contractorPhone },
   };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const exports: Record<string, (...args: any[]) => Promise<any>> = {};
@@ -76,6 +78,14 @@ describe('contractor intake confirms writes before reporting success', () => {
     const f = fixture('apply'); const data = form(); data.set('full_name', '');
     assert.match((await f.actions.submitApplication({ error: '' }, data)).error, /full name/);
     assert.deepEqual(f.requests, []); assert.deepEqual(f.effects, []);
+  });
+  test('an application phone is ten digits, stored in the house style; a short one is refused without writes', async () => {
+    const short = fixture('apply'); const data = form(); data.set('phone', '555-0100');
+    assert.match((await short.actions.submitApplication({ error: '' }, data)).error, /10-digit phone/);
+    assert.deepEqual(short.requests, []); assert.deepEqual(short.effects, []);
+    const f = fixture('apply'); const good = form(); good.set('phone', '+1 978 555 0100');
+    await assert.rejects(f.actions.submitApplication({ error: '' }, good), /NEXT_REDIRECT/);
+    assert.equal(f.requests[0].body?.phone, '(978) 555-0100');
   });
   test('confirmed applications retain the trade and video and redirect to thanks', async () => {
     const f = fixture('apply'); const data = form(); data.set('trade', 'creative'); data.set('video_url', 'https://synthetic.example/clip.mp4');

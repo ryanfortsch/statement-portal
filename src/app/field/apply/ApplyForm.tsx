@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useRetainedSubmission } from '@/lib/use-retained-submission';
 import { submitApplication } from './actions';
 import { ApplyVideo } from './ApplyVideo';
+import { PhoneInput } from '@/components/PhoneInput';
 
 /**
  * The public application form uses manual submission to retain native fields
@@ -111,7 +112,7 @@ export function ApplyForm({ source, trade = 'inspection' }: { source: string; tr
       </label>
       <label style={lbl}>
         Phone *
-        <input name="phone" type="tel" required autoComplete="tel" inputMode="tel" placeholder="(978) 555-0123" style={input} />
+        <PhoneInput name="phone" required placeholder="(978) 555-0123" style={input} />
       </label>
       <label style={lbl}>
         Where are you based? *

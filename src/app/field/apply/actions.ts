@@ -5,6 +5,7 @@ import { fieldDb } from '@/lib/field-db';
 import { sendNewApplicantEmail } from '@/lib/field-notify';
 import { screenApplication } from '@/lib/ai/screen-applicant';
 import { parseTrade } from '@/lib/field-types';
+import { contractorPhone } from '@/lib/field-contractor-details';
 
 export type ApplyState = { error: string };
 
@@ -20,11 +21,13 @@ export type ApplyState = { error: string };
 export async function submitApplication(_prev: ApplyState, formData: FormData): Promise<ApplyState> {
   const full_name = String(formData.get('full_name') || '').trim().slice(0, 120);
   const email = String(formData.get('email') || '').trim().toLowerCase().slice(0, 200);
-  const phone = String(formData.get('phone') || '').trim().slice(0, 40);
+  // PhoneInput formats as typed; the one rule (ten digits, house style) is
+  // the profile's, so an applicant's number is stored the way a contractor's is.
+  const phone = contractorPhone(String(formData.get('phone') || ''));
   const area = String(formData.get('area') || '').trim().slice(0, 120);
   if (full_name.length < 2) return { error: 'Please add your full name.' };
   if (!email.includes('@')) return { error: 'That email doesn’t look right. Please double-check it.' };
-  if (phone.length < 7) return { error: 'Please add a phone number we can reach you at.' };
+  if (!phone) return { error: 'Please add a 10-digit phone number we can reach you at, like (978) 555-0123.' };
   if (area.length < 2) return { error: 'Please tell us where you’re based.' };
 
   const trade = parseTrade(formData.get('trade') as string | null);
@@ -55,7 +58,7 @@ export async function submitApplication(_prev: ApplyState, formData: FormData): 
   const { data: saved, error } = await fieldDb().from('contractor_applications').insert({
     full_name,
     email,
-    phone: phone || null,
+    phone,
     area,
     about,
     availability,

@@ -141,5 +141,5 @@ test('the profile form uses the retained-submission pattern and says the W-9 sta
   assert.match(form, /A change emails the office/);
   const profile = read('../../app/field/profile/page.tsx');
   assert.match(profile, /<EditDetailsForm/);
-  for (const src of [form, profile, body]) assert.ok(!/[–—]/.test(src.replace(/\/\/.*|\/\*[\s\S]*?\*\//g, '').replace(/'—'/g, '')), 'no em dashes in rendered strings');
+  for (const src of [form, profile, body]) assert.ok(!/[\u2013\u2014]/.test(src.replace(/\/\/.*|\/\*[\s\S]*?\*\//g, '').replace(/'\u2014'/g, '')), 'no em dashes in rendered strings');
 });

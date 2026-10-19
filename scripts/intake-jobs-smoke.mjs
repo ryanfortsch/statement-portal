@@ -113,6 +113,9 @@ pass('invalid files and long clips release the submit block and can be selected 
 await upload();await metadata();await waitCalls(4);await finish(3,{url:'https://synthetic.example/retry.mp4'});await waitText('Video attached');await submit('#apply');await waitCalls(5);assert.equal(Object.fromEntries((await calls())[4].args).video_url,'https://synthetic.example/retry.mp4');await redirect(4);await waitText('Redirect received');await clean();
 pass('explicit video retry submits the replacement URL and still completes normally');
 
+await reset('apply');await fillApply();assert.equal(await value('#apply [name="phone"]'),'(978) 555-0100');assert.equal(await page.$eval('#apply [name="phone"]',e=>e.type+'/'+e.inputMode+'/'+e.autocomplete),'tel/tel/tel');
+pass('the application phone is the onboarding PhoneInput: formats as typed, phone keyboard and autofill');
+
 const fillOnboarding=async()=>{for(const [name,v] of Object.entries({full_name:'Synthetic Contractor',phone:'9785550199',w9_legal_name:'Synthetic Legal Name',w9_business_name:'Synthetic LLC',w9_tax_classification:'LLC',w9_address:'1 Test Street',w9_city:'Gloucester',w9_state:'MA',w9_zip:'01930',w9_tin_type:'ein',w9_tin:'000000000',payment_method:'Direct deposit (ACH)',signed_name:'Synthetic Contractor'}))await edit('#onboarding [name="'+name+'"]',v);await edit('#onboarding [placeholder="9 digits"]','000000000');await page.$$eval('#onboarding input:not([name])',es=>{const e=es.find(e=>!e.placeholder);Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'000000001');e.dispatchEvent(new Event('input',{bubbles:true}));});await page.$eval('#onboarding [name="agree"]',e=>e.click());await page.$eval('#onboarding [name="sms_opt_in"]',e=>e.click());};
 for(const creative of [false,true]){
  await reset('onboarding',creative?'&creative=1':'');await fillOnboarding();await submit('#onboarding',true);await waitCalls(1);const first=(await calls())[0].args;
