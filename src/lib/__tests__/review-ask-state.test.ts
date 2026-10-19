@@ -7,6 +7,7 @@ import {
   describeAsk,
   describeReview,
   firstName,
+  plainReason,
   realStays,
   windowCovering,
   type ReservationReviewAsk,
@@ -71,21 +72,72 @@ test('a sent time is read on Gloucester\'s calendar, not UTC', () => {
 test('cards still in flight say so, and a yellow one names whose call it is', () => {
   const sched = ask({ first: stage('green', card('scheduled', { send_at: '2026-10-16T18:07:00+00:00' })) });
   assert.deepEqual(describeAsk(airbnb, sched, S, '2026-10-16'), { text: 'First ask scheduled for Oct 16', tone: 'waiting' });
-  const fringe = ask({ first: stage('yellow', card('pending'), { reason: "guest mentioned 'broken'" }) });
-  assert.equal(describeAsk(airbnb, fringe, S, '2026-10-16').text, 'First ask waiting for your call (fringe stay)');
+  const fringe = ask({ first: stage('yellow', card('pending'), { reason: "guest mentioned 'broken' during the stay" }) });
+  assert.equal(describeAsk(airbnb, fringe, S, '2026-10-16').text, 'First ask waiting for your call: the guest reported something broken');
   const fu = ask({ first: stage('green', card('approved')), followup: stage('green', card('pending')) });
   assert.deepEqual(describeAsk(airbnb, fu, S, '2026-10-21'), { text: 'Asked Oct 16 · follow-up waiting for approval', tone: 'waiting' });
 });
 
-test('red, held and fringe stays say why there is no ask', () => {
+test('a stay the sweep held back says what happened, in plain words', () => {
   const red = ask({ first: stage('red', null, { reason: 'safety incident: smoke alarm' }) });
-  assert.deepEqual(describeAsk(airbnb, red, S, '2026-10-17'), { text: 'Not asked: red stay, safety incident: smoke alarm', tone: 'skipped' });
+  assert.deepEqual(describeAsk(airbnb, red, S, '2026-10-17'), { text: 'Not asked: a safety issue during the stay (smoke alarm)', tone: 'skipped' });
+  const refund = ask({ first: stage('red', null, { reason: "guest said 'refund'" }) });
+  assert.equal(describeAsk(airbnb, refund, S, '2026-10-17').text, 'Not asked: the guest asked about a refund');
   const bad = ask({ first: stage('red', null, { reason: 'sentiment bad: the guest was upset about the noise' }) });
-  assert.equal(describeAsk(airbnb, bad, S, '2026-10-17').text, 'Not asked: red stay, the thread read badly');
-  const held = ask({ first: stage('green', card('approved')), followup: stage('held', null, { reason: "not green at follow-up: guest mentioned 'broken'" }) });
-  assert.equal(describeAsk(airbnb, held, S, '2026-10-22').text, 'Asked Oct 16 · no follow-up: not a clean stay by day 7');
-  const yellowSent = ask({ first: stage('yellow', card('approved')) });
-  assert.equal(describeAsk(airbnb, yellowSent, S, '2026-10-18').text, 'Asked Oct 16 · no follow-up for a fringe stay');
+  assert.equal(describeAsk(airbnb, bad, S, '2026-10-17').text, 'Not asked: the conversation read as unhappy (the guest was upset about the noise)');
+  const held = ask({ first: stage('green', card('approved')), followup: stage('held', null, { reason: "not green at follow-up: guest mentioned 'broken' during the stay" }) });
+  assert.equal(describeAsk(airbnb, held, S, '2026-10-22').text, 'Asked Oct 16 · no follow-up: the guest reported something broken');
+  const yellowSent = ask({ first: stage('yellow', card('approved'), { reason: "guest mentioned 'locked out' during the stay" }) });
+  assert.equal(describeAsk(airbnb, yellowSent, S, '2026-10-18').text, 'Asked Oct 16 · no follow-up: the guest was locked out');
+});
+
+test('every reason the sweep records reads as what happened', () => {
+  const cases: Array<[string, string]> = [
+    ["guest said 'refund'", 'the guest asked about a refund'],
+    ["guest said 'money back'", 'the guest asked about a refund'],
+    ["guest said 'discount'", 'the guest asked about a discount'],
+    ["guest said 'disappointed'", 'the guest said they were unhappy'],
+    ["guest said 'not happy'", 'the guest said they were unhappy'],
+    ["guest said 'complaint'", 'the guest made a complaint'],
+    ["guest said 'mice'", 'the guest reported pests'],
+    ["guest said 'filthy'", 'the guest said the home was dirty'],
+    ["guest mentioned 'locked out' during the stay", 'the guest was locked out'],
+    ["guest mentioned 'code didn't work' during the stay", 'the door code did not work'],
+    ["guest mentioned 'no hot water' during the stay", 'the guest had no hot water'],
+    ["guest mentioned 'dirty' during the stay", 'the guest said something was not clean'],
+    ["guest mentioned 'broken' during the stay", 'the guest reported something broken'],
+    ["guest mentioned 'not working' during the stay", 'the guest said something did not work'],
+    ['guest mentioned "couldn\'t get in" during the stay', 'the guest was locked out'],
+    ['safety incident: flood', 'a safety issue during the stay (flood)'],
+    ['sentiment bad:', 'the conversation read as unhappy'],
+    ["not green at follow-up: guest mentioned 'broken' during the stay", 'the guest reported something broken'],
+    ['Guest reported a bathroom fan switch issue that would not stay depressed', 'guest reported a bathroom fan switch issue that would not stay depressed'],
+    ['', 'something went wrong during the stay'],
+  ];
+  for (const [raw, want] of cases) assert.equal(plainReason(raw), want, raw);
+  const long = plainReason('Guest ' + 'mentioned the shower handle was loose and dripping '.repeat(4));
+  assert.ok(long.length <= 115 && long.endsWith('...'), long);
+});
+
+test('no row names the sweep\'s classes, which the page never defines', () => {
+  const classWord = /\b(green|yellow|red|fringe|held|tier|sentiment)\b/i;
+  const reasons = ['', "guest said 'refund'", 'safety incident: fire', 'sentiment bad: rude', "not green at follow-up: guest mentioned 'broken' during the stay"];
+  const statuses = ['pending', 'scheduled', 'sending', 'approved', 'manual_sent', 'rejected', 'superseded', 'expired'];
+  const lines: string[] = [];
+  for (const tier of ['green', 'yellow', 'red', 'external', 'held']) {
+    for (const reason of reasons) {
+      for (const status of statuses) {
+        const c = card(status, { ended_because: status === 'superseded' ? 'withdrawn' : '' });
+        const withCard = tier === 'red' || tier === 'external' || tier === 'held' ? null : c;
+        for (const day of ['2026-10-15', '2026-10-17', '2026-10-22', '2026-10-30']) {
+          lines.push(describeAsk(airbnb, ask({ first: stage(tier, withCard, { reason }) }), S, day).text);
+          lines.push(describeAsk(airbnb, ask({ first: stage('green', card('approved')), followup: stage(tier, withCard, { reason }) }), S, day).text);
+          lines.push(describeAsk(airbnb, ask({ followup: stage(tier, withCard, { reason, late_first: true }) }), S, day).text);
+        }
+      }
+    }
+  }
+  for (const line of lines) assert.ok(!classWord.test(line), line);
 });
 
 test('a card that did not go out says why', () => {
