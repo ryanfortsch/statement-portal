@@ -75,6 +75,7 @@ const PAGES: Array<[string, string]> = [
   ['src/app/books/accounts/page.tsx', 'title="Chart of accounts"'],
   ['src/app/revenue/page.tsx', 'title="Revenue"'],
   ['src/app/playbook/page.tsx', 'title="Playbook"'],
+  ['src/app/crm/page.tsx', 'title="Contacts"'],
   ['src/app/inspections/[id]/page.tsx', 'title={property.name}'],
 ];
 

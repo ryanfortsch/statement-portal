@@ -144,6 +144,7 @@ describe('an owner decision, not a cron', () => {
     const client = read('src/app/work/QueueClient.tsx');
     assert.ok(client.includes('<OrganizeButton onReviewStale={isOwner ? openStaleReview : undefined} />'));
     assert.ok(client.includes('if (nextFilter === defaultFilter) params.delete'), 'All on a staff login is spelled out in the URL');
-    assert.ok(client.includes('of {onSlips ? workSlips.length : tasks.length} shown'));
+    // The filter chips carry the counts; no "N of M shown" beside them (2026-10-19).
+    assert.ok(!client.includes('of {onSlips ? workSlips.length : tasks.length} shown'));
   });
 });

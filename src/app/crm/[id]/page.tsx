@@ -109,7 +109,7 @@ export default async function ContactDetailPage({ params }: { params: Promise<Pa
         myEmail={myEmail}
       />
 
-      <HelmFooter module="CRM" right={`Contact · ${CONTACT_TYPE_LABELS[data.contact.type]}`} />
+      <HelmFooter module="Contacts" right={`Contact · ${CONTACT_TYPE_LABELS[data.contact.type]}`} />
     </div>
   );
 }

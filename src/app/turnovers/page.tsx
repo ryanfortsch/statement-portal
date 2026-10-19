@@ -287,7 +287,8 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
                   turnover{pending === 1 ? '' : 's'} open
                 </a>
                 <span style={{ fontSize: 14, color: 'var(--ink-3)', marginLeft: 12 }}>
-                  of {board.total} {rangePhrase(range)}
+                  {/* "11 open of 11" counted the same number twice. */}
+                  {pending === board.total ? rangePhrase(range) : `of ${board.total} ${rangePhrase(range)}`}
                 </span>
               </>
             ) : (

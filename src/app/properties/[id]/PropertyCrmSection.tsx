@@ -39,13 +39,13 @@ export function PropertyCrmSection({ contacts, touchesByContact }: Props) {
   if (contacts.length === 0) {
     return (
       <p style={{ fontSize: 13, color: 'var(--ink-3)', margin: 0 }}>
-        No CRM contacts linked to this property yet.
+        No contacts linked yet.
         {' '}
         <Link
           href="/crm"
           style={{ color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}
         >
-          Add one in CRM →
+          Add one in Contacts →
         </Link>
       </p>
     );
@@ -168,7 +168,7 @@ function ContactCard({
                 textUnderlineOffset: 3,
               }}
             >
-              {touches.length - recent.length} more in CRM →
+              {touches.length - recent.length} more in Contacts →
             </Link>
           )}
         </div>

@@ -2,6 +2,7 @@ import { loadFieldReview, fieldReviewCounts } from '@/lib/field-review';
 import { NextResponse } from 'next/server';
 import { fieldDb } from '@/lib/field-db';
 import { isInternalSweepSource } from '@/lib/internal-transfers';
+import { sessionRole } from '@/lib/helm-access-server';
 
 /**
  * Lightweight count endpoint for the nav tab pills (NavTabCount), mirroring
@@ -32,6 +33,12 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
+  // Both counts are owner asks: approving a submitted packet is an owner
+  // action, and the bank review queue is owner money. A staff login gets
+  // zeros, so it never wears a badge it cannot clear (2026-10-19).
+  if ((await sessionRole()) !== 'owner') {
+    return NextResponse.json({ fieldPackets: 0, fieldPacketsByTrade: fieldReviewCounts([]), statementsReview: 0, statementsReviewMonth: null });
+  }
   let fieldPackets: number | null = null;
   let fieldPacketsByTrade = null;
   let statementsReview = 0;

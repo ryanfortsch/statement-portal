@@ -48,10 +48,13 @@ describe('one card on /messaging', () => {
 });
 
 describe('/crm opens on the list', () => {
-  test('no triage and no hero on /crm', () => {
+  test('no triage on /crm, and only the plain nav-name head above the list', () => {
     const page = read('src/app/crm/page.tsx');
     const list = read('src/app/crm/CrmListClient.tsx');
-    assert.ok(!page.includes('HelmHero'), 'the hero goes');
+    // The editorial hero went (#1920); the plain head that names the page
+    // came back with the nav rename to Contacts (2026-10-19).
+    assert.ok(page.includes('<HelmHero plain eyebrow="Helm · Contacts" title="Contacts" />'), 'a plain head, nothing more');
+    assert.ok(!/<HelmHero(?![^>]*\splain)/.test(page), 'no editorial hero');
     for (const src of [page, list]) {
       for (const gone of ['quo_unknown_numbers', 'contact_reconcile_suggestions', 'unknownNumbers', 'dismissUnknownNumber', 'acceptContactSuggestion']) {
         assert.ok(!src.includes(gone), `/crm still carries ${gone}`);
