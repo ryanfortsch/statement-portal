@@ -22,6 +22,7 @@ import {
   DELIVERY_LABELS,
   MERGE_FIELDS,
   MERGE_FIELD_HELP,
+  ruleName,
   sendStatusLabel,
   TRIGGER_LABELS,
   type AutomationRule,
@@ -370,12 +371,6 @@ function NextRow({ when, name, to, by, stay, problem, action }: { when: string; 
       <span>{action}</span>
     </div>
   );
-}
-
-/** 'checkout_reminder' -> 'Checkout reminder'. */
-function ruleName(key: string): string {
-  const words = key.replace(/[_-]+/g, ' ').trim();
-  return words ? words[0].toUpperCase() + words.slice(1) : 'Rule';
 }
 
 function RuleCard({
