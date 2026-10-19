@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { reportMissingStripeKey, syncPropertyStripe, getStripeKeysMap, type StripeSyncResult } from '@/lib/stripe-sync';
 import { recordSyncFailure, recordSyncResult } from '@/lib/sync-status';
+import { countPaidBookingsCheckingOut } from '@/lib/stripe-no-statement-probe';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 
 /**
@@ -90,27 +91,27 @@ export async function POST(request: NextRequest) {
         //   (c) the property is Rising Tide-owned -- no owner, so no
         //       statement will ever exist. Silently skip, checked first so
         //       a busy month at an RT home can't fall into (a).
-        // "Real" here means total_paid > 0; null counts too because legacy
-        // rows from before the money columns existed can't be distinguished
-        // and we err on the side of telling the operator.
+        // "Real" means a CONFIRMED booking carrying a revenue signal, the
+        // same question every drift probe asks (see stripe-no-statement-
+        // probe.ts: counting NULL total_paid with no status filter read an
+        // offboarded home's inquiries as paid bookings, every night).
         if (rtOwned.has(propertyId)) continue;
-        const monthStart = `${month}-01`;
-        const [y, m] = month.split('-').map(Number);
-        const monthEndExclusive = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10);
-        const { count: gRowCount } = await supabase
-          .from('guesty_reservations')
-          .select('*', { count: 'exact', head: true })
-          .eq('property_id', propertyId)
-          .gte('check_out', monthStart)
-          .lt('check_out', monthEndExclusive)
-          .or('total_paid.is.null,total_paid.gt.0');
-        const hadRealBookings = (gRowCount || 0) > 0;
-        if (hadRealBookings) {
+        const probe = await countPaidBookingsCheckingOut(supabase, propertyId, month);
+        const emptyResult = {
+          property_id: propertyId,
+          charges_found: 0, matched: 0,
+          unmatched_charges: [], fee_updates: [], refunds_detected: [], gross_mismatches: [], gross_reconstructions: [], collected_rebuilds: [], reservations_missing_charge: [],
+        };
+        if (!probe.known) {
+          // Unknown is not "no bookings": say so rather than skip silently.
           results.push({
-            property_id: propertyId,
-            charges_found: 0, matched: 0,
-            unmatched_charges: [], fee_updates: [], refunds_detected: [], gross_mismatches: [], gross_reconstructions: [], collected_rebuilds: [], reservations_missing_charge: [],
-            error: `No statement for ${propertyId} / ${month} despite ${gRowCount} paid booking(s) in Guesty -- run the monthly ingest first`,
+            ...emptyResult,
+            error: `No statement for ${propertyId} / ${month}, and the paid-booking check failed (${probe.error}) -- cannot tell whether the monthly ingest was missed`,
+          });
+        } else if (probe.count > 0) {
+          results.push({
+            ...emptyResult,
+            error: `No statement for ${propertyId} / ${month} despite ${probe.count} paid booking(s) in Guesty -- run the monthly ingest first`,
           });
         }
         // Otherwise silently skip -- no error, no entry in results
