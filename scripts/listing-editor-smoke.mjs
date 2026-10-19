@@ -61,13 +61,17 @@ await writeFile(join(scratch, 'entry.js'), compile(`
     bedrooms: 3, bathrooms: 2, beds: 4, amenities: ['Wifi'], amenities_not_included: [],
     source: 'helm', source_ref: null, updated_at: '2026-10-18T12:00:00Z', updated_by: 'staff@example.test',
   };
+  window.lastBase = base;
   const policy = {checkout: null, maxOccupancy: null, pets: null, quietHours: null, cancellation: null, houseRules: null};
   function Fixture() {
     const [content, setContent] = useState(base);
+    const [sca, setSca] = useState(null);
+    const [n, setN] = useState(0);
     window.setContent = patch => setContent(c => ({...c, ...patch}));
-    return <ListingPanel propertyId="synthetic" content={content} photos={[]} beds={{text: '', perRoom: []}}
+    window.replaceContent = (next, nextSca = null) => { setContent(next); setSca(nextSca); setN(x => x + 1); };
+    return <ListingPanel key={n} propertyId="synthetic" content={content} photos={[]} beds={{text: '', perRoom: []}}
       catalog={[{group: 'Basics', items: ['Wifi', 'Washer']}]} helmRun={false}
-      registry={{title: 'Registry title', bedrooms: 3, bathrooms: 2}} housePolicy={policy}/>;
+      registry={{title: 'Registry title', bedrooms: null, bathrooms: null}} housePolicy={policy} sca={sca}/>;
   }
   createRoot(document.getElementById('root')).render(<Fixture/>);
 `));
@@ -225,8 +229,45 @@ try {
     const basics = await page.evaluate(()=>window.calls.at(-1).args[1]);
     assert.equal(basics.part,'basics'); assert.equal(basics.bedrooms,'3'); assert.equal(basics.summary, undefined);
     await finish({error:null,ok:true,message:'Listing saved.'});
-    assert.deepEqual(errors,[]);
     pass('home type and size posts only its own part');
+
+    const headings = () => page.$$eval('h3', l => l.map(h => h.textContent));
+    await page.evaluate(()=>window.replaceContent(null));
+    await waitText('Helm has no listing copy for this home yet. The live listing is in Guesty.');
+    assert.deepEqual(await headings(), [], 'an empty Guesty-run listing still shows empty blocks');
+    assert.ok(!(await page.evaluate(()=>/Nothing written yet|Not written|None on file|No photos yet/.test(document.body.textContent))));
+    assert.equal(await page.$$eval('button', l => l.filter(b => b.offsetParent).length), 1, 'more than the one Add action');
+    await click('Add listing copy'); await page.waitForSelector('textarea[name="summary"]');
+    assert.ok(await page.$('input[aria-label="Note for Draft with AI"]'), 'Add opens the copy with Draft with AI');
+    await waitText('Guest access and notes');
+    assert.deepEqual(await headings(), ['Title and summary']);
+    await click('Cancel');
+    await waitText('Helm has no listing copy for this home yet. The live listing is in Guesty.');
+    assert.deepEqual(await headings(), [], 'Cancel left an empty block behind');
+    pass('an empty listing is one line and one Add; Add opens the copy, Cancel puts the line back');
+
+    await page.evaluate(()=>window.replaceContent({...window.lastBase, title: null, summary: 'Only a summary', space: '', access: '', interaction: '', notes: '', neighborhood: '', amenities: [], amenities_not_included: [], property_type: null, room_type: null, beds: null, bedrooms: null, bathrooms: null}));
+    await waitText('Only a summary');
+    assert.deepEqual(await headings(), ['Title and summary']);
+    const adds = await page.evaluate(()=>[...document.querySelectorAll('button, a')].map(e => e.textContent.trim()).filter(t => ['About','Guest access and notes','Amenities','Photos','Home type and size'].includes(t)));
+    assert.deepEqual(adds, ['About','Guest access and notes','Amenities','Photos','Home type and size']);
+    await click('Amenities'); await page.waitForSelector('[role="dialog"] input[name="amenities"]');
+    await page.keyboard.press('Escape'); await page.waitForFunction(()=>!document.querySelector('[role="dialog"]'));
+    pass('a block shows only with content; the empty ones are one Add line, each opening its block');
+
+    await page.evaluate(()=>window.replaceContent(null, {listingUrl: 'https://www.staycapeann.com/stays/x', snapshot: {title: 'Harbor Cottage', tagline: 'Steps from the cove', highlights: ['Deck'], about: 'Bright rooms.', rooms: [{name: 'Primary', beds: '1 King'}], heroPhoto: null}}));
+    await waitText('On staycapeann.com'); await waitText('Harbor Cottage'); await waitText('From the live listing, read-only.');
+    assert.ok(!(await page.evaluate(()=>[...document.querySelectorAll('button')].some(b => b.textContent.trim() === 'Edit'))), 'the snapshot offers an Edit');
+    assert.ok(!(await page.evaluate(()=>document.body.textContent.includes('Helm has no listing copy'))));
+    await click('Write Helm’s own copy'); await page.waitForSelector('textarea[name="summary"]');
+    pass('with no Helm copy, the live staycapeann.com copy shows read-only, labelled');
+
+    await page.evaluate(()=>window.replaceContent({...window.lastBase, source: 'guesty_seed'}));
+    await waitText('Copied from Guesty');
+    assert.ok(!(await page.evaluate(()=>[...document.querySelectorAll('button')].some(b => b.textContent.trim() === 'Edit'))), 'a Guesty seed is editable before Edit in Helm');
+    await click('Edit in Helm'); await page.waitForSelector('button[aria-label="Edit title and summary"]');
+    pass('a Guesty seed reads as Guesty\'s copy until Edit in Helm');
+    assert.deepEqual(errors,[]);
     console.log(`All ${checks} listing editor browser checks passed.`);
   }
 } catch (error) {

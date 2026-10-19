@@ -50,6 +50,7 @@ import { getPropertyCleaners } from '@/lib/property-crew';
 import type { PaymentVerifySignal } from '@/lib/sca-launch';
 import { scaLiveEntry, type ScaLiveCheck } from '@/lib/sca-live';
 import { scaStatusLine } from '@/lib/sca-status-line';
+import { hasListingCopy, scaSnapshotFrom } from '@/lib/listing-copy-shape';
 import { CollapsibleSection } from '@/components/properties/CollapsibleSection';
 import { CostToTurnSection } from './CostToTurnSection';
 import { HashOpenScript } from '@/components/properties/HashOpenScript';
@@ -505,6 +506,10 @@ export default async function PropertyDetailPage({
     sessionMailbox(myEmail).then((m) => m?.address ?? null).catch(() => null),
     scaLiveEntry(scaListingId, { maxAgeMs: 120_000 }),
   ]);
+  const scaLiveSnapshot = scaSnapshotFrom(scaLive.entry);
+  const scaSnapshot = scaLiveSnapshot
+    ? { snapshot: scaLiveSnapshot, listingUrl: scaStatusLine(scaLaunch, scaLive, scaListingId).listingUrl }
+    : null;
 
   // Management-contract registry facts (property_contracts). The active row
   // is the canonical agreement; contractFacts (projection columns) remains
@@ -1928,7 +1933,14 @@ export default async function PropertyDetailPage({
           <GuestSection
             id="listing"
             title="Listing"
-            note={helmRun ? 'staycapeann.com reads this once it reads Helm' : 'Draft · Guesty holds the live listing'}
+            note={
+              // With no copy of its own, the panel's one line says where the live listing is.
+              !hasListingCopy(listingRecord?.content, listingRecord?.photos.length ?? 0)
+                ? undefined
+                : helmRun
+                  ? 'staycapeann.com reads this once it reads Helm'
+                  : 'Draft · Guesty holds the live listing'
+            }
           >
             <ListingPanel
               propertyId={p.id}
@@ -1943,6 +1955,8 @@ export default async function PropertyDetailPage({
               // every draft (property_marketing). Cape Ann homes only: the
               // campaigns sell nothing else.
               sellIt={isCapeAnnOps({ region: pmsRegion }) ? howWeSellIt : null}
+              // The live staycapeann.com copy, read-only while Helm has none.
+              sca={scaSnapshot}
             />
           </GuestSection>
           <ToolsLine>
