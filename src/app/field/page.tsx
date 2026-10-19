@@ -9,6 +9,7 @@ import { MAINTENANCE_BASE_CENTS } from '@/lib/field-pricing';
 import { loadContractorShoots, shootPaySummary, type ShootSummary } from '@/lib/creative-shoots';
 import { loadRecentVisits } from '@/lib/field-report';
 import { getContractorRatings, type ContractorRating } from '@/lib/field-ratings';
+import { backgroundCheckLine } from '@/lib/field-background-check';
 import { canClaim, isEmployee, fmtVisitTime, onboardingComplete, dollars, packetHeadline, effectiveBaseCents, isPayoutFinal, parseTrade, TRADE_META, type ContractorRow, type ContractorTrade, type PacketDetail , tripWindowLabel } from '@/lib/field-types';
 import { FieldShell } from './FieldShell';
 import { ProfilePhoto } from './ProfilePhoto';
@@ -607,7 +608,8 @@ export default async function FieldHome({
       : { available: [] as PacketDetail[] };
     const story = narrativeFor(contractor.trade);
     const first = contractor.full_name.split(' ')[0];
-    const failed = contractor.background_check_status === 'failed';
+    const bgCheck = backgroundCheckLine(contractor.background_check_status);
+    const failed = bgCheck.tone === 'hold';
     const activeIndex = setupDone ? 2 : 1;
     // Office preview with nothing published for this trade yet: show sample
     // work so the layout can be judged; the preview bar says it's sample data.
@@ -703,12 +705,15 @@ export default async function FieldHome({
           )}
 
           <p style={{ fontSize: 14, color: 'rgba(245,239,226,0.78)', lineHeight: 1.6, margin: '24px 0 0' }}>
+            {/* The check's one line (src/lib/field-background-check.ts),
+                read off the real status. Running and cleared are texted and
+                emailed from the roster, so the promise below is kept. */}
             {failed ? (
-              <>There&apos;s a hold on your background check. Give the office a call at (978) 865-2500 and we&apos;ll get it sorted.</>
+              <>{bgCheck.line}</>
             ) : setupDone ? (
-              <>Your setup is done. We&apos;re getting your background check underway (standard, since you&apos;ll have keys to owners&apos; homes). As soon as it&apos;s running we&apos;ll text and email you, and your first packets open up right here.</>
+              <>Your setup is done. {bgCheck.line} It&apos;s standard, since you&apos;ll have keys to owners&apos; homes. {bgCheck.tone === 'waiting' && <>When it&apos;s running we&apos;ll {contractor.phone ? 'text and email' : 'email'} you, and you can claim paid work right here.</>}</>
             ) : (
-              <>The two things: your W-9 and how you want to be paid, plus a short agreement. Once that&apos;s in we&apos;ll get your background check going, and you can start claiming paid work near you.</>
+              <>The two things: your W-9 and how you want to be paid, plus a short agreement. {bgCheck.tone === 'waiting' ? bgCheck.line : <>Once that&apos;s in, you can claim paid work near you.</>}</>
             )}
           </p>
         </div>
@@ -732,7 +737,12 @@ export default async function FieldHome({
             </>
           ) : (
             <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, margin: 0 }}>
-              No routes are open this minute, but new ones post all the time. We&apos;ll text you the moment a packet near you goes up.
+              {/* New-work texts go only to contractors who can claim, with a
+                  phone and the profile switch on (notifyContractorsOfPacket). */}
+              No routes are open this minute, but new ones post all the time.
+              {contractor.phone && contractor.sms_opt_in
+                ? ' Once you can claim, we text you the moment a packet near you goes up.'
+                : ' Once you can claim, they show up right here.'}
             </p>
           )}
         </div>
@@ -866,8 +876,10 @@ export default async function FieldHome({
         <section>
           <SectionHeader title="Available now" />
           <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, margin: 0 }}>
-            No open {jobNoun} right now. New work posts all the time, and we&apos;ll text you the moment
-            something goes up near you.
+            No open {jobNoun} right now. New work posts all the time
+            {contractor.phone && contractor.sms_opt_in
+              ? ", and we'll text you the moment something goes up near you."
+              : '. Turn on new-work texts on your Profile to hear the moment something goes up near you.'}
           </p>
         </section>
       )}

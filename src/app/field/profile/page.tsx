@@ -3,7 +3,8 @@ import { redirect } from 'next/navigation';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { loadContractorProfile, type ContractorReview, type ContractorHistoryItem } from '@/lib/field-profile';
 import { creativeProfileStats, shootPaySummary, formatViews, type ShootSummary } from '@/lib/creative-shoots';
-import { dollars, type ContractorRow } from '@/lib/field-types';
+import { dollars, TRADE_META, type ContractorRow } from '@/lib/field-types';
+import { backgroundCheckLine } from '@/lib/field-background-check';
 import { STREAK_MILESTONES, STREAK_CYCLE_DAYS, type StreakInfo } from '@/lib/field-streaks';
 import { FieldShell } from '../FieldShell';
 import { ContractorHeader } from '../ContractorHeader';
@@ -404,27 +405,42 @@ function ShootRowLine({ sm }: { sm: ShootSummary }) {
   );
 }
 
-const BG_CHECK: Record<ContractorRow['background_check_status'], { icon: string; label: string; tint: string }> = {
-  cleared: { icon: '✓', label: 'Background check cleared', tint: 'var(--positive)' },
-  pending: { icon: '◷', label: 'Background check in progress', tint: 'var(--signal)' },
-  not_started: { icon: '◷', label: 'Background check pending', tint: 'var(--ink-4)' },
-  failed: { icon: '✕', label: 'Background check needs attention', tint: 'var(--negative)' },
+// The mark and tint per state. The words are the check's one line
+// (src/lib/field-background-check.ts), the same the home and packet pages read.
+const BG_MARK: Record<ReturnType<typeof backgroundCheckLine>['tone'], { icon: string; tint: string }> = {
+  cleared: { icon: '✓', tint: 'var(--positive)' },
+  running: { icon: '◷', tint: 'var(--signal)' },
+  waiting: { icon: '○', tint: 'var(--ink-4)' },
+  hold: { icon: '✕', tint: 'var(--negative)' },
 };
 
 /** Account standing: a small completion meter + the legal/identity/payout
  *  checklist. Surfaces the real payout method captured at onboarding. */
 function AccountCard({ contractor }: { contractor: ContractorRow }) {
-  const bg = BG_CHECK[contractor.background_check_status];
+  const bgCheck = backgroundCheckLine(contractor.background_check_status);
+  const bg = BG_MARK[bgCheck.tone];
   const payout = contractor.payment_method
     ? contractor.payment_hint
       ? `${contractor.payment_method} · ${contractor.payment_hint}`
       : contractor.payment_method
     : null;
 
-  const items: Array<{ done: boolean; icon: string; label: string; tint: string; detail?: string }> = [
+  // Creative contributors have no packets and no background check to wait
+  // on (the home says so), so their checklist carries no check line.
+  const checked = TRADE_META[contractor.trade]?.hasPackets !== false;
+  type Item = { done: boolean; icon: string; label: string; tint: string; detail?: string; note?: string };
+  const items: Item[] = [
     { done: contractor.w9_on_file, icon: contractor.w9_on_file ? '✓' : '○', label: 'W-9 on file', tint: contractor.w9_on_file ? 'var(--positive)' : 'var(--ink-4)' },
     { done: !!contractor.agreement_signed_at, icon: contractor.agreement_signed_at ? '✓' : '○', label: 'Contractor agreement signed', tint: contractor.agreement_signed_at ? 'var(--positive)' : 'var(--ink-4)' },
-    { done: contractor.background_check_status === 'cleared', icon: bg.icon, label: bg.label, tint: bg.tint },
+    ...(checked
+      ? [{
+          done: bgCheck.tone === 'cleared',
+          icon: bg.icon,
+          label: bgCheck.tone === 'cleared' ? 'Background check cleared' : `Background check: ${bgCheck.short.toLowerCase()}`,
+          tint: bg.tint,
+          note: bgCheck.tone === 'cleared' ? undefined : bgCheck.line,
+        }]
+      : []),
     { done: !!payout, icon: payout ? '✓' : '○', label: payout ? 'Payout method set' : 'Payout method', tint: payout ? 'var(--positive)' : 'var(--ink-4)', detail: payout ?? undefined },
     { done: !!contractor.photo_url, icon: contractor.photo_url ? '✓' : '○', label: 'Profile photo', tint: contractor.photo_url ? 'var(--positive)' : 'var(--ink-4)' },
   ];
@@ -450,6 +466,7 @@ function AccountCard({ contractor }: { contractor: ContractorRow }) {
           <div key={it.label} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'baseline', fontSize: 13 }}>
             <span style={{ color: it.done ? 'var(--ink-3)' : 'var(--ink-4)' }}>
               <span style={{ color: it.tint, marginRight: 6 }}>{it.icon}</span>{it.label}
+              {it.note && <span style={{ display: 'block', marginLeft: 18, marginTop: 2, fontSize: 12.5, color: 'var(--ink-3)', lineHeight: 1.5 }}>{it.note}</span>}
             </span>
             {it.detail && <span className="font-mono" style={{ fontSize: 12, color: 'var(--ink-4)', textAlign: 'right' }}>{it.detail}</span>}
           </div>

@@ -14,6 +14,7 @@ import type { ContractorRow, PacketRow } from '@/lib/field-types';
 import { creativeLeadEmail, fieldPayNotice, fieldReplyTo, officeNotice, operationsEmails } from '@/lib/team-recipients';
 import { dueWording, handoffMonths, inNagWindow, monthName } from '@/lib/close-handoff';
 import { loadHandoffItems } from '@/lib/close-handoff-db';
+import { backgroundCheckNotice } from '@/lib/field-background-check';
 
 const FROM_NAME = 'Rising Tide Field';
 
@@ -267,7 +268,7 @@ export async function sendContractorOnboardedEmail(contractor: ContractorRow): P
   const html = shell(`
     <h1 style="font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 14px;">New inspector signed up: ${contractor.full_name}</h1>
     <p>${contractor.full_name} (${contractor.email}${contractor.phone ? `, ${contractor.phone}` : ''}) finished setup. Two things before they can claim work:</p>
-    <p>1. <strong>Run their background check</strong>, then mark it <strong>cleared</strong> on the roster (we send people into owners' homes, so claiming is gated on it).<br/>2. Collect their W-9 into QuickBooks and hit <strong>mark W-9 on file</strong> so 1099 tracking stays current.</p>
+    <p>1. <strong>Start their background check</strong> and mark it <strong>running</strong> on the roster: they can claim work from then, and Helm texts and emails them that it is running. Mark it <strong>cleared</strong> when it comes back (we send people into owners' homes, so claiming is gated on it).<br/>2. Collect their W-9 into QuickBooks and hit <strong>mark W-9 on file</strong> so 1099 tracking stays current.</p>
     ${btn(`${fieldBaseUrl()}/fieldwork/roster`, 'Open roster')}
   `);
   return sendTransactionalViaResend({
@@ -275,7 +276,7 @@ export async function sendContractorOnboardedEmail(contractor: ContractorRow): P
     subject: `Field: ${contractor.full_name} signed up, needs background check`,
     fromName: FROM_NAME,
     html,
-    text: `${contractor.full_name} finished setup. Run their background check and mark it cleared on the roster (claiming is gated on it), and collect their W-9.`,
+    text: `${contractor.full_name} finished setup. Start their background check and mark it running on the roster (they can claim from then, and Helm texts and emails them), then cleared when it comes back. Collect their W-9.`,
   });
 }
 
@@ -995,6 +996,49 @@ export async function sendShootAllClear(
         ${btn(link, 'Open the shoot brief')}
       `),
       text: content,
+    }).catch(() => false);
+  }
+  return { texted, emailed };
+}
+
+/**
+ * The office moved a contractor's background check on the roster. Running
+ * and cleared are news the portal has always promised by text and email:
+ * the text goes from the 24/7 line when a phone is on file, the email always.
+ * A failed check or a reset sends nothing (backgroundCheckNotice is null).
+ * Operator-triggered, so not quiet-hours gated, like the shoot all-clear.
+ */
+export async function sendBackgroundCheckNotice(
+  contractor: Pick<ContractorRow, 'full_name' | 'email' | 'phone' | 'portal_token'>,
+  next: ContractorRow['background_check_status'],
+): Promise<{ texted: boolean; emailed: boolean }> {
+  const notice = backgroundCheckNotice(next);
+  if (!notice) return { texted: false, emailed: false };
+  const link = `${fieldBaseUrl()}/field/${contractor.portal_token}`;
+
+  let texted = false;
+  if (contractor.phone) {
+    const from = await resolveQuoFrom();
+    if (from) {
+      texted = await sendMessage({ from, to: contractorSmsTo(contractor.phone), content: `${notice.sms} ${link}` })
+        .then(() => true)
+        .catch(() => false);
+    }
+  }
+  let emailed = false;
+  if (contractor.email) {
+    const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const first = esc(contractor.full_name.split(' ')[0]);
+    emailed = await sendTransactionalViaResend({
+      to: contractor.email,
+      subject: notice.subject,
+      fromName: FROM_NAME,
+      html: shell(`
+        <h1 style="font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 14px;">${esc(notice.heading)}</h1>
+        <p>Hi ${first}, ${esc(notice.body.charAt(0).toLowerCase() + notice.body.slice(1))}</p>
+        ${btn(link, 'Open my portal')}
+      `),
+      text: `${notice.body} ${link}`,
     }).catch(() => false);
   }
   return { texted, emailed };
