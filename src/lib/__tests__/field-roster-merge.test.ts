@@ -39,7 +39,7 @@ test('next and last visit: claimed work is to come, submitted work happened, an 
 
 test('the applicants lead each roster, with the one invite door', () => {
   const roster = read('src/app/fieldwork/roster/page.tsx');
-  const at = roster.indexOf('<Applicants apps={applications} trade={trade} owner={owner} base={base} />');
+  const at = roster.indexOf('<Applicants apps={applications} trade={trade} base={base} />');
   assert.ok(at > 0, 'the roster renders the Applicants section');
   assert.ok(at < roster.indexOf('working.map((c) => ('), 'above the people');
   assert.doesNotMatch(roster, /fieldwork\/hiring/, 'no link to the retired page');
@@ -47,7 +47,9 @@ test('the applicants lead each roster, with the one invite door', () => {
   const section = read('src/app/fieldwork/roster/Applicants.tsx');
   assert.equal((section.match(/action=\{inviteContractor\}/g) ?? []).length, 1, 'one direct invite form');
   assert.ok(section.includes('action={inviteApplicant}'));
-  assert.match(section, /\{owner && \(\n\s*<details>\n\s*<summary style=\{foldSummary\}>\+ Invite/, 'the direct invite is owners only, like the applicant Invite');
+  // Staff invite too since 2026-10-19 (the hiring lifecycle is theirs; pay is not).
+  assert.match(section, /<details>\n\s*<summary style=\{foldSummary\}>\+ Invite/, 'the direct invite door is there');
+  assert.ok(!/\bowner\b/.test(section.replace(/\/\*[\s\S]*?\*\//g, '')), 'no owner gate left on the applicant controls');
   assert.ok(section.includes('id="applicants"'), 'the anchor the redirect and the email land on');
 });
 

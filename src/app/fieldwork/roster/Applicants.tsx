@@ -14,8 +14,8 @@ import { ScreenButton } from '../hiring/ScreenButton';
  * door, here: invite an applicant from their card, or (below the cards)
  * someone who never applied.
  *
- * Staff screen and shortlist; inviting, declining and reopening are owner
- * calls (the actions refuse a staff session too).
+ * Anyone signed in screens, invites, declines and reopens (staff were given
+ * the hiring lifecycle on 2026-10-19; pay stays with the owners).
  */
 
 function fmtWhen(d: string): string {
@@ -78,13 +78,11 @@ export function activeApplicants(apps: ContractorApplication[], trade: Contracto
 export function Applicants({
   apps,
   trade,
-  owner,
   base,
 }: {
   /** Every application; this section keeps the lit trade's. */
   apps: ContractorApplication[];
   trade: ContractorTrade;
-  owner: boolean;
   base: string;
 }) {
   const meta = TRADE_META[trade];
@@ -120,50 +118,48 @@ export function Applicants({
       </div>
 
       {active.map((a) => (
-        <ApplicantCard key={a.id} a={a} owner={owner} />
+        <ApplicantCard key={a.id} a={a} />
       ))}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: active.length > 0 ? 4 : 0 }}>
-        {invited.length > 0 && <Closed title={`Invited · ${invited.length}`} apps={invited} owner={owner} />}
-        {declined.length > 0 && <Closed title={`Declined · ${declined.length}`} apps={declined} owner={owner} />}
+        {invited.length > 0 && <Closed title={`Invited · ${invited.length}`} apps={invited} />}
+        {declined.length > 0 && <Closed title={`Declined · ${declined.length}`} apps={declined} />}
 
         {/* The one invite door for someone who never applied (a referral,
-            a returning contractor). Owners only, like the applicant Invite. */}
-        {owner && (
-          <details>
-            <summary style={foldSummary}>+ Invite {article} who didn&apos;t apply ▾</summary>
-            <p style={{ fontSize: 12.5, color: 'var(--ink-4)', margin: '8px 0 10px', lineHeight: 1.5 }}>
-              We email them a personal portal link. They set up their account (W-9 + agreement) before they can{' '}
-              {trade === 'creative' ? 'take on paid assets' : 'claim paid work'}.
-            </p>
-            <form action={inviteContractor} style={{ border: '1px solid var(--rule)', borderRadius: 12, background: 'var(--paper-2, #fff)', padding: '14px 18px', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-              <label style={lbl}>
-                Name
-                <input name="full_name" required placeholder="Marcus Reed" style={inp} />
-              </label>
-              <label style={lbl}>
-                Email
-                <input name="email" type="email" required placeholder="marcus@example.com" style={inp} />
-              </label>
-              <label style={lbl}>
-                Phone
-                <input name="phone" type="tel" placeholder="(978) 555-0123" style={inp} />
-              </label>
-              <label style={lbl}>
-                Trade
-                {/* Cleaning is a valid trade with no tab (turnovers run through
-                    Cape Ann Elite), so an invited cleaner would vanish from
-                    every roster view. Not offered until a Cleaners tab exists. */}
-                <select name="trade" defaultValue={trade} style={inp}>
-                  <option value="inspection">Inspection</option>
-                  <option value="maintenance">Maintenance</option>
-                  <option value="creative">Creative</option>
-                </select>
-              </label>
-              <SubmitButton label="Send invite" busyLabel="Sending invite…" style={btnDark} />
-            </form>
-          </details>
-        )}
+            a returning contractor). */}
+        <details>
+          <summary style={foldSummary}>+ Invite {article} who didn&apos;t apply ▾</summary>
+          <p style={{ fontSize: 12.5, color: 'var(--ink-4)', margin: '8px 0 10px', lineHeight: 1.5 }}>
+            We email them a personal portal link. They set up their account (W-9 + agreement) before they can{' '}
+            {trade === 'creative' ? 'take on paid assets' : 'claim paid work'}.
+          </p>
+          <form action={inviteContractor} style={{ border: '1px solid var(--rule)', borderRadius: 12, background: 'var(--paper-2, #fff)', padding: '14px 18px', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <label style={lbl}>
+              Name
+              <input name="full_name" required placeholder="Marcus Reed" style={inp} />
+            </label>
+            <label style={lbl}>
+              Email
+              <input name="email" type="email" required placeholder="marcus@example.com" style={inp} />
+            </label>
+            <label style={lbl}>
+              Phone
+              <input name="phone" type="tel" placeholder="(978) 555-0123" style={inp} />
+            </label>
+            <label style={lbl}>
+              Trade
+              {/* Cleaning is a valid trade with no tab (turnovers run through
+                  Cape Ann Elite), so an invited cleaner would vanish from
+                  every roster view. Not offered until a Cleaners tab exists. */}
+              <select name="trade" defaultValue={trade} style={inp}>
+                <option value="inspection">Inspection</option>
+                <option value="maintenance">Maintenance</option>
+                <option value="creative">Creative</option>
+              </select>
+            </label>
+            <SubmitButton label="Send invite" busyLabel="Sending invite…" style={btnDark} />
+          </form>
+        </details>
 
         {/* Shareable apply links, tagged by source for attribution. Folded:
             set-up material, not the day's work. */}
@@ -192,7 +188,7 @@ export function Applicants({
   );
 }
 
-function ApplicantCard({ a, owner }: { a: ContractorApplication; owner: boolean }) {
+function ApplicantCard({ a }: { a: ContractorApplication }) {
   return (
     <div style={{ border: '1px solid var(--signal)', borderRadius: 10, padding: '16px 18px', marginBottom: 12, background: 'var(--paper-2, #fff)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'baseline', flexWrap: 'wrap' }}>
@@ -249,28 +245,21 @@ function ApplicantCard({ a, owner }: { a: ContractorApplication; owner: boolean 
           {a.about && <div style={{ marginTop: 4 }}>{a.about}</div>}
         </div>
       )}
-      {/* Staff screen and shortlist; the invite is Ryan's. Say so once on
-          the card, where the buttons would be. */}
-      {!owner && (
-        <div style={{ fontSize: 12.5, color: 'var(--ink-3)', marginTop: 14 }}>Ryan invites or declines.</div>
-      )}
-      {owner && (
-        <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
-          <form action={inviteApplicant} style={{ margin: 0 }}>
-            <input type="hidden" name="application_id" value={a.id} />
-            <SubmitButton label="Invite" busyLabel="Inviting…" style={btnDark} />
-          </form>
-          <form action={declineApplicant} style={{ margin: 0 }}>
-            <input type="hidden" name="application_id" value={a.id} />
-            <SubmitButton label="Decline" busyLabel="Declining…" style={btnGhost} spinnerTone="ink" />
-          </form>
-        </div>
-      )}
+      <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
+        <form action={inviteApplicant} style={{ margin: 0 }}>
+          <input type="hidden" name="application_id" value={a.id} />
+          <SubmitButton label="Invite" busyLabel="Inviting…" style={btnDark} />
+        </form>
+        <form action={declineApplicant} style={{ margin: 0 }}>
+          <input type="hidden" name="application_id" value={a.id} />
+          <SubmitButton label="Decline" busyLabel="Declining…" style={btnGhost} spinnerTone="ink" />
+        </form>
+      </div>
     </div>
   );
 }
 
-function Closed({ title, apps, owner }: { title: string; apps: ContractorApplication[]; owner: boolean }) {
+function Closed({ title, apps }: { title: string; apps: ContractorApplication[] }) {
   return (
     <details>
       <summary style={{ ...foldSummary, color: 'var(--ink-4)', fontWeight: 500 }}>{title} ▾</summary>
@@ -278,12 +267,10 @@ function Closed({ title, apps, owner }: { title: string; apps: ContractorApplica
         {apps.map((a) => (
           <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, padding: '8px 0', borderBottom: '1px solid var(--rule)', opacity: 0.8, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 14 }}>{a.full_name} <a href={`mailto:${a.email}`} style={{ color: 'var(--tide-deep)', fontSize: 12, textDecoration: 'none' }}>· {a.email}</a>{a.phone ? <> <a href={`tel:${a.phone.replace(/[^+\d]/g, '')}`} style={{ color: 'var(--tide-deep)', fontSize: 12, textDecoration: 'none' }}>· {a.phone}</a></> : null}</span>
-            {owner && (
-              <form action={reopenApplicant} style={{ margin: 0 }}>
-                <input type="hidden" name="application_id" value={a.id} />
-                <SubmitButton label="Reopen" busyLabel="Reopening…" style={{ ...btnGhost, padding: '4px 10px' }} spinnerTone="ink" />
-              </form>
-            )}
+            <form action={reopenApplicant} style={{ margin: 0 }}>
+              <input type="hidden" name="application_id" value={a.id} />
+              <SubmitButton label="Reopen" busyLabel="Reopening…" style={{ ...btnGhost, padding: '4px 10px' }} spinnerTone="ink" />
+            </form>
           </div>
         ))}
       </div>

@@ -239,12 +239,10 @@ describe('the money server actions refuse a staff session', () => {
   const gated: Record<string, string[]> = {
     'src/app/fieldwork/packets/actions.ts': [
       'revealW9', 'revealPay', 'setPacketPrice', 'raisePacketEstimate', 'setPacketBonus',
-      'finalizePacketPayout', 'markContractorPaid', 'markPacketPaid', 'approvePacket', 'requestChanges',
-      'inviteContractor', 'setContractorStatus', 'rotateContractorToken', 'resendInvite',
-      'setContractorBackgroundCheck', 'setContractorWorkBoard', 'setContractorW9', 'setContractorEmployment',
+      'finalizePacketPayout', 'markContractorPaid', 'markPacketPaid', 'approvePacket',
+      'rotateContractorToken', 'setContractorW9', 'setContractorEmployment',
       'homeReceiptOnPacket', 'unhomeReceiptFromPacket',
     ],
-    'src/app/fieldwork/hiring/actions.ts': ['inviteApplicant', 'declineApplicant', 'reopenApplicant'],
     'src/app/fieldwork/roster/rate-card-actions.ts': ['saveRateCardAction', 'resetRateCardAction'],
     // All five creative pay actions: the base pay and the qualifying call,
     // plus the three that pay or re-price a top-up (found on staffEmail()
@@ -264,6 +262,23 @@ describe('the money server actions refuse a staff session', () => {
       }
     });
   }
+
+  test('staff run the contractor lifecycle, never the pay (Dotti, 2026-10-19)', () => {
+    const staffOpen: Record<string, string[]> = {
+      'src/app/fieldwork/packets/actions.ts': ['requestChanges', 'inviteContractor', 'setContractorStatus', 'resendInvite', 'setContractorBackgroundCheck', 'setContractorWorkBoard'],
+      'src/app/fieldwork/hiring/actions.ts': ['inviteApplicant', 'declineApplicant', 'reopenApplicant'],
+    };
+    for (const [file, names] of Object.entries(staffOpen)) {
+      const src = read(file);
+      for (const name of names) {
+        const m = src.match(new RegExp(`export async function ${name}\\b[\\s\\S]*?(?=\\nexport async function |$)`));
+        assert.ok(m && m[0].includes('staffEmail()'), `${file}: ${name} must still require a signed-in login`);
+      }
+    }
+    const status = read('src/app/fieldwork/packets/actions.ts').match(/export async function setContractorStatus[\s\S]*?(?=\nexport async function |$)/)![0];
+    assert.ok(status.includes("if (status === 'archived') await ownerEmail();"), 'retiring a contractor stays with the owners');
+    assert.ok(/=== 'archived'\) await ownerEmail\(\);\s*\}/.test(status), 'and so does bringing a retired one back');
+  });
 
   test('owner money on the pages staff keep renders for owners only', () => {
     // The home payout tile, the fee on the properties list, and the fee /

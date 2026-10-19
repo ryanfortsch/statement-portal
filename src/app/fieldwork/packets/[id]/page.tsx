@@ -328,6 +328,21 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
           </div>
         </div>
 
+        {/* Staff send a submitted packet back for changes (2026-10-19);
+            approving it, which sets the final pay, stays with the owners. */}
+        {!owner && packet.status === 'submitted' && (
+          <div id="decision" style={{ marginTop: 20, border: '1px solid var(--rule)', borderRadius: 10, padding: '14px 18px', background: 'var(--paper-2, #fff)' }}>
+            <details>
+              <summary style={quietSummary}>Send back for changes ▾</summary>
+              <form action={requestChanges} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
+                <input type="hidden" name="packet_id" value={packet.id} />
+                <input name="note" placeholder="What to fix (optional)" style={{ ...priceInput, width: 200 }} />
+                <PendingButton label="Request changes" busyLabel="Sending…" className={buttonClass('secondary')} spinnerTone="ink" />
+              </form>
+            </details>
+          </div>
+        )}
+
         {/* The owner's decision comes first: approve (with the final pay and
             any bonus) once it is submitted, record the payment once it is
             approved. What they found and the receipts follow right under it. */}

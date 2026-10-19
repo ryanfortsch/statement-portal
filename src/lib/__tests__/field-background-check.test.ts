@@ -67,10 +67,11 @@ function fixture(initial: 'not_started' | 'pending' | 'cleared' | 'failed') {
     },
   });
   const setContractorBackgroundCheck = new Function(
-    'ownerEmail', 'fieldDb', 'revalidatePath', 'after', 'sendBackgroundCheckNotice', 'canClaim',
+    'staffEmail', 'fieldDb', 'revalidatePath', 'after', 'sendBackgroundCheckNotice', 'canClaim',
     code + '; return setContractorBackgroundCheck;',
   )(
-    async () => 'owner@example.test',
+    // Staff mark the check since 2026-10-19; any signed-in login passes.
+    async () => 'staff@example.test',
     fieldDb,
     () => {},
     (fn: () => Promise<unknown>) => { later.push(fn()); },
