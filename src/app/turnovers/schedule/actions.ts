@@ -28,7 +28,7 @@ import { normalizePhone } from '@/lib/quo-lines';
 import { mineCheckoutChanges } from '@/lib/mine-checkout-changes';
 import { detectExtensionHolds } from '@/lib/extension-holds';
 import { decideTurnoverNote } from '@/lib/turnover-notes';
-import { saveOperatorNote, resolveNoteBlock, withOperatorNote } from '@/lib/cleaner-note';
+import { saveOperatorNote, resolveNoteBlocks, withOperatorNote } from '@/lib/cleaner-note';
 
 // The schedule card lives on the Team inbox since 2026-10-18.
 const CARD = '/messaging/team';
@@ -119,19 +119,21 @@ export async function approveAndSendDigest(formData: FormData): Promise<void> {
     try { await detectExtensionHolds(supabase); } catch { /* fail-soft */ }
   }
   // Persist the note first so a failed send never costs the typing, and
-  // render it in Portuguese: resolveNoteBlock reuses the rendering saved by
-  // "Save & translate" when the text has not changed since, so approving
-  // right after saving costs no second model call and sends exactly the
-  // tail the card showed. The composed path reads it back from the row and
-  // appends it after each recipient's schedule (sendDigest); the verbatim
-  // path appends it here.
-  const noteBlock = await resolveNoteBlock(supabase, digestId, note);
+  // render it: resolveNoteBlocks reuses the rendering saved by "Save &
+  // translate" when the text has not changed since, so approving right
+  // after saving costs no second model call and sends exactly the tail the
+  // card showed. The composed path reads it back from the row and appends
+  // it after each recipient's schedule, in that recipient's language
+  // (sendDigest). The verbatim path appends it here, in Portuguese: an
+  // edited body is the Portuguese draft as she left it, and it goes to
+  // every recipient as one text.
+  const noteBlocks = await resolveNoteBlocks(supabase, digestId, note);
 
   const res = await sendDigest(supabase, {
     digestId,
     operatorEmail: email,
     kind: 'initial',
-    ...(unedited ? {} : { body: withOperatorNote(body, noteBlock) }),
+    ...(unedited ? {} : { body: withOperatorNote(body, noteBlocks.pt) }),
   });
   revalidatePath(CARD);
   revalidatePath(PAGE);
