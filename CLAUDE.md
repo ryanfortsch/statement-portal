@@ -958,3 +958,22 @@ are defined in `AGENTS.md`.
 - Direct and concise.
 - The statement design is editorial and premium, like a magazine layout. Not corporate.
 - Let the design breathe. More whitespace beats cramped.
+- **Three shared controls; use them when you touch a page, never sweep working pages onto them**
+  (Phase 4 of the 2026-10-17 audit):
+  - **Button** (`src/components/Button.tsx`): `primary` (the one dark verb a block is for),
+    `secondary`, `quiet` (a text exit), `danger`; sizes `sm` (a dense row's verb), `md`, `lg`.
+    `pending` shows the label with three dots and runs SubmitButton's watchdog
+    (`src/lib/use-pending-watchdog.ts`); pass `watchdog={false}` when waiting is the job (an AI
+    call, a planner). A server page puts the same face on a SubmitButton or a link with
+    `buttonClass()` from `src/lib/button-class.ts`.
+  - **ConfirmDialog** (`src/components/ConfirmDialog.tsx`, mounted once in `Providers`):
+    `useConfirm()` gives `ask`, `choose` (two real answers plus Cancel), `askText` and `notify`;
+    `askThenSubmit` for a submit button; SubmitButton's `confirm` prop opens it. Name the button
+    for the action, say what it does, `irreversible` only when true, `typeToConfirm` only for an
+    action that destroys a lot at once. No new native `confirm()` / `prompt()` / `alert()`:
+    `native-dialogs.test.ts` lists the few left and refuses any other.
+  - **EmptyState** (`src/components/EmptyState.tsx`): one sentence, at most one verb. Section's
+    `emptyMessage` renders through it. An empty state never names a table, a migration or an
+    env var (`empty-state.test.ts`); when something is not set up, say "Ask Ryan: ...".
+  A smoke fixture that compiles a component using them must register them; the alias list is in
+  `scripts/confirm-dialog-smoke.mjs`, the controls fixture.
