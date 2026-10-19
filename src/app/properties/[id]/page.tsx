@@ -820,7 +820,9 @@ export default async function PropertyDetailPage({
         tabs={[
           { id: 'now', label: 'Now', badge: openSlips.length || undefined },
           { id: 'facts', label: 'Facts' },
-          { id: 'owner', label: 'Owner & money', badge: crmContactsFull.length || undefined },
+          // Staff see the owner's contacts here and no money, so the tab
+          // names only what they get.
+          { id: 'owner', label: owner ? 'Owner & money' : 'Owner', badge: crmContactsFull.length || undefined },
           // Listing, Pricing and Automations (the Helm-native PMS
           // records) are sections of this tab; the badge is sends waiting
           // on an approval there.
