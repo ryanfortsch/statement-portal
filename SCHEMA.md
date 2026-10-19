@@ -70,8 +70,10 @@ them risks paying somebody $40 short with nobody noticing. See
   entity), **`llc_property_links`** and **`chart_of_accounts`** are seeded
   from `src/lib/books.ts`, which stays the authority the app reads; the
   migration's seed is test-checked against it.
-- Migration `20261019120000_books_ledger_tables.sql`, all five RLS-locked
-  (service role only). **Not yet applied to production as of 2026-10-19.**
+- Created by migration `20261019180000_books_ledger_tables.sql` and brought
+  to the P&L's shape by `20261019190000_books_ledger_for_pnl.sql` (liability
+  types, checks, grants), both applied to production 2026-10-19. All five
+  are RLS-locked, service role only.
 - This is the companies' own books. It never reads or writes an owner
   statement, and Rising Tide's owner trust money (pass-through accounts) is
   listed beside its P&L, never in it.

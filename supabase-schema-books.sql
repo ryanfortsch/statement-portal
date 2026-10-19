@@ -1,7 +1,7 @@
--- SUPERSEDED 2026-10-19 by supabase/migrations/20261019120000_books_ledger_tables.sql.
--- Do not run this file: it was never applied to production, its chart seed
--- deletes and re-inserts, and it types the liability accounts as expenses.
--- Kept for history only.
+-- SUPERSEDED 2026-10-19 by supabase/migrations/20261019180000_books_ledger_tables.sql
+-- (this file as a migration) and 20261019190000_books_ledger_for_pnl.sql.
+-- Do not run this file: its chart seed deletes and re-inserts, and it types
+-- the liability accounts as expenses. Kept for history only.
 --
 -- LLC Accounting ("Books") module schema.
 --

@@ -182,7 +182,7 @@ export const CHART_OF_ACCOUNTS: CoaAccount[] = [
   { key: 'photographer_for_listing', parent_key: 'advertising_marketing', name: 'Photographer for Listing', type: 'expense', scope: 'shared', sort: 105 },
 
   { key: 'business_licenses', name: 'Business Licenses', type: 'expense', scope: 'shared', tax_hint: 'CT SOS, MA filings', sort: 110 },
-  { key: 'cleaning_operating', name: 'Cleaning (Operating)', type: 'expense', scope: 'shared', tax_hint: 'Ops-side cleaning -- NOT Property Cleaning (pass-through)', sort: 120 },
+  { key: 'cleaning_operating', name: 'Cleaning (Operating)', type: 'expense', scope: 'shared', tax_hint: 'Ops-side cleaning, NOT Property Cleaning (pass-through)', sort: 120 },
   { key: 'contract_labor', name: 'Contract Labor', type: 'expense', scope: 'shared', sort: 130 },
   { key: 'filing_fees', name: 'Filing Fees', type: 'expense', scope: 'rising_tide', sort: 140 },
 
@@ -205,8 +205,8 @@ export const CHART_OF_ACCOUNTS: CoaAccount[] = [
 
   { key: 'interest_paid', name: 'Interest Paid', type: 'expense', scope: 'shared', tax_hint: 'Schedule E line 12', sort: 180 },
   { key: 'mortgage_interest', parent_key: 'interest_paid', name: 'Mortgage Interest', type: 'expense', scope: 'goose_astoria', sort: 181 },
-  { key: 'mortgage_interest_11_rockholm', parent_key: 'interest_paid', name: 'Mortgage Interest - 11 Rockholm', type: 'expense', scope: 'goose_calderwood', sort: 182 },
-  { key: 'mortgage_interest_65_calderwood', parent_key: 'interest_paid', name: 'Mortgage Interest - 65 Calderwood', type: 'expense', scope: 'goose_calderwood', sort: 183 },
+  { key: 'mortgage_interest_11_rockholm', parent_key: 'interest_paid', name: 'Mortgage Interest, 11 Rockholm', type: 'expense', scope: 'goose_calderwood', sort: 182 },
+  { key: 'mortgage_interest_65_calderwood', parent_key: 'interest_paid', name: 'Mortgage Interest, 65 Calderwood', type: 'expense', scope: 'goose_calderwood', sort: 183 },
   { key: 'business_loan_interest', parent_key: 'interest_paid', name: 'Business Loan Interest', type: 'expense', scope: 'shared', sort: 184 },
   { key: 'credit_card_interest', parent_key: 'interest_paid', name: 'Credit Card Interest', type: 'expense', scope: 'shared', sort: 185 },
 
@@ -275,7 +275,7 @@ export const CHART_OF_ACCOUNTS: CoaAccount[] = [
   { key: 'cleaning_fares_pt', parent_key: 'property_owner_revenues', name: 'Cleaning Fares', type: 'other_income', scope: 'rising_tide', pass_through: true, sort: 504 },
 
   { key: 'property_owner_expenses', name: 'Property Owner Expenses', type: 'other_expense', scope: 'rising_tide', pass_through: true, sort: 510 },
-  { key: 'property_cleaning', parent_key: 'property_owner_expenses', name: 'Property Cleaning', type: 'other_expense', scope: 'rising_tide', pass_through: true, tax_hint: 'Cape Ann Elite, biggest 1099 candidate', sort: 511 },
+  { key: 'property_cleaning', parent_key: 'property_owner_expenses', name: 'Property Cleaning', type: 'other_expense', scope: 'rising_tide', pass_through: true, tax_hint: 'Cape Ann Elite, the biggest 1099 candidate', sort: 511 },
   { key: 'property_landscaping', parent_key: 'property_owner_expenses', name: 'Property Landscaping', type: 'other_expense', scope: 'rising_tide', pass_through: true, sort: 512 },
   { key: 'property_photography', parent_key: 'property_owner_expenses', name: 'Property Photography', type: 'other_expense', scope: 'rising_tide', pass_through: true, sort: 513 },
   { key: 'property_repair_maintenance', parent_key: 'property_owner_expenses', name: 'Property Repair & Maintenance', type: 'other_expense', scope: 'rising_tide', pass_through: true, sort: 514 },
@@ -294,7 +294,7 @@ export const CHART_OF_ACCOUNTS: CoaAccount[] = [
   { key: 'depreciation', name: 'Depreciation', type: 'other_expense', scope: 'shared', sort: 710 },
   { key: 'amortization', name: 'Amortization', type: 'other_expense', scope: 'shared', sort: 711 },
   { key: 'reconciliation_discrepancies', name: 'Reconciliation Discrepancies', type: 'other_expense', scope: 'shared', tax_hint: 'Bookkeeper plug -- flag for review', sort: 980 },
-  { key: 'suspense', name: 'Suspense', type: 'other_expense', scope: 'shared', tax_hint: 'Reserved -- human review only, never auto-targeted', sort: 990 },
+  { key: 'suspense', name: 'Suspense', type: 'other_expense', scope: 'shared', tax_hint: 'Reserved: human review only, never auto-targeted', sort: 990 },
 
   // ── EQUITY ───────────────────────────────────────────────────────────
   { key: 'owner_contribution', name: 'Owner / Partner Contributions', type: 'equity', scope: 'shared', sort: 800 },

@@ -15,7 +15,7 @@
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import * as XLSX from 'xlsx';
 import {
   computeDedupeHash,
@@ -398,7 +398,7 @@ describe('the rules that keep each LLC\'s P&L honest', () => {
 
 // ── The migration seeds what the app files against ───────────────────────
 
-const MIGRATION = 'supabase/migrations/20261019120000_books_ledger_tables.sql';
+const MIGRATION = 'supabase/migrations/20261019190000_books_ledger_for_pnl.sql';
 
 /** The value tuples of one `insert into public.<table> (...) values ... on conflict` block. */
 function seedTuples(sql: string, table: string): (string | number | boolean | null)[][] {
@@ -451,9 +451,10 @@ describe('the books migration', () => {
     }
   });
 
-  test('the type check admits every type the chart uses', () => {
-    const check = sql.match(/type\s+text not null check \(type in \(([^)]*)\)\)/);
+  test('the type check admits every type the chart uses, and lands after the upsert fixes the liability rows', () => {
+    const check = sql.match(/add constraint chart_of_accounts_type_check\s+check \(type in \(([^)]*)\)\)/);
     assert.ok(check, 'chart_of_accounts.type has a check');
+    assert.ok(sql.indexOf('chart_of_accounts_type_check') > sql.indexOf('insert into public.chart_of_accounts'), 'the check follows the chart upsert');
     const allowed = new Set(check[1].split(',').map((s) => s.trim().replace(/'/g, '')));
     for (const a of CHART_OF_ACCOUNTS) assert.ok(allowed.has(a.type), `${a.key}: ${a.type}`);
   });
@@ -470,7 +471,24 @@ describe('the books migration', () => {
   });
 
   test('the root schema file is marked superseded so nobody runs it', () => {
-    assert.match(read('supabase-schema-books.sql'), /^-- SUPERSEDED .*20261019120000_books_ledger_tables\.sql/);
+    assert.match(read('supabase-schema-books.sql'), /^-- SUPERSEDED /);
+    assert.ok(read('supabase-schema-books.sql').split('\n').slice(0, 6).join('\n').includes('20261019190000_books_ledger_for_pnl.sql'));
+  });
+
+  test('it sorts after every other migration that seeds the chart, so a replay ends on this chart', () => {
+    // The root file's seed (and its copy as a migration) deletes and
+    // re-inserts chart_of_accounts with the liability rows as other_expense.
+    const dir = new URL('../../../supabase/migrations/', import.meta.url);
+    const mine = MIGRATION.split('/').pop()!;
+    const seeders = readdirSync(dir).filter((f) => f.endsWith('.sql') && f !== mine && /insert into\s+(public\.)?chart_of_accounts/i.test(readFileSync(new URL(f, dir), 'utf8')));
+    for (const f of seeders) assert.ok(f < mine, `${f} seeds the chart after ${mine}`);
+  });
+
+  test('re-running it changes nothing: every constraint is dropped by name before it is added', () => {
+    for (const m of sql.matchAll(/add constraint (\w+)/g)) {
+      assert.ok(sql.includes(`drop constraint if exists ${m[1]}`), `${m[1]} is dropped first`);
+    }
+    assert.ok(!/^\s*delete from/im.test(sql), 'no delete: the chart is upserted');
   });
 });
 

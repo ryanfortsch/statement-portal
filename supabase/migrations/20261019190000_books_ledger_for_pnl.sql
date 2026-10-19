@@ -1,31 +1,31 @@
--- LLC Accounting ("Books"): the ledger tables, never created in production.
+-- LLC Accounting ("Books"): the ledger as the P&L needs it.
 --
--- /books/<entity> was built in May-June 2026 (phases 1a-1b: Chase CSV
--- upload, AI categorizer, review) against supabase-schema-books.sql, a
--- root-level file that was never run, so every ledger page has said "Setup
--- pending" since. The CPA needs a 2026 P&L for each LLC (2026-10-19), and
--- /books/<entity>/pnl builds it from these tables.
---
--- This is that file as a migration, with three changes:
+-- The five ledger tables were created in production earlier on 2026-10-19
+-- by 20261019180000_books_ledger_tables.sql (PR #2007, the root file
+-- supabase-schema-books.sql as a migration, RLS on). This migration runs
+-- after it and brings the tables to what /books/<entity>/pnl and its CPA
+-- export rely on:
 --   - Sales Tax Payable, Customer Prepayments and Heat Loan are type
---     'liability' (the root file had them as other_expense, which would
---     put a sales-tax remittance or a loan payment on the P&L).
---   - The chart is upserted, not deleted and re-inserted.
---   - RLS on, service role only, like every new table (the anon key is
---     public). Every reader and writer is a server route or server page
---     using the service-role key.
+--     'liability'. The root file seeds them as other_expense, which would
+--     put a sales tax remittance or a loan payment on the P&L.
+--   - Check constraints on the kinds, the chart types and the AI
+--     confidence; the ledger amount is numeric(14,2).
+--   - anon and authenticated lose their grants (RLS already blocks them;
+--     this is the second lock). Every reader and writer is a server route
+--     or page on the service-role key.
+--   - The seed is upserted from src/lib/books.ts, the authority the app
+--     reads. books-pnl.test.ts fails if the two drift.
 --
--- The seed rows are generated from src/lib/books.ts (LLC_ENTITIES,
--- LLC_ACCOUNTS, CHART_OF_ACCOUNTS), which stays the authority the app
--- reads; books-ledger-migration.test.ts fails if the two drift.
---
--- Additive: five new tables and their seed. Nothing existing is touched.
+-- It also stands alone: on a database without the tables, the creates
+-- below make them. Re-running it changes nothing. It must sort after
+-- every other migration that seeds chart_of_accounts, because the root
+-- file's seed deletes and re-inserts the chart; the test checks that.
 
 create table if not exists public.llc_entities (
   id          text primary key,
   name        text not null,
   short       text not null,
-  kind        text not null check (kind in ('management', 'holding')),
+  kind        text not null,
   ein         text,
   notes       text,
   sort        int not null default 0,
@@ -36,7 +36,7 @@ create table if not exists public.llc_entities (
 create table if not exists public.llc_accounts (
   id           uuid primary key default gen_random_uuid(),
   entity_id    text not null references public.llc_entities(id),
-  kind         text not null check (kind in ('bank', 'credit_card')),
+  kind         text not null,
   institution  text,
   last4        text,
   label        text,
@@ -68,7 +68,7 @@ create table if not exists public.chart_of_accounts (
   key           text not null,
   parent_key    text,
   name          text not null,
-  type          text not null check (type in ('income', 'cogs', 'expense', 'other_income', 'other_expense', 'equity', 'liability')),
+  type          text not null,
   tax_hint      text,
   -- Owner trust money on Rising Tide's books: shown, never in net income.
   pass_through  boolean not null default false,
@@ -93,7 +93,7 @@ create table if not exists public.ledger_transactions (
   -- The operator's confirmed category. Wins over the AI's proposal.
   category_key    text,
   ai_category_key text,
-  ai_confidence   text check (ai_confidence in ('high', 'medium', 'low')),
+  ai_confidence   text,
   ai_reasoning    text,
   reviewed        boolean not null default false,
   reviewed_at     timestamptz,
@@ -107,6 +107,16 @@ create table if not exists public.ledger_transactions (
 );
 create index if not exists idx_ledger_entity_date on public.ledger_transactions(entity_id, txn_date);
 create index if not exists idx_ledger_reviewed on public.ledger_transactions(entity_id, reviewed);
+
+-- Named, so a re-run replaces them instead of stacking a second copy.
+alter table public.llc_entities drop constraint if exists llc_entities_kind_check,
+  add constraint llc_entities_kind_check check (kind in ('management', 'holding'));
+alter table public.llc_accounts drop constraint if exists llc_accounts_kind_check,
+  add constraint llc_accounts_kind_check check (kind in ('bank', 'credit_card'));
+alter table public.ledger_transactions drop constraint if exists ledger_transactions_ai_confidence_check,
+  add constraint ledger_transactions_ai_confidence_check check (ai_confidence in ('high', 'medium', 'low'));
+-- Dollars and cents. The ledger was empty when this ran in production.
+alter table public.ledger_transactions alter column amount type numeric(14,2) using round(amount, 2);
 
 alter table public.llc_entities enable row level security;
 alter table public.llc_accounts enable row level security;
@@ -178,7 +188,7 @@ insert into public.chart_of_accounts (entity_id, key, parent_key, name, type, ta
   ('rising_tide', 'web_email_marketing', 'advertising_marketing', 'Web / Email Marketing', 'expense', null, false, 104),
   (null, 'photographer_for_listing', 'advertising_marketing', 'Photographer for Listing', 'expense', null, false, 105),
   (null, 'business_licenses', null, 'Business Licenses', 'expense', 'CT SOS, MA filings', false, 110),
-  (null, 'cleaning_operating', null, 'Cleaning (Operating)', 'expense', 'Ops-side cleaning -- NOT Property Cleaning (pass-through)', false, 120),
+  (null, 'cleaning_operating', null, 'Cleaning (Operating)', 'expense', 'Ops-side cleaning, NOT Property Cleaning (pass-through)', false, 120),
   (null, 'contract_labor', null, 'Contract Labor', 'expense', null, false, 130),
   ('rising_tide', 'filing_fees', null, 'Filing Fees', 'expense', null, false, 140),
   (null, 'general_business', null, 'General Business Expenses', 'expense', null, false, 150),
@@ -197,8 +207,8 @@ insert into public.chart_of_accounts (entity_id, key, parent_key, name, type, ta
   ('rising_tide', 'insurance_vehicle', 'insurance', 'Vehicle Insurance', 'expense', null, false, 174),
   (null, 'interest_paid', null, 'Interest Paid', 'expense', 'Schedule E line 12', false, 180),
   ('goose_astoria', 'mortgage_interest', 'interest_paid', 'Mortgage Interest', 'expense', null, false, 181),
-  ('goose_calderwood', 'mortgage_interest_11_rockholm', 'interest_paid', 'Mortgage Interest - 11 Rockholm', 'expense', null, false, 182),
-  ('goose_calderwood', 'mortgage_interest_65_calderwood', 'interest_paid', 'Mortgage Interest - 65 Calderwood', 'expense', null, false, 183),
+  ('goose_calderwood', 'mortgage_interest_11_rockholm', 'interest_paid', 'Mortgage Interest, 11 Rockholm', 'expense', null, false, 182),
+  ('goose_calderwood', 'mortgage_interest_65_calderwood', 'interest_paid', 'Mortgage Interest, 65 Calderwood', 'expense', null, false, 183),
   (null, 'business_loan_interest', 'interest_paid', 'Business Loan Interest', 'expense', null, false, 184),
   (null, 'credit_card_interest', 'interest_paid', 'Credit Card Interest', 'expense', null, false, 185),
   (null, 'legal_accounting', null, 'Legal & Accounting Services', 'expense', 'Schedule E line 10', false, 190),
@@ -248,7 +258,7 @@ insert into public.chart_of_accounts (entity_id, key, parent_key, name, type, ta
   ('rising_tide', 'additional_guest_fees', 'property_owner_revenues', 'Additional Guest Fees', 'other_income', null, true, 503),
   ('rising_tide', 'cleaning_fares_pt', 'property_owner_revenues', 'Cleaning Fares', 'other_income', null, true, 504),
   ('rising_tide', 'property_owner_expenses', null, 'Property Owner Expenses', 'other_expense', null, true, 510),
-  ('rising_tide', 'property_cleaning', 'property_owner_expenses', 'Property Cleaning', 'other_expense', 'Cape Ann Elite, biggest 1099 candidate', true, 511),
+  ('rising_tide', 'property_cleaning', 'property_owner_expenses', 'Property Cleaning', 'other_expense', 'Cape Ann Elite, the biggest 1099 candidate', true, 511),
   ('rising_tide', 'property_landscaping', 'property_owner_expenses', 'Property Landscaping', 'other_expense', null, true, 512),
   ('rising_tide', 'property_photography', 'property_owner_expenses', 'Property Photography', 'other_expense', null, true, 513),
   ('rising_tide', 'property_repair_maintenance', 'property_owner_expenses', 'Property Repair & Maintenance', 'other_expense', null, true, 514),
@@ -273,7 +283,13 @@ insert into public.chart_of_accounts (entity_id, key, parent_key, name, type, ta
   ('goose_calderwood', 'heat_loan', null, 'Heat Loan', 'liability', '11 Rockholm heating-system loan via Eastern Bank, paid down by Ryan personally', false, 872),
   (null, 'uncategorized', null, 'Uncategorized', 'expense', 'Needs review', false, 900),
   (null, 'reconciliation_discrepancies', null, 'Reconciliation Discrepancies', 'other_expense', 'Bookkeeper plug -- flag for review', false, 980),
-  (null, 'suspense', null, 'Suspense', 'other_expense', 'Reserved -- human review only, never auto-targeted', false, 990)
+  (null, 'suspense', null, 'Suspense', 'other_expense', 'Reserved: human review only, never auto-targeted', false, 990)
 on conflict ((coalesce(entity_id, '')), key) do update set
   parent_key = excluded.parent_key, name = excluded.name, type = excluded.type,
   tax_hint = excluded.tax_hint, pass_through = excluded.pass_through, sort = excluded.sort;
+
+-- After the upsert, so the three rows the root file seeded as other_expense
+-- are already liability when the check is added.
+alter table public.chart_of_accounts drop constraint if exists chart_of_accounts_type_check,
+  add constraint chart_of_accounts_type_check
+  check (type in ('income', 'cogs', 'expense', 'other_income', 'other_expense', 'equity', 'liability'));
