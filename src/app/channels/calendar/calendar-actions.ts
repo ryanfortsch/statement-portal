@@ -226,7 +226,7 @@ export async function quoteRangeAction(input: QuoteRangeInput): Promise<QuoteRan
       // Past both edges: a neighbour's turnover buffer reaches these nights.
       listBookingsForProperty(propertyId, shiftIsoDay(input.checkIn, -TURNOVER_BUFFER_MAX_DAYS), shiftIsoDay(input.checkOut, TURNOVER_BUFFER_MAX_DAYS)),
     ]);
-    if (!bundle.plan) return { ok: false, error: `${property.name} has no rate plan yet. Set one under Rates & taxes (property page, Guest & listing).` };
+    if (!bundle.plan) return { ok: false, error: `${property.name} has no rate plan yet. Set one under Pricing (property page, Guest & listing).` };
     const days = buildAvailability({
       bookings: bookings.filter((b) => b.status !== 'cancelled'),
       plan: bundle.plan,

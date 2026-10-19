@@ -14,11 +14,17 @@
  * It also guards RETURN_TABS in properties/actions.ts, the allowlist of
  * tabs an edit-form save may return to: every one must be a live tab.
  *
+ * And the anchors: Guest & listing was rebuilt into open sections on
+ * 2026-10-19, and a `#rates` that no longer matched an id would land at the
+ * top of the tab, as silently as a dead tab name. So every ?tab=…#anchor
+ * link in the repo that resolves to Guest & listing must hit an id the tab
+ * renders, and the old section anchors must still exist.
+ *
  * Run: npm test
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 
 const read = (repoPath: string): string =>
   readFileSync(new URL(`../../../${repoPath}`, import.meta.url), 'utf8');
@@ -96,4 +102,39 @@ describe('property tab aliases', () => {
     }
   });
 
+
+  test('every link to a Guest & listing anchor lands on an element that exists', () => {
+    const page = read(PAGE);
+    const guest = page.slice(page.indexOf('<TabSection tab="guest">'), page.indexOf('</PropertyTabs>'));
+    // What the tab renders: the page's sections, the listing's blocks, the
+    // home guide form (a fold HashOpenScript opens).
+    const sources = [guest, read('src/app/properties/[id]/ListingPanel.tsx'), read('src/components/properties/HomeGuideCustomizeForm.tsx')];
+    const ids = new Set(sources.flatMap((src) => [...src.matchAll(/\bid="([a-z0-9-]+)"/g)].map((m) => m[1])));
+    const prefixes = new Set(sources.flatMap((src) => [...src.matchAll(/\bid=\{`([a-z-]+-)\$\{/g)].map((m) => m[1])));
+
+    // The anchors the old sections answered to, whether or not a link names them today.
+    for (const anchor of ['listing', 'how-we-sell-it', 'guest-documents', 'guest-placards', 'home-guide-customize', 'rates', 'automations']) {
+      assert.ok(ids.has(anchor), `#${anchor} no longer exists on Guest & listing`);
+    }
+    // ...and each lands on the section of that job.
+    for (const [anchor, title] of [['listing', 'Listing'], ['guest-documents', 'Guest documents'], ['rates', 'Pricing'], ['automations', 'Automations']]) {
+      assert.match(guest, new RegExp(`id="${anchor}"\\s+title="${title}"`), `#${anchor} is not the ${title} section`);
+    }
+
+    const map = aliasMap(page);
+    const root = new URL('../../../src/', import.meta.url);
+    const files = (readdirSync(root, { recursive: true }) as string[]).filter((f) => /\.(ts|tsx)$/.test(f) && !f.includes('__tests__'));
+    let checked = 0;
+    for (const file of files) {
+      const src = readFileSync(new URL(file, root), 'utf8');
+      for (const m of src.matchAll(/\?tab=([a-z]+)#([a-z0-9-]+)/g)) {
+        const tab = map[m[1]] ?? m[1];
+        if (tab !== 'guest') continue;
+        const anchor = m[2];
+        checked++;
+        assert.ok(ids.has(anchor) || prefixes.has(anchor), `src/${file}: ?tab=${m[1]}#${anchor} lands on nothing`);
+      }
+    }
+    assert.ok(checked >= 15, `only ${checked} Guest & listing anchor links found; the scan is not reading the repo`);
+  });
 });
