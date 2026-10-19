@@ -150,7 +150,7 @@ describe('the handoff never touches the money itself', () => {
     const src = read('src/app/api/close-handoff/[id]/route.ts');
     assert.ok(src.includes("const OWNER_ACTIONS = new Set(['dismiss', 'filed']);"));
     assert.ok(src.includes("if (OWNER_ACTIONS.has(action) && !me.owner) return NextResponse.json({ error: 'owners only' }, { status: 403 });"));
-    assert.ok(src.includes("roleForEmail(email) === 'owner'"), 'the role comes from helm-access, not a guess');
+    assert.ok(src.includes('return { email, owner: await isOwnerSession() };'), 'the role comes from helm-access, not a guess');
   });
 
   test('the statement card shows the queue beside its own receipt button', () => {
@@ -180,6 +180,6 @@ describe('the handoff never touches the money itself', () => {
     assert.ok(notify.includes('handoffOpen'), 'and counts toward whether the digest sends at all');
     const feed = read('src/components/ForMeFeed.tsx');
     assert.ok(feed.includes('loadCloseHandoffQueue('), 'the feed has a close handoff card');
-    assert.ok(feed.includes("roleForEmail(email) === 'owner'"), 'that reads differently for an owner and for staff');
+    assert.ok(feed.includes('loadCloseHandoffQueue(role)') && feed.includes("if (role === 'owner') {"), 'that reads differently for an owner and for staff');
   });
 });

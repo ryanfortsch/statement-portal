@@ -2,7 +2,7 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { FieldTabs } from '@/components/FieldTabs';
 import { HelmFooter } from '@/components/HelmFooter';
 import { auth } from '@/auth';
-import { roleForEmail } from '@/lib/helm-access';
+import { isOwnerSession } from '@/lib/helm-access-server';
 import { fieldDb } from '@/lib/field-db';
 import { todayET } from '@/lib/team-recipients';
 import { handoffMonths, isMonth, type HandoffItem } from '@/lib/close-handoff';
@@ -47,7 +47,7 @@ export default async function CloseHandoffPage({
   const sp = await searchParams;
   const session = await auth();
   const email = session?.user?.email ?? '';
-  const owner = roleForEmail(email) === 'owner';
+  const owner = await isOwnerSession();
   const today = todayET();
   const months = handoffMonths(today);
   const month = isMonth(sp.month) ? sp.month : months[months.length - 1];

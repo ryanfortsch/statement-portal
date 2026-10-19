@@ -1,6 +1,6 @@
 import { auth } from "@/auth";
 import { NextResponse } from "next/server";
-import { apiRequiresOwner, pathRequiresOwner, roleForEmail, NOT_AVAILABLE_PATH } from "@/lib/helm-access";
+import { apiRequiresOwner, effectiveRole, pathRequiresOwner, NOT_AVAILABLE_PATH, VIEW_AS_COOKIE } from "@/lib/helm-access";
 
 /**
  * Public path prefixes (no auth required):
@@ -251,8 +251,9 @@ export default auth((req) => {
     if (req.auth) {
       // Owner-only endpoints (the statement pipeline, bank and receipt
       // writes, Stripe, the books, contracts). A staff session gets a 403,
-      // never a redirect: these are fetch callers.
-      if (apiRequiresOwner(pathname) && roleForEmail(req.auth.user?.email) !== "owner") {
+      // never a redirect: these are fetch callers. The role is the
+      // effective one, so an owner in View as staff is refused too.
+      if (apiRequiresOwner(pathname) && effectiveRole(req.auth.user?.email, req.cookies.get(VIEW_AS_COOKIE)?.value) !== "owner") {
         return NextResponse.json({ error: "owners only" }, { status: 403 });
       }
       return;
@@ -269,7 +270,8 @@ export default auth((req) => {
 
   // Owner-only pages. The nav never links a staff login here, so this is a
   // typed URL or an old bookmark: land on a page that says so, not a 404.
-  if (pathRequiresOwner(pathname) && roleForEmail(req.auth.user?.email) !== "owner") {
+  // An owner in View as staff lands there too, exactly as staff would.
+  if (pathRequiresOwner(pathname) && effectiveRole(req.auth.user?.email, req.cookies.get(VIEW_AS_COOKIE)?.value) !== "owner") {
     const url = req.nextUrl.clone();
     url.pathname = NOT_AVAILABLE_PATH;
     url.search = "";

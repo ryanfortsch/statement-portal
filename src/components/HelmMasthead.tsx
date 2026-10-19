@@ -3,6 +3,7 @@ import { HelmModuleNav } from './HelmModuleNav';
 import { HelmMobileMenu } from './HelmMobileMenu';
 import { UserMenu } from './UserMenu';
 import { CommandPaletteTrigger } from './CommandPaletteTrigger';
+import { ViewAsStaffBanner } from './ViewAsStaffBanner';
 
 type Props = {
   rightContent?: React.ReactNode;
@@ -25,6 +26,10 @@ type Props = {
  * under the wordmark row (globals.css, .rt-masthead-slot); where the nav has
  * already folded into Menu (641 to 1023px) it sits inline. The wordmark and
  * its divider never shrink.
+ *
+ * While an owner views Helm as staff, a slim strip along the bottom of the
+ * header (ViewAsStaffBanner) says so and offers the way back; the header is
+ * sticky, so the strip stays on screen.
  */
 export function HelmMasthead({ rightContent }: Props) {
   return (
@@ -72,6 +77,7 @@ export function HelmMasthead({ rightContent }: Props) {
           </div>
         </div>
       </div>
+      <ViewAsStaffBanner />
     </header>
   );
 }

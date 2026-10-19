@@ -3,7 +3,7 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmBreadcrumb } from '@/components/HelmBreadcrumb';
 import { HelmHero } from '@/components/HelmHero';
 import { auth } from '@/auth';
-import { roleForEmail } from '@/lib/helm-access';
+import { isOwnerSession } from '@/lib/helm-access-server';
 import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
 import type { HelmPropertyRow } from '@/lib/properties';
 import {
@@ -65,7 +65,7 @@ export default async function StayCapeAnnLaunchPage({
   const session = await auth();
   // Steps 3 and 4 (payments, go-live, unlist) are owner acts; staff get the
   // listing content, the preview and one line for payments.
-  const isOwner = roleForEmail(session?.user?.email) === 'owner';
+  const isOwner = await isOwnerSession();
   const property = await getProperty(id);
   if (!property) notFound();
 

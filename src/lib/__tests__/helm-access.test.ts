@@ -277,7 +277,7 @@ describe('the money server actions refuse a staff session', () => {
     const list = read('src/app/properties/page.tsx');
     assert.ok(list.includes("owner ? `${p.management_fee_pct}% →` : 'Managed →'"), 'the properties list hides the fee from staff');
     const page = read('src/app/properties/[id]/page.tsx');
-    assert.ok(page.includes("const owner = roleForEmail(session?.user?.email) === 'owner';"));
+    assert.ok(page.includes('const owner = await isOwnerSession();'));
     assert.ok(page.includes('{owner && <Stat label="Mgmt Fee"'), 'the Mgmt Fee stat is owners only');
     assert.ok(/\{owner && \(\n\s*<CollapsibleSection title="Recent Statements"/.test(page), 'the statements section is owners only');
     assert.ok(page.includes('{owner && (activeContract ? ('), 'the contract section is owners only');
@@ -287,7 +287,7 @@ describe('the money server actions refuse a staff session', () => {
     assert.ok(/\{owner && \(\n\s*<Field\n\s*name="bank_last4"/.test(edit), 'the bank field is owners only');
     const actions = read('src/app/properties/actions.ts');
     assert.ok(actions.includes('if (!opts.owner) {'), 'a staff save must not touch the owner columns');
-    assert.ok(actions.includes("performPropertyUpdate(id, formData, { owner: roleForEmail(session.user.email) === 'owner' })"));
+    assert.ok(actions.includes('performPropertyUpdate(id, formData, { owner: await isOwnerSession() })'));
   });
 
   test('the pure helper never pulls Auth.js into the proxy or client bundles', () => {
@@ -526,7 +526,7 @@ describe('every Gmail link carries its mailbox and renders for that mailbox only
 
   test('the feed links into the inbox for its owner only', () => {
     const feed = read('src/components/ForMeFeed.tsx');
-    assert.ok(feed.includes('const mail = { mailbox: gmailMailbox, canOpen: canOpenMailbox(email, gmailMailbox) };'));
+    assert.ok(feed.includes('const mail = { mailbox: gmailMailbox, canOpen: !view.viewingAsStaff && canOpenMailbox(email, gmailMailbox) };'));
     assert.ok(feed.includes('{mail.canOpen ? (\n            <a href={gmailUrl(mail.mailbox, `inbox/${e.threadId}`)}'), 'the sender links only when the session owns the mailbox');
     assert.ok(feed.includes('{e.draftId && mail.canOpen && ('), 'Reply drafted links only when the session owns the mailbox');
   });
@@ -657,7 +657,7 @@ describe('the data behind the page gate refuses a staff session', () => {
     assert.ok(count.includes("owner ? listOwnerApprovals() : Promise.resolve(null),"), 'the owner feed is not read for staff');
     assert.ok(count.includes('const owners = !owner ? 0 :'), 'the owners count is zero for staff');
     const search = read('src/app/api/messaging/search/route.ts');
-    assert.ok(search.includes('const audiences = inboxAudiencesFor(roleForEmail(session.user.email));'));
+    assert.ok(search.includes("const audiences = inboxAudiencesFor((await sessionRole()) ?? 'staff');"));
     assert.ok(search.includes('loadInboxSearch(listInboxSearchApprovals, audiences)'));
   });
 

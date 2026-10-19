@@ -15,7 +15,8 @@ import { loadMeetingCards } from '@/lib/meetings';
 import { meetingWhen, todayET, type MeetingCard } from '@/lib/meetings-core';
 import { operatingDate } from '@/lib/operating-date';
 import { checkoutBoardHref } from '@/lib/turnover-board';
-import { roleForEmail, roleMayOpen } from '@/lib/helm-access';
+import { roleMayOpen, type HelmRole } from '@/lib/helm-access';
+import { sessionView } from '@/lib/helm-access-server';
 import { canOpenMailbox, gmailUrl } from '@/lib/gmail-links';
 import { dueWording, handoffMonths, inNagWindow, monthName } from '@/lib/close-handoff';
 import { loadHandoffItems } from '@/lib/close-handoff-db';
@@ -105,13 +106,15 @@ export async function ForMeFeed() {
     gmailConfigured = false;
   }
 
-  const session = await auth();
+  const [session, view] = await Promise.all([auth(), sessionView()]);
   const email = session?.user?.email ?? '';
-  const role = roleForEmail(email);
+  const role = view.role;
   const owner = role === 'owner';
   // Links into the mailbox the brief read render only for the person who
   // owns it; everyone else gets the sender, the summary and the subject.
-  const mail = { mailbox: gmailMailbox, canOpen: canOpenMailbox(email, gmailMailbox) };
+  // An owner in View as staff is treated as not owning it, so the feed
+  // shows them what a staff login's feed shows.
+  const mail = { mailbox: gmailMailbox, canOpen: !view.viewingAsStaff && canOpenMailbox(email, gmailMailbox) };
   // The triaged mail is one owner's inbox. It waits on the owners, or on
   // whoever's mailbox it is; a staff login's replies are the team's texts.
   if (!owner && !mail.canOpen) {
@@ -122,7 +125,7 @@ export async function ForMeFeed() {
     loadMyWork(email),
     loadDismissals(email),
     loadPlannedWalks(email),
-    loadQueueCards(email),
+    loadQueueCards(role),
     loadPaymentLinkCards(),
     // Owners see every meeting on the calendar; staff see the ones they logged.
     owner ? loadMeetingCards() : email ? loadMeetingCards(new Date(), { createdBy: email }) : Promise.resolve([]),
@@ -877,14 +880,13 @@ function PlannedWalkRow({ walk }: { walk: PlannedWalk }) {
  * could not open the page behind it; and whatever a loader returns, a card
  * whose href the proxy would bounce never reaches the feed.
  */
-async function loadQueueCards(email: string): Promise<QueueCard[]> {
-  const role = roleForEmail(email);
+async function loadQueueCards(role: HelmRole): Promise<QueueCard[]> {
   const owner = role === 'owner';
   const [creative, packets, statements, handoff] = await Promise.all([
     owner ? loadCreativeQueue() : null,
     loadPacketQueue(),
     owner ? loadStatementQueue() : null,
-    loadCloseHandoffQueue(email),
+    loadCloseHandoffQueue(role),
   ]);
   return [creative, ...packets, statements, handoff]
     .filter((c): c is QueueCard => !!c)
@@ -897,14 +899,14 @@ async function loadQueueCards(email: string): Promise<QueueCard[]> {
  * due date through the close). Owners see what waits on them: items the
  * field has sent, plus anything left open once the month is over.
  */
-async function loadCloseHandoffQueue(email: string): Promise<QueueCard | null> {
+async function loadCloseHandoffQueue(role: HelmRole): Promise<QueueCard | null> {
   try {
     const today = todayET();
     const months = handoffMonths(today);
     const items = await loadHandoffItems({ months, statuses: ['open', 'sent'] });
     if (items.length === 0) return null;
     const cur = today.slice(0, 7);
-    if (roleForEmail(email) === 'owner') {
+    if (role === 'owner') {
       const toFile = items.filter((i) => i.status === 'sent' || i.month < cur);
       if (toFile.length === 0) return null;
       const m = toFile.map((i) => i.month).sort()[0];

@@ -6,7 +6,7 @@ import { revalidatePath } from 'next/cache';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { put, del } from '@vercel/blob';
 import { auth } from '@/auth';
-import { roleForEmail } from '@/lib/helm-access';
+import { isOwnerSession } from '@/lib/helm-access-server';
 import { formatUsPhone } from '@/lib/phone';
 import { geocodeAddress } from '@/lib/geocode';
 import { upsertPropertyAccess, getPropertyAccess, ACCESS_COLUMNS, type PropertyAccess } from '@/lib/property-access';
@@ -117,7 +117,7 @@ export async function updateProperty(id: string, formData: FormData) {
   const session = await auth();
   if (!session?.user?.email) throw new Error('Not signed in');
 
-  const result = await performPropertyUpdate(id, formData, { owner: roleForEmail(session.user.email) === 'owner' });
+  const result = await performPropertyUpdate(id, formData, { owner: await isOwnerSession() });
   if (result.error) throw new Error(result.error);
 
   redirect(`/properties/${id}?tab=facts`);
@@ -140,7 +140,7 @@ export async function updatePropertyWithState(
   const session = await auth();
   if (!session?.user?.email) return { error: 'Not signed in. Refresh and sign in again.' };
 
-  const result = await performPropertyUpdate(id, formData, { owner: roleForEmail(session.user.email) === 'owner' });
+  const result = await performPropertyUpdate(id, formData, { owner: await isOwnerSession() });
   if (result.error) return { error: result.error };
 
   // Land back on the tab the operator came from (the onboarding hub's
