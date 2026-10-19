@@ -951,7 +951,7 @@ const sections2026: AssumptionSection[] = [
       { label: 'Office', value: '$750/mo rent at 85 Eastern Ave from March 2026 when the lease began, plus $471/mo for the Republic Services dumpster through November 2026, the rate Republic has billed monthly since August. The dumpster was cancelled effective 2026-11-30 (notice sent 2026-10-05), so December is rent only.' },
       { label: 'Bank fees', value: '$10/mo. Real fee rows total $75 across 24 months; the old $100 figure counted bounced deposits, which are a wash, not a cost.' },
       { label: 'Contractors', value: 'The 1099 bench. Field labor (Delaney Jordan) at $33,700 a year per 16 homes, on Cape Ann seasonality and scaled to the live fleet, July to October 2026; from November it is her salary instead. Creative work (Cooper) $1,300/mo per 16 homes from July 2026 and listing photography (Lightshed, paid on the card) $1,000/mo per 16 homes from August 2026, both scaled to the live fleet. Everyone else $250/mo blended. The operating-account bench ran $8,288/mo over July 1 to August 25, 2026, plus two Lightshed shoots in the same window.' },
-      { label: 'Operations manager', value: 'Delaney Jordan on W-2 from 2026-11-01 at $72,000 a year: about $6,885 a month all-in (salary, 9% payroll taxes, a 4% workers comp placeholder pending the Wister quote, the $55 Gusto fee, the $50 phone allowance), flat. Mileage and summer overtime are not projected. The count-triggered hires in the old plan stay dropped (2026-09-06): this one is a date, not a threshold.' },
+      { label: 'Operations manager', value: 'Delaney Jordan on W-2 from 2026-11-01 at $70,000 a year: about $6,697 a month all-in (salary, 9% payroll taxes, a 4% workers comp placeholder pending the Wister quote, the $55 Gusto fee, the $50 phone allowance), flat. Mileage and summer overtime are not projected. The count-triggered hires in the old plan stay dropped (2026-09-06): this one is a date, not a threshold.' },
     ],
   },
   {
@@ -989,7 +989,7 @@ const sections2027: AssumptionSection[] = [
       { label: 'Office', value: '$750/mo rent, full year. The Republic Services dumpster ended 2026-11-30 and is not projected.' },
       { label: 'Bank fees', value: '$10/mo.' },
       { label: 'Contractors', value: 'Creative $1,300/mo and listing photography $1,000/mo, each per 16 homes and scaled to the live count, plus $250/mo for everyone else. Field labor is no longer on the bench: since November 2026 it is the operations manager\'s salary.' },
-      { label: 'Operations manager', value: '$72,000 a year, about $6,885 a month all-in (salary, 9% payroll taxes, a 4% workers comp placeholder, the $55 Gusto fee, the $50 phone allowance), flat all year. The count-triggered hires were dropped 2026-09-06 because a step made whichever home landed on 20 read as a loss; this one is dated, and the bench still scales with the fleet.' },
+      { label: 'Operations manager', value: '$70,000 a year, about $6,697 a month all-in (salary, 9% payroll taxes, a 4% workers comp placeholder, the $55 Gusto fee, the $50 phone allowance), flat all year. The count-triggered hires were dropped 2026-09-06 because a step made whichever home landed on 20 read as a loss; this one is dated, and the bench still scales with the fleet.' },
     ],
   },
   {
@@ -1027,7 +1027,7 @@ const sections2028: AssumptionSection[] = [
       { label: 'Office', value: '$750/mo rent, full year. The Republic Services dumpster ended 2026-11-30 and is not projected.' },
       { label: 'Bank fees', value: '$10/mo.' },
       { label: 'Contractors', value: 'Creative $1,300/mo and listing photography $1,000/mo, each per 16 homes and scaled to the live count, plus $250/mo for everyone else. Field labor is the operations manager\'s salary, not the bench.' },
-      { label: 'Operations manager', value: '$72,000 a year, about $6,885 a month all-in, flat all year (dated hire 2026-11-01; no count-triggered hires, decided 2026-09-06).' },
+      { label: 'Operations manager', value: '$70,000 a year, about $6,697 a month all-in, flat all year (dated hire 2026-11-01; no count-triggered hires, decided 2026-09-06).' },
     ],
   },
   {
@@ -1531,7 +1531,7 @@ function ForecastTable({
   ];
   const people: Line[] = [
     { label: 'Contractors', info: 'The 1099 bench. Delaney Jordan\'s field labor ran per job from 2026-07-07 out of Chase ...5130 by Zelle, clustered on checkout days, so it rode the seasonality curve and scaled with the fleet; it ends in October 2026, when she joins payroll (the row below). Cooper\'s creative work is $1,300/mo per 16 homes from 2026-07-29 on the Chase payroll rail, and Lightshed\'s listing photography $1,000/mo per 16 homes from August 2026 on the card, both scaled to the live fleet. Nicole Whitten, Ian Drometer and one-off trades blend to $250/mo. The operating-account bench ran $8,288/mo across July and August 2026. In a card-only month (operating export not yet uploaded) this row is the model\'s term plus what the card paid.', values: monthly.map((r) => r.exp_contractors), fy: sumOf(monthly, (r) => r.exp_contractors) },
-    { label: 'Operations manager', info: 'The one salaried hire, dated: Delaney Jordan moves from the bench to W-2 on 2026-11-01 at $72,000 a year. Projected months carry $6,000 of salary plus 9% payroll taxes, a 4% workers comp placeholder until the Wister quote lands, the $55 Gusto fee and the $50 phone allowance, about $6,885 a month, flat; it does not scale with the fleet. Mileage and summer overtime are not projected. Measured months read the Gusto debits (net pay, taxes and the fee) from the operating account. $0 before November 2026.', values: monthly.map((r) => r.exp_payroll), fy: sumOf(monthly, (r) => r.exp_payroll) },
+    { label: 'Operations manager', info: 'The one salaried hire, dated: Delaney Jordan moves from the bench to W-2 on 2026-11-01 at $70,000 a year. Projected months carry $5,833 of salary plus 9% payroll taxes, a 4% workers comp placeholder until the Wister quote lands, the $55 Gusto fee and the $50 phone allowance, about $6,697 a month, flat; it does not scale with the fleet. Mileage and summer overtime are not projected. Measured months read the Gusto debits (net pay, taxes and the fee) from the operating account. $0 before November 2026.', values: monthly.map((r) => r.exp_payroll), fy: sumOf(monthly, (r) => r.exp_payroll) },
   ];
   const onboarding = (r: MonthRow) => r.exp_onboard_presigned + r.exp_onboard_new;
   const periodic: Line[] = [
