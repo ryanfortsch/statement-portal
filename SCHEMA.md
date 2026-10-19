@@ -107,8 +107,10 @@ never key per-stay logic on `bookings.id` (`memory/project_bookings_duplicate_ro
   provider transport is activated by this SQL. Prices, minimum stays and unrelated
   metadata updates do not create availability events. Source inserts/deletes do
   invalidate the canonical input set. Enabled capture also blocks source TRUNCATE.
-  Rolling time is handled by the consumer's bounded plan freshness, not a trigger;
-  multi-session contention and full-schema deployment remain unverified.
+  Rolling time is handled by the consumer's bounded plan freshness, not a trigger.
+  Thirty local PostgreSQL 17.10 multi-session checks verify source/plan/dispatch
+  ordering and enable checkpoints; complete hosted-schema compatibility remains
+  unverified. The reusable runner is `scripts/verify-booking-inventory-concurrency.mjs`.
 - **Candidate only, not applied:** `staging-storage/booking-inventory-planning.sql`
   (under `docs/guesty-exit`) adds `helm_booking_inventory_consumers`: owner-reviewed
   single-unit staging configuration, processed capture/configuration versions,

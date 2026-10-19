@@ -1210,3 +1210,56 @@ files, both booking-inventory verifiers, the new availability-input verifier,
 SQL has not been applied to a hosted database, and no runtime delivery is enabled.
 Separate-session contention/full-schema review and trustworthy terminal-task evidence
 remain next integration gates; matching calendar counts still cannot settle a task.
+
+
+### Native PostgreSQL contention checks (October 18, 2026)
+
+`scripts/verify-booking-inventory-concurrency.mjs` creates a fresh PostgreSQL cluster
+under a private temporary directory and opens separate writer, dispatcher/planner
+and observer sessions. It has no database-URL argument or environment fallback,
+listens only on a private Unix socket, and stops/removes its cluster on normal
+completion or a caught failure. It neither connects to the hosted project nor sends
+provider requests. The shared `booking-inventory-fixture.mjs` loads the same canonical
+DDL and RPC bodies used by the PGlite verifier; peripheral tables remain synthetic.
+
+Thirty PostgreSQL 17.10 checks passed. Each contention case waits for the expected
+backend to appear in `pg_blocking_pids`, so an ordinary sequential pass cannot satisfy
+it. They cover competing source writers, each of the five source types against plan
+commit and submitting, writer-first and dispatcher-first ordering, source rollback,
+competing planners, independent-property writes, and both sides of enablement. The
+final checks verify contiguous property versions and consistent journal digests.
+Fixture-only cleanup of a dispatch that never made a provider call is not a runtime
+recovery mechanism and does not stand in for terminal-task evidence.
+
+The runner takes two explicit paths:
+
+```sh
+node scripts/verify-booking-inventory-concurrency.mjs /path/to/postgres/bin /path/to/pg/lib/index.js
+```
+
+This run used `@embedded-postgres/darwin-arm64@17.10.0-beta.17` and `pg@8.16.3`, pinned
+in a temporary tools directory outside the application. Install scripts were disabled
+for inspection; the binary package's local symlink hydration was then run. The actual
+PostgreSQL process reports 17.10 (x86_64 on this Mac). No system service, application
+dependency or paid service was added. See the [binary package](https://github.com/leinelissen/embedded-postgres)
+and PostgreSQL's [locking reference](https://www.postgresql.org/docs/17/explicit-locking.html).
+
+The existing 60 PGlite checks still pass after extracting the shared schema fixture.
+All 2,024 project tests in 240 suites, nonincremental TypeScript, targeted ESLint and
+diff checks pass. This closes the previously untested separate-session boundary for
+the covered cases. It is not a full migration replay, load benchmark, proof against
+all possible multi-property transaction deadlocks, or proof of hosted/provider state.
+No candidate SQL or live delivery configuration was changed in this batch.
+
+Channex's [task UI documentation](https://docs.channex.io/application-documentation/property-tasks)
+still describes task details and request JSON; the reviewed public API index provides
+no terminal-task endpoint to implement against. Completion must remain unresolved
+until trustworthy evidence is bound to the submitted task and exact request. A matching
+availability read-back alone still cannot release that barrier. Request/receipt audit
+binding and complete-schema validation are the next concrete integration work.
+
+Handoff: branch `codex/channex-staging-pilot`, starting HEAD `99f4d804`, original base
+`a148b0e6`, current remote main verified `5eadcb76`. Relevant canonical sources match
+that main reference. Files changed: the new native concurrency runner and shared
+fixture, the existing PGlite verifier, `SCHEMA.md`, and this document. Unrelated contract
+notes remain excluded. The temporary PostgreSQL process is stopped and its data removed.

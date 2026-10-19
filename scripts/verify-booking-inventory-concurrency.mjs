@@ -1,0 +1,191 @@
+// Usage: node scripts/verify-booking-inventory-concurrency.mjs /path/to/pg/bin /path/to/pg/lib/index.js
+// Owns a NEW temporary PostgreSQL cluster. No connection string/env database,
+// TCP listener, hosted data, provider calls, or application dependency required.
+import assert from 'node:assert/strict';
+import { spawn, spawnSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { setTimeout as delay } from 'node:timers/promises';
+import { once } from 'node:events';
+import { installBookingInventoryFixture } from './booking-inventory-fixture.mjs';
+import { consumeBookingInventory, bookingInventoryDispatchContext } from '../src/lib/channex-staging/booking-inventory-consumer.ts';
+import { replayInventoryJournal, recordInventoryCommand } from '../src/lib/channex-staging/inventory-journal.ts';
+import { inventoryDigest } from '../src/lib/channex-staging/inventory-outbox.ts';
+import { shiftIsoDay, todayInEastern } from '../src/lib/sca-quotes-types.ts';
+if(process.argv.length!==4)throw new Error('Pass PostgreSQL binary directory and pg client module path');
+const bin=resolve(process.argv[2]),pg=await import(pathToFileURL(resolve(process.argv[3])).href);
+const Client=pg.Client??pg.default?.Client;
+if(typeof Client!=='function')throw new Error('Expected a node-postgres client module');
+// A short path avoids the Unix socket path-length limit on macOS.
+const root=mkdtempSync('/tmp/helm-pg-race-'),data=join(root,'data'),socket=join(root,'socket');
+mkdirSync(socket,{mode:0o700});
+const clients=[];let server;let stopped=false;let passed=0;
+const now=Date.now(),start=shiftIsoDay(todayInEastern(new Date(now)),15),end=shiftIsoDay(start,3);
+const config={environment:'staging',topology:'single-unit',connection:'fixture',listing:'22222222-2222-4222-8222-222222222222',generation:1,publishEnabled:true,
+  timeZone:'America/New_York',start,end,requiredSources:['fixture'],coverage:[{source:'fixture',start,end,complete:true,observedAt:now-1000,freshUntil:now+1800000}]};
+const runProcess=(name,args)=>{
+  const r=spawnSync(join(bin,name),args,{encoding:'utf8',timeout:20000});
+  if(r.status!==0)throw new Error(`${name} failed: ${r.error?.message??r.stderr}`);
+  return r.stdout.trim();
+};
+async function connect(){
+  const c=new Client({host:socket,port:5432,user:'helm_fixture',database:'postgres',password:'fictional-local-only',ssl:false,options:'-c application_name=helm_inventory_fixture',
+    connectionTimeoutMillis:2000,statement_timeout:12000,lock_timeout:6000});
+  await c.connect();clients.push(c);return c;
+}
+try{
+  console.log(runProcess('postgres',['--version']));
+  runProcess('initdb',['-D',data,'--username=helm_fixture','--auth-local=trust','--auth-host=reject','--no-locale','--encoding=UTF8']);
+  server=spawn(join(bin,'postgres'),['-D',data,'-k',socket,'-h','','-p','5432','-c','max_connections=10','-c','deadlock_timeout=200ms'],{stdio:['ignore','ignore','pipe']});
+  let serverError='';server.stderr.on('data',s=>{serverError=(serverError+s.toString()).slice(-6000);});
+  let monitor,connectError;
+  for(let i=0;i<100;i++){
+    if(server.exitCode!==null)throw new Error(`Test server exited: ${serverError}`);
+    try{monitor=await connect();break;}catch(error){connectError=error.message;await delay(30);}
+  }
+  if(!monitor)throw new Error(`Test server connection failed: ${connectError}; ${serverError}`);
+  const a=await connect(),b=await connect();
+  const pidA=(await a.query('select pg_backend_pid() pid')).rows[0].pid;
+  const pidB=(await b.query('select pg_backend_pid() pid')).rows[0].pid;
+  assert.notEqual(pidA,pidB);
+  assert.equal((await monitor.query('show listen_addresses')).rows[0].listen_addresses,'');
+  await installBookingInventoryFixture({exec:sql=>monitor.query(sql)});
+  await monitor.query(readFileSync(new URL('../docs/guesty-exit/staging-storage/booking-inventory-planning.sql',import.meta.url),'utf8'));
+  const query=(sql,args=[])=>monitor.query(sql,args);
+  const read=async(property='home')=>(await query('select helm_booking_inventory_read($1) state',[property])).rows[0].state;
+  const version=async(property='home')=>Number((await query('select version from helm_inventory_capture_scopes where property_id=$1',[property])).rows[0].version);
+  const storeFor=c=>({property:'home',read,commit:async(e,j,f,d)=>(await c.query('select helm_booking_inventory_plan_commit($1,$2,$3,$4,$5,$6,$7,$8,$9) ok',
+    ['home',e.captureVersion,e.configurationVersion,e.planVersion,e.journalVersion,e.inputs,j,f,d])).rows[0].ok,
+    journal:{read:async()=>{const s=await read();return {version:s.journalVersion,journal:s.journal};},
+      append:async(v,j)=>(await c.query('select helm_booking_inventory_journal_append($1,$2,$3) ok',['home',v,j])).rows[0].ok}});
+  const store=storeFor(monitor);
+  const jobs=async()=>replayInventoryJournal((await read()).journal).queue.list();
+  const create=(c,property='home')=>c.query("select * from helm_create_booking($1,'manual','manual','block',$2,$3,'{\"hold_kind\":\"owner\"}','fixture',true)",[property,start,shiftIsoDay(start,1)]);
+  async function plan(){assert.equal((await consumeBookingInventory(store,Date.now)).status,'queued');return (await jobs()).at(-1);}
+  async function blocked(pending,waiter,blocker){
+    let finished=false;pending.then(()=>{finished=true;},()=>{finished=true;});
+    for(let i=0;i<150;i++){
+      const ids=(await query('select pg_blocking_pids($1) ids',[waiter])).rows[0].ids;
+      if(ids.includes(blocker)){assert.equal(finished,false);return;}
+      if(finished)throw new Error('Expected a real database lock wait, operation already finished');
+      await delay(10);
+    }
+    throw new Error('Expected blocker was not observed in pg_blocking_pids');
+  }
+  async function check(name,fn){
+    try{await fn();passed++;console.log(`PASS ${name}`);}
+    finally{await Promise.allSettled([a.query('rollback'),b.query('rollback')]);}
+  }
+  await query(`insert into properties(id,name,address,city,owner_last,owner_full,owner_greeting,management_fee_pct,calendar_authority)
+    select id,'Fictional home','Fictional address','Fictional city','Fixture','Fixture','Fixture',0,'helm'
+    from (values('home'),('other')) fixtures(id);
+    insert into helm_inventory_capture_scopes(property_id,enabled) values('home',true),('other',true);
+    insert into property_rate_plans(property_id,base_nightly_cents) values('home',0),('other',0);`);
+  await query('insert into helm_booking_inventory_consumers(property_id,configuration) values($1,$2)',['home',config]);
+  await query("insert into property_rate_days(property_id,date,closed) values('home',$1,false)",[start]);
+  await query("insert into property_rental_periods(property_id,start_month,start_day,end_month,end_day) values('home',1,1,12,31)");
+  const sources=[
+    ['booking',c=>create(c)],
+    ['rules',c=>c.query("update property_rate_plans set booking_window_days=booking_window_days+1 where property_id='home'")],
+    ['closure',c=>c.query("update property_rate_days set closed=not closed where property_id='home'")],
+    ['season',c=>c.query("update property_rental_periods set start_day=case when start_day=1 then 2 else 1 end where property_id='home'")],
+    ['authority',c=>c.query("update properties set calendar_authority=case when calendar_authority='helm' then 'guesty' else 'helm' end where id='home'")],
+  ];
+  await check('different sessions serialize same-property changes from different source tables',async()=>{
+    const v=await version();await a.query('begin');await create(a);
+    const pending=b.query("update property_rate_days set closed=true where property_id='home'");await blocked(pending,pidB,pidA);
+    assert.equal(await version(),v);await a.query('commit');await pending;assert.equal(await version(),v+2);
+  });
+  for(const [name,mutate] of sources){
+    await check(`${name}: committed source writer makes a waiting plan stale`,async()=>{
+      await create(monitor);const before=await read();
+      let proposal;
+      await consumeBookingInventory({...store,commit:async(...args)=>{proposal=args;return false;}},Date.now);
+      assert.ok(proposal);await a.query('begin');await mutate(a);
+      const pending=storeFor(b).commit(...proposal);await blocked(pending,pidB,pidA);
+      await a.query('commit');assert.equal(await pending,false);
+      const after=await read();assert.equal(after.journalVersion,before.journalVersion);assert.equal(after.captureVersion,before.captureVersion+1);
+    });
+    await check(`${name}: submitting boundary waits for a writer and rejects its older context`,async()=>{
+      await query("update properties set calendar_authority='helm' where id='home'");await create(monitor);const job=await plan();
+      await recordInventoryCommand(store.journal,{kind:'claim',id:job.id,now:Date.now(),leaseMs:60000});
+      const claimed=(await jobs()).at(-1),context=await bookingInventoryDispatchContext(store,claimed,Date.now);
+      assert.equal(context.complete,true);const state=await read(),journal=structuredClone(state.journal);
+      journal.commands.push({kind:'dispatch',id:job.id,token:claimed.token,context,now:Date.now()});
+      await a.query('begin');await mutate(a);
+      const pending=storeFor(b).journal.append(state.journalVersion,journal);await blocked(pending,pidB,pidA);
+      await a.query('commit');assert.equal(await pending,false);assert.equal((await jobs()).at(-1).status,'leased');
+      await recordInventoryCommand(store.journal,{kind:'expire',now:Date.now()+61000});
+    });
+    await check(`${name}: a submitting transaction holds the source writer until its commit`,async()=>{
+      await query("update properties set calendar_authority='helm' where id='home'");await create(monitor);const job=await plan();
+      await recordInventoryCommand(store.journal,{kind:'claim',id:job.id,now:Date.now(),leaseMs:60000});
+      const claimed=(await jobs()).at(-1),context=await bookingInventoryDispatchContext(store,claimed,Date.now);
+      const state=await read(),journal=structuredClone(state.journal);
+      journal.commands.push({kind:'dispatch',id:job.id,token:claimed.token,context,now:Date.now()});
+      await a.query('begin');assert.equal(await storeFor(a).journal.append(state.journalVersion,journal),true);
+      const pending=mutate(b);await blocked(pending,pidB,pidA);
+      assert.equal(await version(),state.captureVersion);await a.query('commit');await pending;
+      assert.equal(await version(),state.captureVersion+1);assert.equal((await jobs()).at(-1).status,'submitting');
+      // No provider request was made. Roll back the fixture's dispatch command to
+      // repeat this boundary test without inventing task-settlement evidence.
+      await query('update helm_booking_inventory_consumers set journal=$1,journal_version=$2 where property_id=$3',[state.journal,state.journalVersion,'home']);
+      await recordInventoryCommand(store.journal,{kind:'expire',now:Date.now()+61000});
+    });
+  }
+  await check('rolling back the source writer lets the waiting original plan commit',async()=>{
+    await create(monitor);let proposal;
+    await consumeBookingInventory({...store,commit:async(...args)=>{proposal=args;return false;}},Date.now);
+    const before=await read();await a.query('begin');await sources[2][1](a);
+    const pending=storeFor(b).commit(...proposal);await blocked(pending,pidB,pidA);await a.query('rollback');
+    assert.equal(await pending,true);assert.equal(await version(),before.captureVersion);
+  });
+  await check('two concurrent planners append exactly one journal entry and checkpoint',async()=>{
+    await create(monitor);let proposal;
+    await consumeBookingInventory({...store,commit:async(...args)=>{proposal=args;return false;}},Date.now);
+    const before=await read();await a.query('begin');assert.equal(await storeFor(a).commit(...proposal),true);
+    const pending=storeFor(b).commit(...proposal);await blocked(pending,pidB,pidA);await a.query('commit');
+    assert.equal(await pending,false);const after=await read();assert.equal(after.planVersion,before.planVersion+1);assert.equal(after.journalVersion,before.journalVersion+1);
+  });
+  await check('an ordinary writer on one property does not block another property',async()=>{
+    await a.query('begin');await create(a);
+    const v=await version('other');await b.query("set lock_timeout='300ms'");
+    try{await create(b,'other');assert.equal(await version('other'),v+1);}finally{await b.query("set lock_timeout='6s'");}
+    await a.query('rollback');
+  });
+  for(const [name,mutate] of sources){
+    await check(`${name}: enable checkpoint drains an earlier disabled source transaction`,async()=>{
+      await query("update helm_inventory_capture_scopes set enabled=false where property_id='home'");const before=await version();
+      await a.query('begin');await mutate(a);
+      const pending=b.query("update helm_inventory_capture_scopes set enabled=true where property_id='home'");await blocked(pending,pidB,pidA);
+      await a.query('commit');await pending;assert.equal(await version(),before+1);
+    });
+    await check(`${name}: a writer queued behind enable is captured after enable commits`,async()=>{
+      await query("update helm_inventory_capture_scopes set enabled=false where property_id='home'");const before=await version();
+      await a.query('begin');await a.query("update helm_inventory_capture_scopes set enabled=true where property_id='home'");
+      const pending=mutate(b);await blocked(pending,pidB,pidA);await a.query('commit');await pending;
+      assert.equal(await version(),before+2);
+    });
+  }
+  await check('committed source versions and journal digests remain consistent after contention',async()=>{
+    const gaps=await query(`select s.property_id from helm_inventory_capture_scopes s left join helm_booking_inventory_events e using(property_id)
+      group by s.property_id,s.version having count(e.version)<>s.version or max(e.version)<>s.version`);
+    assert.equal(gaps.rows.length,0);
+    const state=await read();const replay=replayInventoryJournal(state.journal);
+    assert.equal(replay.journal.commands.length,state.journalVersion);
+    for(const job of replay.queue.list())assert.equal(inventoryDigest(job.days),job.digest);
+  });
+  console.log(`PASS: ${passed} native PostgreSQL multi-session checks; observed lock waits; no provider or hosted connections.`);
+}catch(error){console.error('FAIL:',error.message);process.exitCode=1;}
+finally{
+  await Promise.allSettled(clients.map(c=>c.end()));
+  if(server && server.exitCode===null){
+    const exit=once(server,'exit');server.kill('SIGINT');
+    await Promise.race([exit,delay(10000,undefined,{ref:false}).then(()=>{if(server.exitCode===null)server.kill('SIGKILL');})]);
+    if(server.exitCode===null)await exit;
+  }
+  stopped=!server || server.exitCode!==null || server.signalCode!==null;
+  if(stopped)rmSync(root,{recursive:true,force:true});
+  else{console.error('Test cluster cleanup needs review:',root);process.exitCode=1;}
+}

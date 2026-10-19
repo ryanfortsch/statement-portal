@@ -1,10 +1,11 @@
 // Local PostgreSQL integration checks, no network or hosted database access.
 // Pass the installed @electric-sql/pglite/dist/index.js path as the sole argument.
-import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { resolve, join } from 'node:path';
 import assert from 'node:assert/strict';
+import { installBookingInventoryFixture } from './booking-inventory-fixture.mjs';
 import { verifyAvailabilityInputCapture } from './verify-availability-input-capture.mjs';
 import { verifyBookingInventoryConsumer } from './verify-booking-inventory-consumer.mjs';
 if (!process.argv[2]) throw new Error('Pass the absolute PGlite module path');
@@ -12,34 +13,7 @@ const { PGlite } = await import(pathToFileURL(resolve(process.argv[2])).href);
 const dataDir = mkdtempSync(join(tmpdir(), 'helm-inventory-capture-'));
 let db = new PGlite(dataDir);
 try {
-  const root = new URL('../', import.meta.url);
-  const read = path => readFileSync(new URL(path, root), 'utf8');
-  const initial = read('supabase/migrations/20260507b_create_channels.sql');
-  const plumbing = read('supabase/migrations/20260926200000_helm_pms_plumbing.sql');
-  const capture = read('docs/guesty-exit/staging-storage/booking-inventory-events.sql');
-  // Load repository enum/table definitions and the actual, unmodified canonical
-  // RPC bodies. Peripheral tables are minimal fixtures, not substitutes for RPCs.
-  const section = (s, from, to) => {
-    const start = s.indexOf(from), end = s.indexOf(to, start);
-    assert.ok(start >= 0 && end > start, `Missing schema section: ${from}`);
-    return s.slice(start, end);
-  };
-  await db.exec(`create role anon; create role authenticated; create role service_role;
-    create table public.property_calendar_days(id integer primary key);
-    create table public.guests(id uuid primary key);`);
-  await db.exec(section(read('supabase/migrations/20260430_create_properties.sql'),
-    'create table public.properties (', '-- Index for'));
-  await db.exec(section(plumbing, 'create table if not exists public.regions', '-- ── 2.'));
-  await db.exec(section(initial, 'create type public.booking_channel', '-- ─── channel_listings'));
-  await db.exec(section(initial, 'create table public.channel_listings (', '-- ─── bookings'));
-  await db.exec(section(initial, 'create table public.bookings', 'create index idx_bookings_property'));
-  await db.exec('alter table public.bookings add column duplicate_of uuid;');
-  await db.exec(section(plumbing, 'alter table public.bookings\n', '-- ── 5.'));
-  await db.exec(`create table public.automation_sends (booking_id uuid, status text, error text, updated_at timestamptz);`);
-  await db.exec(section(plumbing, 'create or replace function public.helm_row_conflicts(', '-- ── 12.'));
-  await db.exec(section(plumbing, 'create table if not exists public.property_rate_plans', '-- Quote-side jurisdiction'));
-  await db.exec(read('supabase/migrations/20260916120000_property_rental_periods.sql'));
-  await db.exec(capture);
+  const { capture } = await installBookingInventoryFixture(db);
   let passed = 0;
   async function check(name, fn) { await fn(); passed++; console.log(`PASS ${name}`); }
   async function query(sql, args = []) { return (await db.query(sql, args)).rows; }
