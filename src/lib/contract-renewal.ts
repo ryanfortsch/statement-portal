@@ -1,10 +1,13 @@
 import type { AirDnaMarket } from './projections-airdna';
-import type { Owner } from './projections-types.ts';
+import type { CustomClause, Owner, ProjectionRow } from './projections-types.ts';
 import { inferMarketFromCity } from './inquiry-parser.ts';
 
 /**
- * What a renewal draft takes from the managed property and its last register
- * row (`startContractRenewal` in src/app/projections/actions.ts). Two ways
+ * What a renewal draft takes from the managed property, its last register
+ * row and its last agreement executed in Helm (`startContractRenewal` in
+ * src/app/projections/actions.ts). The edits carry over (`carriedRedlines`,
+ * below); before 2026-10-19 they did not, and every negotiated clause went
+ * back to the standard template without a word. Two ways
  * the prefill went wrong on 16 Waterman's renewal (2026-10-19) are fixed
  * here, in one pure place:
  *
@@ -92,4 +95,81 @@ export function renewalOwners(input: {
     ],
     party,
   };
+}
+
+/** The prior agreement, as its projection holds it. */
+export type PriorAgreement = Pick<
+  ProjectionRow,
+  'id' | 'contract_countersigned_at' | 'contract_overrides' | 'custom_clauses'
+>;
+
+/** Where a renewal draft's edits came from, kept on its import_source. */
+export type CarriedRedlines = {
+  projection_id: string;
+  countersigned_at: string;
+  /** The edits that render: the redlines, else the legacy Rider's clauses. */
+  edits: number;
+};
+
+/**
+ * The prior agreement's edits, for a renewal draft. The prior agreement is
+ * the home's newest projection executed in Helm (countersigned). Its owner
+ * redlines (`contract_overrides`) and legacy Rider (`custom_clauses`) come
+ * over as they are, so a negotiated clause does not quietly revert to the
+ * standard template; the draft says where they came from, and an override
+ * whose clause is gone fails loudly in the redlines panel. Nothing comes
+ * over when the home's newest register row is paper signed outside Helm
+ * after that projection was executed: that agreement's terms were never in
+ * Helm, and the older redlines are not what the owner last signed.
+ */
+export function carriedRedlines(
+  prior: PriorAgreement | null,
+  lastContract: { signed_via: string | null; executed_on: string | null } | null,
+): {
+  contract_overrides: unknown[] | null;
+  custom_clauses: CustomClause[] | null;
+  carried_from: CarriedRedlines | null;
+} {
+  const none = { contract_overrides: null, custom_clauses: null, carried_from: null };
+  if (!prior?.contract_countersigned_at) return none;
+  const executedOn = prior.contract_countersigned_at.slice(0, 10);
+  if (
+    lastContract &&
+    lastContract.signed_via !== 'helm' &&
+    lastContract.executed_on &&
+    lastContract.executed_on.slice(0, 10) > executedOn
+  ) {
+    return none;
+  }
+
+  const overrides = Array.isArray(prior.contract_overrides) && prior.contract_overrides.length > 0
+    ? structuredClone(prior.contract_overrides)
+    : null;
+  const clauses = Array.isArray(prior.custom_clauses) && prior.custom_clauses.length > 0
+    ? structuredClone(prior.custom_clauses)
+    : null;
+  // The Rider prints only on a contract with no redlines (contract-terms.ts),
+  // so the count is what the owner actually read.
+  const edits = overrides ? overrides.length : clauses?.length ?? 0;
+  if (edits === 0) return none;
+  return {
+    contract_overrides: overrides,
+    custom_clauses: clauses,
+    carried_from: {
+      projection_id: prior.id,
+      countersigned_at: prior.contract_countersigned_at,
+      edits,
+    },
+  };
+}
+
+/** The carried-edits note on a renewal draft's import_source, or null. */
+export function renewalCarriedFrom(importSource: unknown): CarriedRedlines | null {
+  if (!importSource || typeof importSource !== 'object') return null;
+  const s = importSource as { kind?: unknown; carried_from?: unknown };
+  if (s.kind !== 'renewal' || !s.carried_from || typeof s.carried_from !== 'object') return null;
+  const c = s.carried_from as Partial<CarriedRedlines>;
+  if (typeof c.projection_id !== 'string' || typeof c.countersigned_at !== 'string') return null;
+  if (typeof c.edits !== 'number' || c.edits <= 0) return null;
+  return { projection_id: c.projection_id, countersigned_at: c.countersigned_at, edits: c.edits };
 }

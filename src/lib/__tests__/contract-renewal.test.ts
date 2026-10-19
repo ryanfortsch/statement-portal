@@ -4,15 +4,24 @@
  * 16 Waterman's renewal (2026-10-19) printed "Gloucester, MA, MA" in the
  * contract's address, and its first form save dropped the LLC from the
  * contract party. These pin both, end to end through the contract's own
- * template vars and the register row countersign writes.
+ * template vars and the register row countersign writes. It also opened
+ * without the last agreement's ten negotiated edits; a renewal now carries
+ * them, and the draft says where they came from.
  *
  * Run: npm test
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { cityAndState, renewalOwners, renewalPlace } from '../contract-renewal.ts';
-import { buildTemplateVars, type ContractTermsSource } from '../contract-terms.ts';
+import {
+  carriedRedlines,
+  cityAndState,
+  renewalCarriedFrom,
+  renewalOwners,
+  renewalPlace,
+  type PriorAgreement,
+} from '../contract-renewal.ts';
+import { buildTemplateVars, changedContractTerms, type ContractTermsSource } from '../contract-terms.ts';
 import { registerTermsFromProjection } from '../contract-register.ts';
 import { deriveLegacyFromOwners, type Owner } from '../projections-types.ts';
 
@@ -209,5 +218,115 @@ describe('startContractRenewal prefills through the helper', () => {
   test('the party comes from the cards, not a scalar laid over them', () => {
     assert.match(body, /renewalOwners\(\{/);
     assert.doesNotMatch(body, /prospect_full_legal:/);
+  });
+});
+
+const meta = {
+  ownerAsk: 'Owner asked for it',
+  ourPosition: 'accept' as const,
+  positionDetail: '',
+  reviewPriority: 'normal' as const,
+  sensitiveSection: false,
+};
+const EDITS = [
+  { action: 'replace', targetId: 'notice', newText: 'Sixty days for the first year, then 120.', meta },
+  { action: 'delete', targetId: 'linens', meta },
+];
+const RIDER = [{ title: 'Cleaning', body: 'Cleaning is a pass-through.' }];
+
+const prior = (over: Partial<PriorAgreement> = {}): PriorAgreement => ({
+  id: 'prior-projection',
+  contract_countersigned_at: '2026-05-22T16:04:00.000Z',
+  contract_overrides: EDITS,
+  custom_clauses: null,
+  ...over,
+});
+const helmRow = { signed_via: 'helm', executed_on: '2026-05-22' };
+
+describe('a renewal carries the last agreement\'s edits', () => {
+  test('the redlines come over, as copies, and the draft says where from', () => {
+    const r = carriedRedlines(prior(), helmRow);
+    assert.deepEqual(r.contract_overrides, EDITS);
+    assert.notEqual(r.contract_overrides, EDITS, 'a copy, not the prior row\'s array');
+    assert.equal(r.custom_clauses, null);
+    assert.deepEqual(r.carried_from, {
+      projection_id: 'prior-projection',
+      countersigned_at: '2026-05-22T16:04:00.000Z',
+      edits: 2,
+    });
+  });
+
+  test('the draft renders the same edits the owner signed', () => {
+    const r = carriedRedlines(prior(), helmRow);
+    const renewal = { ...draft([card('Jane', 'Marsh')], 'Gloucester, MA'), contract_overrides: r.contract_overrides };
+    const signed = { ...renewal, contract_overrides: EDITS };
+    assert.deepEqual(changedContractTerms(signed, renewal), []);
+  });
+
+  test('a legacy Rider comes over and counts when there are no redlines', () => {
+    const r = carriedRedlines(prior({ contract_overrides: null, custom_clauses: RIDER }), helmRow);
+    assert.deepEqual(r.custom_clauses, RIDER);
+    assert.equal(r.carried_from?.edits, 1);
+  });
+
+  test('with both, the count is the redlines, the Rider still comes over', () => {
+    const r = carriedRedlines(prior({ custom_clauses: RIDER }), helmRow);
+    assert.deepEqual(r.custom_clauses, RIDER);
+    assert.equal(r.carried_from?.edits, 2);
+  });
+
+  test('a plain agreement carries nothing and says nothing', () => {
+    const none = { contract_overrides: null, custom_clauses: null, carried_from: null };
+    assert.deepEqual(carriedRedlines(prior({ contract_overrides: [], custom_clauses: [] }), helmRow), none);
+    assert.deepEqual(carriedRedlines(null, helmRow), none);
+  });
+
+  test('an agreement never executed in Helm carries nothing', () => {
+    assert.equal(carriedRedlines(prior({ contract_countersigned_at: null }), null).carried_from, null);
+  });
+
+  test('paper signed outside Helm after it wins: the older edits stay behind', () => {
+    const docusign = { signed_via: 'docusign', executed_on: '2026-07-31' };
+    assert.deepEqual(carriedRedlines(prior(), docusign).contract_overrides, null);
+    const olderPaper = { signed_via: 'external', executed_on: '2025-06-05' };
+    assert.equal(carriedRedlines(prior(), olderPaper).carried_from?.edits, 2);
+    assert.equal(carriedRedlines(prior(), null).carried_from?.edits, 2, 'no register row');
+  });
+});
+
+describe('the draft reads where its edits came from', () => {
+  test('a renewal draft\'s import_source', () => {
+    const carried = carriedRedlines(prior(), helmRow).carried_from;
+    const source = { kind: 'renewal', property_id: '16_waterman', from_contract_id: null, drafted_at: '2026-10-19', carried_from: carried };
+    assert.deepEqual(renewalCarriedFrom(source), carried);
+  });
+
+  test('anything else is no note', () => {
+    assert.equal(renewalCarriedFrom(null), null);
+    assert.equal(renewalCarriedFrom({ kind: 'renewal', carried_from: null }), null, 'a renewal drafted before carrying');
+    assert.equal(renewalCarriedFrom({ source: 'gmail_inquiry', gmail_message_id: 'x', mailbox: 'y' }), null);
+    assert.equal(renewalCarriedFrom({ kind: 'renewal', carried_from: { projection_id: 'p', countersigned_at: 'd', edits: 0 } }), null);
+    assert.equal(renewalCarriedFrom({ kind: 'renewal', carried_from: { projection_id: 7, countersigned_at: 'd', edits: 2 } }), null);
+  });
+});
+
+describe('startContractRenewal carries the edits and the page says so', () => {
+  const body = fnBody(read('src/app/projections/actions.ts'), 'startContractRenewal');
+
+  test('the last agreement is the newest projection executed in Helm for this home', () => {
+    assert.match(body, /\.from\('projections'\)\s*\.select\('id, contract_countersigned_at, contract_overrides, custom_clauses'\)\s*\.eq\('property_id', propertyId\)\s*\.not\('contract_countersigned_at', 'is', null\)\s*\.order\('contract_countersigned_at', \{ ascending: false \}\)/);
+    assert.match(body, /if \(priorErr\) throw/, 'a failed read stops the draft');
+  });
+
+  test('the draft takes the edits and records where they came from', () => {
+    assert.match(body, /contract_overrides: redlines\.contract_overrides,/);
+    assert.match(body, /custom_clauses: redlines\.custom_clauses,/);
+    assert.match(body, /carried_from: redlines\.carried_from,/);
+  });
+
+  test('the Contract panel prints the line', () => {
+    const page = read('src/app/prospects/[id]/page.tsx');
+    assert.match(page, /const carried = renewalCarriedFrom\(projection\.import_source\)/);
+    assert.match(page, /carried over from\{' '\}/);
   });
 });

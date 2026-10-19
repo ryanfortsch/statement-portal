@@ -18,7 +18,7 @@ import type {
   WithdrawnSignature,
 } from '@/lib/projections-types';
 import { deriveLegacyFromOwners } from '@/lib/projections-types';
-import { renewalOwners, renewalPlace } from '@/lib/contract-renewal';
+import { carriedRedlines, renewalOwners, renewalPlace, type PriorAgreement } from '@/lib/contract-renewal';
 import type { HomeGuideOverrides } from '@/lib/properties';
 import { getDriveTimeMinutes } from '@/lib/projections-distance';
 import { geocodeAddress } from '@/lib/geocode';
@@ -341,7 +341,8 @@ export async function createProjection(formData: FormData): Promise<{ error: str
 /**
  * Draft a RENEWAL contract for an existing managed property, riding the
  * prospect contract pipeline end to end: this creates a projections row
- * prefilled from the property + its latest register row, links it via
+ * prefilled from the property + its latest register row, carrying the
+ * edits of the home's last agreement executed in Helm, links it via
  * properties.projection_id, and lands the operator on /prospects/[id]
  * where the existing form edits terms/overrides and the Contract stage
  * carries the owner's /contract/<token> sign link.
@@ -397,7 +398,7 @@ export async function startContractRenewal(propertyId: string): Promise<void> {
   // negotiated numbers, so the draft opens looking like the deal they know.
   const { data: registerRows } = await supabase
     .from('property_contracts')
-    .select('id, owner_party, fee_pct, min_availability, sale_notice_days, sale_reputation_fee')
+    .select('id, owner_party, fee_pct, min_availability, sale_notice_days, sale_reputation_fee, signed_via, executed_on')
     .eq('property_id', propertyId)
     .order('term_end', { ascending: false })
     .limit(1);
@@ -408,7 +409,23 @@ export async function startContractRenewal(propertyId: string): Promise<void> {
     min_availability: string | null;
     sale_notice_days: number | null;
     sale_reputation_fee: number | string | null;
+    signed_via: string | null;
+    executed_on: string | null;
   } | null;
+
+  // The home's last agreement executed in Helm: its redlines and Rider come
+  // over to the draft, so a negotiated clause does not revert to the
+  // template. A failed read stops the draft rather than open one without
+  // them.
+  const { data: priorRows, error: priorErr } = await supabase
+    .from('projections')
+    .select('id, contract_countersigned_at, contract_overrides, custom_clauses')
+    .eq('property_id', propertyId)
+    .not('contract_countersigned_at', 'is', null)
+    .order('contract_countersigned_at', { ascending: false })
+    .limit(1);
+  if (priorErr) throw new Error(`Could not read the last agreement: ${priorErr.message}`);
+  const redlines = carriedRedlines((priorRows?.[0] ?? null) as PriorAgreement | null, lastContract);
 
   // Owner cards: property.owners when populated, else one best-effort card
   // from the last contract's party so the form never opens empty (the
@@ -454,6 +471,8 @@ export async function startContractRenewal(propertyId: string): Promise<void> {
     min_availability_days: availabilityDays,
     sale_notification_days: lastContract?.sale_notice_days ?? 185,
     reputation_fee: lastContract?.sale_reputation_fee != null ? Number(lastContract.sale_reputation_fee) : 5000,
+    contract_overrides: redlines.contract_overrides,
+    custom_clauses: redlines.custom_clauses,
     status: 'draft',
     onboarding_token: newOnboardingToken(),
     created_by_email: session.user.email,
@@ -468,6 +487,8 @@ export async function startContractRenewal(propertyId: string): Promise<void> {
       property_id: propertyId,
       from_contract_id: lastContract?.id ?? null,
       drafted_at: new Date().toISOString(),
+      // The draft's Contract panel reads this to say where the edits came from.
+      carried_from: redlines.carried_from,
     },
   };
 
