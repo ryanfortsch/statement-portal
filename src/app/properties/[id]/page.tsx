@@ -2178,8 +2178,6 @@ export default async function PropertyDetailPage({
           )}
         </div>
       </GuestSection>
-          {/* Deep links ?tab=guest#rates and #automations (the old
-              ?tab=rates and ?tab=automations alias here). */}
           {/* WHAT THEY PAY: Helm's rate plan, taxes and day overrides, as
               three questions, a calendar and a Price a stay line. On a
               Guesty-run home (every home today) the head says once that this
@@ -2208,13 +2206,22 @@ export default async function PropertyDetailPage({
               housePolicy={housePolicyValues}
             />
           </GuestSection>
-          <CollapsibleSection
+          {/* WHAT HELM SENDS THEM: opens on the next sends and to whom; the
+              rules sit behind Edit rules, in a drawer. */}
+          <GuestSection
             id="automations"
             title="Automations"
-            summary={automationsView ? `${automationsView.counts.awaiting} awaiting approval · ${automationsView.counts.scheduled} scheduled` : 'not loaded'}
+            note={
+              automationsView
+                ? [
+                    automationsView.counts.awaiting ? `${automationsView.counts.awaiting} waiting for approval` : null,
+                    automationsView.counts.scheduled ? `${automationsView.counts.scheduled} scheduled` : null,
+                  ].filter(Boolean).join(' · ') || undefined
+                : undefined
+            }
           >
             <AutomationsPanel propertyId={p.id} view={automationsView} />
-          </CollapsibleSection>
+          </GuestSection>
         </TabSection>
 
       </PropertyTabs>

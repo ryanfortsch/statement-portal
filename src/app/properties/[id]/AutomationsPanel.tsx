@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useEffect, useRef, useState, useTransition } from 'react';
 import {
   approveSendAction,
   otaPasteTextAction,
@@ -27,15 +27,23 @@ import {
   type AutomationRule,
 } from '@/lib/automations-core';
 import { EmptyState } from '@/components/EmptyState';
+import { Drawer } from '@/components/Drawer';
+import { buttonClass } from '@/lib/button-class';
 
 /**
- * The property page's Automations section (Guest & listing tab): Guesty Message Automation, Helm-native.
+ * The property page's Automations section (Guest & listing tab): what Helm
+ * sends this home's guests and cleaners, Guesty Message Automation, Helm-native.
  *
- * The switch (automations_enabled, which only takes when Helm runs this
- * home's calendar), the effective rule list (fleet defaults with this home's
- * overrides) previewed against the next stay with secrets masked, add / edit
- * an override, approve-or-auto and "configured in Airbnb" per rule, the send
- * ledger with Approve / Skip, and a masked test text to the operator.
+ * It opens on what will send next and to whom: the on/off switch
+ * (automations_enabled, which only takes when Helm runs this home's
+ * calendar), only the readiness checks that fail, the sends waiting for an
+ * approval, and the next ones scheduled. With nothing scheduled it shows
+ * the next stay as the rules would send it, previewed with secrets masked.
+ *
+ * The rules (fleet defaults with this home's overrides) sit behind Edit
+ * rules, in a drawer: each card is its name, its trigger, its state and two
+ * verbs, with the rest (approval mode, Airbnb, Test, Remove override) in a
+ * More menu. The masked test text and the merge fields live there too.
  *
  * Everything renders from the server-built view; each action revalidates
  * the page so the next render carries the new state.
@@ -45,6 +53,7 @@ export function AutomationsPanel({ propertyId, view }: { propertyId: string; vie
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [editing, setEditing] = useState<RuleFormInput | null>(null);
+  const [rulesOpen, setRulesOpen] = useState(false);
   const [testPhone, setTestPhone] = useState('');
   const [openSend, setOpenSend] = useState<string | null>(null);
   const [draft, setDraft] = useState<Record<string, string>>({});
@@ -72,233 +81,267 @@ export function AutomationsPanel({ propertyId, view }: { propertyId: string; vie
   const awaiting = sends.filter((s) => s.status === 'awaiting_approval');
   const scheduled = sends.filter((s) => s.status === 'scheduled' || s.status === 'sending');
   const history = sends.filter((s) => s.status !== 'awaiting_approval' && s.status !== 'scheduled' && s.status !== 'sending');
+  const ruleByKey = new Map(rules.map((r) => [r.rule.key, r.rule]));
+  // Only what is wrong: a check that passes says nothing.
+  const problems = [
+    !hasRatePlan && 'No rate plan: check-in and checkout times will be missing',
+    !lockMapped && 'No lock mapped: door-code messages wait for an approval',
+    recipients.length === 0 && 'No cleaner covers this home (Turnovers, Schedule)',
+    nextStay && !nextStay.hasPhone && !nextStay.hasEmail && `No phone or email for ${nextStay.guest_name}`,
+  ].filter((p): p is string => !!p);
+  // With nothing scheduled, the next stay as the rules would send it.
+  const preview = rules
+    .filter((pr) => pr.active && pr.preview?.fireAt)
+    .map((pr) => ({ pr, at: pr.preview!.fireAt! }))
+    .sort((a, b) => a.at.localeCompare(b.at));
+  const firstName = (name: string) => name.trim().split(/\s+/)[0] || 'the guest';
+  const toWhom = (rule: AutomationRule | undefined, guest: string) =>
+    rule?.audience === 'cleaner' ? (recipients.length ? recipients.join(', ') : 'no cleaner on file') : guest;
 
   return (
     <div style={{ paddingBottom: 6 }}>
-      <p style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55, marginTop: 0, marginBottom: 16 }}>
-        Scheduled guest and cleaner messages for this home, sent by Helm: texts from the GUESTS line, email through Resend, cleaner
-        notices on the 24/7 line. Fleet defaults apply unless this home overrides them. Door codes and wifi passwords stay masked
-        everywhere but on the wire.
-      </p>
+      {/* The switch, and the way into the rules */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap', padding: '4px 0 14px' }}>
+        <div style={{ fontSize: 14, color: 'var(--ink)' }}>
+          <span style={{ fontWeight: 600 }}>{on ? 'On' : 'Off'}</span>
+          <span style={{ color: 'var(--ink-3)' }}>
+            {on
+              ? helmRun
+                ? ': Helm sends these messages'
+                : ': paused until Helm runs the calendar'
+              : helmRun
+                ? ': nothing sends until it is turned on'
+                : ': Guesty sends this home\'s messages until Helm runs its calendar'}
+          </span>
+        </div>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          {(on || helmRun) && (
+            <button
+              type="button"
+              className={buttonClass(on ? 'secondary' : 'primary', 'sm')}
+              disabled={pending}
+              aria-busy={pending && busy === 'switch'}
+              onClick={() => run('switch', () => setAutomationsEnabledAction(propertyId, !on))}
+            >
+              {pending && busy === 'switch' ? 'Saving…' : on ? 'Turn off' : 'Turn on'}
+            </button>
+          )}
+          <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => setRulesOpen(true)}>
+            Edit rules
+          </button>
+        </div>
+      </div>
 
-      {msg && (
-        <div
-          style={{
-            marginBottom: 16,
-            padding: '12px 16px',
-            borderLeft: `3px solid ${msg.ok ? 'var(--positive)' : 'var(--negative)'}`,
-            background: 'var(--paper-2)',
-            fontSize: 13,
-            color: msg.ok ? 'var(--ink)' : 'var(--negative)',
-            lineHeight: 1.5,
-          }}
-        >
-          {msg.text}
+      {msg && !rulesOpen && <Notice ok={msg.ok}>{msg.text}</Notice>}
+
+      {problems.length > 0 && (
+        <div style={{ display: 'flex', gap: '6px 18px', flexWrap: 'wrap', padding: '10px 0', borderTop: '1px solid var(--rule)', fontSize: 12 }}>
+          {problems.map((p) => (
+            <Ready key={p} ok={false} label={p} />
+          ))}
         </div>
       )}
 
-      {/* The switch */}
-      <div style={{ ...rowStyle, justifyContent: 'space-between', borderTop: '1px solid var(--rule)' }}>
-        <div>
-          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)' }}>
-            Automations {on ? 'on' : 'off'} for {property.name}
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 4, lineHeight: 1.5 }}>
-            {helmRun ? (
-              <>
-                Helm runs this calendar, so Helm may message its guests. Turning this off pauses anything still scheduled; turning it
-                back on resumes it, re-timed.
-              </>
-            ) : (
-              <>
-                Requires Helm as the calendar authority. This home is still <span className="font-mono">{property.calendar_authority}</span>-run,
-                so Guesty&apos;s own automations stay in charge and this switch is locked to avoid duplicates. Cut the home over on its
-                Channels page first.
-              </>
-            )}
-          </div>
-        </div>
-        <button
-          type="button"
-          disabled={pending || (!on && !helmRun)}
-          onClick={() => run('switch', () => setAutomationsEnabledAction(propertyId, !on))}
-          style={on ? solidBtn(pending && busy === 'switch') : ghostBtn(pending && busy === 'switch', !helmRun)}
-        >
-          {pending && busy === 'switch' ? 'Saving' : on ? 'Turn off' : 'Turn on'}
-        </button>
-      </div>
-
-      {/* Readiness */}
-      <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', padding: '12px 0', borderBottom: '1px solid var(--rule)', fontSize: 12 }}>
-        <Ready ok={hasRatePlan} label={hasRatePlan ? 'Rate plan sets check-in / checkout times' : 'No rate plan: check-in and checkout times will be missing'} />
-        <Ready ok={lockMapped} label={lockMapped ? 'Lock mapped: door codes may auto-send' : 'No lock mapped: any door-code template is forced to approve'} />
-        <Ready ok={recipients.length > 0} label={recipients.length > 0 ? `Cleaner notices reach ${recipients.join(', ')}` : 'No cleaner recipient covers this home (Turnovers, Schedule)'} />
-        {nextStay ? (
-          <Ready
-            ok={nextStay.hasPhone || nextStay.hasEmail}
-            label={`Next stay ${nextStay.guest_name}, ${fmtDate(nextStay.check_in)} to ${fmtDate(nextStay.check_out)} (${nextStay.channel})${
-              nextStay.hasPhone ? ', phone on file' : nextStay.hasEmail ? ', email on file' : ', no contact on file'
-            }`}
-          />
-        ) : (
-          <Ready ok={false} label="No upcoming stay to preview against" />
-        )}
-      </div>
-
-      {/* Test phone */}
-      <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', padding: '14px 0 6px' }}>
-        <label style={labelStyle}>Send a test to</label>
-        <input
-          value={testPhone}
-          onChange={(e) => setTestPhone(e.target.value)}
-          placeholder="your phone"
-          inputMode="tel"
-          style={{ ...inputStyle, width: 170 }}
-        />
-        <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>Each rule below has a Test button. Tests go out from the GUESTS line with secrets masked.</span>
-      </div>
-
-      {/* Rules */}
-      <div style={{ marginTop: 14 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
-          <span className="eyebrow">Rules for this home</span>
-          <button
-            type="button"
-            disabled={pending}
-            onClick={() => setEditing(editing ? null : blankForm())}
-            style={ghostBtn(false)}
-          >
-            {editing ? 'Close' : 'Add a rule for this home'}
-          </button>
-        </div>
-
-        {editing && (
-          <RuleForm
-            form={editing}
-            onChange={setEditing}
-            pending={pending && busy === 'save'}
-            onCancel={() => setEditing(null)}
-            onSave={() =>
-              run('save', async () => {
-                const r = await saveRuleOverrideAction(propertyId, editing);
-                if (r.ok) setEditing(null);
-                return r;
-              })
-            }
-          />
-        )}
-
-        {rules.length === 0 && <EmptyState rule={false}>No automations for this home yet; add one above.</EmptyState>}
-
-        {rules.map((pr) => (
-          <RuleCard
-            key={pr.rule.id}
-            pr={pr}
-            pending={pending}
-            busy={busy}
-            canTest={testPhone.trim().length >= 10}
-            onToggle={() => run(`en:${pr.rule.key}`, () => setRuleEnabledAction(propertyId, pr.rule.key, !pr.active))}
-            onMode={() => run(`mode:${pr.rule.key}`, () => setRuleSendModeAction(propertyId, pr.rule.key, pr.rule.send_mode === 'auto' ? 'approve' : 'auto'))}
-            onOta={() => run(`ota:${pr.rule.key}`, () => setRuleConfiguredInOtaAction(propertyId, pr.rule.key, !pr.rule.configured_in_ota))}
-            onEdit={() => setEditing(formFromRule(pr.rule))}
-            onRemove={() => run(`rm:${pr.rule.key}`, () => deleteRuleOverrideAction(propertyId, pr.rule.key))}
-            onTest={() => run(`test:${pr.rule.id}`, () => sendTestAction(propertyId, pr.rule.id, testPhone))}
-          />
-        ))}
-      </div>
-
-      {/* Ledger */}
-      <div style={{ marginTop: 28 }}>
-        <div style={{ display: 'flex', gap: 16, alignItems: 'baseline', marginBottom: 6, flexWrap: 'wrap' }}>
-          <span className="eyebrow">Send log</span>
-          <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
-            {counts.awaiting} awaiting approval, {counts.scheduled} scheduled, {counts.sent} sent
-            {counts.noContact > 0 && (
-              <>
-                , <span style={{ color: 'var(--negative)' }}>{counts.noContact} with no contact on file</span>
-              </>
-            )}
-          </span>
-        </div>
-
-        {awaiting.length === 0 && scheduled.length === 0 && history.length === 0 && (
-          <div style={noteStyle}>Nothing planned yet. {on ? 'The planner runs every 15 minutes over the next 30 days of stays.' : 'Turn automations on to plan the next 30 days.'}</div>
-        )}
-
-        {awaiting.map((s) => (
-          <SendRow
-            key={s.id}
-            s={s}
-            open={openSend === s.id}
-            onOpen={() => setOpenSend(openSend === s.id ? null : s.id)}
-            draft={draft[s.id]}
-            onDraft={(v) => setDraft({ ...draft, [s.id]: v })}
-            pending={pending}
-            busy={busy}
-            onApprove={() =>
-              // The draft is the TEMPLATE (merge fields intact), never the
-              // masked render: an unchanged draft sends the rule's own body.
-              run(`ap:${s.id}`, () => approveSendAction(propertyId, s.id, draft[s.id] && draft[s.id] !== s.template_body ? draft[s.id] : null))
-            }
-            onSkip={() => run(`sk:${s.id}`, () => skipSendAction(propertyId, s.id))}
-            pasteText={pasteText[s.id]}
-            onCopy={() =>
-              run(`cp:${s.id}`, async () => {
-                const r = await otaPasteTextAction(propertyId, s.id);
-                if (!r.ok || !r.text) return { ok: r.ok, message: r.message };
-                setPasteText({ ...pasteText, [s.id]: r.text });
-                // Say "Copied" only when the clipboard took it: Safari refuses
-                // a write after the server round trip, and a stale clipboard
-                // pasted into the OTA thread is some other guest's text.
-                const copied = await copyText(r.text);
-                return {
-                  ok: true,
-                  message: copied
-                    ? 'Copied. Paste it into the OTA, then press Mark pasted.'
-                    : 'Your browser did not copy it: select the text below and copy it, then press Mark pasted.',
-                };
-              })
-            }
-          />
-        ))}
-        {scheduled.map((s) => (
-          <SendRow
-            key={s.id}
-            s={s}
-            open={openSend === s.id}
-            onOpen={() => setOpenSend(openSend === s.id ? null : s.id)}
-            pending={pending}
-            busy={busy}
-            onSkip={() => run(`sk:${s.id}`, () => skipSendAction(propertyId, s.id))}
-          />
-        ))}
-
-        {history.length > 0 && (
-          <button type="button" onClick={() => setShowHistory(!showHistory)} style={{ ...linkBtn, marginTop: 10 }}>
-            {showHistory ? 'Hide' : 'Show'} {history.length} past row{history.length === 1 ? '' : 's'}
-          </button>
-        )}
-        {showHistory &&
-          history.map((s) => (
-            <SendRow key={s.id} s={s} open={openSend === s.id} onOpen={() => setOpenSend(openSend === s.id ? null : s.id)} pending={pending} busy={busy} />
+      {/* Waiting for an approval: the first thing that needs a person. */}
+      {awaiting.length > 0 && (
+        <div style={{ marginTop: 10 }}>
+          <div className="eyebrow" style={{ marginBottom: 2 }}>Waiting for approval</div>
+          {awaiting.map((s) => (
+            <SendRow
+              key={s.id}
+              s={s}
+              open={openSend === s.id}
+              onOpen={() => setOpenSend(openSend === s.id ? null : s.id)}
+              draft={draft[s.id]}
+              onDraft={(v) => setDraft({ ...draft, [s.id]: v })}
+              pending={pending}
+              busy={busy}
+              onApprove={() =>
+                // The draft is the TEMPLATE (merge fields intact), never the
+                // masked render: an unchanged draft sends the rule's own body.
+                run(`ap:${s.id}`, () => approveSendAction(propertyId, s.id, draft[s.id] && draft[s.id] !== s.template_body ? draft[s.id] : null))
+              }
+              onSkip={() => run(`sk:${s.id}`, () => skipSendAction(propertyId, s.id))}
+              pasteText={pasteText[s.id]}
+              onCopy={() =>
+                run(`cp:${s.id}`, async () => {
+                  const r = await otaPasteTextAction(propertyId, s.id);
+                  if (!r.ok || !r.text) return { ok: r.ok, message: r.message };
+                  setPasteText({ ...pasteText, [s.id]: r.text });
+                  // Say "Copied" only when the clipboard took it: Safari refuses
+                  // a write after the server round trip, and a stale clipboard
+                  // pasted into the OTA thread is some other guest's text.
+                  const copied = await copyText(r.text);
+                  return {
+                    ok: true,
+                    message: copied
+                      ? 'Copied. Paste it into the OTA, then press Mark pasted.'
+                      : 'Your browser did not copy it: select the text below and copy it, then press Mark pasted.',
+                  };
+                })
+              }
+            />
           ))}
-      </div>
+        </div>
+      )}
 
-      <details style={{ marginTop: 24 }}>
-        <summary style={{ fontSize: 12, color: 'var(--ink-3)', cursor: 'pointer' }}>Merge fields</summary>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '6px 18px', marginTop: 10 }}>
-          {MERGE_FIELDS.map((f) => (
-            <div key={f} style={{ fontSize: 12, color: 'var(--ink-3)' }}>
-              <span className="font-mono" style={{ color: 'var(--ink)' }}>{`{{${f}}}`}</span> {MERGE_FIELD_HELP[f]}
+      {/* Next to send: when, what, to whom, by what. */}
+      <div style={{ marginTop: 18 }}>
+        {scheduled.length > 0 ? (
+          <>
+            <div className="eyebrow" style={{ marginBottom: 2 }}>Next to send</div>
+            {scheduled.map((s) => (
+              <NextRow
+                key={s.id}
+                when={s.fire_at}
+                name={ruleName(s.key)}
+                to={toWhom(ruleByKey.get(s.key), s.guest_name)}
+                by={s.delivery_used ? railLabel(s.delivery_used) : ruleByKey.get(s.key) ? DELIVERY_LABELS[ruleByKey.get(s.key)!.delivery]?.toLowerCase() : null}
+                stay={`${fmtDate(s.check_in)} to ${fmtDate(s.check_out)}`}
+                action={
+                  <button type="button" className={buttonClass('quiet')} disabled={pending} onClick={() => run(`sk:${s.id}`, () => skipSendAction(propertyId, s.id))}>
+                    {pending && busy === `sk:${s.id}` ? 'Skipping…' : 'Skip'}
+                  </button>
+                }
+              />
+            ))}
+          </>
+        ) : nextStay && preview.length > 0 ? (
+          <>
+            <div className="eyebrow" style={{ marginBottom: 2 }}>
+              {on ? 'Next stay' : 'What Helm would send for the next stay'}: {nextStay.guest_name}, {fmtDate(nextStay.check_in)} to {fmtDate(nextStay.check_out)}
             </div>
-          ))}
+            {preview.map(({ pr, at }) => (
+              <NextRow
+                key={pr.rule.id}
+                when={at}
+                name={ruleName(pr.rule.key)}
+                to={toWhom(pr.rule, firstName(nextStay.guest_name))}
+                by={pr.preview?.rail ? railLabel(pr.preview.rail) : null}
+                problem={
+                  !pr.preview?.rail
+                    ? 'no phone or email on file'
+                    : pr.preview.missing.length > 0
+                      ? `missing ${pr.preview.missing.join(', ')}`
+                      : null
+                }
+              />
+            ))}
+          </>
+        ) : (
+          <EmptyState rule={false}>{on ? 'Nothing is scheduled in the next 30 days.' : 'No upcoming stay to send for.'}</EmptyState>
+        )}
+      </div>
+
+      {(history.length > 0 || counts.noContact > 0) && (
+        <div style={{ marginTop: 14, display: 'flex', gap: 14, alignItems: 'baseline', flexWrap: 'wrap' }}>
+          {history.length > 0 && (
+            <button type="button" onClick={() => setShowHistory(!showHistory)} style={linkBtn} aria-expanded={showHistory}>
+              {showHistory ? 'Hide' : 'Show'} {history.length} past send{history.length === 1 ? '' : 's'}
+            </button>
+          )}
+          {counts.noContact > 0 && <span style={{ fontSize: 12, color: 'var(--negative)' }}>{counts.noContact} with no contact on file</span>}
         </div>
-      </details>
+      )}
+      {showHistory &&
+        history.map((s) => (
+          <SendRow key={s.id} s={s} open={openSend === s.id} onOpen={() => setOpenSend(openSend === s.id ? null : s.id)} pending={pending} busy={busy} />
+        ))}
+
+      {rulesOpen && (
+        <Drawer title="Rules for this home" eyebrow="Automations" width={640} onClose={() => { setRulesOpen(false); setEditing(null); }}>
+          {msg && <Notice ok={msg.ok}>{msg.text}</Notice>}
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', paddingBottom: 12 }}>
+            <label style={labelStyle} htmlFor="automation-test-phone">Send tests to</label>
+            <input
+              id="automation-test-phone"
+              value={testPhone}
+              onChange={(e) => setTestPhone(e.target.value)}
+              placeholder="your phone"
+              inputMode="tel"
+              style={{ ...inputStyle, width: 170 }}
+            />
+            <button
+              type="button"
+              className={buttonClass('secondary', 'sm')}
+              disabled={pending}
+              onClick={() => setEditing(editing ? null : blankForm())}
+              style={{ marginLeft: 'auto' }}
+            >
+              {editing ? 'Close the form' : 'Add a rule'}
+            </button>
+          </div>
+
+          {editing && (
+            <RuleForm
+              form={editing}
+              onChange={setEditing}
+              pending={pending && busy === 'save'}
+              onCancel={() => setEditing(null)}
+              onSave={() =>
+                run('save', async () => {
+                  const r = await saveRuleOverrideAction(propertyId, editing);
+                  if (r.ok) setEditing(null);
+                  return r;
+                })
+              }
+            />
+          )}
+
+          {rules.length === 0 && <EmptyState rule={false}>No automations for this home yet; add one above.</EmptyState>}
+
+          {rules.map((pr) => (
+            <RuleCard
+              key={pr.rule.id}
+              pr={pr}
+              pending={pending}
+              busy={busy}
+              canTest={testPhone.trim().length >= 10}
+              onToggle={() => run(`en:${pr.rule.key}`, () => setRuleEnabledAction(propertyId, pr.rule.key, !pr.active))}
+              onMode={() => run(`mode:${pr.rule.key}`, () => setRuleSendModeAction(propertyId, pr.rule.key, pr.rule.send_mode === 'auto' ? 'approve' : 'auto'))}
+              onOta={() => run(`ota:${pr.rule.key}`, () => setRuleConfiguredInOtaAction(propertyId, pr.rule.key, !pr.rule.configured_in_ota))}
+              onEdit={() => setEditing(formFromRule(pr.rule))}
+              onRemove={() => run(`rm:${pr.rule.key}`, () => deleteRuleOverrideAction(propertyId, pr.rule.key))}
+              onTest={() => run(`test:${pr.rule.id}`, () => sendTestAction(propertyId, pr.rule.id, testPhone))}
+            />
+          ))}
+
+          <details style={{ marginTop: 24 }}>
+            <summary style={{ fontSize: 12, color: 'var(--ink-3)', cursor: 'pointer' }}>Merge fields</summary>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '6px 18px', marginTop: 10 }}>
+              {MERGE_FIELDS.map((f) => (
+                <div key={f} style={{ fontSize: 12, color: 'var(--ink-3)' }}>
+                  <span className="font-mono" style={{ color: 'var(--ink)' }}>{`{{${f}}}`}</span> {MERGE_FIELD_HELP[f]}
+                </div>
+              ))}
+            </div>
+          </details>
+        </Drawer>
+      )}
     </div>
   );
 }
 
 // ── Pieces ───────────────────────────────────────────────────────────────
+
+function Notice({ ok, children }: { ok: boolean; children: React.ReactNode }) {
+  return (
+    <div
+      role={ok ? 'status' : 'alert'}
+      style={{
+        marginBottom: 16,
+        padding: '12px 16px',
+        borderLeft: `3px solid ${ok ? 'var(--positive)' : 'var(--negative)'}`,
+        background: 'var(--paper-2)',
+        fontSize: 13,
+        color: ok ? 'var(--ink)' : 'var(--negative)',
+        lineHeight: 1.5,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
 
 function Ready({ ok, label }: { ok: boolean; label: string }) {
   return (
@@ -307,6 +350,28 @@ function Ready({ ok, label }: { ok: boolean; label: string }) {
       {label}
     </span>
   );
+}
+
+/** One line of what will send: when, what, to whom, by what. */
+function NextRow({ when, name, to, by, stay, problem, action }: { when: string; name: string; to: string; by: string | null | undefined; stay?: string; problem?: string | null; action?: React.ReactNode }) {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 150px) 1fr auto', gap: 12, alignItems: 'baseline', padding: '10px 0', borderBottom: '1px solid var(--rule)' }}>
+      <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>{fmtWhen(when)}</span>
+      <span style={{ fontSize: 13, color: 'var(--ink)', minWidth: 0 }}>
+        <span style={{ fontWeight: 600 }}>{name}</span> to {to}
+        {by ? <span style={{ color: 'var(--ink-3)' }}>, by {by}</span> : null}
+        {stay ? <span style={{ color: 'var(--ink-4)' }}> · {stay}</span> : null}
+        {problem ? <span style={{ color: 'var(--negative)' }}> · {problem}</span> : null}
+      </span>
+      <span>{action}</span>
+    </div>
+  );
+}
+
+/** 'checkout_reminder' -> 'Checkout reminder'. */
+function ruleName(key: string): string {
+  const words = key.replace(/[_-]+/g, ' ').trim();
+  return words ? words[0].toUpperCase() + words.slice(1) : 'Rule';
 }
 
 function RuleCard({
@@ -334,67 +399,112 @@ function RuleCard({
 }) {
   const r = pr.rule;
   const is = (id: string) => pending && busy === id;
+  const state = pr.silenced
+    ? 'Silenced here'
+    : !pr.active
+      ? 'Off'
+      : pr.forcedApprove
+        ? 'On, approve first (door code, no lock)'
+        : r.send_mode === 'auto'
+          ? 'On, sends itself'
+          : 'On, approve first';
+  // The rest of a rule's verbs, behind More.
+  const more: MenuItem[] = [
+    { label: r.send_mode === 'auto' ? 'Require approval' : 'Send automatically', onSelect: onMode },
+    ...(r.audience === 'guest' ? [{ label: r.configured_in_ota ? 'Not configured in Airbnb' : 'Mark configured in Airbnb', onSelect: onOta }] : []),
+    { label: canTest ? 'Send a test' : 'Send a test (add your phone above)', onSelect: onTest, disabled: !canTest },
+    ...(pr.source === 'property'
+      ? [{ label: 'Remove override', onSelect: onRemove, tone: 'danger' as const, title: "Removes this home's version; the fleet default applies again. What it already sent stays in the history and is not sent again" }]
+      : []),
+  ];
+  const working = ['en', 'mode', 'ota', 'rm'].some((k) => is(`${k}:${r.key}`)) || is(`test:${r.id}`);
   return (
-    <div style={{ padding: '14px 0', borderBottom: '1px solid var(--rule)', opacity: pr.active ? 1 : 0.72 }}>
-      <div style={{ display: 'flex', gap: 12, alignItems: 'baseline', flexWrap: 'wrap' }}>
-        <span className="font-mono" style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 600 }}>
-          {r.key}
-        </span>
-        <Badge tone={pr.source === 'property' ? 'signal' : 'muted'}>{pr.source === 'property' ? 'This home' : 'Fleet default'}</Badge>
-        {pr.silenced && <Badge tone="neg">Silenced here</Badge>}
-        {!pr.active && !pr.silenced && <Badge tone="muted">Off</Badge>}
-        <Badge tone="muted">{r.audience === 'cleaner' ? 'Cleaner' : 'Guest'}</Badge>
-        <Badge tone={r.send_mode === 'auto' ? 'pos' : 'muted'}>{r.send_mode === 'auto' ? 'Auto' : 'Approve first'}</Badge>
-        {pr.forcedApprove && <Badge tone="neg">Door code, no lock: approve forced</Badge>}
-        {r.configured_in_ota && <Badge tone="muted">Configured in Airbnb (Airbnb stays only)</Badge>}
+    <div style={{ padding: '12px 0', borderBottom: '1px solid var(--rule)', opacity: pr.active ? 1 : 0.72, display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center' }}>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 14, color: 'var(--ink)', fontWeight: 600 }}>
+          {ruleName(r.key)}
+          <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--ink-4)', marginLeft: 8 }}>{pr.source === 'property' ? 'this home' : 'fleet'}{r.audience === 'cleaner' ? ', cleaner' : ''}</span>
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 3, lineHeight: 1.5 }}>
+          {describeTiming(r)}, {(DELIVERY_LABELS[r.delivery] ?? r.delivery).toLowerCase()}
+        </div>
+        <div style={{ fontSize: 12, marginTop: 3, color: pr.active ? (pr.forcedApprove ? 'var(--negative)' : 'var(--positive)') : 'var(--ink-4)' }}>
+          {working ? 'Saving…' : state}
+          {r.configured_in_ota && <span style={{ color: 'var(--ink-4)' }}> · Airbnb sends its own</span>}
+        </div>
       </div>
-      <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 6, lineHeight: 1.5 }}>
-        {describeTiming(r)}. {DELIVERY_LABELS[r.delivery]}.
-        {r.channel_exclusions.length > 0 && <> Not for {r.channel_exclusions.join(', ')}.</>}
-        {r.min_nights ? <> Stays of {r.min_nights}+ nights.</> : null}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <button type="button" className={buttonClass('secondary', 'sm')} disabled={pending} onClick={onToggle}>
+          {pr.active ? 'Silence here' : 'Turn on here'}
+        </button>
+        <button type="button" className={buttonClass('quiet')} disabled={pending} onClick={onEdit}>
+          {pr.source === 'property' ? 'Edit' : 'Edit here'}
+        </button>
+        <MoreMenu label={`More for ${ruleName(r.key)}`} items={more} disabled={pending} />
       </div>
-      <div className="font-serif" style={{ fontSize: 14, color: 'var(--ink-2)', marginTop: 8, lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>
-        {r.body}
-      </div>
+    </div>
+  );
+}
 
-      {pr.preview && (
-        <div style={{ marginTop: 10, padding: '10px 14px', background: 'var(--paper-2)', borderLeft: '3px solid var(--rule)', fontSize: 12, lineHeight: 1.55 }}>
-          <div style={{ color: 'var(--ink-4)', marginBottom: 4 }}>
-            Preview for the next stay: {pr.preview.fireAt ? `fires ${fmtWhen(pr.preview.fireAt)}` : 'its moment has passed'}
-            {pr.preview.rail ? `, by ${railLabel(pr.preview.rail)}` : ', no rail: guest has no contact on file'}
-            {pr.preview.missing.length > 0 && (
-              <span style={{ color: 'var(--negative)' }}> Missing {pr.preview.missing.join(', ')}.</span>
-            )}
-          </div>
-          {pr.preview.subject && <div style={{ color: 'var(--ink-2)', fontWeight: 600 }}>{pr.preview.subject}</div>}
-          <div style={{ color: 'var(--ink)', whiteSpace: 'pre-wrap' }}>{pr.preview.masked}</div>
+type MenuItem = { label: string; onSelect: () => void; disabled?: boolean; tone?: 'danger'; title?: string };
+
+/** A small menu: More opens it; a pick, Escape or a click outside closes it. */
+function MoreMenu({ label, items, disabled }: { label: string; items: MenuItem[]; disabled?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (root.current && !root.current.contains(e.target as Node)) setOpen(false);
+    };
+    // Escape closes the menu, not the drawer it sits in.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+  return (
+    <div ref={root} style={{ position: 'relative' }}>
+      <button type="button" className={buttonClass('quiet')} aria-haspopup="menu" aria-expanded={open} aria-label={label} disabled={disabled} onClick={() => setOpen((o) => !o)}>
+        More
+      </button>
+      {open && (
+        <div role="menu" style={{ position: 'absolute', right: 0, top: '100%', zIndex: 5, background: 'var(--paper)', border: '1px solid var(--ink)', boxShadow: '0 8px 24px rgba(11,37,69,0.12)', minWidth: 240, padding: '4px 0' }}>
+          {items.map((it) => (
+            <button
+              key={it.label}
+              type="button"
+              role="menuitem"
+              disabled={it.disabled}
+              title={it.title}
+              onClick={() => {
+                setOpen(false);
+                it.onSelect();
+              }}
+              style={{
+                display: 'block',
+                width: '100%',
+                textAlign: 'left',
+                background: 'transparent',
+                border: 'none',
+                padding: '8px 14px',
+                fontSize: 13,
+                color: it.tone === 'danger' ? 'var(--negative)' : it.disabled ? 'var(--ink-4)' : 'var(--ink)',
+                cursor: it.disabled ? 'default' : 'pointer',
+              }}
+            >
+              {it.label}
+            </button>
+          ))}
         </div>
       )}
-
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 10 }}>
-        <button type="button" disabled={pending} onClick={onToggle} style={ghostBtn(is(`en:${r.key}`))}>
-          {is(`en:${r.key}`) ? 'Saving' : pr.active ? 'Silence here' : 'Turn on here'}
-        </button>
-        <button type="button" disabled={pending} onClick={onMode} style={ghostBtn(is(`mode:${r.key}`))}>
-          {is(`mode:${r.key}`) ? 'Saving' : r.send_mode === 'auto' ? 'Require approval' : 'Send automatically'}
-        </button>
-        {r.audience === 'guest' && (
-          <button type="button" disabled={pending} onClick={onOta} style={ghostBtn(is(`ota:${r.key}`))}>
-            {is(`ota:${r.key}`) ? 'Saving' : r.configured_in_ota ? 'Not configured in Airbnb' : 'Mark configured in Airbnb'}
-          </button>
-        )}
-        <button type="button" disabled={pending} onClick={onEdit} style={ghostBtn(false)}>
-          {pr.source === 'property' ? 'Edit' : 'Override for this home'}
-        </button>
-        <button type="button" disabled={pending || !canTest} onClick={onTest} style={ghostBtn(is(`test:${r.id}`))} title={canTest ? '' : 'Enter your phone above first'}>
-          {is(`test:${r.id}`) ? 'Sending' : 'Test'}
-        </button>
-        {pr.source === 'property' && (
-          <button type="button" disabled={pending} onClick={onRemove} style={quietBtn(is(`rm:${r.key}`))} title="Removes this home's version; the fleet default applies again. What it already sent stays in the history and is not sent again">
-            {is(`rm:${r.key}`) ? 'Removing' : 'Remove override'}
-          </button>
-        )}
-      </div>
     </div>
   );
 }
@@ -434,12 +544,12 @@ function SendRow({
   return (
     <div style={{ padding: '12px 0', borderBottom: '1px solid var(--rule)' }}>
       <div style={{ display: 'flex', gap: 12, alignItems: 'baseline', flexWrap: 'wrap', cursor: 'pointer' }} onClick={onOpen}>
-        <Badge tone={tone}>{sendStatusLabel(s.status, s.error)}</Badge>
-        <span className="font-mono" style={{ fontSize: 12, color: 'var(--ink)' }}>{s.key}</span>
-        <span style={{ fontSize: 13, color: 'var(--ink)' }}>{s.guest_name}</span>
+        {s.status !== 'awaiting_approval' && <Badge tone={tone}>{sendStatusLabel(s.status, s.error)}</Badge>}
+        <span style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 600 }}>{ruleName(s.key)}</span>
+        <span style={{ fontSize: 13, color: 'var(--ink)' }}>to {s.guest_name}</span>
         <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
           {fmtDate(s.check_in)} to {fmtDate(s.check_out)}
-          {s.channel ? `, ${s.channel}` : ''}
+          {s.channel ? `, ${CHANNEL_NAMES[s.channel] ?? s.channel}` : ''}
         </span>
         <span style={{ fontSize: 12, color: 'var(--ink-4)', marginLeft: 'auto' }}>
           {s.status === 'sent' && s.sent_at ? `sent ${fmtWhen(s.sent_at)}` : `fires ${fmtWhen(s.fire_at)}`}
@@ -465,8 +575,7 @@ function SendRow({
           {canEdit && (
             <div style={{ marginTop: 10 }}>
               <div style={{ color: 'var(--ink-4)', marginBottom: 4 }}>
-                Edit for this send only. Keep the merge fields: <span className="font-mono">{'{{door_code}}'}</span> and{' '}
-                <span className="font-mono">{'{{wifi_password}}'}</span> fill with the real value when it goes out.
+                This send only. Keep <span className="font-mono">{'{{door_code}}'}</span> and <span className="font-mono">{'{{wifi_password}}'}</span> as written.
               </div>
               <textarea
                 value={template}
@@ -518,6 +627,7 @@ function SendRow({
 }
 
 const CHANNELS = ['airbnb', 'vrbo', 'booking_com', 'direct', 'manual'] as const;
+const CHANNEL_NAMES: Record<string, string> = { airbnb: 'Airbnb', vrbo: 'Vrbo', booking_com: 'Booking.com', direct: 'Direct', manual: 'Manual' };
 
 function RuleForm({
   form,
@@ -537,7 +647,7 @@ function RuleForm({
   return (
     <div style={{ padding: '16px 18px', background: 'var(--paper-2)', borderLeft: '3px solid var(--signal)', marginBottom: 14 }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
-        <Field label="Key">
+        <Field label="Short name">
           <input value={form.key} onChange={(e) => set('key', e.target.value)} placeholder="pre_arrival" style={inputStyle} className="font-mono" />
         </Field>
         <Field label="Audience">
@@ -592,7 +702,7 @@ function RuleForm({
                     set('channel_exclusions', e.target.checked ? [...form.channel_exclusions, c] : form.channel_exclusions.filter((x) => x !== c))
                   }
                 />
-                {c}
+                {CHANNEL_NAMES[c]}
               </label>
             ))}
           </div>
@@ -761,16 +871,6 @@ const labelStyle: React.CSSProperties = {
   fontWeight: 600,
 };
 
-const noteStyle: React.CSSProperties = {
-  fontSize: 12,
-  color: 'var(--ink-3)',
-  background: 'var(--paper-2)',
-  borderLeft: '3px solid var(--rule)',
-  padding: '10px 14px',
-  marginBottom: 16,
-  lineHeight: 1.5,
-};
-
 const inputStyle: React.CSSProperties = {
   border: '1px solid var(--rule)',
   borderBottom: '1px solid var(--ink)',
@@ -783,14 +883,6 @@ const inputStyle: React.CSSProperties = {
 };
 
 const selectStyle: React.CSSProperties = { ...inputStyle, width: '100%' };
-
-const rowStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 14,
-  padding: '14px 0',
-  borderBottom: '1px solid var(--rule)',
-};
 
 const linkBtn: React.CSSProperties = {
   fontSize: 12,
