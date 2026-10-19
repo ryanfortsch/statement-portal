@@ -717,7 +717,8 @@ export function contractorCost(
  * people cost scaled linearly with the fleet through the bench.
  *
  * The hire that did happen is dated. The field contractor (Delaney Jordan)
- * joins payroll as Operations Manager on 2026-11-01 at $65,000, and the
+ * joins payroll as Operations Manager on 2026-11-01 at $72,000 (raised
+ * from $65,000 on 2026-10-19 to cover her own health coverage), and the
  * field-labor line above ends the month before: the same person, the same
  * work, paid as salary instead of per job. The salary is flat and does not
  * scale with the fleet; the creative and misc bench still does.
@@ -738,7 +739,7 @@ export function contractorCost(
  * which is gross wages plus employer taxes plus the fee: the same shape as
  * the projection, less the workers comp placeholder.
  */
-export const SALARY_ANNUAL = 65000;
+export const SALARY_ANNUAL = 72000;
 export const SALARY_START_YEAR = 2026;
 export const SALARY_START_MONTH = 11;
 export const SALARY_EMPLOYER_TAX_RATE = 0.09;
