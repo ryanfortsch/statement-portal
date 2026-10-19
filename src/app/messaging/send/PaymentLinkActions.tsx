@@ -28,6 +28,7 @@ import {
   markLinkCopiedAction,
   nudgePaymentLinkAction,
 } from './payment-link-actions';
+import { Button } from '@/components/Button';
 
 const CONFIRM_MS = 5000;
 
@@ -111,35 +112,33 @@ export function PaymentLinkActions({
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: compact ? 'flex-start' : 'flex-end', gap: 6 }}>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: compact ? 'flex-start' : 'flex-end' }}>
         {!closed && (
-          <button type="button" onClick={() => run('nudge')} disabled={isPending} style={buttonStyle(isPending)}>
-            {label('nudge', 'Nudge by text', 'Texting')}
-          </button>
+          <Button size="sm" onClick={() => run('nudge')} disabled={isPending} pending={busy === 'nudge'} pendingLabel="Texting">
+            Nudge by text
+          </Button>
         )}
         {!closed && !compact && (
-          <button type="button" onClick={() => run('check')} disabled={isPending} style={buttonStyle(isPending)}>
-            {label('check', 'Check now', 'Checking')}
-          </button>
+          <Button size="sm" onClick={() => run('check')} disabled={isPending} pending={busy === 'check'} pendingLabel="Checking">
+            Check now
+          </Button>
         )}
         {!compact && (
-          <button type="button" onClick={copy} disabled={isPending} style={buttonStyle(isPending)}>
+          <Button size="sm" onClick={copy} disabled={isPending}>
             {copied ? 'Copied' : 'Copy link'}
-          </button>
+          </Button>
         )}
         {!closed && (
-          <button
-            type="button"
+          // Two taps, inline: the second tap is armed (filled) for a few seconds.
+          <Button
+            variant="danger"
+            size="sm"
             onClick={() => (confirming ? run('cancel') : setConfirming(true))}
             disabled={isPending}
-            style={{
-              ...buttonStyle(isPending),
-              color: 'var(--signal)',
-              borderColor: 'var(--signal)',
-              background: confirming ? 'var(--signal)' : 'transparent',
-              ...(confirming ? { color: 'var(--paper)' } : {}),
-            }}
+            pending={busy === 'cancel'}
+            pendingLabel="Cancelling"
+            data-armed={confirming ? '' : undefined}
           >
-            {busy === 'cancel' ? 'Cancelling' : confirming ? 'Sure? Cancel it' : 'Cancel link'}
-          </button>
+            {confirming ? 'Sure? Cancel it' : 'Cancel link'}
+          </Button>
         )}
       </div>
       {note && (
@@ -152,20 +151,4 @@ export function PaymentLinkActions({
       )}
     </div>
   );
-}
-
-function buttonStyle(disabled: boolean): React.CSSProperties {
-  return {
-    fontSize: 10,
-    letterSpacing: '0.14em',
-    textTransform: 'uppercase',
-    fontWeight: 600,
-    color: 'var(--ink)',
-    background: 'transparent',
-    border: '1px solid var(--rule)',
-    padding: '4px 9px',
-    cursor: disabled ? 'default' : 'pointer',
-    opacity: disabled ? 0.6 : 1,
-    fontFamily: 'inherit',
-  };
 }

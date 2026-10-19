@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from 'react';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
+import { Button } from '@/components/Button';
 
 /** Retain a text draft until the server confirms it, including after a blur. */
 export function PacketTextEditor({ value, label, save, rows = 2, maxLength = 4000, required = false, placeholder, style, autoFocus, onDirtyChange }: {
@@ -63,8 +64,8 @@ export function PacketTextEditor({ value, label, save, rows = 2, maxLength = 400
     <div style={{ fontSize: 11, marginTop: 4, color: 'var(--ink-4)' }}>
       {pending ? <span role="status">Saving…</span> : dirty || error ? <>
         <span>{error ? '' : 'Unsaved edits '}</span>
-        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={submit}>{error ? 'Retry save' : 'Save'}</button>{' '}
-        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={discard}>Discard edit</button>
+        <Button variant="primary" size="sm" onMouseDown={(e) => e.preventDefault()} onClick={submit}>{error ? 'Retry save' : 'Save'}</Button>{' '}
+        <Button variant="quiet" onMouseDown={(e) => e.preventDefault()} onClick={discard}>Discard edit</Button>
       </> : <span>Saved</span>}
     </div>
     {error && <div role="alert" style={{ fontSize: 12, color: 'var(--negative)', marginTop: 4 }}>{error}</div>}

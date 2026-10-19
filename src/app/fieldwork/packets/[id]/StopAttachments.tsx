@@ -6,6 +6,7 @@ import { PacketTextEditor } from './PacketTextEditor';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import type { AttachedSlip, WorkSlipLite } from '@/lib/field-types';
 import { updateStopSlipContent, attachSlipToStop, detachSlipFromStop, updateStopSlipNote, setStopInstructions, setPacketInstructions } from '../actions';
+import { Button } from '@/components/Button';
 
 const box: React.CSSProperties = {
   // display:block matters: textareas/selects are inline-level, so without it
@@ -243,7 +244,7 @@ export function StopAttachments({
             : ''}
       </button>
 
-      {Object.entries(errors).map(([key, message]) => <div key={key} role="alert" style={{ fontSize: 12, color: 'var(--negative)', marginTop: 6 }}>{message} <button type="button" onClick={() => clearError(key)}>Dismiss</button></div>)}
+      {Object.entries(errors).map(([key, message]) => <div key={key} role="alert" style={{ fontSize: 12, color: 'var(--negative)', marginTop: 6 }}>{message} <Button variant="quiet" onClick={() => clearError(key)}>Dismiss</Button></div>)}
       <div style={{ marginTop: 10, maxWidth: 540, background: 'var(--paper-2, #fff)', border: '1px solid var(--rule)', borderRadius: 10, padding: '12px 14px', display: open ? 'flex' : 'none', flexDirection: 'column', gap: 12, opacity: pending ? 0.7 : 1 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10 }}>
             <span style={eyebrow}>At this stop</span>

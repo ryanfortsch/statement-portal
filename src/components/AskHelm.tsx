@@ -12,6 +12,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { Button } from '@/components/Button';
 
 type Source = { label: string; href: string };
 
@@ -136,31 +137,18 @@ export function AskHelm({
                 outline: 'none',
               }}
             />
-            <button
+            <Button
               type="submit"
-              disabled={loading || !question.trim()}
-              style={{
-                flexShrink: 0,
-                background: 'var(--ink)',
-                color: 'var(--paper)',
-                border: 'none',
-                borderRadius: 10,
-                padding: '12px 24px',
-                fontSize: 12,
-                fontWeight: 600,
-                letterSpacing: '0.12em',
-                textTransform: 'uppercase',
-                cursor:
-                  loading || !question.trim() ? 'default' : 'pointer',
-                opacity: loading || !question.trim() ? 0.55 : 1,
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 8,
-              }}
+              variant="primary"
+              size="lg"
+              disabled={!question.trim()}
+              pending={loading}
+              pendingLabel="Asking"
+              watchdog={false}
+              style={{ flexShrink: 0 }}
             >
-              {loading ? 'Asking' : 'Ask'}
-              {!loading && <span aria-hidden style={{ fontSize: 15 }}>→</span>}
-            </button>
+              Ask <span aria-hidden style={{ fontSize: 15 }}>→</span>
+            </Button>
           </div>
         ) : (
           <textarea
@@ -191,41 +179,9 @@ export function AskHelm({
         )}
         {!hero && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginTop: 10, gap: 12 }}>
-          <button
-            type="submit"
-            disabled={loading || !question.trim()}
-            style={{
-              background: 'var(--ink)',
-              color: 'var(--paper)',
-              fontSize: 11,
-              fontWeight: 600,
-              letterSpacing: '.16em',
-              textTransform: 'uppercase',
-              padding: '9px 18px',
-              border: 'none',
-              cursor: loading || !question.trim() ? 'default' : 'pointer',
-              opacity: loading || !question.trim() ? 0.55 : 1,
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 8,
-            }}
-          >
-            {loading && (
-              <span
-                aria-hidden
-                style={{
-                  width: 11,
-                  height: 11,
-                  border: '1.5px solid currentColor',
-                  borderTopColor: 'transparent',
-                  borderRadius: '50%',
-                  display: 'inline-block',
-                  animation: 'spin 0.8s linear infinite',
-                }}
-              />
-            )}
-            {loading ? 'Asking' : 'Ask'}
-          </button>
+          <Button type="submit" variant="primary" disabled={!question.trim()} pending={loading} pendingLabel="Asking" watchdog={false}>
+            Ask
+          </Button>
         </div>
         )}
       </form>

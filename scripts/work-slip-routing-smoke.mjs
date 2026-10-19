@@ -24,7 +24,14 @@ for (const [name, path] of [
   ['slip-controls', 'src/app/work/[id]/slip-controls.ts'],
   ['picker', 'src/components/TeamPicker.tsx'],
   ['unsaved-work', 'src/lib/unsaved-work.ts'],
+  ['button', 'src/components/Button.tsx'],
+  ['button-class', 'src/lib/button-class.ts'],
+  ['watchdog', 'src/lib/use-pending-watchdog.ts'],
+  ['confirm-dialog', 'src/components/ConfirmDialog.tsx'],
+  ['confirm-question', 'src/lib/confirm-question.ts'],
 ]) await writeFile(join(scratch, name + '.js'), compile(await readFile(join(root, path), 'utf8')));
+// version-skew reads process.env, which only Next defines; Button's watchdog imports it.
+await writeFile(join(scratch, 'skew.js'), 'export const reloadedForNewDeployment = () => Promise.resolve(false);');
 await writeFile(join(scratch, 'actions.js'), `
   const save = (kind,args) => new Promise((resolve,reject) => window.calls.push({kind,args,resolve,reject}));
   export const updateWorkSlipAssignment = args => save('assignment',args);
@@ -67,7 +74,7 @@ await writeFile(join(scratch, 'entry.js'), compile(`
 await new Promise((done,reject)=>{
   const compiler=webpack({mode:'development',devtool:false,context:scratch,
     entry:join(scratch,'entry.js'),output:{path:scratch,filename:'bundle.js'},
-    resolve:{modules:[join(root,'node_modules')],alias:{
+    resolve:{modules:[join(root,'node_modules')],alias:{'@/lib/version-skew':join(scratch,'skew.js'),'@/components/Button':join(scratch,'button.js'),'@/lib/button-class':join(scratch,'button-class.js'),'@/lib/use-pending-watchdog':join(scratch,'watchdog.js'),'@/components/ConfirmDialog':join(scratch,'confirm-dialog.js'),'@/lib/confirm-question':join(scratch,'confirm-question.js'),
       '../actions':join(scratch,'actions.js'),
       '@/components/TeamPicker':join(scratch,'picker.js'),
       '@/lib/use-soft-refresh':join(scratch,'refresh.js'),

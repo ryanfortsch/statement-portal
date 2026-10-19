@@ -5,6 +5,7 @@ import { formatTime12 } from '@/lib/checkout-schedule';
 import { holdNights } from '@/lib/owner-hold-questions-core';
 import { loadOwnerHoldQuestions, type OwnerHoldQuestionCard } from '@/lib/owner-hold-questions';
 import { decideOwnerHoldAction } from '../turnovers/schedule/actions';
+import { buttonClass } from '@/lib/button-class';
 
 /**
  * "Owner block: clean after?" The loud card. Every upcoming owner block in
@@ -131,7 +132,7 @@ export function HoldRow({ card: c, today, back = 'card' }: { card: OwnerHoldQues
             <SubmitButton
               label={pending ? 'Clean after' : 'Clean after all'}
               busyLabel="Saving..."
-              style={{ fontSize: 12, fontWeight: 600, padding: '8px 14px', background: 'var(--ink)', color: 'var(--paper)', border: 'none', borderRadius: 5, cursor: 'pointer' }}
+              className={buttonClass('primary', 'sm')}
             />
           </form>
         )}
@@ -142,7 +143,7 @@ export function HoldRow({ card: c, today, back = 'card' }: { card: OwnerHoldQues
               label="No cleaning"
               busyLabel="Saving..."
               spinnerTone="ink"
-              style={{ fontSize: 12, fontWeight: 600, padding: '8px 14px', background: 'transparent', color: 'var(--ink)', border: '1px solid var(--ink)', borderRadius: 5, cursor: 'pointer' }}
+              className={buttonClass('secondary', 'sm')}
             />
           </form>
         )}

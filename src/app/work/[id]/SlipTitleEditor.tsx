@@ -4,6 +4,7 @@ import { useRef, useState, useTransition } from 'react';
 import { updateWorkSlipTitle } from '../actions';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
+import { Button } from '@/components/Button';
 
 type Props = {
   slipId: string;
@@ -87,23 +88,9 @@ export function SlipTitleEditor({ slipId, initialTitle }: Props) {
       <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
         <div className="eyebrow">Work Slip</div>
         {!editing && (
-          <button
-            type="button"
-            onClick={beginEdit}
-            disabled={pending}
-            style={{
-              background: 'none',
-              border: '1px solid var(--rule)',
-              padding: '4px 10px',
-              fontSize: 10,
-              letterSpacing: '.16em',
-              textTransform: 'uppercase',
-              color: 'var(--ink-3)',
-              cursor: pending ? 'wait' : 'pointer',
-            }}
-          >
-            {pending ? 'Saving…' : 'Edit Title'}
-          </button>
+          <Button size="sm" onClick={beginEdit} pending={pending} pendingLabel="Saving">
+            Edit Title
+          </Button>
         )}
       </div>
 
@@ -136,42 +123,12 @@ export function SlipTitleEditor({ slipId, initialTitle }: Props) {
             }}
           />
           <div className="flex items-center gap-2" style={{ marginTop: 10 }}>
-            <button
-              type="button"
-              onClick={save}
-              disabled={pending || !draft.trim()}
-              style={{
-                background: 'var(--ink)',
-                color: 'var(--paper)',
-                border: '1px solid var(--ink)',
-                padding: '5px 14px',
-                fontSize: 10,
-                letterSpacing: '.16em',
-                textTransform: 'uppercase',
-                fontWeight: 600,
-                cursor: pending ? 'wait' : draft.trim() ? 'pointer' : 'default',
-                opacity: !pending && draft.trim() ? 1 : 0.5,
-              }}
-            >
-              {pending ? 'Saving…' : 'Save'}
-            </button>
-            <button
-              type="button"
-              onClick={cancel}
-              disabled={pending}
-              style={{
-                background: 'none',
-                border: '1px solid var(--rule)',
-                padding: '5px 14px',
-                fontSize: 10,
-                letterSpacing: '.16em',
-                textTransform: 'uppercase',
-                color: 'var(--ink-3)',
-                cursor: 'pointer',
-              }}
-            >
+            <Button variant="primary" size="sm" onClick={save} disabled={!draft.trim()} pending={pending} pendingLabel="Saving">
+              Save
+            </Button>
+            <Button size="sm" onClick={cancel} disabled={pending}>
               Cancel
-            </button>
+            </Button>
           </div>
         </div>
       ) : (

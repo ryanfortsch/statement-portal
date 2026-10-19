@@ -42,6 +42,9 @@ for(const [name,path] of [
  ['mark','src/app/turnovers/MarkCleaned.tsx'],['format','src/app/turnovers/turnover-format.ts'],['submit','src/components/SubmitButton.tsx'],
  ['confirm','src/components/ConfirmDialog.tsx'],['confirmq','src/lib/confirm-question.ts'],
  ['unsaved','src/lib/unsaved-work.ts'],['opdate','src/lib/operating-date.ts'],
+ ['button','src/components/Button.tsx'],
+ ['button-class','src/lib/button-class.ts'],
+ ['watchdog','src/lib/use-pending-watchdog.ts'],
 ])await writeFile(join(scratch,name+'.js'),compile(await readFile(join(root,path),'utf8')));
 await writeFile(join(scratch,'actions.js'),`
 export const save=(kind,args)=>new Promise((resolve,reject)=>window.calls.push({kind,args,resolve,reject}));
@@ -63,13 +66,15 @@ import {BoardLine} from './line.js';import {rows,today} from './rows.js';
 window.calls=[];window.refreshes=0;window.confirm=()=>true;
 createRoot(document.getElementById('root')).render(<section id="board">{rows.map(r=><BoardLine key={r.id} row={r} today={today} myEmail="staff@example.test"/>)}</section>);
 `));
-const alias={'./BoardLine':'line','./TurnoverRail':'rail','./PlanButton':'plan','./MarkCleaned':'mark','./turnover-format':'format','@/components/SubmitButton':'submit','@/components/ConfirmDialog':'confirm','@/lib/confirm-question':'confirmq','@/lib/unsaved-work':'unsaved','./unsaved-work':'unsaved','@/lib/operating-date':'opdate','@/lib/version-skew':'skew','@/lib/use-soft-refresh':'refresh','@/lib/team':'team','@/components/TeamPicker':'picker','../inspections/actions':'actions','./turnover-actions':'actions','./cleaning-actions':'actions','./plan-actions':'actions','next/link':'link'};
+const alias={'@/lib/use-pending-watchdog':'watchdog','@/lib/button-class':'button-class','@/components/Button':'button','./BoardLine':'line','./TurnoverRail':'rail','./PlanButton':'plan','./MarkCleaned':'mark','./turnover-format':'format','@/components/SubmitButton':'submit','@/components/ConfirmDialog':'confirm','@/lib/confirm-question':'confirmq','@/lib/unsaved-work':'unsaved','./unsaved-work':'unsaved','@/lib/operating-date':'opdate','@/lib/version-skew':'skew','@/lib/use-soft-refresh':'refresh','@/lib/team':'team','@/components/TeamPicker':'picker','../inspections/actions':'actions','./turnover-actions':'actions','./cleaning-actions':'actions','./plan-actions':'actions','next/link':'link'};
 await new Promise((resolve,reject)=>{const compiler=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.js'),output:{path:scratch,filename:'bundle.js'},resolve:{modules:[join(root,'node_modules')],alias:Object.fromEntries(Object.entries(alias).map(([k,v])=>[k,join(scratch,v+'.js')]))},performance:{hints:false}});compiler.run((err,stats)=>compiler.close(()=>err||stats?.hasErrors()?reject(err||Error(stats.toString({all:false,errors:true}))):resolve()));});
 if(process.argv.includes('--compile-only')){console.log('Turnover board fixture compiled.');await rm(scratch,{recursive:true,force:true});process.exit(0);}
 
 // The board's own rules from globals.css, so the layout under test is the real one.
 const css=await readFile(join(root,'src/app/globals.css'),'utf8');
-const boardCss=css.slice(css.indexOf('/* ─── Turnovers: the board (BoardLine)'),css.indexOf('/* ─── Responsive (mobile first pass)'));
+// The house Button's faces too: the board's verbs wear them.
+const boardCss=css.slice(css.indexOf('/* ─── Turnovers: the board (BoardLine)'),css.indexOf('/* ─── Responsive (mobile first pass)'))
+ +css.slice(css.indexOf('/* ─── Button (src/components/Button.tsx)'),css.indexOf('/* ─── end Button ─── */'));
 assert.ok(boardCss.includes('.rt-tb-row'),'the board rules were found in globals.css');
 const html='<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Synthetic turnover board</title><style>:root{--ink:#0b2545;--ink-2:#18375c;--ink-3:#51677d;--ink-4:#8ba0b4;--paper:#f5efe2;--rule:#ddcfb2;--rule-soft:#ece2cc;--tide:#4e7c9e;--tide-deep:#1c4a6b;--signal:#946d2e;--positive:#3a6b4a;--negative:#8a3a2e}*{box-sizing:border-box}body{margin:0;font:14px system-ui;background:var(--paper);color:var(--ink)}#board{max-width:1020px;margin:0 auto;padding:0 16px}'+boardCss+'</style><div id="root"></div><script src="/bundle.js"></script>';
 const server=createServer(async(req,res)=>{if(req.method!=='GET'){res.writeHead(405).end();return;}res.setHeader('Cache-Control','no-store');res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'");if(req.url==='/bundle.js'){res.setHeader('Content-Type','text/javascript; charset=utf-8');res.end(await readFile(join(scratch,'bundle.js')));}else{res.setHeader('Content-Type','text/html; charset=utf-8');res.end(html);}});

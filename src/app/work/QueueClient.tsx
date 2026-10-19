@@ -32,6 +32,8 @@ import { PhotoUploader } from '@/components/PhotoUploader';
 import { displayNameForEmail } from '@/lib/team';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import { useConfirm } from '@/components/ConfirmDialog';
+import { Button } from '@/components/Button';
+import { buttonClass } from '@/lib/button-class';
 import { useOwnerEmailDraft } from '@/lib/use-owner-email-draft';
 import { CopiedEmailNotice } from '@/components/CopiedEmailNotice';
 import { operatingDate } from '@/lib/operating-date';
@@ -468,29 +470,22 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
               </span>
             )}
             {onSlips && orderIsStale && (
-              <button
-                type="button"
-                className="eyebrow rt-no-print"
+              <Button
+                size="sm"
+                className="rt-no-print"
                 onClick={() => setFrozenOrder({ filter, tab, ids: rankedProperties.map(([pid]) => pid) })}
                 title="Closing work changed the ranking. The board held its order so nothing moved while you were in it."
-                style={{
-                  background: 'none',
-                  border: '1px solid var(--rule)',
-                  color: 'var(--ink-3)',
-                  padding: '3px 9px',
-                  cursor: 'pointer',
-                }}
               >
                 ↕ Re-sort
-              </button>
+              </Button>
             )}
-            {!onSlips && <button type="button" onClick={() => setShowTaskModal(true)} style={primaryBtn()}>
+            {!onSlips && <Button variant="primary" onClick={() => setShowTaskModal(true)}>
               + To-do
-            </button>}
+            </Button>}
             {onSlips && <OrganizeButton onReviewStale={isOwner ? openStaleReview : undefined} />}
-            {onSlips && <button type="button" onClick={() => setShowSlipModal(true)} style={primaryBtn()}>
+            {onSlips && <Button variant="primary" onClick={() => setShowSlipModal(true)}>
               + Work Slip
-            </button>}
+            </Button>}
           </div>
         </div>
 
@@ -950,44 +945,24 @@ function PropertyGroup({
         )}
         <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>{slips.length} open</span>
         {expanded && ownerActionCount > 0 && propertyId && (
-          <button
-            type="button"
+          <Button
+            variant="primary"
+            size="sm"
             onClick={draftOwnerEmail}
-            disabled={drafting}
+            pending={drafting}
+            pendingLabel={copyOwnerEmail ? 'Copying' : 'Drafting'}
             className="rt-no-print"
-            style={{
-              background: 'var(--ink)',
-              color: 'var(--paper)',
-              border: '1px solid var(--ink)',
-              padding: '4px 10px',
-              fontSize: 10,
-              letterSpacing: '.16em',
-              textTransform: 'uppercase',
-              cursor: drafting ? 'wait' : 'pointer',
-              opacity: drafting ? 0.6 : 1,
-            }}
           >
-            {drafting ? (copyOwnerEmail ? 'Copying…' : 'Drafting…') : draftUrl ? 'Open Gmail draft' : draftSavedIn ? 'Drafted' : draftCopied ? 'Copy again' : copyOwnerEmail ? 'Copy owner email' : 'Draft Owner Email'}
-          </button>
+            {draftUrl ? 'Open Gmail draft' : draftSavedIn ? 'Drafted' : draftCopied ? 'Copy again' : copyOwnerEmail ? 'Copy owner email' : 'Draft Owner Email'}
+          </Button>
         )}
         {expanded && propertyId && (
           <Link
             href={`/properties/${propertyId}`}
             prefetch={false}
-            className="rt-no-print"
+            className={buttonClass('secondary', 'sm', 'rt-no-print')}
             title={`Open ${propName}'s property page`}
             aria-label={`Open ${propName}'s property page`}
-            style={{
-              background: 'none',
-              border: '1px solid var(--rule)',
-              padding: '4px 10px',
-              fontSize: 10,
-              letterSpacing: '.16em',
-              textTransform: 'uppercase',
-              color: 'var(--ink-3)',
-              textDecoration: 'none',
-              lineHeight: 1.4,
-            }}
           >
             Property ↗
           </Link>
@@ -1012,23 +987,13 @@ function PropertyGroup({
             🖨
           </button>
         )}
-        {expanded && <button
-          type="button"
+        {expanded && <Button
+          size="sm"
           onClick={onAddSlip}
           className="rt-no-print"
-          style={{
-            background: 'none',
-            border: '1px solid var(--rule)',
-            padding: '4px 10px',
-            fontSize: 10,
-            letterSpacing: '.16em',
-            textTransform: 'uppercase',
-            color: 'var(--ink-3)',
-            cursor: 'pointer',
-          }}
         >
           + Slip
-        </button>}
+        </Button>}
       </div>
 
       {draftUrl && <a className="rt-no-print" href={draftUrl} target="_blank" rel="noopener noreferrer">Open saved Gmail draft</a>}
@@ -1267,26 +1232,17 @@ function WorkSlipRowItem({
         )}
         {slip.status !== 'open' && <span className="rt-no-print" style={pillTinyStyle(slip.status === 'blocked' ? 'var(--signal)' : 'var(--ink-3)')}>{slip.status.replace('_', ' ')}</span>}
       </Link>
-      <button
-        type="button"
+      <Button
+        size="sm"
         onClick={markDone}
-        disabled={isPending || bulkPending}
+        pending={isPending}
+        pendingLabel="Saving"
+        disabled={bulkPending}
         className="rt-no-print"
-        style={{
-          background: 'none',
-          border: '1px solid var(--rule)',
-          padding: '4px 10px',
-          fontSize: 10,
-          letterSpacing: '.16em',
-          textTransform: 'uppercase',
-          color: 'var(--positive)',
-          cursor: isPending ? 'wait' : 'pointer',
-          opacity: isPending ? 0.6 : 1,
-          flexShrink: 0,
-        }}
+        style={{ color: 'var(--positive)', flexShrink: 0 }}
       >
-        {isPending ? 'Saving…' : '✓ Done'}
-      </button>
+        ✓ Done
+      </Button>
     </div>
   );
 }
@@ -1402,25 +1358,16 @@ function TaskRowItem({
         {task.priority === 'high' && <span style={pillTinyStyle('var(--negative)')}>High</span>}
         {task.status !== 'open' && <span style={pillTinyStyle(task.status === 'blocked' ? 'var(--signal)' : 'var(--ink-3)')}>{TASK_STATUS_LABELS[task.status] ?? task.status}</span>}
       </Link>
-      <button
-        type="button"
+      <Button
+        size="sm"
         onClick={markDone}
-        disabled={isPending || bulkPending}
-        style={{
-          background: 'none',
-          border: '1px solid var(--rule)',
-          padding: '4px 10px',
-          fontSize: 10,
-          letterSpacing: '.16em',
-          textTransform: 'uppercase',
-          color: 'var(--positive)',
-          cursor: isPending ? 'wait' : 'pointer',
-          opacity: isPending ? 0.6 : 1,
-          flexShrink: 0,
-        }}
+        pending={isPending}
+        pendingLabel="Saving"
+        disabled={bulkPending}
+        style={{ color: 'var(--positive)', flexShrink: 0 }}
       >
-        {isPending ? 'Saving…' : '✓ Done'}
-      </button>
+        ✓ Done
+      </Button>
     </div>
   );
 }
@@ -1911,12 +1858,12 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 function ModalActions({ onCancel, submitLabel, submitting }: { onCancel: () => void; submitLabel: string; submitting: boolean }) {
   return (
     <div className="flex items-center justify-end gap-3" style={{ marginTop: 8, paddingTop: 16, borderTop: '1px solid var(--rule)' }}>
-      <button type="button" onClick={onCancel} style={ghostBtn()} disabled={submitting}>
+      <Button onClick={onCancel} disabled={submitting}>
         Cancel
-      </button>
-      <button type="submit" style={primaryBtn()} disabled={submitting}>
-        {submitting ? 'Saving…' : submitLabel}
-      </button>
+      </Button>
+      <Button type="submit" variant="primary" pending={submitting} pendingLabel="Saving">
+        {submitLabel}
+      </Button>
     </div>
   );
 }
@@ -1959,33 +1906,6 @@ function selectStyle(): React.CSSProperties {
     backgroundPosition: 'right 10px center',
     backgroundSize: '16px',
     paddingRight: 32,
-  };
-}
-
-function ghostBtn(): React.CSSProperties {
-  return {
-    background: 'transparent',
-    border: '1px solid var(--rule)',
-    padding: '10px 16px',
-    fontSize: 11,
-    letterSpacing: '.16em',
-    textTransform: 'uppercase',
-    color: 'var(--ink-3)',
-    cursor: 'pointer',
-  };
-}
-
-function primaryBtn(): React.CSSProperties {
-  return {
-    background: 'var(--ink)',
-    color: 'var(--paper)',
-    border: 'none',
-    padding: '10px 18px',
-    fontSize: 11,
-    letterSpacing: '.16em',
-    textTransform: 'uppercase',
-    fontWeight: 600,
-    cursor: 'pointer',
   };
 }
 
@@ -2072,25 +1992,17 @@ function OrganizeButton({ onReviewStale }: { onReviewStale?: () => void }) {
     <span className="rt-no-print" style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
       {note && <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>{note}</span>}
       {error && <span role="alert" style={{ fontSize: 11, color: 'var(--negative)' }}>{error}</span>}
-      <button
-        type="button"
+      {/* No watchdog: the button watches the background pass for up to five
+          minutes on purpose, which is not a lost response. */}
+      <Button
         onClick={run}
-        disabled={pending || watching}
+        pending={pending || watching}
+        pendingLabel="Organizing"
+        watchdog={false}
         title="File new slips into lanes (this visit, handyman, pro, owner, office) and synthesize pasted reviews. Runs nightly on its own."
-        style={{
-          background: 'none',
-          border: '1px solid var(--rule)',
-          color: 'var(--ink-3)',
-          padding: '8px 14px',
-          fontSize: 11,
-          letterSpacing: '.14em',
-          textTransform: 'uppercase',
-          cursor: pending || watching ? 'wait' : 'pointer',
-          opacity: pending || watching ? 0.6 : 1,
-        }}
       >
-        {pending || watching ? 'Organizing…' : 'Organize'}
-      </button>
+        Organize
+      </Button>
       {/* The Organize menu: owner decisions about the board itself. */}
       {onReviewStale && (
         <span style={{ position: 'relative', display: 'inline-flex' }}>
@@ -2228,14 +2140,9 @@ function StaleReviewList({ load }: { load: Promise<StaleLoad> }) {
               <span className="font-serif" style={{ fontSize: 17, color: 'var(--ink)' }}>{h.propertyName}</span>
               <span className="font-mono" style={{ fontSize: 11, color: 'var(--ink-3)' }}>{h.slips.length}</span>
               <span style={{ flex: 1 }} />
-              <button
-                type="button"
-                disabled={homeBusy}
-                onClick={() => dismiss(homeKey, h.slips.map((s) => s.id))}
-                style={{ ...ghostBtn(), fontSize: 11, padding: '6px 10px' }}
-              >
-                {homeBusy ? 'Dismissing…' : `Dismiss all ${h.slips.length}`}
-              </button>
+              <Button size="sm" pending={homeBusy} pendingLabel="Dismissing" onClick={() => dismiss(homeKey, h.slips.map((s) => s.id))}>
+                {`Dismiss all ${h.slips.length}`}
+              </Button>
             </div>
             {h.slips.map((s) => {
               const rowBusy = busy.has(s.id) || homeBusy;
@@ -2247,14 +2154,9 @@ function StaleReviewList({ load }: { load: Promise<StaleLoad> }) {
                   <span style={{ fontSize: 11, color: 'var(--ink-4)', whiteSpace: 'nowrap' }}>
                     last touched {fmtStaleDay(s.lastTouchDay)}
                   </span>
-                  <button
-                    type="button"
-                    disabled={rowBusy}
-                    onClick={() => dismiss(s.id, [s.id])}
-                    style={{ ...ghostBtn(), fontSize: 11, padding: '4px 10px' }}
-                  >
-                    {busy.has(s.id) ? '…' : 'Dismiss'}
-                  </button>
+                  <Button size="sm" disabled={rowBusy && !busy.has(s.id)} pending={busy.has(s.id)} pendingLabel="Dismissing" onClick={() => dismiss(s.id, [s.id])}>
+                    Dismiss
+                  </Button>
                 </div>
               );
             })}

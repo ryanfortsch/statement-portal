@@ -6,6 +6,7 @@ import type { WorkSlipStatus } from '@/lib/work-types';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { SnoozeButton } from './SnoozeButton';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
+import { Button } from '@/components/Button';
 
 type Props = {
   workSlipId: string;
@@ -144,14 +145,9 @@ export function SlipClosePanel({
       <div className="flex items-center gap-3 flex-wrap" style={{ marginTop: 12 }}>
         {isClosed ? (
           <>
-            <button
-              type="button"
-              onClick={() => save('open')}
-              disabled={saving !== null}
-              style={ghostButton(saving === 'open')}
-            >
-              {saving === 'open' ? 'Saving…' : 'Reopen'}
-            </button>
+            <Button onClick={() => save('open')} disabled={saving !== null} pending={saving === 'open'} pendingLabel="Saving">
+              Reopen
+            </Button>
             <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>
               {status === 'dismissed'
                 ? 'Dismissed: closed without work. Reopen puts it back in the queue.'
@@ -160,23 +156,18 @@ export function SlipClosePanel({
           </>
         ) : (
           <>
-            <button
-              type="button"
-              onClick={() => save('done')}
-              disabled={saving !== null}
-              style={solidButton(saving === 'done')}
-            >
-              {saving === 'done' ? 'Saving…' : 'Mark Done'}
-            </button>
-            <button
-              type="button"
+            <Button variant="primary" onClick={() => save('done')} disabled={saving !== null} pending={saving === 'done'} pendingLabel="Saving">
+              Mark Done
+            </Button>
+            <Button
               onClick={() => save('dismissed')}
               disabled={saving !== null}
+              pending={saving === 'dismissed'}
+              pendingLabel="Saving"
               title="Close without work: false alarm, duplicate, won't do"
-              style={ghostButton(saving === 'dismissed')}
             >
-              {saving === 'dismissed' ? 'Saving…' : 'Dismiss'}
-            </button>
+              Dismiss
+            </Button>
             <fieldset disabled={saving !== null} style={{ marginLeft: 'auto', padding: 0, border: 0, minWidth: 0 }}>
               <SnoozeButton slipId={workSlipId} initialSnoozedUntil={initialSnoozedUntil} />
             </fieldset>
@@ -209,34 +200,4 @@ export function SlipClosePanel({
       )}
     </div>
   );
-}
-
-function solidButton(busy: boolean): React.CSSProperties {
-  return {
-    background: 'var(--ink)',
-    color: 'var(--paper)',
-    border: '1.5px solid var(--ink)',
-    padding: '10px 22px',
-    fontSize: 11,
-    letterSpacing: '.18em',
-    textTransform: 'uppercase',
-    fontWeight: 600,
-    cursor: busy ? 'wait' : 'pointer',
-    minHeight: 42,
-  };
-}
-
-function ghostButton(busy: boolean): React.CSSProperties {
-  return {
-    background: 'transparent',
-    color: 'var(--ink-3)',
-    border: '1px solid var(--rule)',
-    padding: '10px 18px',
-    fontSize: 11,
-    letterSpacing: '.18em',
-    textTransform: 'uppercase',
-    fontWeight: 500,
-    cursor: busy ? 'wait' : 'pointer',
-    minHeight: 42,
-  };
 }

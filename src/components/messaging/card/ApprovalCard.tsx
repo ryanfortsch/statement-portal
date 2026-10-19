@@ -7,6 +7,7 @@ import { QueuedBadge, QUEUED_TONE, SchedulePopover, SplitSendButton } from '@/co
 import { ageToneColor, relativeTimeShort, sendsInLabel } from '@/app/messaging/format';
 import type { MessageOutcomes as Outcomes } from '@/lib/message-outcomes';
 import { PrimaryButton, QuietButton, SecondaryButton } from './buttons';
+import { Button } from '@/components/Button';
 import { AlsoOnApprove } from './AlsoOnApprove';
 import { WaitLine } from './WaitLine';
 import type { AlsoItem, CardResult, CardVerbs, Decision, HandledCapture, WaitReason } from './types';
@@ -501,14 +502,9 @@ export function ApprovalCard(props: ApprovalCardProps) {
           {draft}
         </span>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginLeft: 'auto' }}>
-          <button
-            type="button"
-            onClick={() => setExpanded(true)}
-            className="eyebrow"
-            style={{ color: 'var(--ink-4)', background: 'transparent', border: 'none', padding: 0, cursor: 'pointer' }}
-          >
+          <Button variant="quiet" onClick={() => setExpanded(true)} aria-expanded={false}>
             Show ▾
-          </button>
+          </Button>
           {queuedActions}
         </div>
         {wait && <div style={{ width: '100%' }}><WaitLine wait={wait} /></div>}
@@ -569,17 +565,16 @@ export function ApprovalCard(props: ApprovalCardProps) {
               <p style={{ margin: 0, fontSize: 12, color: 'var(--signal)', fontWeight: 600 }}>
                 The AI regenerated this draft while you were editing. Saving will keep your version.
               </p>
-              <button
-                type="button"
+              <Button
+                variant="quiet"
                 onClick={() => {
                   setDraftText(draft);
                   setEditBase(draft);
                 }}
-                className="eyebrow"
-                style={{ marginTop: 4, color: 'var(--ink-3)', background: 'transparent', border: 'none', padding: 0, cursor: 'pointer' }}
+                style={{ marginTop: 4 }}
               >
                 Load the new draft instead (discards your changes)
-              </button>
+              </Button>
             </div>
           )}
           <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
@@ -736,14 +731,9 @@ export function ApprovalCard(props: ApprovalCardProps) {
           </div>
           {/* A queued card's countdown is its one time readout; Hide folds it. */}
           {isScheduled ? (
-            <button
-              type="button"
-              onClick={() => setExpanded(false)}
-              className="eyebrow"
-              style={{ color: 'var(--ink-4)', background: 'transparent', border: 'none', padding: 0, cursor: 'pointer' }}
-            >
+            <Button variant="quiet" onClick={() => setExpanded(false)} aria-expanded={true}>
               Hide ▴
-            </button>
+            </Button>
           ) : (
             <span className="eyebrow" style={{ color: 'var(--ink-4)' }} title={`Drafted ${createdAt || ''}${shortId ? ` · id ${shortId}` : ''}`}>
               {'drafted '}
@@ -841,9 +831,8 @@ export function ApprovalCard(props: ApprovalCardProps) {
                   {reason}
                 </SecondaryButton>
               ))}
-              <button
-                type="button"
-                className="rt-quiet-btn"
+              <Button
+                variant="quiet"
                 onClick={() => setShowPaste((v) => !v)}
                 aria-expanded={showPaste}
                 disabled={busy}
@@ -851,7 +840,7 @@ export function ApprovalCard(props: ApprovalCardProps) {
                 title="The AI learns your wording from what you actually sent."
               >
                 {showPaste ? 'Hide' : 'Paste what you sent'}
-              </button>
+              </Button>
             </div>
             {showPaste && (
               <div style={{ marginTop: 10 }}>

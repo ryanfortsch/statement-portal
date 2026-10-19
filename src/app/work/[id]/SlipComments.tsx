@@ -6,6 +6,7 @@ import { displayNameForEmail } from '@/lib/team';
 import { addWorkSlipComment, deleteWorkSlipComment } from '../actions';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import { GLOUCESTER_TZ } from '@/lib/stable-time';
+import { Button } from '@/components/Button';
 
 type Props = {
   slipId: string;
@@ -201,46 +202,21 @@ export function SlipComments({ slipId, initialComments, myEmail }: Props) {
             )}
           </span>
           {comments.length === 0 && (
-            <button
-              type="button"
+            <Button
+              variant="quiet"
               disabled={submitting}
               onClick={() => {
                 if (posting.current) return;
                 setComposeOpen(false); setBody(''); setErr(null); setPostUncertain(false);
               }}
-              style={{
-                background: 'none',
-                border: 'none',
-                padding: 0,
-                marginLeft: 'auto',
-                marginRight: 14,
-                fontSize: 11,
-                letterSpacing: '.16em',
-                textTransform: 'uppercase',
-                color: 'var(--ink-4)',
-                cursor: 'pointer',
-              }}
+              style={{ marginLeft: 'auto', marginRight: 14 }}
             >
               Cancel
-            </button>
+            </Button>
           )}
-          <button
-            type="submit"
-            disabled={submitting || !body.trim()}
-            style={{
-              background: submitting || !body.trim() ? 'var(--ink-4)' : 'var(--ink)',
-              color: 'var(--paper)',
-              border: 'none',
-              padding: '8px 16px',
-              fontSize: 11,
-              letterSpacing: '.18em',
-              textTransform: 'uppercase',
-              fontWeight: 600,
-              cursor: submitting || !body.trim() ? 'default' : 'pointer',
-            }}
-          >
-            {submitting ? 'Posting…' : 'Post'}
-          </button>
+          <Button type="submit" variant="primary" size="sm" disabled={!body.trim()} pending={submitting} pendingLabel="Posting">
+            Post
+          </Button>
         </div>
       </form>
     </div>
