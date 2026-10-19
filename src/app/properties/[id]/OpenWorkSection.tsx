@@ -10,7 +10,7 @@ import {
   supplyChipLabel,
   type WorkLane,
 } from '@/lib/work-slip-lanes';
-import { briefIsStale, type WorkBriefRow } from '@/lib/work-brief-rules';
+import type { WorkBriefRow } from '@/lib/work-brief-rules';
 import { displayNameForEmail } from '@/lib/team';
 import { PropertyAddSlipButton } from './PropertyAddSlipButton';
 import { PropertyDraftOwnerEmailButton } from './PropertyDraftOwnerEmailButton';
@@ -54,7 +54,6 @@ export function OpenWorkSection({
     counts.owner && `${counts.owner} owner`,
     counts.office && `${counts.office} office`,
   ].filter(Boolean) as string[];
-  const stale = brief ? briefIsStale(brief, slips) : false;
 
   return (
     <section id="open-work" className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 36, width: '100%' }}>
@@ -126,10 +125,6 @@ export function OpenWorkSection({
               {brief.brief}
             </p>
           )}
-          <div style={{ marginTop: 8, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.04em' }}>
-            Brief as of {formatBriefDate(brief.generated_at)}
-            {stale ? ' · the list has changed since; it rewrites tonight' : ''}
-          </div>
         </div>
       )}
 
@@ -319,11 +314,4 @@ function LaneRows({ slips, lane, property }: { slips: WorkSlipRow[]; lane: WorkL
 function shortDate(iso: string): string {
   const d = new Date(iso.length === 10 ? `${iso}T12:00:00Z` : iso);
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' });
-}
-
-function formatBriefDate(iso: string): string {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime())
-    ? iso
-    : d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' });
 }

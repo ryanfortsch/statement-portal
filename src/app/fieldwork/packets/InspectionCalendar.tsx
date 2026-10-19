@@ -205,21 +205,18 @@ export function InspectionCalendar({ days, rows, assignable }: Pick<InspectionCa
         </div>
       </div>
 
-      {/* Color states in one key; the check-in edge accent is a different kind
-          of mark, so it gets its own line instead of sitting among the fills. */}
+      {/* One key, labels only (2026-10-19): the cells explain themselves once
+          each mark has a name. */}
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 11, color: 'var(--ink-3)', marginTop: 10, alignItems: 'center' }}>
         <Swatch bg={OPEN_BG} label="open to inspect" />
-        <Swatch bg={HANDLED_BG} label="handled: out to a contractor, or done" />
+        <Swatch bg={HANDLED_BG} label="handled" />
         <Swatch bg={OCCUPIED_BG} label="guest in house" />
         <Swatch bg={BLOCKED_BG} label="owner / blocked" />
         <Swatch bg="var(--signal)" label="picked" />
-      </div>
-      <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 6 }}>
-        Initials in a handled day are whoever has it: the inspector it&apos;s assigned to, whoever walked it, or whoever ticked it done.
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--ink-4)', marginTop: 6 }}>
-        <span style={{ width: 4, height: 14, background: 'var(--signal)', flexShrink: 0 }} />
-        A red left edge marks the day a guest checks in, the deadline to inspect by.
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ width: 4, height: 14, background: 'var(--signal)', flexShrink: 0 }} />
+          check-in day
+        </span>
       </div>
 
       {selectedRows.length > 1 && (

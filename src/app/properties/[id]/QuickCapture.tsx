@@ -431,11 +431,6 @@ export function QuickCapture({ propertyId, propertyName }: { propertyId: string;
 
         {phase === 'input' && (
           <>
-            <p style={{ margin: '0 0 10px', fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.5, maxWidth: 720 }}>
-              Type or dictate anything about {propertyName}: codes, quirks, a thing to tell guests, or
-              a whole walk through the house room by room. Helm sorts it; you review before anything
-              saves.
-            </p>
             <div style={{ position: 'relative' }}>
               <textarea
                 value={text}
