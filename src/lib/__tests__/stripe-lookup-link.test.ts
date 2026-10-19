@@ -32,7 +32,7 @@ test('the guest card and the booking record link to the lookup for owners only',
 
 test('the page is named for what it does and shows progress while it searches', () => {
   const page = read('src/app/payments/page.tsx');
-  assert.ok(page.includes('emphasis="lookup."') && page.includes('title="Stripe"'), 'the hero says Stripe lookup');
+  assert.ok(page.includes('title="Stripe lookup"'), 'the hero says Stripe lookup');
   assert.ok(page.includes('<Suspense key={searchKey}'), 'the results stream behind a fallback that says it is searching');
   assert.ok(read('src/components/FinancialsTabs.tsx').includes("label: 'Stripe lookup'"), 'the Money strip says Stripe lookup');
   // Access is unchanged: still an owner page and an owner route.

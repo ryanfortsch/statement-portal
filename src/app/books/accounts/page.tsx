@@ -69,13 +69,7 @@ export default function BooksAccountsPage() {
       <HelmMasthead />
       <FinancialsTabs current="books" />
 
-      <HelmHero
-        eyebrow="Helm · LLC Accounting"
-        title="Chart of"
-        emphasis="accounts."
-        paddingTop={40}
-        paddingBottom={20}
-      />
+      <HelmHero plain eyebrow="Helm · LLC Accounting" title="Chart of accounts" />
 
       {/* ── ENTITIES with bank account inventory ── */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingTop: 8, paddingBottom: 24 }}>
