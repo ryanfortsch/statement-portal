@@ -77,25 +77,7 @@ export function ProposedPropertyUpdatesCard({ initial, initialError, properties,
             lineHeight: 1.6,
           }}
         >
-          {source === 'guest' ? (
-            <>
-              Nothing to review. When one of your own Guesty replies contains a
-              durable property fact the AI draft was missing (where the
-              pack-n-play lives, a standing fee, a quirk), it shows up here to
-              file in one tap.
-            </>
-          ) : (
-            <>
-              Nothing to review. When{' '}
-              {source === 'cleaner'
-                ? 'a cleaner texts'
-                : source === 'contractor'
-                  ? 'a contractor texts'
-                  : 'an owner texts or emails'}{' '}
-              a durable property fact (a wifi change, a code, a trash day), it
-              shows up here to file in one tap.
-            </>
-          )}
+          Nothing to review.
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, borderTop: '1px solid var(--rule)', paddingTop: 18 }}>
@@ -330,10 +312,6 @@ function CandidateCard({
       {/* Review: the parsed routing, mirrors Quick Capture */}
       {phase === 'review' && (
         <div style={{ marginTop: 14 }}>
-          <p style={{ margin: '0 0 12px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5 }}>
-            Here is how Helm would file it. Edit anything, uncheck what you do not want, then apply. Credentials route to
-            secured storage automatically.
-          </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {items.map((it) => (
               <ItemRow

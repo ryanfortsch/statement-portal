@@ -365,9 +365,6 @@ export function SendPanel({
             >
               {polishing ? 'Polishing' : 'Polish'}
             </button>
-            <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
-              Cmd + Enter to send · Cmd + Shift + Enter to polish
-            </span>
             {prePolish !== null && !polishing && (
               <span style={{ fontSize: 12, color: 'var(--ink-3)' }} role="status">
                 Polished.{' '}

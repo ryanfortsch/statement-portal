@@ -330,8 +330,7 @@ export function PaymentLinkPanel({ picked }: { picked: ConversationSummary }) {
               <div style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.55 }}>
                 {result.sent ? (
                   <>
-                    Texted {guestFirst} at {prettyPhone(result.sentTo)} for <b>{money(result.totalCents)}</b>. It shows up
-                    on the home page when it&apos;s paid, or after a day if it isn&apos;t.
+                    Texted {guestFirst} at {prettyPhone(result.sentTo)} for <b>{money(result.totalCents)}</b>.
                   </>
                 ) : result.note ? (
                   result.note

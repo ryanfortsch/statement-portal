@@ -135,9 +135,7 @@ export function TriagedPropertyUpdates({ initial, initialError, properties, sour
     return (
       <Section title="Property facts to file" paddingTop={36}>
         <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 18, fontSize: 13, color: 'var(--ink-4)', lineHeight: 1.6 }}>
-          Nothing to review. Facts mined from your own replies are checked against each
-          property&apos;s knowledge base first, so only what the KB is actually missing,
-          or contradicts, reaches this list.
+          Nothing to review.
         </div>
       </Section>
     );

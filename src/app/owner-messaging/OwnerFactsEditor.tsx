@@ -73,9 +73,7 @@ export function OwnerFactsEditor({ initialContent, initialBytes, learnedContent 
           lineHeight: 1.6,
         }}
       >
-        Edit the curated owner facts here. Changes apply to the next owner
-        draft, no service reload needed. Format: one fact per line,
-        optionally tagged with the property slug in square brackets, e.g.
+        One fact per line. Tag a home in brackets:{' '}
         <code style={{ background: 'var(--paper-2)', padding: '1px 5px' }}>
           [21_horton] Susan prefers SMS over email.
         </code>
@@ -166,9 +164,7 @@ export function OwnerFactsEditor({ initialContent, initialBytes, learnedContent 
               marginBottom: 12,
             }}
           >
-            These owner-correspondence rules were distilled automatically from
-            coaching you gave on owner drafts. They already shape the next
-            owner reply. To override one, add a counter-rule in the editor above.
+            To change one, add a counter-rule above.
           </div>
           <pre
             style={{
