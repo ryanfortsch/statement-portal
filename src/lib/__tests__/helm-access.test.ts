@@ -430,6 +430,7 @@ describe('no card or link on a staff page lands on /not-available', () => {
     const src = read('src/components/ForMeFeed.tsx');
     assert.ok(src.includes('owner ? loadCreativeQueue() : null'), 'the creative pay card is owners only');
     assert.ok(src.includes('owner ? loadStatementQueue() : null'), 'the statements card is owners only');
+    assert.ok(src.includes('owner ? loadPacketQueue() : []'), 'the packet approve cards are owners only: approving is an owner action on a page staff can open');
     assert.ok(src.includes('.filter((c) => roleMayOpen(role, c.href))'), 'every queue card is checked against the gate');
   });
 
