@@ -59,9 +59,12 @@ describe('one confirm style', () => {
     }
   });
 
-  test('the modal is mounted around both pages', () => {
-    assert.match(page, /<ConfirmProvider>\s*<DashboardContent \/>\s*<\/ConfirmProvider>/);
-    assert.match(read('src/app/statements/upload/page.tsx'), /<ConfirmProvider>\s*<UploadPageInner \/>\s*<\/ConfirmProvider>/);
+  test('the modal is the app-wide one, mounted once in the root providers', () => {
+    // Both pages ask through useConfirm(); the provider lives in Providers
+    // (the root layout), so a second, page-level provider is not needed.
+    assert.match(read('src/components/Providers.tsx'), /<ConfirmProvider>\{children\}<\/ConfirmProvider>/);
+    assert.match(page, /const \{ ask[^}]*\} = useConfirm\(\);/);
+    assert.match(read('src/app/statements/upload/page.tsx'), /const \{ ask \} = useConfirm\(\);/);
   });
 
   test('the freeze override asks through the page modal when given one', () => {
