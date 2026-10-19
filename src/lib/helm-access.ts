@@ -109,7 +109,10 @@ export const OWNER_PATH_PREFIXES: readonly string[] = [
   '/books',
   '/forecast',
   '/revenue',
-  '/payments',
+  // The Stripe lookup itself (/payments) is open to staff, read-only, since
+  // 2026-10-19 (Dotti): "did this guest pay?" is a guest-messaging question.
+  // Charging a saved card is not.
+  '/payments/balance-charges',
   // Owner relationships and the pipeline.
   '/properties/contracts',
   '/properties/prospects',
@@ -165,7 +168,8 @@ export const OWNER_API_PREFIXES: readonly string[] = [
   '/api/sync-stripe',
   '/api/stripe-account-check',
   '/api/sync-invoices',
-  '/api/payments',
+  // /api/payments/lookup is read-only Stripe GETs and open to staff with the
+  // page (2026-10-19).
   '/api/books',
   '/api/backfill-internal-transfers',
   '/api/contracts',

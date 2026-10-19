@@ -136,7 +136,7 @@ export const HELM_MODULES: HelmModule[] = [
     hidden: true,
     section: 'financials',
     group: 'money',
-    access: 'owner',
+    // Open to staff, read-only (2026-10-19); balance charges stay owners only.
   },
   {
     id: 'balance-charges',

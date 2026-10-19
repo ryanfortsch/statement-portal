@@ -89,7 +89,7 @@ ORDER is the durable part and has not moved; the numbers drift with the repo.
 | `/revenue` | Portfolio revenue snapshot: stays, ADR, occupancy, owner payout |
 | `/forecast` | The business plan as an interactive model; the scenario is a link (`?year=2027&new=3,2,0`). Its Actuals section (`#actuals`) holds the company card and operating upload and the "Where it goes" ledger (`overhead_expenses`) |
 | `/books` | In-house bookkeeping for the three LLCs. Lands on the Rising Tide ledger (review filtered by the link: unreviewed only, quarter, search); the 1099 candidates sit there too; chart of accounts at `/books/accounts` |
-| `/payments` | Stripe lookup: did this guest pay, read live from the home's own Stripe account (read-only). Balance charges at `/payments/balance-charges`. Owners only; a tab on the Financials strip |
+| `/payments` | Stripe lookup: did this guest pay, read live from the home's own Stripe account (read-only). Balance charges at `/payments/balance-charges` (owners only). The lookup is open to staff, read-only, since 2026-10-19, and the guest card and booking record link to it for every login; a tab on the Financials strip |
 | `/cost-analysis` | Retired 2026-10-18; redirects to `/forecast#actuals`. Each home's cost to turn is on its property page (Owner & money, owners only) |
 | `/turnovers` | The turnover board: one line per house per day (house, `Out 10:00 · In 4:00`, the cleaner verdict, the walk, one verb), today plus tomorrow by default. The model is `src/lib/turnover-board.ts`; the six-stage rail opens only on lock-monitored homes |
 | `/turnovers/calendar` | The occupancy calendar, 7, 14 or 30 days. The only place it renders; the pipeline links to it |
@@ -222,7 +222,7 @@ callers get a 401 JSON, not a sign-in redirect, so integrations can read the fai
 2026-10-12). Owners are the explicit `access: 'owner'` rows in `src/lib/team.ts` (Ryan, Allie,
 Dotti); every other `@risingtidestr.com` sign-in is staff, so a new Workspace seat fails closed.
 Staff see operations and not money: the proxy turns them away from `OWNER_PATH_PREFIXES`
-(statements, books, forecast, revenue, payments, contracts, prospects, owner messaging, quotes,
+(statements, books, forecast, revenue, balance charges, contracts, prospects, owner messaging, quotes,
 creative pay, rate card, the field test page) with a redirect to `/not-available`, and from
 `OWNER_API_PREFIXES` (the statement pipeline and every `owner_payout` writer, bank and receipt
 writes, Stripe, the books, contracts, W-9 reveal) with a 403. Three things must agree, and

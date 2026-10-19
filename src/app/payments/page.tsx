@@ -9,6 +9,7 @@ import { BUSINESS_TZ } from '@/lib/payments-lookup-core';
 import { getActivePropertiesForStatements } from '@/lib/properties';
 import { PaymentsSearchForm } from './PaymentsSearchForm';
 import { SearchingNotice } from './SearchingNotice';
+import { isOwnerSession } from '@/lib/helm-access-server';
 
 /**
  * Stripe lookup: what has actually been paid, read live from the properties'
@@ -90,6 +91,8 @@ export default async function PaymentsPage({
   // is read (up to two minutes across every account) instead of the page
   // sitting on the browser spinner.
   const searchKey = JSON.stringify(search);
+  // The lookup is open to staff, read-only; charging a saved card is not.
+  const owner = await isOwnerSession();
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -103,10 +106,12 @@ export default async function PaymentsPage({
       />
 
       <section className="max-w-[1100px] mx-auto px-10 w-full" style={{ paddingBottom: 56 }}>
-        <div style={{ marginBottom: 16, fontSize: 12, color: 'var(--ink-3)' }}>
-          Saved-card balances for far-future stays are charged from{' '}
-          <Link href="/payments/balance-charges" style={{ color: 'var(--tide-deep)' }}>Balance charges</Link>.
-        </div>
+        {owner && (
+          <div style={{ marginBottom: 16, fontSize: 12, color: 'var(--ink-3)' }}>
+            Saved-card balances for far-future stays are charged from{' '}
+            <Link href="/payments/balance-charges" style={{ color: 'var(--tide-deep)' }}>Balance charges</Link>.
+          </div>
+        )}
         <PaymentsSearchForm
           properties={fleet.map((p) => ({ id: p.id, name: p.name }))}
           initial={search}

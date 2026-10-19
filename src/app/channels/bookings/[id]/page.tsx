@@ -98,8 +98,8 @@ export default async function BookingDetailPage({ params, searchParams }: { para
 
   const writeScope = await loadHomeWriteScope(booking.property_id);
   // Did this guest pay: the Stripe lookup prefilled with their email and the
-  // stay's window. Owners only, like the lookup itself; a hold has no guest.
-  const lookupHref = owner && !isBlock
+  // stay's window, for every login (read-only); a hold has no guest.
+  const lookupHref = !isBlock
     ? stripeLookupHref({
         email: booking.guest_email ?? guest?.email ?? null,
         name: booking.guest_name,

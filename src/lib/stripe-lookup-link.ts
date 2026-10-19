@@ -8,7 +8,7 @@
  * made when that is known; otherwise the lookup's own default lookback
  * (400 days before the end) covers a deposit taken at booking.
  *
- * Owners only, like the page: callers render it for an owner session.
+ * Every login, like the page (read-only, open to staff since 2026-10-19).
  * Pure, no imports.
  */
 
