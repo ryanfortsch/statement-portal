@@ -3,6 +3,7 @@ import { FieldShell } from '../FieldShell';
 import { ApplyForm } from './ApplyForm';
 import { parseTrade, TRADE_META, type ContractorTrade } from '@/lib/field-types';
 import { loadRateCards, rungLabel, STANDARD_CARD, type RateCard } from '@/lib/creative-rates';
+import { FIELD_OFFICE_PHONE } from '@/lib/field-background-check';
 
 export const dynamic = 'force-dynamic';
 
@@ -152,12 +153,24 @@ export default async function ApplyPage({
   const copy = COPY[trade];
 
   if (sp.submitted) {
+    // What happens next, and only what does: every application emails the
+    // office (sendNewApplicantEmail); an invite is the Rising Tide Field email
+    // with the portal link (sendInviteEmail); a decline sends nothing, so no
+    // reply is promised and no turnaround is named.
+    const checked = meta.hasPackets;
     return (
       <FieldShell showSignOut={false}>
         <h1 className="font-serif" style={{ fontSize: 30, fontWeight: 300, marginBottom: 12 }}>Thanks, we got it</h1>
-        <p style={{ fontSize: 15, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: 480 }}>
-          We&apos;ll review your application and follow up by email with next steps. If it&apos;s a fit, you&apos;ll get a
-          personal link to set up your account and {copy.successTail}
+        <p style={{ fontSize: 15, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: 480, margin: '0 0 14px' }}>
+          Your application goes to the Rising Tide office. If it&apos;s a fit, you&apos;ll get an email from Rising Tide Field
+          with a personal link to set up your account: your W-9, how you want to be paid, and a short agreement.{' '}
+          {checked
+            ? <>Then the office starts your background check, and once it&apos;s running you can {copy.successTail}</>
+            : <>Then you can {copy.successTail}</>}
+        </p>
+        <p style={{ fontSize: 15, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: 480, margin: 0 }}>
+          Your application stays on file, so if the timing isn&apos;t right today we may still reach out later. Questions in
+          the meantime? Call or text the office at {FIELD_OFFICE_PHONE}.
         </p>
       </FieldShell>
     );
