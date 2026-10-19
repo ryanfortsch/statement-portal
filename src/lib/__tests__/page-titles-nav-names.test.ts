@@ -47,6 +47,13 @@ const PAGES: Array<[string, string]> = [
   ['src/app/properties/contracts/page.tsx', 'title="Contracts"'],
   ['src/app/properties/stay-cape-ann/page.tsx', 'title="Stay Cape Ann listings"'],
   ['src/app/properties/[id]/stay-cape-ann/page.tsx', 'title={property.name}'],
+  ['src/app/channels/page.tsx', 'title="Channels"'],
+  ['src/app/channels/calendar/page.tsx', 'title="Multi-calendar"'],
+  ['src/app/channels/bookings/page.tsx', 'title="Bookings"'],
+  ['src/app/channels/bookings/new/page.tsx', "title={isBlock ? 'New block' : 'New booking'}"],
+  ['src/app/channels/bookings/[id]/page.tsx', 'title={title}'],
+  ['src/app/channels/[propertyId]/page.tsx', 'title={property.name}'],
+  ['src/app/channels/[propertyId]/calendar/page.tsx', 'title={property.name}'],
 ];
 
 for (const [page, title] of PAGES) {

@@ -81,12 +81,7 @@ export default async function ChannelsPage({ searchParams }: { searchParams: Pro
       <HelmMasthead />
       <GuestyWritesNotice scope={writeScope} />
 
-      <HelmHero
-        eyebrow="Helm · Channels"
-        title="Stays come from"
-        emphasis="many places."
-        description="Listings, rates, calendars, bookings and the cutover. Every home in the registry, who runs its calendar today, when Helm last read each OTA and when each OTA last read Helm."
-      />
+      <HelmHero plain eyebrow="Helm · Channels" title="Channels" />
 
       {!dbReady && <DbSetupBlock />}
 
@@ -132,7 +127,7 @@ function NotConfigured() {
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
-      <HelmHero eyebrow="Helm · Channels" title="Channels is" emphasis="not set up." description="Ask Ryan: this module is not connected yet." />
+      <HelmHero plain eyebrow="Helm · Channels" title="Channels" line="Ask Ryan: this module is not connected yet." />
       <HelmFooter module="Channels" right="Source: Helm" />
     </div>
   );
@@ -290,9 +285,6 @@ function CoverageGrid({
           );
         })}
       </div>
-      <p style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 12, lineHeight: 1.5, maxWidth: 760 }}>
-        Guesty never tells you when Airbnb last read your calendar. In an iCal world that lag is the double-booking window, so each cell carries both directions: when Helm last imported the OTA&apos;s feed, and when the OTA last pulled Helm&apos;s export. The pull dot only lights on a home whose OTAs are pointed at Helm.
-      </p>
     </section>
   );
 }
@@ -447,7 +439,7 @@ function InquiriesBlock({
       )}
       {shown.length > 0 && (
         <p style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 10, lineHeight: 1.5, maxWidth: 720 }}>
-          An inquiry holds no nights until it is confirmed. Confirm runs through the locked writer, so a request whose nights were sold meanwhile is refused with the conflicting stay named here.
+          An inquiry holds no nights until it is confirmed.
         </p>
       )}
       {inquiries.length > shown.length && (
@@ -521,10 +513,11 @@ function ConflictsBlock({ conflicts, nameOf }: { conflicts: BookingConflict[]; n
           </div>
         ))}
       </div>
-      <p style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 12, lineHeight: 1.5, maxWidth: 720 }}>
-        {conflicts.length > shown.length && <>Showing the first {shown.length}. </>}
-        Two stays on the books for the same nights. Inquiries, pending requests and blocks are not counted. A home cannot be flipped to Helm while it carries one.
-      </p>
+      {conflicts.length > shown.length && (
+        <p style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 12, lineHeight: 1.5, maxWidth: 720 }}>
+          Showing the first {shown.length} of {conflicts.length}.
+        </p>
+      )}
     </section>
   );
 }

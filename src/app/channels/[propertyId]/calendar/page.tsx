@@ -124,12 +124,7 @@ export default async function PropertyMonthGridPage({
       <HelmMasthead />
       <GuestyWritesNotice scope={writeScope} />
 
-      <HelmHero
-        eyebrow={`Helm · Channels · ${property.name} · Calendar`}
-        title={property.name}
-        emphasis={grid.label}
-        description="Every night with its price, minimum stay, arrival and departure rules, the stay or hold on it, and the reason it cannot be sold. Click a night to edit, drag for a range, shift-click a second night to quote the span."
-      />
+      <HelmHero plain eyebrow="Helm · Channels · Calendar" title={property.name} line={grid.label} />
 
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 20 }}>
         <div className="flex items-center gap-3 flex-wrap">
@@ -172,9 +167,6 @@ export default async function PropertyMonthGridPage({
               </div>
             ))}
           </div>
-          <p style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 10, lineHeight: 1.5 }}>
-            Past nights are omitted. Advance notice and booking window come from the rate plan; off season from the property&apos;s rental periods; closed from a per-night override.
-          </p>
         </section>
       )}
 

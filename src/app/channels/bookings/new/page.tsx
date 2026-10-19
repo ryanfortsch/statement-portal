@@ -141,16 +141,7 @@ export default async function ChannelsBookingsNewPage({ searchParams }: { search
       <HelmMasthead />
       <GuestyWritesNotice scope={writeScope} />
 
-      <HelmHero
-        eyebrow={`Helm · Channels · New ${isBlock ? 'block' : 'booking'}`}
-        title={isBlock ? 'Hold dates' : 'Add a booking'}
-        emphasis={isBlock ? 'on a home.' : 'by hand.'}
-        description={
-          isBlock
-            ? 'Owner stays, maintenance windows, anything that should take the nights off sale. A hold rides Helm’s export so every subscribed OTA sees it within its next pull, and the database refuses it if a stay already has the nights.'
-            : 'For direct stays, off-platform reservations, or a booking no feed carries yet. Check the dates first: Helm names the stay that holds them and, on a home it runs, prices the stay.'
-        }
-      />
+      <HelmHero plain eyebrow="Helm · Channels · Bookings" title={isBlock ? 'New block' : 'New booking'} />
 
       <section className="max-w-[860px] mx-auto px-10" style={{ width: '100%', paddingBottom: 20 }}>
         <div className="flex items-center gap-3 flex-wrap">

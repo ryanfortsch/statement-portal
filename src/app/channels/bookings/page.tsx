@@ -77,12 +77,7 @@ export default async function ChannelsBookingsPage({ searchParams }: { searchPar
       <HelmMasthead />
       <GuestyWritesNotice scope={writeScope} />
 
-      <HelmHero
-        eyebrow="Helm · Channels · Bookings"
-        title="Every stay,"
-        emphasis="every channel."
-        description="Canonical rows only: a stay the dedupe saw twice appears once, with its echo count. Each row says where it came from and who runs the home."
-      />
+      <HelmHero plain eyebrow="Helm · Channels" title="Bookings" />
 
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 28 }}>
         <div className="flex items-center gap-3 flex-wrap">
