@@ -50,10 +50,7 @@ export default async function NewPropertyNoticePage({
         <h1 className="font-serif" style={{ fontSize: 40, fontWeight: 300, letterSpacing: '-0.02em', margin: '18px 0 6px', color: 'var(--ink)' }}>
           New <em>notice.</em>
         </h1>
-        <p style={{ margin: '0 0 30px', fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.55 }}>
-          A 4 × 6 Stay Cape Ann placard for a property-specific quirk. Same brand language as the WiFi
-          placard, sized for the same glass case slot.
-        </p>
+        <div style={{ height: 24 }} />
 
         <div style={{ borderTop: '1px solid var(--ink)', paddingTop: 26 }}>
           <NoticeEditorForm action={action} propertyId={p.id} submitLabel="Create notice" />

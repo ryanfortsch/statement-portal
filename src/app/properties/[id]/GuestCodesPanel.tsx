@@ -112,11 +112,6 @@ export function GuestCodesPanel({
               </>
             )}
           </div>
-          {!hasLocks && unmappedLocks.length === 0 && (
-            <p style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 8 }}>
-              After syncing, any unmapped locks appear here to assign.
-            </p>
-          )}
         </div>
       )}
 

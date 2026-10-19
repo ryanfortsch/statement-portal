@@ -174,11 +174,6 @@ export function HomeGuideCustomizeForm({
           it as a smaller italic aside (matches the default-cell second line).
         </div>
 
-        <div style={{ marginTop: 18, display: 'flex', gap: 12, alignItems: 'center' }}>
-          <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>
-            Saved customization takes effect immediately on the rendered guide.
-          </span>
-        </div>
       </RetainedPropertyForm>
 
       <style>{customizeCss}</style>

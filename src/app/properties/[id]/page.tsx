@@ -1356,11 +1356,6 @@ export default async function PropertyDetailPage({
           <Detail term="Perfection ID" definition={p.perfection_id || '—'} mono />
         </dl>
         <div style={{ paddingTop: 14, borderTop: '1px dotted var(--rule)' }}>
-          <p style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 12 }}>
-            Inspections, work slips, and turnover state still live in the Perfection app for some
-            workflows. Helm-native versions cover most cases above; click through if you need
-            the legacy view.
-          </p>
           <a
             href="https://inspect.risingtidestr.com"
             target="_blank"
@@ -1820,8 +1815,7 @@ export default async function PropertyDetailPage({
           )}
           {pastContracts.length === 0 && !p.projection_id && (
             <p style={{ margin: 0, fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: 760 }}>
-              No management agreement is registered for this property. If a signed copy exists, it belongs in the
-              Drive Contracts folder and in the register.
+              No management agreement registered.
             </p>
           )}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 16, alignItems: 'center' }}>

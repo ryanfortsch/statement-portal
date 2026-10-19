@@ -87,11 +87,6 @@ export function RentalSeasonPanel({
 
   return (
     <div style={{ paddingBottom: 6 }}>
-      <p style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55, marginTop: 0, marginBottom: 14 }}>
-        When this home is open for rental. The Pacing view on Revenue projects a month toward
-        Rising Tide&apos;s occupancy benchmark using only the nights the home is open, so a home
-        with nothing booked yet still gets a forecast and a home that is shut does not.
-      </p>
 
       <div style={statusStyle}>
         Currently <strong style={{ color: 'var(--ink)' }}>{current}</strong>.
@@ -169,8 +164,7 @@ export function RentalSeasonPanel({
             </button>
             {anyWrap && (
               <div style={noteStyle}>
-                A window that opens later in the year than it closes runs through New Year, so
-                November 1 to April 30 means the home is open all winter and shut all summer.
+                Runs through New Year: open all winter, shut all summer.
               </div>
             )}
           </>

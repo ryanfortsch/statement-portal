@@ -50,8 +50,7 @@ export default async function SyncGuestyPage({
           Guesty <em style={{ color: 'var(--tide-deep)', fontWeight: 400 }}>fields</em>
         </h1>
         <p style={{ marginTop: 14, fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: 720 }}>
-          Helm on the left, the live listing on the right. Tick an arrow to move that field; nothing
-          moves until you click Send or Fill.
+          Nothing moves until you click Send or Fill.
         </p>
       </section>
 

@@ -100,10 +100,7 @@ export function OwnersEditor({
   return (
     <fieldset disabled={isPending} style={{ border: 0, padding: 0, margin: 0, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
-        <div style={{ fontSize: 11, color: 'var(--ink-4)', lineHeight: 1.5, maxWidth: 560 }}>
-          The primary card auto-syncs from the Owner block above. Add cards
-          for extra contacts: a spouse&rsquo;s cell, an accountant copied on replies.
-        </div>
+        <div />
         <button
           type="button"
           onClick={add}
@@ -173,7 +170,7 @@ export function OwnersEditor({
                   <ReadonlyRow label="Email" value={o.email} mono />
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--ink-4)', lineHeight: 1.5 }}>
-                  Synced from the Owner block above — edit it there.
+                  Edit it in the Owner block above.
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 16px' }}>
                   <RoleSelect value={o.role} onChange={(v) => update(i, { role: v })} />

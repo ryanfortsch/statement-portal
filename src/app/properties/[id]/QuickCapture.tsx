@@ -519,9 +519,6 @@ export function QuickCapture({ propertyId, propertyName }: { propertyId: string;
 
         {phase === 'review' && (
           <>
-            <p style={{ margin: '0 0 14px', fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55 }}>
-              Here&rsquo;s how Helm sorted it. Edit anything, uncheck what you don&rsquo;t want, then apply.
-            </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {items.map((it) => (
                 <ItemCard
