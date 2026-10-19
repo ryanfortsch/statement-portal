@@ -156,7 +156,7 @@ export function PerformanceDropdown({
             color: 'var(--ink-3)',
           }}
         >
-          One-shot rate, the last 24 hours of activity, what the AI has learned. Click <b>Show</b> to expand.
+          One-shot rate, the last day, what the AI has learned.
         </div>
       ) : (
         <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 16 }}>
@@ -271,10 +271,6 @@ function RollupStrip({ rollup }: { rollup: CourtesyRollup }) {
               {capPct == null ? '—' : `${capPct}%`}
             </b>{' '}
             of {cap.total} you handled yourself
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 3, maxWidth: 300, lineHeight: 1.5 }}>
-            When you clear a card without using the draft, the AI only learns from it if it
-            knows what you sent instead.
           </div>
         </div>
       )}

@@ -54,9 +54,6 @@ export function DecidedRecently({ items, undo }: { items: DecidedRow[]; undo: (i
         style={{ display: 'flex', alignItems: 'baseline', gap: 10, paddingBottom: 8, borderBottom: '1px solid var(--rule)' }}
       >
         <span style={{ color: 'var(--ink-3)' }}>Decided recently</span>
-        <span style={{ color: 'var(--ink-4)', textTransform: 'none', letterSpacing: '0.04em', fontSize: 11 }}>
-          Undo puts the card back as it was
-        </span>
       </div>
       <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
         {visible.map((row) => {

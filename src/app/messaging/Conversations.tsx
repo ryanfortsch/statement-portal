@@ -186,7 +186,6 @@ export function ConversationsBrowser({ initialConversations, initialError, initi
     <Section
       id="conversations"
       title="Conversations"
-      eyebrow={`${all.length} guests · check-ins ${formatWindow(earliest, latest)}`}
       paddingTop={36}
     >
       <div
@@ -285,9 +284,10 @@ export function ConversationsBrowser({ initialConversations, initialError, initi
 
       <div className="rt-conversation-status-filter">
         <button type="button" disabled={!reviewCountsAvailable} aria-pressed={reviewOnly} onClick={() => { setReviewOnly(v => !v); setShowAll(false); }}>{reviewCountsAvailable ? `Needs review (${readyCount})` : 'Review counts unavailable'}</button>
-        <span role="status">{filtered.length} matching {filtered.length === 1 ? 'conversation' : 'conversations'}{!showAll && filtered.length > DEFAULT_VISIBLE ? ` · showing ${DEFAULT_VISIBLE}` : ''}
-          {openRow && !visible.some(c => c.conversation_id === openRow.conversation_id) ? ' · open conversation kept below' : ''}
-        </span>
+        {/* No running count: Show all N at the foot of the list carries it. */}
+        {openRow && !visible.some(c => c.conversation_id === openRow.conversation_id) && (
+          <span role="status">Open conversation kept below</span>
+        )}
       </div>
 
       <ul style={{ listStyle: 'none', margin: 0, padding: 0, borderTop: '1px solid var(--rule)' }}>

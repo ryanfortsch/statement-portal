@@ -33,8 +33,7 @@ export async function PaymentLinksLedger() {
     <Section id="payment-links" title="Payment links" eyebrow={eyebrow} paddingTop={36}>
       {rows.length === 0 ? (
         <div style={{ borderTop: '1px solid var(--rule)', padding: '16px 0', fontSize: 13, color: 'var(--ink-3)' }}>
-          No payment links in the last 30 days. Pick a stay above and open <b>Payment link</b> to charge a guest
-          for a late checkout, a pet, or an extra night. Links the AI mints from guest asks show here too.
+          No payment links in the last 30 days.
         </div>
       ) : (
         <div style={{ borderTop: '1px solid var(--ink)' }}>
