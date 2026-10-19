@@ -54,7 +54,10 @@ export function summarizeManualSync(kind: ManualSyncKind, value: unknown): Manua
     message: `Contact sync incomplete: ${inserted} of ${generated} suggestions saved. Check the suggestion list before retrying.`,
     warning: true, refresh: true,
   };
-  return { message: inserted ? `${inserted} suggestion${inserted === 1 ? '' : 's'} generated.` : 'No new suggestions.', warning: false, refresh: true };
+  // Numbers the address book let Helm name, filed onto their contacts.
+  const known = data.known === undefined ? 0 : count(record(data.known).attached);
+  const filed = known ? ` ${known} known ${known === 1 ? 'number' : 'numbers'} filed onto contacts.` : '';
+  return { message: `${inserted ? `${inserted} suggestion${inserted === 1 ? '' : 's'} generated.` : 'No new suggestions.'}${filed}`, warning: false, refresh: true };
 }
 
 /**

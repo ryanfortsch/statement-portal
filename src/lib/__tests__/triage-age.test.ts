@@ -81,8 +81,9 @@ describe('one rule for both boxes, and nothing is capped away', () => {
   test('the loader reads the whole pending queue and splits it with the rule', () => {
     const src = read('src/lib/number-triage.ts');
     assert.ok(!/from\('quo_unknown_numbers'\)[\s\S]{0,200}\.limit\(/.test(src), 'a cap would misstate the count');
-    assert.ok(src.includes('splitByAge(unknowns, unknownNumberActivity, today)'));
-    assert.ok(src.includes('splitByAge(suggestions, suggestionActivity, today)'));
+    // Split after the numbers Helm can already name leave (known-numbers.ts).
+    assert.ok(src.includes('splitByAge(strangers, unknownNumberActivity, today)'));
+    assert.ok(src.includes('splitByAge(openSuggestions, suggestionActivity, today)'));
   });
   test('the card counts the recent rows and the fold offers the same controls', () => {
     const src = read('src/components/messaging/NumberTriage.tsx');

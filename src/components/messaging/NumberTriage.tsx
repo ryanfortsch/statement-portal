@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import type { ContactType, UnknownNumberRow } from '@/lib/crm';
 import { QUO_LINES } from '@/lib/quo-lines';
 import type { ContactReconcileSuggestionRow } from '@/lib/quo-reconcile';
+import type { KnownForRow } from '@/lib/number-triage';
 import {
   addUnknownAsContact,
   dismissUnknownNumber,
@@ -30,6 +31,10 @@ import { useSoftRefresh } from '@/lib/use-soft-refresh';
  * It lived in two boxes on /crm with two verb sets (Attach / Add as new /
  * Dismiss, Add to Helm / Skip) until 2026-10-18. Each row owns its pending
  * state; a lost response keeps the row and says to check before retrying.
+ *
+ * A number Helm can name (knownByPhone, src/lib/known-numbers.ts) leads
+ * with the name, picks the household it belongs to, and opens New contact
+ * with the name typed.
  */
 
 type TriageContact = { id: string; name: string; phone: string | null; type: ContactType };
@@ -40,6 +45,7 @@ type Props = {
   suggestions: ContactReconcileSuggestionRow[];
   olderSuggestions?: ContactReconcileSuggestionRow[];
   guestByPhone: Record<string, string>;
+  knownByPhone?: Record<string, KnownForRow>;
   contacts: TriageContact[];
   properties: Array<{ id: string; name: string }>;
 };
@@ -51,13 +57,15 @@ const OLDER_SHOWN = 100;
 const RECENT_SHOWN = 3;
 
 /** What a new contact from this line most likely is. No guest type exists. */
-function defaultTypeForLine(line: UnknownNumberRow['quo_line']): ContactType {
+function defaultTypeForLine(line: UnknownNumberRow['quo_line'], known?: KnownForRow): ContactType {
+  if (known?.source === 'owner') return 'owner';
+  if (known?.source === 'prospect') return 'lead';
   if (line === 'ops') return 'vendor';
   if (line === 'owners') return 'lead';
   return 'other';
 }
 
-export function NumberTriage({ unknownNumbers, olderUnknownNumbers = [], suggestions, olderSuggestions = [], guestByPhone, contacts, properties }: Props) {
+export function NumberTriage({ unknownNumbers, olderUnknownNumbers = [], suggestions, olderSuggestions = [], guestByPhone, knownByPhone = {}, contacts, properties }: Props) {
   const router = useRouter();
   const softRefresh = useSoftRefresh();
   const [promote, setPromote] = useState<UnknownNumberRow | null>(null);
@@ -110,8 +118,11 @@ export function NumberTriage({ unknownNumbers, olderUnknownNumbers = [], suggest
     }
   }
 
+  /** The contact a row will attach to: the operator's pick, else the household Helm named. */
+  const attachTarget = (phone: string): string => attachSel[phone] ?? knownByPhone[phone]?.contactId ?? '';
+
   async function onAttach(phone: string) {
-    const contactId = attachSel[phone];
+    const contactId = attachTarget(phone);
     if (!contactId || phoneLocks.current.has(phone)) return;
     phoneLocks.current.add(phone);
     setBusyPhones(new Set(phoneLocks.current));
@@ -212,10 +223,16 @@ export function NumberTriage({ unknownNumbers, olderUnknownNumbers = [], suggest
 
   const renderUnknown = (u: UnknownNumberRow) => {
     const busy = busyPhones.has(u.phone);
+    const known = knownByPhone[u.phone];
+    const target = attachTarget(u.phone);
     return (
       <div key={u.phone} data-triage="phone" style={rowStyle}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, flexWrap: 'wrap' }}>
-          <span className="font-mono" style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', whiteSpace: 'nowrap' }}>{formatPhone(u.phone)}</span>
+          {known && <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', whiteSpace: 'nowrap' }}>{known.name}</span>}
+          <span className="font-mono" style={known ? { fontSize: 12, color: 'var(--ink-3)', whiteSpace: 'nowrap' } : { fontSize: 13, fontWeight: 600, color: 'var(--ink)', whiteSpace: 'nowrap' }}>{formatPhone(u.phone)}</span>
+          {known && (
+            <span className="eyebrow" style={{ fontSize: 10, padding: '2px 7px', border: '1px solid var(--rule)', color: 'var(--ink-3)', whiteSpace: 'nowrap' }}>{known.label}</span>
+          )}
           {/* Which of our three numbers they reached: GUESTS is a guest,
               24/7 is crew or a vendor, OWNERS an owner or a prospect. */}
           {u.quo_line && (
@@ -238,7 +255,7 @@ export function NumberTriage({ unknownNumbers, olderUnknownNumbers = [], suggest
           <select
             disabled={busy}
             aria-label={`Attach ${formatPhone(u.phone)} to contact`}
-            value={attachSel[u.phone] ?? ''}
+            value={target}
             onChange={(e) => setAttachSel((s) => ({ ...s, [u.phone]: e.target.value }))}
             style={{ ...selectStyle, maxWidth: 200 }}
           >
@@ -247,7 +264,7 @@ export function NumberTriage({ unknownNumbers, olderUnknownNumbers = [], suggest
               <option key={c.id} value={c.id}>{c.name}{c.phone ? '' : ' · no #'}</option>
             ))}
           </select>
-          <button type="button" disabled={busy || !attachSel[u.phone]} onClick={() => onAttach(u.phone)} style={smallBtn(!!attachSel[u.phone])}>
+          <button type="button" disabled={busy || !target} onClick={() => onAttach(u.phone)} style={smallBtn(!!target)}>
             {busy ? '…' : 'Attach'}
           </button>
           <button type="button" disabled={busy} onClick={() => { if (!phoneLocks.current.has(u.phone)) setPromote(u); }} style={smallBtn(false)}>
@@ -304,7 +321,8 @@ export function NumberTriage({ unknownNumbers, olderUnknownNumbers = [], suggest
         <NewContactModal
           properties={properties}
           initialPhone={promote.phone}
-          initialType={defaultTypeForLine(promote.quo_line)}
+          initialName={knownByPhone[promote.phone]?.name}
+          initialType={defaultTypeForLine(promote.quo_line, knownByPhone[promote.phone])}
           title="New contact"
           submitLabel="Add contact"
           onSubmit={(a) =>

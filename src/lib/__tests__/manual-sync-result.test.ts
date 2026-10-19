@@ -43,6 +43,11 @@ describe('manual sync results', () => {
   test('contact suggestions distinguish generated candidates from saved rows', () => {
     assert.deepEqual(summarizeManualSync('contacts', { ok: true, suggestionsGenerated: 0, inserted: 0 }), { message: 'No new suggestions.', warning: false, refresh: true });
     assert.equal(summarizeManualSync('contacts', { ok: true, suggestionsGenerated: 3, inserted: 3 }).message, '3 suggestions generated.');
+    assert.equal(
+      summarizeManualSync('contacts', { ok: true, suggestionsGenerated: 0, inserted: 0, known: { checked: 9, attached: 2, filled: 1 } }).message,
+      'No new suggestions. 2 known numbers filed onto contacts.',
+    );
+    assert.throws(() => summarizeManualSync('contacts', { ok: true, suggestionsGenerated: 0, inserted: 0, known: {} }), /Could not confirm/);
     const partial = summarizeManualSync('contacts', { ok: true, suggestionsGenerated: 3, inserted: 1 });
     assert.equal(partial.warning, true); assert.match(partial.message, /1 of 3 suggestions saved/);
   });

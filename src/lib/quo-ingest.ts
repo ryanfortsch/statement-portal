@@ -4,6 +4,8 @@ import { matchPropertyFromCleanerText, PROPERTIES, type CleanerTextRosterEntry }
 import { mirrorQuoFinish } from '@/lib/cleaning-sessions';
 import { ingestVendorAppointments, isVendorReminderSender } from '@/lib/vendor-schedule';
 import { recordInboundSms, recordOutboundSms } from '@/lib/helm-inbox';
+import { cachedNumberIndex, fillContactPhone } from '@/lib/known-numbers-server';
+import { selectAllPaged } from '@/lib/paged-select';
 
 /**
  * Quo (OpenPhone) WEBHOOK ingest. Shared by the live webhook
@@ -113,14 +115,24 @@ export async function backfillTouchesForPhone(phone: string): Promise<{ dispatch
   const target = normalizePhone(phone);
   if (!target) return { dispatched: 0 };
 
-  const { data } = await supabase
-    .from('quo_events')
-    .select('payload')
-    .eq('signature_valid', true)
-    .order('received_at', { ascending: true });
+  // The database narrows to events naming these ten digits (`to` is a
+  // string or an array; its text form holds the digits either way) and
+  // the loop below checks each party exactly. This was a bare select of
+  // every event, which PostgREST stops at 1000 rows: with 5,462 on file
+  // (2026-10-19) a promoted number replayed nothing after 2026-08-13.
+  const rows = await selectAllPaged<{ payload: QuoEventEnvelope }>((from, to) =>
+    supabase
+      .from('quo_events')
+      .select('payload')
+      .eq('signature_valid', true)
+      .or(`payload->data->object->>from.ilike.*${target}*,payload->data->object->>to.ilike.*${target}*`)
+      .order('received_at', { ascending: true })
+      .order('id')
+      .range(from, to),
+  );
 
   let dispatched = 0;
-  for (const row of (data ?? []) as { payload: QuoEventEnvelope }[]) {
+  for (const row of rows) {
     const obj = row.payload?.data?.object as { from?: string | null; to?: string | string[] | null } | undefined;
     if (!obj) continue;
     const parties = [obj.from, ...(Array.isArray(obj.to) ? obj.to : [obj.to])].filter(Boolean) as string[];
@@ -450,19 +462,61 @@ type ContactRow = {
   linked_property_ids: string[] | null;
 };
 
+/**
+ * Who a number is: the contact carrying it, else the owner household Helm
+ * can name it into (the owners registry, or a Quo address-book name, by
+ * the strict rule in known-numbers.ts). Until 2026-10-19 the first half
+ * was the whole lookup, so an owner whose contact held only an email
+ * texted in as a new number.
+ */
 async function findContactByPhone(phone: string): Promise<ContactRow | null> {
   const target = normalizePhone(phone);
   if (!target) return null;
 
+  const rows = await selectAllPaged<ContactRow>((from, to) =>
+    supabase
+      .from('contacts')
+      .select('id, type, phone, linked_property_ids')
+      .not('phone', 'is', null)
+      .order('id')
+      .range(from, to),
+  );
+  for (const row of rows) {
+    if (normalizePhone(row.phone) === target) return row;
+  }
+  return householdForPhone(phone);
+}
+
+/**
+ * A household with no phone yet takes this one (fill-empty only), so its
+ * next text is found directly. A household that already has a number
+ * keeps it, and this one's texts are still filed onto it. Fails soft to
+ * null: the number then goes to the queue, as it did before.
+ */
+async function householdForPhone(phone: string): Promise<ContactRow | null> {
+  let known;
+  try {
+    known = (await cachedNumberIndex()).resolve(phone);
+  } catch {
+    return null;
+  }
+  if (!known?.contact || known.source === 'contact') return null;
+
   const { data } = await supabase
     .from('contacts')
     .select('id, type, phone, linked_property_ids')
-    .not('phone', 'is', null);
-
-  for (const row of (data ?? []) as ContactRow[]) {
-    if (normalizePhone(row.phone) === target) return row;
+    .eq('id', known.contact.id)
+    .maybeSingle();
+  const contact = data as ContactRow | null;
+  if (!contact) return null;
+  if (!contact.phone) {
+    try {
+      await fillContactPhone(contact.id, phone);
+    } catch (err) {
+      console.warn('[quo-ingest] household phone not filled', err instanceof Error ? err.message : err);
+    }
   }
-  return null;
+  return contact;
 }
 
 /**
@@ -591,6 +645,14 @@ export async function captureUnknownInbound(
   line: QuoLine | null = null,
 ): Promise<void> {
   if (!phone) return;
+  // Someone Helm keeps outside the CRM (the Field roster, a trade vendor)
+  // is not a new number, however often they text the 24/7 line. A
+  // resolver that cannot load captures, as before.
+  try {
+    if ((await cachedNumberIndex()).resolve(phone)?.settled) return;
+  } catch {
+    // capture
+  }
   const tolerated = ['23505', '42P01', '42703'];
 
   // 1. Create the row if this number is new. status / contact_id /
