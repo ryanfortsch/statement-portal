@@ -1118,6 +1118,14 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
   .rt-helm-modulenav { display: none !important; }
   .rt-mobile-menu-trigger { display: inline-flex !important; }
 }
+/* The masthead's slot (the /statements period select) takes its own line,
+   right-aligned under the wordmark row, wherever the full module nav shows
+   and on a phone: beside the nav it has less room than one Messaging count.
+   Where the nav has folded into Menu it fits inline, before Menu. */
+.rt-masthead-slot { order: 3; flex: 1 0 100%; display: flex; justify-content: flex-end; }
+@media (min-width: 641px) and (max-width: 1023px) {
+  .rt-masthead-slot { order: 0; flex: 0 0 auto; }
+}
 @media (max-width: 640px) {
   .rt-tab-strip { gap: 20px !important; }
   .rt-section-tabs { padding-top: 10px !important; }

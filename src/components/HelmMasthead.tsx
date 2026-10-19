@@ -17,20 +17,28 @@ type Props = {
  * Every module renders this shell, /statements included (its Period
  * dropdown rides in the rightContent slot). New modules should default
  * to it too.
+ *
+ * The slot never sits beside the full module nav: at 1020px of content the
+ * nav leaves it about 19px, less than one Messaging count, so it squeezed
+ * the wordmark into the nav ("HelmWORK") on desktop and ran into it on a
+ * phone. Where the nav shows, and on a phone, the slot takes its own line
+ * under the wordmark row (globals.css, .rt-masthead-slot); where the nav has
+ * already folded into Menu (641 to 1023px) it sits inline. The wordmark and
+ * its divider never shrink.
  */
 export function HelmMasthead({ rightContent }: Props) {
   return (
     <header className="sticky top-0 z-50" style={{ background: 'var(--paper)', borderBottom: '1px solid var(--ink)' }}>
       <div className="max-w-[1100px] mx-auto px-10">
         <div
-          className="rt-masthead-top flex items-center justify-between"
-          style={{ padding: '16px 0 12px' }}
+          className="rt-masthead-top flex flex-wrap items-center"
+          style={{ padding: '16px 0 12px', columnGap: 10, rowGap: 10 }}
         >
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4" style={{ flex: '1 0 auto' }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <Link
               href="/"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 10, textDecoration: 'none' }}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 10, textDecoration: 'none', flexShrink: 0 }}
               aria-label="Helm home"
             >
               <img
@@ -51,14 +59,14 @@ export function HelmMasthead({ rightContent }: Props) {
               </span>
             </Link>
             <span
-              style={{ width: 1, height: 14, background: 'var(--rule)' }}
+              style={{ width: 1, height: 14, background: 'var(--rule)', flexShrink: 0 }}
               aria-hidden="true"
             />
             <HelmModuleNav />
           </div>
+          <CommandPaletteTrigger />
+          {rightContent && <div className="rt-masthead-slot">{rightContent}</div>}
           <div className="flex items-center" style={{ gap: 10, flexShrink: 0 }}>
-            <CommandPaletteTrigger />
-            {rightContent}
             <HelmMobileMenu />
             <UserMenu />
           </div>
