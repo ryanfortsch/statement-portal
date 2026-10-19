@@ -27,6 +27,7 @@ import { readInspectionDrafts } from '@/lib/inspection-drafts';
 import { INSPECTION_SUPPLIES } from '@/lib/inspection-supplies';
 import { PULLOUT_BED_ITEM_ID, withSheetsLine } from '@/lib/pullout-beds';
 import { SLIP_OUTCOME_HINT, SLIP_OUTCOME_LABEL, type SlipOutcome } from '@/lib/field-slip-outcomes';
+import { stepperForwardLabel, ISSUE_BECOMES_WORK_ORDER, ISSUE_HINT_SEEN_KEY } from '@/lib/stepper-words';
 
 /**
  * One deck card. For zone-mapped properties the same template item can
@@ -342,9 +343,26 @@ export function Stepper({
     router.push(exitHref);
   }
 
+  // The first Issue a contractor marks on this device gets one line saying
+  // what happens to it: approving the trip files it as a work order. Marking
+  // advances to the next card, so the line rides the bottom bar, not the
+  // card, until "Got it" or the next mark.
+  const [issueHint, setIssueHint] = useState(false);
+  function firstIssueOnDevice(): boolean {
+    if (!photoRequired) return false;
+    try {
+      if (localStorage.getItem(ISSUE_HINT_SEEN_KEY)) return false;
+      localStorage.setItem(ISSUE_HINT_SEEN_KEY, '1');
+    } catch {
+      // No device storage: say it this once anyway.
+    }
+    return true;
+  }
+
   function mark(status: InspectionStatus) {
     if (!activeCard) return;
     setError(null);
+    setIssueHint(status === 'issue' && firstIssueOnDevice());
     const latest = resultsRef.current.get(activeCard.cardKey);
     const next: StepperResult = {
       item_id: activeCard.itemId,
@@ -1169,6 +1187,14 @@ export function Stepper({
 
       {/* STICKY BOTTOM: 3 big tap targets + nav row */}
       <BottomBar>
+        {issueHint && (
+          <div role="status" style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.45 }}>
+            <span>{ISSUE_BECOMES_WORK_ORDER}</span>
+            <button type="button" onClick={() => setIssueHint(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--ink-4)', textDecoration: 'underline', flexShrink: 0, padding: 0 }}>
+              Got it
+            </button>
+          </div>
+        )}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, width: '100%' }}>
           <BigButton color="var(--negative)" label="Issue" onClick={() => mark('issue')} active={activeResult?.status === 'issue'} />
           <BigButton color="var(--ink-4)" label="N/A" onClick={() => mark('na')} active={activeResult?.status === 'na'} />
@@ -1191,8 +1217,10 @@ export function Stepper({
           >
             {activeIdx + 1} of {total}
           </div>
+          {/* Says what it does: a marked card moves on, an unmarked one
+              is left for later. */}
           <button type="button" onClick={goNext} style={navBtn()}>
-            Skip →
+            {stepperForwardLabel(!!activeResult)}
           </button>
         </div>
       </BottomBar>
