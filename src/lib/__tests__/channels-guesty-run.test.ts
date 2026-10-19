@@ -150,7 +150,7 @@ describe('fewer Channels pages', () => {
     assert.ok(at > 0 && end > at, 'the Technical fold is found');
     const fold = page.slice(at, end);
     assert.ok(fold.includes('>\n          Technical\n'));
-    for (const part of ['Money sub-record · booking_finance', 'What this stay generated', 'Change log · booking_events', '<Provenance booking={booking} />']) {
+    for (const part of ['>Money record</div>', 'What this stay generated', '>Change log</div>', '<Provenance booking={booking} />']) {
       assert.ok(fold.includes(part), `${part} sits under Technical`);
     }
     const before = page.slice(0, at);

@@ -114,10 +114,10 @@ export default async function BookingDetailPage({ params, searchParams }: { para
       <GuestyWritesNotice scope={writeScope} />
 
       <HelmHero
+        plain
         eyebrow={`Helm · Channels · ${isBlock ? 'Hold' : 'Booking'}`}
         title={title}
-        emphasis={`at ${property?.name ?? booking.property_id}.`}
-        description={`${houseRange(booking.check_in, booking.check_out)} · ${booking.nights ?? '?'} night${booking.nights === 1 ? '' : 's'} · ${CHANNEL_LABELS[booking.channel] ?? booking.channel} · ${glyph.label}${booking.external_confirmation_code ? ` · ${booking.external_confirmation_code}` : ''}`}
+        line={`${property?.name ?? booking.property_id} · ${houseRange(booking.check_in, booking.check_out)} · ${booking.nights ?? '?'} night${booking.nights === 1 ? '' : 's'} · ${CHANNEL_LABELS[booking.channel] ?? booking.channel} · ${glyph.label}${booking.external_confirmation_code ? ` · ${booking.external_confirmation_code}` : ''}`}
         belowDescription={
           <div style={{ marginTop: 12, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
             <span style={{ display: 'inline-block', width: 10, height: 10, background: channelColor(booking.channel, isBlock) }} />
@@ -146,7 +146,7 @@ export default async function BookingDetailPage({ params, searchParams }: { para
         <Banner tone="signal">
           <strong>Filed under another row.</strong> The dedupe filed this row under{' '}
           <Link href={`/channels/bookings/${booking.duplicate_of}`} style={{ color: 'var(--ink)' }}>
-            {parent ? `${parent.guest_name ?? CHANNEL_LABELS[parent.channel] ?? parent.channel} · ${parent.check_in} to ${parent.check_out}` : booking.duplicate_of}
+            {parent ? `${parent.guest_name ?? CHANNEL_LABELS[parent.channel] ?? parent.channel} · ${houseRange(parent.check_in, parent.check_out)}` : 'the stay that carries it'}
           </Link>
           {bcomClosure
             ? ', which covers its nights. As a Booking.com closure it may still be a guest, so it is still sent to Airbnb and VRBO and still keeps the nights off sale on staycapeann.com.'
@@ -190,13 +190,10 @@ export default async function BookingDetailPage({ params, searchParams }: { para
                 </select>
               )}
             </Field>
-            <Field label="Channel (provenance)">
+            <Field label="Channel">
               <input value={CHANNEL_LABELS[booking.channel] ?? booking.channel} readOnly style={{ ...inputStyle, color: 'var(--ink-3)' }} />
             </Field>
           </Row>
-          <p style={{ fontSize: 11, color: 'var(--ink-4)', margin: '-8px 0 0', lineHeight: 1.5 }}>
-            Moving the dates or the status runs through the locked writer; the database refuses a move onto nights another stay holds and names it. Cancelling is its own step below, with a reason.
-          </p>
 
           {!isBlock && (
             <>
@@ -332,7 +329,7 @@ export default async function BookingDetailPage({ params, searchParams }: { para
       <section className="max-w-[900px] mx-auto px-10" style={{ paddingBottom: 40, width: '100%' }}>
         <div className="eyebrow" style={{ marginBottom: 10 }}>Automation sends for this stay</div>
         {sends.length === 0 ? (
-          <p style={{ fontSize: 12, color: 'var(--ink-3)', borderTop: '1px solid var(--ink)', paddingTop: 12, margin: 0 }}>None planned. The planner writes a row per enabled rule once the home&apos;s automations are on and Helm runs its calendar.</p>
+          <p style={{ fontSize: 12, color: 'var(--ink-3)', borderTop: '1px solid var(--ink)', paddingTop: 12, margin: 0 }}>None planned. Automations run only on a home Helm runs, with its automations on.</p>
         ) : (
           <div style={{ borderTop: '1px solid var(--ink)' }}>
             {sends.map((s) => (
@@ -362,7 +359,7 @@ export default async function BookingDetailPage({ params, searchParams }: { para
       {/* Money sub-record */}
       <section className="max-w-[900px] mx-auto px-10" style={{ paddingBottom: 40, width: '100%' }}>
         <div>
-          <div className="eyebrow" style={{ marginBottom: 10 }}>Money sub-record · booking_finance</div>
+          <div className="eyebrow" style={{ marginBottom: 10 }}>Money record</div>
           {!owner ? (
             <p style={{ fontSize: 12, color: 'var(--ink-3)', borderTop: '1px solid var(--ink)', paddingTop: 12, margin: 0, lineHeight: 1.5 }}>
               Money on a stay is owners only.
@@ -381,7 +378,7 @@ export default async function BookingDetailPage({ params, searchParams }: { para
             </dl>
           ) : (
             <p style={{ fontSize: 12, color: 'var(--ink-3)', borderTop: '1px solid var(--ink)', paddingTop: 12, margin: 0, lineHeight: 1.5 }}>
-              No booking_finance row. {booking.channel === 'direct' || booking.channel === 'manual' ? 'Typing money above writes one (manual, low confidence) until Stripe settles.' : 'OTA money arrives through its own readers.'} Nothing in the statements pipeline reads this record.
+              No money record. {booking.channel === 'direct' || booking.channel === 'manual' ? 'Typing money above writes one (manual, low confidence) until Stripe settles.' : 'OTA money arrives through its own readers.'} Nothing in the statements pipeline reads this record.
             </p>
           )}
         </div>
@@ -425,10 +422,10 @@ export default async function BookingDetailPage({ params, searchParams }: { para
 
       {/* Change log */}
       <section className="max-w-[900px] mx-auto px-10" style={{ paddingBottom: 40, width: '100%' }}>
-        <div className="eyebrow" style={{ marginBottom: 10 }}>Change log · booking_events</div>
+        <div className="eyebrow" style={{ marginBottom: 10 }}>Change log</div>
         {feedMoves.length > 0 && (
           <div style={{ borderLeft: '3px solid var(--signal)', padding: '10px 14px', background: 'var(--paper-2)', fontSize: 12, marginBottom: 12, lineHeight: 1.5 }}>
-            The dates moved {feedMoves.length} time{feedMoves.length === 1 ? '' : 's'}. Latest: {describeMove(feedMoves[0])}. Stored now: {booking.check_in} to {booking.check_out}.
+            The dates moved {feedMoves.length} time{feedMoves.length === 1 ? '' : 's'}. Latest: {describeMove(feedMoves[0])}. Stored now: {houseRange(booking.check_in, booking.check_out)}.
           </div>
         )}
         {events.length === 0 ? (
@@ -556,7 +553,7 @@ function describeMove(e: BookingEventRow): string {
   const bo = typeof b.check_out === 'string' ? b.check_out : '?';
   const ai = typeof a.check_in === 'string' ? a.check_in : '?';
   const ao = typeof a.check_out === 'string' ? a.check_out : '?';
-  return `${bi} to ${bo} became ${ai} to ${ao} (${e.kind === 'feed_moved' ? 'the feed moved it' : e.actor}, ${fmtStamp(e.at)})`;
+  return `${houseRange(bi, bo)} became ${houseRange(ai, ao)} (${e.kind === 'feed_moved' ? 'the feed moved it' : e.actor}, ${fmtStamp(e.at)})`;
 }
 
 function sendTone(status: string): string {

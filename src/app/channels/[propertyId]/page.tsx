@@ -5,6 +5,7 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { SubmitButton } from '@/components/SubmitButton';
+import { houseRange } from '@/lib/house-date';
 import { GuestyWritesNotice } from '@/components/channels/GuestyWritesNotice';
 import { isOwnerSession } from '@/lib/helm-access-server';
 import { CopyableUrl } from '../listings/CopyableUrl';
@@ -192,10 +193,10 @@ export default async function ChannelsPropertyPage({
       <GuestyWritesNotice scope={{ kind: 'home', guestyRun: !helmRun, otaReadsHelm: cutoverUnderway }} />
 
       <HelmHero
-        eyebrow={`Helm · Channels · ${property.name}`}
+        plain
+        eyebrow="Helm · Channels"
         title={property.name}
-        emphasis={property.title ?? ''}
-        description={[...new Set([property.address, property.city, regionLabel(property.region)].filter(Boolean))].join(' · ')}
+        line={[...new Set([property.title, property.address, property.city, regionLabel(property.region)].filter(Boolean))].join(' · ')}
         belowDescription={
           <div style={{ marginTop: 14 }}>
             <Badge badge={badge} />
@@ -390,7 +391,7 @@ export default async function ChannelsPropertyPage({
                   <div key={e.id} style={{ display: 'grid', gridTemplateColumns: '170px 160px 1fr', gap: 14, padding: '10px 0', borderBottom: '1px solid var(--rule-soft)', fontSize: 12, alignItems: 'baseline' }}>
                     <span className="font-mono" style={{ color: 'var(--ink-3)' }}>{fmtStamp(e.created_at)}</span>
                     <span>
-                      <span style={{ color: 'var(--ink-3)' }}>{e.from_authority}</span> → <strong style={{ color: e.to_authority === 'helm' ? 'var(--positive)' : 'var(--ink)' }}>{e.to_authority}</strong>
+                      <span style={{ color: 'var(--ink-3)' }}>{authorityWord(e.from_authority)}</span> → <strong style={{ color: e.to_authority === 'helm' ? 'var(--positive)' : 'var(--ink)' }}>{authorityWord(e.to_authority)}</strong>
                     </span>
                     <span style={{ color: 'var(--ink-3)' }}>
                       {e.actor_email}
@@ -454,10 +455,10 @@ export default async function ChannelsPropertyPage({
 
       {exportUrl && (
         <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 56 }}>
-          <div className="eyebrow" style={{ marginBottom: 14 }}>Helm → channels · the export every OTA should import</div>
+          <div className="eyebrow" style={{ marginBottom: 14 }}>Helm&rsquo;s export, one line per OTA</div>
           <div style={{ borderTop: '1px solid var(--ink)', padding: '20px 0' }}>
             <p style={{ fontSize: 13, color: 'var(--ink-3)', marginBottom: 14, maxWidth: 720, lineHeight: 1.55 }}>
-              Give each OTA its own line. Its feed leaves out that OTA&rsquo;s own bookings and closures, so nothing an OTA published ever comes back to it from Helm. Of the nights an OTA closes on its own calendar, only Booking.com&rsquo;s travel to the others (Booking.com publishes its reservations that way); an owner block set in the Airbnb or VRBO app stays on that app, so make owner blocks in Helm. Confirmed, completed and block rows only, no guest names. Every pull is logged; the last pull per OTA is the second dot on each channel row above. After the flip these feeds are the only thing keeping the OTAs from selling the same night twice.
+              Make owner blocks in Helm: a block set in the Airbnb or VRBO app stays on that app.
             </p>
             <div style={{ display: 'grid', gap: 10 }}>
               {EXPORT_FOR_CHANNELS.map((ch) => (
@@ -520,7 +521,7 @@ export default async function ChannelsPropertyPage({
                 <span style={{ fontWeight: 600, letterSpacing: '.04em' }}>{(s.automation_key ?? s.trigger ?? 'rule').replace(/_/g, ' ')}</span>
                 <span style={{ color: 'var(--ink-3)' }}>
                   <Link href={`/channels/bookings/${s.booking_id}`} style={{ color: 'var(--ink)' }}>
-                    {s.planned_check_in} to {s.planned_check_out}
+                    {houseRange(s.planned_check_in, s.planned_check_out)}
                   </Link>
                   {s.to_address ? ` · ${s.to_address}` : ''}
                   {s.missing_fields.length > 0 ? ` · missing ${s.missing_fields.join(', ')}` : ''}
@@ -575,7 +576,7 @@ function AttentionPanel({ carry, propertyId, helmRun, unfiltered, now }: { carry
   if (empty) return null;
   const rowLine = (r: CarryRow) => (
     <span className="font-mono" style={{ fontSize: 12 }}>
-      {r.check_in} → {r.check_out}
+      {houseRange(r.check_in, r.check_out)}
       {r.guest_name ? <span style={{ fontFamily: 'inherit', marginLeft: 8, color: 'var(--ink-3)' }}>{r.guest_name}</span> : null}
     </span>
   );
@@ -756,7 +757,7 @@ function GuestyHoldLinks({ rows, propertyId }: { rows: readonly CarryRow[]; prop
       {rows.map((r) => (
         <li key={r.id}>
           <span className="font-mono" style={{ fontSize: 12 }}>
-            {r.check_in} → {r.check_out}
+            {houseRange(r.check_in, r.check_out)}
             {r.guest_name ? <span style={{ fontFamily: 'inherit', marginLeft: 8, color: 'var(--ink-3)' }}>{r.guest_name}</span> : null}
           </span>{' '}
           <Link
@@ -1098,6 +1099,13 @@ function sendTone(status: string): string {
   if (status === 'failed' || status.startsWith('skipped')) return 'var(--negative)';
   if (status === 'awaiting_approval') return 'var(--signal)';
   return 'var(--ink-3)';
+}
+
+/** The calendar authority as a word: "Guesty", "Helm". */
+function authorityWord(a: string | null | undefined): string {
+  if (a === 'helm') return 'Helm';
+  if (a === 'guesty') return 'Guesty';
+  return a ?? '-';
 }
 
 function fmtStamp(iso: string): string {

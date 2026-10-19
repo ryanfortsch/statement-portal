@@ -167,12 +167,7 @@ export default async function ChannelsCalendarPage({ searchParams }: { searchPar
       <HelmMasthead />
       <GuestyWritesNotice scope={writeScope} />
 
-      <HelmHero
-        eyebrow="Helm · Channels · Multi-calendar"
-        title="Every home,"
-        emphasis="every night."
-        description="One row per home, one month at a time. Vacant nights show the nightly rate and who set it: Helm's plan on a home Helm runs, the Guesty mirror otherwise. Click a night to price or close it, drag to hold a range, click a bar for the stay."
-      />
+      <HelmHero plain eyebrow="Helm · Channels" title="Multi-calendar" />
 
       <section className="max-w-[1400px] mx-auto" style={{ width: '100%', paddingBottom: 16, paddingLeft: 24, paddingRight: 24 }}>
         <div className="flex items-center gap-3 flex-wrap">
@@ -229,7 +224,7 @@ export default async function ChannelsCalendarPage({ searchParams }: { searchPar
           <MultiCalendarGrid rows={rows} dates={dates} today={today} monthLabel={grid.label} />
         </div>
         <p style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 14, lineHeight: 1.55, maxWidth: 760 }}>
-          Upright prices are Helm&apos;s rate plan and can be edited here. Italic prices are the Guesty mirror, set in Guesty or PriceLabs; Helm shows them and refuses to edit them, because the OTAs would never receive a number typed here. A bar starts at the middle of its check-in day and ends at the middle of its checkout day, so a same-day turnover reads as two half cells. Hatched bars are holds; the small glyph says where a stay came from.
+          Upright prices are Helm&apos;s plan and edit here; italic prices are Guesty&apos;s and edit in Guesty or PriceLabs.
         </p>
       </section>
 
