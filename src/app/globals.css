@@ -461,6 +461,42 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
   .rt-contact-row > .rt-contact-tags { grid-area: tags; justify-content: flex-start !important; max-width: none !important; }
   .rt-contact-row > .rt-contact-added { grid-area: added; }
 
+  /* /channels on a phone. The home-by-channel matrix and the sync-run log
+     are tables: they scroll inside their own box, so the page never scrolls
+     sideways. The row lists stack with the home first, and an inquiry keeps
+     Confirm and Decline on screen beside it. */
+  .rt-phone-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .rt-phone-scroll > * { min-width: 760px; }
+  .rt-ch-upcoming {
+    grid-template-columns: 64px minmax(0, 1fr) auto !important;
+    grid-template-areas: "date home chan" "glyph guest guest";
+    gap: 2px 12px !important;
+  }
+  .rt-ch-upcoming > :nth-child(1) { grid-area: date; }
+  .rt-ch-upcoming > :nth-child(2) { grid-area: glyph; }
+  .rt-ch-upcoming > :nth-child(3) { grid-area: home; min-width: 0; }
+  .rt-ch-upcoming > :nth-child(4) { grid-area: guest; }
+  .rt-ch-upcoming > :nth-child(5) { grid-area: chan; }
+  .rt-ch-inquiry {
+    grid-template-columns: minmax(0, 1fr) auto !important;
+    grid-template-areas: "home actions" "dates dates" "guest guest" "contact contact";
+    gap: 4px 12px !important;
+  }
+  .rt-ch-inquiry > :nth-child(1) { grid-area: dates; }
+  .rt-ch-inquiry > :nth-child(2) { grid-area: home; }
+  .rt-ch-inquiry > :nth-child(3) { grid-area: guest; }
+  .rt-ch-inquiry > :nth-child(4) { grid-area: contact; overflow-wrap: anywhere; }
+  .rt-ch-inquiry > :nth-child(5) { grid-area: actions; }
+  .rt-ch-expired {
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-areas: "home" "dates" "guest" "note";
+    gap: 2px !important;
+  }
+  .rt-ch-expired > :nth-child(1) { grid-area: dates; }
+  .rt-ch-expired > :nth-child(2) { grid-area: home; }
+  .rt-ch-expired > :nth-child(3) { grid-area: guest; }
+  .rt-ch-expired > :nth-child(4) { grid-area: note; }
+
   .rt-helm-stat { padding: 14px 12px !important; }
   .rt-helm-stat-value { font-size: 22px !important; }
 

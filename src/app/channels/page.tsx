@@ -243,7 +243,7 @@ function CoverageGrid({
         <span style={{ flex: 1 }} />
         <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>left dot: Helm&apos;s last import · right dot: the OTA&apos;s last pull of Helm&apos;s export</span>
       </div>
-      <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--rule)' }}>
+      <div className="rt-phone-scroll" style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--rule)' }}>
         <div style={{ display: 'grid', gridTemplateColumns: cols, padding: '10px 0', borderBottom: '1px solid var(--rule)', fontSize: 10, letterSpacing: '.16em', textTransform: 'uppercase', color: 'var(--ink-3)' }}>
           <div>Property</div>
           <div>Authority</div>
@@ -379,7 +379,7 @@ function UpcomingBlock({ bookings, nameOf }: { bookings: Booking[]; nameOf: Map<
           const g = sourceGlyph(b);
           return (
             <Link key={b.id} href={`/channels/bookings/${b.id}`} style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '90px 20px 1fr 1fr 90px', gap: 16, padding: '13px 0', alignItems: 'baseline', borderBottom: '1px solid var(--rule)' }}>
+              <div className="rt-ch-upcoming" style={{ display: 'grid', gridTemplateColumns: '90px 20px 1fr 1fr 90px', gap: 16, padding: '13px 0', alignItems: 'baseline', borderBottom: '1px solid var(--rule)' }}>
                 <span className="font-mono" style={{ fontSize: 11, color: 'var(--ink-3)' }}>{shortDate(b.check_in)}</span>
                 <span title={g.label} style={{ fontSize: 12, color: 'var(--ink-3)' }}>{g.glyph}</span>
                 <span className="font-serif" style={{ fontSize: 17, fontWeight: 400, color: 'var(--ink)' }}>{nameOf.get(b.property_id) ?? b.property_id}</span>
@@ -416,7 +416,7 @@ function InquiriesBlock({
       {shown.length > 0 && (
         <div style={{ borderTop: '2px solid var(--signal)', borderBottom: '1px solid var(--rule)' }}>
           {shown.map((b, i) => (
-            <div key={b.id} style={{ display: 'grid', gridTemplateColumns: '150px 1fr 1fr 1fr auto', gap: 12, padding: '14px 0', alignItems: 'baseline', borderBottom: i === shown.length - 1 ? 'none' : '1px solid var(--rule)' }}>
+            <div key={b.id} className="rt-ch-inquiry" style={{ display: 'grid', gridTemplateColumns: '150px 1fr 1fr 1fr auto', gap: 12, padding: '14px 0', alignItems: 'baseline', borderBottom: i === shown.length - 1 ? 'none' : '1px solid var(--rule)' }}>
               <span className="tabular-nums" style={{ fontSize: 12, color: 'var(--ink-3)' }}>
                 {houseRange(b.check_in, b.check_out)}
                 {b.nights != null && <span style={{ display: 'block', fontSize: 11, color: 'var(--ink-4)' }}>{nightsLabel(b.nights)}</span>}
@@ -466,7 +466,7 @@ function InquiriesBlock({
           </summary>
           <div style={{ borderBottom: '1px solid var(--rule)' }}>
             {expired.rows.map((b) => (
-              <div key={b.id} style={{ display: 'grid', gridTemplateColumns: '150px 1fr 1fr auto', gap: 12, padding: '10px 0', alignItems: 'baseline', borderTop: '1px solid var(--rule)', color: 'var(--ink-3)' }}>
+              <div key={b.id} className="rt-ch-expired" style={{ display: 'grid', gridTemplateColumns: '150px 1fr 1fr auto', gap: 12, padding: '10px 0', alignItems: 'baseline', borderTop: '1px solid var(--rule)', color: 'var(--ink-3)' }}>
                 <span className="tabular-nums" style={{ fontSize: 12 }}>
                   {houseRange(b.check_in, b.check_out)}
                   {b.nights != null && <span style={{ display: 'block', fontSize: 11, color: 'var(--ink-4)' }}>{nightsLabel(b.nights)}</span>}
@@ -559,7 +559,7 @@ function RecentRunsBlock({ runs, summary, nameOf, now }: { runs: SyncRunWithList
       {summary?.last_error && summary.last_status !== 'ok' && (
         <div style={{ fontSize: 12, color: 'var(--negative)', padding: '0 0 12px' }}>{summary.last_error}</div>
       )}
-      <div style={{ borderTop: '1px solid var(--rule)' }}>
+      <div className="rt-phone-scroll" style={{ borderTop: '1px solid var(--rule)' }}>
         {runs.map((r) => (
           <div key={r.id} style={{ display: 'grid', gridTemplateColumns: '110px 200px 60px 1fr 1fr', gap: 16, padding: '11px 0', alignItems: 'baseline', borderBottom: '1px solid var(--rule)', fontSize: 12 }}>
             <span className="font-mono" style={{ color: 'var(--ink-3)' }}>{relativeAge(r.started_at, now)}</span>

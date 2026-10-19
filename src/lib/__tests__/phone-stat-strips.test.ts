@@ -48,3 +48,14 @@ test('a contact row leads with the name and keeps the status on a phone', () => 
   const css = read('src/app/globals.css');
   assert.ok(css.includes('grid-template-areas: "who status" "tags added"'), 'the phone layout for contact rows is gone');
 });
+
+test('/channels never scrolls sideways on a phone', () => {
+  const page = read('src/app/channels/page.tsx');
+  assert.equal(page.split('className="rt-phone-scroll"').length - 1, 2, 'the home-by-channel matrix and the sync-run log scroll in their own box');
+  for (const cls of ['rt-ch-upcoming', 'rt-ch-inquiry', 'rt-ch-expired']) {
+    assert.ok(page.includes(`className="${cls}"`), `a /channels row list lost ${cls}`);
+  }
+  const css = read('src/app/globals.css');
+  assert.ok(css.includes('.rt-phone-scroll { overflow-x: auto;'), 'the phone scroll box is gone');
+  assert.ok(css.includes('grid-template-areas: "home actions" "dates dates" "guest guest" "contact contact"'), 'an inquiry row no longer keeps Confirm and Decline beside the home');
+});
