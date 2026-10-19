@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { paydayFor, paydayWords } from '@/lib/field-payday';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
@@ -1405,7 +1406,16 @@ export default async function PacketPage({
           {isMine && (packet.status === 'submitted' || packet.status === 'approved') && (
             <div style={{ fontSize: 14, color: 'var(--positive)' }}>
               {packet.status === 'approved'
-                ? `Approved. ${dollars(totalPayoutCents(packet))} is on its way. You'll get a receipt the moment it's sent.`
+                ? packet.paid_at
+                  ? `Paid: ${dollars(totalPayoutCents(packet))}. The receipt is in your email.`
+                  : (() => {
+                      // Weekly Friday payday (lib/field-payday): approved by
+                      // Wednesday, paid that Friday.
+                      const payday = packet.approved_at ? paydayFor(packet.approved_at) : null;
+                      return payday
+                        ? `Approved. ${dollars(totalPayoutCents(packet))} is paid ${paydayWords(payday)}, with a receipt by email.`
+                        : `Approved. ${dollars(totalPayoutCents(packet))} is on its way, with a receipt by email.`;
+                    })()
                 : "Submitted for review. We'll message you as soon as it's approved."}
               {packet.status === 'approved' && packet.bonus_cents > 0 && (
                 <div style={{ marginTop: 8, borderLeft: '3px solid var(--signal)', background: 'rgba(200,90,58,0.06)', padding: '10px 14px', color: 'var(--ink)', fontSize: 14, lineHeight: 1.5 }}>

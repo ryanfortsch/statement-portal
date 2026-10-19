@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { PAYDAY_RULE } from '@/lib/field-payday';
 import { redirect } from 'next/navigation';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { loadContractorProfile, type ContractorReview, type ContractorHistoryItem } from '@/lib/field-profile';
@@ -103,10 +104,11 @@ export default async function FieldProfilePage({ searchParams }: { searchParams:
           {onTimePct != null && <Stat label="On time" value={`${onTimePct}%`} />}
         </div>
       )}
-      {/* When "Approved, unpaid" turns into money, said where the figure is. */}
+      {/* When "Approved, unpaid" turns into money, said where the figure is:
+          the weekly Friday payday (lib/field-payday). */}
       {hasActivity && owedCents > 0 && !isCreative && (
         <p style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55, margin: '-18px 0 30px' }}>
-          Paid to your payout method once the office records it, with a receipt email.
+          {PAYDAY_RULE}
         </p>
       )}
 
