@@ -14,6 +14,7 @@ import { ResetContractButton } from '@/components/projections/ResetContractButto
 import { InactivePanel } from '@/components/projections/ProspectInactiveControls';
 import { CopyLinkButton, CountersignButton, SendCopyButton, WithdrawSignatureButton } from '@/components/projections/SigningButtons';
 import { countersignerName } from '@/lib/contract-terms';
+import { renewalCarriedFrom } from '@/lib/contract-renewal';
 import {
   CONTRACT_COPY_COLUMNS,
   NO_OWNER_EMAIL_WARNING,
@@ -708,6 +709,8 @@ function GuideAndContractStageBody({
   const fee = `${fmtPercent(projection.mgmt_fee_pct)} mgmt fee`;
   const countersigned = !!projection.contract_countersigned_at;
   const markedDone = projection.contract_marked_done_at;
+  // A renewal opens with the last agreement's edits; say so, and where.
+  const carried = renewalCarriedFrom(projection.import_source);
   return (
     <>
       {/* Partnership Guide sub-deliverable */}
@@ -722,6 +725,16 @@ function GuideAndContractStageBody({
             ? `$${projection.initial_deposit.toLocaleString()} deposit`
             : 'no deposit'}
         </div>
+        {carried && (
+          <div style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 12 }}>
+            {carried.edits} {carried.edits === 1 ? 'edit' : 'edits'} carried over from{' '}
+            <Link href={`/prospects/${carried.projection_id}`} style={{ color: 'var(--ink-3)', textDecoration: 'underline', textUnderlineOffset: 3 }}>
+              the last agreement
+            </Link>
+            , executed {fmtTouchDate(carried.countersigned_at)}.
+            {!projection.contract_signed_at && ' Check each one still fits this term before you send it.'}
+          </div>
+        )}
         <DeliverableActions projectionId={projectionId} type="contract" openSlug="contract" downloadLabel="Download Contract" />
         {projection.contract_signed_at ? (
           <div style={{ marginTop: 14 }}>
