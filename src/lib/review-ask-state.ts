@@ -158,19 +158,61 @@ function isDirect(channel: string): boolean {
 
 // ── The ask line ───────────────────────────────────────────────────────────
 
-/** A red reason as the sweep wrote it, said plainly. */
-function redReason(reason: string): string {
-  const r = reason.trim();
-  if (!r) return 'red stay';
-  if (/^sentiment bad/i.test(r)) return 'red stay, the thread read badly';
-  return `red stay, ${r}`;
+/** Cut a free-text reason at a word boundary so a row stays one line. */
+function clip(text: string, max = 110): string {
+  const t = text.trim().replace(/\s+/g, ' ').replace(/[.\s]+$/, '');
+  if (t.length <= max) return t;
+  const cut = t.slice(0, max);
+  return `${cut.slice(0, cut.lastIndexOf(' ') > 40 ? cut.lastIndexOf(' ') : max)}...`;
+}
+
+/** What a guest's own word, caught by the sweep's tripwires, means. */
+function guestWord(word: string): string {
+  const w = word.toLowerCase();
+  if (/refund|reimburs|money\s+back|compensat/.test(w)) return 'the guest asked about a refund';
+  if (/discount/.test(w)) return 'the guest asked about a discount';
+  if (/disappointed|frustrat|unacceptable|upset|unhappy|dissatisf|not\s+happy/.test(w)) return 'the guest said they were unhappy';
+  if (/complain/.test(w)) return 'the guest made a complaint';
+  if (/bed\s*bug|roach|rodent|mice|mouse|infestation/.test(w)) return 'the guest reported pests';
+  if (/filthy|disgusting|mold|mildew/.test(w)) return 'the guest said the home was dirty';
+  if (/locked\s+out|couldn'?t\s+get\s+in/.test(w)) return 'the guest was locked out';
+  if (/\bcode\b/.test(w)) return 'the door code did not work';
+  if (/^no\s+\S/.test(w)) return `the guest had ${w}`;
+  if (/dirty|unclean|not\s+clean|wasn'?t\s+clean|stained/.test(w)) return 'the guest said something was not clean';
+  if (/broke|out\s+of\s+order|wouldn'?t\s+turn\s+on/.test(w)) return 'the guest reported something broken';
+  if (/work/.test(w)) return 'the guest said something did not work';
+  return `the guest said "${word}"`;
+}
+
+/**
+ * Why the sweep held back, in plain words. The concierge records its reasons
+ * in its own terms ("safety incident: smoke alarm", "guest said 'refund'",
+ * "sentiment bad: ...", "not green at follow-up: ..."), and its classes
+ * (green, yellow, red, fringe, held) are never defined on the page, so none
+ * of them reaches a row: only what happened during the stay does.
+ */
+export function plainReason(raw: string): string {
+  const r = (raw ?? '').trim().replace(/^not green at follow-up:\s*/i, '').trim();
+  if (!r) return 'something went wrong during the stay';
+  const safety = r.match(/^safety incident:\s*(.+)$/i);
+  if (safety) return `a safety issue during the stay (${clip(safety[1], 40)})`;
+  const mood = r.match(/^sentiment bad:?\s*(.*)$/i);
+  if (mood) return mood[1].trim() ? `the conversation read as unhappy (${clip(mood[1], 90)})` : 'the conversation read as unhappy';
+  if (/^a host review ask was already in the thread/i.test(r)) return 'someone already asked in the thread';
+  const said = r.match(/^guest (?:said|mentioned)\s+(['"])(.+)\1(?:\s+during the stay)?$/i);
+  if (said) return guestWord(said[2]);
+  // The sentiment model's own sentence about what went wrong.
+  const text = clip(r);
+  return /^[A-Z][a-z]/.test(text) ? text.charAt(0).toLowerCase() + text.slice(1) : text;
 }
 
 type CardText = { text: string; tone: AskTone; went: boolean };
 
 /** One card, from the operator's side. `what` names the ask ("First ask",
- *  "Follow-up", "Late first ask") and `sentVerb` is how a sent one reads. */
-function cardText(card: ReviewAskCard, what: string, sentVerb: string, tier: string): CardText {
+ *  "Follow-up", "Late first ask") and `sentVerb` is how a sent one reads.
+ *  `concern` is set when the sweep raised the card for the operator to decide
+ *  because something went wrong during the stay. */
+function cardText(card: ReviewAskCard, what: string, sentVerb: string, concern: string | null): CardText {
   const when = (iso: string) => (iso ? ` ${shortInstant(iso)}` : '');
   switch (card.status) {
     case 'approved':
@@ -188,7 +230,7 @@ function cardText(card: ReviewAskCard, what: string, sentVerb: string, tier: str
       return { text: `${what} sending now`, tone: 'waiting', went: false };
     case 'pending':
       return {
-        text: tier === 'yellow' ? `${what} waiting for your call (fringe stay)` : `${what} waiting for approval`,
+        text: concern !== null ? `${what} waiting for your call: ${plainReason(concern)}` : `${what} waiting for approval`,
         tone: 'waiting',
         went: false,
       };
@@ -212,12 +254,12 @@ function cardText(card: ReviewAskCard, what: string, sentVerb: string, tier: str
 function firstText(stage: ReviewAskStage, what: string, sentVerb: string): CardText {
   switch (stage.tier) {
     case 'red':
-      return { text: `Not asked: ${redReason(stage.reason)}`, tone: 'skipped', went: false };
+      return { text: `Not asked: ${plainReason(stage.reason)}`, tone: 'skipped', went: false };
     case 'external':
       return { text: 'Asked earlier in the thread', tone: 'done', went: true };
   }
   if (!stage.card) return { text: `${what} recorded, card missing`, tone: 'unknown', went: false };
-  return cardText(stage.card, what, sentVerb, stage.tier);
+  return cardText(stage.card, what, sentVerb, stage.tier === 'yellow' ? stage.reason : null);
 }
 
 /**
@@ -253,13 +295,13 @@ export function describeAsk(
   } else if (followup) {
     // A follow-up decision with no first-stage row: the first ask was
     // Guesty's, or written by hand, before the ledger saw the stay.
-    if (followup.tier === 'red') return { text: `Not asked: ${redReason(followup.reason)}`, tone: 'skipped' };
+    if (followup.tier === 'red') return { text: `Not asked: ${plainReason(followup.reason)}`, tone: 'skipped' };
     head = { text: 'Asked earlier in the thread', tone: 'done', went: true };
   } else if (ask?.legacy) {
     // The engine's single week-after ask, from before the two-ask ledger.
     // A stay it reached is never asked again.
     const old = ask.legacy.card
-      ? cardText(ask.legacy.card, 'Ask', 'Asked', 'green')
+      ? cardText(ask.legacy.card, 'Ask', 'Asked', null)
       : { text: `Asked ${shortInstant(ask.legacy.requested_at)}`, tone: 'done' as AskTone, went: true };
     return { text: old.text, tone: old.tone };
   } else {
@@ -288,14 +330,16 @@ export function describeAsk(
   if (!head.went) return { text: head.text, tone: head.tone };
   let tail: { text: string; tone: AskTone } | null = null;
   if (followup) {
-    if (followup.tier === 'held') tail = { text: 'no follow-up: not a clean stay by day 7', tone: 'skipped' };
-    else if (followup.tier === 'red') tail = { text: `no follow-up: ${redReason(followup.reason)}`, tone: 'skipped' };
+    if (followup.tier === 'held' || followup.tier === 'red') {
+      tail = { text: `no follow-up: ${plainReason(followup.reason)}`, tone: 'skipped' };
+    }
     else if (followup.card) {
-      const t = cardText(followup.card, 'Follow-up', 'Follow-up sent', followup.tier);
+      const t = cardText(followup.card, 'Follow-up', 'Follow-up sent', followup.tier === 'yellow' ? followup.reason : null);
       tail = { text: t.text.charAt(0).toLowerCase() + t.text.slice(1), tone: t.tone };
     }
   } else if (first?.tier === 'yellow') {
-    tail = { text: 'no follow-up for a fringe stay', tone: 'skipped' };
+    // A stay where something went wrong gets one ask, never a second.
+    tail = { text: `no follow-up: ${plainReason(first.reason)}`, tone: 'skipped' };
   } else if (review) {
     tail = null; // a reviewed stay is never followed up
   } else if (days < followFrom) {
