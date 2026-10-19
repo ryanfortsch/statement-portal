@@ -33,6 +33,7 @@ import {
 import { RentalInquiryPanel } from './RentalInquiryPanel';
 import { addonItem, handoffItem, quotesItem } from './guest-card-blocks';
 import { waitReason } from '@/lib/card-wait-reason';
+import { reviewAskContext } from '@/lib/review-ask-context';
 import { stripeLookupHref } from '@/lib/stripe-lookup-link';
 import { HeldPitches, type HeldPitch } from './HeldPitches';
 import { inquiryDraftState, inquiryMessageText, inquiryQuoteHref } from '@/lib/rental-inquiry';
@@ -416,6 +417,10 @@ function GuestCard({
             ? emailFooter(ctl)
             : null;
 
+  // A review ask's context is the concierge's paragraph; the card shows it in
+  // a few words (lib/review-ask-context).
+  const guestText = kind === 'review' ? reviewAskContext(approval.guest_text) ?? approval.guest_text : approval.guest_text;
+
   return (
     <ApprovalCard
       id={id}
@@ -423,7 +428,7 @@ function GuestCard({
       sendAt={approval.send_at}
       name={`${guestLabel} · ${propertyLabel}`}
       property={propertyLabel}
-      preview={approval.guest_text}
+      preview={guestText}
       channel={approval.channel || ''}
       chips={
         <>
@@ -466,7 +471,7 @@ function GuestCard({
         subTitle: approval.guest_received_at || approval.created_at || undefined,
         body: (
           <>
-            <BodyText>{(inquiry ? inquiryMessageText(approval.guest_text || '') : approval.guest_text) || '(empty)'}</BodyText>
+            <BodyText>{(inquiry ? inquiryMessageText(approval.guest_text || '') : guestText) || '(empty)'}</BodyText>
             <EnglishLine text={approval.guest_text_english} translating={approval.guest_text_translating} />
           </>
         ),
