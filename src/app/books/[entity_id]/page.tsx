@@ -229,14 +229,7 @@ export default async function BookEntityPage({
       <HelmMasthead />
       <FinancialsTabs current="books" />
 
-      <HelmHero
-        eyebrow="Helm · LLC Accounting"
-        title={entity.short}
-        emphasis="ledger."
-        description={entity.blurb}
-        paddingTop={36}
-        paddingBottom={16}
-      />
+      <HelmHero plain eyebrow="Helm · LLC Accounting" title={entity.short} paddingTop={28} paddingBottom={16} />
 
       {/* Entity switcher + the chart of accounts behind a link. */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingTop: 4 }}>

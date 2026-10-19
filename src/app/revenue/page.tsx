@@ -195,10 +195,9 @@ export default async function RevenuePage({ searchParams }: PageProps) {
       <FinancialsTabs current="revenue" month={statementsMonth} />
 
       <HelmHero
+        plain
         eyebrow="Helm · Revenue"
-        title={presetTitle}
-        emphasis="at a glance."
-        paddingTop={48}
+        title="Revenue"
         belowDescription={
           <>
             <div

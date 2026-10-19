@@ -58,6 +58,11 @@ const PAGES: Array<[string, string]> = [
   ['src/app/marketing/airdna/page.tsx', 'title="AirDNA market data"'],
   ['src/app/competitors/page.tsx', 'title="Competitors"'],
   ['src/app/competitors/[id]/page.tsx', 'title={competitor.meta.name}'],
+  ['src/app/payments/page.tsx', 'title="Stripe lookup"'],
+  ['src/app/payments/balance-charges/page.tsx', 'title="Balance charges"'],
+  ['src/app/books/[entity_id]/page.tsx', 'title={entity.short}'],
+  ['src/app/books/accounts/page.tsx', 'title="Chart of accounts"'],
+  ['src/app/revenue/page.tsx', 'title="Revenue"'],
 ];
 
 for (const [page, title] of PAGES) {

@@ -96,10 +96,10 @@ export default async function PaymentsPage({
       <HelmMasthead />
       <FinancialsTabs current="payments" />
       <HelmHero
+        plain
         eyebrow="Helm · Stripe"
-        title="Stripe"
-        emphasis="lookup."
-        description="Did this guest pay? Read live from each home's own Stripe account; Guesty shows $0 paid on every direct booking."
+        title="Stripe lookup"
+        line="Read live from each home's own Stripe. Guesty shows $0 paid on every direct booking."
       />
 
       <section className="max-w-[1100px] mx-auto px-10 w-full" style={{ paddingBottom: 56 }}>
