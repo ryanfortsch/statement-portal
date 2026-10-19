@@ -771,8 +771,18 @@ export default async function CheckoutSchedulePage({
                       <>
                         <span style={{ fontStyle: 'italic' }}>Note riding with it, as the crew gets it:</span>
                         <pre style={{ margin: '4px 0 0', whiteSpace: 'pre-wrap', fontFamily: 'var(--font-mono), monospace', fontSize: 11.5, lineHeight: 1.5 }}>
-                          {formatOperatorNote(digest.operator_note_pt, digest.operator_note_en)}
+                          {formatOperatorNote({ pt: digest.operator_note_pt, en: digest.operator_note_en }, 'pt')}
                         </pre>
+                        {(digest.operator_note_en ?? '').trim() && (
+                          // The English is the operator's check, never part of a
+                          // Portuguese text; a recipient marked English gets it alone.
+                          <div style={{ marginTop: 2, fontSize: 11, color: 'var(--ink-4)' }}>
+                            {enabledHere.some((r) => r.language === 'en')
+                              ? `In English, sent only to ${enabledHere.filter((r) => r.language === 'en').map((r) => r.display_name).join(', ')}: `
+                              : 'In English, not sent: '}
+                            {digest.operator_note_en}
+                          </div>
+                        )}
                       </>
                     )}
                   </div>

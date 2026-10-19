@@ -10,11 +10,11 @@
  * (Dotti, 2026-09-26).
  *
  * So the note now gets the same treatment every other crew-facing string
- * gets: Portuguese first, English underneath so the operator can check the
- * translation, and both visible on the card BEFORE approval rather than
- * assembled inside the send.
+ * gets: rendered in Portuguese, visible on the card BEFORE approval rather
+ * than assembled inside the send, with an English read-back beside it so
+ * the operator can check the translation.
  *
- * Two rules this module exists to hold:
+ * Three rules this module exists to hold:
  *
  *   - THE INSTRUCTION IS NEVER LOST. Every failure path falls back to the
  *     operator's own words. A model that is unreachable, slow, or refuses
@@ -22,11 +22,18 @@
  *   - NAMES, NUMBERS AND DAYS ARE NOT TRANSLATED. "3 Locust" is a house,
  *     not a phrase. The crew navigates by those strings and a helpfully
  *     localised one is a cleaner sent to the wrong door.
+ *   - ONE LANGUAGE PER TEXT, THE READER'S. "they speak portuguese so we
+ *     speak to them in portuguese. it's helpful for me internally but i
+ *     dont need the english version on the final comms that go to them"
+ *     (Dotti, 2026-09-26, reading a digest that carried both). The English
+ *     is the operator's check on the card; it reaches a phone only when
+ *     that recipient is marked English, and then alone.
  */
 
 import { generateObject } from 'ai';
 import { z } from 'zod';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import type { DigestLanguage } from './cleaner-digest-core.ts';
 
 /** Matches the `slice(0, 600)` the note write paths already enforce. */
 export const MAX_NOTE_CHARS = 600;
@@ -36,7 +43,8 @@ export type RenderedNote = {
   raw: string;
   /** Brazilian Portuguese. What the cleaners actually read. */
   pt: string;
-  /** Tidied English, printed under the Portuguese as a check. */
+  /** Tidied English. The operator's check on the card, and the note an
+   *  English-language recipient gets. Never sent beside the Portuguese. */
   en: string;
   /** False when the model could not be reached and `pt` is just `raw`. */
   translated: boolean;
@@ -50,7 +58,9 @@ const NoteSchema = z.object({
     ),
   en: z
     .string()
-    .describe('The same instruction in plain English, sentence case. Not a transcript of the input.'),
+    .describe(
+      'The same instruction in plain English, sentence case. Not a transcript of the input. Sent on its own, never beside the Portuguese.',
+    ),
 });
 
 /** An untranslated note: the operator's words standing in for both halves. */
@@ -59,9 +69,10 @@ function asTyped(raw: string): RenderedNote {
 }
 
 /**
- * Turn the operator's typed instruction into the bilingual pair that goes
- * out. Fails soft: any model trouble returns the note as typed, which is
- * exactly what shipped before this module existed.
+ * Turn the operator's typed instruction into the Portuguese / English pair
+ * the sends pick from, one language per text. Fails soft: any model
+ * trouble returns the note as typed, which is exactly what shipped before
+ * this module existed.
  */
 export async function renderOperatorNote(note: string): Promise<RenderedNote> {
   const raw = (note ?? '').trim().slice(0, MAX_NOTE_CHARS);
@@ -73,7 +84,7 @@ export async function renderOperatorNote(note: string): Promise<RenderedNote> {
       schema: NoteSchema,
       system: `You prepare one short instruction from a vacation-rental operator for the housekeeping crew that cleans her properties in Gloucester, Massachusetts. The crew's first language is Brazilian Portuguese. Your output rides at the end of an SMS that is otherwise already in Portuguese.
 
-Return the SAME instruction twice: once in Brazilian Portuguese (pt), once in plain English (en).
+Return the SAME instruction twice: once in Brazilian Portuguese (pt), once in plain English (en). The crew receives the Portuguese. The English is read by the operator as a check that the Portuguese says what she meant, and by any recipient who reads English. Each is sent on its own, never side by side, so each must stand alone.
 
 HARD RULES
 1. Never change the meaning. Do not add a task, a house, a day, a time or a condition that is not in the input, and never drop one that is.
@@ -103,22 +114,38 @@ Return it as pt and en.`,
   }
 }
 
+/** The two halves of a rendered note, as stored on the digest row. */
+export type NotePair = { pt?: string | null; en?: string | null };
+
+/** The heading each language prints over the note. */
+const NOTE_HEAD: Record<DigestLanguage, string> = { pt: 'AVISO:', en: 'NOTE:' };
+
 /**
  * The block that rides at the end of the digest, after the schedule and
  * before each cleaner's own live-schedule link.
  *
- * Portuguese on its own line, English parenthesised underneath -- the same
- * `pt / en` posture as the digest's own day label, stacked because an
- * instruction is longer than a date. When the two are the same string
- * (nothing was translated), it prints once rather than twice.
+ * ONE LANGUAGE, the recipient's, heading included. Until 2026-10-19 this
+ * printed `AVISO / NOTE:` with the English parenthesised under the
+ * Portuguese, a translation nobody on the crew reads. The English is shown
+ * to the operator on the card instead.
+ *
+ * `language` is required on purpose: there is no call shape that returns
+ * both halves. An English recipient with no stored English falls back to
+ * the Portuguese, because the instruction is never lost.
  */
-export function formatOperatorNote(pt: string | null | undefined, en?: string | null): string {
-  const p = (pt ?? '').trim();
-  if (!p) return '';
-  const e = (en ?? '').trim();
-  const head = 'AVISO / NOTE:';
-  if (!e || e.toLowerCase() === p.toLowerCase()) return `${head}\n${p}`;
-  return `${head}\n${p}\n(${e})`;
+export function formatOperatorNote(note: NotePair | null | undefined, language: DigestLanguage): string {
+  const pt = (note?.pt ?? '').trim();
+  if (!pt) return '';
+  const text = language === 'en' ? (note?.en ?? '').trim() || pt : pt;
+  return `${NOTE_HEAD[language]}\n${text}`;
+}
+
+/** Both languages' blocks, each on its own, for a send that picks one per
+ *  recipient. */
+export type NoteBlocks = Record<DigestLanguage, string>;
+
+function noteBlocks(note: NotePair | null | undefined): NoteBlocks {
+  return { pt: formatOperatorNote(note, 'pt'), en: formatOperatorNote(note, 'en') };
 }
 
 /**
@@ -126,10 +153,11 @@ export function formatOperatorNote(pt: string | null | undefined, en?: string | 
  * live link, so the schedule can keep recomposing while the instruction
  * survives.
  *
- * `block` is the RENDERED bilingual note from `formatOperatorNote`, never
- * the raw text the operator typed. That distinction is the whole feature:
- * a send path that passes raw text here puts an English sentence back on
- * the end of a Portuguese message, and nothing downstream would notice.
+ * `block` is the RENDERED note from `formatOperatorNote`, in the language
+ * of the text it ends, never the raw text the operator typed. That
+ * distinction is the whole feature: a send path that passes raw text here
+ * puts an English sentence back on the end of a Portuguese message, and
+ * nothing downstream would notice.
  */
 export function withOperatorNote(body: string, block: string | null | undefined): string {
   const n = (block ?? '').trim();
@@ -205,17 +233,18 @@ export async function saveOperatorNote(
 }
 
 /**
- * Read the row's note and hand back the block to append, re-deriving the
- * rendering first if it is missing or stale. Used by every send path,
- * including the unattended 6 PM one where nobody is there to notice that
- * the note never got translated.
+ * Read the row's note and hand back the blocks to append, one per
+ * language, re-deriving the rendering first if it is missing or stale.
+ * Used by every send path, including the unattended 6 PM one where nobody
+ * is there to notice that the note never got translated. The caller picks
+ * the block for each recipient's language; neither block carries the other.
  */
-export async function resolveNoteBlock(
+export async function resolveNoteBlocks(
   supabase: SupabaseClient,
   digestId: string,
   /** The note as submitted by the form, when a form was involved. */
   submitted?: string | null,
-): Promise<string> {
+): Promise<NoteBlocks> {
   const { data } = await supabase
     .from('cleaner_schedule_digests')
     .select('operator_note, operator_note_pt, operator_note_en, operator_note_src')
@@ -232,15 +261,15 @@ export async function resolveNoteBlock(
     if (row && (row.operator_note || row.operator_note_pt)) {
       await saveOperatorNote(supabase, digestId, '', row);
     }
-    return '';
+    return noteBlocks(null);
   }
 
   const fresh =
     row &&
     (row.operator_note_src ?? '').trim() === note &&
     (row.operator_note_pt ?? '').trim();
-  if (fresh) return formatOperatorNote(row!.operator_note_pt, row!.operator_note_en);
+  if (fresh) return noteBlocks({ pt: row!.operator_note_pt, en: row!.operator_note_en });
 
   const rendered = await saveOperatorNote(supabase, digestId, note, row);
-  return formatOperatorNote(rendered.pt, rendered.en);
+  return noteBlocks(rendered);
 }

@@ -14,10 +14,10 @@ test("the digest's note is rendered before the send claims the row", () => {
   const src = read('src/lib/cleaner-digest.ts');
   const start = src.indexOf('export async function sendDigest(');
   const body = src.slice(start, src.indexOf('\nexport ', start + 10));
-  const note = body.indexOf('await resolveNoteBlock(');
+  const note = body.indexOf('await resolveNoteBlocks(');
   const claim = body.indexOf(".update({ status: 'sending'");
   assert.ok(note > 0 && claim > 0, 'both calls are in sendDigest');
-  assert.ok(note < claim, 'resolveNoteBlock runs before the claim');
+  assert.ok(note < claim, 'resolveNoteBlocks runs before the claim');
 });
 
 test('the Calderwood registry seeds no trash day (a Bridgeport home is not on the Gloucester cart rule)', () => {

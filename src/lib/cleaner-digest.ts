@@ -46,7 +46,7 @@ import {
 import { CAPE_ANN_REGION } from '@/lib/property-scope';
 import { loadVendorAppointments } from '@/lib/vendor-schedule';
 import { loadAddedNotesByProperty } from '@/lib/turnover-notes';
-import { resolveNoteBlock, withOperatorNote } from '@/lib/cleaner-note';
+import { resolveNoteBlocks, withOperatorNote } from '@/lib/cleaner-note';
 import { detectExtensionHolds } from '@/lib/extension-holds';
 import {
   RECIPIENT_COLS,
@@ -459,12 +459,14 @@ export async function sendDigest(
   const region = digest.region || CAPE_ANN_REGION;
   const verbatim = opts.body?.trim() || null;
 
-  // The operator's note goes out rendered in Portuguese (lib/cleaner-note),
-  // re-derived now if the stored rendering is stale: on the evening autosend
-  // nobody is there to notice an untranslated note. Resolved BEFORE the claim
-  // below: a model call that hangs past the function's limit would otherwise
-  // leave the row in 'sending', which nothing ever reverts.
-  const noteBlock = verbatim ? '' : await resolveNoteBlock(supabase, digest.id);
+  // The operator's note goes out rendered (lib/cleaner-note) in each
+  // recipient's own language and only that one, re-derived now if the
+  // stored rendering is stale: on the evening autosend nobody is there to
+  // notice an untranslated note. Resolved BEFORE the claim below: a model
+  // call that hangs past the function's limit would otherwise leave the row
+  // in 'sending', which nothing ever reverts. A verbatim body already
+  // carries its note (approveAndSendDigest appends it).
+  const noteBlocks = verbatim ? null : await resolveNoteBlocks(supabase, digest.id);
 
   const fromStatus = opts.kind === 'initial' ? 'pending' : 'sent';
   const { data: claimed } = await supabase
@@ -512,7 +514,7 @@ export async function sendDigest(
     }
     const bodies = await composeRecipientBodies(supabase, regionDay, recipients);
     const finish = (text: string, language: DigestLanguage) =>
-      withOperatorNote(opts.kind === 'update' ? `${text}\n\n${updateMarker(language)}` : text, noteBlock);
+      withOperatorNote(opts.kind === 'update' ? `${text}\n\n${updateMarker(language)}` : text, noteBlocks?.[language]);
     perRecipient = bodies.map((b) => ({
       recipient: b.recipient,
       text: finish(b.body, b.recipient.language),

@@ -423,15 +423,20 @@ export async function ScheduleDigestCard({
   // what she reads and what Rosa receives the same string by construction,
   // and draftedBody carries it too so the unedited-check still holds.
   const shownBody = pending && day ? await composeDigestBodyLive(supabase, day) : digest.body;
-  // The note as it will actually go out: Portuguese, with the English
-  // underneath. Rendered when the note was saved, so this is the real tail
-  // rather than a guess at one. `noteStale` means the typed text moved on
-  // from the rendering and the send will re-derive it.
-  const noteBlock = formatOperatorNote(digest.operator_note_pt, digest.operator_note_en);
+  // The note as it will actually go out: Portuguese, nothing else.
+  // Rendered when the note was saved, so this is the real tail rather than
+  // a guess at one. `noteStale` means the typed text moved on from the
+  // rendering and the send will re-derive it.
+  const noteBlock = formatOperatorNote({ pt: digest.operator_note_pt, en: digest.operator_note_en }, 'pt');
   const noteStale = noteRenderingIsStale(digest);
   const lastBatch = digest.sent_log?.[digest.sent_log.length - 1];
   const enabledList = recipients.filter((r) => r.enabled);
   const anyEnabled = enabledList.length > 0;
+  // The same instruction in English: the operator's check on the
+  // translation, never added to a Portuguese text. A recipient marked
+  // English gets it instead of the Portuguese, so the card names them.
+  const noteEnglish = noteStale ? '' : (digest.operator_note_en ?? '').trim();
+  const englishReaders = enabledList.filter((r) => r.language === 'en').map((r) => r.display_name);
 
   return (
     <Section
@@ -595,7 +600,7 @@ export async function ScheduleDigestCard({
                 style={{ fontSize: 12, padding: '7px 13px', background: 'transparent', color: 'var(--ink)', border: '1px solid var(--ink)', borderRadius: 5, cursor: 'pointer' }}
               />
               <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>
-                Any language; it goes out in Portuguese with your English under it.
+                Any language; the crew gets it in Portuguese only.
               </span>
             </div>
 
@@ -632,6 +637,16 @@ export async function ScheduleDigestCard({
                 >
                   {noteBlock}
                 </pre>
+              )}
+              {noteBlock && !noteStale && noteEnglish && (
+                <div style={{ margin: '0 0 8px' }}>
+                  <span style={{ letterSpacing: '.1em', textTransform: 'uppercase', fontWeight: 700 }}>
+                    {englishReaders.length > 0
+                      ? `In English · sent only to ${englishReaders.join(', ')}`
+                      : 'Read back in English · not sent'}
+                  </span>
+                  <div style={{ color: 'var(--ink-3)', marginTop: 2 }}>{noteEnglish}</div>
+                </div>
               )}
               {noteStale && (
                 <div style={{ margin: '6px 0 8px', color: 'var(--signal)', fontWeight: 600 }}>
