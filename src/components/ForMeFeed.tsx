@@ -23,6 +23,7 @@ import { loadHandoffItems } from '@/lib/close-handoff-db';
 import { loadOwnerHoldQuestions, type OwnerHoldQuestionCard } from '@/lib/owner-hold-questions';
 import { HoldRow } from '@/app/cleaner-messaging/OwnerHoldQuestionsCard';
 import { homeFeedOrder, windowPayments, type FeedSection } from '@/lib/home-feed-order';
+import { EmptyState } from '@/components/EmptyState';
 
 type MyWork = {
   id: string;
@@ -341,19 +342,13 @@ export async function ForMeFeed() {
   return (
     <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 24, paddingBottom: 80, width: '100%' }}>
       {shown.length === 0 ? (
-        <div
-          style={{
-            borderTop: '1px solid var(--ink)',
-            padding: '32px 0',
-            textAlign: 'center',
-            color: 'var(--ink-3)',
-            fontSize: 14,
-          }}
-        >
+        // Without the Gmail read the feed cannot know about replies, so it
+        // does not claim them; it never names the missing setup.
+        <EmptyState center>
           {gmailConfigured
             ? 'All clear. Nothing on your plate and nothing needs your reply right now.'
-            : 'Email triage is not configured yet.'}
-        </div>
+            : 'All clear. Nothing on your plate right now.'}
+        </EmptyState>
       ) : (
         shown.map((key) => (
           <div key={key} data-feed-section={key} style={{ marginBottom: 36 }}>

@@ -26,6 +26,7 @@ import {
   TRIGGER_LABELS,
   type AutomationRule,
 } from '@/lib/automations-core';
+import { EmptyState } from '@/components/EmptyState';
 
 /**
  * The property page's Automations section (Guest & listing tab): Guesty Message Automation, Helm-native.
@@ -62,9 +63,7 @@ export function AutomationsPanel({ propertyId, view }: { propertyId: string; vie
 
   if (!view) {
     return (
-      <div style={noteStyle}>
-        The automations tables are not reachable from this environment (service role unset, or the migration has not run here).
-      </div>
+      <EmptyState rule={false}>Ask Ryan: automations are not set up here.</EmptyState>
     );
   }
 
@@ -189,7 +188,7 @@ export function AutomationsPanel({ propertyId, view }: { propertyId: string; vie
           />
         )}
 
-        {rules.length === 0 && <div style={noteStyle}>No rules exist yet. The fleet defaults ship with the migration; add one above if they are missing.</div>}
+        {rules.length === 0 && <EmptyState rule={false}>No automations for this home yet; add one above.</EmptyState>}
 
         {rules.map((pr) => (
           <RuleCard

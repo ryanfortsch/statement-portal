@@ -24,6 +24,7 @@ import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import { useConfirm } from '@/components/ConfirmDialog';
 import { GLOUCESTER_TZ } from '@/lib/stable-time';
 import { Button } from '@/components/Button';
+import { EmptyState } from '@/components/EmptyState';
 
 type PropertyForPicker = { id: string; name: string; title: string | null; city: string; is_active: boolean };
 
@@ -472,7 +473,7 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
       {/* COMMENTS */}
       <Section title="Comments" eyebrow={`${commentList.length} ${commentList.length === 1 ? 'comment' : 'comments'}`}>
         {commentList.length === 0 ? (
-          <p style={{ fontSize: 13, color: 'var(--ink-4)', margin: 0 }}>No comments yet.</p>
+          <EmptyState rule={false}>No comments yet.</EmptyState>
         ) : (
           <div className="flex flex-col gap-3">
             {commentList.map((c) => (

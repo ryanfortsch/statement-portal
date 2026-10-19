@@ -22,11 +22,13 @@ for(const [name,path] of [
  ['button-class','src/lib/button-class.ts'],
  ['watchdog','src/lib/use-pending-watchdog.ts'],
  ['unsaved','src/lib/unsaved-work.ts'],
+ ['empty-state','src/components/EmptyState.tsx'],
 ])await writeFile(join(scratch,name+'.js'),compile(await readFile(join(root,path),'utf8')));
 await writeFile(join(scratch,'skew.js'),'export const reloadedForNewDeployment=()=>Promise.resolve(false);');
+await writeFile(join(scratch,'link.js'),compile(`import React from 'react';export default function Link({href,children,prefetch,...props}){return <a {...props} href={href} onClick={e=>e.preventDefault()}>{children}</a>}`));
 await writeFile(join(scratch,'entry.js'),compile(`
 import React from 'react';import {createRoot} from 'react-dom/client';
-import {ConfirmProvider,useConfirm} from './confirm.js';import {SubmitButton} from './submit.js';import {Button} from './button.js';
+import {ConfirmProvider,useConfirm} from './confirm.js';import {SubmitButton} from './submit.js';import {Button} from './button.js';import {EmptyState} from './empty-state.js';
 window.calls=[];window.underneathEscapes=0;window.addEventListener('keydown',e=>{if(e.key==='Escape')window.underneathEscapes++;});
 for(const k of ['confirm','prompt','alert'])window[k]=()=>{window.native=(window.native||0)+1;throw Error('native '+k);};
 function Fixture(){
@@ -54,12 +56,17 @@ function Fixture(){
       <Button variant="primary" size="sm" pending pendingLabel="Sending" onClick={()=>window.calls.push({action:'pending'})}>Send now</Button>
       <Button size="lg" variant="primary" disabled>Approve</Button>
     </section>
+    <section id="empties">
+      <div id="empty-plain"><EmptyState>No office to-dos match this filter.</EmptyState></div>
+      <div id="empty-link"><EmptyState action={{label:'Open the board',href:'/turnovers'}}>Nothing to walk today.</EmptyState></div>
+      <div id="empty-verb"><EmptyState center rule={false} action={<Button size="sm" onClick={()=>window.calls.push({action:'show-all'})}>Show all</Button>}>No work slips match this filter.</EmptyState></div>
+    </section>
     <div style={{height:2000}}/>
   </main>;
 }
 createRoot(document.getElementById('root')).render(<ConfirmProvider><Fixture/></ConfirmProvider>);
 `));
-const alias={'@/lib/unsaved-work':'unsaved','@/lib/use-pending-watchdog':'watchdog','@/lib/button-class':'button-class','@/components/Button':'button','@/components/ConfirmDialog':'confirm','@/lib/confirm-question':'confirmq','@/components/SubmitButton':'submit','@/lib/version-skew':'skew'};
+const alias={'next/link':'link','@/components/EmptyState':'empty-state','@/lib/unsaved-work':'unsaved','@/lib/use-pending-watchdog':'watchdog','@/lib/button-class':'button-class','@/components/Button':'button','@/components/ConfirmDialog':'confirm','@/lib/confirm-question':'confirmq','@/components/SubmitButton':'submit','@/lib/version-skew':'skew'};
 await new Promise((resolve,reject)=>{const compiler=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.js'),output:{path:scratch,filename:'bundle.js'},resolve:{modules:[join(root,'node_modules')],alias:Object.fromEntries(Object.entries(alias).map(([k,v])=>[k,join(scratch,v+'.js')]))},performance:{hints:false}});compiler.run((err,stats)=>compiler.close(()=>err||stats?.hasErrors()?reject(err||Error(stats.toString({all:false,errors:true}))):resolve()));});
 if(process.argv.includes('--compile-only')){console.log('Confirm dialog fixture compiled.');await rm(scratch,{recursive:true,force:true});process.exit(0);}
 
@@ -176,6 +183,17 @@ await page.click('#notify');await page.waitForSelector(dlg);
 assert.deepEqual(await page.$$eval(dlg+' button',bs=>bs.map(b=>b.textContent.trim())),['OK'],'a notice has one button');
 await dialogButton('OK');await closed();assert.equal(await page.evaluate(()=>window.notified),true);
 pass('askText needs an answer; notify is one OK');
+
+// ── EmptyState ──
+await load();
+const empty=id=>page.$eval('#'+id+' [data-empty-state]',e=>{const c=getComputedStyle(e);const p=e.querySelector('p');const a=e.querySelector('a,button');return {text:p.textContent,color:getComputedStyle(p).color,rule:c.borderTopWidth,align:c.textAlign,verb:a?{tag:a.tagName,cls:a.className,text:a.textContent.trim(),href:a.getAttribute('href')}:null};});
+const plain=await empty('empty-plain'),linked=await empty('empty-link'),verbed=await empty('empty-verb');
+assert.equal(plain.text,'No office to-dos match this filter.');assert.equal(plain.verb,null);assert.equal(plain.rule,'1px');
+assert.equal(plain.color,'rgb(81, 103, 125)','ink-3: legible on paper, unlike the old ink-4 line');
+assert.deepEqual(linked.verb,{tag:'A',cls:'rt-btn rt-btn--secondary rt-btn--sm',text:'Open the board',href:'/turnovers'});
+assert.equal(verbed.align,'center');assert.equal(verbed.rule,'0px');assert.equal(verbed.verb.text,'Show all');
+await page.$eval('#empty-verb button',b=>b.click());await page.waitForFunction(()=>window.calls.some(c=>c.action==='show-all'));
+pass('EmptyState: one sentence, at most one verb (a link or a Button), the rule and the centred board face');
 
 // ── Button ──
 await load();
