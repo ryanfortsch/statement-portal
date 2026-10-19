@@ -222,7 +222,7 @@ export default async function ChannelsPropertyPage({
       </section>
 
       {runbook && <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 40 }}>
-        <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)' }}>
+        <div className="rt-helm-stat-strip" style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)' }}>
           <Stat label="Stays this month" value={String(stats.bookingsThisMonth)} />
           <Stat label="Upcoming" value={String(upcoming.length)} sub="next 400 days" />
           <Stat label="Occupancy · 30d" value={`${stats.occupancyNext30}%`} sub={`${stats.bookedNightsNext30}/30 nights`} />
@@ -1058,9 +1058,9 @@ function EmptyState({ message }: { message: string }) {
 
 function Stat({ label, value, sub, last }: { label: string; value: string; sub?: string; last?: boolean }) {
   return (
-    <div style={{ padding: '24px 0 22px', borderRight: last ? 'none' : '1px solid var(--rule)', paddingRight: 16 }}>
+    <div className="rt-helm-stat" style={{ padding: '24px 0 22px', borderRight: last ? 'none' : '1px solid var(--rule)', paddingRight: 16 }}>
       <div className="eyebrow" style={{ color: 'var(--ink-3)' }}>{label}</div>
-      <div className="font-serif tabular-nums" style={{ fontSize: 36, fontWeight: 300, letterSpacing: '-0.02em', marginTop: 6 }}>{value}</div>
+      <div className="font-serif tabular-nums rt-helm-stat-value" style={{ fontSize: 36, fontWeight: 300, letterSpacing: '-0.02em', marginTop: 6 }}>{value}</div>
       {sub && <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 4 }}>{sub}</div>}
     </div>
   );

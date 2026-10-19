@@ -174,7 +174,7 @@ function StatsStrip({
 }) {
   return (
     <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 36 }}>
-      <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)', display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)' }}>
+      <div className="rt-helm-stat-strip" style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)', display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)' }}>
         <Stat label="Homes" value={String(fleetCount)} sub={helmRunCount > 0 ? `${helmRunCount} on Helm, ${fleetCount - helmRunCount} on Guesty` : 'all on Guesty'} />
         <Stat label="Channel rows" value={String(stats.activeListings)} sub={stats.totalListings > stats.activeListings ? `${stats.totalListings - stats.activeListings} retired` : 'active'} />
         <Stat label="Feeds connected" value={`${stats.withFeedConfigured}`} sub={stats.feedsErroring > 0 ? `${stats.feedsErroring} erroring` : 'iCal URLs in place'} accent={stats.feedsErroring > 0} />
@@ -545,7 +545,7 @@ function RecentRunsBlock({ runs, summary, nameOf, now }: { runs: SyncRunWithList
     <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 80 }}>
       <div className="eyebrow" style={{ marginBottom: 14 }}>Recent sync runs</div>
       {summary && (
-        <div style={{ borderTop: '1px solid var(--ink)', padding: '14px 0', display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16, fontSize: 12 }}>
+        <div className="rt-helm-stat-strip" style={{ borderTop: '1px solid var(--ink)', padding: '14px 0', display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16, fontSize: 12 }}>
           <Mini label="Last fleet sync" value={relativeAge(summary.last_synced_at, now)} tone={summary.last_status === 'ok' || !summary.last_status ? undefined : 'negative'} />
           <Mini label="Feeds" value={`${summary.succeeded} ok · ${summary.failed} failed`} tone={summary.failed > 0 ? 'negative' : undefined} />
           <Mini label="Deferred cancels" value={String(summary.deferred)} sub="missing once; cancel on the second run" />
@@ -590,9 +590,9 @@ function Mini({ label, value, sub, tone }: { label: string; value: string; sub?:
 
 function Stat({ label, value, sub, accent, last }: { label: string; value: string; sub?: string; accent?: boolean; last?: boolean }) {
   return (
-    <div style={{ padding: '24px 0 22px', borderRight: last ? 'none' : '1px solid var(--rule)', paddingRight: 16 }}>
+    <div className="rt-helm-stat" style={{ padding: '24px 0 22px', borderRight: last ? 'none' : '1px solid var(--rule)', paddingRight: 16 }}>
       <div className="eyebrow" style={{ color: 'var(--ink-3)' }}>{label}</div>
-      <div className="font-serif tabular-nums" style={{ fontSize: 36, fontWeight: 300, letterSpacing: '-0.02em', marginTop: 6, color: accent ? 'var(--negative)' : 'var(--ink)' }}>{value}</div>
+      <div className="font-serif tabular-nums rt-helm-stat-value" style={{ fontSize: 36, fontWeight: 300, letterSpacing: '-0.02em', marginTop: 6, color: accent ? 'var(--negative)' : 'var(--ink)' }}>{value}</div>
       {sub && <div style={{ fontSize: 11, color: accent ? 'var(--negative)' : 'var(--ink-3)', marginTop: 4 }}>{sub}</div>}
     </div>
   );

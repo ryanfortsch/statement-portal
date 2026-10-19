@@ -54,6 +54,7 @@ export default async function CompetitorDetail({ params }: { params: Promise<{ i
       {/* HEADLINE STATS */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 24 }}>
         <div
+          className="rt-helm-stat-strip"
           style={{
             borderTop: '1px solid var(--ink)',
             borderBottom: '1px solid var(--ink)',
@@ -177,6 +178,7 @@ function HeadStat({
 }) {
   return (
     <div
+      className="rt-helm-stat"
       style={{
         padding: '20px 18px',
         borderRight: last ? 'none' : '1px solid var(--rule)',
@@ -186,7 +188,7 @@ function HeadStat({
         {label}
       </div>
       <div
-        className="font-serif tabular-nums"
+        className="font-serif tabular-nums rt-helm-stat-value"
         style={{ fontSize: 30, fontWeight: 400, letterSpacing: '-0.02em', color: 'var(--ink)' }}
       >
         {value}

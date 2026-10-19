@@ -135,12 +135,12 @@ function SectionHead({ num, title, meta }: { num: string; title: string; meta?: 
 
 function Insight({ label, value, sub, accent, last }: { label: string; value: string; sub?: string; accent?: boolean; last?: boolean }) {
   return (
-    <div style={{
+    <div className="rt-helm-stat" style={{
       padding: '14px 16px',
       borderRight: last ? 'none' : '1px solid var(--rule)',
     }}>
       <div className="eyebrow" style={{ marginBottom: 6 }}>{label}</div>
-      <div className="font-serif tabular-nums" style={{
+      <div className="font-serif tabular-nums rt-helm-stat-value" style={{
         fontSize: 22, lineHeight: 1, fontWeight: 400,
         color: accent ? 'var(--signal)' : 'var(--ink)',
       }}>{value}</div>
@@ -727,7 +727,7 @@ function UploadPageInner() {
             </div>
 
             {/* Insights strip */}
-            <div className="rule-top rule-bottom" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)' }}>
+            <div className="rule-top rule-bottom rt-helm-stat-strip" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)' }}>
               <Insight label="Reservations" value={String(result.summary.reservations)} />
               <Insight label="Net Revenue" value={fmtCompact(result.summary.total_revenue)} />
               <Insight label="Mgmt Fee" value={fmtCompact(result.summary.management_fee)} accent />
