@@ -115,7 +115,7 @@ export default async function AgreementDetailPage({ params }: { params: Promise<
           )}
         </div>
         <p style={{ marginTop: 12, fontSize: 12, color: 'var(--ink-4)', maxWidth: 640, lineHeight: 1.55 }}>
-          Signing link: <span style={{ fontFamily: 'var(--font-mono), monospace', fontSize: 11 }}>{signPath}</span>
+          Signing link: <span style={{ fontFamily: 'var(--font-mono), monospace', fontSize: 11, overflowWrap: 'anywhere' }}>{signPath}</span>
           . Anyone with the link can view and sign this agreement, so share it only with the guest.
         </p>
       </section>
