@@ -20,10 +20,10 @@ export default async function CompetitorsIndex() {
   return (
     <div className="flex-1 flex flex-col">
       <HelmHero
+        plain
         eyebrow="Helm · Competitors"
-        title="Who else manages"
-        emphasis="Cape Ann."
-        description={`${competitors.length} competitor${competitors.length === 1 ? '' : 's'} tracked, ${totalListings} listings, ${totalSleeps.toLocaleString()} guest beds. Refreshed by snapshot.`}
+        title="Competitors"
+        line={`${competitors.length} competitor${competitors.length === 1 ? '' : 's'} tracked, ${totalListings} listings, ${totalSleeps.toLocaleString()} guest beds.`}
       />
 
       <section
@@ -45,7 +45,7 @@ export default async function CompetitorsIndex() {
             lineHeight: 1.6,
           }}
         >
-          Inventory only: bedroom counts, bathrooms, sleeps, towns, and pet policy. Ask Ryan to add a competitor.
+          Ask Ryan to add a competitor.
         </p>
       </section>
 

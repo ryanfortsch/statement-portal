@@ -326,13 +326,7 @@ export default function AirDnaPage() {
 
   return (
     <div className="flex-1 flex flex-col">
-      <HelmHero
-        eyebrow="Helm · Marketing · AirDNA"
-        title="Update the"
-        emphasis="market data"
-        titleSuffix="for the towns."
-        description="Upload AirDNA CSVs. The combined Market Metrics Monthly export carries its own market column. The single-metric exports (Average Revenue, Occupancy, Occupancy by Bedrooms) need you to pick the market. The charts on risingtidestr.com/markets pull from this within the hour."
-      />
+      <HelmHero plain eyebrow="Helm · Marketing" title="AirDNA market data" />
 
       <section className="max-w-[1100px] mx-auto px-10 grid gap-6 md:grid-cols-3" style={{ width: "100%", paddingBottom: 40 }}>
         {/* LEFT: upload + preview */}
@@ -345,10 +339,7 @@ export default function AirDnaPage() {
               Pick the AirDNA CSV(s)
             </h2>
             <p style={{ marginBottom: 16, color: "var(--ink-muted, #4a5760)" }}>
-              In AirDNA, export from the market you want. The page recognises four shapes:
-              <strong> Market Metrics Monthly</strong> (combined), <strong>Average Revenue</strong>,
-              <strong> Occupancy</strong>, and <strong>Occupancy by Bedrooms</strong>. You can drop multiple
-              files at once.
+              Market Metrics Monthly, Average Revenue, Occupancy or Occupancy by Bedrooms; several at once.
             </p>
 
             <label
@@ -589,8 +580,7 @@ export default function AirDnaPage() {
             })}
 
             <p style={{ fontSize: 12, color: "var(--ink-muted, #4a5760)", marginTop: 4, lineHeight: 1.5 }}>
-              AirDNA publishes the previous month around the 15th. If a market is missing the
-              previous month past the 20th, Helm will text you.
+              AirDNA posts last month around the 15th; Helm texts you if a market still lacks it on the 20th.
             </p>
           </div>
         </div>
