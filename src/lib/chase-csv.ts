@@ -169,14 +169,65 @@ export function computeDedupeHash(args: {
   txn_date: string;
   amount: number;
   description: string;
+  /**
+   * Which repeat of an identical row this is within one file, from 1. Two
+   * $5.00 tolls on the same card on the same day are two real charges, and
+   * Chase's card export gives nothing else to tell them apart, so the
+   * second one hashes with "#2". The first keeps the plain hash. A Chase
+   * export covers whole days, so the same file, or an overlapping one,
+   * numbers a day's repeats the same way and a re-upload still skips.
+   */
+  occurrence?: number;
 }): string {
   const normalizedDesc = args.description.replace(/\s+/g, ' ').trim().toLowerCase();
-  const payload = [
+  const parts = [
     args.entity_id,
     args.account_id,
     args.txn_date,
     args.amount.toFixed(2),
     normalizedDesc,
-  ].join('|');
-  return createHash('sha256').update(payload).digest('hex');
+  ];
+  if (args.occurrence && args.occurrence > 1) parts.push(`#${args.occurrence}`);
+  return createHash('sha256').update(parts.join('|')).digest('hex');
+}
+
+/**
+ * The ledger_transactions rows one parsed Chase file becomes, for one
+ * account. /api/books/ingest inserts them with ON CONFLICT (dedupe_hash)
+ * DO NOTHING, so a re-upload or an overlapping export adds only what is new.
+ */
+export function ledgerRowsFromParsed(
+  acct: { id: string; entity_id: string },
+  parsed: ParsedTransaction[],
+) {
+  const seen = new Map<string, number>();
+  return parsed.map((p) => {
+    const same = [p.txn_date, p.amount.toFixed(2), p.description.replace(/\s+/g, ' ').trim().toLowerCase()].join('|');
+    const occurrence = (seen.get(same) ?? 0) + 1;
+    seen.set(same, occurrence);
+    return {
+      entity_id: acct.entity_id,
+      account_id: acct.id,
+      txn_date: p.txn_date,
+      description: p.description,
+      amount: p.amount,
+      source: p.source,
+      // The raw row and Chase's own fields ride in `raw` so review can
+      // show the original CSV cell, Chase's pre-category and its type.
+      raw: {
+        posting_date: p.posting_date,
+        raw_category: p.raw_category,
+        raw_type: p.raw_type,
+        row: p.raw_row,
+      },
+      dedupe_hash: computeDedupeHash({
+        entity_id: acct.entity_id,
+        account_id: acct.id,
+        txn_date: p.txn_date,
+        amount: p.amount,
+        description: p.description,
+        occurrence,
+      }),
+    };
+  });
 }

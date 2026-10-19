@@ -645,7 +645,7 @@ export const HELM_MODULES: HelmModule[] = [
     href: '/books',
     number: '01',
     title: 'LLC Accounting',
-    description: 'In-house bookkeeping for the three LLCs. Bank and card transactions, categorized against the chart of accounts, and the year\'s 1099 candidates on the Rising Tide ledger.',
+    description: 'In-house bookkeeping for the three LLCs. Bank and card transactions, categorized against the chart of accounts, each LLC\'s profit and loss for the CPA, and the year\'s 1099 candidates on the Rising Tide ledger.',
     status: 'active',
     primary: false,
     hidden: true,

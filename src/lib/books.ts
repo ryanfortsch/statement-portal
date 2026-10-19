@@ -138,7 +138,12 @@ export const LLC_ACCOUNTS: LlcAccountSeed[] = [
 // shared, some entity-specific). Sourced from the QB exports' active
 // account list. Phase 1b's categorizer matches transactions to these keys.
 
-export type CoaType = 'income' | 'expense' | 'cogs' | 'equity' | 'other_income' | 'other_expense';
+/**
+ * `liability` is a balance-sheet account a payment clears (sales tax owed,
+ * guest prepayments, a loan's principal). Like `equity`, it never enters
+ * the P&L; books-pnl.ts lists both under "Not in net income".
+ */
+export type CoaType = 'income' | 'expense' | 'cogs' | 'equity' | 'liability' | 'other_income' | 'other_expense';
 export type CoaScope = 'shared' | 'rising_tide' | 'goose_astoria' | 'goose_calderwood';
 
 export type CoaAccount = {
@@ -185,7 +190,7 @@ export const CHART_OF_ACCOUNTS: CoaAccount[] = [
   { key: 'bank_service_charges', parent_key: 'general_business', name: 'Bank Fees & Service Charges', type: 'expense', scope: 'shared', sort: 151 },
   { key: 'memberships_subscriptions', parent_key: 'general_business', name: 'Memberships & Subscriptions', type: 'expense', scope: 'shared', tax_hint: 'PriceLabs, Furnished Finder, etc.', sort: 152 },
 
-  { key: 'host_channel_fees', name: 'Host Channel Fees', type: 'expense', scope: 'shared', tax_hint: 'Goose entities — channel commissions on rental income', sort: 160 },
+  { key: 'host_channel_fees', name: 'Host Channel Fees', type: 'expense', scope: 'shared', tax_hint: 'Goose entities: channel commissions on rental income', sort: 160 },
   { key: 'host_channel_airbnb', parent_key: 'host_channel_fees', name: 'Airbnb Fees', type: 'expense', scope: 'shared', sort: 161 },
   { key: 'host_channel_booking', parent_key: 'host_channel_fees', name: 'Booking.com Fees', type: 'expense', scope: 'shared', sort: 162 },
   { key: 'host_channel_guesty', parent_key: 'host_channel_fees', name: 'Guesty Fees', type: 'expense', scope: 'shared', sort: 163 },
@@ -200,8 +205,8 @@ export const CHART_OF_ACCOUNTS: CoaAccount[] = [
 
   { key: 'interest_paid', name: 'Interest Paid', type: 'expense', scope: 'shared', tax_hint: 'Schedule E line 12', sort: 180 },
   { key: 'mortgage_interest', parent_key: 'interest_paid', name: 'Mortgage Interest', type: 'expense', scope: 'goose_astoria', sort: 181 },
-  { key: 'mortgage_interest_11_rockholm', parent_key: 'interest_paid', name: 'Mortgage Interest — 11 Rockholm', type: 'expense', scope: 'goose_calderwood', sort: 182 },
-  { key: 'mortgage_interest_65_calderwood', parent_key: 'interest_paid', name: 'Mortgage Interest — 65 Calderwood', type: 'expense', scope: 'goose_calderwood', sort: 183 },
+  { key: 'mortgage_interest_11_rockholm', parent_key: 'interest_paid', name: 'Mortgage Interest - 11 Rockholm', type: 'expense', scope: 'goose_calderwood', sort: 182 },
+  { key: 'mortgage_interest_65_calderwood', parent_key: 'interest_paid', name: 'Mortgage Interest - 65 Calderwood', type: 'expense', scope: 'goose_calderwood', sort: 183 },
   { key: 'business_loan_interest', parent_key: 'interest_paid', name: 'Business Loan Interest', type: 'expense', scope: 'shared', sort: 184 },
   { key: 'credit_card_interest', parent_key: 'interest_paid', name: 'Credit Card Interest', type: 'expense', scope: 'shared', sort: 185 },
 
@@ -263,14 +268,14 @@ export const CHART_OF_ACCOUNTS: CoaAccount[] = [
   { key: 'uncategorized', name: 'Uncategorized', type: 'expense', scope: 'shared', tax_hint: 'Needs review', sort: 900 },
 
   // ── PASS-THROUGH (Rising Tide only — auto-fills from Statements) ─────
-  { key: 'property_owner_revenues', name: 'Property Owner Revenues', type: 'other_income', scope: 'rising_tide', pass_through: true, tax_hint: 'Flows through to owners — not Rising Tide P&L', sort: 500 },
+  { key: 'property_owner_revenues', name: 'Property Owner Revenues', type: 'other_income', scope: 'rising_tide', pass_through: true, tax_hint: 'Flows through to owners, not Rising Tide P&L', sort: 500 },
   { key: 'accommodation_fares', parent_key: 'property_owner_revenues', name: 'Accommodation Fares', type: 'other_income', scope: 'rising_tide', pass_through: true, sort: 501 },
   { key: 'pt_host_channel_fees', parent_key: 'property_owner_revenues', name: 'Host Channel Fees', type: 'other_income', scope: 'rising_tide', pass_through: true, sort: 502 },
   { key: 'additional_guest_fees', parent_key: 'property_owner_revenues', name: 'Additional Guest Fees', type: 'other_income', scope: 'rising_tide', pass_through: true, sort: 503 },
   { key: 'cleaning_fares_pt', parent_key: 'property_owner_revenues', name: 'Cleaning Fares', type: 'other_income', scope: 'rising_tide', pass_through: true, sort: 504 },
 
   { key: 'property_owner_expenses', name: 'Property Owner Expenses', type: 'other_expense', scope: 'rising_tide', pass_through: true, sort: 510 },
-  { key: 'property_cleaning', parent_key: 'property_owner_expenses', name: 'Property Cleaning', type: 'other_expense', scope: 'rising_tide', pass_through: true, tax_hint: 'Cape Ann Elite — biggest 1099 candidate', sort: 511 },
+  { key: 'property_cleaning', parent_key: 'property_owner_expenses', name: 'Property Cleaning', type: 'other_expense', scope: 'rising_tide', pass_through: true, tax_hint: 'Cape Ann Elite, biggest 1099 candidate', sort: 511 },
   { key: 'property_landscaping', parent_key: 'property_owner_expenses', name: 'Property Landscaping', type: 'other_expense', scope: 'rising_tide', pass_through: true, sort: 512 },
   { key: 'property_photography', parent_key: 'property_owner_expenses', name: 'Property Photography', type: 'other_expense', scope: 'rising_tide', pass_through: true, sort: 513 },
   { key: 'property_repair_maintenance', parent_key: 'property_owner_expenses', name: 'Property Repair & Maintenance', type: 'other_expense', scope: 'rising_tide', pass_through: true, sort: 514 },
@@ -296,7 +301,7 @@ export const CHART_OF_ACCOUNTS: CoaAccount[] = [
   { key: 'owner_draw', name: 'Owner / Partner Distributions', type: 'equity', scope: 'shared', sort: 810 },
   { key: 'opening_balance_equity', name: 'Opening Balance Equity', type: 'equity', scope: 'shared', sort: 820 },
   { key: 'retained_earnings', name: 'Retained Earnings', type: 'equity', scope: 'shared', sort: 830 },
-  { key: 'intercompany_due', name: 'Intercompany Due To/From', type: 'equity', scope: 'shared', tax_hint: 'Rising Tide ↔ Goose entities', sort: 840 },
+  { key: 'intercompany_due', name: 'Intercompany Due To/From', type: 'equity', scope: 'shared', tax_hint: 'Rising Tide to and from the Goose entities', sort: 840 },
   // Goose-of-Astoria-specific intercompany sub-account. The 2025 GL
   // confirms that ALL Florida-property activity (3246 NE 27th: Tropishine
   // cleaning, FPL utilities, MasterTouch Pool, "Lighthouse Point" memo
@@ -307,9 +312,9 @@ export const CHART_OF_ACCOUNTS: CoaAccount[] = [
   { key: 'due_from_florida_property', parent_key: 'owner_draw', name: 'Due from Florida Property', type: 'equity', scope: 'goose_astoria', tax_hint: '3246 NE 27th Terrace allocation -- FL property activity routes here', sort: 850 },
 
   // ── LIABILITY-side categories (rare hits but the GLs use them) ──────
-  { key: 'sales_tax_payable', name: 'Sales Tax Payable', type: 'other_expense', scope: 'shared', tax_hint: 'MA lodging tax + CT sales tax cycle -- liability cleared monthly via DOR ACH', sort: 870 },
-  { key: 'customer_prepayments', name: 'Customer Prepayments', type: 'other_expense', scope: 'shared', tax_hint: 'Guest payments received in advance of stay', sort: 871 },
-  { key: 'heat_loan', name: 'Heat Loan', type: 'other_expense', scope: 'goose_calderwood', tax_hint: '11 Rockholm heating-system loan via Eastern Bank, paid down by Ryan personally', sort: 872 },
+  { key: 'sales_tax_payable', name: 'Sales Tax Payable', type: 'liability', scope: 'shared', tax_hint: 'MA lodging tax + CT sales tax cycle -- liability cleared monthly via DOR ACH', sort: 870 },
+  { key: 'customer_prepayments', name: 'Customer Prepayments', type: 'liability', scope: 'shared', tax_hint: 'Guest payments received in advance of stay', sort: 871 },
+  { key: 'heat_loan', name: 'Heat Loan', type: 'liability', scope: 'goose_calderwood', tax_hint: '11 Rockholm heating-system loan via Eastern Bank, paid down by Ryan personally', sort: 872 },
 
   // ── LEGACY income (Goose Astoria pre-2025 booking) ──────────────────
   { key: 'services_legacy', name: 'Services (legacy)', type: 'income', scope: 'goose_astoria', tax_hint: 'Pre-2025 income account; superseded by Rental Income + Cleaning Fares + per-channel fees from 2025-01 onward', sort: 70 },
@@ -323,6 +328,16 @@ export function accountsForEntity(entityId: string): CoaAccount[] {
   return CHART_OF_ACCOUNTS
     .filter(a => a.scope === 'shared' || a.scope === entityId)
     .sort((a, b) => a.sort - b.sort);
+}
+
+/**
+ * The chart-of-accounts entry a key names for this entity, or undefined
+ * when the key is not on its chart (another entity's account, a retired
+ * key, or a word the categorizer made up).
+ */
+export function coaAccountFor(entityId: string, key: string | null | undefined): CoaAccount | undefined {
+  if (!key) return undefined;
+  return CHART_OF_ACCOUNTS.find((a) => a.key === key && (a.scope === 'shared' || a.scope === entityId));
 }
 
 /** Bank/CC accounts for an entity. */

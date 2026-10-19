@@ -34,6 +34,7 @@ const supabase = createClient(supabaseUrl || 'https://placeholder.supabase.co', 
  * unreviewed only by default, a quarter, a description search. Categorize
  * and Accept act on the same filtered rows. The Rising Tide ledger also
  * carries the year's 1099 candidates (from Cost Analysis, 2026-10-18).
+ * The year's profit and loss, and its download for the CPA, is ./pnl.
  */
 
 type AccountRow = {
@@ -260,7 +261,10 @@ export default async function BookEntityPage({
               </Link>
             );
           })}
-          <Link href="/books/accounts" style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--ink-3)', whiteSpace: 'nowrap' }}>
+          <Link href={`/books/${entity_id}/pnl`} style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--ink-3)', whiteSpace: 'nowrap' }}>
+            Profit and loss →
+          </Link>
+          <Link href="/books/accounts" style={{ fontSize: 12, color: 'var(--ink-3)', whiteSpace: 'nowrap' }}>
             Chart of accounts →
           </Link>
         </nav>

@@ -58,6 +58,24 @@ them risks paying somebody $40 short with nobody noticing. See
   The Statements pipeline still consumes the Guesty Owner Statement PDF as
   its source of truth.
 
+### LLC books (the three entities' own bookkeeping)
+- **`ledger_transactions`** is one row per Chase bank or card transaction of
+  Rising Tide STR LLC, Goose of Astoria LLC or Goose of Calderwood LLC,
+  signed (+ in, - out), uploaded on `/books/<entity>` and categorized by key
+  (`category_key` is the operator's, `ai_category_key` the categorizer's
+  proposal). It is the source of each LLC's cash-basis P&L
+  (`src/lib/books-pnl.ts`, `/books/<entity>/pnl`). Unique `dedupe_hash`
+  makes a re-upload a no-op.
+- **`llc_entities`**, **`llc_accounts`** (bank and card accounts per
+  entity), **`llc_property_links`** and **`chart_of_accounts`** are seeded
+  from `src/lib/books.ts`, which stays the authority the app reads; the
+  migration's seed is test-checked against it.
+- Migration `20261019120000_books_ledger_tables.sql`, all five RLS-locked
+  (service role only). **Not yet applied to production as of 2026-10-19.**
+- This is the companies' own books. It never reads or writes an owner
+  statement, and Rising Tide's owner trust money (pass-through accounts) is
+  listed beside its P&L, never in it.
+
 ### Sync freshness watchdog
 - **`sync_status`** is the only place to check whether a sync ran recently.
   One row per source (`guesty-listings`, `guesty-reservations`,
