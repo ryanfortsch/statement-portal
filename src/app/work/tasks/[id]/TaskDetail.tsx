@@ -16,13 +16,14 @@ import {
 } from '@/lib/work-types';
 import { updateTask, deleteTask, addTaskComment, deleteTaskComment } from '../../actions';
 import { BackToBoardLink } from '../../[id]/BackToBoardLink';
-import { chipHintStyle, chipStyle, smallGhostButton } from '../../[id]/slip-controls';
+import { chipHintStyle, chipStyle } from '../../[id]/slip-controls';
 import { TeamPicker } from '@/components/TeamPicker';
 import { displayNameForEmail } from '@/lib/team';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import { useConfirm } from '@/components/ConfirmDialog';
 import { GLOUCESTER_TZ } from '@/lib/stable-time';
+import { Button } from '@/components/Button';
 
 type PropertyForPicker = { id: string; name: string; title: string | null; city: string; is_active: boolean };
 
@@ -262,8 +263,8 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
       <div role="alert" style={{ marginTop: 8, fontSize: 12, color: 'var(--negative)' }}>
         {FIELD_LABELS[key]}: {fieldError.message}
         <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-          <button type="button" disabled={busy} onClick={() => void retryField()} style={smallGhostButton}>Retry</button>
-          <button type="button" disabled={busy} onClick={() => setFieldError(null)} style={smallGhostButton}>Dismiss</button>
+          <Button size="sm" disabled={busy} onClick={() => void retryField()}>Retry</Button>
+          <Button variant="quiet" disabled={busy} onClick={() => setFieldError(null)}>Dismiss</Button>
         </div>
       </div>
     );
@@ -282,9 +283,9 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
         <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
           <div className="eyebrow">{OFFICE_TODO_LABEL}</div>
           {!editingTitle && (
-            <button type="button" onClick={beginTitleEdit} disabled={busy} style={quietButton(saving === 'title')}>
-              {saving === 'title' ? 'Saving…' : 'Edit Title'}
-            </button>
+            <Button size="sm" onClick={beginTitleEdit} disabled={busy && saving !== 'title'} pending={saving === 'title'} pendingLabel="Saving">
+              Edit Title
+            </Button>
           )}
         </div>
         {editingTitle ? (
@@ -305,17 +306,16 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
               style={{ ...TITLE_STYLE, display: 'block', width: '100%', background: 'transparent', border: 'none', borderBottom: '1px dashed var(--ink-3)', padding: 0, outline: 'none' }}
             />
             <div className="flex items-center gap-2" style={{ marginTop: 10 }}>
-              <button type="button" onClick={() => void saveTitle()} disabled={busy || !titleDraft.trim()} style={smallSolidButton}>
-                {saving === 'title' ? 'Saving…' : 'Save'}
-              </button>
-              <button
-                type="button"
+              <Button variant="primary" size="sm" onClick={() => void saveTitle()} disabled={!titleDraft.trim() || (busy && saving !== 'title')} pending={saving === 'title'} pendingLabel="Saving">
+                Save
+              </Button>
+              <Button
+                size="sm"
                 onClick={() => { setEditingTitle(false); if (fieldError?.key === 'title') setFieldError(null); }}
                 disabled={busy}
-                style={smallGhostButton}
               >
                 Cancel
-              </button>
+              </Button>
             </div>
           </div>
         ) : (
@@ -445,9 +445,9 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
         <div className="flex items-center gap-3 flex-wrap">
           {isClosed ? (
             <>
-              <button type="button" onClick={() => void saveField('status', 'open')} disabled={busy} style={ghostButton()}>
-                {saving === 'status' ? 'Saving…' : 'Reopen'}
-              </button>
+              <Button onClick={() => void saveField('status', 'open')} disabled={busy && saving !== 'status'} pending={saving === 'status'} pendingLabel="Saving">
+                Reopen
+              </Button>
               <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>
                 {saved.status === TASK_DISMISSED_STATUS
                   ? 'Dismissed: closed without doing it. Reopen puts it back on the list.'
@@ -456,12 +456,12 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
             </>
           ) : (
             <>
-              <button type="button" onClick={() => void saveField('status', 'done')} disabled={busy} style={solidButton()}>
-                {saving === 'status' ? 'Saving…' : 'Mark Done'}
-              </button>
-              <button type="button" onClick={() => void saveField('status', TASK_DISMISSED_STATUS)} disabled={busy} style={ghostButton()}>
+              <Button variant="primary" onClick={() => void saveField('status', 'done')} disabled={busy && saving !== 'status'} pending={saving === 'status'} pendingLabel="Saving">
+                Mark Done
+              </Button>
+              <Button onClick={() => void saveField('status', TASK_DISMISSED_STATUS)} disabled={busy}>
                 Dismiss
-              </button>
+              </Button>
               <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>Dismiss closes it without doing it: a duplicate, or no longer needed.</span>
             </>
           )}
@@ -481,15 +481,16 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
                   <span style={{ fontSize: 11, letterSpacing: '.08em', color: 'var(--ink-3)' }}>
                     <span style={{ fontWeight: 600 }}>{c.author_email ? displayNameForEmail(c.author_email) : 'You'}</span> &middot; {formatTimestamp(c.created_at)}
                   </span>
-                  {c.author_email === myEmail && <button
-                    type="button"
+                  {c.author_email === myEmail && <Button
+                    size="sm"
                     onClick={() => removeComment(c)}
-                    disabled={deleting || commentDeletePending.includes(c.id)}
+                    disabled={deleting}
+                    pending={commentDeletePending.includes(c.id)}
+                    pendingLabel="Deleting"
                     aria-label="Delete comment"
-                    style={smallGhostButton}
                   >
-                    {commentDeletePending.includes(c.id) ? 'Deleting…' : 'Delete'}
-                  </button>}
+                    Delete
+                  </Button>}
                 </div>
                 <p style={{ fontSize: 13, color: 'var(--ink)', whiteSpace: 'pre-wrap', margin: 0 }}>{c.body}</p>
                 {commentDeleteErrors[c.id] && <p role="alert" style={{ color: 'var(--negative)', fontSize: 12 }}>{commentDeleteErrors[c.id]}</p>}
@@ -511,15 +512,16 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
             />
           </label>
           <div className="flex justify-end" style={{ marginTop: 8, gap: 8 }}>
-            {commentBody && <button type="button" disabled={commentSubmitting || deleting} onClick={() => { setCommentBody(''); setCommentError(null); }} style={ghostButton()}>Discard comment draft</button>}
-            <button
-              type="button"
+            {commentBody && <Button variant="quiet" disabled={commentSubmitting || deleting} onClick={() => { setCommentBody(''); setCommentError(null); }}>Discard comment draft</Button>}
+            <Button
+              variant="primary"
               onClick={postComment}
-              disabled={deleting || commentSubmitting || !commentBody.trim()}
-              style={{ ...solidButton(), opacity: commentBody.trim() ? 1 : 0.5 }}
+              disabled={deleting || !commentBody.trim()}
+              pending={commentSubmitting}
+              pendingLabel="Posting"
             >
-              {commentSubmitting ? 'Posting…' : 'Post comment'}
-            </button>
+              Post comment
+            </Button>
           </div>
           {commentError && <p role="alert" style={{ color: 'var(--negative)', fontSize: 12 }}>{commentError} <a href={`/work/tasks/${task.id}`} target="_blank" rel="noopener noreferrer">View saved comments</a></p>}
         </div>
@@ -533,27 +535,28 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
               <span style={{ fontSize: 13, color: 'var(--ink)' }}>
                 Delete this to-do{commentList.length > 0 ? ` and its ${commentList.length} comment${commentList.length === 1 ? '' : 's'}` : ''}? This cannot be undone.
               </span>
-              <button
-                type="button"
+              <Button
+                variant="danger"
+                data-armed=""
                 onClick={handleDelete}
-                disabled={deleting || isPending || saving !== null || commentSubmitting || commentDeletePending.length > 0}
-                style={{ ...dangerButton(), background: 'var(--negative)', color: 'var(--paper)' }}
+                disabled={isPending || saving !== null || commentSubmitting || commentDeletePending.length > 0}
+                pending={deleting}
+                pendingLabel="Deleting"
               >
-                {deleting ? 'Deleting…' : 'Delete for good'}
-              </button>
-              <button type="button" onClick={() => setConfirmingDelete(false)} disabled={deleting} style={ghostButton()}>
+                Delete for good
+              </Button>
+              <Button onClick={() => setConfirmingDelete(false)} disabled={deleting}>
                 Keep it
-              </button>
+              </Button>
             </div>
           ) : (
-            <button
-              type="button"
+            <Button
+              variant="danger"
               onClick={() => setConfirmingDelete(true)}
               disabled={busy || isPending || commentSubmitting || commentDeletePending.length > 0}
-              style={dangerButton()}
             >
               Delete to-do
-            </button>
+            </Button>
           )}
           {deleteError && <div role="alert" style={{ marginTop: 10, fontSize: 12, color: 'var(--negative)' }}>{deleteError}</div>}
         </div>
@@ -673,64 +676,4 @@ function inputStyle(): React.CSSProperties {
 
 function textareaStyle(): React.CSSProperties {
   return { ...inputStyle(), fontFamily: 'inherit', resize: 'vertical' };
-}
-
-const smallSolidButton: React.CSSProperties = {
-  background: 'var(--ink)',
-  color: 'var(--paper)',
-  border: '1px solid var(--ink)',
-  padding: '5px 14px',
-  fontSize: 10,
-  letterSpacing: '.16em',
-  textTransform: 'uppercase',
-  fontWeight: 600,
-  cursor: 'pointer',
-};
-
-function quietButton(busy: boolean): React.CSSProperties {
-  return { ...smallGhostButton, cursor: busy ? 'wait' : 'pointer' };
-}
-
-function solidButton(): React.CSSProperties {
-  return {
-    background: 'var(--ink)',
-    color: 'var(--paper)',
-    border: '1.5px solid var(--ink)',
-    padding: '10px 22px',
-    fontSize: 11,
-    letterSpacing: '.18em',
-    textTransform: 'uppercase',
-    fontWeight: 600,
-    cursor: 'pointer',
-    minHeight: 42,
-  };
-}
-
-function ghostButton(): React.CSSProperties {
-  return {
-    background: 'transparent',
-    color: 'var(--ink-3)',
-    border: '1px solid var(--rule)',
-    padding: '10px 18px',
-    fontSize: 11,
-    letterSpacing: '.18em',
-    textTransform: 'uppercase',
-    fontWeight: 500,
-    cursor: 'pointer',
-    minHeight: 42,
-  };
-}
-
-function dangerButton(): React.CSSProperties {
-  return {
-    background: 'transparent',
-    border: '1px solid var(--negative)',
-    padding: '10px 14px',
-    fontSize: 11,
-    letterSpacing: '.16em',
-    textTransform: 'uppercase',
-    color: 'var(--negative)',
-    cursor: 'pointer',
-    minHeight: 42,
-  };
 }
