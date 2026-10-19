@@ -42,7 +42,7 @@ export function AgreementForm({
 
       {/* ── Property ── */}
       <FormBlock title="Property">
-        <div style={grid3}>
+        <div className="rt-form-grid3" style={grid3}>
           <Field label="Helm property">
             <select name="property_id" defaultValue={d?.property_id ?? ''} style={inputStyle}>
               <option value="">Custom / not in Helm</option>
@@ -84,7 +84,7 @@ export function AgreementForm({
 
       {/* ── Guest ── */}
       <FormBlock title="Guest">
-        <div style={grid3}>
+        <div className="rt-form-grid3" style={grid3}>
           <Field label="Guest name" required>
             <input name="guest_name" type="text" required defaultValue={d?.guest_name ?? ''} placeholder="Emily Hancock" style={inputStyle} />
           </Field>
@@ -102,7 +102,7 @@ export function AgreementForm({
 
       {/* ── Stay & money ── */}
       <FormBlock title="Stay & money">
-        <div style={grid3}>
+        <div className="rt-form-grid3" style={grid3}>
           <Field label="Check-in date" required>
             <input name="stay_start" type="date" required defaultValue={d?.stay_start ?? ''} style={inputStyle} />
           </Field>
@@ -113,7 +113,7 @@ export function AgreementForm({
             <input name="rental_fee" type="number" min={0} step="0.01" required defaultValue={d?.rental_fee ?? ''} placeholder="32000" style={inputStyle} />
           </Field>
         </div>
-        <div style={grid3}>
+        <div className="rt-form-grid3" style={grid3}>
           <Field label="Deposit">
             <select name="deposit_kind" defaultValue={d?.deposit_kind ?? 'none'} style={inputStyle}>
               <option value="none">None</option>
@@ -133,7 +133,7 @@ export function AgreementForm({
 
       {/* ── Policies ── */}
       <FormBlock title="Policies">
-        <div style={grid3}>
+        <div className="rt-form-grid3" style={grid3}>
           <Field label="Check-in time">
             <input name="check_in_time" type="text" defaultValue={d?.check_in_time ?? '4:00 PM'} style={inputStyle} />
           </Field>
@@ -144,7 +144,7 @@ export function AgreementForm({
             <input name="quiet_hours" type="text" defaultValue={d?.quiet_hours ?? '11:00 PM to 7:00 AM'} style={inputStyle} />
           </Field>
         </div>
-        <div style={grid3}>
+        <div className="rt-form-grid3" style={grid3}>
           <Field label="Cancellation">
             <select name="cancel_policy" defaultValue={cancelChoice} style={inputStyle}>
               <option value="60">50% refund &gt; 60 days out (standard)</option>
@@ -187,7 +187,7 @@ export function AgreementForm({
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {Array.from({ length: clauseRows }, (_, i) => (
-            <div key={i} style={{ display: 'grid', gridTemplateColumns: '240px 1fr', gap: 12 }}>
+            <div key={i} className="rt-form-pair" style={{ display: 'grid', gridTemplateColumns: '240px 1fr', gap: 12 }}>
               <input
                 name={`clause_title_${i}`}
                 type="text"

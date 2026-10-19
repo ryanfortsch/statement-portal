@@ -23,6 +23,22 @@ export type GuestSource =
   | 'guesty_post_stay'
   | 'manual';
 
+/** The status and source words a person reads on a guest record. */
+export const GUEST_STATUS_LABEL: Record<GuestStatus, string> = {
+  subscribed: 'Subscribed',
+  unsubscribed: 'Unsubscribed',
+  bounced: 'Bounced',
+  complained: 'Marked as spam',
+  pending: 'Pending',
+};
+
+export const GUEST_SOURCE_LABEL: Record<GuestSource, string> = {
+  squarespace_import: 'Squarespace import',
+  staycapeann_signup: 'Stay Cape Ann signup',
+  guesty_post_stay: 'Guesty, after a stay',
+  manual: 'Added by hand',
+};
+
 export type GuestContact = {
   id: string;
   email: string;
@@ -115,6 +131,22 @@ export type GuestEventType =
   | 'imported'
   | 'manually_added'
   | 'resubscribed';
+
+/** A timeline event as a person reads it. */
+export const GUEST_EVENT_LABEL: Record<GuestEventType, string> = {
+  sent: 'Sent',
+  delivered: 'Delivered',
+  opened: 'Opened',
+  clicked: 'Clicked',
+  bounced: 'Bounced',
+  complained: 'Marked as spam',
+  unsubscribed: 'Unsubscribed',
+  failed: 'Failed',
+  subscribed: 'Subscribed',
+  imported: 'Imported',
+  manually_added: 'Added by hand',
+  resubscribed: 'Resubscribed',
+};
 
 export type GuestEvent = {
   id: string;

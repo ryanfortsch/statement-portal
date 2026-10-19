@@ -199,8 +199,9 @@ export default async function CampaignDetailPage({
 
       {/* COMPOSER + PREVIEW */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 56, flex: 1, width: '100%' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 32 }}>
-          {/* LEFT: the review panel (step two of a send), else the form */}
+        <div className="rt-composer" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 32 }}>
+          {/* LEFT: the review panel (step two of a send), else the form;
+              on a phone the editor sits above the preview. */}
           {reviewing ? (
             <ReviewPanel
               campaignId={campaign.id}
@@ -252,7 +253,7 @@ export default async function CampaignDetailPage({
               />
             </Field>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 12 }}>
+            <div className="rt-form-pair" style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 12 }}>
               <Field label="From name">
                 <input
                   name="from_name"
@@ -345,7 +346,7 @@ export default async function CampaignDetailPage({
           {/* RIGHT: live preview */}
           <div>
             <div className="eyebrow" style={{ marginBottom: 10 }}>Preview</div>
-            <div style={{ border: '1px solid var(--rule)', background: '#faf7f1', maxHeight: 720, overflow: 'auto' }}>
+            <div style={{ border: '1px solid var(--rule)', background: '#faf7f1', maxHeight: 'min(720px, 75svh)', overflow: 'auto' }}>
               <iframe
                 title="Campaign preview"
                 srcDoc={preview.html}
@@ -354,7 +355,7 @@ export default async function CampaignDetailPage({
                    can't replace this iframe or the parent page. The
                    preview stays put as you click around. */
                 sandbox=""
-                style={{ width: '100%', height: 720, border: 'none', display: 'block' }}
+                style={{ width: '100%', height: 'min(720px, 75svh)', border: 'none', display: 'block' }}
               />
             </div>
           </div>
