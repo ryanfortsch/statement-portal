@@ -974,7 +974,7 @@ export default async function PropertyDetailPage({
       <OpenWorkSection property={{ id: p.id, name: p.name }} slips={openSlips} brief={workBrief} myEmail={myEmail} myMailbox={myMailbox} />
 
       {/* ACTIVITY FEED */}
-      <CollapsibleSection title="Activity" summary="recent · full log on its own page">
+      <CollapsibleSection title="Activity" summary="recent">
         <Suspense
           fallback={
             <div style={{ padding: '4px 0 16px', color: 'var(--ink-3)', fontSize: 13 }}>

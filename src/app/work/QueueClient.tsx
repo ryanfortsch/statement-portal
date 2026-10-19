@@ -850,8 +850,10 @@ function PropertyGroup({
 }) {
   const signals = workSignals(slips, operatingDate());
   const highCount = slips.filter((s) => s.priority === 'high').length;
-  // No "blocked" term: a slip is never blocked (that is a task status).
-  const summary = [signals.overdue && `${signals.overdue} overdue`, signals.dueToday && `${signals.dueToday} due today`, !signals.overdue && !signals.dueToday && highCount && `${highCount} high priority`, signals.unclaimed && `${signals.unclaimed} unassigned`].filter(Boolean).join(' · ');
+  // No "blocked" term: a slip is never blocked (that is a task status). No
+  // "unassigned" count either: most slips wait in a lane by design, so the
+  // number was always large and said nothing (2026-10-19).
+  const summary = [signals.overdue && `${signals.overdue} overdue`, signals.dueToday && `${signals.dueToday} due today`, !signals.overdue && !signals.dueToday && highCount && `${highCount} high priority`].filter(Boolean).join(' · ');
   const ownerActionCount = slips.filter((s) => s.owner_action_required).length;
   // Lanes: restock, this visit, handyman run, pro, owner, office. The rule
   // is shared with the print sheet (lib/work-slip-lanes.ts), so what the

@@ -123,11 +123,8 @@ export function PropertyActivityList({
       {visible.map((e, i) => (
         <ActivityRow key={`${e.kind}-${e.at}-${i}`} event={e} />
       ))}
-      {(events.length > visible.length || more) && (
+      {more && (
         <div style={{ padding: '12px 0 4px', fontSize: 12, color: 'var(--ink-3)' }}>
-          {events.length > visible.length
-            ? `Showing ${visible.length} of ${events.length} in this window. `
-            : ''}
           {more && (
             <Link href={more} style={{ color: 'var(--signal)', textDecoration: 'none' }}>
               Full activity →

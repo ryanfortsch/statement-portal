@@ -67,7 +67,7 @@ test('the property page, the print sheet and the board all carry the brief', () 
   assert.match(page, /<OpenWorkSection /);
   const section = readFileSync(new URL('../../app/properties/[id]/OpenWorkSection.tsx', import.meta.url), 'utf8');
   assert.match(section, /groupSlipsByLane\(slips\)/);
-  assert.match(section, /briefIsStale\(brief, slips\)/);
+  assert.doesNotMatch(section, /Brief as of|rewrites tonight/, 'the brief carries no timestamp line (2026-10-19)');
   assert.match(section, /brief\.items\.map\(/);
   assert.doesNotMatch(section, /Unclaimed/);
   const sheet = readFileSync(new URL('../../app/properties/[id]/work-slips/print/page.tsx', import.meta.url), 'utf8');
