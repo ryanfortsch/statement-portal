@@ -3,6 +3,8 @@ import { HelmFooter } from '@/components/HelmFooter';
 import { FinancialsTabs } from '@/components/FinancialsTabs';
 import { ForecastClient } from './ForecastClient';
 import { ActualsSection } from './ActualsSection';
+import { HashOpenScript } from '@/components/properties/HashOpenScript';
+import { houseDay } from '@/lib/house-date';
 import { getOverhead } from '@/lib/cost-analysis';
 import { isConfigured } from '@/lib/supabase';
 import {
@@ -207,12 +209,12 @@ function StaleDataBanner({
           {daysSince > 30 ? (
             <>
               Bank actuals are <strong>{daysSince} days old</strong> (most recent transaction:{' '}
-              {latestDate}).{' '}
+              {houseDay(latestDate)}).{' '}
             </>
           ) : null}
           {operatingBehind ? (
             <>
-              The operating account (Chase ...5130) export runs only to <strong>{operatingLatestDate}</strong>
+              The operating account (Chase ...5130) export runs only to <strong>{houseDay(operatingLatestDate)}</strong>
               , {operatingDays} days ago. A month the card export covers but this one does not reads the card
               and projects rent, the bench, payroll and bank fees (the card-only months).{' '}
             </>
@@ -416,6 +418,10 @@ export default async function ForecastPage({
       />
 
       <ActualsSection overhead={overhead} operatingLatestDate={hasDbActuals ? dbActuals2026.operatingLatestTxnDate : null} />
+      {/* /cost-analysis lands on /forecast#actuals. The loading skeleton means
+          the browser's own anchor scroll fires before Actuals exists, so
+          scroll to it once the page has streamed in. */}
+      <HashOpenScript />
 
       <HelmFooter
         module="Forecast"
