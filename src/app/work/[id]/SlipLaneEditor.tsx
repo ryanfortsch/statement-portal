@@ -5,7 +5,8 @@ import { LANE_CHOICE_LABELS, LANE_HINTS, type WorkLane } from '@/lib/work-slip-l
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { updateWorkSlipLane } from '../actions';
-import { chipHintStyle, chipStyle, smallGhostButton } from './slip-controls';
+import { chipHintStyle, chipStyle } from './slip-controls';
+import { Button } from '@/components/Button';
 
 type Props = {
   slipId: string;
@@ -84,8 +85,8 @@ export function SlipLaneEditor({ slipId, propertyId, initialLane, choices }: Pro
             : `Moving to ${targetLabel}…`}
           {error && attempt && (
             <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-              <button type="button" disabled={pending} onClick={() => save(attempt)} style={smallGhostButton}>Retry</button>
-              <button type="button" disabled={pending} onClick={() => { setAttempt(null); setError(''); }} style={smallGhostButton}>Dismiss</button>
+              <Button size="sm" disabled={pending} onClick={() => save(attempt)}>Retry</Button>
+              <Button variant="quiet" disabled={pending} onClick={() => { setAttempt(null); setError(''); }}>Dismiss</Button>
             </div>
           )}
         </div>

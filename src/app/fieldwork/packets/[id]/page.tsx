@@ -31,6 +31,7 @@ import { RevealPay } from '../../roster/RevealPay';
 import { PendingButton } from '@/app/field/packet/[packetId]/PendingButton';
 import { JOB_KIND_LABEL, type JobKind } from '@/lib/field-job-kinds';
 import { houseDay } from '@/lib/house-date';
+import { buttonClass } from '@/lib/button-class';
 
 export const dynamic = 'force-dynamic';
 
@@ -356,7 +357,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                       </span>
                     </div>
                   )}
-                  <PendingButton label="Approve packet" busyLabel="Approving, sending reports…" style={btnDark} />
+                  <PendingButton label="Approve packet" busyLabel="Approving, sending reports…" className={buttonClass('primary')} />
                   <details>
                     <summary style={quietSummary}>+ Add an above-and-beyond bonus ▾</summary>
                     <div style={{ marginTop: 10 }}><BonusFields /></div>
@@ -367,7 +368,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                   <form action={requestChanges} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
                     <input type="hidden" name="packet_id" value={packet.id} />
                     <input name="note" placeholder="What to fix (optional)" style={{ ...priceInput, width: 200 }} />
-                    <PendingButton label="Request changes" busyLabel="Sending…" style={btnGhost} />
+                    <PendingButton label="Request changes" busyLabel="Sending…" className={buttonClass('secondary')} spinnerTone="ink" />
                   </form>
                 </details>
               </div>
@@ -401,7 +402,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                         </span>
                       </div>
                     )}
-                    <PendingButton label="Set final pay" busyLabel="Saving…" style={btnGhost} spinnerTone="ink" />
+                    <PendingButton label="Set final pay" busyLabel="Saving…" className={buttonClass('secondary')} spinnerTone="ink" />
                   </form>
                 </details>
                 {/* The actual payment happens outside Helm — say exactly where
@@ -428,7 +429,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                 <form action={markPacketPaid} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <input type="hidden" name="packet_id" value={packet.id} />
                   <input name="reference" placeholder="ref # (optional)" style={{ ...priceInput, width: 130 }} />
-                  <PendingButton label={`Mark paid · ${dollars(totalPayoutCents(packet))}`} busyLabel="Recording + receipt…" style={btnDark} />
+                  <PendingButton label={`Mark paid · ${dollars(totalPayoutCents(packet))}`} busyLabel="Recording + receipt…" className={buttonClass('primary')} />
                 </form>
                 {/* Decide-later bonus: quiet by default so Mark paid stays the
                     focus; opens on its own when a bonus is already set. */}
@@ -442,7 +443,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                       defaultDollars={packet.bonus_cents > 0 ? Math.round(packet.bonus_cents / 100) : undefined}
                       defaultReason={packet.bonus_reason}
                     />
-                    <button type="submit" style={btnGhost}>{packet.bonus_cents > 0 ? 'Update bonus' : 'Add bonus'}</button>
+                    <PendingButton label={packet.bonus_cents > 0 ? 'Update bonus' : 'Add bonus'} busyLabel="Saving…" className={buttonClass('secondary')} spinnerTone="ink" />
                   </form>
                 </details>
               </div>
@@ -636,7 +637,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                   <form action={unhomeReceiptFromPacket}>
                     <input type="hidden" name="packet_id" value={packet.id} />
                     <input type="hidden" name="slip_id" value={r.slipId} />
-                    <PendingButton label="Take off" busyLabel="Removing…" style={btnGhost} spinnerTone="ink" />
+                    <PendingButton label="Take off" busyLabel="Removing…" className={buttonClass('secondary')} spinnerTone="ink" />
                   </form>
                 )}
               </div>
@@ -670,7 +671,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                 <form action={homeReceiptOnPacket}>
                   <input type="hidden" name="packet_id" value={packet.id} />
                   <input type="hidden" name="slip_id" value={r.slipId} />
-                  <PendingButton label={`Add to this payout · ${dollars(r.expenseCents)}`} busyLabel="Adding…" style={btnDark} />
+                  <PendingButton label={`Add to this payout · ${dollars(r.expenseCents)}`} busyLabel="Adding…" className={buttonClass('primary')} />
                 </form>
               </div>
             ))}
@@ -704,7 +705,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                       <input type="hidden" name="packet_id" value={packet.id} />
                       <span style={{ color: 'var(--ink-4)' }}>$</span>
                       <input type="number" name="price_dollars" min={0} step={1} defaultValue={Math.round(packet.posted_price_cents / 100)} style={priceInput} />
-                      <PendingButton label="Update price" busyLabel="Updating…" style={btnGhost} spinnerTone="ink" />
+                      <PendingButton label="Update price" busyLabel="Updating…" className={buttonClass('secondary')} spinnerTone="ink" />
                     </form>
                   )}
                   {packet.visit_date < todayET() ? (
@@ -717,7 +718,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                   ) : (
                     <form action={publishPacket}>
                       <input type="hidden" name="packet_id" value={packet.id} />
-                      <PendingButton label="Publish to contractors" busyLabel="Publishing + texting inspectors…" style={btnDark} />
+                      <PendingButton label="Publish to contractors" busyLabel="Publishing + texting inspectors…" className={buttonClass('primary')} />
                     </form>
                   )}
                 </>
@@ -730,7 +731,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                   <PendingButton
                     label={readyToClose ? `Submit for ${inspectorFirst}` : `Wrap up & submit for ${inspectorFirst}`}
                     busyLabel="Closing out the trip…"
-                    style={btnDark}
+                    className={buttonClass('primary')}
                     confirm={
                       readyToClose
                         ? `Submit for ${inspectorFirst}? Every stop is done but they never tapped Submit. This closes the trip out like their own tap: stops the clock, pulls the door codes, and moves it to ${owner ? 'your review' : 'review'}.`
@@ -811,7 +812,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                             <input type="time" name="visit_time" defaultValue={packet.visit_time ?? ''} style={{ ...priceInput, width: 110 }} />
                           </label>
                         </div>
-                        <div><PendingButton label="Move" busyLabel="Moving…" style={btnGhost} spinnerTone="ink" /></div>
+                        <div><PendingButton label="Move" busyLabel="Moving…" className={buttonClass('secondary')} spinnerTone="ink" /></div>
                       </form>
                     ) : (
                       // Clear is its own form: an empty visit_time field is what
@@ -823,13 +824,13 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                             Earliest start <span style={{ fontWeight: 400 }}>(blank = any time)</span>
                             <input type="time" name="visit_time" defaultValue={packet.visit_time?.slice(0, 5) ?? ''} style={{ ...priceInput, width: 110 }} />
                           </label>
-                          <PendingButton label={`Set & email ${inspectorFirst}`} busyLabel="Setting…" style={btnGhost} spinnerTone="ink" />
+                          <PendingButton label={`Set & email ${inspectorFirst}`} busyLabel="Setting…" className={buttonClass('secondary')} spinnerTone="ink" />
                         </form>
                         {packet.visit_time && (
                           <form action={setPacketStartTime} style={{ margin: 0 }}>
                             <input type="hidden" name="packet_id" value={packet.id} />
                             <input type="hidden" name="visit_time" value="" />
-                            <PendingButton label="Clear" busyLabel="Clearing…" style={{ ...btnGhost, color: 'var(--ink-4)' }} spinnerTone="ink" />
+                            <PendingButton label="Clear" busyLabel="Clearing…" className={buttonClass('secondary')} style={{ color: 'var(--ink-4)' }} spinnerTone="ink" />
                           </form>
                         )}
                       </div>
@@ -841,13 +842,13 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                           Complete by <span style={{ fontWeight: 400 }}>(the board flags them late after it)</span>
                           <input type="time" name="complete_by" defaultValue={packet.complete_by?.slice(0, 5) ?? ''} style={{ ...priceInput, width: 110 }} />
                         </label>
-                        <PendingButton label="Set" busyLabel="Setting…" style={btnGhost} spinnerTone="ink" />
+                        <PendingButton label="Set" busyLabel="Setting…" className={buttonClass('secondary')} spinnerTone="ink" />
                       </form>
                       {packet.complete_by && (
                         <form action={setPacketCompleteBy} style={{ margin: 0 }}>
                           <input type="hidden" name="packet_id" value={packet.id} />
                           <input type="hidden" name="complete_by" value="" />
-                          <PendingButton label="Clear" busyLabel="Clearing…" style={{ ...btnGhost, color: 'var(--ink-4)' }} spinnerTone="ink" />
+                          <PendingButton label="Clear" busyLabel="Clearing…" className={buttonClass('secondary')} style={{ color: 'var(--ink-4)' }} spinnerTone="ink" />
                         </form>
                       )}
                     </div>
@@ -866,7 +867,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                       <span style={{ fontSize: 14, color: 'var(--ink-4)' }}>$</span>
                       <input type="number" name="price_dollars" min={Math.round(packet.posted_price_cents / 100) + 1} step={1} defaultValue={Math.round(packet.posted_price_cents / 100)} aria-label={`New pay, above the agreed ${dollars(packet.posted_price_cents)}`} style={{ ...priceInput, width: 90 }} />
                       <input name="reason" placeholder="reason (optional)" maxLength={500} style={{ ...priceInput, width: 150 }} />
-                      <PendingButton label="Raise pay" busyLabel="Saving…" style={btnGhost} spinnerTone="ink" confirm={`Raise ${inspectorFirst}'s pay above the agreed ${dollars(packet.posted_price_cents)}? We email them the new amount.`} />
+                      <PendingButton label="Raise pay" busyLabel="Saving…" className={buttonClass('secondary')} spinnerTone="ink" confirm={`Raise ${inspectorFirst}'s pay above the agreed ${dollars(packet.posted_price_cents)}? We email them the new amount.`} />
                     </form>
                   </div>
                 </details>
@@ -899,7 +900,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                         <PendingButton
                           label="Add stop"
                           busyLabel="Adding…"
-                          style={btnGhost}
+                          className={buttonClass('secondary')}
                           spinnerTone="ink"
                           confirm={isWorkingStatus(packet.status) ? `Add this stop? It joins ${inspectorFirst}'s route and pay, and we email them the change.` : undefined}
                         />
@@ -1093,28 +1094,6 @@ const priceInput: React.CSSProperties = {
   border: '1px solid var(--rule)',
   padding: '6px 8px',
   width: 90,
-};
-const btnDark: React.CSSProperties = {
-  background: 'var(--ink)',
-  color: 'var(--paper)',
-  border: 'none',
-  cursor: 'pointer',
-  fontSize: 11,
-  fontWeight: 600,
-  letterSpacing: '0.12em',
-  textTransform: 'uppercase',
-  padding: '10px 18px',
-};
-const btnGhost: React.CSSProperties = {
-  background: 'transparent',
-  color: 'var(--ink-3)',
-  border: '1px solid var(--rule)',
-  cursor: 'pointer',
-  fontSize: 11,
-  fontWeight: 600,
-  letterSpacing: '0.1em',
-  textTransform: 'uppercase',
-  padding: '9px 16px',
 };
 
 // The whisper tier: rarely-used levers render as small underlined text, not

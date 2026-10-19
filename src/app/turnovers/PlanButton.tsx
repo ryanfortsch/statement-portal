@@ -8,6 +8,7 @@ import { displayNameForEmail } from '@/lib/team';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { operatingDate } from '@/lib/operating-date';
 import { useConfirm } from '@/components/ConfirmDialog';
+import { Button } from '@/components/Button';
 
 type Props = {
   guestyReservationId: string;
@@ -130,9 +131,9 @@ export function PlanButton({
   if (!open) {
     if (variant === 'verb') {
       return (
-        <button type="button" onClick={openEditor} className="rt-tb-verbbtn">
+        <Button size="sm" onClick={openEditor}>
           Plan walk
-        </button>
+        </Button>
       );
     }
     if (saved.id) {
@@ -318,61 +319,19 @@ export function PlanButton({
 
         <div className="flex items-center justify-between" style={{ marginTop: 18, gap: 10 }}>
           {saved.id ? (
-            <button
-              type="button"
-              onClick={clearPlan}
-              disabled={submitting}
-              style={{
-                background: 'transparent',
-                border: '1px solid var(--negative)',
-                color: 'var(--negative)',
-                padding: '10px 14px',
-                fontSize: 11,
-                letterSpacing: '.18em',
-                textTransform: 'uppercase',
-                cursor: submitting ? 'wait' : 'pointer',
-              }}
-            >
+            <Button variant="danger" onClick={clearPlan} disabled={submitting}>
               Remove plan
-            </button>
+            </Button>
           ) : (
             <span />
           )}
           <div style={{ display: 'flex', gap: 8 }}>
-            <button
-              type="button"
-              onClick={requestClose}
-              style={{
-                background: 'transparent',
-                border: '1px solid var(--rule)',
-                color: 'var(--ink-3)',
-                padding: '10px 16px',
-                fontSize: 11,
-                letterSpacing: '.18em',
-                textTransform: 'uppercase',
-                cursor: 'pointer',
-              }}
-            >
+            <Button onClick={requestClose}>
               Cancel
-            </button>
-            <button
-              type="button"
-              onClick={save}
-              disabled={submitting}
-              style={{
-                background: submitting ? 'var(--ink-4)' : 'var(--ink)',
-                color: 'var(--paper)',
-                border: 'none',
-                padding: '10px 18px',
-                fontSize: 11,
-                letterSpacing: '.18em',
-                textTransform: 'uppercase',
-                fontWeight: 600,
-                cursor: submitting ? 'wait' : 'pointer',
-              }}
-            >
-              {submitting ? 'Saving…' : 'Save Plan'}
-            </button>
+            </Button>
+            <Button variant="primary" onClick={save} pending={submitting} pendingLabel="Saving">
+              Save Plan
+            </Button>
           </div>
         </div>
       </fieldset>

@@ -4,6 +4,7 @@ import { Fragment, useCallback, useState, type ReactNode } from 'react';
 import { Section } from '@/components/Section';
 import { QueueRefreshControl } from '@/components/QueueRefreshControl';
 import { UndoToast } from './UndoToast';
+import { Button } from '@/components/Button';
 import type { CardResult, Decision } from './types';
 
 /**
@@ -74,9 +75,9 @@ export function ApprovalQueue<T extends { id: string; status?: string; send_at?:
           style={{ width: '100%', margin: '14px auto 0', fontSize: 13, color: 'var(--signal)', display: 'flex', gap: 14, alignItems: 'baseline', flexWrap: 'wrap' }}
         >
           <span>{notice}</span>
-          <button type="button" className="rt-quiet-btn" onClick={() => setNotice(null)}>
+          <Button variant="quiet" onClick={() => setNotice(null)}>
             Dismiss
-          </button>
+          </Button>
         </p>
       )}
       <Section

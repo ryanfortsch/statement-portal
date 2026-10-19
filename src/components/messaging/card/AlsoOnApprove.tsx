@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import type { AlsoItem } from './types';
+import { Button } from '@/components/Button';
 
 /**
  * Everything approving this card will also do, one line each, behind one
@@ -24,9 +25,9 @@ export function AlsoOnApprove({ items }: { items: AlsoItem[] }) {
       <div className="rt-also-head">
         <span className="eyebrow" style={{ color: 'var(--ink-3)' }}>Also on approve</span>
         {hasBodies && !needsAnswer && (
-          <button type="button" className="rt-quiet-btn" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+          <Button variant="quiet" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
             {open ? 'Hide details' : 'Details'}
-          </button>
+          </Button>
         )}
       </div>
       <ul className="rt-also-list">

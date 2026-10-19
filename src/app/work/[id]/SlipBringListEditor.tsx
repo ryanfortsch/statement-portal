@@ -4,6 +4,7 @@ import { useRef, useState, useTransition } from 'react';
 import { updateWorkSlipBringList } from '../actions';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
+import { Button } from '@/components/Button';
 
 type Props = {
   slipId: string;
@@ -93,14 +94,9 @@ export function SlipBringListEditor({ slipId, initialBringList }: Props) {
       <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
         <div className="eyebrow" style={{ color: 'var(--signal)' }}>Supply run · what to bring</div>
         {!editing && (
-          <button
-            type="button"
-            onClick={beginEdit}
-            disabled={pending}
-            style={{ background: 'none', border: '1px solid var(--rule)', padding: '4px 10px', fontSize: 10, letterSpacing: '.16em', textTransform: 'uppercase', color: 'var(--ink-3)', cursor: pending ? 'wait' : 'pointer' }}
-          >
-            {pending ? 'Saving…' : 'Edit'}
-          </button>
+          <Button size="sm" onClick={beginEdit} pending={pending} pendingLabel="Saving">
+            Edit
+          </Button>
         )}
       </div>
 
@@ -124,8 +120,8 @@ export function SlipBringListEditor({ slipId, initialBringList }: Props) {
             style={{ width: '100%', font: 'inherit', fontSize: 14, color: 'var(--ink)', background: 'var(--paper)', border: '1px solid var(--rule)', borderRadius: 6, padding: '8px 10px', outline: 'none', resize: 'vertical', lineHeight: 1.5 }}
           />
           <div className="flex items-center gap-2" style={{ marginTop: 8 }}>
-            <button type="button" onClick={save} disabled={pending} style={{ background: 'var(--ink)', color: 'var(--paper)', border: '1px solid var(--ink)', padding: '5px 14px', fontSize: 10, letterSpacing: '.16em', textTransform: 'uppercase', fontWeight: 600, cursor: pending ? 'wait' : 'pointer' }}>{pending ? 'Saving…' : 'Save'}</button>
-            <button type="button" onClick={cancel} disabled={pending} style={{ background: 'none', border: '1px solid var(--rule)', padding: '5px 14px', fontSize: 10, letterSpacing: '.16em', textTransform: 'uppercase', color: 'var(--ink-3)', cursor: 'pointer' }}>Cancel</button>
+            <Button variant="primary" size="sm" onClick={save} pending={pending} pendingLabel="Saving">Save</Button>
+            <Button size="sm" onClick={cancel} disabled={pending}>Cancel</Button>
             <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>⌘+Enter to save</span>
           </div>
         </div>

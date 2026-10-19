@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from 'react';
 import { confirmCleaningDoneAction } from './cleaning-actions';
+import { Button } from '@/components/Button';
 
 /**
  * The operator's hand on a clean: confirm an estimated finish, or mark the
@@ -47,9 +48,9 @@ export function MarkCleaned({
 
   if (!confirming) {
     return (
-      <button type="button" onClick={() => setConfirming(true)} style={markButton(false)}>
+      <Button size="sm" onClick={() => setConfirming(true)}>
         {estimated ? 'Confirm cleaned' : 'Mark cleaned'}
-      </button>
+      </Button>
     );
   }
   return (
@@ -57,20 +58,19 @@ export function MarkCleaned({
       <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
         {estimated ? 'The cleaner has finished?' : 'Mark this home cleaned by hand?'}
       </span>
-      <button type="button" onClick={save} disabled={pending} style={markButton(true, pending)}>
-        {pending ? 'Saving…' : error ? 'Retry' : 'Confirm'}
-      </button>
-      <button
-        type="button"
+      <Button variant="primary" size="sm" onClick={save} pending={pending} pendingLabel="Saving">
+        {error ? 'Retry' : 'Confirm'}
+      </Button>
+      <Button
+        size="sm"
         onClick={() => {
           setConfirming(false);
           setError('');
         }}
         disabled={pending}
-        style={markButton(false, pending)}
       >
         Cancel
-      </button>
+      </Button>
       {error && (
         <span role="alert" style={{ fontSize: 11, color: 'var(--negative)' }}>
           {error}
@@ -78,21 +78,4 @@ export function MarkCleaned({
       )}
     </span>
   );
-}
-
-/** Solid for the commit, ghost for the rest; tall enough for a thumb. */
-function markButton(solid: boolean, busy = false): React.CSSProperties {
-  return {
-    background: solid ? 'var(--ink)' : 'none',
-    color: solid ? 'var(--paper)' : 'var(--ink-3)',
-    border: `1px solid ${solid ? 'var(--ink)' : 'var(--rule)'}`,
-    padding: '8px 14px',
-    minHeight: 40,
-    fontSize: 11,
-    letterSpacing: '.14em',
-    textTransform: 'uppercase',
-    fontWeight: 600,
-    cursor: busy ? 'wait' : 'pointer',
-    opacity: busy ? 0.6 : 1,
-  };
 }

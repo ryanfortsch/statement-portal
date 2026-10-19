@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { SubmitButton } from '@/components/SubmitButton';
+import { buttonClass } from '@/lib/button-class';
 import type { BoardRow } from '@/lib/turnover-board';
 import { TurnoverRail } from './TurnoverRail';
 import { PlanButton } from './PlanButton';
@@ -171,14 +172,14 @@ export function BoardLine({ row, today, myEmail }: { row: BoardRow; today: strin
                 <input type="hidden" name="check_in" value={t.checkIn.slice(0, 10)} />
                 <input type="hidden" name="reservation_id" value={t.reservationId} />
                 <input type="hidden" name="guest_name" value={t.guestName ?? ''} />
-                <SubmitButton label="Mark ready" busyLabel="Marking…" spinnerTone="ink" className="rt-tb-verbbtn" />
+                <SubmitButton label="Mark ready" busyLabel="Marking…" spinnerTone="ink" className={buttonClass('secondary', 'sm')} />
               </form>
             )}
             {t?.manuallyCompleted && (
               <form action={unmarkTurnoverComplete} style={{ margin: 0 }}>
                 <input type="hidden" name="property_id" value={t.propertyId} />
                 <input type="hidden" name="check_in" value={t.checkIn.slice(0, 10)} />
-                <SubmitButton label="Undo ready" busyLabel="Undoing…" spinnerTone="ink" className="rt-tb-verbbtn" />
+                <SubmitButton label="Undo ready" busyLabel="Undoing…" spinnerTone="ink" className={buttonClass('secondary', 'sm')} />
               </form>
             )}
           </div>
@@ -215,7 +216,7 @@ function Verb({ row, myEmail }: { row: BoardRow; myEmail: string }) {
       return (
         <form action={startInspection} style={{ margin: 0 }}>
           <input type="hidden" name="property_id" value={t.propertyId} />
-          <SubmitButton label="Start walk" busyLabel="Starting…" className="rt-tn-start" />
+          <SubmitButton label="Start walk" busyLabel="Starting…" className={buttonClass('primary', 'sm')} />
         </form>
       );
     case 'plan':

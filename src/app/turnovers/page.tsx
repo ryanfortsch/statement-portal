@@ -11,6 +11,7 @@ import { startInspection } from '../inspections/actions';
 import { PropertyFilterSelect } from './PropertyFilterSelect';
 import { BoardLine } from './BoardLine';
 import { operatingDate } from '@/lib/operating-date';
+import { buttonClass } from '@/lib/button-class';
 import { loadPacketStatusByBooking } from '@/lib/field-packets';
 import { loadCleaningSchedule } from '@/lib/cleaning-schedule';
 import type { CleaningDay } from '@/lib/cleaning-days';
@@ -500,7 +501,7 @@ function WalkHomeNow({ properties }: { properties: { value: string; label: strin
           <option key={p.value} value={p.value}>{p.label}</option>
         ))}
       </select>
-      <SubmitButton label="Start" busyLabel="Starting…" className="rt-tn-start" />
+      <SubmitButton label="Start" busyLabel="Starting…" className={buttonClass('primary', 'sm')} />
     </form>
   );
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import { Button } from '@/components/Button';
 
 /**
  * The card's buttons, one set for every queue. One dark primary (send), boxed
@@ -10,18 +11,7 @@ import type { ReactNode } from 'react';
  * the others fade.
  */
 
-export function LoadingLabel({ label }: { label: string }) {
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center' }}>
-      {label}
-      <span aria-hidden="true" style={{ display: 'inline-flex', alignItems: 'center', marginLeft: 6, gap: 3 }}>
-        <span className="rt-loading-dot" />
-        <span className="rt-loading-dot" />
-        <span className="rt-loading-dot" />
-      </span>
-    </span>
-  );
-}
+export { LoadingLabel } from '@/components/Button';
 
 type ButtonProps = {
   children: ReactNode;
@@ -32,71 +22,32 @@ type ButtonProps = {
   title?: string;
 };
 
+// The card's three faces are the house Button's (src/components/Button.tsx).
+// The watchdog stays off here: a Redraft or a send can run long on the
+// concierge, and the card already says why a card waits (card-wait-reason).
+
 export function PrimaryButton({ children, onClick, disabled, loading, loadingLabel, title }: ButtonProps) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      aria-busy={loading || undefined}
-      title={title}
-      style={{
-        background: disabled && !loading ? 'var(--ink-4)' : 'var(--ink)',
-        color: 'var(--paper)',
-        border: '2px solid var(--ink)',
-        padding: '13px 22px',
-        fontSize: 12,
-        letterSpacing: '0.18em',
-        textTransform: 'uppercase',
-        fontWeight: 700,
-        cursor: disabled ? 'not-allowed' : 'pointer',
-        opacity: disabled && !loading ? 0.7 : 1,
-      }}
-    >
-      {loading ? <LoadingLabel label={loadingLabel || 'Working'} /> : children}
-    </button>
+    <Button variant="primary" size="lg" onClick={onClick} disabled={disabled} pending={loading} pendingLabel={loadingLabel} title={title} watchdog={false}>
+      {children}
+    </Button>
   );
 }
 
 export function SecondaryButton({ children, onClick, disabled, loading, loadingLabel, title }: ButtonProps) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      aria-busy={loading || undefined}
-      title={title}
-      style={{
-        background: loading ? 'var(--paper-2)' : 'var(--paper)',
-        color: loading ? 'var(--ink)' : 'var(--ink-2)',
-        border: loading ? '1px solid var(--ink)' : '1px solid var(--ink-3)',
-        padding: '10px 16px',
-        fontSize: 11,
-        letterSpacing: '0.18em',
-        textTransform: 'uppercase',
-        fontWeight: 500,
-        cursor: disabled ? 'not-allowed' : 'pointer',
-        opacity: disabled && !loading ? 0.5 : 1,
-      }}
-    >
-      {loading ? <LoadingLabel label={loadingLabel || 'Working'} /> : children}
-    </button>
+    <Button variant="secondary" onClick={onClick} disabled={disabled} pending={loading} pendingLabel={loadingLabel} title={title} watchdog={false}>
+      {children}
+    </Button>
   );
 }
 
 /** Text-only tertiary action, styled by .rt-quiet-btn in globals.css. */
 export function QuietButton({ children, onClick, disabled, loading, loadingLabel, title }: ButtonProps) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      aria-busy={loading || undefined}
-      title={title}
-      className="rt-quiet-btn"
-    >
-      {loading ? <LoadingLabel label={loadingLabel || 'Working'} /> : children}
-    </button>
+    <Button variant="quiet" onClick={onClick} disabled={disabled} pending={loading} pendingLabel={loadingLabel} title={title} watchdog={false}>
+      {children}
+    </Button>
   );
 }
 

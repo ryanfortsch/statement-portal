@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { typedWordMatches } from '@/lib/confirm-question';
+import { buttonClass } from '@/lib/button-class';
 
 /**
  * One confirm style: the paper-and-ink modal the statements page already
@@ -336,15 +337,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
             )}
             <div style={{ marginTop: 20, display: 'flex', justifyContent: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
               {pending.kind !== 'notify' && (
-                <button
-                  type="button"
-                  onClick={() => close('no')}
-                  style={{
-                    background: 'transparent', border: '1px solid var(--rule)', color: 'var(--ink-3)',
-                    fontSize: 11, fontWeight: 600, letterSpacing: '.1em', textTransform: 'uppercase',
-                    padding: '10px 16px', minHeight: 40, cursor: 'pointer',
-                  }}
-                >
+                <button type="button" onClick={() => close('no')} className={buttonClass('secondary')}>
                   {pending.o.cancelLabel || 'Cancel'}
                 </button>
               )}
@@ -358,32 +351,22 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
                       type="button"
                       autoFocus={primary}
                       onClick={() => close('yes', c.value)}
-                      style={{
-                        background: primary ? (red ? 'var(--negative)' : 'var(--ink)') : 'transparent',
-                        border: `1px solid ${red ? 'var(--negative)' : 'var(--ink)'}`,
-                        color: primary ? 'var(--paper)' : red ? 'var(--negative)' : 'var(--ink)',
-                        fontSize: 11, fontWeight: 600, letterSpacing: '.1em', textTransform: 'uppercase',
-                        padding: '10px 18px', minHeight: 40, cursor: 'pointer',
-                      }}
+                      className={buttonClass(red ? 'danger' : primary ? 'primary' : 'secondary')}
+                      data-armed={red && primary ? '' : undefined}
                     >
                       {c.label}
                     </button>
                   );
                 })
               ) : (
+                // A red question's verb is the danger face, filled (armed).
                 <button
                   type="button"
                   autoFocus={pending.kind !== 'text' && !gate}
                   disabled={blocked}
                   onClick={() => close('yes')}
-                  style={{
-                    background: danger ? 'var(--negative)' : 'var(--ink)',
-                    border: `1px solid ${danger ? 'var(--negative)' : 'var(--ink)'}`,
-                    color: 'var(--paper)',
-                    fontSize: 11, fontWeight: 600, letterSpacing: '.1em', textTransform: 'uppercase',
-                    padding: '10px 18px', minHeight: 40, cursor: blocked ? 'not-allowed' : 'pointer',
-                    opacity: blocked ? 0.4 : 1,
-                  }}
+                  className={buttonClass(danger ? 'danger' : 'primary')}
+                  data-armed={danger ? '' : undefined}
                 >
                   {pending.kind === 'notify' ? 'OK' : pending.o.confirmLabel}
                 </button>

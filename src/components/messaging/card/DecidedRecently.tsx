@@ -13,6 +13,7 @@ import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { relativeTimeShort, statusToneColor } from '@/app/messaging/format';
 import type { CardResult } from './types';
+import { Button } from '@/components/Button';
 
 export type DecidedRow = {
   id: string;
@@ -93,9 +94,9 @@ export function DecidedRecently({ items, undo }: { items: DecidedRow[]; undo: (i
         })}
       </ul>
       {(hidden > 0 || expanded) && (
-        <button type="button" onClick={() => setExpanded((v) => !v)} aria-expanded={expanded} className="rt-quiet-btn" style={{ marginTop: 10 }}>
+        <Button variant="quiet" onClick={() => setExpanded((v) => !v)} aria-expanded={expanded} style={{ marginTop: 10 }}>
           {expanded ? 'Show fewer' : `Show ${hidden} more`}
-        </button>
+        </Button>
       )}
     </section>
   );
@@ -131,25 +132,9 @@ export function UndoButton({ id, undo, label = 'Undo' }: { id: string; undo: (id
   }
   return (
     <span style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
-      <button
-        type="button"
-        onClick={onClick}
-        disabled={isPending}
-        style={{
-          fontSize: 10,
-          letterSpacing: '0.18em',
-          textTransform: 'uppercase',
-          fontWeight: 600,
-          color: 'var(--ink-2)',
-          background: 'transparent',
-          border: '1px solid var(--rule)',
-          padding: '6px 12px',
-          cursor: isPending ? 'wait' : 'pointer',
-          whiteSpace: 'nowrap',
-        }}
-      >
-        {isPending ? 'Undoing…' : label}
-      </button>
+      <Button size="sm" onClick={onClick} pending={isPending} pendingLabel="Undoing">
+        {label}
+      </Button>
       {error && <span style={{ fontSize: 11, color: 'var(--signal, #c85a3a)', maxWidth: 260, textAlign: 'right' }}>{error}</span>}
     </span>
   );

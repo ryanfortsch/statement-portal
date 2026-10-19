@@ -204,22 +204,9 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
 .rt-tb-slot[data-tone="mute"] { color: var(--ink-4); }
 .rt-tb-slot a { color: inherit; text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
 .rt-tb-verb { grid-column: 5; grid-row: 1; justify-self: end; display: flex; align-items: center; }
-/* The quieter verbs (Plan walk, Mark ready, Undo ready): an outlined twin of
-   the solid Start walk button (.rt-tn-start). */
-.rt-tb-verbbtn {
-  background: transparent;
-  color: var(--ink);
-  border: 1px solid var(--ink-4);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  padding: 6px 12px;
-  min-height: 32px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.rt-tb-verbbtn:hover { border-color: var(--ink); }
+/* The verbs (Start walk, Plan walk, Mark ready, Undo ready) are the house
+   Button's small faces (.rt-btn--sm): primary for Start walk, secondary for
+   the rest. */
 .rt-tb-verblink {
   display: inline-flex;
   align-items: center;
@@ -293,24 +280,8 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
   /* Thumb-sized targets: the toggle, the verb, the quiet buttons, and the
      Field link in the walk column. */
   .rt-tb-toggle,
-  .rt-tb-verb .rt-tn-start,
-  .rt-tb-verbbtn,
   .rt-tb-verblink { min-height: 44px; }
   .rt-tb-slot a { display: inline-flex; align-items: center; min-height: 44px; }
-}
-/* The Start walk button: solid navy, the board's strongest verb. */
-.rt-tn-start {
-  background: var(--ink);
-  color: var(--paper);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  padding: 6px 12px;
-  min-height: 32px;
-  border: none;
-  cursor: pointer;
-  white-space: nowrap;
 }
 /* The expanded full TurnoverRail. Flush inside the dense expansion (the old
    176px indent aligned it under the legacy date column, which no longer
@@ -876,6 +847,62 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
 }
 .rt-loading-dot:nth-child(2) { animation-delay: 0.18s; }
 .rt-loading-dot:nth-child(3) { animation-delay: 0.36s; }
+
+/* ─── Button (src/components/Button.tsx): the house button's four faces ───
+   primary (one dark verb per block), secondary (outlined alternative),
+   quiet (.rt-quiet-btn, a text exit), danger (outlined red). Sizes sm (a
+   dense row's verb: the turnover board, a slip's Retry), md (default), lg
+   (the messaging card's send). aria-busy keeps the working button at full
+   weight while the others fade. */
+.rt-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  text-decoration: none;
+  white-space: nowrap;
+  padding: 10px 16px;
+  border: 1px solid transparent;
+  border-radius: 0;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.rt-btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.rt-btn:disabled { cursor: not-allowed; }
+.rt-btn[aria-busy="true"] { cursor: wait; }
+.rt-btn--sm { font-size: 10px; font-weight: 600; letter-spacing: 0.14em; padding: 6px 12px; min-height: 32px; }
+.rt-btn--lg { font-size: 12px; padding: 13px 22px; }
+
+.rt-btn--primary { background: var(--ink); color: var(--paper); border: 2px solid var(--ink); font-weight: 700; }
+.rt-btn--primary.rt-btn--sm { border-width: 1px; }
+.rt-btn--primary:hover:not(:disabled) { background: var(--ink-2); border-color: var(--ink-2); }
+.rt-btn--primary:disabled:not([aria-busy="true"]) { background: var(--ink-4); opacity: 0.7; }
+
+.rt-btn--secondary { background: var(--paper); color: var(--ink-2); border-color: var(--ink-3); }
+.rt-btn--secondary:hover:not(:disabled) { color: var(--ink); border-color: var(--ink); }
+.rt-btn--secondary[aria-busy="true"] { background: var(--paper-2); color: var(--ink); border-color: var(--ink); }
+.rt-btn--secondary:disabled:not([aria-busy="true"]) { opacity: 0.5; }
+
+.rt-btn--danger { background: transparent; color: var(--negative); border-color: var(--negative); }
+.rt-btn--danger:hover:not(:disabled) { background: var(--negative); color: var(--paper); }
+.rt-btn--danger[aria-busy="true"] { background: var(--negative); color: var(--paper); }
+/* An inline two-tap confirm's second tap ("Sure? Cancel it") is filled. */
+.rt-btn--danger[data-armed] { background: var(--negative); color: var(--paper); }
+.rt-btn--danger:disabled:not([aria-busy="true"]) { opacity: 0.5; }
+
+.rt-quiet-btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+
+@media (max-width: 640px) {
+  /* Thumb-sized on a phone, every size. */
+  .rt-btn { min-height: 44px; }
+}
+/* ─── end Button ─── */
 
 /* Section divider between the primary trio and the "More" set, so the
    mobile sheet reads with the same two-tier hierarchy as the desktop

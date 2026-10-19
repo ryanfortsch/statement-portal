@@ -17,7 +17,14 @@ for(const [name,path] of [
  ['sms','src/app/field/SmsToggle.tsx'],['checklist','src/app/properties/[id]/OnboardingItemToggle.tsx'],
  ['attachments','src/app/fieldwork/packets/[id]/StopAttachments.tsx'],['text','src/app/fieldwork/packets/[id]/PacketTextEditor.tsx'],['order','src/app/fieldwork/packets/[id]/StopList.tsx'],
  ['retained','src/lib/use-retained-submission.ts'],['unsaved','src/lib/unsaved-work.ts'],
+ ['button','src/components/Button.tsx'],
+ ['button-class','src/lib/button-class.ts'],
+ ['watchdog','src/lib/use-pending-watchdog.ts'],
+ ['confirm-dialog','src/components/ConfirmDialog.tsx'],
+ ['confirm-question','src/lib/confirm-question.ts'],
 ])await writeFile(join(scratch,name+'.js'),compile(await readFile(join(root,path),'utf8')));
+// version-skew reads process.env, which only Next defines; Button's watchdog imports it.
+await writeFile(join(scratch,'skew.js'),'export const reloadedForNewDeployment=()=>Promise.resolve(false);');
 await writeFile(join(scratch,'actions.js'),`
 export const save=(kind,args)=>new Promise((resolve,reject)=>window.calls.push({kind,args,resolve,reject}));
 export const submitApplication=(prev,data)=>save('apply',[...data.entries()].filter(([k,v])=>typeof v==='string'));
@@ -58,7 +65,7 @@ if(!mounted)return null;return <>
 {mode==='order'&&<section id="order"><StopList packetId="packet-a" canReorder={!params.has('readonly')} items={ids.map(id=>({id,node:<div data-stop={id} style={{height:60}}>Stop {id}</div>}))}/></section>}
 </>;}createRoot(document.getElementById('root')).render(<Fixture/>);
 `));
-const alias={'./actions':'actions','../actions':'actions','./onboarding-actions':'actions','./ApplyVideo':'video','./PaymentFields':'payment','./TinInput':'tin','./PacketTextEditor':'text','@/components/PhoneInput':'phone','@/lib/phone':'phone-lib','@/lib/use-retained-submission':'retained','./unsaved-work':'unsaved','@/lib/unsaved-work':'unsaved','@/lib/use-soft-refresh':'refresh','@vercel/blob/client':'blob','next/navigation':'router'};
+const alias={'@/lib/version-skew':'skew','@/lib/confirm-question':'confirm-question','@/components/ConfirmDialog':'confirm-dialog','@/lib/use-pending-watchdog':'watchdog','@/lib/button-class':'button-class','@/components/Button':'button','./actions':'actions','../actions':'actions','./onboarding-actions':'actions','./ApplyVideo':'video','./PaymentFields':'payment','./TinInput':'tin','./PacketTextEditor':'text','@/components/PhoneInput':'phone','@/lib/phone':'phone-lib','@/lib/use-retained-submission':'retained','./unsaved-work':'unsaved','@/lib/unsaved-work':'unsaved','@/lib/use-soft-refresh':'refresh','@vercel/blob/client':'blob','next/navigation':'router'};
 await new Promise((resolve,reject)=>{const compiler=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.js'),output:{path:scratch,filename:'bundle.js'},resolve:{modules:[join(root,'node_modules')],alias:Object.fromEntries(Object.entries(alias).map(([k,v])=>[k,join(scratch,v+'.js')]))},performance:{hints:false}});compiler.run((err,stats)=>compiler.close(()=>err||stats?.hasErrors()?reject(err||Error(stats.toString({all:false,errors:true}))):resolve()));});
 if(process.argv.includes('--compile-only')){console.log('Intake and job fixture compiled.');await rm(scratch,{recursive:true,force:true});process.exit(0);}
 const server=createServer(async(req,res)=>{if(req.method!=='GET'){res.writeHead(405).end();return;}res.setHeader('Cache-Control','no-store');res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'");if(req.url==='/bundle.js'){res.setHeader('Content-Type','text/javascript; charset=utf-8');res.end(await readFile(join(scratch,'bundle.js')));}else{res.setHeader('Content-Type','text/html; charset=utf-8');res.end('<!doctype html><title>Synthetic intake and job controls</title><style>body{font:14px system-ui;--ink:#222;--paper:#fff;--rule:#ccc}section{margin:20px}button{margin:4px}input,textarea,select{margin:4px}</style><div id="root"></div><script src="/bundle.js"></script>');}});
