@@ -104,4 +104,14 @@ describe('Guest & listing', () => {
       assert.ok(card.includes(verb), `${verb} is gone`);
     }
   });
+
+  test('an empty listing is one line, not a run of empty blocks', () => {
+    const panel = read(PANEL);
+    assert.ok(panel.includes("'Helm has no listing copy for this home yet. The live listing is in Guesty.'"));
+    assert.ok(panel.includes('const none = !hasListingCopy(content, photos.length) && asked.size === 0;'));
+    // The live staycapeann.com copy stands in for the line when there is one.
+    assert.ok(panel.includes('<ScaSnapshotBlock snapshot={sca.snapshot}'));
+    const page = read(PAGE);
+    assert.ok(page.includes('sca={scaSnapshot}'), 'the page stopped passing the live copy');
+  });
 });

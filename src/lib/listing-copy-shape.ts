@@ -67,3 +67,60 @@ export function splitSummary(summary: string | null | undefined): { tagline: str
   }
   return { tagline: rest.join(' ').trim(), highlights };
 }
+
+/** The listing record's fields that make it Helm's own copy of the listing. */
+export type ListingCopyFields = {
+  title?: string | null;
+  summary?: string | null;
+  space?: string | null;
+  access?: string | null;
+  interaction?: string | null;
+  neighborhood?: string | null;
+  notes?: string | null;
+  amenities?: readonly string[] | null;
+  amenities_not_included?: readonly string[] | null;
+};
+
+/**
+ * Has Helm written any listing copy of its own: the copy, the amenities, or
+ * a photo? The registry title (properties.title) does not count; every home
+ * has one. On a Guesty-run home with none of these the Listing section is one
+ * line, not a run of empty blocks.
+ */
+export function hasListingCopy(content: ListingCopyFields | null | undefined, photoCount: number): boolean {
+  if (photoCount > 0) return true;
+  if (!content) return false;
+  const text = [content.title, content.summary, content.space, content.access, content.interaction, content.neighborhood, content.notes];
+  return text.some((t) => !!t && t.trim() !== '') || (content.amenities?.length ?? 0) > 0 || (content.amenities_not_included?.length ?? 0) > 0;
+}
+
+/** The live staycapeann.com copy, read-only, for a home Helm has no copy of. */
+export type ScaListingSnapshot = {
+  title: string;
+  tagline: string;
+  highlights: string[];
+  /** The About text as the site renders it, paragraphs split on blank lines. */
+  about: string;
+  rooms: Array<{ name: string; beds: string }>;
+  heroPhoto: string | null;
+};
+
+/** A registry entry (the site's own listing record) as the snapshot reads it. */
+export function scaSnapshotFrom(entry: Record<string, unknown> | null | undefined): ScaListingSnapshot | null {
+  if (!entry) return null;
+  const str = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
+  const list = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
+  const snapshot: ScaListingSnapshot = {
+    title: str(entry.publicName),
+    tagline: str(entry.tagline) || str(entry.pitch),
+    highlights: list(entry.highlights).map(str).filter(Boolean),
+    about: str(entry.description),
+    rooms: list(entry.sleepingArrangements)
+      .map((r) => (r && typeof r === 'object' ? (r as Record<string, unknown>) : {}))
+      .map((r) => ({ name: str(r.name), beds: str(r.beds) }))
+      .filter((r) => r.name || r.beds),
+    heroPhoto: str(entry.heroPhoto) || null,
+  };
+  const anything = snapshot.title || snapshot.tagline || snapshot.highlights.length || snapshot.about || snapshot.rooms.length;
+  return anything ? snapshot : null;
+}

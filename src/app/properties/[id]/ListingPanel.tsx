@@ -17,7 +17,7 @@ import {
 } from './listing-actions';
 import Link from 'next/link';
 import type { ListingContentRow, ListingPhotoRow } from '@/lib/listing-content';
-import { descriptionBlocksFrom, splitSummary } from '@/lib/listing-copy-shape';
+import { descriptionBlocksFrom, hasListingCopy, splitSummary, type ScaListingSnapshot } from '@/lib/listing-copy-shape';
 import { HousePolicyReadout, type HousePolicyValues } from './HousePolicyReadout';
 import { HowWeSellIt, type HowWeSellItValues } from './HowWeSellIt';
 import { etStamp } from '@/lib/stable-time';
@@ -37,6 +37,12 @@ import { buttonClass } from '@/lib/button-class';
  *   Rooms and beds      read here; edited on Facts
  *   Photos              the gallery; Edit photos manages it
  *   Home type and size  property type, room type, the counts
+ *
+ * A block shows only with something in it; the empty ones collapse into one
+ * Add line. With no copy of its own (most homes, whose live listing is in
+ * Guesty) the section is one line and one Add, or, when the home is on
+ * staycapeann.com, that live copy read-only and labelled. A record seeded
+ * from Guesty reads as Guesty's copy until Edit in Helm.
  *
  * The three copy blocks are one form, so Draft with AI can fill all of them
  * and one Save keeps the draft. Every other block saves only its own columns
@@ -62,20 +68,108 @@ export type ListingPanelProps = {
   housePolicy: HousePolicyValues;
   /** How we sell it (Cape Ann homes only); null or absent hides the block. */
   sellIt?: { ok: true; row: HowWeSellItValues | null } | { ok: false } | null;
+  /** The live staycapeann.com copy, shown read-only while Helm has none of its own. */
+  sca?: { snapshot: ScaListingSnapshot; listingUrl: string | null } | null;
 };
+
+/** The listing's blocks, in the order they read. */
+type BlockId = 'summary' | 'about' | 'access' | 'sellIt' | 'amenities' | 'rooms' | 'photos' | 'basics';
+const BLOCK_NAMES: Record<BlockId, string> = {
+  summary: 'Title and summary',
+  about: 'About',
+  access: 'Guest access and notes',
+  sellIt: 'How we sell it',
+  amenities: 'Amenities',
+  rooms: 'Rooms and beds',
+  photos: 'Photos',
+  basics: 'Home type and size',
+};
+const BLOCK_ORDER: readonly BlockId[] = ['summary', 'about', 'access', 'sellIt', 'amenities', 'rooms', 'photos', 'basics'];
+
+/** An Add asking one block to open; n changes on every ask. */
+type BlockRequest = { id: BlockId; n: number } | null;
+
+/** Open this block's editor when an Add names it (render-phase, once per ask). */
+function useBlockRequest(request: BlockRequest, open: (id: BlockId) => void) {
+  const [seen, setSeen] = useState(0);
+  if (request && request.n !== seen) {
+    setSeen(request.n);
+    open(request.id);
+  }
+}
 
 const fold = (s: string): string => s.toLowerCase().replace(/[’‘`´]/g, "'").replace(/\s+/g, ' ').trim();
 
-export function ListingPanel({ propertyId, content, photos, beds, catalog, registry, housePolicy, sellIt }: ListingPanelProps) {
+export function ListingPanel({ propertyId, content, photos, beds, catalog, helmRun, registry, housePolicy, sellIt, sca }: ListingPanelProps) {
+  const [request, setRequest] = useState<BlockRequest>(null);
+  const [asked, setAsked] = useState<ReadonlySet<BlockId>>(() => new Set());
+  // A record seeded from Guesty is Guesty's copy until someone edits it in Helm.
+  const seeded = content?.source === 'guesty_seed';
+  const [unlocked, setUnlocked] = useState(false);
+  const readOnly = seeded && !unlocked;
+  const ask = (id: BlockId) => {
+    setRequest((r) => ({ id, n: (r?.n ?? 0) + 1 }));
+    setAsked((prev) => new Set(prev).add(id));
+  };
+  // A block closed without saving goes back to the Add line.
+  const closed = (id: BlockId) =>
+    setAsked((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+
+  // A block shows only with something in it (or once an Add opens it); the
+  // empty ones collapse into one line of Adds.
+  const filled = (v: string | null | undefined) => !!v && v.trim() !== '';
+  const has: Record<BlockId, boolean> = {
+    summary: filled(content?.title) || filled(content?.summary),
+    about: filled(content?.space) || filled(content?.neighborhood),
+    access: filled(content?.access) || filled(content?.interaction) || filled(content?.notes),
+    sellIt: !!sellIt && (!sellIt.ok || sellItHasContent(sellIt.row)),
+    amenities: (content?.amenities.length ?? 0) > 0 || (content?.amenities_not_included.length ?? 0) > 0,
+    rooms: beds.perRoom.length > 0,
+    photos: photos.length > 0,
+    basics: basicsParts(content, registry).length > 0,
+  };
+  const empty = BLOCK_ORDER.filter((id) => !has[id] && !asked.has(id) && (id !== 'sellIt' || !!sellIt));
+  // Helm has no copy of its own and nobody has asked to write one: one line
+  // (or the live staycapeann.com copy, read-only), not a run of empty blocks.
+  const none = !hasListingCopy(content, photos.length) && asked.size === 0;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column' }}>
-      <CopyBlocks propertyId={propertyId} content={content} registry={registry} />
-      {sellIt && <SellItBlock propertyId={propertyId} sellIt={sellIt} />}
-      <AmenitiesBlock propertyId={propertyId} content={content} catalog={catalog} />
-      <Block title="Rooms and beds" note={beds.text || undefined} action={<Link href={`/properties/${propertyId}?tab=facts#rooms`} style={facts}>Edit on Facts &rarr;</Link>}>
-        {beds.perRoom.length === 0 ? (
-          <Empty>No beds on file.</Empty>
+      {none &&
+        (sca ? (
+          <ScaSnapshotBlock snapshot={sca.snapshot} listingUrl={sca.listingUrl} propertyId={propertyId} onAdd={() => ask('summary')} />
         ) : (
+          <div style={{ borderTop: '1px solid var(--rule)', padding: '16px 0 18px', display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 14, color: 'var(--ink-2)' }}>
+              {helmRun ? 'Helm has no listing copy for this home yet.' : 'Helm has no listing copy for this home yet. The live listing is in Guesty.'}
+            </span>
+            <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => ask('summary')}>
+              Add listing copy
+            </button>
+          </div>
+        ))}
+      {seeded && (
+        <div style={{ borderTop: '1px solid var(--rule)', padding: '12px 0', display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap', fontSize: 13, color: 'var(--ink-3)' }}>
+          <span>
+            Copied from Guesty{content?.updated_at ? ` on ${etStamp(content.updated_at)}` : ''}
+            {unlocked ? '; a save makes it Helm\'s' : ''}
+          </span>
+          {!unlocked && (
+            <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => setUnlocked(true)}>
+              Edit in Helm
+            </button>
+          )}
+        </div>
+      )}
+      <CopyBlocks propertyId={propertyId} content={content} registry={registry} request={request} readOnly={readOnly} onClosed={closed} />
+      {sellIt && <SellItBlock propertyId={propertyId} sellIt={sellIt} request={request} onClosed={closed} />}
+      <AmenitiesBlock propertyId={propertyId} content={content} catalog={catalog} request={request} readOnly={readOnly} onClosed={closed} />
+      {has.rooms && (
+        <Block title="Rooms and beds" note={beds.text || undefined} action={<Link href={`/properties/${propertyId}?tab=facts#rooms`} style={facts}>Edit on Facts &rarr;</Link>}>
           <dl style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '10px 24px', margin: 0 }}>
             {beds.perRoom.map((r) => (
               <div key={r.name}>
@@ -84,12 +178,108 @@ export function ListingPanel({ propertyId, content, photos, beds, catalog, regis
               </div>
             ))}
           </dl>
-        )}
-      </Block>
-      <Gallery propertyId={propertyId} photos={photos} />
-      <BasicsBlock propertyId={propertyId} content={content} registry={registry} housePolicy={housePolicy} />
+        </Block>
+      )}
+      <Gallery propertyId={propertyId} photos={photos} request={request} readOnly={readOnly} onClosed={closed} />
+      <BasicsBlock propertyId={propertyId} content={content} registry={registry} housePolicy={housePolicy} request={request} readOnly={readOnly} onClosed={closed} />
+      {!none && !readOnly && empty.length > 0 && (
+        <div style={{ borderTop: '1px solid var(--rule)', padding: '12px 0', display: 'flex', alignItems: 'baseline', gap: '6px 16px', flexWrap: 'wrap', fontSize: 12 }}>
+          <span className="eyebrow">Add</span>
+          {empty.map((id) =>
+            id === 'rooms' ? (
+              <Link key={id} href={`/properties/${propertyId}?tab=facts#rooms`} style={addLink}>
+                {BLOCK_NAMES[id]}
+              </Link>
+            ) : (
+              <button key={id} type="button" onClick={() => ask(id)} style={{ ...addLink, background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}>
+                {BLOCK_NAMES[id]}
+              </button>
+            ),
+          )}
+        </div>
+      )}
     </div>
   );
+}
+
+/** The live staycapeann.com copy, read-only, labelled where it comes from. */
+function ScaSnapshotBlock({ snapshot, listingUrl, propertyId, onAdd }: { snapshot: ScaListingSnapshot; listingUrl: string | null; propertyId: string; onAdd: () => void }) {
+  return (
+    <Block
+      title="On staycapeann.com"
+      note={
+        <>
+          From the live listing, read-only.{' '}
+          {listingUrl && (
+            <a href={listingUrl} target="_blank" rel="noreferrer" style={facts}>
+              See it &#8599;
+            </a>
+          )}{' '}
+          <Link href={`/properties/${propertyId}/stay-cape-ann`} style={facts}>
+            Edit in the launcher &rarr;
+          </Link>
+        </>
+      }
+      action={
+        <button type="button" className={buttonClass('quiet')} onClick={onAdd}>
+          Write Helm&rsquo;s own copy
+        </button>
+      }
+    >
+      <div style={{ maxWidth: 720, display: 'grid', gap: 12 }}>
+        {snapshot.heroPhoto && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={snapshot.heroPhoto} alt="" loading="lazy" style={{ width: '100%', maxWidth: 360, aspectRatio: '4 / 3', objectFit: 'cover', display: 'block', border: '1px solid var(--rule)' }} />
+        )}
+        {snapshot.title && <div className="font-serif" style={{ fontSize: 24, lineHeight: 1.25, letterSpacing: '-0.01em', color: 'var(--ink)' }}>{snapshot.title}</div>}
+        {snapshot.tagline && <p style={{ margin: 0, fontSize: 15, lineHeight: 1.55, color: 'var(--ink-2)' }}>{snapshot.tagline}</p>}
+        {snapshot.highlights.length > 0 && (
+          <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 4 }}>
+            {snapshot.highlights.map((h, i) => (
+              <li key={i} style={{ fontSize: 13, color: 'var(--ink-2)' }}>
+                <span aria-hidden style={{ color: 'var(--positive)', marginRight: 8 }}>✓</span>
+                {h}
+              </li>
+            ))}
+          </ul>
+        )}
+        {snapshot.about && (
+          <div>
+            <div style={{ ...termStyle, marginBottom: 6 }}>About</div>
+            <Paragraphs text={snapshot.about} />
+          </div>
+        )}
+        {snapshot.rooms.length > 0 && (
+          <dl style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '10px 24px', margin: 0 }}>
+            {snapshot.rooms.map((r, i) => (
+              <div key={`${r.name}-${i}`}>
+                <dt style={termStyle}>{r.name || `Room ${i + 1}`}</dt>
+                <dd style={{ margin: '2px 0 0', fontSize: 14, color: 'var(--ink)' }}>{r.beds}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
+      </div>
+    </Block>
+  );
+}
+
+function sellItHasContent(row: HowWeSellItValues | null): boolean {
+  if (!row) return false;
+  return [row.tagline, row.primary_selling_point, row.best_for, row.notes].some((v) => !!v && v.trim() !== '') || (row.selling_points ?? []).some((p) => p.trim()) || row.on_water;
+}
+
+/** Property type, room type and the counts, as the Home type and size block reads them. */
+function basicsParts(content: ListingContentRow | null, registry: ListingPanelProps['registry']): string[] {
+  const bedrooms = content?.bedrooms ?? registry.bedrooms;
+  const bathrooms = content?.bathrooms ?? registry.bathrooms;
+  return [
+    content?.property_type,
+    content?.room_type,
+    bedrooms != null ? `${bedrooms} bedroom${bedrooms === 1 ? '' : 's'}` : null,
+    bathrooms != null ? `${bathrooms} bath${bathrooms === 1 ? '' : 's'}` : null,
+    content?.beds != null ? `${content.beds} bed${content.beds === 1 ? '' : 's'}` : null,
+  ].filter((v): v is string => !!v && String(v).trim() !== '');
 }
 
 // ── Blocks ──────────────────────────────────────────────────────────────────
@@ -134,8 +324,7 @@ function Paragraphs({ text, style }: { text: string; style?: React.CSSProperties
 
 // ── Copy: title and summary, About, guest access and notes ─────────────────
 
-const COPY_FIELDS = ['title', 'summary', 'space', 'access', 'interaction', 'neighborhood', 'notes'] as const;
-type CopyField = (typeof COPY_FIELDS)[number];
+type CopyField = 'title' | 'summary' | 'space' | 'access' | 'interaction' | 'neighborhood' | 'notes';
 type CopyValues = Record<CopyField, string>;
 type CopyBlockId = 'summary' | 'about' | 'access';
 const BLOCK_FIELDS: Record<CopyBlockId, readonly CopyField[]> = {
@@ -145,9 +334,9 @@ const BLOCK_FIELDS: Record<CopyBlockId, readonly CopyField[]> = {
 };
 const AI_BODY = ['summary', 'space', 'access', 'neighborhood'] as const;
 
-function savedCopy(content: ListingContentRow | null, registry: ListingPanelProps['registry']): CopyValues {
+function savedCopy(content: ListingContentRow | null, registry: ListingPanelProps['registry'] | null): CopyValues {
   return {
-    title: content?.title ?? registry.title ?? '',
+    title: content?.title ?? registry?.title ?? '',
     summary: content?.summary ?? '',
     space: content?.space ?? '',
     access: content?.access ?? '',
@@ -157,7 +346,21 @@ function savedCopy(content: ListingContentRow | null, registry: ListingPanelProp
   };
 }
 
-function CopyBlocks({ propertyId, content, registry }: { propertyId: string; content: ListingContentRow | null; registry: ListingPanelProps['registry'] }) {
+function CopyBlocks({
+  propertyId,
+  content,
+  registry,
+  request,
+  readOnly,
+  onClosed,
+}: {
+  propertyId: string;
+  content: ListingContentRow | null;
+  registry: ListingPanelProps['registry'];
+  request: BlockRequest;
+  readOnly: boolean;
+  onClosed: (id: BlockId) => void;
+}) {
   const action = saveListingContentAction.bind(null, propertyId);
   const [state, formAction, pending] = useActionState<ListingFormState, FormData>(action, { error: null });
   const formKey = content?.updated_at ?? 'new';
@@ -179,6 +382,12 @@ function CopyBlocks({ propertyId, content, registry }: { propertyId: string; con
 
   const set = (field: CopyField, value: string) => setValues((v) => ({ ...v, [field]: value }));
   const openBlock = (b: CopyBlockId) => setOpen((o) => new Set(o).add(b));
+  useBlockRequest(request, (id) => {
+    if (id === 'summary' || id === 'about' || id === 'access') openBlock(id);
+  });
+  // A block shows when its saved copy has something, or while it is open.
+  const saved = savedCopy(content, null);
+  const shows = (b: CopyBlockId) => open.has(b) || BLOCK_FIELDS[b].some((f) => saved[f].trim() !== '');
   const cancelBlock = (b: CopyBlockId) => {
     const saved = savedCopy(content, registry);
     setValues((v) => {
@@ -191,8 +400,8 @@ function CopyBlocks({ propertyId, content, registry }: { propertyId: string; con
       next.delete(b);
       return next;
     });
+    onClosed(b);
   };
-  const nothingWritten = COPY_FIELDS.every((f) => !values[f].trim());
   const editing = open.size > 0;
 
   // Draft with AI fills the four Guesty description fields (and a blank
@@ -264,8 +473,9 @@ function CopyBlocks({ propertyId, content, registry }: { propertyId: string; con
   return (
     <form action={formAction} aria-label="Listing copy" style={{ margin: 0 }}>
       <input type="hidden" name="part" value="copy" />
+      {(['summary', 'about', 'access'] as const).filter((b) => !open.has(b)).map(hidden)}
 
-      {(editing || nothingWritten) && (
+      {editing && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '4px 0 16px' }}>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
             <button type="button" className={buttonClass('secondary', 'sm')} onClick={onDraft} disabled={drafting || pending} aria-busy={drafting}>
@@ -284,10 +494,10 @@ function CopyBlocks({ propertyId, content, registry }: { propertyId: string; con
         </div>
       )}
 
-      <Block
+      {shows('summary') && <Block
         title="Title and summary"
-        note={content?.updated_at ? `Saved ${etStamp(content.updated_at)}${content.updated_by ? ` by ${content.updated_by}` : ''}` : undefined}
-        action={!open.has('summary') && <EditButton what="Title and summary" onClick={() => openBlock('summary')} />}
+        note={content?.updated_at && content.source !== 'guesty_seed' ? `Saved ${etStamp(content.updated_at)}${content.updated_by ? ` by ${content.updated_by}` : ''}` : undefined}
+        action={!readOnly && !open.has('summary') && <EditButton what="Title and summary" onClick={() => openBlock('summary')} />}
       >
         {open.has('summary') ? (
           <div style={editorStyle}>
@@ -297,7 +507,6 @@ function CopyBlocks({ propertyId, content, registry }: { propertyId: string; con
           </div>
         ) : (
           <>
-            {hidden('summary')}
             {!values.title.trim() && !values.summary.trim() ? (
               <Empty>Nothing written yet.</Empty>
             ) : (
@@ -320,9 +529,9 @@ function CopyBlocks({ propertyId, content, registry }: { propertyId: string; con
             )}
           </>
         )}
-      </Block>
+      </Block>}
 
-      <Block title="About" action={!open.has('about') && <EditButton what="About" onClick={() => openBlock('about')} />}>
+      {shows('about') && <Block title="About" action={!readOnly && !open.has('about') && <EditButton what="About" onClick={() => openBlock('about')} />}>
         {open.has('about') ? (
           <div style={editorStyle}>
             <TextField name="space" label="The space" hint="room by room; ☆ headings and → bullets become sections" value={values.space} onChange={(v) => set('space', v)} rows={10} />
@@ -331,7 +540,6 @@ function CopyBlocks({ propertyId, content, registry }: { propertyId: string; con
           </div>
         ) : (
           <>
-            {hidden('about')}
             {about.length === 0 && !values.neighborhood.trim() ? (
               <Empty>Nothing written yet.</Empty>
             ) : (
@@ -359,9 +567,9 @@ function CopyBlocks({ propertyId, content, registry }: { propertyId: string; con
             )}
           </>
         )}
-      </Block>
+      </Block>}
 
-      <Block title="Guest access and notes" action={!open.has('access') && <EditButton what="Guest access and notes" onClick={() => openBlock('access')} />}>
+      {shows('access') && <Block title="Guest access and notes" action={!readOnly && !open.has('access') && <EditButton what="Guest access and notes" onClick={() => openBlock('access')} />}>
         {open.has('access') ? (
           <div style={editorStyle}>
             <TextField name="access" label="Guest access" hint="what the guest may use; never the door code" value={values.access} onChange={(v) => set('access', v)} rows={3} />
@@ -371,7 +579,6 @@ function CopyBlocks({ propertyId, content, registry }: { propertyId: string; con
           </div>
         ) : (
           <>
-            {hidden('access')}
             <dl style={{ display: 'grid', gap: 12, margin: 0, maxWidth: 720 }}>
               {(
                 [
@@ -390,7 +597,7 @@ function CopyBlocks({ propertyId, content, registry }: { propertyId: string; con
             </dl>
           </>
         )}
-      </Block>
+      </Block>}
 
       {state.error && <div role="alert" style={{ fontSize: 12, color: 'var(--negative)', margin: '-8px 0 14px' }}>{state.error}</div>}
       {!state.error && state.ok && state.message && (
@@ -416,8 +623,11 @@ function TextField({ name, label, hint, value, onChange, rows }: { name: CopyFie
 
 // ── How we sell it ──────────────────────────────────────────────────────────
 
-function SellItBlock({ propertyId, sellIt }: { propertyId: string; sellIt: NonNullable<ListingPanelProps['sellIt']> }) {
+function SellItBlock({ propertyId, sellIt, request, onClosed }: { propertyId: string; sellIt: NonNullable<ListingPanelProps['sellIt']>; request: BlockRequest; onClosed: (id: BlockId) => void }) {
   const [editing, setEditing] = useState(false);
+  useBlockRequest(request, (id) => {
+    if (id === 'sellIt') setEditing(true);
+  });
   if (!sellIt.ok) {
     return (
       <Block id="how-we-sell-it" title="How we sell it">
@@ -437,12 +647,13 @@ function SellItBlock({ propertyId, sellIt }: { propertyId: string; sellIt: NonNu
     ['Notes', row?.notes ?? null],
   ];
   const anything = lines.some(([, v]) => v && v.trim()) || points.length > 0 || row?.on_water;
+  if (!anything && !editing) return null;
   return (
     <Block
       id="how-we-sell-it"
       title="How we sell it"
       note={row?.on_water ? 'On the water' : undefined}
-      action={editing ? <EditButton what="How we sell it" label="Cancel" onClick={() => setEditing(false)} /> : <EditButton what="How we sell it" onClick={() => setEditing(true)} />}
+      action={editing ? <EditButton what="How we sell it" label="Cancel" onClick={() => { setEditing(false); onClosed('sellIt'); }} /> : <EditButton what="How we sell it" onClick={() => setEditing(true)} />}
     >
       {editing ? (
         <HowWeSellIt propertyId={propertyId} row={row} onSaved={() => setEditing(false)} />
@@ -478,16 +689,37 @@ function SellItBlock({ propertyId, sellIt }: { propertyId: string; sellIt: NonNu
 
 // ── Amenities: read here, the catalog in a drawer ───────────────────────────
 
-function AmenitiesBlock({ propertyId, content, catalog }: { propertyId: string; content: ListingContentRow | null; catalog: ListingPanelProps['catalog'] }) {
+function AmenitiesBlock({
+  propertyId,
+  content,
+  catalog,
+  request,
+  readOnly,
+  onClosed,
+}: {
+  propertyId: string;
+  content: ListingContentRow | null;
+  catalog: ListingPanelProps['catalog'];
+  request: BlockRequest;
+  readOnly: boolean;
+  onClosed: (id: BlockId) => void;
+}) {
   const action = saveListingContentAction.bind(null, propertyId);
   const [state, formAction, pending] = useActionState<ListingFormState, FormData>(action, { error: null });
   const [drawer, setDrawer] = useState(false);
+  const closeDrawer = () => {
+    setDrawer(false);
+    onClosed('amenities');
+  };
   const formKey = content?.updated_at ?? 'new';
   const [adopted, setAdopted] = useState(formKey);
   if (adopted !== formKey) {
     setAdopted(formKey);
     setDrawer(false);
   }
+  useBlockRequest(request, (id) => {
+    if (id === 'amenities') setDrawer(true);
+  });
   const amenities = content?.amenities ?? [];
   const have = new Set(amenities.map(fold));
   const catalogKeys = new Set(catalog.flatMap((g) => g.items.map(fold)));
@@ -495,12 +727,13 @@ function AmenitiesBlock({ propertyId, content, catalog }: { propertyId: string; 
   const groups = catalog.map((g) => ({ group: g.group, items: g.items.filter((i) => have.has(fold(i))) })).filter((g) => g.items.length > 0);
   if (extras.length) groups.push({ group: 'Other', items: extras });
   const notIncluded = content?.amenities_not_included ?? [];
+  if (amenities.length === 0 && notIncluded.length === 0 && !drawer && !(state.ok && state.message)) return null;
 
   return (
     <Block
       title="Amenities"
       note={amenities.length ? `${amenities.length} on file` : undefined}
-      action={<EditButton what="Amenities" onClick={() => setDrawer(true)} />}
+      action={!readOnly && <EditButton what="Amenities" onClick={() => setDrawer(true)} />}
     >
       {groups.length === 0 && notIncluded.length === 0 ? (
         <Empty>None on file.</Empty>
@@ -523,7 +756,7 @@ function AmenitiesBlock({ propertyId, content, catalog }: { propertyId: string; 
       {!drawer && !state.error && state.ok && state.message && <div role="status" style={{ fontSize: 12, color: 'var(--positive)', marginTop: 10 }}>{state.message}</div>}
 
       {drawer && (
-        <Drawer title="Amenities" eyebrow="Listing" onClose={() => setDrawer(false)}>
+        <Drawer title="Amenities" eyebrow="Listing" onClose={closeDrawer}>
           <form action={formAction} aria-label="Amenities" style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
             <input type="hidden" name="part" value="amenities" />
             {catalog.map((g) => (
@@ -550,7 +783,7 @@ function AmenitiesBlock({ propertyId, content, catalog }: { propertyId: string; 
               <button type="submit" className={buttonClass('primary', 'sm')} disabled={pending} aria-busy={pending}>
                 {pending ? 'Saving…' : 'Save amenities'}
               </button>
-              <button type="button" className={buttonClass('quiet')} onClick={() => setDrawer(false)} disabled={pending}>
+              <button type="button" className={buttonClass('quiet')} onClick={closeDrawer} disabled={pending}>
                 Cancel
               </button>
               {state.error && <span role="alert" style={{ fontSize: 12, color: 'var(--negative)' }}>{state.error}</span>}
@@ -569,11 +802,17 @@ function BasicsBlock({
   content,
   registry,
   housePolicy,
+  request,
+  readOnly,
+  onClosed,
 }: {
   propertyId: string;
   content: ListingContentRow | null;
   registry: ListingPanelProps['registry'];
   housePolicy: HousePolicyValues;
+  request: BlockRequest;
+  readOnly: boolean;
+  onClosed: (id: BlockId) => void;
 }) {
   const action = saveListingContentAction.bind(null, propertyId);
   const [state, formAction, pending] = useActionState<ListingFormState, FormData>(action, { error: null });
@@ -584,18 +823,16 @@ function BasicsBlock({
     setAdopted(formKey);
     setEditing(false);
   }
+  useBlockRequest(request, (id) => {
+    if (id === 'basics') setEditing(true);
+  });
   const bedrooms = content?.bedrooms ?? registry.bedrooms;
   const bathrooms = content?.bathrooms ?? registry.bathrooms;
-  const parts = [
-    content?.property_type,
-    content?.room_type,
-    bedrooms != null ? `${bedrooms} bedroom${bedrooms === 1 ? '' : 's'}` : null,
-    bathrooms != null ? `${bathrooms} bath${bathrooms === 1 ? '' : 's'}` : null,
-    content?.beds != null ? `${content.beds} bed${content.beds === 1 ? '' : 's'}` : null,
-  ].filter((v): v is string => !!v && String(v).trim() !== '');
+  const parts = basicsParts(content, registry);
+  if (parts.length === 0 && !editing) return null;
 
   return (
-    <Block title="Home type and size" action={!editing && <EditButton what="Home type and size" onClick={() => setEditing(true)} />}>
+    <Block title="Home type and size" action={!readOnly && !editing && <EditButton what="Home type and size" onClick={() => setEditing(true)} />}>
       {editing ? (
         <form action={formAction} aria-label="Home type and size" style={editorStyle}>
           <input type="hidden" name="part" value="basics" />
@@ -610,7 +847,7 @@ function BasicsBlock({
             <button type="submit" className={buttonClass('primary', 'sm')} disabled={pending} aria-busy={pending}>
               {pending ? 'Saving…' : 'Save'}
             </button>
-            <button type="button" className={buttonClass('quiet')} onClick={() => setEditing(false)} disabled={pending}>
+            <button type="button" className={buttonClass('quiet')} onClick={() => { setEditing(false); onClosed('basics'); }} disabled={pending}>
               Cancel
             </button>
             {state.error && <span role="alert" style={{ fontSize: 12, color: 'var(--negative)' }}>{state.error}</span>}
@@ -707,8 +944,23 @@ function uploadErrorText(e: unknown): string {
   return raw ? `Upload failed: ${raw}` : 'Upload failed.';
 }
 
-function Gallery({ propertyId, photos }: { propertyId: string; photos: ListingPhotoRow[] }) {
+function Gallery({
+  propertyId,
+  photos,
+  request,
+  readOnly,
+  onClosed,
+}: {
+  propertyId: string;
+  photos: ListingPhotoRow[];
+  request: BlockRequest;
+  readOnly: boolean;
+  onClosed: (id: BlockId) => void;
+}) {
   const [managing, setManaging] = useState(false);
+  useBlockRequest(request, (id) => {
+    if (id === 'photos') setManaging(true);
+  });
   const [pending, start] = useTransition();
   const { ask } = useConfirm();
   const [busy, setBusy] = useState<string | null>(null);
@@ -783,12 +1035,13 @@ function Gallery({ propertyId, photos }: { propertyId: string; photos: ListingPh
   // Read in the order a guest meets them: the hero first.
   const shown = [...ordered].sort((a, b) => Number(b.is_hero) - Number(a.is_hero));
   const hero = photos.find((p) => p.is_hero) ?? null;
+  if (photos.length === 0 && !managing) return null;
 
   return (
     <Block
       title="Photos"
       note={photos.length ? `${photos.length} in the gallery${hero ? '' : ', no hero yet'}` : undefined}
-      action={<EditButton what="Photos" label={managing ? 'Done' : 'Edit photos'} onClick={() => setManaging((m) => !m)} disabled={pending} />}
+      action={!readOnly && <EditButton what="Photos" label={managing ? 'Done' : 'Edit photos'} onClick={() => { if (managing) onClosed('photos'); setManaging(!managing); }} disabled={pending} />}
     >
       {!managing ? (
         shown.length === 0 ? (
@@ -968,6 +1221,8 @@ const termStyle: React.CSSProperties = {
 const editorStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 820 };
 
 const facts: React.CSSProperties = { fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'none' };
+
+const addLink: React.CSSProperties = { fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'none', letterSpacing: '.02em' };
 
 const input: React.CSSProperties = {
   background: 'var(--paper)',
