@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { listCampaigns } from '@/lib/guests';
+import { CAMPAIGN_LIST_LIMIT, listCampaigns } from '@/lib/guests';
 
 export const dynamic = 'force-dynamic';
 
@@ -63,13 +63,16 @@ export default async function GuestCampaignsPage() {
                   {c.subject && <div style={{ marginTop: 2, fontSize: 12, color: 'var(--ink-3)' }}>{c.subject}</div>}
                 </div>
                 <span className="tabular-nums" style={{ fontSize: 12, color: 'var(--ink-3)' }}>
-                  {c.recipient_count != null ? `${c.recipient_count}` : '—'}
+                  {c.recipient_count != null ? `${c.recipient_count}` : ''}
                 </span>
                 <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
                   {c.sent_at ? new Date(c.sent_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Open →'}
                 </span>
               </Link>
             ))}
+            {campaigns.length >= CAMPAIGN_LIST_LIMIT && (
+              <p style={{ margin: '12px 0 0', fontSize: 12, color: 'var(--ink-3)' }}>Showing the newest {CAMPAIGN_LIST_LIMIT}.</p>
+            )}
           </div>
         )}
       </section>

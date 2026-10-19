@@ -121,7 +121,7 @@ export function QuickCapture({ propertyId, propertyName }: { propertyId: string;
       const attempt = restartAttemptRef.current;
       if (attempt >= RESTART_DELAYS_MS.length) {
         console.debug('[qc-mic] restart ladder exhausted');
-        giveUp('Dictation keeps cutting out. What you said is kept — tap the mic to continue, or type the rest.');
+        giveUp('Dictation keeps cutting out. What you said is kept. Tap the mic to continue, or type the rest.');
         return;
       }
       restartTimerRef.current = setTimeout(() => {
@@ -189,7 +189,7 @@ export function QuickCapture({ propertyId, propertyName }: { propertyId: string;
         rapidEndsRef.current += 1;
         if (rapidEndsRef.current >= 5) {
           console.debug('[qc-mic] rapid-end loop tripped');
-          giveUp('Dictation keeps cutting out in this browser. What you said is kept — type the rest, or try again in a bit.');
+          giveUp('Dictation keeps cutting out in this browser. What you said is kept. Type the rest, or try again in a bit.');
           return;
         }
       }
@@ -215,7 +215,7 @@ export function QuickCapture({ propertyId, propertyName }: { propertyId: string;
         return;
       }
       if (!wantRef.current) {
-        if (code === 'no-speech') setError('Didn’t catch anything — try again, or type instead.');
+        if (code === 'no-speech') setError('Didn’t catch anything. Try again, or type instead.');
         else if (code) setError('Dictation stopped unexpectedly. Try again, or type instead.');
       }
     };
@@ -752,7 +752,7 @@ function ItemCard({
             <input
               value={item.noteTag ?? ''}
               onChange={(e) => onPatch({ noteTag: e.target.value })}
-              placeholder="tag (optional) — hvac, plumbing, parking…"
+              placeholder="tag (optional): hvac, plumbing, parking…"
               style={{ ...fieldInput, marginTop: 6, fontSize: 12 }}
             />
           </>

@@ -149,7 +149,7 @@ function DraftStatus({
     label = 'Saving…';
     color = 'var(--ink-3)';
   } else if (status === 'error') {
-    label = 'Couldn’t save — check your connection';
+    label = 'Couldn’t save. Check your connection';
     color = 'var(--negative, #b04a3a)';
   } else if (status === 'saved' && savedAt) {
     label = `Saved ${relativeTime(savedAt)}`;

@@ -25,7 +25,7 @@ export function NoticeEditorForm({
     <RetainedPropertyForm action={action} submitLabel={submitLabel} buttonStyle={primaryButtonStyle} cancelHref={`/properties/${propertyId}?tab=guest`} style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
       <Field
         label="Eyebrow"
-        hint="Optional. Short kicker that sits above the title — e.g. “Bathroom”, “Please note”, “Parking”."
+        hint="Optional. Short kicker that sits above the title, e.g. “Bathroom”, “Please note”, “Parking”."
       >
         <input
           name="eyebrow"
@@ -37,7 +37,7 @@ export function NoticeEditorForm({
         />
       </Field>
 
-      <Field label="Title" required hint="The headline. Set in serif, big — make it readable from across the room.">
+      <Field label="Title" required hint="The headline. Set in serif, big: make it readable from across the room.">
         <input
           name="title"
           type="text"
@@ -52,7 +52,7 @@ export function NoticeEditorForm({
       <Field
         label="Body"
         required
-        hint="The explanation. One or two short paragraphs; separate paragraphs with a blank line. Aim for a couple sentences total — anything longer overflows a 4 × 6 placard."
+        hint="The explanation. One or two short paragraphs; separate paragraphs with a blank line. Aim for a couple sentences total; anything longer overflows a 4 × 6 placard."
       >
         <textarea
           name="body"

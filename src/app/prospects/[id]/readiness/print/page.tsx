@@ -62,7 +62,7 @@ export default async function ReadinessPage({ params }: { params: Promise<{ id: 
             <strong>
               {context.bathrooms} bathroom{context.bathrooms === 1 ? '' : 's'}
             </strong>
-            {context.bathroomsFromIntake ? '' : ' (estimated — adjust on walk-through)'}.
+            {context.bathroomsFromIntake ? '' : ' (estimated; adjust on the walk-through)'}.
             Check items off as you confirm they&rsquo;re in place; circle quantities you need to
             add.
           </p>

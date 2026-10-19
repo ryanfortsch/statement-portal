@@ -85,7 +85,7 @@ export default async function WelcomeCardPage({
             <h2 className="rt-subhead">Thinking about your next stay?</h2>
 
             <p className="rt-pitch">
-              We occasionally share availability and special stays — thoughtfully
+              We occasionally share availability and special stays, thoughtfully
               and infrequently.
             </p>
 

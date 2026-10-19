@@ -26,7 +26,7 @@ export async function issueTestCodeAction(propertyId: string): Promise<CodeActio
   const r = await issueTestCode(propertyId, session.user.email);
   revalidatePath(`/properties/${propertyId}`);
   return r.ok
-    ? { ok: true, message: `Test code ${r.code} is live for 3 hours — try it on the lock.`, code: r.code }
+    ? { ok: true, message: `Test code ${r.code} is live for 3 hours. Try it on the lock.`, code: r.code }
     : { ok: false, message: r.error };
 }
 

@@ -784,9 +784,9 @@ function SmartForecastPanel({
       >
         <strong style={{ color: 'var(--ink-2)' }}>How this works:</strong>{' '}
         Per property × per month, the projected gross is a 50/50 blend of two
-        parts. <em>Part A — pacing</em>: revenue on the books for that month,
+        parts. <em>Part A, pacing</em>: revenue on the books for that month,
         scaled by typical market fill — \$5K booked at 30% property occupancy
-        with 60% market occupancy projects \$10K. <em>Part B — annual ×
+        with 60% market occupancy projects \$10K. <em>Part B, annual ×
         seasonality</em>: the property&apos;s expected annual gross × the
         share of annual revenue that typically lands in that month. That
         annual gross is the property&apos;s own forward bookings, pace-corrected
@@ -1536,7 +1536,7 @@ function ForecastTable({
   const onboarding = (r: MonthRow) => r.exp_onboard_presigned + r.exp_onboard_new;
   const periodic: Line[] = [
     { label: 'Onboarding', info: 'Outfitting a new home, charged once in the month a slider home starts: $3,000. The linen order is $2,156 (Fix Linens billed $23,719 across the eleven 2026 onboardings) and the Amazon durables bought for a new home beyond a settled home\'s replacement trickle are about $850: towels, bedclothes, rugs, a Schlage lock, soap dispensers, a hair dryer, a coffee maker, shelving, measured item by item on the Amazon Business export of 2026-10-15. The supplies left over once the per-home run rate is taken out say the same ($3,020 each). The card shows what Rising Tide paid; whether an owner should fund outfitting instead is an open decision. Measured months carry it inside Guest supplies, where the card put it. It was $0 until 2026-10-15, which is why the summer read as a supplies run rate.', values: monthly.map(onboarding), fy: sumOf(monthly, onboarding) },
-    { label: 'Bookkeeper', info: 'MH Partners outside bookkeeper. ~$1,000/mo Jan-Apr 2026, $1,800 final wrap-up payment in May, then $0 — engagement ends.', values: monthly.map((r) => r.exp_debt), fy: sumOf(monthly, (r) => r.exp_debt) },
+    { label: 'Bookkeeper', info: 'MH Partners outside bookkeeper. ~$1,000/mo Jan-Apr 2026, $1,800 final wrap-up payment in May, then $0 once the engagement ends.', values: monthly.map((r) => r.exp_debt), fy: sumOf(monthly, (r) => r.exp_debt) },
     { label: 'Insurance', info: 'Premiums paid once, not monthly. Phillips commercial liability, $5,263.92 by ACH on 2026-03-02, assumed to renew each March. Arbella, $3,188.57 on the card on 2026-04-15, is treated as a one-time hit and is not projected forward. GEICO auto is monthly and lives on the Vehicle & other insurance row above. $0 every other month.', values: monthly.map((r) => r.exp_insurance), fy: sumOf(monthly, (r) => r.exp_insurance) },
     { label: 'Accounting', info: 'MS Consultants $4,442.96 paid 4/15/2026 was a one-time engagement, not recurring. $0 going forward.', values: monthly.map((r) => r.exp_accounting), fy: sumOf(monthly, (r) => r.exp_accounting) },
   ];

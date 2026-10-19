@@ -46,7 +46,7 @@ export function GuestCodesPanel({
     <div style={{ paddingBottom: 6 }}>
       <p style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55, marginTop: 0, marginBottom: 16 }}>
         Programs a time-boxed PIN onto this property&apos;s Seam lock{locks.length > 1 ? 's' : ''} for a stay, and revokes it after.
-        This does not text the guest — you issue and share the code yourself.
+        This does not text the guest. You issue and share the code yourself.
       </p>
 
       {msg && (

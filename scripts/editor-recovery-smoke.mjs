@@ -257,7 +257,9 @@ try{
   assert.deepEqual(await args(2),{contact_id:'synthetic-contact',channel:'email',summary:'Discussed repairs',notes:'Keep this call detail.\nFollow up Friday.'});
   pass('CRM activity retains exact drafts after returned/thrown errors and only inserts a confirmed row');
 
-  await reset('crm');await deleteTouch('Activity a',true);await waitCalls(1);assert.equal((await touchRows()).length,4);
+  // Deleting an activity asks first (2026-10-19); answer yes, and check it asked.
+  await reset('crm');await confirm(true);await deleteTouch('Activity a',true);await waitCalls(1);assert.equal((await touchRows()).length,4);
+  assert.ok((await page.evaluate(()=>window.confirmations)).some(m=>m.includes('Delete this activity?')),'the delete asked first');
   await edit(touchSummary,'New activity during deletion');await click('crm','Log activity');await waitCalls(2);await finish(1,{ok:true,id:'touch-new'});await ready(touchSummary);
   assert.equal(await guard(),true);await finish(0,{ok:false,error:'Delete failed after new activity'});await waitText('Delete failed after new activity');await clean();
   assert.equal((await touchRows()).length,5);assert.ok((await touchRows()).some(t=>t.includes('New activity during deletion')));
@@ -266,7 +268,7 @@ try{
   assert.equal((await touchRows()).length,4);assert.ok((await touchRows()).some(t=>t.includes('New activity during deletion')));
   pass('a failed CRM deletion never rolls back newer activity and remains available for explicit retry');
 
-  await reset('crm');await deleteTouch('Activity a');await deleteTouch('Activity b');await waitCalls(2);
+  await reset('crm');await confirm(true);await deleteTouch('Activity a');await deleteTouch('Activity b');await waitCalls(2);
   await finish(1);await page.waitForFunction(()=>![...document.querySelectorAll('#crm li')].some(li=>li.textContent.includes('Activity b')));
   await finish(0,{ok:false,error:'First deletion failed'});await waitText('First deletion failed');await clean();
   assert.equal((await touchRows()).length,3);assert.ok((await touchRows()).some(t=>t.includes('Activity a')));

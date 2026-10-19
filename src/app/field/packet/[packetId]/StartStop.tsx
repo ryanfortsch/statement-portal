@@ -2,6 +2,7 @@
 
 import { useFormStatus } from 'react-dom';
 import { startStopInspection } from '../../actions';
+import { usePendingWatchdog } from '@/lib/use-pending-watchdog';
 
 /**
  * Start (or resume) a stop's inspection. The server action generates the deck +
@@ -12,6 +13,9 @@ import { startStopInspection } from '../../actions';
  */
 function StartInner({ resume }: { resume: boolean }) {
   const { pending } = useFormStatus();
+  // A lost response would leave "Opening inspection…" up forever; the
+  // watchdog reloads the packet, which then offers Resume.
+  usePendingWatchdog(pending);
   if (pending) {
     return (
       <div

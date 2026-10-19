@@ -179,7 +179,7 @@ function matchShootFolder(
     return nt.includes(n);
   });
   if (hits.length === 1) return { id: hits[0].id, note: null };
-  if (hits.length > 1) return { id: null, note: `${hits.length} Drive folders match — paste the right one on the shoot page` };
+  if (hits.length > 1) return { id: null, note: `${hits.length} Drive folders match; paste the right one on the shoot page` };
   return { id: null, note: null };
 }
 
@@ -524,7 +524,7 @@ export async function syncCreativeDrive(): Promise<DriveSyncReport> {
           }
         }
         if (!rootId) {
-          addNote(`no "Creative Assets - ${contractor.full_name.split(' ')[0]}" folder visible — share it with ${saEmail}`);
+          addNote(`no "Creative Assets - ${contractor.full_name.split(' ')[0]}" folder visible; share it with ${saEmail}`);
           continue;
         }
         if (!rootFolders.has(rootId)) {
@@ -784,7 +784,7 @@ export async function syncCreativeDrive(): Promise<DriveSyncReport> {
           let assetId: string | null = group.find((s) => s.assetId)?.assetId ?? null;
           if (!assetId) {
             if (!isQualifyingDuration(card, dur)) {
-              addNote(`a finals video is under ${qualifyingSeconds(card)}s — recorded, not logged`);
+              addNote(`a finals video is under ${qualifyingSeconds(card)}s, recorded, not logged`);
               continue;
             }
             const primary =
@@ -821,7 +821,7 @@ export async function syncCreativeDrive(): Promise<DriveSyncReport> {
                 report.assetsCreated++;
               }
             } else {
-              addNote(`more finals reels than the card's ${card.maxPerShoot}-reel cap — extras recorded, not logged`);
+              addNote(`more finals reels than the card's ${card.maxPerShoot}-reel cap; extras recorded, not logged`);
             }
           }
           if (assetId) {
@@ -926,7 +926,7 @@ export async function syncCreativeDrive(): Promise<DriveSyncReport> {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       sr.note = msg.includes('404') || msg.includes('403')
-        ? `Drive folder not reachable or not writable — give ${saEmail} Contributor access`
+        ? `Drive folder not reachable or not writable; give ${saEmail} Contributor access`
         : msg.slice(0, 200);
       report.errors.push(`${shoot.title}: ${sr.note}`);
     }

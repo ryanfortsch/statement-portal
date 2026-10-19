@@ -1515,7 +1515,7 @@ function SuppliesCheck({
           className="eyebrow"
           style={{ color: lowCount > 0 ? 'var(--signal)' : 'var(--ink-4)' }}
         >
-          {lowCount === 0 ? 'all stocked' : `${lowCount} low — restock slip${lowCount === 1 ? '' : 's'} on complete`}
+          {lowCount === 0 ? 'all stocked' : `${lowCount} low, restock slip${lowCount === 1 ? '' : 's'} on complete`}
         </span>
       </div>
       <p style={{ marginTop: 0, marginBottom: 12, fontSize: 13, color: 'var(--ink-3)' }}>
@@ -1877,7 +1877,7 @@ function WorkSlipModal({
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         autoFocus
-        placeholder="Title — what's the issue?"
+        placeholder="Title: what's the issue?"
         style={modalInputStyle()}
       />
 

@@ -333,7 +333,7 @@ export function renderEmail(args: RenderArgs): RenderedEmail {
   if (template === 'year_end') {
     return {
       subject,
-      body: `${greetingLine}\n\n[Year-end recap template — YTD payout, review count + average, channel mix, and 2026 projection go here. Ryan/Allie fills the narrative each December.]\n\nWe've also attached your ${shortMonth} statement. Funds will be sent on ${fundsSent}.\n\n${notesPart}Happy New Year!\nAllie & Ryan`,
+      body: `${greetingLine}\n\n[Year-end recap template: YTD payout, review count + average, channel mix, and 2026 projection go here. Ryan/Allie fills the narrative each December.]\n\nWe've also attached your ${shortMonth} statement. Funds will be sent on ${fundsSent}.\n\n${notesPart}Happy New Year!\nAllie & Ryan`,
     };
   }
 

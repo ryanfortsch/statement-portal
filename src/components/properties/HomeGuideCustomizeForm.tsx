@@ -237,7 +237,7 @@ function PickerSlot({
   const entry = HOME_GUIDE_CATALOG[slot.key];
   const placeholderBody = entry.defaultBody
     ? `Catalog default:\n\n${entry.defaultBody}`
-    : 'No default — you need to write the body for this catalog choice.';
+    : 'No default. Write the body for this catalog choice.';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>

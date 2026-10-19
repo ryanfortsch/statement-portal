@@ -79,7 +79,7 @@ export async function publishRun(packetId: string): Promise<{ ok: true } | { ok:
   revalidatePath('/work');
   const { data } = await fieldDb().from('inspection_packets').select('status').eq('id', packetId).maybeSingle();
   const status = (data as { status: string } | null)?.status;
-  if (!status) return { ok: false, error: 'This run was re-planned away — refresh the board' };
+  if (!status) return { ok: false, error: 'This run was re-planned away. Refresh the board.' };
   if (status === 'draft' || status === 'cancelled') {
     // Two ways to land here: a guest booked the visit day (revalidatePacket
     // dropped the stops) or every job on the run was already closed

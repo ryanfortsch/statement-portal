@@ -4,6 +4,7 @@ import { useRef, useState, useTransition } from 'react';
 import type { ContactMeetingRow } from '@/lib/meetings-core';
 import { defaultImportant, meetingWhen, todayET } from '@/lib/meetings-core';
 import { displayNameForEmail } from '@/lib/team';
+import { useConfirm } from '@/components/ConfirmDialog';
 import { addContactMeeting, cancelContactMeeting } from '../actions';
 import { GLOUCESTER_TZ } from '@/lib/stable-time';
 
@@ -37,6 +38,7 @@ export function ContactMeetings({
   disabled = false,
 }: Props) {
   const [, startTransition] = useTransition();
+  const { ask } = useConfirm();
   const [list, setList] = useState<ContactMeetingRow[]>(upcoming);
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
@@ -90,7 +92,16 @@ export function ContactMeetings({
     }
   }
 
-  function cancel(id: string) {
+  async function cancel(id: string) {
+    if (cancelling.current.has(id)) return;
+    // No way to bring a cancelled meeting back, so it asks first.
+    if (!(await ask({
+      title: 'Cancel this meeting?',
+      body: 'It comes off the contact and the home feed, and its reminder will not send.',
+      confirmLabel: 'Cancel meeting',
+      cancelLabel: 'Keep it',
+      tone: 'danger',
+    }))) return;
     if (cancelling.current.has(id)) return;
     cancelling.current.add(id);
     setCancelPending([...cancelling.current]);
