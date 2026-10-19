@@ -153,7 +153,9 @@ describe('the Pricing section speaks plainly', () => {
     const tab = page.slice(page.indexOf('<TabSection tab="guest">'), page.indexOf('</PropertyTabs>'));
     const section = tab.slice(tab.indexOf('id="rates"'), tab.indexOf('<RatesPanel'));
     assert.ok(section.includes('title="Pricing"'));
-    assert.ok(section.includes("guests pay Guesty's prices today"), 'the Guesty sentence left the section head');
+    assert.ok(section.includes(`"Guests pay Guesty's prices"`), 'the Guesty sentence left the section head');
+    // With no Helm plan the empty form folds behind one line (2026-10-19).
+    assert.ok(tab.includes("{!helmRun && !pricing?.plan ? (\n              <details>"), 'an empty plan on a Guesty-run home is not spread open');
     const panel = read('src/app/properties/[id]/RatesPanel.tsx').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
     assert.ok(!/Guesty/.test(panel), 'the panel repeats the Guesty sentence');
   });

@@ -114,9 +114,6 @@ export function HomeGuideCustomizeForm({
       >
         <div>
           <div className="eyebrow">Customize home guide</div>
-          <div style={{ marginTop: 4, fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55 }}>
-            Slots 1-4 are the universal essentials. Slots 5-6 you pick from a catalog or write your own.
-          </div>
         </div>
         <div
           style={{

@@ -1986,9 +1986,6 @@ export default async function PropertyDetailPage({
             <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
               Home guide
             </h3>
-            <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
-              One-page editorial guide. Wi-Fi, climate, parking, trash, plus two operator-picked cells.
-            </p>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 'auto' }}>
               <Link href={`/properties/${p.id}/home-guide`} target="_blank" style={primaryActionStyle}>
                 Open ↗
@@ -2023,10 +2020,6 @@ export default async function PropertyDetailPage({
             <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
               Welcome card
             </h3>
-            <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
-              On-arrival counter card. &ldquo;Welcome.&rdquo; on top, a soft subscribe pitch on the bottom with a QR
-              to staycapeann.com/contact.
-            </p>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 'auto' }}>
               <Link href={`/properties/${p.id}/welcome-card`} target="_blank" style={primaryActionStyle}>
                 Open ↗
@@ -2040,14 +2033,12 @@ export default async function PropertyDetailPage({
             <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
               Wi-Fi placard
             </h3>
-            <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
-              Auto-generated QR auto-joins the network when scanned. Slip into the glass case at the property.
-              {!p.wifi_name || !p.wifi_password ? (
-                <span style={{ display: 'block', marginTop: 6, color: 'var(--negative)' }}>
-                  Add Wi-Fi name + password to this property to generate the QR.
-                </span>
-              ) : null}
-            </p>
+            {/* A tile says something only when it cannot print yet. */}
+            {!p.wifi_name || !p.wifi_password ? (
+              <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--negative)', lineHeight: 1.55 }}>
+                Add the Wi-Fi name and password to print the QR.
+              </p>
+            ) : null}
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 'auto' }}>
               <Link href={`/properties/${p.id}/wifi-placard`} target="_blank" style={primaryActionStyle}>
                 Open ↗
@@ -2065,15 +2056,11 @@ export default async function PropertyDetailPage({
               <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
                 Information note
               </h3>
-              <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
-                Required for the Gloucester STR permit inspection. Local contacts, trash schedule, parking,
-                noise ordinance, gas/water shutoffs, smoke alarms, fire exits, extinguishers.
-                {missingInfoNoteFields(p).length > 0 ? (
-                  <span style={{ display: 'block', marginTop: 6, color: 'var(--negative)' }}>
-                    Missing: {missingInfoNoteFields(p).join(', ')}.
-                  </span>
-                ) : null}
-              </p>
+              {missingInfoNoteFields(p).length > 0 ? (
+                <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--negative)', lineHeight: 1.55 }}>
+                  Missing: {missingInfoNoteFields(p).join(', ')}.
+                </p>
+              ) : null}
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 'auto' }}>
                 <Link href={`/properties/${p.id}/info-note`} target="_blank" style={primaryActionStyle}>
                   Open ↗
@@ -2092,22 +2079,11 @@ export default async function PropertyDetailPage({
               <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
                 Trash day notice
               </h3>
-              <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
-                The collection day in big type, carts out the night before and back in once emptied, and where
-                the carts live.
-                {trashNotice.ok ? (
-                  <span style={{ display: 'block', marginTop: 6 }}>
-                    {trashNotice.notice.day}
-                    {trashNotice.notice.daySource === 'row' ? ', set on the property' : ', from the DPW street list'}.
-                    {trashNotice.notice.cartsHandledByUs ? ' We move the carts here, and the card says so.' : ''}
-                    {trashNotice.notice.location ? '' : ' Add where the carts live under Edit property and it prints on the card.'}
-                  </span>
-                ) : (
-                  <span style={{ display: 'block', marginTop: 6, color: 'var(--negative)' }}>
-                    {trashNotice.skip.reason}
-                  </span>
-                )}
-              </p>
+              {!trashNotice.ok ? (
+                <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--negative)', lineHeight: 1.55 }}>{trashNotice.skip.reason}</p>
+              ) : !trashNotice.notice.location ? (
+                <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>Add where the carts live (Edit property).</p>
+              ) : null}
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 'auto' }}>
                 <Link href={`/properties/${p.id}/trash-notice`} target="_blank" style={primaryActionStyle}>
                   Open ↗
@@ -2213,21 +2189,39 @@ export default async function PropertyDetailPage({
                 ? pricing?.plan
                   ? 'What staycapeann.com, quotes and payment links charge'
                   : 'No plan yet: Helm cannot price a night'
-                : !pricing?.plan
-                  ? "Helm's plan, not set yet · guests pay Guesty's prices today"
-                  : "Helm's plan · guests pay Guesty's prices today"
+                : "Guests pay Guesty's prices"
             }
           >
-            <RatesPanel
-              propertyId={p.id}
-              plan={pricing?.plan ?? null}
-              tax={pricing?.tax ?? null}
-              days={pricing ? [...pricing.days.values()] : []}
-              helmRun={helmRun}
-              region={pmsRegion}
-              today={pmsToday}
-              housePolicy={housePolicyValues}
-            />
+            {/* A Guesty-run home with no Helm plan has nothing to read here, so
+                the empty plan folds behind one line (2026-10-19). */}
+            {!helmRun && !pricing?.plan ? (
+              <details>
+                <summary className="rt-inline-action" style={{ cursor: 'pointer', listStyle: 'none', fontSize: 13 }}>
+                  Set up Helm&rsquo;s pricing
+                </summary>
+                <RatesPanel
+                  propertyId={p.id}
+                  plan={null}
+                  tax={pricing?.tax ?? null}
+                  days={pricing ? [...pricing.days.values()] : []}
+                  helmRun={helmRun}
+                  region={pmsRegion}
+                  today={pmsToday}
+                  housePolicy={housePolicyValues}
+                />
+              </details>
+            ) : (
+              <RatesPanel
+                propertyId={p.id}
+                plan={pricing?.plan ?? null}
+                tax={pricing?.tax ?? null}
+                days={pricing ? [...pricing.days.values()] : []}
+                helmRun={helmRun}
+                region={pmsRegion}
+                today={pmsToday}
+                housePolicy={housePolicyValues}
+              />
+            )}
           </GuestSection>
           {/* WHAT HELM SENDS THEM: opens on the next sends and to whom; the
               rules sit behind Edit rules, in a drawer. */}

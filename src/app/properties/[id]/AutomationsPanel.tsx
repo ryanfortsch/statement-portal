@@ -78,6 +78,10 @@ export function AutomationsPanel({ propertyId, view }: { propertyId: string; vie
 
   const { property, helmRun, lockMapped, hasRatePlan, recipients, nextStay, rules, sends, counts } = view;
   const on = property.automations_enabled;
+  // Guesty sends this home's messages: the readiness checks, the preview and
+  // the history only matter once Helm sends, so the panel is one line and
+  // Edit rules (2026-10-19).
+  const guestyRuns = !on && !helmRun;
   const awaiting = sends.filter((s) => s.status === 'awaiting_approval');
   const scheduled = sends.filter((s) => s.status === 'scheduled' || s.status === 'sending');
   const history = sends.filter((s) => s.status !== 'awaiting_approval' && s.status !== 'scheduled' && s.status !== 'sending');
@@ -111,7 +115,7 @@ export function AutomationsPanel({ propertyId, view }: { propertyId: string; vie
                 : ': paused until Helm runs the calendar'
               : helmRun
                 ? ': nothing sends until it is turned on'
-                : ': Guesty sends this home\'s messages until Helm runs its calendar'}
+                : ': Guesty sends this home\'s messages'}
           </span>
         </div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
@@ -134,7 +138,7 @@ export function AutomationsPanel({ propertyId, view }: { propertyId: string; vie
 
       {msg && !rulesOpen && <Notice ok={msg.ok}>{msg.text}</Notice>}
 
-      {problems.length > 0 && (
+      {!guestyRuns && problems.length > 0 && (
         <div style={{ display: 'flex', gap: '6px 18px', flexWrap: 'wrap', padding: '10px 0', borderTop: '1px solid var(--rule)', fontSize: 12 }}>
           {problems.map((p) => (
             <Ready key={p} ok={false} label={p} />
@@ -186,7 +190,7 @@ export function AutomationsPanel({ propertyId, view }: { propertyId: string; vie
       )}
 
       {/* Next to send: when, what, to whom, by what. */}
-      <div style={{ marginTop: 18 }}>
+      {!guestyRuns && <div style={{ marginTop: 18 }}>
         {scheduled.length > 0 ? (
           <>
             <div className="eyebrow" style={{ marginBottom: 2 }}>Next to send</div>
@@ -231,9 +235,9 @@ export function AutomationsPanel({ propertyId, view }: { propertyId: string; vie
         ) : (
           <EmptyState rule={false}>{on ? 'Nothing is scheduled in the next 30 days.' : 'No upcoming stay to send for.'}</EmptyState>
         )}
-      </div>
+      </div>}
 
-      {(history.length > 0 || counts.noContact > 0) && (
+      {!guestyRuns && (history.length > 0 || counts.noContact > 0) && (
         <div style={{ marginTop: 14, display: 'flex', gap: 14, alignItems: 'baseline', flexWrap: 'wrap' }}>
           {history.length > 0 && (
             <button type="button" onClick={() => setShowHistory(!showHistory)} style={linkBtn} aria-expanded={showHistory}>
