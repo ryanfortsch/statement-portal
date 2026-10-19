@@ -74,6 +74,18 @@ them risks paying somebody $40 short with nobody noticing. See
   to the P&L's shape by `20261019190000_books_ledger_for_pnl.sql` (liability
   types, checks, grants), both applied to production 2026-10-19. All five
   are RLS-locked, service role only.
+- **`llc_opening_balances`** is each LLC's opening figure per bank or card
+  account (`account_id`) or per asset or liability chart key
+  (`category_key`), as of **`llc_entities.opening_balance_date`**, positive
+  as the statement shows it. **`ledger_journal_entries`** is the year-end
+  entries (one `debit_key`, one `credit_key`, a positive `amount`). Both
+  feed the balance sheet (`src/lib/books-balance-sheet.ts`,
+  `/books/<entity>/balance-sheet`); the P&L reads the journal entries too.
+  Cash and card balances are never stored: they are the opening figure plus
+  the ledger. Migration `20261019200000_books_balance_sheet.sql` (runs after
+  the two above; also widens `chart_of_accounts.type` for `asset` and adds
+  the asset and loan accounts), **not yet applied to production as of
+  2026-10-19.**
 - This is the companies' own books. It never reads or writes an owner
   statement, and Rising Tide's owner trust money (pass-through accounts) is
   listed beside its P&L, never in it.

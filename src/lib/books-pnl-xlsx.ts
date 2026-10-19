@@ -8,11 +8,11 @@
  */
 
 import * as XLSX from 'xlsx';
-import { pnlSheetRows, transactionSheetRows, type Cell, type DetailTxn, type PnlReport } from './books-pnl.ts';
+import { pnlSheetRows, transactionSheetRows, type Cell, type DetailTxn, type JournalEntry, type PnlReport } from './books-pnl.ts';
 
 const MONEY_FORMAT = '#,##0.00;-#,##0.00';
 
-function sheetFrom(rows: Cell[][], widths: number[]): XLSX.WorkSheet {
+export function sheetFrom(rows: Cell[][], widths: number[]): XLSX.WorkSheet {
   const ws = XLSX.utils.aoa_to_sheet(rows);
   for (const addr of Object.keys(ws)) {
     if (addr.startsWith('!')) continue;
@@ -27,12 +27,12 @@ function sheetFrom(rows: Cell[][], widths: number[]): XLSX.WorkSheet {
 export const PNL_SHEET = 'Profit and Loss';
 export const TRANSACTIONS_SHEET = 'Transactions';
 
-export function pnlWorkbook(report: PnlReport, txns: DetailTxn[]): Uint8Array {
+export function pnlWorkbook(report: PnlReport, txns: DetailTxn[], journal: JournalEntry[] = []): Uint8Array {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, sheetFrom(pnlSheetRows(report), [44, ...Array(13).fill(12)]), PNL_SHEET);
   XLSX.utils.book_append_sheet(
     wb,
-    sheetFrom(transactionSheetRows(report.entity_id, report.year, txns), [11, 26, 48, 12, 34, 22, 13]),
+    sheetFrom(transactionSheetRows(report.entity_id, report.year, txns, journal), [11, 26, 48, 12, 34, 22, 13]),
     TRANSACTIONS_SHEET,
   );
   return new Uint8Array(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as ArrayLike<number>);

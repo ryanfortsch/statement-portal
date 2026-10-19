@@ -372,7 +372,7 @@ describe('the rules that keep each LLC\'s P&L honest', () => {
 
   test('every chart account is either in net income or a listed movement, by its type', () => {
     for (const a of CHART_OF_ACCOUNTS) {
-      const expected = !a.pass_through && a.type !== 'equity' && a.type !== 'liability';
+      const expected = !a.pass_through && a.type !== 'equity' && a.type !== 'liability' && a.type !== 'asset';
       assert.equal(inNetIncome(a), expected, a.key);
     }
     for (const key of ['sales_tax_payable', 'customer_prepayments', 'heat_loan']) {
@@ -399,6 +399,8 @@ describe('the rules that keep each LLC\'s P&L honest', () => {
 // ── The migration seeds what the app files against ───────────────────────
 
 const MIGRATION = 'supabase/migrations/20261019190000_books_ledger_for_pnl.sql';
+/** The balance sheet's migration adds the asset and loan accounts on top; the two together seed the chart. */
+const BALANCE_SHEET_MIGRATION = 'supabase/migrations/20261019200000_books_balance_sheet.sql';
 
 /** The value tuples of one `insert into public.<table> (...) values ... on conflict` block. */
 function seedTuples(sql: string, table: string): (string | number | boolean | null)[][] {
@@ -432,9 +434,14 @@ function seedTuples(sql: string, table: string): (string | number | boolean | nu
 describe('the books migration', () => {
   const sql = read(MIGRATION);
 
-  test('seeds exactly the chart of accounts in books.ts', () => {
-    const seeded = seedTuples(sql, 'chart_of_accounts').map(([entity_id, key, parent_key, name, type, tax_hint, pass_through, sort]) =>
-      JSON.stringify([entity_id ?? 'shared', key, parent_key, name, type, tax_hint, pass_through, sort]));
+  test('seeds exactly the chart of accounts in books.ts (with the balance sheet migration\'s rows, which win)', () => {
+    const byScopeKey = new Map<string, string>();
+    for (const file of [sql, read(BALANCE_SHEET_MIGRATION)]) {
+      for (const [entity_id, key, parent_key, name, type, tax_hint, pass_through, sort] of seedTuples(file, 'chart_of_accounts')) {
+        byScopeKey.set(`${entity_id ?? 'shared'}:${key}`, JSON.stringify([entity_id ?? 'shared', key, parent_key, name, type, tax_hint, pass_through, sort]));
+      }
+    }
+    const seeded = [...byScopeKey.values()];
     const lib = CHART_OF_ACCOUNTS.map((a) =>
       JSON.stringify([a.scope, a.key, a.parent_key ?? null, a.name, a.type, a.tax_hint ?? null, !!a.pass_through, a.sort]));
     assert.deepEqual([...seeded].sort(), [...lib].sort());
@@ -451,12 +458,12 @@ describe('the books migration', () => {
     }
   });
 
-  test('the type check admits every type the chart uses, and lands after the upsert fixes the liability rows', () => {
+  test('the type check admits every type the chart uses (asset once the balance sheet migration widens it), and lands after the upsert fixes the liability rows', () => {
     const check = sql.match(/add constraint chart_of_accounts_type_check\s+check \(type in \(([^)]*)\)\)/);
     assert.ok(check, 'chart_of_accounts.type has a check');
     assert.ok(sql.indexOf('chart_of_accounts_type_check') > sql.indexOf('insert into public.chart_of_accounts'), 'the check follows the chart upsert');
     const allowed = new Set(check[1].split(',').map((s) => s.trim().replace(/'/g, '')));
-    for (const a of CHART_OF_ACCOUNTS) assert.ok(allowed.has(a.type), `${a.key}: ${a.type}`);
+    for (const a of CHART_OF_ACCOUNTS) assert.ok(allowed.has(a.type) || a.type === 'asset', `${a.key}: ${a.type}`);
   });
 
   test('every table it creates is locked to the service role', () => {
@@ -475,13 +482,20 @@ describe('the books migration', () => {
     assert.ok(read('supabase-schema-books.sql').split('\n').slice(0, 6).join('\n').includes('20261019190000_books_ledger_for_pnl.sql'));
   });
 
-  test('it sorts after every other migration that seeds the chart, so a replay ends on this chart', () => {
+  test('it sorts after every migration that rebuilds the chart, so a replay ends on this chart; a later one only adds rows', () => {
     // The root file's seed (and its copy as a migration) deletes and
     // re-inserts chart_of_accounts with the liability rows as other_expense.
+    // A migration after this one (the balance sheet's) may only upsert its
+    // own rows; the seed test above holds every row to books.ts.
     const dir = new URL('../../../supabase/migrations/', import.meta.url);
     const mine = MIGRATION.split('/').pop()!;
     const seeders = readdirSync(dir).filter((f) => f.endsWith('.sql') && f !== mine && /insert into\s+(public\.)?chart_of_accounts/i.test(readFileSync(new URL(f, dir), 'utf8')));
-    for (const f of seeders) assert.ok(f < mine, `${f} seeds the chart after ${mine}`);
+    for (const f of seeders.filter((x) => x > mine)) {
+      const body = readFileSync(new URL(f, dir), 'utf8');
+      assert.ok(!/delete\s+from\s+(public\.)?chart_of_accounts/i.test(body), `${f} sorts after ${mine}, so it must not rebuild the chart`);
+      assert.ok(body.includes("on conflict ((coalesce(entity_id, '')), key) do update"), `${f} upserts`);
+    }
+    assert.ok(seeders.some((f) => f < mine), 'the rebuild it follows is on file');
   });
 
   test('re-running it changes nothing: every constraint is dropped by name before it is added', () => {

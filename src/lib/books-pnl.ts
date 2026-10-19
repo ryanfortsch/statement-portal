@@ -15,9 +15,11 @@
  * What is in net income and what is not:
  *   - income, cogs, expense, other_income, other_expense accounts are.
  *   - equity (owner draws and contributions, intercompany transfers, card
- *     payoffs, the Florida house on Goose of Astoria) and liability (sales
- *     tax owed, guest prepayments, a loan's principal) are balance-sheet
- *     movements. They are listed under "Not in net income", never added.
+ *     payoffs, the Florida house on Goose of Astoria), liability (sales
+ *     tax owed, guest prepayments, a loan's principal) and asset (a
+ *     capital improvement, a deposit) are balance-sheet movements. They are
+ *     listed under "Not in net income", never added; books-balance-sheet.ts
+ *     carries their balances.
  *   - pass-through accounts (Rising Tide's owner trust money) are listed
  *     there too: that money is the owners', not Rising Tide's.
  *   - a row with no category, 'uncategorized', 'suspense', or a key that is
@@ -26,6 +28,12 @@
  *     it. It IS in net income, so an unfiled transfer between two of the
  *     entity's own accounts nets to zero once both sides are uploaded, and
  *     the count says how much is left to file.
+ *
+ * A year-end journal entry (ledger_journal_entries: the 1098's interest out
+ * of a mortgage the payments were filed to, the CPA's depreciation) moves
+ * money between two chart accounts with no cash. It files here exactly as
+ * a reviewed row would, one line per side, so the P&L and the balance sheet
+ * read the same books. Entries are counted apart from transactions.
  *
  * Money is summed in integer cents. Bookkeeping only: nothing here reads
  * or writes an owner statement.
@@ -40,6 +48,31 @@ export type PnlTxn = {
   ai_category_key: string | null;
   reviewed: boolean;
 };
+
+/**
+ * One year-end journal entry: debit one chart account, credit another, by
+ * a positive amount. Always balanced by construction.
+ */
+export type JournalEntry = {
+  entry_date: string;
+  debit_key: string;
+  credit_key: string;
+  amount: number | string;
+  memo: string;
+};
+
+/**
+ * An entry as the two lines it files, in the ledger's sign (credit
+ * positive): the debit side is -amount, the credit side +amount. An
+ * expense debited reads as money out; a loan credited reads as money in.
+ */
+export function journalLines(e: JournalEntry): PnlTxn[] {
+  const cents = Math.abs(toCents(e.amount));
+  return [
+    { txn_date: e.entry_date, amount: -cents / 100, category_key: e.debit_key, ai_category_key: null, reviewed: true },
+    { txn_date: e.entry_date, amount: cents / 100, category_key: e.credit_key, ai_category_key: null, reviewed: true },
+  ];
+}
 
 export type PnlSectionId = 'income' | 'cogs' | 'expense' | 'other_income' | 'other_expense';
 
@@ -97,6 +130,8 @@ export type PnlReport = {
     /** No category the P&L can file: counted as Uncategorized income or expense. */
     uncategorized: number;
   };
+  /** Year-end journal entries filed into the report, counted apart from transactions. */
+  journal_entries: number;
   /** Keys the categorizer or an old row used that are not on this entity's chart. */
   off_chart_keys: string[];
   /** Every row reviewed and none uncategorized. */
@@ -161,9 +196,22 @@ export function classifyTxn(entityId: string, t: Pick<PnlTxn, 'category_key' | '
   return { account, key, status, offChart };
 }
 
+const BALANCE_SHEET_TYPES = new Set<CoaType>(['asset', 'liability', 'equity']);
+
+/** A balance-sheet account: asset, liability or equity. */
+export function isBalanceSheetAccount(account: CoaAccount): boolean {
+  return BALANCE_SHEET_TYPES.has(account.type);
+}
+
 /** In net income, or one of the balance-sheet and owner-trust movements listed beside it. */
 export function inNetIncome(account: CoaAccount): boolean {
-  return !account.pass_through && account.type !== 'equity' && account.type !== 'liability';
+  return !account.pass_through && !isBalanceSheetAccount(account);
+}
+
+/** The word for a "Not in net income" row's kind. */
+export function outsideKind(o: { type: CoaType; pass_through: boolean }): string {
+  if (o.pass_through) return 'Owner trust (pass-through)';
+  return o.type === 'liability' ? 'Liability' : o.type === 'asset' ? 'Asset' : 'Equity';
 }
 
 const zeros = () => Array.from({ length: 12 }, () => 0);
@@ -172,7 +220,7 @@ const add = (a: number[], b: number[]) => a.map((v, i) => v + b[i]);
 const sub = (a: number[], b: number[]) => a.map((v, i) => v - b[i]);
 const subtotal = (months: number[]): PnlSubtotal => ({ months, total: sum(months) });
 
-export function buildPnl(entityId: string, year: number, txns: PnlTxn[]): PnlReport {
+export function buildPnl(entityId: string, year: number, txns: PnlTxn[], journal: JournalEntry[] = []): PnlReport {
   const entity = LLC_ENTITIES[entityId];
   if (!entity) throw new Error(`Unknown entity: ${entityId}`);
   const { start, endExclusive } = yearBounds(year);
@@ -188,18 +236,29 @@ export function buildPnl(entityId: string, year: number, txns: PnlTxn[]): PnlRep
   const offChart = new Set<string>();
   const counts = { transactions: 0, reviewed: 0, on_proposal: 0, uncategorized: 0 };
   let lastMonth = 0;
+  let journalEntries = 0;
 
-  for (const t of txns) {
-    if (!(t.txn_date >= start && t.txn_date < endExclusive)) continue;
+  const inYear = (d: string) => d >= start && d < endExclusive;
+  const rows: { t: PnlTxn; journal: boolean }[] = [
+    ...txns.filter((t) => inYear(t.txn_date)).map((t) => ({ t, journal: false })),
+    ...journal.filter((e) => inYear(e.entry_date)).flatMap((e) => {
+      journalEntries += 1;
+      return journalLines(e).map((t) => ({ t, journal: true }));
+    }),
+  ];
+
+  for (const { t, journal: isJournal } of rows) {
     const month = Number(t.txn_date.slice(5, 7)) - 1;
     const cents = toCents(t.amount);
     const c = classifyTxn(entityId, t);
-    counts.transactions += 1;
     lastMonth = Math.max(lastMonth, month + 1);
     if (c.offChart && c.key) offChart.add(c.key);
-    if (c.status === 'reviewed') counts.reviewed += 1;
-    else if (c.status === 'proposal') counts.on_proposal += 1;
-    else counts.uncategorized += 1;
+    if (!isJournal) {
+      counts.transactions += 1;
+      if (c.status === 'reviewed') counts.reviewed += 1;
+      else if (c.status === 'proposal') counts.on_proposal += 1;
+      else counts.uncategorized += 1;
+    }
 
     if (!c.account) {
       bump(cents >= 0 ? UNCATEGORIZED_INCOME_KEY : UNCATEGORIZED_EXPENSE_KEY, month, cents);
@@ -217,7 +276,7 @@ export function buildPnl(entityId: string, year: number, txns: PnlTxn[]): PnlRep
       };
       if (cents >= 0) row.money_in += cents;
       else row.money_out -= cents;
-      row.count += 1;
+      if (!isJournal) row.count += 1;
       outside.set(c.account.key, row);
     }
   }
@@ -286,6 +345,7 @@ export function buildPnl(entityId: string, year: number, txns: PnlTxn[]): PnlRep
     net_income: subtotal(add(noi, other)),
     outside: [...outside.values()].sort((a, b) => (coaAccountFor(entityId, a.key)?.sort ?? 0) - (coaAccountFor(entityId, b.key)?.sort ?? 0)),
     counts,
+    journal_entries: journalEntries,
     off_chart_keys: [...offChart].sort(),
     final: counts.transactions > 0 && counts.on_proposal === 0 && counts.uncategorized === 0,
     last_month: lastMonth,
@@ -302,11 +362,12 @@ const dollars = (cents: number) => cents / 100;
 export function pnlStatusLine(r: PnlReport): string {
   const c = r.counts;
   if (c.transactions === 0) return `No transactions on file for ${r.year}.`;
-  if (r.final) return `Final: all ${c.transactions} transactions reviewed.`;
+  const entries = r.journal_entries > 0 ? ` ${r.journal_entries} year-end journal ${r.journal_entries === 1 ? 'entry' : 'entries'}.` : '';
+  if (r.final) return `Final: all ${c.transactions} transactions reviewed.${entries}`;
   const parts: string[] = [];
   if (c.on_proposal > 0) parts.push(`${c.on_proposal} on the categorizer's proposal, not yet reviewed`);
   if (c.uncategorized > 0) parts.push(`${c.uncategorized} uncategorized`);
-  return `Draft: ${parts.join('; ')}. ${c.transactions} transactions in all.`;
+  return `Draft: ${parts.join('; ')}. ${c.transactions} transactions in all.${entries}`;
 }
 
 /**
@@ -354,9 +415,8 @@ export function pnlSheetRows(r: PnlReport): Cell[][] {
     rows.push(['Not in net income: balance sheet and owner trust movements for the year']);
     rows.push(['Account', 'Kind', 'Money in', 'Money out', 'Net', 'Transactions']);
     for (const o of r.outside) {
-      const kind = o.pass_through ? 'Owner trust (pass-through)' : o.type === 'liability' ? 'Liability' : 'Equity';
       // The count is text so a spreadsheet's money format never reads it as dollars.
-      rows.push([o.name, kind, dollars(o.money_in), dollars(o.money_out), dollars(o.money_in - o.money_out), String(o.count)]);
+      rows.push([o.name, outsideKind(o), dollars(o.money_in), dollars(o.money_out), dollars(o.money_in - o.money_out), String(o.count)]);
     }
   }
   return rows;
@@ -364,19 +424,30 @@ export function pnlSheetRows(r: PnlReport): Cell[][] {
 
 export type DetailTxn = PnlTxn & { description: string; account_label: string | null };
 
-/** Every transaction of the year with how the P&L filed it, oldest first. */
-export function transactionSheetRows(entityId: string, year: number, txns: DetailTxn[]): Cell[][] {
+/**
+ * Every transaction of the year with how the P&L filed it, oldest first,
+ * then the year's journal entries, one row per side.
+ */
+export function transactionSheetRows(entityId: string, year: number, txns: DetailTxn[], journal: JournalEntry[] = []): Cell[][] {
   const { start, endExclusive } = yearBounds(year);
   const rows: Cell[][] = [['Date', 'Account', 'Description', 'Amount', 'Category', 'Status', 'In net income']];
-  const inYear = txns
-    .filter((t) => t.txn_date >= start && t.txn_date < endExclusive)
-    .sort((a, b) => a.txn_date.localeCompare(b.txn_date));
-  for (const t of inYear) {
+  const inYear = (d: string) => d >= start && d < endExclusive;
+  const filed = (t: PnlTxn) => {
     const c = classifyTxn(entityId, t);
     const category = c.account ? c.account.name : toCents(t.amount) >= 0 ? 'Uncategorized Income' : 'Uncategorized Expense';
     const status = c.status === 'reviewed' ? 'Reviewed' : c.status === 'proposal' ? 'Proposed, not reviewed' : 'Uncategorized';
     const counted = !c.account || inNetIncome(c.account);
-    rows.push([t.txn_date, t.account_label, t.description, dollars(toCents(t.amount)), category, status, counted ? 'Yes' : 'No']);
+    return { category, status, counted: counted ? 'Yes' : 'No' };
+  };
+  for (const t of txns.filter((x) => inYear(x.txn_date)).sort((a, b) => a.txn_date.localeCompare(b.txn_date))) {
+    const f = filed(t);
+    rows.push([t.txn_date, t.account_label, t.description, dollars(toCents(t.amount)), f.category, f.status, f.counted]);
+  }
+  for (const e of journal.filter((x) => inYear(x.entry_date)).sort((a, b) => a.entry_date.localeCompare(b.entry_date))) {
+    for (const line of journalLines(e)) {
+      const f = filed(line);
+      rows.push([line.txn_date, 'Journal entry', e.memo, dollars(toCents(line.amount)), f.category, 'Journal entry', f.counted]);
+    }
   }
   return rows;
 }
