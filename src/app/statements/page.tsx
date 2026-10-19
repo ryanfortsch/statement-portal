@@ -1534,7 +1534,7 @@ function ReconciliationStrip({ recon }: { recon?: Reconciliation }) {
         <span className="eyebrow" style={{ color: recon.reconciled ? 'var(--ink-4)' : 'var(--signal)' }}>Reconciliation</span>
         {recon.reconciled ? (
           <span className="font-serif" style={{ fontSize: 13, fontStyle: 'italic', color: 'var(--ink-3)' }}>
-            Reconciled &middot; every check agrees or has nothing to check against.
+            Reconciled
           </span>
         ) : (
           <span style={{ fontSize: 12, color: 'var(--negative)', fontWeight: 600 }}>
@@ -4574,7 +4574,7 @@ function DashboardContent() {
                 <span className="eyebrow" style={{ color: nextStep < 0 ? 'var(--ink-4)' : 'var(--signal)' }}>The close</span>
                 {nextStep < 0 && (
                   <span className="font-serif" style={{ fontSize: 13, fontStyle: 'italic', color: 'var(--ink-3)' }}>
-                    Month is clear &middot; inputs on file, synced, every statement reviewed, drafted and sent.
+                    Month is clear
                   </span>
                 )}
               </div>

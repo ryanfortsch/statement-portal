@@ -182,9 +182,6 @@ export function ContractRedlinesPanel({ projection }: { projection: ProjectionRo
           {originalText && (
             <div style={refineBlockStyle}>
               <div className="eyebrow" style={{ ...eyebrowStyle, marginBottom: 4 }}>Need to refine?</div>
-              <p style={{ margin: '0 0 8px', fontSize: 11, color: 'var(--ink-3)', lineHeight: 1.5 }}>
-                Tell Claude what to reconsider. Original + your notes go back; the new interpretation replaces what&rsquo;s shown.
-              </p>
               <textarea
                 value={iterationText}
                 onChange={(e) => setIterationText(e.target.value)}
@@ -203,7 +200,6 @@ export function ContractRedlinesPanel({ projection }: { projection: ProjectionRo
                 >
                   {pending ? 'Iterating…' : 'Iterate'}
                 </button>
-                <span style={hintStyle}>Replaces the preview above with a fresh interpretation.</span>
               </div>
             </div>
           )}
@@ -488,9 +484,6 @@ function Preview({
         <div className="eyebrow" style={eyebrowStyle}>Summary</div>
         <p style={{ margin: '6px 0 0', fontSize: 13, lineHeight: 1.55, color: 'var(--ink)' }}>
           {edits.summary}
-        </p>
-        <p style={{ margin: '8px 0 0', fontSize: 11, color: 'var(--ink-3)', fontStyle: 'italic' }}>
-          Uncheck any edit you don&rsquo;t want applied. Use Iterate below to send refinements back to Claude.
         </p>
       </div>
 

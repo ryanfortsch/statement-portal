@@ -22,7 +22,7 @@ export function Vendor1099Section({ report }: { report: Vendor1099Report }) {
       </div>
       {report.totals.vendors === 0 ? (
         <div style={{ padding: 18, background: 'var(--paper-2)', border: '1px solid var(--rule)', fontSize: 12, color: 'var(--ink-3)' }}>
-          No vendor payments yet this year across cleaning, repairs, or the card and operating account.
+          No vendor payments yet this year.
         </div>
       ) : (
         <>
@@ -43,7 +43,7 @@ export function Vendor1099Section({ report }: { report: Vendor1099Report }) {
           </div>
           <Vendor1099Table rows={report.rows} />
           <div style={{ marginTop: 12, fontSize: 11, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 720 }}>
-            Payroll is left out (wages get a W-2). Tick W-9 on file once it is in QuickBooks; a corporation needs no 1099.
+            Tick W-9 once it is in QuickBooks. A corporation needs no 1099.
           </div>
         </>
       )}

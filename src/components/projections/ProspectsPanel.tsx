@@ -116,10 +116,6 @@ export async function ProspectsPanel() {
               {archived.length} promoted
             </span>
           </div>
-          <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.5, maxWidth: 580 }}>
-            These prospects became managed properties. Click any row to revisit the original projection,
-            contract, and walkthrough.
-          </p>
           <div style={{ borderTop: '1px solid var(--ink-3)' }}>
             {archived.map((p, i) => (
               <ProjectionRowItem key={p.id} projection={p} number={String(i + 1).padStart(2, '0')} />
@@ -141,10 +137,6 @@ export async function ProspectsPanel() {
               {inactive.length} inactive
             </span>
           </div>
-          <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.5, maxWidth: 580 }}>
-            Deals that didn&rsquo;t happen, kept on file. Everything is still here — projection,
-            contract draft, intake — and Reactivate puts one back in the funnel if the owner returns.
-          </p>
           <div style={{ borderTop: '1px solid var(--ink-3)' }}>
             {inactive.map((p, i) => (
               <ProjectionRowItem key={p.id} projection={p} number={String(i + 1).padStart(2, '0')} />

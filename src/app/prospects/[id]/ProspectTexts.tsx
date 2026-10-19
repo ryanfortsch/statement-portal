@@ -74,10 +74,7 @@ export function ProspectTexts({
           </span>
         </summary>
 
-        <p style={{ fontSize: 12, color: 'var(--ink-4)', margin: '6px 0 14px' }}>
-          Texts from Quo (matched to this prospect&rsquo;s phone) and Gmail sends from
-          Helm. Deal-relevant texts are flagged.
-        </p>
+        <div style={{ height: 10 }} />
 
         <div style={{ borderTop: '1px solid var(--ink)' }}>
           {items.map((item, i) => (item.kind === 'sms'

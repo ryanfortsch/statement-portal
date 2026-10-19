@@ -523,9 +523,6 @@ export default function AirDnaPage() {
                         ))}
                       </ul>
                     )}
-                    <p style={{ marginTop: 10, fontSize: 13, color: "var(--ink-muted, #4a5760)" }}>
-                      The risingtidestr.com market pages refresh within an hour.
-                    </p>
                   </>
                 ) : (
                   <strong style={{ color: "var(--signal, #c85a3a)" }}>{result.error ?? "Upload failed"}</strong>
@@ -579,9 +576,6 @@ export default function AirDnaPage() {
               );
             })}
 
-            <p style={{ fontSize: 12, color: "var(--ink-muted, #4a5760)", marginTop: 4, lineHeight: 1.5 }}>
-              AirDNA posts last month around the 15th; Helm texts you if a market still lacks it on the 20th.
-            </p>
           </div>
         </div>
       </section>
