@@ -36,33 +36,51 @@ skips after ACK. Neither route proves a complete initial calendar or sends a
 message. HMAC handling follows the [Channex webhook contract](https://docs.channex.io/api-v.1-documentation/webhook-collection);
 revision processing follows the [booking revision contract](https://docs.channex.io/api-v.1-documentation/bookings-collection).
 
-Activation is disabled. The route requires the exact preview branch, existing
-`CHANNEX_STAGING_ENABLED`, and `CHANNEX_CANONICAL_REHEARSAL_ENABLED=true`.
-Signed notices additionally require `CHANNEX_CANONICAL_SIGNING_SECRET`. Existing
-staging Channex and dedicated staging database credentials are used; no production
-credential fallback exists. The SQL owner must explicitly configure the fictional
-property's capture and importer scopes. No webhook, signing key, polling schedule,
-new paid service or sender was activated in this batch.
+The authenticated preview import is being enabled on the exact pilot branch with
+`CHANNEX_CANONICAL_REHEARSAL_ENABLED=true`. Signed notices additionally require
+`CHANNEX_CANONICAL_SIGNING_SECRET`; no webhook, signing key, polling schedule,
+new paid service or sender has been activated. Existing Channex and dedicated
+staging database credentials remain in Vercel's sensitive variables; CLI export
+intentionally does not return their values. No production credential fallback
+exists. Capture/import scope is confined to `HELMTEST-calderwood`.
 
-**Hosted prerequisite check:** a read-only `to_regclass` query in the verified
-**Helm Channex Staging** project `jgkblfozftcvymvwhhii` found no `public.properties`,
-`public.bookings`, `public.automation_sends`, inventory capture scopes or canonical
-revision receipts. `helm_cleaner_rehearsal.delivery` exists. Therefore the next
-installation needs a reviewed canonical schema baseline; applying the importer
-alone cannot work. Do not replace the existing rehearsal records or blindly
-replay historical migrations, whose ordering fails on an empty database.
+**Hosted installation completed:** the reviewed baseline and capture/planning/import
+SQL were installed atomically in **Helm Channex Staging**, project
+`jgkblfozftcvymvwhhii`, at `2026-10-19T19:04:54.568195Z`.
+The private installation manifest records bundle
+`79762c13691b7285d76bcac51f4c45e30a41f29f6fd90e1bc02812fb324fa441`
+and fourteen source hashes. Nine canonical migration files still match origin/main
+`2e6b5a7eaaea290170815c36a1fda568b9008499`. The installer extracts scoped, unmodified
+DDL/RPC sections, refuses an existing canonical application, omits business seeds
+and cutover activation, and hardens new tables before commit. The original nine
+public rehearsal tables and private cleaner rehearsal were preserved. The shared
+local fixture uses the same canonical source sections.
 
-Validation: 2,058 unit tests, TypeScript and scoped ESLint passed. The database
-suite includes 15 import scenarios against real repository table/RPC definitions;
-60 native PostgreSQL checks passed in total, including concurrent duplicates,
-out-of-order cancellation, importer disable and concurrent capture/authority
-withdrawal. The local fixture remains a subset, not proof of the hosted schema.
+**Hosted database cycle completed:** the owner-run, atomic
+`staging-storage/canonical-hosted-rehearsal.sql` created only the fictional
+`HELMTEST-calderwood` property with automation disabled. Constructed revisions
+created, moved and cancelled a stay; duplicate replay produced no extra write,
+and a stale modification left it cancelled. Results: one cancelled booking, three
+booking audit rows, four inventory events, four durable revision receipts and six
+cancelled waiting message rows. The six rows have no recipients, rendered bodies,
+templates or provider IDs. The existing cleaner state was checked unchanged.
+This proves the hosted database transaction and cancellation boundary; it does
+**not** prove provider notification, ACK, message timing, sending or OTA delivery.
+
+Validation: 2,058 application tests, nonincremental TypeScript, 85 PGlite checks,
+60 native PostgreSQL checks and 22 exact-installer/integration checks passed.
+The separate rehearsal artifact check also verifies late-failure rollback,
+repeatability, preservation of the cleaner record, no recipient/provider data,
+and refusal when a sender is enabled. Source files remain outside automatic
+production migrations. The installer must not be rerun over the installed pilot;
+use reviewed incremental SQL for any subsequent schema change.
 
 Remaining delivery sequence:
 
-1. Install a reviewed canonical baseline and the integration candidates in the
-   isolated database, then run **one hosted create → change → cancel rehearsal**
+1. Verify the enabled preview importer against the existing Channex staging
+   connection, then exercise an actual provider create → change → cancel cycle
    through signed notification, durable receipt, calendar and availability.
+   Database installation and the constructed-revision cycle are complete.
 2. Prove **automated guest and cleaner delivery**, original timing, message
    history/deduplication, holds, cancellation and carried-over stays. Verify
    PriceLabs parity and full future-calendar reconciliation in the same pilot.

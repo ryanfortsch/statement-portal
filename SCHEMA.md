@@ -90,7 +90,7 @@ the direct OTA iCal feed is trusted; the Guesty aggregate feed and
 status `block`).** `bookings` holds one row per source per stay by design;
 never key per-stay logic on `bookings.id` (`memory/project_bookings_duplicate_rows.md`).
 
-- **Candidate only, not applied:** `docs/guesty-exit/staging-storage/booking-inventory-events.sql`
+- **Installed only in isolated staging (October 19):** `docs/guesty-exit/staging-storage/booking-inventory-events.sql`
   attaches change capture to canonical `bookings` transactions, property calendar
   authority, availability rules, date closures and rental seasons. The proposed
   `helm_inventory_capture_scopes` holds each property's disabled-by-default
@@ -118,7 +118,7 @@ never key per-stay logic on `bookings.id` (`memory/project_bookings_duplicate_ro
   lexicographic migration replay fails at `20260430_create_inspections.sql` because
   `properties` has not been created yet. Do not treat this curated local fixture
   as a replay or as evidence of the hosted migration state.
-- **Candidate only, not applied:** `staging-storage/booking-inventory-planning.sql`
+- **Installed only in isolated staging (October 19):** `staging-storage/booking-inventory-planning.sql`
   (under `docs/guesty-exit`) adds `helm_booking_inventory_consumers`: owner-reviewed
   single-unit staging configuration, processed capture/configuration versions,
   desired plan version, freshness bound and a durable inventory journal. The
@@ -135,7 +135,7 @@ never key per-stay logic on `bookings.id` (`memory/project_bookings_duplicate_ro
   the request fingerprint and receive time to the same attempt token. These are JSONB
   journal fields, not new tables or migrations. Older records remain readable with
   missing evidence marked explicitly; no task completion is inferred from acceptance.
-- **Candidate only, not applied:** `docs/guesty-exit/staging-storage/canonical-revisions.sql`
+- **Installed only in isolated staging (October 19):** `docs/guesty-exit/staging-storage/canonical-revisions.sql`
   wraps the existing booking RPCs for the synthetic Calderwood Channex rehearsal.
   Private `helm_channex_revisions.scope`, `.bookings` and `.receipts` hold the
   disabled-by-default fictional-property scope, exact remote/canonical identity
@@ -150,9 +150,22 @@ never key per-stay logic on `bookings.id` (`memory/project_bookings_duplicate_ro
   after an independent receipt read. Import, capture-disable and property
   authority locks prevent an unrecorded/unauthorized transaction. This does not
   implement production conflict quarantine, complete coverage or live sends.
-  The October 19 read-only hosted check confirms the isolated staging database
-  lacks canonical properties/bookings/automation tables and these candidates;
-  a reviewed baseline is required before installation.
+  On October 19 the reviewed baseline and all three integration SQL files were
+  installed atomically in **Helm Channex Staging** (`jgkblfozftcvymvwhhii`).
+  `helm_pilot_installation.manifest` privately records the project, bundle digest,
+  fourteen source hashes and installation time. The builder extracts unmodified
+  canonical DDL/RPC sections from nine migrations, excludes business seeds and
+  cutover activation, refuses existing application tables/functions, and revokes
+  browser access to the new tables before commit. Existing public and private
+  rehearsals are preserved. This is a bounded pilot baseline, not a full migration
+  replay or any production-schema change.
+  `canonical-hosted-rehearsal.sql` then seeded only `HELMTEST-calderwood` with
+  automation disabled and enabled its capture/import scopes. Constructed
+  revisions exercised create, change, cancellation, duplicate replay and stale
+  replay: one cancelled booking, three audit rows, four inventory events, four
+  receipts and six cancelled recipient-free test message rows remain. No message
+  template, enabled sender, guest/contact or inventory publication route was seeded.
+  This database proof does not establish Channex HTTP/webhook or actual delivery.
 - **`booking_events`**: append-only change log per booking (`created`,
   `dates_changed`, `status_changed`, `cancelled`, `guest_changed`,
   `money_changed`, `feed_moved`, `note`) with `actor`, `before` and
