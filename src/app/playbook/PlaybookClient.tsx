@@ -10,7 +10,7 @@ import {
   type PlaybookEntryRow,
 } from '@/lib/playbook';
 import type { PropertyOption } from '@/lib/playbook-properties';
-import { displayNameForEmail } from '@/lib/team';
+import { teamBylineForEmail } from '@/lib/team';
 import { GLOUCESTER_TZ } from '@/lib/stable-time';
 
 function formatShortDate(iso: string): string {
@@ -193,7 +193,7 @@ export function PlaybookClient({
                     <span key={t} style={{ fontSize: 11, color: 'var(--ink-4)' }}>#{t}</span>
                   ))}
                   <span style={{ fontSize: 11, color: 'var(--ink-4)', marginLeft: 'auto' }}>
-                    Updated {formatShortDate(e.updated_at)} · {displayNameForEmail(e.updated_by_email || e.created_by_email)}
+                    Updated {formatShortDate(e.updated_at)} · {teamBylineForEmail(e.updated_by_email || e.created_by_email)}
                   </span>
                 </div>
               </Link>

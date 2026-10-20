@@ -486,7 +486,7 @@ describe('no card or link on a staff page lands on /not-available', () => {
     for (const m of secondary) {
       assert.ok(src.slice(Math.max(0, m.index! - 80), m.index!).includes('canPrice &&'), 'a Send a price secondary without canPrice');
     }
-    assert.ok(src.includes('Ask Ryan or Dotti to price this'), 'staff are told who prices');
+    assert.ok(src.includes('Ask Ryan to price this'), 'staff are told who prices');
     assert.ok(src.includes('<QuoteRow key={q.id} href={`/guests/quotes/${q.id}`} linked={canPrice}>'), 'quote rows link for owners only');
     assert.ok(src.includes('{canPrice && quotes.total > quotes.quotes.length && ('), 'See all in Quotes is owners only');
     assert.ok(src.includes("{roleMayOpen(role, HANDOFF_HREF[handoff.audience] ?? '/messaging') ? ("), 'the handoff surface links only where the role may go');
@@ -499,7 +499,7 @@ describe('no card or link on a staff page lands on /not-available', () => {
     assert.ok(health.includes('<WorkFollowupsContent result={followups} owner={owner} />'));
     const roster = read('src/app/fieldwork/roster/page.tsx');
     assert.ok(roster.includes("{trade === 'creative' && owner && ("), 'Shoots & pay is owners only');
-    assert.ok(roster.includes(": 'Everyone who shoots for us. To send someone to a home, ask Ryan or Dotti.'"), 'the staff sentence must not send them to Shoots & pay');
+    assert.ok(roster.includes(": 'Everyone who shoots for us. To send someone to a home, ask Ryan.'"), 'the staff sentence must not send them to Shoots & pay');
   });
 
   test('/not-available names every area the gate list covers', () => {

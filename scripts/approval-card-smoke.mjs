@@ -218,17 +218,17 @@ try{
  await finish(3);await page.waitForFunction(()=>document.body.textContent.includes('For 4 nights it is $1,600.')&&[...document.querySelectorAll('#approval-inq-card button')].some(b=>b.textContent.trim()==='Approve & send'));
  pass('guests: an inquiry with no draft offers price, retry and write; a written reply gets the send button at once');
  await page.goto(origin+'/?mode=guest&role=staff');await page.waitForSelector(card('pre-card'));
- const st=await text(card('pre-card'));assert.ok(st.includes('Ask Ryan or Dotti to price this')&&!st.includes('Send a price'),'staff are told who prices');
+ const st=await text(card('pre-card'));assert.ok(st.includes('Ask Ryan to price this')&&!st.includes('Send a price'),'staff are told who prices');
  assert.equal(await page.$('#approval-guest-card a[href^="/guests/quotes/"]'),null,'no quote links for staff');
  pass('guests: staff see who prices, never a link that bounces');
  // Why each waiting card waits, in one line.
  await page.goto(origin+'/?mode=guest');await page.waitForSelector(card('failed-card'));
- assert.match(await text(card('failed-card')),/Failed after 5 tries: the texting account is out of credit\. Send again or mark handled\./);
- assert.match(await text(card('stale-card')),/Drafted 5h ago; check whether it was already answered in Guesty\./);
+ assert.match(await text(card('failed-card')),/Not sent: the texting account is out of credit\./);
+ assert.ok(!/check whether|Guesty/.test(await text(card('stale-card'))),'an old draft adds no wait line');
  assert.ok(!(await text(card('guest-card'))).includes('Drafted'),'a fresh card says nothing');
  const heldRow=await text('[aria-label="Held as pitches"]');assert.match(heldRow,/Held as a pitch: seo@example\.test · Rank #1 on Google/);
  await page.$$eval('[aria-label="Held as pitches"] button',bs=>bs[0].click());await page.waitForFunction(()=>window.calls.some(c=>c.kind==='release'));
- pass('guests: a failed send and a stale draft say why they wait; a held pitch waits on the queue with Release');
+ pass('guests: a failed send says why it waits, an old draft says nothing more; a held pitch waits on the queue with Release');
  // Team: cleaners and contractors in one list, each card saying whose.
  await page.evaluate(()=>{window.calls=[];});await page.goto(origin+'/?mode=team');await page.waitForSelector(card('pt-card'));
  assert.ok(await page.$(card('slip-card')),'contractor cards share the list');

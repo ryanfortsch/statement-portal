@@ -55,7 +55,7 @@ try{
  const click=label=>page.$$eval('#conversations button',(bs,label)=>{const b=bs.find(b=>b.textContent.trim().startsWith(label));if(!b)throw Error('Missing '+label);b.click();},label);
  const type=(sel,v)=>page.$eval(sel,(e,v)=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,v);e.dispatchEvent(new Event('input',{bubbles:true}));},v);
  await page.goto(origin);await page.waitForSelector('#conversations');
- assert.match(await text(),/check-ins Aug 19 to Dec 17, 2026/);assert.ok(!(await text()).includes('Older conversations are in Guesty'),'nothing to hand off yet');
+ assert.match(await text(),/Check-ins Aug 19 to Dec 17, 2026\./);assert.ok(!(await text()).includes('Older conversations are in Guesty'),'nothing to hand off yet');
  await type('input[type=search]','Augusta');assert.match(await text(),/No conversations match in check-ins Aug 19 to Dec 17, 2026/);
  await click('Show earlier stays (before Aug 19)');await page.waitForFunction(()=>window.calls.length===1);
  assert.deepEqual(await page.evaluate(()=>({from:window.calls[0].from,to:window.calls[0].to})),{from:'2026-04-21',to:'2026-08-18'});

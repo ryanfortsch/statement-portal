@@ -107,10 +107,10 @@ export function quotesItem({ quotes, canPrice, guestEmail }: { quotes: CardQuote
           {quotes.quotes.some((q) => q.status === 'draft')
             ? canPrice
               ? 'A draft is not with the guest yet. Open it to send.'
-              : 'A draft is not with the guest yet. Ask Ryan or Dotti to send it.'
+              : 'A draft is not with the guest yet. Ask Ryan to send it.'
             : canPrice
               ? 'Open one to see its terms and what it is waiting on.'
-              : 'Ryan or Dotti can open one for its terms and what it is waiting on.'}
+              : 'Ryan can open one for its terms and what it is waiting on.'}
           {canPrice && quotes.total > quotes.quotes.length && (
             <>
               {' '}

@@ -191,7 +191,7 @@ export default async function ContractorsPage({
           {trade === 'creative'
             ? owner
               ? 'Everyone who shoots for us: standing, pay to date, W-9. To send someone to a home, use Shoots & pay.'
-              : 'Everyone who shoots for us. To send someone to a home, ask Ryan or Dotti.'
+              : 'Everyone who shoots for us. To send someone to a home, ask Ryan.'
             : owner
               ? `Everyone on the ${meta.label.toLowerCase()} roster: standing, reliability, pay to date, W-9.`
               : `Everyone on the ${meta.label.toLowerCase()} roster: standing and reliability.`}
