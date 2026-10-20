@@ -14,11 +14,24 @@ import PropertiesMap from './PropertiesMap';
 import { PropertiesTabBar } from './PropertiesTabBar';
 import { isOwnerSession } from '@/lib/helm-access-server';
 import { operatingDate } from '@/lib/operating-date';
+import { nestUnits, parentOfUnits, type LinkRoleRow } from '@/lib/unit-homes';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 60;
 
 type WorkCounts = { total: number; ownerAction: number };
+
+/** Which homes are units of a split house (empty on any failure: flat list). */
+async function getUnitParents(): Promise<Map<string, string>> {
+  if (!isHelmConfigured) return new Map();
+  try {
+    const { data, error } = await supabase.from('listing_links').select('group_key, role, property_id');
+    if (error) throw error;
+    return parentOfUnits((data ?? []) as LinkRoleRow[]);
+  } catch {
+    return new Map();
+  }
+}
 
 async function getProperties(): Promise<{ properties: HelmPropertyRow[]; error: string | null }> {
   if (!isHelmConfigured) {
@@ -74,9 +87,10 @@ export default async function PropertiesPage() {
   // The Properties index is the managed roster + map. Its sibling route
   // /properties/prospects carries the deal funnel; the tab bar below
   // switches between the two real URLs.
-  const [{ properties, error }, workCounts] = await Promise.all([
+  const [{ properties, error }, workCounts, unitParents] = await Promise.all([
     getProperties(),
     getWorkCountsByProperty(),
+    getUnitParents(),
   ]);
   /**
    * Fleet readiness, one row per property, and the Coming online section
@@ -91,13 +105,16 @@ export default async function PropertiesPage() {
   const managedActive = properties.filter((p) => p.is_active && p.kind === 'managed');
   const launchByProperty = await loadLaunchForFleet(managedActive).catch(() => new Map<string, LaunchLoad>());
   const active = properties.filter((p) => p.is_active);
+  // A split home's units ride under their house: one numbered row, one pin.
+  const activeNested = nestUnits(active, unitParents);
+  const activeHomes = activeNested.map((n) => n.home);
   // Non-managed work locations (HQ, prospect homes) ride is_active=false but
   // aren't "inactive rentals" — count them by what they are.
   const inactive = properties.filter((p) => !p.is_active);
   const prospectCount = inactive.filter((p) => p.kind === 'prospect').length;
   const inactiveManaged = inactive.filter((p) => p.kind === 'managed').length;
   const countLine = !error
-    ? `${active.length} active${prospectCount ? `, ${prospectCount} ${prospectCount === 1 ? 'prospect' : 'prospects'}` : ''}${inactiveManaged ? `, ${inactiveManaged} inactive` : ''}.`
+    ? `${activeHomes.length} active${prospectCount ? `, ${prospectCount} ${prospectCount === 1 ? 'prospect' : 'prospects'}` : ''}${inactiveManaged ? `, ${inactiveManaged} inactive` : ''}.`
     : undefined;
 
   return (
@@ -128,7 +145,7 @@ export default async function PropertiesPage() {
           className="max-w-[1100px] mx-auto px-10"
           style={{ width: '100%', paddingBottom: 28 }}
         >
-          <PropertiesMap properties={active} workCounts={workCounts} />
+          <PropertiesMap properties={activeHomes} workCounts={workCounts} />
         </section>
       )}
 
@@ -152,15 +169,24 @@ export default async function PropertiesPage() {
                 list below just needs to be a clean lookup with room
                 to breathe. */}
             <div style={{ borderTop: '1px solid var(--ink)' }}>
-              {active.map((p, i) => (
-                <PropertyRow
-                  key={p.id}
-                  property={p}
-                  number={String(i + 1).padStart(2, '0')}
-                  workCounts={workCounts[p.id]}
-                  launch={launchByProperty.get(p.id)?.summary}
-                  owner={owner}
-                />
+              {activeNested.map(({ home: p, units }, i) => (
+                <div key={p.id}>
+                  <PropertyRow
+                    property={p}
+                    number={String(i + 1).padStart(2, '0')}
+                    workCounts={workCounts[p.id]}
+                    launch={launchByProperty.get(p.id)?.summary}
+                    owner={owner}
+                    hasUnits={units.length > 0}
+                  />
+                  {units.length > 0 && (
+                    <div style={{ borderBottom: '1px solid var(--rule)', padding: '0 0 14px 88px', marginTop: -10 }}>
+                      {units.map((u) => (
+                        <UnitRow key={u.id} unit={u} workCounts={workCounts[u.id]} />
+                      ))}
+                    </div>
+                  )}
+                </div>
               ))}
             </div>
 
@@ -207,6 +233,7 @@ function PropertyRow({
   launch,
   owner,
   dimmed = false,
+  hasUnits = false,
 }: {
   property: HelmPropertyRow;
   /** Owner session: the row shows the management fee. */
@@ -217,6 +244,8 @@ function PropertyRow({
    *  failed load: no pill rather than a wrong one. */
   launch?: LaunchSummary;
   dimmed?: boolean;
+  /** Its units are listed right under it, inside the same rule. */
+  hasUnits?: boolean;
 }) {
   // Internal naming convention: show the short address-without-suffix
   // primary, and the external "Stay at ..." marketing title as a quieter
@@ -239,7 +268,7 @@ function PropertyRow({
           gap: 24,
           alignItems: 'baseline',
           padding: '24px 0',
-          borderBottom: '1px solid var(--rule)',
+          borderBottom: hasUnits ? 'none' : '1px solid var(--rule)',
         }}
       >
         <span
@@ -349,6 +378,27 @@ function PropertyRow({
           {p.is_active ? (owner ? `${p.management_fee_pct}% →` : 'Managed →') : p.kind === 'hq' ? 'HQ' : p.kind === 'prospect' ? 'Prospect' : 'Inactive'}
         </span>
       </div>
+    </Link>
+  );
+}
+
+/** A unit of a split home, under its house: name, its own Airbnb title or
+ *  address, and its open slips. Owner and fee are the house's. */
+function UnitRow({ unit: u, workCounts }: { unit: HelmPropertyRow; workCounts?: WorkCounts }) {
+  const total = workCounts?.total ?? 0;
+  return (
+    <Link
+      href={`/properties/${u.id}`}
+      style={{ display: 'flex', alignItems: 'baseline', gap: 14, padding: '6px 0', textDecoration: 'none', color: 'inherit' }}
+    >
+      <span className="eyebrow" style={{ color: 'var(--ink-4)', minWidth: 32 }}>Unit</span>
+      <span className="font-serif" style={{ fontSize: 16, color: 'var(--ink)' }}>{u.nickname || u.name}</span>
+      <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>{u.title || u.address}</span>
+      {total > 0 && (
+        <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase', color: 'var(--ink-3)', border: '1px solid var(--rule)', padding: '2px 7px' }}>
+          {total} {total === 1 ? 'slip' : 'slips'}
+        </span>
+      )}
     </Link>
   );
 }

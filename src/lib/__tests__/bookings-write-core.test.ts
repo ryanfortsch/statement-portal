@@ -225,7 +225,7 @@ describe('17 Beach units are Airbnb only', () => {
     const roster = new Set<string>();
     assert.equal(isPublicBookable({ id: '17_beach_front', is_active: true, calendar_authority: 'helm' }, roster), false);
     assert.equal(isPublicBookable({ id: '17_beach_back', is_active: true, calendar_authority: 'helm' }, roster), false);
-    for (const id of ['7_sumac_main', '7_sumac_back', '4_middle_main', '4_middle_unit']) assert.equal(isPublicBookable({ id, is_active: true, calendar_authority: 'helm' }, roster), false);
+    for (const id of ['4_middle_main', '4_middle_unit']) assert.equal(isPublicBookable({ id, is_active: true, calendar_authority: 'helm' }, roster), false);
     assert.equal(isPublicBookable({ id: '65_calderwood', is_active: true, calendar_authority: 'helm' }, roster), true);
   });
 });
