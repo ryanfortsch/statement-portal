@@ -166,6 +166,14 @@ never key per-stay logic on `bookings.id` (`memory/project_bookings_duplicate_ro
   receipts and six cancelled recipient-free test message rows remain. No message
   template, enabled sender, guest/contact or inventory publication route was seeded.
   This database proof does not establish Channex HTTP/webhook or actual delivery.
+  On October 20, the existing isolated consumer was configured for a separate
+  hosted availability rehearsal over April 10-12, 2027, with one-hour synthetic
+  coverage. One fictional rate-plan baseline supplied planner inputs; only
+  availability was published. Canonical create/move/cancel and a worker restart
+  produced verified Channex tasks. Three `property_rate_days.closed` rows restored
+  the zero-availability baseline; capture version reached 20 and the consumer's
+  `publishEnabled` is now false. No DDL or production configuration changed.
+  See `docs/guesty-exit/calderwood-provider-roundtrip.md` for scoped receipts.
 - **`booking_events`**: append-only change log per booking (`created`,
   `dates_changed`, `status_changed`, `cancelled`, `guest_changed`,
   `money_changed`, `feed_moved`, `note`) with `actor`, `before` and

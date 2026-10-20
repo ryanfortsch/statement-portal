@@ -117,8 +117,9 @@ passed. The original worker loops also reported success. No additional server,
 subscription or database schema was needed. Exact IDs and deployed logs are in
 [the provider rehearsal receipt](calderwood-provider-roundtrip.md#unattended-recovery-verified-october-20).
 
-Continuous hosted availability, message planning and real guest/cleaner
-delivery remain unverified. Automatic staging task completion passed in the
+The bounded hosted availability lifecycle and restart now pass, as recorded
+below. Continuous production coverage, message planning and real guest/cleaner
+delivery remain unverified. Automatic staging task completion also passed in the
 separate bounded API rehearsal described below. Four later empty recovery scans
 at 13:04, 13:19, 13:34 and 13:49 UTC on October 20 confirmed continued 15-minute polling. This is a short
 recovery observation, not a prolonged reliability trial. The separate signed
@@ -154,21 +155,40 @@ fields; legacy records remain readable and no SQL migration is required. The
 reader/writer must be deployed together before those fields are written by a
 hosted worker.
 
-Current validation: 2,072 tests in 240 suites, nonincremental TypeScript, scoped
+Validation of that completion increment: 2,072 tests in 240 suites, nonincremental TypeScript, scoped
 ESLint and 86 PGlite checks pass. A real service-role SQL append retained bound
 completion after an expired accepted attempt and through database restart, without
 resending or disturbing the newer pending job. The actual provider rehearsal used
-a local durable journal; the hosted consumer remains unconfigured. Prices,
+a local durable journal; the hosted consumer was unconfigured at that checkpoint. Prices,
 minimum stays, all other restrictions, stopped defaults and zero channels were
 preserved. See the [automatic completion receipt](calderwood-provider-roundtrip.md#automatic-availability-completion-verified-october-20).
 
+**Hosted availability lifecycle and restart verified (October 20):** commit
+`29c4594f` now runs the bounded cycle on the existing Render staging worker.
+Explicitly expiring synthetic coverage and the exact fictional property limit
+it to April 10-12, 2027. A canonical Helm booking closed April 10; moving it reopened
+April 10 and closed April 12; cancellation reopened April 12. Restarting the
+service recovered the pending cancellation on the replacement instance, with no
+duplicate dispatch during the overlap or subsequent idle checks. Initial
+reconciliation and final restoration bring the total to five submitted tasks,
+all independently verified against their saved request and full calendar read.
+The final test stay is cancelled, three closure rows restore zero availability,
+and the consumer is paused. No rate, minimum stay or other restriction changed.
+
+The scheduler is separately gated, bounds requests/cycles, backs off failures,
+aborts on shutdown and refuses disabled/expired/incomplete coverage. It never
+creates or renews coverage. Source-window refresh, journal retention and sustained
+operation remain production gates. Current validation is 2,077 application tests,
+86 PGlite checks, TypeScript, scoped lint, exact dependency artifact import and
+the successful Render build. No SQL schema change or new paid service was needed.
+See [the hosted lifecycle receipt](calderwood-provider-roundtrip.md#hosted-booking-to-availability-and-restart-verified-october-20).
+
 Remaining delivery sequence:
 
-1. Connect the bounded cycle to the hosted availability worker with complete
-   initial-calendar coverage and conflict handling. Actual staging task completion
-   and full-window read-back now pass automatically. The database installation,
-   constructed-revision cycle, actual provider feed/save/ACK cycle, unattended
-   recovery and signed notification lifecycle are complete.
+1. Extend the verified bounded worker to complete initial/future-calendar
+   coverage, refresh and operator conflict handling. The database installation,
+   signed ingestion, polling recovery, hosted availability lifecycle and one
+   actual restart have passed in isolation. Live OTA delivery remains unproven.
 2. Prove **automated guest and cleaner delivery**, original timing, message
    history/deduplication, holds, cancellation and carried-over stays. Verify
    PriceLabs parity and full future-calendar reconciliation in the same pilot.
@@ -1559,3 +1579,24 @@ terminal-task evidence as unavailable. Remaining limits: observed staging API
 compatibility, continuous hosted publishing, complete source coverage, production
 compatibility and automatic message delivery. No Render worker deployment or hosted
 schema/configuration change was part of this batch.
+
+### Hosted availability worker handoff (October 20, 2026)
+
+Branch `codex/channex-staging-pilot`; starting HEAD `7417e987`, original base
+`a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`; freshly verified origin/main
+`7c4fc1bf72f7119864adb1abc1a0b3bc00ba232f`. Existing branch continued without a rebase.
+Deployed code commit: `29c4594f799adffb88539fc31de17e1d46f621ae`. Draft PR #1714
+remains the review/integration path; no main merge or production cutover occurred.
+
+Changed code: `src/lib/channex-staging/booking-inventory-scheduler.ts`,
+`src/lib/__tests__/booking-inventory-scheduler.test.ts`,
+`scripts/channex-shared-worker.mts`, and
+`deployment/channex-staging-worker/Dockerfile`. Evidence updates: this file,
+`calderwood-provider-roundtrip.md` and `SCHEMA.md`. The unrelated dirty contract
+notes in `calderwood-cutover-readiness.md` remain excluded.
+
+The evidence above supersedes older entries marking hosted availability as
+unconnected. Remaining risks: observed staging task API compatibility, complete
+source coverage and refresh, journal retention, production reconciliation/conflict
+handling, PriceLabs parity and automatic guest/cleaner delivery. One restart is
+verified; arbitrary mid-request crash and prolonged production behavior are not.

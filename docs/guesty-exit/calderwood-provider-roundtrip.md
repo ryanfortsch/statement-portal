@@ -1,10 +1,12 @@
 # Calderwood provider booking rehearsal
 
-**Latest result, October 20:** availability task completion is now verified
-automatically against Channex staging. A fresh two-date change and restoration
-each completed in one attempt, with exact request matching and a subsequent full
-calendar read. Signed booking ingestion and recovery polling passed separately.
-The continuous hosted availability worker and real messages remain to be connected.
+**Latest result, October 20:** the deployed worker automatically closed dates
+for a fictional Helm booking, reopened/closed dates when it moved, and reopened
+them after cancellation. A service restart recovered the pending cancellation;
+subsequent cycles made no duplicate provider submission. All five provider tasks,
+including initial reconciliation and final baseline restoration, have persisted
+task-bound calendar verification. The bounded test publisher is now paused.
+Real guest/cleaner delivery, PriceLabs parity and production cutover remain gates.
 
 The first manually triggered import was verified October 19, 2026, evening ET
 (provider timestamps are October 20 UTC).
@@ -308,12 +310,82 @@ through database restart. No SQL definition or hosted schema changed. The API te
 preserved every rate/minimum-stay/restriction field, stopped defaults and zero
 attached channels. No message, production change or new paid service was added.
 
+## Hosted booking-to-availability and restart verified October 20
+
+Commit `29c4594f799adffb88539fc31de17e1d46f621ae` deployed to the existing isolated
+Render service `srv-db05t2id0e5s73a7r8gg` at 17:18:25 UTC; the actual Docker build
+took 18.3 seconds. `CHANNEX_CALDERWOOD_INVENTORY_ENABLED=true` enables a separate
+sequential loop alongside the existing worker loops. It requires isolated-staging
+mode, the exact dedicated database and the fixed fictional Calderwood mapping.
+It checks zero channels, stopped weekly defaults and all three dated stop-sell
+values before each bounded cycle. Only availability is submitted.
+
+An owner-run guarded transaction configured the existing canonical consumer for
+April 10-13, 2027 (checkout exclusive), with explicit synthetic source coverage
+observed at 17:20:54.435 UTC and expiring at 18:20:54.435 UTC. The worker cannot
+renew this coverage. A fictional rate-plan record supplies the existing planner's
+required baseline; it is not a PriceLabs import or permission to publish rates.
+No schema DDL changed. Initial cycles before this configuration failed closed.
+
+The fixture `HELMTEST-hosted-inventory-20261020` was created, moved and cancelled
+through Helm's canonical booking RPCs in the isolated database. No manual
+availability harness submitted these requests. This exercises Helm-to-Channex
+availability; the earlier signed Channex-to-Helm lifecycle is a separate proof.
+
+| Stage | Inventory April 10, 11, 12 | Verified at (UTC) | Channex task |
+| --- | --- | --- | --- |
+| Initial empty-calendar reconciliation | `1,1,1` | 17:21:40.885 | `39ec7a43-ef5c-4df5-a6f5-9e53c1b2748f` |
+| Create April 10-11 | `0,1,1` | 17:22:56.782 | `8d268305-c3e0-4526-ab9b-fa4258590ac6` |
+| Move to April 12-13 | `1,1,0` | 17:25:19.030 | `8a007215-2d94-4371-8e10-c419c63ca6d8` |
+| Cancel, then restart worker | `1,1,1` | 17:46:02.200 | `be80a203-56a1-491d-875d-cd261d8b36d3` |
+| Restore three closed baseline nights | `0,0,0` | 17:51:34.934 | `df95a40f-3277-4e30-94be-9740797ec3cc` |
+
+Each row has one persisted dispatch, one accepted task and one successful
+task-bound reconciliation. Independent provider reads also confirmed each
+calendar state, including all-zero restoration at 17:51:23.298 UTC. Every dated
+price, minimum stay, maximum stay and arrival/departure restriction remained
+unchanged, and `stop_sell` remained true throughout. No live OTA was connected.
+
+Render recorded the service restart at 1:45 PM America/New_York. The replacement
+instance `4tk4g` submitted the pending cancellation at 17:45:48.749 UTC, then
+reported unchanged at 17:46:02.646. The retiring `zx59k` instance also reported
+unchanged at 17:46:30.675 during overlap. Replacement-instance checks at
+17:47:09.347 and 17:48:12.196 reported already-matches; a fresh database query
+still contained exactly four dispatches before restoration. This verifies one
+actual restart and overlapping-instance handoff, not arbitrary crash timing or
+prolonged production reliability.
+
+The final fixture remains cancelled. Three canonical closure rows restored the
+baseline, increasing capture version to 20. After the fifth verified task, the
+consumer's `publishEnabled` was set to false. The deployment flag remains saved,
+but disabled configuration blocks provider work; the original one-hour coverage
+also expires independently. No guest sender, recipient, live channel, paid app or
+new server was added. Guesty continues operating the live property.
+
+The loop sleeps 10 seconds while work is pending and 60 seconds when unchanged,
+with failure backoff to 15 minutes, bounded requests/cycles and shutdown abort.
+Expired unchanged plans can append new enqueue records, but calendar comparison
+prevents extra provider dispatches. The existing 10,000-command journal ceiling
+and source-coverage lifecycle need operational treatment before continuous use.
+
+- [Verified task and final-state query](https://supabase.com/dashboard/project/jgkblfozftcvymvwhhii/sql/2644423e-e82c-4741-ac18-2925405f20c3)
+- [Worker deployment](https://dashboard.render.com/worker/srv-db05t2id0e5s73a7r8gg/deploys/dep-dbbq4jtpkucs73eeehgg)
+- [Worker logs](https://dashboard.render.com/worker/srv-db05t2id0e5s73a7r8gg/logs)
+
+Validation of the deployed code: 2,077 application tests in 240 suites,
+nonincremental TypeScript, scoped ESLint and diff checks passed. All 86 local
+PGlite integration checks passed. The exact Docker source set imported using only
+the locked worker dependencies, and the actual hosted Docker build succeeded.
+The six guarded configuration/lifecycle/cleanup SQL actions were exercised in
+the isolated local fixture before hosted use. Documentation-only follow-up edits
+require diff/path checks, not another application test run.
+
 ## Still required before launch
 
-1. Connect the bounded cycle to the hosted availability worker with complete
-   future-calendar coverage and conflict handling. Automatic staging task
-   reconciliation, signed notifications and recovery polling passed above;
-   continuous hosted availability and OTA delivery remain unverified.
+1. Extend the verified bounded worker to complete future-calendar coverage,
+   initial reconciliation, coverage refresh and operator conflict handling.
+   Hosted create/move/cancel and one restart passed; continuous production
+   operation and live OTA delivery remain unverified.
 2. Automated guest and cleaner delivery with the original Guesty times, delay
    holds, correct recipients and carried-over stays; verified PriceLabs parity.
 3. Production Channex access/costs and confirmed new-sales pauses, followed by
