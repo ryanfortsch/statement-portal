@@ -2,7 +2,7 @@
 
 Decision draft, October 7, 2026. Goal: replace Guesty across the portfolio after a successful Calderwood pilot. This is an architecture deliverable, not an implemented production connector or an approval to disconnect channels. Contract timetable remains in `calderwood-cutover-readiness.md`; `SCHEMA.md` remains authoritative for existing tables. No new platform purchase is required for the next milestone.
 
-## Current delivery status — October 19, 2026
+## Current delivery status: October 19, 2026
 
 The pilot is **Airbnb-only for new sales**: Ryan authorized pausing Booking.com;
 Vrbo is deferred. The Booking.com pause is **not executed**: its extranet requires
@@ -13,10 +13,10 @@ messages are not an acceptable launch fallback. Preserve Guesty's existing
 message times, including 3 PM code delivery with a rare operator hold; PriceLabs
 continues to own dynamic rates and minimum stays.
 
-The current implementation batch adds a complete **synthetic booking ingestion
-transaction**, the missing link between provider revisions and Helm's canonical
-calendar. `canonical-revisions.ts` normalizes only the exact isolated Calderwood
-mapping, an Offline source and `HELMTEST-` confirmation codes. Customer, payment,
+The implemented **synthetic booking ingestion transaction** has now passed an
+actual Channex staging create/change/cancel round trip through the deployed
+preview and the hosted canonical calendar. `canonical-revisions.ts` normalizes
+only the exact isolated Calderwood mapping, an Offline source and `HELMTEST-` confirmation codes. Customer, payment,
 notes and access-code fields are discarded. `canonical-revisions.sql` maps remote
 booking IDs to the fictional `HELMTEST-calderwood` property, invokes the existing
 create/move RPCs, and commits the canonical booking, audit, inventory invalidation
@@ -79,11 +79,29 @@ Source files remain outside automatic
 production migrations. The installer must not be rerun over the installed pilot;
 use reviewed incremental SQL for any subsequent schema change.
 
+**Actual provider cycle completed (October 19 evening):** Booking CRS was enabled
+only for the isolated Calderwood property after verifying the free staging
+server and its application metadata. One contact-free Offline test booking was
+created in Channex, moved from February 10-13 to February 15-18, 2027, and cancelled.
+After each change the authenticated deployed importer saved and acknowledged one
+revision. Independent hosted queries verified one canonical booking, three durable
+provider receipts, three booking audit events and three inventory change events.
+Six recipient-free waiting ledger rows were inserted before cancellation; all six
+became cancelled and none remained waiting. A repeat feed import returned zero.
+No runtime code or schema adjustment was needed. Details and identifiers are in
+[the provider rehearsal receipt](calderwood-provider-roundtrip.md).
+
+This closes the actual provider feed/save/ACK test. It does not establish signed
+webhook delivery, unattended fallback polling, outbound availability completion,
+message planning or real guest/cleaner delivery. The booking is cancelled in both
+systems; the test property still has zero channels and stopped rate defaults.
+
 Remaining delivery sequence:
 
-1. Exercise an actual provider create → change → cancel cycle
-   through signed notification, durable receipt, calendar and availability.
-   Database installation and the constructed-revision cycle are complete.
+1. Connect and verify signed notifications and unattended fallback polling, then
+   prove outbound availability through terminal provider-task evidence. Complete
+   initial-calendar reconciliation and conflict handling. The database installation,
+   constructed-revision cycle and actual provider feed/save/ACK cycle are complete.
 2. Prove **automated guest and cleaner delivery**, original timing, message
    history/deduplication, holds, cancellation and carried-over stays. Verify
    PriceLabs parity and full future-calendar reconciliation in the same pilot.
