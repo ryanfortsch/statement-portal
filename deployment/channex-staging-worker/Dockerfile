@@ -2,6 +2,7 @@ FROM node:24-bookworm-slim
 WORKDIR /app
 COPY deployment/channex-staging-worker/package.json deployment/channex-staging-worker/package-lock.json ./
 RUN npm ci --ignore-scripts --omit=dev
+COPY src/lib/availability.ts src/lib/rate-plan.ts src/lib/rental-periods.ts src/lib/sca-quotes-types.ts src/lib/occupancy-tax.ts src/lib/property-scope.ts ./src/lib/
 COPY src/lib/channex-staging ./src/lib/channex-staging
 COPY src/lib/calderwood-readonly/channex.ts src/lib/calderwood-readonly/calendar-window.ts ./src/lib/calderwood-readonly/
 COPY src/lib/calderwood-rehearsal ./src/lib/calderwood-rehearsal
