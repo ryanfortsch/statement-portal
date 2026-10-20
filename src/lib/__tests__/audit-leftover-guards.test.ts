@@ -40,3 +40,9 @@ test('a staff login wears no badge it cannot clear', () => {
   assert.ok(route.includes("if ((await sessionRole()) !== 'owner') {"), 'nav counts are owner asks and must be zero for staff');
   assert.ok(route.indexOf("!== 'owner'") < route.indexOf('loadFieldReview()'), 'the role check runs before any count is read');
 });
+
+test('the onboarding board and every Launch page lead to the Playbook entry', () => {
+  for (const f of ['src/app/properties/ComingOnline.tsx', 'src/app/properties/[id]/launch/page.tsx']) {
+    assert.ok(read(f).includes('href="/playbook/onboard-a-new-property"'), `${f} links how we bring a home online`);
+  }
+});

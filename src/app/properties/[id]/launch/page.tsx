@@ -96,12 +96,18 @@ export default async function PropertyLaunchPage({ params }: { params: Promise<P
           itself tick on their own; the rest are yours to mark. Skip what does not apply and leave a
           note when something needs follow-up.
         </p>
-        <div style={{ marginTop: 10 }}>
+        <div style={{ marginTop: 10, display: 'flex', gap: 18, flexWrap: 'wrap' }}>
           <Link
             href="/properties#coming-online"
             style={{ fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'none', letterSpacing: '.03em' }}
           >
             All homes coming online →
+          </Link>
+          <Link
+            href="/playbook/onboard-a-new-property"
+            style={{ fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'none', letterSpacing: '.03em' }}
+          >
+            How we bring a home online →
           </Link>
         </div>
 
