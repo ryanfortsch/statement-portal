@@ -131,6 +131,8 @@ export const OWNER_PATH_PREFIXES: readonly string[] = [
   '/fieldwork/rate-card',
   // The field test harness writes to live tables.
   '/fieldwork/packets/test',
+  // Offer letters and other staff agreements: employment terms.
+  '/staff-documents',
 ];
 
 /**

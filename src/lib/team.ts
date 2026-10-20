@@ -25,10 +25,12 @@ export type TeamAccess = 'owner' | 'staff';
  * A duty a notice is addressed to, independent of who holds it today.
  * `field_pay`: approves and pays Field packets and answers contractor
  * questions. `creative`: runs the creative program (shoots, view counts).
+ * `countersign`: signs staff documents (offer letters) for Rising Tide STR,
+ * LLC; their name prints on the employer's signature line.
  * Notices resolve through `src/lib/team-recipients.ts`; nothing in the app
  * should name a teammate's inbox directly.
  */
-export type TeamDuty = 'field_pay' | 'creative';
+export type TeamDuty = 'field_pay' | 'creative' | 'countersign';
 
 export type TeamMember = {
   email: string;        // canonical id
@@ -63,7 +65,7 @@ export const TEAM_MEMBERS: TeamMember[] = [
     role: 'principal',
     access: 'owner',
     active: true,
-    duties: ['field_pay'],
+    duties: ['field_pay', 'countersign'],
   },
   {
     email: 'allie@risingtidestr.com',
