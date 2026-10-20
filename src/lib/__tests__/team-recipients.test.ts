@@ -25,7 +25,7 @@ import {
   operationsEmails,
   todayET,
 } from '../team-recipients.ts';
-import { TEAM_MEMBERS, getTeamMember } from '../team.ts';
+import { TEAM_MEMBERS, getTeamMember, isOwnWork } from '../team.ts';
 import { EMPLOYEE_PAYEES } from '../overhead-categories.ts';
 import { SALARY_START_MONTH, SALARY_START_YEAR } from '../forecast-model.ts';
 
@@ -101,5 +101,23 @@ describe('the notifier names no inbox', () => {
     assert.equal((src.match(/cc: operationsEmails\(\)/g) ?? []).length, 5, 'the five contractor-facing sends keep operations on copy');
     assert.ok(src.includes('...fieldPayNotice()'), 'the contractor question goes to field pay');
     assert.equal((src.match(/to: creativeLeadEmail\(\)/g) ?? []).length, 3, 'the three creative notices go to the creative lead');
+  });
+});
+
+describe('nobody approves their own Field work (2026-10-20)', () => {
+  test('her contractor record is her own work', () => {
+    assert.equal(isOwnWork('delaney@risingtidestr.com', 'delaneyjordan@outlook.com'), true);
+    assert.equal(isOwnWork('Delaney@RisingTideSTR.com', ' DelaneyJordan@Outlook.com '), true);
+  });
+  test('the same address is own work', () => {
+    assert.equal(isOwnWork('ryan@risingtidestr.com', 'ryan@risingtidestr.com'), true);
+  });
+  test('someone else is not', () => {
+    assert.equal(isOwnWork('delaney@risingtidestr.com', 'james@example.com'), false);
+    assert.equal(isOwnWork('ryan@risingtidestr.com', 'delaneyjordan@outlook.com'), false);
+  });
+  test('a missing address is never a match', () => {
+    assert.equal(isOwnWork('delaney@risingtidestr.com', null), false);
+    assert.equal(isOwnWork(null, 'delaneyjordan@outlook.com'), false);
   });
 });

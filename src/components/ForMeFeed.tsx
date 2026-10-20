@@ -869,7 +869,7 @@ function PlannedWalkRow({ walk }: { walk: PlannedWalk }) {
  * table, unconfigured Field env, network) so the rest of the feed is never
  * touched, matching how the other loaders here fail.
  *
- * Role-aware: creative pay, packet approval and the statement close are
+ * Role-aware: creative pay and the statement close are
  * owner work. For a staff login those loaders are not
  * run at all, so no dollar figure or unsent count is read for someone who
  * could not open the page behind it; and whatever a loader returns, a card
@@ -879,11 +879,9 @@ async function loadQueueCards(role: HelmRole): Promise<QueueCard[]> {
   const owner = role === 'owner';
   const [creative, packets, statements, handoff] = await Promise.all([
     owner ? loadCreativeQueue() : null,
-    // Approving a packet is an owner action (approvePacket checks
-    // ownerEmail()): the packet page is open to staff, so the gate filter
-    // below cannot catch this card. Staff never get an "approve"
-    // they cannot do.
-    owner ? loadPacketQueue() : [],
+    // Staff approve submitted packets too (2026-10-20); the card names no
+    // dollar figure, and the pay on the packet stays with the owners.
+    loadPacketQueue(),
     owner ? loadStatementQueue() : null,
     loadCloseHandoffQueue(role),
   ]);

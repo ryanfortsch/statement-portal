@@ -58,6 +58,8 @@ type Props = {
   dates: string[];
   today: string;
   monthLabel: string;
+  /** Owners set nightly prices; staff see the drawer without the price field. */
+  canPrice?: boolean;
 };
 
 type Selection = { propertyId: string; anchor: string; focus: string };
@@ -94,7 +96,7 @@ function weekdayShort(iso: string): string {
   return new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' }).slice(0, 2);
 }
 
-export function MultiCalendarGrid({ rows, dates, today, monthLabel }: Props) {
+export function MultiCalendarGrid({ rows, dates, today, monthLabel, canPrice = true }: Props) {
   const router = useRouter();
   const [selection, setSelection] = useState<Selection | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -214,6 +216,7 @@ export function MultiCalendarGrid({ rows, dates, today, monthLabel }: Props) {
           row={rowById.get(drawer.propertyId)!}
           start={drawer.start}
           end={drawer.end}
+          canPrice={canPrice}
           onClose={close}
           onSaved={() => {
             close();
@@ -468,6 +471,7 @@ export function EditDrawer({
   onClose,
   onSaved,
   initialMode,
+  canPrice = true,
 }: {
   row: CalendarRowVM;
   start: string;
@@ -475,6 +479,8 @@ export function EditDrawer({
   onClose: () => void;
   onSaved: () => void;
   initialMode?: 'price' | 'block' | 'quote';
+  /** False for staff: the nightly price field is hidden (the action refuses it too). */
+  canPrice?: boolean;
 }) {
   const p = row.property;
   const nights = row.cells.filter((c) => c.date >= start && c.date <= end);
@@ -590,6 +596,7 @@ export function EditDrawer({
               <Link href={`/properties/${p.id}?tab=guest#rates`} style={{ color: 'inherit' }}>Set the plan under Pricing (property page, Guest & listing).</Link>
             </Note>
           )}
+          {canPrice && (
           <Field label="Nightly rate (USD)" hint="Blank returns the night to the plan's own rate (weekend or base).">
             <input
               type="text"
@@ -604,6 +611,7 @@ export function EditDrawer({
               style={inputStyle}
             />
           </Field>
+          )}
           <Field label="Minimum nights" hint="Blank uses the plan default.">
             <input
               type="number"

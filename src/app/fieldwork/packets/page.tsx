@@ -490,9 +490,9 @@ function LiveRow({ p, who, dim, assigned = false, owner = false }: { p: PacketRo
           <SubmitButton label="Release" busyLabel="Releasing…" style={btnGhost} spinnerTone="ink" confirm={releaseConfirm(who?.name ?? null, daysUntilET(p.visit_date) < 0)} />
         </form>
       )}
-      {/* Approve and Mark paid are owner controls; the actions refuse a
-          staff session, so the buttons are hidden for one too. */}
-      {owner && p.status === 'submitted' && (
+      {/* Anyone approves submitted work (2026-10-20); Mark paid stays an
+          owner control, refused by its action for a staff session. */}
+      {p.status === 'submitted' && (
         <form action={approvePacket} style={{ margin: 0 }}>
           <input type="hidden" name="packet_id" value={p.id} />
           <SubmitButton label="Approve" busyLabel="Approving…" style={btnDark} />

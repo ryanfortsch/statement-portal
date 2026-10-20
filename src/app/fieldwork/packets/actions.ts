@@ -4,7 +4,8 @@ import { revalidatePath } from 'next/cache';
 import { after } from 'next/server';
 import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
-import { requireOwnerEmail } from '@/lib/helm-access-server';
+import { isOwnerSession, requireOwnerEmail } from '@/lib/helm-access-server';
+import { isOwnWork } from '@/lib/team';
 import { fieldDb } from '@/lib/field-db';
 import { loadVendorTimesForDay } from '@/lib/vendor-schedule';
 import { newPortalToken } from '@/lib/field-auth';
@@ -1497,20 +1498,32 @@ export async function submitPacketForContractor(formData: FormData): Promise<voi
 }
 
 export async function approvePacket(formData: FormData): Promise<void> {
-  const email = await ownerEmail();
+  // Staff approve submitted work (Dotti, 2026-10-20). The pay on it, the
+  // final payout and any bonus, stays the owners': a staff approval keeps
+  // the estimate and sets no bonus, whatever the form posted.
+  const email = await staffEmail();
+  const owner = await isOwnerSession();
   const packetId = String(formData.get('packet_id') || '');
+
+  // Nobody approves their own work.
+  const { data: awarded } = await fieldDb().from('inspection_packets').select('awarded_contractor_id').eq('id', packetId).maybeSingle();
+  const awardedId = (awarded as { awarded_contractor_id: string | null } | null)?.awarded_contractor_id ?? null;
+  if (awardedId) {
+    const { data: who } = await fieldDb().from('contractors').select('email').eq('id', awardedId).maybeSingle();
+    if (isOwnWork(email, (who as { email: string | null } | null)?.email)) throw new Error('This packet is your own work; an owner approves it.');
+  }
 
   // Optional above-and-beyond bonus, set right in the approve form. Clamped to
   // 0..2x the posted price as a fat-finger guard (same philosophy as the price
-  // override clamp at bundle time).
-  const bonusDollars = Number(formData.get('bonus_dollars') || 0);
+  // override clamp at bundle time). Owners only.
+  const bonusDollars = owner ? Number(formData.get('bonus_dollars') || 0) : 0;
   const bonusReason = String(formData.get('bonus_reason') || '').trim().slice(0, 500) || null;
   let bonusCents = Number.isFinite(bonusDollars) && bonusDollars > 0 ? Math.round(bonusDollars * 100) : 0;
 
   // Optional final payout, set right in the approve form (the "toggle the price
   // as I approve it" path). Empty leaves the estimate in place. Guarded 0..3x
   // the estimate against a fat-finger.
-  const finalRaw = String(formData.get('final_dollars') ?? '').trim();
+  const finalRaw = owner ? String(formData.get('final_dollars') ?? '').trim() : '';
 
   let finalCents: number | null = null;
   if (bonusCents > 0 || finalRaw !== '') {

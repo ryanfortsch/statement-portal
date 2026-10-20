@@ -328,10 +328,15 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
           </div>
         </div>
 
-        {/* Staff send a submitted packet back for changes (2026-10-19);
-            approving it, which sets the final pay, stays with the owners. */}
+        {/* Staff approve a submitted packet or send it back (2026-10-20).
+            The pay on it, the final payout and any bonus, stays with the
+            owners: the staff form carries neither field. */}
         {!owner && packet.status === 'submitted' && (
-          <div id="decision" style={{ marginTop: 20, border: '1px solid var(--rule)', borderRadius: 10, padding: '14px 18px', background: 'var(--paper-2, #fff)' }}>
+          <div id="decision" style={{ marginTop: 20, border: '1px solid var(--rule)', borderRadius: 10, padding: '14px 18px', background: 'var(--paper-2, #fff)', display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'flex-start' }}>
+            <form action={approvePacket} style={{ margin: 0 }}>
+              <input type="hidden" name="packet_id" value={packet.id} />
+              <PendingButton label="Approve packet" busyLabel="Approving, sending reports…" className={buttonClass('primary')} />
+            </form>
             <details>
               <summary style={quietSummary}>Send back for changes ▾</summary>
               <form action={requestChanges} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>

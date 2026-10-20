@@ -426,7 +426,7 @@ export default async function ChannelsPropertyPage({
           <Link href={`/channels/${propertyId}/calendar?month=${monthKey(ym.year, ym.month)}`} style={ghostButton}>Full month grid →</Link>
         </div>
         <div id="calendar">
-          <PropertyMonthCalendar row={rowVM} weeks={grid.weeks.map((w) => w.map((c) => c.date))} monthStart={grid.start} monthEnd={grid.end} today={today} monthLabel={grid.label} compact />
+          <PropertyMonthCalendar row={rowVM} weeks={grid.weeks.map((w) => w.map((c) => c.date))} monthStart={grid.start} monthEnd={grid.end} today={today} monthLabel={grid.label} compact canPrice={owner} />
         </div>
       </section>
       )}
