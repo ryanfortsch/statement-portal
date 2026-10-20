@@ -89,7 +89,7 @@ feed. No preview import button was pressed. On startup, the worker reported
 `received:3, applied:3, acknowledged:3` at `2026-10-20T10:04:31.927Z`, followed by
 an empty successful scan at `2026-10-20T10:04:38.100Z`. An independent provider
 read confirmed the cancelled booking and empty feed. This proves recovery without
-a webhook; signed immediate notification delivery is still pending.
+a webhook; signed immediate notification delivery remains pending as described below.
 
 - Test code: `HELMTEST-calderwood-autopoll-20261020`
 - Channex booking: `754e4382-895e-4ad8-9d5e-918c7e9f07de`
@@ -120,11 +120,8 @@ Dockerfile source paths and imported both schedulers using only the locked worke
 dependencies. The actual Render Docker build and existing Beach/message/cleaner
 loops also succeeded. No database schema changed in this batch.
 
-Signed-notification configuration remains pending permission to create the dedicated
-staging signing key via the browser. The exact form is prepared with title
-`Helm Calderwood isolated pilot`; no key or webhook was created. The browser tool
-requires action-time confirmation for the new credential. The request also covers
-storing its secret in the isolated preview. Existing secrets were not exposed.
+The dedicated signing key and inactive property webhook were subsequently created
+with explicit user approval, as recorded below. Automatic recovery remains active.
 
 A later worker-log check confirmed successful empty canonical scans at
 `13:04:52.413Z`, `13:19:53.553Z`, `13:34:54.855Z` and `13:49:55.961Z` on October 20.
@@ -185,10 +182,47 @@ Validation: 2,064 application tests, nonincremental TypeScript, scoped ESLint an
 parser and its regression test. No database schema, Render configuration, live
 channel, message sender or subscription changed.
 
-The signing-key creation attempt was rejected by automatic approval review because
-it required explicit credential approval. No key was created. A specific approval
-request for the dedicated Channex staging key and storage in the isolated Vercel
-preview remains pending; the availability work above is independent of that step.
+## Signed notification setup and preflight, October 20
+
+After the user explicitly approved the dedicated staging key and its storage in
+the isolated preview, `Helm Calderwood isolated pilot` was created in Channex.
+Its one-time secret was transferred without printing it to Vercel's sensitive
+`CHANNEX_CANONICAL_SIGNING_SECRET`, restricted to Preview branch
+`codex/channex-staging-pilot`. The temporary mode-0600 local copy was removed
+once storage and signature matching were verified. Existing credentials were not
+rotated. Preview deployment `dpl_3XaLKNs5vVxGmfRywtpLnvq41s8B` is Ready and owns
+the pilot branch alias; application source remains `6651f52e`.
+
+- Signing key ID: `dbe33d0c-2bf0-42be-861a-704f62deff76`
+- [Saved property webhook](https://staging.channex.io/organization/webhooks/property/7336416c-039f-47b0-90c4-9d01fb9b1a02)
+- Webhook ID: `7336416c-039f-47b0-90c4-9d01fb9b1a02`
+- Scope: the exact isolated Calderwood property, `booking`, `is_global: false`,
+  `is_signed: true`, `send_data: true`, **`is_active: false`**.
+- Callback: the pilot branch alias's `/api/webhooks/channex-staging` path.
+
+Independent API read-back confirmed these saved settings. Two synthetic provider
+preflight requests were issued to the protected preview.
+The inspected response at `2026-10-20T14:34:11.086Z` was HTTP 401, identifying
+Vercel protection rather than the application's signature verifier. The actual
+Channex HMAC verified locally against the stored signing key using the repository
+verifier; altering the raw payload or advancing beyond the timestamp tolerance
+was rejected. This establishes signing compatibility, **not deployed webhook
+processing or a canonical booking import**. No additional booking was created.
+
+The ordinary authenticated Vercel CLI test was rejected by automatic approval
+review because bypassing preview deployment protection was outside the specific
+signing-key authorization. No workaround, protection change or bypass credential
+was used. A separate user decision is pending for a dedicated Vercel automation
+access token stored as a private Channex request header, followed by activation
+and a real synthetic create/change/cancel delivery test. Vercel documents this
+credential as project-wide, not restricted to one webhook path; Helm's own auth
+and HMAC checks would remain in place. [Vercel automation access documentation](https://vercel.com/docs/deployment-protection/methods-to-bypass-deployment-protection/protection-bypass-automation).
+
+The webhook stays inactive until that access decision and successful delivery
+verification. Existing Render recovery polling continues. No production settings,
+channel, sender, database schema or subscription changed. This batch changed only
+evidence documentation; application tests were not rerun. Configuration read-back,
+preview deployment status, provider HMAC compatibility and diff checks were used.
 
 ## Still required before launch
 

@@ -38,10 +38,16 @@ revision processing follows the [booking revision contract](https://docs.channex
 
 The authenticated preview import is enabled on the exact pilot branch with
 `CHANNEX_CANONICAL_REHEARSAL_ENABLED=true`. Signed notices additionally require
-`CHANNEX_CANONICAL_SIGNING_SECRET`. The dedicated signing-key browser form awaits
-action-time confirmation; no webhook or signing key has been created. Canonical
-recovery polling is now active on the existing isolated Render worker, as verified
-below. No new paid service or sender has been activated. Existing Channex and dedicated
+`CHANNEX_CANONICAL_SIGNING_SECRET`. With explicit user approval, the dedicated
+staging signing key was created and stored as a sensitive pilot-branch preview
+variable on October 20. A signed, payload-enabled, property-only booking webhook
+is saved **inactive**. Provider preflight is blocked by Vercel's outer preview
+authentication (401); actual signatures match the stored key locally, but deployed
+webhook processing remains unverified. A project-wide Vercel automation access
+token would require separate approval before storing it in Channex. No protection
+change or bypass credential was used. See the [setup and preflight receipt](calderwood-provider-roundtrip.md#signed-notification-setup-and-preflight-october-20).
+Canonical recovery polling remains active on the existing isolated Render worker,
+as verified below. No new paid service or sender has been activated. Existing Channex and dedicated
 staging database credentials remain in Vercel's sensitive variables; CLI export
 intentionally does not return their values. No production credential fallback
 exists. Capture/import scope is confined to `HELMTEST-calderwood`.
