@@ -297,3 +297,28 @@ export async function linkedListingNotices(sinceIso: string): Promise<string[]> 
     return `Closed ${t} for ${dates}: ${why}.`;
   })];
 }
+
+/** A unit's Helm closures feed, for the operator to import on the unit's own
+ *  Airbnb listing: the nights the whole house is booked. Null for a home that
+ *  is not a unit of a linked group. The path carries a private token. */
+export async function linkedFeedPathFor(propertyId: string): Promise<{ wholeLabel: string; path: string } | null> {
+  if (!isServiceConfigured) return null;
+  const { data } = await supabaseAdmin
+    .from('listing_links')
+    .select('group_key, role, export_token')
+    .eq('property_id', propertyId)
+    .eq('role', 'unit')
+    .eq('active', true)
+    .not('export_token', 'is', null)
+    .limit(1);
+  const m = ((data ?? []) as Array<{ group_key: string; export_token: string }>)[0];
+  if (!m) return null;
+  const { data: whole } = await supabaseAdmin
+    .from('listing_links')
+    .select('label')
+    .eq('group_key', m.group_key)
+    .eq('role', 'whole')
+    .limit(1);
+  const wholeLabel = ((whole ?? []) as Array<{ label: string }>)[0]?.label ?? 'the whole house';
+  return { wholeLabel, path: `/api/channels/ical/linked/${m.export_token}` };
+}
