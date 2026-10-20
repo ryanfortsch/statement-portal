@@ -7,6 +7,7 @@ import {
   diffBlocks,
   helmLinkNote,
   isReservedEvent,
+  leaseHolds,
   linkedIcal,
   linkedOverlaps,
   mayReopenDay,
@@ -100,4 +101,40 @@ test('a failed member read stops the group (absence is not a fact)', () => {
   const diff = run.indexOf('const diff = diffBlocks(');
   assert.ok(read > 0 && diff > read, 'reads first');
   assert.ok(run.indexOf("} catch (err) {\n      g.error =") > diff, 'a read error lands in the group error, before any write');
+});
+
+describe('linked listings: a lease the calendars only know as a block', () => {
+  const back = { member_key: 'back', lease_window_start: '2027-01-05', lease_window_end: '2027-05-01' };
+  const today = '2026-10-20';
+
+  test('a hand block across the lease window is a lease hold that closes the whole house', () => {
+    const holds = leaseHolds(back, [{ check_in: '2027-01-05', check_out: '2027-05-01' }], new Set(), today);
+    assert.deepEqual(holds.map((h) => [h.source_key, h.check_in, h.check_out]), [['hold:back:2027-01-05', '2027-01-05', '2027-05-01']]);
+    assert.deepEqual(desiredBlocks(members, holds).map((b) => b.target_member), ['whole'], 'the other unit stays open');
+  });
+
+  test('the summer season block (17 Beach, May to October) never closes the house', () => {
+    assert.equal(leaseHolds(back, [{ check_in: '2027-05-01', check_out: '2027-10-21' }], new Set(), today).length, 0);
+    assert.equal(leaseHolds(back, [{ check_in: '2026-10-29', check_out: '2027-01-01' }], new Set(), today).length, 0, 'holidays before the window');
+  });
+
+  test('a block reaching into the window counts only for the nights inside it', () => {
+    const holds = leaseHolds(back, [{ check_in: '2026-12-01', check_out: '2027-03-01' }], new Set(), today);
+    assert.deepEqual(holds.map((h) => [h.check_in, h.check_out]), [['2027-01-05', '2027-03-01']]);
+  });
+
+  test("Helm's own closures on the unit are not a lease", () => {
+    const helm = new Set(nightsOf('2027-01-05', '2027-02-10'));
+    assert.equal(leaseHolds(back, [{ check_in: '2027-01-05', check_out: '2027-02-10' }], helm, today).length, 0);
+    // a lease that starts right after a Helm closure, merged into one Airbnb event
+    const merged = leaseHolds(back, [{ check_in: '2027-01-05', check_out: '2027-04-01' }], helm, today);
+    assert.deepEqual(merged.map((h) => [h.check_in, h.check_out]), [['2027-02-10', '2027-04-01']]);
+  });
+
+  test('short blocks, past blocks and units with no window are not leases', () => {
+    assert.equal(leaseHolds(back, [{ check_in: '2027-02-01', check_out: '2027-02-28' }], new Set(), today).length, 0, '27 nights');
+    assert.equal(leaseHolds(back, [{ check_in: '2027-02-01', check_out: '2027-03-01' }], new Set(), today).length, 1, '28 nights');
+    assert.equal(leaseHolds(back, [{ check_in: '2027-01-05', check_out: '2027-03-01' }], new Set(), '2027-03-01').length, 0, 'over');
+    assert.equal(leaseHolds({ member_key: 'back' }, [{ check_in: '2027-01-05', check_out: '2027-05-01' }], new Set(), today).length, 0);
+  });
 });
