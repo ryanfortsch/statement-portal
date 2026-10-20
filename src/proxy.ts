@@ -29,6 +29,10 @@ const PUBLIC_PATH_PREFIXES = [
   // only through the service-role client, so the open prefix exposes nothing
   // enumerable.
   "/agreement/",
+  // Staff document signing (offer letters). Same pattern: a per-document
+  // random token is the credential; staff_documents is RLS-locked and read
+  // only through the service-role client.
+  "/sign/",
   // Direct booking flow lives under /book/<propertyId> and is intentionally
   // guest-facing — it's the Helm-native counterpart to a public Airbnb listing.
   "/book/",
@@ -66,6 +70,8 @@ const PUBLIC_PATH_PREFIXES = [
  *                            (lets a prospect download their signed contract)
  *   /api/agreement-pdf       same pattern for guest rental agreements (Helm
  *                            auth OR the agreement's signing token)
+ *   /api/staff-document-pdf  same for staff documents (an OWNER session OR
+ *                            the document's signing token)
  *   /api/archive-onboarding  self-guards: Helm auth OR matching onboarding token
  *   /api/owner-outbound-quo  } the stay-concierge service authenticates to these
  *   /api/owners-sync         } with the STAY_CONCIERGE_KEY shared secret;
@@ -104,6 +110,9 @@ const PUBLIC_API_PREFIXES = [
   // agreement's signing token (lets the guest download their signed copy,
   // and lets server actions fetch the email attachment session-less).
   "/api/agreement-pdf",
+  // Staff documents: an owner session OR the document's signing token
+  // (the sign and countersign actions fetch the copy session-less).
+  "/api/staff-document-pdf",
   "/api/archive-onboarding",
   "/api/owner-outbound-quo",
   "/api/notify-dotti",

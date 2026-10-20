@@ -315,6 +315,20 @@ export const HELM_MODULES: HelmModule[] = [
   // description carries the trade vocabulary on purpose: Cmd+K for "plumber"
   // or "exterminator" has to land here, and searchPages matches description
   // text as well as title.
+  // Offer letters signed online (2026-10-20). Owners only: employment terms.
+  {
+    id: 'staff-documents',
+    href: '/staff-documents',
+    number: '03f',
+    title: 'Staff documents',
+    description: 'Offer letters and staff agreements signed online: send a signing link, the team member types their name to sign, Ryan countersigns, and the signed PDF is emailed and filed in Drive. Employment, hiring, onboarding paperwork.',
+    status: 'active',
+    primary: false,
+    hidden: true,
+    group: 'operations',
+    section: 'field',
+    access: 'owner',
+  },
   {
     id: 'trades',
     href: '/fieldwork/trades',
