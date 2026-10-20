@@ -91,9 +91,14 @@ export function ComingOnline({
         <h2 className="font-serif" style={{ fontSize: 24, fontWeight: 400, letterSpacing: '-0.01em', margin: 0, color: 'var(--ink)' }}>
           Coming online
         </h2>
-        <span className="eyebrow">
-          {inFlight.length} in flight · {looseEnds.length} live with loose ends
-        </span>
+        <div style={{ display: 'flex', gap: 16, alignItems: 'baseline', flexWrap: 'wrap' }}>
+          <span className="eyebrow">
+            {inFlight.length} in flight · {looseEnds.length} live with loose ends
+          </span>
+          <Link href="/playbook/onboard-a-new-property" style={{ fontSize: 13, color: 'var(--tide-deep)', textDecoration: 'none' }}>
+            How we bring a home online →
+          </Link>
+        </div>
       </div>
 
       {inFlight.length === 0 ? (
