@@ -19,3 +19,27 @@ The image installs its own locked dependency set (Supabase JS 2.117.2), not Helm
 Source 477944fe adds an independent message loop alongside booking polling. Apply `docs/guesty-exit/staging-storage/messages.sql` only on the fixed staging project before deploying it; verify with the rollback-only `verify-messages.sql`. No new credential is needed. Each unit's saved message state has its own success/failure timestamps. `message-sync-success`, `message-sync-failed` and `message-health-save-failed` logs contain counts/unit only, never message text. The preview message reader accesses saved state, not Channex.
 
 One replica only. Messaging has no webhook or outbound operation. Empty successful scans establish polling/storage connectivity, not actual OTA delivery. Archives preserve omitted messages and are bounded (20 fetched threads/cycle, 100 retained threads and about 1 MB/unit). Limits fail visibly and preserve prior data. Previous worker 08159552 can be redeployed to return to booking-only polling; retain the message tables for recovery.
+
+## Canonical Calderwood recovery polling
+
+`CHANNEX_CANONICAL_POLLING_ENABLED=true` enables the independent canonical booking
+loop. It also requires the exact staging URL above, `CHANNEX_STAGING_DB_PROJECT_REF=jgkblfozftcvymvwhhii`,
+worker mode `isolated-staging`, no `VERCEL_ENV`, and both existing staging credentials.
+The canonical pilot baseline and import scope must already be installed. Configuration
+errors fail startup; the loop never initializes or rewrites missing storage.
+
+It starts immediately, imports at most 100 revisions per page through the same
+commit/read-back/ACK path as the preview, and checks page 1 again five seconds
+after a nonempty page. Empty scans sleep 15 minutes. Failures retry after one
+minute, doubling to a 15-minute ceiling. Each request is bounded to 20 seconds,
+each page to two minutes; SIGTERM aborts active transport and prevents another
+page. Partial commits/ACKs recover from the retained feed and durable receipts.
+One-shot mode runs one page and exits nonzero on failure. No loop overlaps itself.
+
+`canonical-revision-cycle` logs outcome, time, failure count and revision counts
+only. These are separate from Beach worker health; a healthy Beach heartbeat does
+not prove Calderwood polling. Logs are not a durable freshness dashboard. The loop
+cannot activate message sending, publish inventory, or attest initial coverage.
+Disable its flag to return to the existing worker loops while keeping receipts.
+The Docker image includes only the Channex read adapter and its pure date-window
+helper from `calderwood-readonly`; no Guesty reader or app credentials are needed.

@@ -1,4 +1,5 @@
-import { calendarDates, type normalizeCalendar } from './calendar.ts';
+import { calendarDates } from './calendar-window.ts';
+import type { normalizeCalendar } from './calendar.ts';
 export const CALDERWOOD_STAGING = Object.freeze({ propertyId: '30584a9a-8784-4eb1-a387-e26bd43aec1c', roomTypeId: 'f795ae2c-f47d-4751-86ff-e883b6d30800', ratePlanId: '7f95b731-ff05-4c41-99c9-f39b3e772fec' });
 type Row = Record<string, unknown>;
 const obj = (v: unknown): Row => { if (!v || typeof v !== 'object' || Array.isArray(v)) throw Error('Invalid staging response'); return v as Row; };

@@ -1,19 +1,12 @@
+import { calendarDates, localDate } from './calendar-window.ts';
+export { calendarDates } from './calendar-window.ts';
 import { CALDERWOOD, readCalderwoodGuesty } from './guesty-reader.ts';
 type Row = Record<string, unknown>;
 const blockLabels: Record<string, string> = { m: 'Manual hold', r: 'Reserved', b: 'Reservation', bd: 'Blocked by default', sr: 'Calendar rule', abl: 'Annual limit', a: 'Allotment', bw: 'Booking window', o: 'Owner stay', pt: 'Preparation time', ic: 'Imported calendar', an: 'Advance notice' };
 const object = (v: unknown): Row => { if (!v || typeof v !== 'object' || Array.isArray(v)) throw Error('Invalid calendar shape'); return v as Row; };
-function localDate(v: unknown): string {
-  if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v) || !Number.isFinite(Date.parse(v)) || new Date(v).toISOString().slice(0, 10) !== v) throw Error('Invalid calendar date');
-  return v;
-}
 const numeric = (v: unknown, integer = false) => typeof v === 'number' && Number.isFinite(v) && v >= 0 && (!integer || Number.isInteger(v)) ? v : null;
 const flag = (v: unknown) => typeof v === 'boolean' ? v : null;
 const identity = (v: unknown): string | null => typeof v === 'string' && /^[a-f0-9]{24}$/i.test(v) ? v : null;
-export function calendarDates(window: { from: string; to: string }) {
-  const from = localDate(window.from), to = localDate(window.to);
-  if (from >= to || Date.parse(to) - Date.parse(from) > 366 * 86400000) throw Error('Invalid calendar window');
-  return Array.from({ length: (Date.parse(to) - Date.parse(from)) / 86400000 }, (_, i) => new Date(Date.parse(from) + i * 86400000).toISOString().slice(0, 10));
-}
 /** Whitelist fields; never retain nested guests, money, notes or creator details. */
 export function normalizeCalendar(payload: unknown, window: { from: string; to: string }) {
   const dates = calendarDates(window), expected = new Set(dates), root = object(payload);

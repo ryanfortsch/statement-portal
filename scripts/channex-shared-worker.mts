@@ -8,6 +8,7 @@ import {createMessageStore} from '../src/lib/channex-staging/message-store.ts';
 import {syncPilotMessages} from '../src/lib/channex-staging/message-sync.ts';
 import {cleanerReceiptsEnabled} from '../src/lib/calderwood-rehearsal/cleaner-receipt-runtime.ts';
 import {createCleanerReceiptPageRunner,runCleanerReceiptScheduler} from '../src/lib/calderwood-rehearsal/cleaner-receipt-scheduler.ts';
+import {canonicalPollingEnabled,createCanonicalRevisionPageRunner,runCanonicalRevisionScheduler} from '../src/lib/channex-staging/canonical-revision-scheduler.ts';
 import {syncSharedRevisions} from '../src/lib/channex-staging/shared-sync.ts';
 if(process.env.CHANNEX_WORKER_MODE!=='isolated-staging')throw new Error('Explicit staging worker mode required');
 const store=createSharedOwnershipStore(process.env.CHANNEX_STAGING_DB_URL??'',process.env.CHANNEX_STAGING_DB_SERVICE_KEY??'');
@@ -15,6 +16,8 @@ const client=new ChannexStagingClient(process.env.CHANNEX_STAGING_API_KEY??'');
 const health=createWorkerHealthStore(process.env.CHANNEX_STAGING_DB_URL??'',process.env.CHANNEX_STAGING_DB_SERVICE_KEY??'');
 if(process.env.CHANNEX_CLEANER_RECEIPTS_ENABLED==='true'&&!cleanerReceiptsEnabled(process.env,'worker'))throw new Error('Receipt worker configuration rejected');
 const receiptPage=cleanerReceiptsEnabled(process.env,'worker')?createCleanerReceiptPageRunner(process.env):null;
+if(process.env.CHANNEX_CANONICAL_POLLING_ENABLED==='true'&&!canonicalPollingEnabled(process.env))throw new Error('Canonical polling configuration rejected');
+const canonicalPage=canonicalPollingEnabled(process.env)?createCanonicalRevisionPageRunner(process.env):null;
 let stopping=false,failures=0,lastSuccess:string|null=null;
 const shutdown=new AbortController();
 for(const signal of ['SIGINT','SIGTERM'] as const)process.on(signal,()=>{stopping=true;shutdown.abort();});
@@ -55,4 +58,10 @@ async function receiptLoop(){
   once:process.env.CHANNEX_WORKER_ONCE==='yes',log:entry=>console.log(JSON.stringify(entry))});
  if(result.failed&&process.env.CHANNEX_WORKER_ONCE==='yes')process.exitCode=1;
 }
-await Promise.all([bookingLoop(),messageLoop(),receiptLoop()]);
+async function canonicalLoop(){
+ if(!canonicalPage)return;
+ const result=await runCanonicalRevisionScheduler({drainPage:canonicalPage,signal:shutdown.signal,
+  once:process.env.CHANNEX_WORKER_ONCE==='yes',log:entry=>console.log(JSON.stringify(entry))});
+ if(result.failed&&process.env.CHANNEX_WORKER_ONCE==='yes')process.exitCode=1;
+}
+await Promise.all([bookingLoop(),messageLoop(),receiptLoop(),canonicalLoop()]);
