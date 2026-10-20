@@ -349,3 +349,56 @@ export function ageLabel(iso: string | null | undefined, nowMs = Date.now()): st
   if (hours < 24) return `${hours}h ago`;
   return `${Math.round(hours / 24)}d ago`;
 }
+
+/**
+ * What the guest reads beside the Pay button, and the checkout settings that
+ * make the paid charge carry its own proof of approval (2026-10-20, after an
+ * $800 add-on was disputed despite a written yes). The text names the exact
+ * amount, what it is for and which home, and asks the guest to reply before
+ * going to their bank. It states no refund policy: that is the operator's
+ * call, and a wrong promise on the payment page is worse than none.
+ *
+ * Deliberately NOT here: payment_intent_data[description]. stripe-sync reads
+ * charge.description to label and classify charges, so a new description
+ * could move how an add-on lands on a statement.
+ */
+export function checkoutApprovalText(a: {
+  label: string;
+  propertyTitle: string;
+  totalCents: number;
+  saveCard?: boolean;
+}): string {
+  const label = (a.label || '').trim() || 'charge';
+  const where = (a.propertyTitle || '').trim();
+  const what = where ? `${label}, ${where}` : label;
+  const saved = a.saveCard
+    ? ' Your card is saved for the remaining balance of this booking, as agreed with your host.'
+    : '';
+  return (
+    `You are approving a one-time charge of ${money(a.totalCents)} for: ${what}.${saved} ` +
+    `Questions about this charge? Reply to the text we sent you and we will sort it out.`
+  ).slice(0, 1200);
+}
+
+/**
+ * Extra Payment Link params, in the order they are dropped if an account
+ * refuses them. `consent` is the required "I agree to the terms" checkbox,
+ * which Stripe only allows when the account has a terms of service URL set
+ * in its public details; `safeguards` work on every account.
+ */
+export function paymentLinkApprovalParams(a: {
+  label: string;
+  propertyTitle: string;
+  totalCents: number;
+  saveCard?: boolean;
+}): { safeguards: Record<string, string>; consent: Record<string, string> } {
+  return {
+    safeguards: {
+      'custom_text[submit][message]': checkoutApprovalText(a),
+      // One payment per link: a second tap after paying cannot charge twice.
+      'restrictions[completed_sessions][limit]': '1',
+      'billing_address_collection': 'required',
+    },
+    consent: { 'consent_collection[terms_of_service]': 'required' },
+  };
+}

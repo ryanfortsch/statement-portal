@@ -13,6 +13,7 @@ import {
   helmRequestKey,
   LINK_LOOKBACK_DAYS,
   linkBelongsToReservation,
+  paymentLinkApprovalParams,
   REMINDER_MAX_AGE_DAYS,
   reminderDue,
   reservationIdFromRequestKey,
@@ -429,7 +430,27 @@ export async function mintPaymentLink(input: MintInput): Promise<MintResult> {
     linkParams['customer_creation'] = 'always';
     linkParams['payment_intent_data[setup_future_usage]'] = 'off_session';
   }
-  const link = await stripePost(stripeKey, 'payment_links', linkParams);
+  // Approval safeguards (2026-10-20): the approval text beside Pay, one
+  // payment per link, a billing address, and the terms checkbox where the
+  // account allows it. Stepped down on refusal so a link always mints the
+  // way it did before: with everything, then without the checkbox (an
+  // account with no terms URL rejects it), then exactly the old params.
+  const approval = paymentLinkApprovalParams({
+    label,
+    propertyTitle,
+    totalCents: split.totalCents,
+    saveCard,
+  });
+  const attempts: Record<string, string>[] = [
+    { ...linkParams, ...approval.safeguards, ...approval.consent },
+    { ...linkParams, ...approval.safeguards },
+    linkParams,
+  ];
+  let link = await stripePost(stripeKey, 'payment_links', attempts[0]);
+  for (let i = 1; i < attempts.length && !link.ok && link.status === 400; i++) {
+    console.warn(`[payment-links] ${propertyId}: Stripe refused approval params (${link.message}); retrying with fewer`);
+    link = await stripePost(stripeKey, 'payment_links', attempts[i]);
+  }
   if (!link.ok) {
     const permission = link.status === 401 || link.status === 403;
     return { ok: false, error: permission ? 'stripe_permission' : 'stripe_error', detail: link.message };
