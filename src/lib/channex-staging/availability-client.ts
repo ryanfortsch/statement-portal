@@ -2,6 +2,7 @@
  * API contract: https://docs.channex.io/api-v.1-documentation/ari
  */
 import { z } from 'zod';
+import { availabilityTaskCompletion } from './availability-task.ts';
 import { createAvailabilityRequest, validateAvailabilityRequest } from './availability-request.ts';
 import { inventoryDigest, type InventoryJob } from './inventory-outbox.ts';
 import { todayInEastern } from '../sca-quotes-types.ts';
@@ -168,6 +169,29 @@ export class ChannexAvailabilityClient {
         } catch { return { status: 'ambiguous' }; }
       },
     };
+  }
+  /** Task completion is separate from calendar observation. No task ID guessing,
+   * list scanning, resend, or OTA-delivery inference. Missing evidence fails closed.
+   */
+  async completion(job: InventoryJob) {
+    this.#validate(job, true);
+    const bound = structuredClone(job);
+    if (!bound.task || !uuid.safeParse(bound.task).success || !bound.request || !bound.receipt) {
+      throw Error('Saved availability task binding required');
+    }
+    const values = JSON.parse(bound.request.body).values;
+    if (!Array.isArray(values) || values.some(v => v.property_id !== this.route.propertyId || v.room_type_id !== this.route.roomTypeId)) {
+      throw Error('Task request route mismatch');
+    }
+    await this.#inspect();
+    const task = availabilityTaskCompletion(await this.#get(`/tasks/${bound.task}`), bound, stamp(this.#clock));
+    if (task.status !== 'completed') return task;
+    // This read must follow a matching successful terminal task, not precede it.
+    const actual = await this.#counts(bound);
+    const days = actual.complete ? bound.days.map(d => ({ date: d.date,
+      available: actual.days[d.date] as 0 | 1, stopSell: actual.days[d.date] === 0 })) : [];
+    return { ...task, complete: actual.complete, digest: actual.complete ? inventoryDigest(days) : '',
+      observedAt: stamp(this.#clock) };
   }
   async observe(job: InventoryJob): Promise<AvailabilityObservation> {
     this.#validate(job, true);

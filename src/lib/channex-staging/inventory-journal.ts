@@ -21,7 +21,9 @@ const commandSchema = z.discriminatedUnion('kind', [
     now: int, retryAfterMs: int, jitter: z.number().min(0).max(1) }).strict(),
   z.object({ kind: z.literal('expire'), now: int }).strict(),
   z.object({ kind: z.literal('reconcile'), id, token: id, evidence: z.object({ settled: z.boolean(),
-    complete: z.boolean(), digest: id, generation: positive, task: id.optional(), requestDigest: id.optional() }).strict() }).strict(),
+    complete: z.boolean(), digest: id, generation: positive, task: id.optional(), requestDigest: id.optional(),
+    completion: z.object({ receivedAt: int, executedAt: int, finishedAt: int, observedAt: int }).strict().optional(),
+  }).strict() }).strict(),
 ]);
 const journalSchema = z.object({ format: z.literal(1), commands: z.array(commandSchema).max(10_000) }).strict();
 export type InventoryCommand = z.infer<typeof commandSchema>;

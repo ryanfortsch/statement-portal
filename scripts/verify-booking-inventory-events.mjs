@@ -224,7 +224,7 @@ try {
   });
   await verifyAvailabilityInputCapture(db, check, capture);
   await verifyBookingInventoryConsumer(db, check);
-  await check('consumer cursor and uncertain dispatch survive database restart', async () => {
+  await check('consumer cursor and verified task evidence survive database restart', async () => {
     const before = (await query("select helm_booking_inventory_read('home') as state"))[0].state;
     await db.close(); db = new PGlite(dataDir);
     assert.deepEqual((await query("select helm_booking_inventory_read('home') as state"))[0].state, before);

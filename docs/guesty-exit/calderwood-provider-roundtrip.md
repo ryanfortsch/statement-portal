@@ -1,9 +1,10 @@
 # Calderwood provider booking rehearsal
 
-**Latest result, October 20:** automatic signed booking creation, date change and
-cancellation all reached the deployed preview successfully on the first attempt.
-The isolated database retained one booking and all three changes. Recovery polling
-and availability transport have separate receipts below.
+**Latest result, October 20:** availability task completion is now verified
+automatically against Channex staging. A fresh two-date change and restoration
+each completed in one attempt, with exact request matching and a subsequent full
+calendar read. Signed booking ingestion and recovery polling passed separately.
+The continuous hosted availability worker and real messages remain to be connected.
 
 The first manually triggered import was verified October 19, 2026, evening ET
 (provider timestamps are October 20 UTC).
@@ -256,11 +257,63 @@ Application tests were not rerun under the documentation-only exemption. Real
 delivery results, independent database/provider read-backs, configuration checks,
 referenced paths and the complete documentation diff were checked.
 
+## Automatic availability completion verified October 20
+
+A focused read of the known completed task found that the staging API exposes
+`GET /api/v1/tasks/:id`. Its response includes the task identity, operation,
+submitted payload, success/errors and received/executed/finished timestamps. This
+is an **observed staging contract**, not an endpoint found in the reviewed public
+API index or a verified production contract. The adapter is restricted to staging;
+a changed or missing response fails closed.
+
+`availability-task.ts` verifies the saved task ID, accepted receipt, exact
+availability request and fingerprint, operation type, timestamp chronology,
+success, empty errors and absence of channel-sync events. Only after that check
+passes does the client read the complete requested calendar window. A matching
+read-back allows `reconcileBookingInventoryOnce` to persist task-bound completion
+in the existing journal. Provider email, IP and account metadata are discarded.
+Calendar observation by itself still cannot settle an attempt.
+
+A fresh isolated rehearsal used the same three-night window, April 10-13, 2027
+(checkout exclusive). April 10 and 12 were temporarily changed from zero to one,
+then restored to zero; April 11 stayed zero. Both jobs were automatically verified
+by the new code, without operator-provided terminal evidence:
+
+| Operation | Provider task | Finished (UTC) | Attempts |
+| --- | --- | --- | --- |
+| Two-date change | `602e7012-1a0e-4473-9309-90d7ec25cc5e` | `2026-10-20T15:31:46.401Z` | 1 |
+| Restore baseline | `c0b66aa3-985c-4799-a4bc-096b3af7a3ae` | `2026-10-20T15:32:13.759Z` | 1 |
+
+The change request fingerprint was
+`4ea9d0135850cf5c18ce9ed580658cc2dcf1225fe3ec34bb27af597d91a33a47`;
+restoration was `79d99c38d88b451646e6bed874bc36674c02ff922c81c8b4f496543a5f7fa028`.
+Final full-window inventory fingerprint was
+`9a8a5df0b8fa904ddc60fa98e1428c5a14634ead6443d8c80f00aa91ea8a40e0`.
+A repeat preparation found zero changed dates and sent nothing. The provider UI
+was inspected afterward as a separate receipt, not used to drive reconciliation.
+[Completed restoration task](https://staging.channex.io/tasks/30584a9a-8784-4eb1-a387-e26bd43aec1c/c0b66aa3-985c-4799-a4bc-096b3af7a3ae).
+
+The test retained a local fsynced journal and fixed fictional intents. It did not
+activate the hosted planner or add a continuously running publisher. The new
+`runBookingInventoryCycle` composes one bounded pass of lease recovery, prior-task
+reconciliation, canonical planning and delivery; fixtures verify that a booking
+change cannot overtake an unresolved task. Complete source coverage is still
+required by the existing planner and is not manufactured or renewed by this pass.
+
+Validation: 2,072 application tests in 240 suites, nonincremental TypeScript,
+scoped ESLint and 86 local PGlite integration checks pass. The SQL check uses the
+real service-role journal RPC, verifies completion of an expired accepted attempt,
+retains the newer pending job, rejects duplicate settlement and preserves evidence
+through database restart. No SQL definition or hosted schema changed. The API test
+preserved every rate/minimum-stay/restriction field, stopped defaults and zero
+attached channels. No message, production change or new paid service was added.
+
 ## Still required before launch
 
-1. Complete future-calendar reconciliation, hosted end-to-end availability and
-   automatic terminal-task reconciliation. Signed notifications, recovery polling
-   and the bounded provider transport passed above.
+1. Connect the bounded cycle to the hosted availability worker with complete
+   future-calendar coverage and conflict handling. Automatic staging task
+   reconciliation, signed notifications and recovery polling passed above;
+   continuous hosted availability and OTA delivery remain unverified.
 2. Automated guest and cleaner delivery with the original Guesty times, delay
    holds, correct recipients and carried-over stays; verified PriceLabs parity.
 3. Production Channex access/costs and confirmed new-sales pauses, followed by

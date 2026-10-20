@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { consumeBookingInventory, bookingInventoryDispatchContext } from '../src/lib/channex-staging/booking-inventory-consumer.ts';
 import { ChannexAvailabilityClient } from '../src/lib/channex-staging/availability-client.ts';
 import { deliverBookingInventoryOnce } from '../src/lib/channex-staging/booking-inventory-delivery.ts';
+import { reconcileBookingInventoryOnce } from '../src/lib/channex-staging/booking-inventory-cycle.ts';
 import { prepareInventoryDispatch } from '../src/lib/channex-staging/inventory-worker.ts';
 import { replayInventoryJournal, recordInventoryCommand } from '../src/lib/channex-staging/inventory-journal.ts';
 import { shiftIsoDay, todayInEastern } from '../src/lib/sca-quotes-types.ts';
@@ -165,6 +166,15 @@ export async function verifyBookingInventoryConsumer(db, check) {
       if(path.includes('/properties/'))return Response.json({data:{id:propertyId,attributes:{title:route.propertyTitle,currency:'USD',timezone:'America/New_York'}}});
       if(path.includes('/room_types/'))return Response.json({data:{id:roomTypeId,attributes:{count_of_rooms:1},relationships:{property:{data:{id:propertyId}}}}});
       if(path.endsWith('/channels'))return Response.json({data:[],meta:{total:0,page:1,limit:100}});
+      if(path.startsWith('/api/v1/tasks/')){
+        assert.equal(path,`/api/v1/tasks/${deliveryJob.task}`);
+        const timestamp=new Date(deliveryJob.dispatchedAt).toISOString();
+        return Response.json({data:{type:'task',id:deliveryJob.task,attributes:{
+          id:deliveryJob.task,task:'Property.UpdateAvailability',success:true,errors:[],channel_events:[],
+          received_at:timestamp,executed_at:timestamp,finished_at:timestamp,
+          payload:JSON.parse(deliveryJob.request.body),user_email:'discard@example.invalid',
+        }}});
+      }
       assert.equal(path,'/api/v1/availability');
       return Response.json({data:{[roomTypeId]:Object.fromEntries(job.days.map(d=>[d.date,postCount?d.available:1-d.available]))}});
     });
@@ -186,6 +196,20 @@ export async function verifyBookingInventoryConsumer(db, check) {
     const job=(await jobs()).at(-1);
     assert.equal(await prepareInventoryDispatch(store.journal,job.id,Date.now,5000,j=>bookingInventoryDispatchContext(store,j,Date.now)),null);
     assert.deepEqual((await jobs()).slice(-2).map(j=>j.status),['uncertain','pending']);
+  });
+  await check('automatic completion persists through the real SQL append and releases only its bound task',async()=>{
+    await db.exec('set role service_role');
+    try{assert.equal((await reconcileBookingInventoryOnce(store.journal,deliveryClient,deliveryJob.id)).status,'verified');}
+    finally{await db.exec('reset role');}
+    assert.deepEqual((await jobs()).slice(-2).map(j=>j.status),['verified','pending']);
+    const s=await read(),command=s.journal.commands.at(-1);
+    assert.equal(command.kind,'reconcile');assert.equal(command.evidence.task,deliveryJob.task);
+    assert.equal(command.evidence.requestDigest,deliveryJob.request.digest);
+    assert.equal(command.evidence.completion.finishedAt,deliveryJob.dispatchedAt);
+    assert.ok(command.evidence.completion.observedAt>=command.evidence.completion.finishedAt);
+    assert.doesNotMatch(JSON.stringify(command),/discard@|user_email/);
+    assert.equal((await reconcileBookingInventoryOnce(store.journal,deliveryClient,deliveryJob.id)).status,'blocked');
+    assert.equal((await read()).journalVersion,s.journalVersion);assert.equal(postCount,1);
   });
   await check('consumer role restrictions and idempotent installation preserve pending work',async()=>{
     const before=await read();await db.exec(sql);assert.deepEqual(await read(),before);

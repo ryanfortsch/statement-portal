@@ -117,9 +117,10 @@ passed. The original worker loops also reported success. No additional server,
 subscription or database schema was needed. Exact IDs and deployed logs are in
 [the provider rehearsal receipt](calderwood-provider-roundtrip.md#unattended-recovery-verified-october-20).
 
-Automated availability completion, message planning and real guest/cleaner
-delivery remain unverified. Four later empty recovery scans at 13:04, 13:19, 13:34
-and 13:49 UTC on October 20 confirmed continued 15-minute polling. This is a short
+Continuous hosted availability, message planning and real guest/cleaner
+delivery remain unverified. Automatic staging task completion passed in the
+separate bounded API rehearsal described below. Four later empty recovery scans
+at 13:04, 13:19, 13:34 and 13:49 UTC on October 20 confirmed continued 15-minute polling. This is a short
 recovery observation, not a prolonged reliability trial. The separate signed
 notification lifecycle passed at 14:40-14:44 UTC, with all three responses under
 three seconds, one final cancelled booking and an empty provider feed.
@@ -135,11 +136,37 @@ inspection, not an enabled hosted publisher or automated terminal reconciliation
 No OTA delivery is proven. The 2,064-test suite, TypeScript and lint pass; exact
 provider task IDs and scope are in [the rehearsal receipt](calderwood-provider-roundtrip.md).
 
+**Automatic availability completion verified (October 20):** the staging
+`GET /api/v1/tasks/:id` endpoint was verified against a known accepted task, then
+against a fresh two-date change and restoration. Both jobs reached `verified`
+automatically, one attempt each. The client checks the saved task, receipt, exact
+request/fingerprint, terminal result and timestamp order, then performs a fresh
+full-window calendar read before journal reconciliation. Account metadata is
+stripped. A missing/mismatched/failed task or incomplete read cannot settle it.
+This is an observed staging API shape, not a documented production guarantee.
+
+The new `runBookingInventoryCycle` joins canonical planning, guarded delivery and
+reconciliation in one bounded pass. It expires stale leases, reconciles outstanding
+work before planning newer changes, and preserves uncertainty after failed saves.
+It neither creates nor renews coverage, changes configuration, runs a scheduler,
+nor activates sending. New completion timestamps are optional JSONB journal
+fields; legacy records remain readable and no SQL migration is required. The
+reader/writer must be deployed together before those fields are written by a
+hosted worker.
+
+Current validation: 2,072 tests in 240 suites, nonincremental TypeScript, scoped
+ESLint and 86 PGlite checks pass. A real service-role SQL append retained bound
+completion after an expired accepted attempt and through database restart, without
+resending or disturbing the newer pending job. The actual provider rehearsal used
+a local durable journal; the hosted consumer remains unconfigured. Prices,
+minimum stays, all other restrictions, stopped defaults and zero channels were
+preserved. See the [automatic completion receipt](calderwood-provider-roundtrip.md#automatic-availability-completion-verified-october-20).
+
 Remaining delivery sequence:
 
-1. Connect the hosted availability planner and automate terminal-task reconciliation.
-   The bounded provider transport and task-UI completion test passed. Complete
-   initial-calendar reconciliation and conflict handling. The database installation,
+1. Connect the bounded cycle to the hosted availability worker with complete
+   initial-calendar coverage and conflict handling. Actual staging task completion
+   and full-window read-back now pass automatically. The database installation,
    constructed-revision cycle, actual provider feed/save/ACK cycle, unattended
    recovery and signed notification lifecycle are complete.
 2. Prove **automated guest and cleaner delivery**, original timing, message
@@ -1511,3 +1538,24 @@ with main. Changed files: the shared fixture, PGlite/native runners, new
 `verify-booking-inventory-schema.mjs`, `SCHEMA.md` and this document. Unrelated contract
 notes remain excluded. Hosted-schema comparison and trusted terminal-task evidence
 remain the next gates; Guesty continues to operate the live property.
+
+
+### Automatic task completion implementation handoff (October 20, 2026)
+
+Branch `codex/channex-staging-pilot`; starting HEAD `fa1737dc`, original base
+`a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`; freshly verified origin/main
+`00b2dc85346ee3e94b44a30a6c6e3e3c7a278740`. This continues the owned pilot branch,
+not a rebase onto that main reference. Draft PR #1714 remains the integration path.
+
+Changed files: `availability-task.ts`, `booking-inventory-cycle.ts`,
+`availability-client.ts`, `inventory-journal.ts` under `src/lib/channex-staging/`;
+`src/lib/__tests__/booking-inventory-delivery.test.ts`;
+`scripts/verify-booking-inventory-consumer.mjs` and
+`scripts/verify-booking-inventory-events.mjs`; this document and
+`calderwood-provider-roundtrip.md`. Unrelated dirty contract notes remain excluded.
+
+The current status and receipt above supersede older dated entries that identify
+terminal-task evidence as unavailable. Remaining limits: observed staging API
+compatibility, continuous hosted publishing, complete source coverage, production
+compatibility and automatic message delivery. No Render worker deployment or hosted
+schema/configuration change was part of this batch.

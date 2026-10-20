@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { reconcileBookingInventoryOnce, runBookingInventoryCycle } from '../channex-staging/booking-inventory-cycle.ts';
 import assert from 'node:assert/strict';
 import { ChannexAvailabilityClient, type AvailabilityRoute } from '../channex-staging/availability-client.ts';
 import { deliverBookingInventoryOnce } from '../channex-staging/booking-inventory-delivery.ts';
@@ -46,7 +47,14 @@ async function fixture() {
   let response: () => Promise<Response> = async () => json({ data: [{ type: 'task', id: TASK }], meta: { message: 'Success', warnings: [] } });
   const replies = { property: { data: { id: propertyId, attributes: { title: route.propertyTitle, currency: 'USD', timezone: 'America/New_York' } } },
     room: { data: { id: roomTypeId, attributes: { count_of_rooms: 1 }, relationships: { property: { data: { id: propertyId } } } } },
-    channels: { data: [] as unknown[], meta: { total: 0, page: 1, limit: 100 } } };
+    channels: { data: [] as unknown[], meta: { total: 0, page: 1, limit: 100 } },
+    task: { data: { type: 'task', id: TASK, attributes: { id: TASK, task: 'Property.UpdateAvailability',
+      success: true as boolean | null, errors: [] as unknown[], channel_events: [] as unknown[],
+      received_at: '2027-01-01T15:00:00.000000', executed_at: '2027-01-01T15:00:00.000000' as string | null,
+      finished_at: '2027-01-01T15:00:00.000000' as string | null,
+      payload: { values: [{ property_id: propertyId, room_type_id: roomTypeId, date: '2027-01-02', availability: 1 }] },
+      user_email: 'discard-this@example.invalid', ip_address: 'discard-this-address',
+    } } } };
   const fetcher: typeof fetch = async (input, init) => {
     const url = new URL(String(input)); assert.equal(url.origin, 'https://staging.channex.io');
     assert.equal(init?.redirect, 'error'); assert.equal(init?.cache, 'no-store'); assert.ok(init?.signal);
@@ -56,6 +64,7 @@ async function fixture() {
     if (url.pathname.includes('/properties/')) return json(replies.property);
     if (url.pathname.includes('/room_types/')) return json(replies.room);
     if (url.pathname.endsWith('/channels')) return json(replies.channels);
+    if (url.pathname.startsWith('/api/v1/tasks/')) return json(replies.task);
     assert.equal(url.pathname, '/api/v1/availability');
     assert.equal(url.searchParams.get('filter[property_id]'), propertyId);
     const result = json({ data: { [roomTypeId]: { ...counts } } }); afterRead(); return result;
@@ -324,4 +333,110 @@ test('calendar match, wrong task or wrong request digest cannot reconcile a boun
     const result = await recordInventoryCommand(f.store.journal, { kind: 'reconcile', id: job.id, token: job.token!, evidence });
     assert.equal(result.saved, false); assert.equal(f.job().status, 'submitted');
   }
+});
+
+
+test('successful exact task is followed by full calendar read-back and durable verification', async () => {
+  const f = await fixture(); await f.run(); f.counts['2027-01-02'] = 1;
+  assert.equal((await reconcileBookingInventoryOnce(f.store.journal, f.client, f.job().id)).status, 'verified');
+  assert.equal(f.job().status, 'verified'); assert.equal(f.job().attempts, 1);
+  const calls = f.calls.slice(-2).map(c => c.path);
+  assert.deepEqual(calls, [`/api/v1/tasks/${TASK}`, '/api/v1/availability']);
+  const journal = replayInventoryJournal(f.state.journal).journal;
+  assert.deepEqual(journal.commands.at(-1), { kind: 'reconcile', id: f.job().id, token: f.job().token,
+    evidence: { settled: true, complete: true, digest: f.job().digest, generation: 1, task: TASK,
+      requestDigest: f.job().request!.digest,
+      completion: { receivedAt: NOW, executedAt: NOW, finishedAt: NOW, observedAt: NOW } } });
+  assert.doesNotMatch(JSON.stringify(journal), /discard-this|user_email|ip_address/);
+  assert.equal((await reconcileBookingInventoryOnce(f.store.journal, f.client, f.job().id)).status, 'blocked');
+  assert.equal(f.calls.filter(c => c.method === 'POST').length, 1);
+});
+test('unfinished or failed tasks cannot settle even when calendar counts match', async () => {
+  for (const failed of [false, true]) {
+    const f = await fixture(); await f.run(); f.counts['2027-01-02'] = 1;
+    if (failed) f.replies.task.data.attributes.success = false;
+    else f.replies.task.data.attributes.finished_at = null;
+    const before = f.calls.length;
+    assert.equal((await reconcileBookingInventoryOnce(f.store.journal, f.client, f.job().id)).status, failed ? 'failed' : 'pending');
+    assert.equal(f.job().status, 'submitted');
+    assert.ok(!f.calls.slice(before).some(c => c.path === '/api/v1/availability'));
+  }
+});
+test('task IDs, exact payload, type, timestamps and isolated channel scope must all match', async () => {
+  const changes = [
+    (f: Awaited<ReturnType<typeof fixture>>) => { f.replies.task.data.id = TASK2; },
+    (f: Awaited<ReturnType<typeof fixture>>) => { f.replies.task.data.attributes.id = TASK2; },
+    (f: Awaited<ReturnType<typeof fixture>>) => { f.replies.task.data.attributes.task = 'Property.UpdateRestrictions'; },
+    (f: Awaited<ReturnType<typeof fixture>>) => { f.replies.task.data.attributes.payload.values[0].availability = 0; },
+    (f: Awaited<ReturnType<typeof fixture>>) => { f.replies.task.data.attributes.payload.values[0].date = '2027-01-03'; },
+    (f: Awaited<ReturnType<typeof fixture>>) => { f.replies.task.data.attributes.payload.values[0].property_id = roomTypeId; },
+    (f: Awaited<ReturnType<typeof fixture>>) => { f.replies.task.data.attributes.payload.values[0].room_type_id = propertyId; },
+    (f: Awaited<ReturnType<typeof fixture>>) => { Object.assign(f.replies.task.data.attributes.payload.values[0], { rate: 100 }); },
+    (f: Awaited<ReturnType<typeof fixture>>) => { f.replies.task.data.attributes.payload.values.push(f.replies.task.data.attributes.payload.values[0]); },
+    (f: Awaited<ReturnType<typeof fixture>>) => { f.replies.task.data.attributes.received_at = '2026-12-31T15:00:00'; },
+    (f: Awaited<ReturnType<typeof fixture>>) => { f.replies.task.data.attributes.finished_at = '2027-01-02T15:00:00'; },
+    (f: Awaited<ReturnType<typeof fixture>>) => { f.replies.task.data.attributes.executed_at = null; },
+    (f: Awaited<ReturnType<typeof fixture>>) => { f.replies.task.data.attributes.finished_at = '2027-02-30T15:00:00'; },
+    (f: Awaited<ReturnType<typeof fixture>>) => { f.replies.task.data.attributes.channel_events.push({}); },
+    (f: Awaited<ReturnType<typeof fixture>>) => { f.replies.channels.data.push({}); },
+  ];
+  for (const change of changes) {
+    const f = await fixture(); await f.run(); f.counts['2027-01-02'] = 1; change(f);
+    const version = f.state.journalVersion;
+    await assert.rejects(() => reconcileBookingInventoryOnce(f.store.journal, f.client, f.job().id));
+    assert.equal(f.state.journalVersion, version); assert.equal(f.job().status, 'submitted');
+    assert.equal(f.calls.filter(c => c.method === 'POST').length, 1);
+  }
+});
+test('terminal errors and incomplete read-back remain unresolved; complete mismatch requires review', async () => {
+  const f = await fixture(); await f.run(); f.replies.task.data.attributes.errors.push({});
+  assert.equal((await reconcileBookingInventoryOnce(f.store.journal, f.client, f.job().id)).status, 'failed');
+  f.replies.task.data.attributes.errors = []; delete f.counts['2027-01-03'];
+  assert.equal((await reconcileBookingInventoryOnce(f.store.journal, f.client, f.job().id)).status, 'incomplete');
+  assert.equal(f.job().status, 'submitted'); f.counts['2027-01-03'] = 0;
+  assert.equal((await reconcileBookingInventoryOnce(f.store.journal, f.client, f.job().id)).status, 'needs-review');
+  assert.equal(f.job().status, 'needs-review');
+});
+test('task evidence supports expired accepted attempts without reposting', async () => {
+  const f = await fixture(); await f.run(); f.counts['2027-01-02'] = 1; f.advance(120000);
+  await recordInventoryCommand(f.store.journal, {kind:'expire',now:f.clock()});
+  assert.equal(f.job().status, 'uncertain');
+  assert.equal((await reconcileBookingInventoryOnce(f.store.journal, f.client, f.job().id)).status, 'verified');
+  assert.equal(f.calls.filter(c => c.method === 'POST').length, 1);
+});
+test('missing task receipts and failed completion saves never authorize another submission', async () => {
+  for (const failure of ['accepted','reconcile','after-reconcile']) {
+    const f = await fixture(); f.fail(failure);
+    if (failure === 'accepted') {
+      await assert.rejects(f.run); f.fail('');
+      assert.equal((await reconcileBookingInventoryOnce(f.store.journal, f.client, f.job().id)).status, 'blocked');
+    } else {
+      await f.run(); f.counts['2027-01-02'] = 1;
+      await assert.rejects(() => reconcileBookingInventoryOnce(f.store.journal, f.client, f.job().id)); f.fail('');
+      const next = await reconcileBookingInventoryOnce(f.store.journal, f.client, f.job().id);
+      assert.equal(next.status, failure === 'after-reconcile' ? 'blocked' : 'verified');
+    }
+    assert.equal(f.calls.filter(c => c.method === 'POST').length, 1);
+  }
+});
+test('bounded canonical cycle verifies prior work before planning a newer booking change', async () => {
+  const f = await fixture();
+  assert.equal((await runBookingInventoryCycle(f.store, f.client, f.clock)).status, 'submitted');
+  const old = f.job().id; f.counts['2027-01-02'] = 1; f.advance(6000);
+  f.state.inputs.bookings.push({ id:'synthetic-new-stay', status:'confirmed', check_in:'2027-01-02',check_out:'2027-01-03',duplicate_of:null,hold_kind:null,source:'manual',channel:'other' });
+  f.state.captureVersion++; f.state.inputsMatchPlan = false;
+  f.setResponse(async () => json({data:[{type:'task',id:TASK2}],meta:{message:'Success'}}));
+  assert.equal((await runBookingInventoryCycle(f.store, f.client, f.clock)).status, 'submitted');
+  const jobs = replayInventoryJournal(f.state.journal).queue.list();
+  assert.equal(jobs.find(j => j.id === old)!.status, 'verified');
+  assert.equal(f.job().days[0].available, 0); assert.equal(f.job().task, TASK2);
+  assert.equal(f.calls.filter(c => c.method === 'POST').length, 2);
+});
+test('bounded canonical cycle waits for unresolved tasks and refuses changed routes', async () => {
+  const f = await fixture(); await f.run(); f.replies.task.data.attributes.finished_at = null;
+  f.state.captureVersion++; f.state.inputsMatchPlan = false;
+  assert.deepEqual(await runBookingInventoryCycle(f.store, f.client, f.clock), {phase:'reconcile',status:'pending'});
+  assert.equal(f.state.planVersion, 1); assert.equal(f.calls.filter(c => c.method === 'POST').length, 1);
+  f.state.configuration.generation++;
+  await assert.rejects(() => runBookingInventoryCycle(f.store, f.client, f.clock), /route mismatch/);
 });
