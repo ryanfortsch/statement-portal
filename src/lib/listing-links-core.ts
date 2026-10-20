@@ -26,6 +26,10 @@ export type LinkMember = {
   guesty_listing_id: string | null;
   /** The member's own export feed, read for bookings when Guesty does not run it. */
   ical_url: string | null;
+  /** The nights this unit is offered for a lease, YYYY-MM-DD, end exclusive.
+   *  Inside them a long hand block on its feed counts as a lease (leaseHolds). */
+  lease_window_start?: string | null;
+  lease_window_end?: string | null;
 };
 
 /** A booking on one member: a Guesty reservation, or a reserved iCal event. */
@@ -168,6 +172,48 @@ export function contiguousRuns(dates: readonly string[]): Array<{ start: string;
     else runs.push({ start: d, end: d });
   }
   return runs;
+}
+
+/** A hand block this long, inside a unit's lease window, is a lease. */
+export const LEASE_HOLD_MIN_NIGHTS = 28;
+
+/** Source key of a lease hold: one per unit and first night. */
+export function leaseHoldKey(memberKey: string, firstNight: string): string {
+  return `hold:${memberKey}:${firstNight}`;
+}
+
+/**
+ * A signed lease the calendars only know as a block. Someone blocks the
+ * unit's Airbnb calendar for the tenant; Airbnb exports that as "Not
+ * available", never "Reserved", so the whole house would keep selling the
+ * same nights. Read as a booking instead: the unit's blocked nights, less
+ * the nights Helm itself closed on it (Airbnb exports those as blocks too),
+ * clipped to its lease window, in runs of LEASE_HOLD_MIN_NIGHTS or more.
+ *
+ * The window is what keeps a season off the whole house: 17 Beach's units
+ * are blocked May to October because they are not sold in summer, and that
+ * block must never close the house. A unit with no window has no holds.
+ */
+export function leaseHolds(
+  member: Pick<LinkMember, 'member_key' | 'lease_window_start' | 'lease_window_end'>,
+  blockedSpans: ReadonlyArray<{ check_in: string; check_out: string }>,
+  helmNights: ReadonlySet<string>,
+  today: string,
+  minNights: number = LEASE_HOLD_MIN_NIGHTS,
+): LinkBooking[] {
+  const from = member.lease_window_start ? String(member.lease_window_start).slice(0, 10) : null;
+  const to = member.lease_window_end ? String(member.lease_window_end).slice(0, 10) : null;
+  if (!from || !to || !(to > from)) return [];
+  const nights = new Set<string>();
+  for (const span of blockedSpans) {
+    const start = span.check_in > from ? span.check_in : from;
+    const end = span.check_out < to ? span.check_out : to;
+    for (const n of nightsOf(start, end)) if (!helmNights.has(n)) nights.add(n);
+  }
+  return contiguousRuns([...nights])
+    .map((r) => ({ check_in: r.start, check_out: addDay(r.end) }))
+    .filter((r) => nightsOf(r.check_in, r.check_out).length >= minNights && r.check_out > today)
+    .map((r) => ({ member_key: member.member_key, source_key: leaseHoldKey(member.member_key, r.check_in), check_in: r.check_in, check_out: r.check_out, label: 'lease hold' }));
 }
 
 /** An Airbnb export event that is a guest's booking (not a block or an imported calendar). */

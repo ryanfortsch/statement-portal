@@ -244,9 +244,13 @@ export function pickPatch<K extends string>(
  * nowhere, is a 404: the page printed its street address and took
  * inquiries for it.
  */
-/** Helm-run homes sold on one OTA only, never on the public /book page:
- *  17 Beach's two units (Airbnb only, Jan to Apr), linked to the whole house. */
-export const OTA_ONLY_HOMES: ReadonlySet<string> = new Set(['17_beach_front', '17_beach_back']);
+/** Helm-run homes sold on one OTA only, never on the public /book page: the
+ *  units of a split home (Airbnb only, Jan to Apr), linked to the whole house. */
+export const OTA_ONLY_HOMES: ReadonlySet<string> = new Set([
+  '17_beach_front', '17_beach_back',
+  '7_sumac_main', '7_sumac_back',
+  '4_middle_main', '4_middle_unit',
+]);
 
 export function isPublicBookable<P extends { id: string; is_active: boolean; calendar_authority: string | null }>(
   p: P | null | undefined,

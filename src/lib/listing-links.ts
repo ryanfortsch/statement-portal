@@ -23,6 +23,7 @@ import {
   diffBlocks,
   helmLinkNote,
   isReservedEvent,
+  leaseHolds,
   linkedOverlaps,
   mayReopenDay,
   nightsOf,
@@ -87,15 +88,22 @@ async function guestyBookings(member: LinkMember, today: string): Promise<LinkBo
   return out;
 }
 
-async function icalBookings(member: LinkMember, today: string): Promise<LinkBooking[]> {
+/** A member's reserved stays, plus its lease holds when it is a unit with a lease window. */
+async function icalBookings(member: LinkMember, today: string, helmNights: ReadonlySet<string>): Promise<LinkBooking[]> {
   const res = await fetch(member.ical_url as string, { cache: 'no-store', signal: AbortSignal.timeout(20_000) });
   if (!res.ok) throw new Error(`${member.label}: feed answered ${res.status}`);
   const text = await res.text();
   if (!/BEGIN:VCALENDAR/.test(text)) throw new Error(`${member.label}: feed is not a calendar`);
-  return parseIcal(text)
-    .filter((e) => !e.cancelled && isReservedEvent(e.summary))
+  const events = parseIcal(text).filter((e) => !e.cancelled);
+  const stays = events
+    .filter((e) => isReservedEvent(e.summary))
     .map((e) => ({ member_key: member.member_key, source_key: `ical:${e.uid}`, check_in: e.dtstart.slice(0, 10), check_out: e.dtend.slice(0, 10), label: null }))
     .filter((b) => b.check_out >= today);
+  if (member.role !== 'unit') return stays;
+  const blocked = events
+    .filter((e) => !isReservedEvent(e.summary))
+    .map((e) => ({ check_in: e.dtstart.slice(0, 10), check_out: e.dtend.slice(0, 10) }));
+  return [...stays, ...leaseHolds(member, blocked, helmNights, today)];
 }
 
 type GuestyCalendar = { days?: CalendarDayLite[]; data?: { days?: CalendarDayLite[] } };
@@ -138,7 +146,7 @@ async function reopenInGuesty(listingId: string, b: ExistingBlock): Promise<stri
 /** Active members only, except for a dry run, which also reads switched-off
  *  groups so an operator sees what they would do before turning them on. */
 async function loadMembers(includeInactive: boolean): Promise<LinkMember[]> {
-  let q = supabaseAdmin.from('listing_links').select('group_key, member_key, label, role, guesty_listing_id, ical_url');
+  let q = supabaseAdmin.from('listing_links').select('group_key, member_key, label, role, guesty_listing_id, ical_url, lease_window_start, lease_window_end');
   if (!includeInactive) q = q.eq('active', true);
   const { data, error } = await q;
   if (error) throw new Error(`listing_links: ${error.message}`);
@@ -160,11 +168,23 @@ export async function runListingLinks(opts: { dry?: boolean; now?: Date } = {}):
     const gm = members.filter((m) => m.group_key === group_key);
     const byKey = new Map(gm.map((m) => [m.member_key, m]));
     try {
-      // 1. Every member's bookings, or nothing changes this run.
+      // 1. What Helm placed before: diffed below, and its nights are not a
+      //    unit's own hand block (Airbnb exports Helm's closures as blocks).
+      const { data: rows, error } = await supabaseAdmin
+        .from('listing_link_blocks')
+        .select('id, group_key, target_member, source_member, source_key, check_in, check_out, status')
+        .eq('group_key', group_key)
+        .in('status', ['active', 'failed']);
+      if (error) throw new Error(`listing_link_blocks: ${error.message}`);
+      const existing = ((rows ?? []) as ExistingBlock[]).map((r) => ({ ...r, check_in: String(r.check_in).slice(0, 10), check_out: String(r.check_out).slice(0, 10) }));
+      const helmNightsFor = (memberKey: string) =>
+        new Set(existing.filter((e) => e.target_member === memberKey && e.status === 'active').flatMap((e) => nightsOf(e.check_in, e.check_out)));
+
+      // 2. Every member's bookings, or nothing changes this run.
       const bookings: LinkBooking[] = [];
       for (const m of gm) {
         if (m.guesty_listing_id) bookings.push(...(await guestyBookings(m, today)));
-        else if (m.ical_url) bookings.push(...(await icalBookings(m, today)));
+        else if (m.ical_url) bookings.push(...(await icalBookings(m, today, helmNightsFor(m.member_key))));
       }
       for (const o of linkedOverlaps(gm, bookings)) {
         const message = `Double booked: ${byKey.get(o.a.member_key)?.label} ${o.a.check_in} to ${o.a.check_out} overlaps ${byKey.get(o.b.member_key)?.label} ${o.b.check_in} to ${o.b.check_out}. One house, two guests: sort it out with the OTA today.`;
@@ -175,17 +195,9 @@ export async function runListingLinks(opts: { dry?: boolean; now?: Date } = {}):
         }
       }
 
-      // 2. What Helm placed before.
-      const { data: rows, error } = await supabaseAdmin
-        .from('listing_link_blocks')
-        .select('id, group_key, target_member, source_member, source_key, check_in, check_out, status')
-        .eq('group_key', group_key)
-        .in('status', ['active', 'failed']);
-      if (error) throw new Error(`listing_link_blocks: ${error.message}`);
-      const existing = ((rows ?? []) as ExistingBlock[]).map((r) => ({ ...r, check_in: String(r.check_in).slice(0, 10), check_out: String(r.check_out).slice(0, 10) }));
       const diff = diffBlocks(desiredBlocks(gm, bookings), existing);
       if (dry) {
-        g.placed = diff.create.map((b) => `${b.target_member} ${b.check_in}..${b.check_out}`);
+        g.placed = diff.create.map((b) => `${b.target_member} ${b.check_in}..${b.check_out}${b.source_key.startsWith('hold:') ? ` (lease hold on ${b.source_member})` : ''}`);
         g.reopened = diff.remove.map((b) => `${b.target_member} ${b.check_in}..${b.check_out}`);
         continue;
       }
@@ -220,7 +232,7 @@ export async function runListingLinks(opts: { dry?: boolean; now?: Date } = {}):
           { onConflict: 'group_key,target_member,source_key' },
         );
         if (upErr) g.failed.push(`record ${target?.label}: ${upErr.message}`);
-        if (status === 'active') g.placed.push(`${target?.label} ${b.check_in} to ${b.check_out} (${byKey.get(b.source_member)?.label} booked)`);
+        if (status === 'active') g.placed.push(`${target?.label} ${b.check_in} to ${b.check_out} (${byKey.get(b.source_member)?.label} ${b.source_key.startsWith('hold:') ? 'blocked for a lease' : 'booked'})`);
       }
     } catch (err) {
       g.error = err instanceof Error ? err.message : String(err);
@@ -268,7 +280,7 @@ export async function linkedListingNotices(sinceIso: string): Promise<string[]> 
   const loud = ((alerts ?? []) as Array<{ message: string }>).map((a) => a.message);
   const { data } = await supabaseAdmin
     .from('listing_link_blocks')
-    .select('group_key, target_member, source_member, check_in, check_out, status, error, updated_at')
+    .select('group_key, target_member, source_member, source_key, check_in, check_out, status, error, updated_at')
     .gte('updated_at', sinceIso)
     .order('updated_at', { ascending: false })
     .limit(20);
@@ -278,8 +290,10 @@ export async function linkedListingNotices(sinceIso: string): Promise<string[]> 
     const t = label.get(`${r.group_key}|${r.target_member}`) ?? r.target_member;
     const s = label.get(`${r.group_key}|${r.source_member}`) ?? r.source_member;
     const dates = `${String(r.check_in).slice(0, 10)} to ${String(r.check_out).slice(0, 10)}`;
-    if (r.status === 'failed') return `Could not close ${t} for ${dates} (${s} is booked): ${r.error ?? 'unknown error'}. Close it by hand.`;
-    if (r.status === 'removed') return `Reopened ${t} for ${dates}: the ${s} booking went away.`;
-    return `Closed ${t} for ${dates}: ${s} is booked.`;
+    const hold = String(r.source_key ?? '').startsWith('hold:');
+    const why = hold ? `${s} is blocked on Airbnb for a lease` : `${s} is booked`;
+    if (r.status === 'failed') return `Could not close ${t} for ${dates} (${why}): ${r.error ?? 'unknown error'}. Close it by hand.`;
+    if (r.status === 'removed') return hold ? `Reopened ${t} for ${dates}: the block on ${s} came off.` : `Reopened ${t} for ${dates}: the ${s} booking went away.`;
+    return `Closed ${t} for ${dates}: ${why}.`;
   })];
 }
