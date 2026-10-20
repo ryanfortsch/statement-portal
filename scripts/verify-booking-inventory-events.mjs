@@ -1,7 +1,8 @@
+import { verifyBookingInventoryWindow } from './verify-booking-inventory-window.mjs';
 import { verifyCanonicalRevisions } from './verify-canonical-revisions.mjs';
 // Local PostgreSQL integration checks, no network or hosted database access.
 // Pass the installed @electric-sql/pglite/dist/index.js path as the sole argument.
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { resolve, join } from 'node:path';
@@ -229,6 +230,13 @@ try {
     await db.close(); db = new PGlite(dataDir);
     assert.deepEqual((await query("select helm_booking_inventory_read('home') as state"))[0].state, before);
   });
+  // Independent fixture: canonical revision tests use the same fixed pilot ID.
+  const windowDb = new PGlite();
+  try {
+    await installBookingInventoryFixture(windowDb);
+    await windowDb.exec(readFileSync(new URL('../docs/guesty-exit/staging-storage/booking-inventory-planning.sql',import.meta.url),'utf8'));
+    await verifyBookingInventoryWindow(windowDb, check);
+  } finally { await windowDb.close(); }
   await verifyBookingInventorySchema(db, check);
   await verifyCanonicalRevisions(db, check);
   console.log(`PASS: ${passed} local PostgreSQL integration checks; canonical RPC bodies exercised; no external connections.`);

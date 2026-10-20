@@ -135,6 +135,22 @@ never key per-stay logic on `bookings.id` (`memory/project_bookings_duplicate_ro
   the request fingerprint and receive time to the same attempt token. These are JSONB
   journal fields, not new tables or migrations. Older records remain readable with
   missing evidence marked explicitly; no task completion is inferred from acceptance.
+- **Candidate only, not installed (October 20):**
+  `docs/guesty-exit/staging-storage/booking-inventory-window.sql` adds the
+  service-only `helm_booking_inventory_window_advance` RPC for the exact synthetic
+  Calderwood route. It advances yesterday's 366-date interval by one Eastern day;
+  initial expansion, longer gaps and other properties are refused. A single
+  transaction appends `retire-pending` and changes only the window, using the
+  existing configuration-version guard. Capture/configuration/plan/journal/input
+  comparisons prevent intervening booking, policy or worker changes from being
+  lost. Coverage must already be complete and fresh through the new edge and
+  turnover buffer; the RPC neither renews it nor enables publishing.
+  The trusted worker replays the queue before this CAS, refusing every unresolved
+  attempt and retiring only pending work. SQL binds the unchanged history and
+  checks route/clock/coverage independently; it does not implement a second queue
+  interpreter. The old generic append RPC cannot append the retirement command.
+  Deploy compatible journal readers with this candidate before enabling rolling
+  mode. No new tables, public permissions or production migration are added.
 - **Installed only in isolated staging (October 19):** `docs/guesty-exit/staging-storage/canonical-revisions.sql`
   wraps the existing booking RPCs for the synthetic Calderwood Channex rehearsal.
   Private `helm_channex_revisions.scope`, `.bookings` and `.receipts` hold the

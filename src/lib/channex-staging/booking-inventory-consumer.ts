@@ -57,6 +57,7 @@ export interface BookingInventoryConsumerStore {
   read(): Promise<unknown>;
   commit(expected: BookingInventoryExpectation, journal: InventoryJournal, freshUntil: number, digest: string): Promise<boolean>;
   journal: InventoryJournalStore;
+  advanceWindow?(expected: BookingInventoryExpectation, start: string, end: string, journal: InventoryJournal): Promise<boolean>;
 }
 
 export function parseBookingInventoryState(raw: unknown, property: string): BookingInventoryState {
@@ -85,9 +86,11 @@ function availabilityPlan(property: string, rules: z.infer<typeof ruleSchema>): 
     cancellation_policy_key: 'custom', cancellation_terms: null, house_rules: null };
 }
 
-export function bookingInventorySnapshot(state: BookingInventoryState, now: number): InventorySnapshot | null {
-  int.parse(now);
-  const c = state.configuration, input = state.inputs, dates = nights(c.start, c.end);
+/** Coverage remains an explicit observation, including the buffer outside the
+ * requested window. A clock tick cannot extend it or make an empty feed complete. */
+export function bookingInventoryCoverage(state: BookingInventoryState, start: string, end: string, now: number) {
+  int.parse(now); nights(start, end);
+  const c = state.configuration, input = state.inputs;
   if (!state.captureEnabled || !input.plan || state.captureVersion === 0) return null;
   if (new Set(c.requiredSources).size !== c.requiredSources.length || new Set(c.coverage.map(v => v.source)).size !== c.coverage.length) {
     throw new Error('Duplicate coverage source');
@@ -100,9 +103,16 @@ export function bookingInventorySnapshot(state: BookingInventoryState, now: numb
     }
   }
   const required = c.requiredSources.map(source => c.coverage.find(v => v.source === source));
-  const coveredStart = shiftIsoDay(c.start, -input.plan.turnover_buffer_days);
-  const coveredEnd = shiftIsoDay(c.end, input.plan.turnover_buffer_days);
+  const coveredStart = shiftIsoDay(start, -input.plan.turnover_buffer_days);
+  const coveredEnd = shiftIsoDay(end, input.plan.turnover_buffer_days);
   if (required.some(v => !v || !v.complete || v.freshUntil <= now || v.start > coveredStart || v.end < coveredEnd)) return null;
+  return required.map(v => v!);
+}
+
+export function bookingInventorySnapshot(state: BookingInventoryState, now: number): InventorySnapshot | null {
+  const c = state.configuration, input = state.inputs, dates = nights(c.start, c.end);
+  const required = bookingInventoryCoverage(state, c.start, c.end, now);
+  if (!required || !input.plan) return null;
   if (new Set(input.bookings.map(v => v.id)).size !== input.bookings.length ||
       new Set(input.rateDays.map(v => v.date)).size !== input.rateDays.length) throw new Error('Duplicate canonical input');
   for (const b of input.bookings) {

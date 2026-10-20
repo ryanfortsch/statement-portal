@@ -90,6 +90,16 @@ export class MemoryInventoryOutbox {
     this.jobs.set(job.id, job);
     return copy(job);
   }
+  /** Only an atomic window rollover may retire undispatched work. Never erase
+   * a lease, a possibly accepted request or a failed reconciliation. */
+  retirePending(connection: string, property: string, generation: number): void {
+    integer(generation, 1);
+    const peers = [...this.jobs.values()].filter(j => j.connection === connection && j.property === property);
+    if (peers.some(j => j.generation !== generation || !['pending', 'verified', 'superseded'].includes(j.status))) {
+      throw new Error('Outstanding inventory must settle before window rollover');
+    }
+    for (const j of peers) if (j.status === 'pending') j.status = 'superseded';
+  }
   claim(id: string, now: number, leaseMs: number): InventoryJob | null {
     integer(now); integer(leaseMs, 1); integer(now + leaseMs);
     const j = this.get(id);

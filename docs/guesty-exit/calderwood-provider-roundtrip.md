@@ -1,6 +1,13 @@
 # Calderwood provider booking rehearsal
 
-**Latest result, October 20:** the deployed worker automatically closed dates
+**Latest result, October 20:** the unconnected Channex property now has complete
+inventory and stopped rate restrictions for October 20, 2026 through October 20,
+2027 inclusive. Nine missing counts were initialized to zero and verified against
+the exact completed task; every pre-existing field was preserved. Rolling-year
+worker/SQL support passes local tests but is not installed or enabled in hosting.
+The bounded test publisher remains paused.
+
+**Previous hosted milestone, October 20:** the deployed worker automatically closed dates
 for a fictional Helm booking, reopened/closed dates when it moved, and reopened
 them after cancellation. A service restart recovered the pending cancellation;
 subsequent cycles made no duplicate provider submission. All five provider tasks,
@@ -382,8 +389,9 @@ require diff/path checks, not another application test run.
 
 ## Still required before launch
 
-1. Extend the verified bounded worker to complete future-calendar coverage,
-   initial reconciliation, coverage refresh and operator conflict handling.
+1. Install and rehearse the tested rolling-year boundary with a reviewed source
+   snapshot, then implement continuous coverage refresh, bounded journal retention
+   and operator conflict handling.
    Hosted create/move/cancel and one restart passed; continuous production
    operation and live OTA delivery remain unverified.
 2. Automated guest and cleaner delivery with the original Guesty times, delay
@@ -395,3 +403,52 @@ The Booking.com pause remains authorized but awaits extranet sign-in. Manual
 messaging is not the launch fallback. The earlier constructed database fixture
 remains separate from this provider test; do not combine their receipt or event
 counts when reporting the result.
+
+## Rolling-year preparation and closed provider baseline — October 20, 2026
+
+The optional `CHANNEX_CALDERWOOD_INVENTORY_WINDOW=rolling-year` mode uses Eastern
+calendar dates, including leap years and daylight-saving changes. The existing
+365-day booking rule permits today plus 365 future days: 366 dates in total,
+with an exclusive endpoint of today + 366. The default remains `fixed-pilot`.
+
+Rollover requires an already reviewed year and advances one day only. Initial
+three-night expansion, a clock regression, changed policy or multi-day outage
+requires review. Pending work for the old window is retired atomically with the
+configuration change; leased, submitting, accepted, uncertain and failed work
+must settle first. The plan then rereads canonical inputs so a closure on the
+new last date cannot disappear because it was outside the old query.
+
+The worker never infers completeness from an empty feed, extends source coverage
+or renews its one-hour freshness. Source and buffer coverage must explicitly
+cover the new window. Missing provider inventory or restrictions blocks enqueue
+and provider writes even when the other 365 dates are complete.
+
+At 18:19:45.703 UTC, a read of `2026-10-20` through `2027-10-21` exclusive
+found 357 complete inventory dates, nine unknown counts and 366 stopped rates.
+The nine dates were February 10–12, March 10–12 and April 20–22, 2027. A separate
+one-time initialization wrote only zero room counts for those dates. The exact
+request was saved before transport; the script refuses to send again if an
+attempt record exists. No rate or restriction was written.
+
+Task `875d43b3-97ac-4ca4-8942-525781f5dcdf` completed successfully at
+**18:28:07.617 UTC**. The task payload and request fingerprint matched; a subsequent
+full-year read confirmed **366 complete dates, 366 stopped dates, zero channels**.
+Every pre-existing inventory value and every price/minimum/maximum/arrival/
+departure restriction matched the before snapshot. This is a closed staging
+baseline, not a full-year canonical publishing or PriceLabs test.
+Local request/receipt/read-back evidence is `/tmp/calderwood-year-initialization.json`
+(credential-free, temporary); the durable provider task ID above is the receipt.
+This initialization is separate from the five earlier hosted journal tasks.
+
+Validation of this code batch: **2,085 application tests in 240 suites**, all
+**92 local PostgreSQL checks**, nonincremental TypeScript, scoped ESLint,
+`git diff --check`, and import of the exact Docker source set using only the
+locked worker dependencies. Coverage includes full-year holds/bookings, missing
+last-date inventory, old pending retirement, unresolved attempts, DST/leap dates,
+source races, policy races, atomic rollback and a previously unseen edge closure.
+
+The new SQL is a candidate; no hosted schema, consumer window, environment flag
+or deployment changed in this batch. Production account access/costs, continuous
+source freshness, journal retention, genuine automated guest/cleaner receipts,
+PriceLabs integration/parity and live channel cutover remain unverified. Preserve
+the original Guesty timing and PriceLabs ownership of dynamic minimum stays.

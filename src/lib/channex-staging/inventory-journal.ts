@@ -13,6 +13,7 @@ const context = z.object({ environment: z.literal('staging'), connection: id, pr
   enabled: z.boolean(), complete: z.boolean(), freshUntil: int }).strict();
 const commandSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('enqueue'), intent, now: int }).strict(),
+  z.object({ kind: z.literal('retire-pending'), connection: id, property: id, generation: positive }).strict(),
   z.object({ kind: z.literal('claim'), id, now: int, leaseMs: positive }).strict(),
   z.object({ kind: z.literal('dispatch'), id, token: id, context, now: int, request: availabilityRequestSchema.optional() }).strict(),
   z.object({ kind: z.literal('accepted'), id, token: id, task: id, receipt: availabilityReceiptSchema.optional() }).strict(),
@@ -32,6 +33,7 @@ export const emptyInventoryJournal = (): InventoryJournal => ({ format: 1, comma
 function apply(queue: MemoryInventoryOutbox, command: InventoryCommand) {
   switch (command.kind) {
     case 'enqueue': return queue.enqueue(command.intent, command.now);
+    case 'retire-pending': return queue.retirePending(command.connection, command.property, command.generation);
     case 'claim': return queue.claim(command.id, command.now, command.leaseMs);
     case 'dispatch': return queue.beginDispatch(command.id, command.token, command.context, command.now, command.request);
     case 'accepted': return queue.accepted(command.id, command.token, command.task, command.receipt);

@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { CALDERWOOD_INVENTORY_PILOT as p, inventoryPollingEnabled, createInventoryCycleRunner, runInventoryScheduler } from '../channex-staging/booking-inventory-scheduler.ts';
+import { rollingInventoryWindow } from '../channex-staging/booking-inventory-window.ts';
+import { calendarDates } from '../calderwood-readonly/calendar-window.ts';
 import { CALDERWOOD_STAGING as m } from '../calderwood-readonly/channex.ts';
 const env = { CHANNEX_CALDERWOOD_INVENTORY_ENABLED: 'true', CHANNEX_WORKER_MODE: 'isolated-staging',
   CHANNEX_STAGING_DB_PROJECT_REF: 'jgkblfozftcvymvwhhii', CHANNEX_STAGING_DB_URL: 'https://jgkblfozftcvymvwhhii.supabase.co',
@@ -62,4 +64,39 @@ test('shutdown cancels active database transport and once mode does not sleep',a
   const once=await runInventoryScheduler({signal:new AbortController().signal,once:true,cycle:async()=>{throw Error('secret');},
     log:()=>{throw Error('logger down');},wait:async()=>assert.fail('no sleep')});
   assert.deepEqual(once,{cycles:1,failed:true,canSendMessages:false});
+});
+
+test('rolling mode requires a reviewed year and never expands the three-night fixture itself',async()=>{
+  assert.throws(()=>createInventoryCycleRunner({...env,CHANNEX_CALDERWOOD_INVENTORY_WINDOW:'guess'}),/Unknown/);
+  let calls=0;const s=state();
+  const runner=createInventoryCycleRunner({...env,CHANNEX_CALDERWOOD_INVENTORY_WINDOW:'rolling-year'},async(input)=>{
+    calls++;assert.match(String(input),/helm_booking_inventory_read$/);return Response.json(s);
+  });
+  assert.deepEqual(await runner(new AbortController().signal),{phase:'window',status:'needs-review'});
+  assert.equal(calls,3);
+});
+test('rolling worker refuses a full-year provider response missing even one inventory date before enqueue or POST',async()=>{
+  const s=state(),w=rollingInventoryWindow(Date.now());Object.assign(s.configuration,w);
+  Object.assign(s.configuration.coverage[0],w);
+  const dates=calendarDates({from:w.start,to:w.end}),calls:string[]=[];
+  const runner=createInventoryCycleRunner({...env,CHANNEX_CALDERWOOD_INVENTORY_WINDOW:'rolling-year'},async(input,init)=>{
+    const u=new URL(String(input));calls.push(u.pathname);
+    if(u.hostname.endsWith('supabase.co')) {
+      assert.match(u.pathname,/helm_booking_inventory_read$/);return Response.json(s);
+    }
+    assert.equal(init?.method,'GET');
+    const rel=(id:string)=>({data:{id}});
+    if(u.pathname.includes('/properties/'))return Response.json({data:{id:m.propertyId,attributes:{title:'65 Calderwood - Isolated Staging',currency:'USD',timezone:'America/New_York'}}});
+    if(u.pathname.includes('/room_types/'))return Response.json({data:{id:m.roomTypeId,attributes:{count_of_rooms:1,occ_adults:6,occ_children:0,occ_infants:0},relationships:{property:rel(m.propertyId)}}});
+    if(u.pathname.includes('/rate_plans/'))return Response.json({data:{id:m.ratePlanId,attributes:{title:'TEST ONLY - Calderwood - CLOSED - $100 placeholder',currency:'USD',sell_mode:'per_room',stop_sell:Array(7).fill(true)},relationships:{property:rel(m.propertyId),room_type:rel(m.roomTypeId)}}});
+    if(u.pathname.endsWith('/channels'))return Response.json({data:[],meta:{total:0,page:1}});
+    assert.equal(u.searchParams.get('filter[date][gte]'),w.start);
+    assert.equal(u.searchParams.get('filter[date][lte]'),dates.at(-1));
+    if(u.pathname.endsWith('/availability'))return Response.json({data:{[m.roomTypeId]:Object.fromEntries(dates.slice(0,-1).map(d=>[d,0]))}});
+    assert.ok(u.pathname.endsWith('/restrictions'));
+    return Response.json({data:{[m.ratePlanId]:Object.fromEntries(dates.map(d=>[d,{rate:100,min_stay_arrival:1,min_stay_through:1,max_stay:0,closed_to_arrival:false,closed_to_departure:false,stop_sell:true}]))}});
+  });
+  await assert.rejects(()=>runner(new AbortController().signal),/Complete stopped/);
+  assert.equal(calls.filter(p=>p.endsWith('/availability')).length,1);
+  assert.equal(calls.filter(p=>p.endsWith('/restrictions')).length,1);
 });

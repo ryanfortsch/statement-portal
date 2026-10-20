@@ -1600,3 +1600,51 @@ unconnected. Remaining risks: observed staging task API compatibility, complete
 source coverage and refresh, journal retention, production reconciliation/conflict
 handling, PriceLabs parity and automatic guest/cleaner delivery. One restart is
 verified; arbitrary mid-request crash and prolonged production behavior are not.
+
+### Rolling-year handoff (October 20, 2026)
+
+Branch `codex/channex-staging-pilot`; starting HEAD
+`13fcaf765f9f619f5a78579ba4a96fffb2520c72`; original base
+`a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`; freshly verified main
+`fb4814ebcf0a7e24c46c456b8b959d072a4996b4`. Continued the owned worktree
+without rebasing or touching another checkout. Draft PR #1714 is the review path.
+
+Changes: `booking-inventory-window.ts`, `booking-inventory-consumer.ts`,
+`booking-inventory-consumer-store.ts`, `booking-inventory-scheduler.ts`,
+`inventory-outbox.ts`, `inventory-journal.ts` under `src/lib/channex-staging/`;
+`booking-inventory-window.test.ts` and `booking-inventory-scheduler.test.ts` under
+`src/lib/__tests__/`; `scripts/verify-booking-inventory-window.mjs`,
+`scripts/verify-booking-inventory-events.mjs`;
+`docs/guesty-exit/staging-storage/booking-inventory-window.sql`, `SCHEMA.md`,
+`calderwood-provider-roundtrip.md` and this file. Unrelated dirty contract notes
+in `calderwood-cutover-readiness.md` remain excluded.
+
+The prepared daily window transition atomically retires only pending old work,
+increments configuration version, then rereads the expanded inputs. Capture,
+policy or journal changes lose the compare-and-swap rather than overwrite new
+work. Source coverage remains explicit and expires; the worker cannot renew it.
+The trusted TypeScript queue replay supplies quiescence validation; the service-only
+SQL RPC binds that replay to unchanged versions/history and independently checks
+the synthetic route, server date and source coverage. Generic journal append
+cannot perform retirement. Review/install this SQL with compatible readers before
+enabling the optional rolling mode. Default fixed mode is unchanged.
+
+Current checks: 2,085 application tests / 240 suites, 92 PGlite checks, TypeScript
+without incremental cache, scoped ESLint and diff checks all pass. The exact Docker
+source list imports with the locked worker dependencies. No hosted deployment or
+new SQL installation is claimed.
+
+Actual provider follow-through: nine absent inventory dates were initialized to
+zero on the unconnected, stopped test property. Task
+`875d43b3-97ac-4ca4-8942-525781f5dcdf` completed at 18:28:07.617 UTC and exact
+task-bound read-back confirms all 366 dates complete/stopped with all other
+values unchanged. See the provider round-trip document for dates and evidence.
+
+Next integration batch: reviewed complete canonical source snapshot and ongoing
+refresh, rolling-worker deployment/rehearsal, and bounded journal retention.
+Then prove PriceLabs' dated dynamic rules and actual automated guest/cleaner
+delivery with original Guesty timing. Existing message hold/receipt rehearsals
+do not prove recipient/provider delivery. The earlier PriceLabs staging-key
+attempt failed and was withdrawn; no working connector or paid entitlement is
+assumed. Resolve production Channex access/costs and channel sales pauses before
+the final cutover. Guesty remains live; no additional subscription was added.

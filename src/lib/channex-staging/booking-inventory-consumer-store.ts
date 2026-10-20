@@ -15,6 +15,17 @@ export function createBookingInventoryConsumerStore(url: string, key: string, pr
     return parseBookingInventoryState(data, property);
   };
   return { property, read,
+    async advanceWindow(expected, start, end, journal) {
+      const normalized = replayInventoryJournal(journal).journal;
+      if (normalized.commands.length !== expected.journalVersion + 1 ||
+          normalized.commands.at(-1)?.kind !== 'retire-pending') throw Error('Expected one window retirement');
+      const { data, error } = await db.rpc('helm_booking_inventory_window_advance', { p_property: property,
+        expected_capture: expected.captureVersion, expected_configuration: expected.configurationVersion,
+        expected_plan: expected.planVersion, expected_journal: expected.journalVersion, expected_inputs: expected.inputs,
+        next_start: start, next_end: end, next_journal: normalized });
+      if (error || typeof data !== 'boolean') throw Error('Window save uncertain; reread before planning');
+      return data;
+    },
     async commit(expected, journal, freshUntil, digest) {
       const normalized = replayInventoryJournal(journal).journal;
       if (normalized.commands.length !== expected.journalVersion + 1) throw new Error('Expected one inventory command');
