@@ -40,12 +40,14 @@ The authenticated preview import is enabled on the exact pilot branch with
 `CHANNEX_CANONICAL_REHEARSAL_ENABLED=true`. Signed notices additionally require
 `CHANNEX_CANONICAL_SIGNING_SECRET`. With explicit user approval, the dedicated
 staging signing key was created and stored as a sensitive pilot-branch preview
-variable on October 20. A signed, payload-enabled, property-only booking webhook
-is saved **inactive**. Provider preflight is blocked by Vercel's outer preview
-authentication (401); actual signatures match the stored key locally, but deployed
-webhook processing remains unverified. A project-wide Vercel automation access
-token would require separate approval before storing it in Channex. No protection
-change or bypass credential was used. See the [setup and preflight receipt](calderwood-provider-roundtrip.md#signed-notification-setup-and-preflight-october-20).
+variable on October 20. The signed, payload-enabled, property-only booking webhook
+is now **active**. After separate explicit user approval, a dedicated project-wide
+Vercel automation token was saved as a private Channex request header. Existing
+outer-login settings and tokens were preserved; Helm authentication and HMAC
+validation still apply. Three actual signed notifications created, moved and
+cancelled one synthetic booking, each returning HTTP 200 on its first attempt.
+Independent hosted queries verified the same booking and all three receipts,
+audit records and inventory events. See the [signed delivery receipt](calderwood-provider-roundtrip.md#signed-notification-delivery-verified-october-20).
 Canonical recovery polling remains active on the existing isolated Render worker,
 as verified below. No new paid service or sender has been activated. Existing Channex and dedicated
 staging database credentials remain in Vercel's sensitive variables; CLI export
@@ -115,11 +117,12 @@ passed. The original worker loops also reported success. No additional server,
 subscription or database schema was needed. Exact IDs and deployed logs are in
 [the provider rehearsal receipt](calderwood-provider-roundtrip.md#unattended-recovery-verified-october-20).
 
-Signed webhook delivery, automated availability completion, message planning and
-real guest/cleaner delivery remain unverified. Four later empty recovery scans at
-13:04, 13:19, 13:34 and 13:49 UTC on October 20 confirmed continued 15-minute
-polling. This is a short observation, not a real-time webhook or a prolonged
-reliability trial.
+Automated availability completion, message planning and real guest/cleaner
+delivery remain unverified. Four later empty recovery scans at 13:04, 13:19, 13:34
+and 13:49 UTC on October 20 confirmed continued 15-minute polling. This is a short
+recovery observation, not a prolonged reliability trial. The separate signed
+notification lifecycle passed at 14:40-14:44 UTC, with all three responses under
+three seconds, one final cancelled booking and an empty provider feed.
 
 **Actual availability transport completed (October 20):** a bounded rehearsal
 changed two fictional April dates through the existing adapter and restored their
@@ -134,12 +137,11 @@ provider task IDs and scope are in [the rehearsal receipt](calderwood-provider-r
 
 Remaining delivery sequence:
 
-1. Connect and verify signed notifications, then
-   connect the hosted availability planner and automate terminal-task reconciliation.
+1. Connect the hosted availability planner and automate terminal-task reconciliation.
    The bounded provider transport and task-UI completion test passed. Complete
    initial-calendar reconciliation and conflict handling. The database installation,
-   constructed-revision cycle, actual provider feed/save/ACK cycle and unattended
-   recovery are complete.
+   constructed-revision cycle, actual provider feed/save/ACK cycle, unattended
+   recovery and signed notification lifecycle are complete.
 2. Prove **automated guest and cleaner delivery**, original timing, message
    history/deduplication, holds, cancellation and carried-over stays. Verify
    PriceLabs parity and full future-calendar reconciliation in the same pilot.

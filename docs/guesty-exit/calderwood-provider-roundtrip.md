@@ -1,6 +1,12 @@
 # Calderwood provider booking rehearsal
 
-Verified October 19, 2026, evening ET (provider timestamps are October 20 UTC).
+**Latest result, October 20:** automatic signed booking creation, date change and
+cancellation all reached the deployed preview successfully on the first attempt.
+The isolated database retained one booking and all three changes. Recovery polling
+and availability transport have separate receipts below.
+
+The first manually triggered import was verified October 19, 2026, evening ET
+(provider timestamps are October 20 UTC).
 This is an actual Channex staging to deployed Helm preview to isolated Supabase
 round trip with fictional data. It is not a live Airbnb booking or message test.
 
@@ -89,7 +95,7 @@ feed. No preview import button was pressed. On startup, the worker reported
 `received:3, applied:3, acknowledged:3` at `2026-10-20T10:04:31.927Z`, followed by
 an empty successful scan at `2026-10-20T10:04:38.100Z`. An independent provider
 read confirmed the cancelled booking and empty feed. This proves recovery without
-a webhook; signed immediate notification delivery remains pending as described below.
+a webhook. Signed notification delivery was subsequently verified separately below.
 
 - Test code: `HELMTEST-calderwood-autopoll-20261020`
 - Channex booking: `754e4382-895e-4ad8-9d5e-918c7e9f07de`
@@ -120,8 +126,9 @@ Dockerfile source paths and imported both schedulers using only the locked worke
 dependencies. The actual Render Docker build and existing Beach/message/cleaner
 loops also succeeded. No database schema changed in this batch.
 
-The dedicated signing key and inactive property webhook were subsequently created
-with explicit user approval, as recorded below. Automatic recovery remains active.
+The dedicated signing key and property webhook were subsequently configured and
+activated with explicit user approval, as recorded below. Automatic recovery
+remains active.
 
 A later worker-log check confirmed successful empty canonical scans at
 `13:04:52.413Z`, `13:19:53.553Z`, `13:34:54.855Z` and `13:49:55.961Z` on October 20.
@@ -182,56 +189,81 @@ Validation: 2,064 application tests, nonincremental TypeScript, scoped ESLint an
 parser and its regression test. No database schema, Render configuration, live
 channel, message sender or subscription changed.
 
-## Signed notification setup and preflight, October 20
+## Signed notification delivery verified October 20
 
-After the user explicitly approved the dedicated staging key and its storage in
-the isolated preview, `Helm Calderwood isolated pilot` was created in Channex.
-Its one-time secret was transferred without printing it to Vercel's sensitive
-`CHANNEX_CANONICAL_SIGNING_SECRET`, restricted to Preview branch
-`codex/channex-staging-pilot`. The temporary mode-0600 local copy was removed
-once storage and signature matching were verified. Existing credentials were not
-rotated. Preview deployment `dpl_3XaLKNs5vVxGmfRywtpLnvq41s8B` is Ready and owns
-the pilot branch alias; application source remains `6651f52e`.
+After explicit user approval, the dedicated Channex signing key was stored as a
+sensitive `CHANNEX_CANONICAL_SIGNING_SECRET` variable restricted to Preview branch
+`codex/channex-staging-pilot`. The initial signed preflight stopped at Vercel's
+outer login. The user then separately approved a dedicated Vercel automation
+access token and its storage in Channex's private request header.
+
+The new token is labelled `Helm Calderwood staging webhook 2026-10-20` and is
+stored under `x-vercel-protection-bypass`, never in a URL. Its scope covers this
+Vercel project's deployments, not just the webhook route. Existing bypass tokens,
+outer-login configuration, password protection, deployment-skew protection and
+Git-fork protection were read back unchanged. Helm's staff authentication and the
+webhook's HMAC verification remain in place. The temporary mode-0600 local token
+copy was removed after configuration and delivery verification. The earlier
+temporary HMAC-key copy had already been removed.
+[Vercel automation access documentation](https://vercel.com/docs/deployment-protection/methods-to-bypass-deployment-protection/protection-bypass-automation).
 
 - Signing key ID: `dbe33d0c-2bf0-42be-861a-704f62deff76`
-- [Saved property webhook](https://staging.channex.io/organization/webhooks/property/7336416c-039f-47b0-90c4-9d01fb9b1a02)
+- [Active signed property webhook and delivery log](https://staging.channex.io/organization/webhooks/property/7336416c-039f-47b0-90c4-9d01fb9b1a02?logs.success=true)
 - Webhook ID: `7336416c-039f-47b0-90c4-9d01fb9b1a02`
-- Scope: the exact isolated Calderwood property, `booking`, `is_global: false`,
-  `is_signed: true`, `send_data: true`, **`is_active: false`**.
+- Scope: exact isolated Calderwood property, `booking`, `is_global: false`,
+  `is_signed: true`, `send_data: true`, **`is_active: true`**.
 - Callback: the pilot branch alias's `/api/webhooks/channex-staging` path.
 
-Independent API read-back confirmed these saved settings. Two synthetic provider
-preflight requests were issued to the protected preview.
-The inspected response at `2026-10-20T14:34:11.086Z` was HTTP 401, identifying
-Vercel protection rather than the application's signature verifier. The actual
-Channex HMAC verified locally against the stored signing key using the repository
-verifier; altering the raw payload or advancing beyond the timestamp tolerance
-was rejected. This establishes signing compatibility, **not deployed webhook
-processing or a canonical booking import**. No additional booking was created.
+Independent API read-back confirmed the exact mapping, signing key, callback,
+active state and private header. With the automation header present, an unsigned
+request reached Helm and returned `401 Invalid signature`. Channex's generic
+signed Test request reached Helm and returned `400 Invalid booking notice`, as
+expected for a non-booking payload. These preflight rows are separate from the
+three successful booking deliveries below. Earlier local checks also rejected
+tampered payloads and expired signature timestamps.
 
-The ordinary authenticated Vercel CLI test was rejected by automatic approval
-review because bypassing preview deployment protection was outside the specific
-signing-key authorization. No workaround, protection change or bypass credential
-was used. A separate user decision is pending for a dedicated Vercel automation
-access token stored as a private Channex request header, followed by activation
-and a real synthetic create/change/cancel delivery test. Vercel documents this
-credential as project-wide, not restricted to one webhook path; Helm's own auth
-and HMAC checks would remain in place. [Vercel automation access documentation](https://vercel.com/docs/deployment-protection/methods-to-bypass-deployment-protection/protection-bypass-automation).
+One fresh contact-free Offline booking completed the entire lifecycle by signed
+notification. No preview import button or manual importer was used:
 
-The webhook stays inactive until that access decision and successful delivery
-verification. Existing Render recovery polling continues. No production settings,
-channel, sender, database schema or subscription changed. This batch changed only
-evidence documentation; application tests were not rerun. Configuration read-back,
-preview deployment status, provider HMAC compatibility and diff checks were used.
+| Change | Channex delivery timestamp (UTC) | Result | Response time |
+| --- | --- | --- | --- |
+| Create, April 20-23, 2027 | `2026-10-20T14:40:44.619263` | Signed, HTTP 200, first attempt | 2,685 ms |
+| Move to April 25-28 | `2026-10-20T14:43:07.819847` | Signed, HTTP 200, first attempt | 2,590 ms |
+| Cancel | `2026-10-20T14:44:07.150350` | Signed, HTTP 200, first attempt | 2,470 ms |
+
+- Test code: `HELMTEST-calderwood-webhook-20261020`
+- Channex booking: `29673a62-d37e-4109-91a0-7edfae1f6dbe`
+- Canonical booking: `89d2a3e6-804e-493a-9327-d38fb8fb21de`
+- Revisions in order: `e5c1d27d-6830-4ad5-a466-cc28b3946cb1`,
+  `9acf9726-c5c1-4814-a889-6b3fb60f1e74`, `7ef7c195-4d05-4a3b-b603-4d8836e2b40a`
+- Delivery IDs in order: `c61750b6-9563-4f99-9ac4-e9c69c4d34e8`,
+  `530deac1-98f4-413b-a624-a6f925a26b6f`, `d7bce848-05a0-452c-9524-dc5ada60b4cb`
+- [Independent final database proof](https://supabase.com/dashboard/project/jgkblfozftcvymvwhhii/sql/20acc7d6-911f-4702-ab66-08c5c428c609)
+
+After each change, an independent hosted query confirmed the same canonical
+booking. Final results were one cancelled booking with the moved dates, three
+provider receipts in `new, modified, cancelled` order, three audit events and three
+inventory events. Zero message senders or recipient addresses were present. This
+fixture has no message-ledger rows. Provider read-back confirmed cancellation and
+an empty revision feed; isolation checks retained zero channels and stopped defaults.
+
+This closes actual signed notification delivery into the hosted canonical booking
+pipeline. Existing Render recovery polling remains enabled. No runtime code or
+schema fix was needed; application source remains `6651f52e`. This batch changed
+only the two evidence documents in Git, plus the explicitly approved Vercel token
+and Channex configuration. No live channel, sender or subscription was activated.
+Application tests were not rerun under the documentation-only exemption. Real
+delivery results, independent database/provider read-backs, configuration checks,
+referenced paths and the complete documentation diff were checked.
 
 ## Still required before launch
 
-1. Signed webhook delivery. Unattended recovery polling is verified above.
-2. Complete future-calendar reconciliation, hosted end-to-end availability and
-   automatic terminal-task reconciliation. The bounded provider transport passed above.
-3. Automated guest and cleaner delivery with the original Guesty times, delay
+1. Complete future-calendar reconciliation, hosted end-to-end availability and
+   automatic terminal-task reconciliation. Signed notifications, recovery polling
+   and the bounded provider transport passed above.
+2. Automated guest and cleaner delivery with the original Guesty times, delay
    holds, correct recipients and carried-over stays; verified PriceLabs parity.
-4. Production Channex access/costs and confirmed new-sales pauses, followed by
+3. Production Channex access/costs and confirmed new-sales pauses, followed by
    cutover aligned with the Guesty contract exit plan.
 
 The Booking.com pause remains authorized but awaits extranet sign-in. Manual
