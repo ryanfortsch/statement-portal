@@ -109,14 +109,28 @@ passed. The original worker loops also reported success. No additional server,
 subscription or database schema was needed. Exact IDs and deployed logs are in
 [the provider rehearsal receipt](calderwood-provider-roundtrip.md#unattended-recovery-verified-october-20).
 
-Signed webhook delivery, outbound availability completion, message planning and
-real guest/cleaner delivery remain unverified. The current recovery proof is a
-startup backlog, not a real-time webhook or a prolonged reliability observation.
+Signed webhook delivery, automated availability completion, message planning and
+real guest/cleaner delivery remain unverified. Four later empty recovery scans at
+13:04, 13:19, 13:34 and 13:49 UTC on October 20 confirmed continued 15-minute
+polling. This is a short observation, not a real-time webhook or a prolonged
+reliability trial.
+
+**Actual availability transport completed (October 20):** a bounded rehearsal
+changed two fictional April dates through the existing adapter and restored their
+original zero counts, preserving all rate and restriction fields. The real success
+response omitted `meta.warnings`; the parser now accepts that form while still
+rejecting malformed/nonempty warnings. A fresh provider run recorded both task
+receipts, and independent task-UI inspection confirmed completion. A final repeat
+plan found zero changed dates. This uses a local durable journal and operator task
+inspection, not an enabled hosted publisher or automated terminal reconciliation.
+No OTA delivery is proven. The 2,064-test suite, TypeScript and lint pass; exact
+provider task IDs and scope are in [the rehearsal receipt](calderwood-provider-roundtrip.md).
 
 Remaining delivery sequence:
 
 1. Connect and verify signed notifications, then
-   prove outbound availability through terminal provider-task evidence. Complete
+   connect the hosted availability planner and automate terminal-task reconciliation.
+   The bounded provider transport and task-UI completion test passed. Complete
    initial-calendar reconciliation and conflict handling. The database installation,
    constructed-revision cycle, actual provider feed/save/ACK cycle and unattended
    recovery are complete.

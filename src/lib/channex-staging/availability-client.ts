@@ -158,7 +158,9 @@ export class ChannexAvailabilityClient {
           if (response.status !== 200) return { status: 'ambiguous' };
           cleanEnvelope(body);
           const meta = object(body.meta);
-          if (meta.message !== 'Success' || !Array.isArray(meta.warnings) || meta.warnings.length ||
+          // Channex omits warnings on clean responses as well as returning [].
+          // cleanEnvelope already rejects malformed or nonempty warnings.
+          if (meta.message !== 'Success' ||
               !Array.isArray(body.data) || body.data.length !== 1) return { status: 'ambiguous' };
           const task = object(body.data[0]);
           if (task.type !== 'task' || !uuid.safeParse(task.id).success) return { status: 'ambiguous' };

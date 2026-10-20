@@ -75,6 +75,24 @@ test('delivery saves submitting before one changed-date POST and durably records
   assert.doesNotMatch(JSON.stringify(posts), /stop_sell|rate_plan|rate|min_stay/);
   assert.equal(f.job().task, TASK); assert.equal((await f.run()).status, 'blocked'); assert.equal(f.calls.filter(c => c.method === 'POST').length, 1);
 });
+test('actual staging success may omit warnings but malformed or nonempty warnings stay uncertain', async () => {
+  for (const meta of [{ message: 'Success' }, { message: 'Success', warnings: [] }]) {
+    const f = await fixture();
+    f.setResponse(async () => json({ data: [{ type: 'task', id: TASK }], meta }));
+    assert.equal((await f.run()).status, 'submitted');
+    assert.equal(f.job().task, TASK);
+    assert.equal(f.job().status, 'submitted'); // Acceptance still does not prove completion.
+    assert.equal((await f.run()).status, 'blocked');
+    assert.equal(f.calls.filter(c => c.method === 'POST').length, 1);
+  }
+  for (const warnings of [null, false, '', {}, ['partial']]) {
+    const f = await fixture();
+    f.setResponse(async () => json({ data: [{ type: 'task', id: TASK }], meta: { message: 'Success', warnings } }));
+    assert.equal((await f.run()).status, 'uncertain');
+    assert.equal((await f.run()).status, 'blocked');
+    assert.equal(f.calls.filter(c => c.method === 'POST').length, 1);
+  }
+});
 test('matching room counts cause no POST or false completion', async () => {
   const f = await fixture(); f.counts['2027-01-02'] = 1;
   assert.equal((await f.run()).status, 'already-matches'); assert.equal(f.job().status, 'pending');

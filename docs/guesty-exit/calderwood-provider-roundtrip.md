@@ -126,10 +126,75 @@ staging signing key via the browser. The exact form is prepared with title
 requires action-time confirmation for the new credential. The request also covers
 storing its secret in the isolated preview. Existing secrets were not exposed.
 
+A later worker-log check confirmed successful empty canonical scans at
+`13:04:52.413Z`, `13:19:53.553Z`, `13:34:54.855Z` and `13:49:55.961Z` on October 20.
+All reported zero failures. This verifies that the 15-minute timer continued
+after startup; it is a 45-minute observation, not a prolonged reliability trial.
+
+## Availability transport verified October 20
+
+A bounded operator-run rehearsal exercised the existing availability client and
+journal against the actual isolated Channex property. The three-day window was
+April 10-12, 2027. Counts started at `[0, 0, 0]`; one request changed only April 10
+and April 12 to one, and a later request restored both to zero. April 11 remained
+zero. All three dates retained the exact original price, minimum stays, maximum
+stay, arrival/departure restrictions and `stop_sell: true`. Identity/mapping checks,
+stopped weekly defaults and the empty channel collection were verified before
+provider operations. No restriction endpoint was called.
+
+The initial run discovered a real response mismatch: HTTP 200 contained one task
+and `meta: {"message":"Success"}` without a `warnings` property. The adapter
+required an explicit empty warnings array and correctly retained the attempt as
+uncertain instead of repeating it. The corresponding task and exact request were
+inspected in Channex's property task UI. Both the initial change and restoration
+showed execution result TRUE and Finished At timestamps, with no OTA syncs.
+Those observations, plus independent calendar reads, reconciled the local test
+journal without resending either request.
+
+The client now accepts an omitted warnings property as well as an empty array.
+Malformed or nonempty warnings still leave an uncertain attempt; a valid single
+task UUID and Success envelope are still required. A regression test verifies both
+accepted forms, rejects five malformed/nonempty variants, and proves a subsequent
+runner does not resubmit either accepted or uncertain work. Acceptance continues
+to mean submitted, never completed.
+
+A fresh run with the corrected adapter recorded accepted task receipts for both
+change and restoration. The exact tasks were independently checked in the Channex
+UI before local reconciliation:
+
+| Run | Change task | Restoration task |
+| --- | --- | --- |
+| Initial compatibility discovery | `a53908f9-a535-457b-9da4-0b763c88cfe3` | `e3e7ae99-181c-45ab-86d7-6c9b7187d292` |
+| Corrected adapter | `5f241e01-0386-49c7-8422-de6d7506e560` | `085b43e8-0329-4217-a191-14f2db4a3351` |
+
+The corrected tasks finished at 09:54:22.013 and 09:55:39.032 America/New_York on
+October 20, 2026. Both local jobs retained one attempt. The final full three-day
+read matched the original baseline, and preparing the same intent again reported
+zero changed dates, requiring no POST. [Final completed restoration task](https://staging.channex.io/tasks/30584a9a-8784-4eb1-a387-e26bd43aec1c/085b43e8-0329-4217-a191-14f2db4a3351).
+
+This is a **provider transport and operator-observed completion proof**. The
+rehearsal used a local, fsynced journal and fixed synthetic intents, not the hosted
+canonical planner or a continuously enabled availability worker. Terminal task
+evidence was inspected manually in the provider UI; no undocumented status API or
+automatic completion inference was added. Calendar observations still return
+`settled: false` and `canVerify: false`. No OTA was connected or proven. Automatic
+terminal reconciliation and hosted end-to-end availability remain launch gates.
+
+Validation: 2,064 application tests, nonincremental TypeScript, scoped ESLint and
+`git diff --check` passed. The code change is limited to the availability response
+parser and its regression test. No database schema, Render configuration, live
+channel, message sender or subscription changed.
+
+The signing-key creation attempt was rejected by automatic approval review because
+it required explicit credential approval. No key was created. A specific approval
+request for the dedicated Channex staging key and storage in the isolated Vercel
+preview remains pending; the availability work above is independent of that step.
+
 ## Still required before launch
 
 1. Signed webhook delivery. Unattended recovery polling is verified above.
-2. Complete future-calendar reconciliation and verified outbound availability.
+2. Complete future-calendar reconciliation, hosted end-to-end availability and
+   automatic terminal-task reconciliation. The bounded provider transport passed above.
 3. Automated guest and cleaner delivery with the original Guesty times, delay
    holds, correct recipients and carried-over stays; verified PriceLabs parity.
 4. Production Channex access/costs and confirmed new-sales pauses, followed by
