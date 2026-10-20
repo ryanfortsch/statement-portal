@@ -75,9 +75,60 @@ The final independent provider read confirmed cancellation and an empty feed,
 with isolation checks still passing. No channel was connected, Guesty operation
 changed, production schema changed, message sent, or PriceLabs rule overwritten.
 
+## Unattended recovery verified October 20
+
+The existing Render staging worker now runs the canonical importer automatically.
+Commit `eba73f231c9e054661ffa3fa55dd659f7ee64e7d` deployed successfully in 24.3 seconds
+on the existing service `srv-db05t2id0e5s73a7r8gg`; its new
+`CHANNEX_CANONICAL_POLLING_ENABLED=true` flag is saved. The existing staging URL,
+project reference and credentials were reused, without a new subscription or server.
+
+A second contact-free Offline booking was created, moved and cancelled in Channex
+before deploying the worker. All three revisions were visible in the unacknowledged
+feed. No preview import button was pressed. On startup, the worker reported
+`received:3, applied:3, acknowledged:3` at `2026-10-20T10:04:31.927Z`, followed by
+an empty successful scan at `2026-10-20T10:04:38.100Z`. An independent provider
+read confirmed the cancelled booking and empty feed. This proves recovery without
+a webhook; signed immediate notification delivery is still pending.
+
+- Test code: `HELMTEST-calderwood-autopoll-20261020`
+- Channex booking: `754e4382-895e-4ad8-9d5e-918c7e9f07de`
+- Canonical booking: `0943be92-7e7d-4803-890e-566e5ba8e87e`
+- Dates: March 10-13, 2027, moved to March 15-18, then cancelled
+- Revisions in order: `a94429de-206f-42dc-a763-38f77b6ea893`,
+  `fc075863-cef0-48ff-964f-8ffd94ca2ae0`, `fa329441-fd52-4007-9540-4a5aa5bdd448`
+- [Worker deployment and automatic-import log](https://dashboard.render.com/worker/srv-db05t2id0e5s73a7r8gg/deploys/dep-dbbjp5c9v7es73ffjuq0)
+- [Independent read-only database proof](https://supabase.com/dashboard/project/jgkblfozftcvymvwhhii/sql/60c7cbbe-9b60-4b9f-ad84-8754b60d6c0d)
+
+The database query verified one canonical booking, the exact `new, modified,
+cancelled` receipt sequence, three audit events, three inventory events, zero
+enabled message senders and zero recipient email/phone addresses. This second
+fixture has no message-ledger rows. Do not combine its counts with the earlier
+manual-import and constructed-database fixtures.
+
+The loop runs sequentially, starts immediately, drains page 1 again after a
+nonempty result, and sleeps 15 minutes after an empty result. Retries back off
+from one to 15 minutes. Provider/database requests and whole pages have deadlines;
+shutdown cancels transport. Logs contain counts only and are separate from the
+Beach worker heartbeat. No durable Calderwood freshness dashboard is claimed.
+The Docker source set now includes the Channex read adapter and a pure date helper;
+it does not import the Guesty reader or the main app's credential machinery.
+
+Validation for this change: 2,063 application tests, nonincremental TypeScript,
+scoped ESLint and whitespace checks passed. A temporary package copied the exact
+Dockerfile source paths and imported both schedulers using only the locked worker
+dependencies. The actual Render Docker build and existing Beach/message/cleaner
+loops also succeeded. No database schema changed in this batch.
+
+Signed-notification configuration remains pending permission to create the dedicated
+staging signing key via the browser. The exact form is prepared with title
+`Helm Calderwood isolated pilot`; no key or webhook was created. The browser tool
+requires action-time confirmation for the new credential. The request also covers
+storing its secret in the isolated preview. Existing secrets were not exposed.
+
 ## Still required before launch
 
-1. Signed webhook delivery and unattended recovery polling.
+1. Signed webhook delivery. Unattended recovery polling is verified above.
 2. Complete future-calendar reconciliation and verified outbound availability.
 3. Automated guest and cleaner delivery with the original Guesty times, delay
    holds, correct recipients and carried-over stays; verified PriceLabs parity.

@@ -2,7 +2,7 @@
 
 Decision draft, October 7, 2026. Goal: replace Guesty across the portfolio after a successful Calderwood pilot. This is an architecture deliverable, not an implemented production connector or an approval to disconnect channels. Contract timetable remains in `calderwood-cutover-readiness.md`; `SCHEMA.md` remains authoritative for existing tables. No new platform purchase is required for the next milestone.
 
-## Current delivery status: October 19, 2026
+## Current delivery status: October 20, 2026
 
 The pilot is **Airbnb-only for new sales**: Ryan authorized pausing Booking.com;
 Vrbo is deferred. The Booking.com pause is **not executed**: its extranet requires
@@ -38,8 +38,10 @@ revision processing follows the [booking revision contract](https://docs.channex
 
 The authenticated preview import is enabled on the exact pilot branch with
 `CHANNEX_CANONICAL_REHEARSAL_ENABLED=true`. Signed notices additionally require
-`CHANNEX_CANONICAL_SIGNING_SECRET`; no webhook, signing key, polling schedule,
-new paid service or sender has been activated. Existing Channex and dedicated
+`CHANNEX_CANONICAL_SIGNING_SECRET`. The dedicated signing-key browser form awaits
+action-time confirmation; no webhook or signing key has been created. Canonical
+recovery polling is now active on the existing isolated Render worker, as verified
+below. No new paid service or sender has been activated. Existing Channex and dedicated
 staging database credentials remain in Vercel's sensitive variables; CLI export
 intentionally does not return their values. No production credential fallback
 exists. Capture/import scope is confined to `HELMTEST-calderwood`.
@@ -91,17 +93,33 @@ became cancelled and none remained waiting. A repeat feed import returned zero.
 No runtime code or schema adjustment was needed. Details and identifiers are in
 [the provider rehearsal receipt](calderwood-provider-roundtrip.md).
 
-This closes the actual provider feed/save/ACK test. It does not establish signed
-webhook delivery, unattended fallback polling, outbound availability completion,
-message planning or real guest/cleaner delivery. The booking is cancelled in both
-systems; the test property still has zero channels and stopped rate defaults.
+This closes the actual provider feed/save/ACK test. The booking is cancelled in
+both systems; the test property still has zero channels and stopped rate defaults.
+
+**Unattended recovery completed (October 20):** the existing Render staging worker
+now runs the same canonical importer. A second fictional booking's creation,
+move and cancellation were left pending in Channex, then automatically saved and
+acknowledged on worker startup: three revisions, one canonical booking, three
+audit records and three inventory events. The next automatic scan and independent
+provider read both found an empty feed. No manual import action was used. The loop
+has bounded requests/pages, sequential draining, 15-minute idle polling, retry
+backoff and shutdown cancellation. Commit `eba73f23` deployed successfully; 2,063
+application tests, TypeScript, lint and the isolated dependency artifact check
+passed. The original worker loops also reported success. No additional server,
+subscription or database schema was needed. Exact IDs and deployed logs are in
+[the provider rehearsal receipt](calderwood-provider-roundtrip.md#unattended-recovery-verified-october-20).
+
+Signed webhook delivery, outbound availability completion, message planning and
+real guest/cleaner delivery remain unverified. The current recovery proof is a
+startup backlog, not a real-time webhook or a prolonged reliability observation.
 
 Remaining delivery sequence:
 
-1. Connect and verify signed notifications and unattended fallback polling, then
+1. Connect and verify signed notifications, then
    prove outbound availability through terminal provider-task evidence. Complete
    initial-calendar reconciliation and conflict handling. The database installation,
-   constructed-revision cycle and actual provider feed/save/ACK cycle are complete.
+   constructed-revision cycle, actual provider feed/save/ACK cycle and unattended
+   recovery are complete.
 2. Prove **automated guest and cleaner delivery**, original timing, message
    history/deduplication, holds, cancellation and carried-over stays. Verify
    PriceLabs parity and full future-calendar reconciliation in the same pilot.
