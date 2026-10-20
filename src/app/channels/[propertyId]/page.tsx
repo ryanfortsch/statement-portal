@@ -11,6 +11,7 @@ import { isOwnerSession } from '@/lib/helm-access-server';
 import { CopyableUrl } from '../listings/CopyableUrl';
 import { WiringCard } from '../listings/WiringCard';
 import { lastPullsByProperty, type ExportPull } from '@/lib/ical-export-pulls';
+import { linkedFeedPathFor } from '@/lib/listing-links';
 import { getFleetProperty } from '@/lib/fleet';
 import { regionLabel } from '@/lib/property-scope';
 import {
@@ -95,7 +96,7 @@ export default async function ChannelsPropertyPage({
   const gridStart = grid.gridStart < windowStart ? grid.gridStart : windowStart;
   const gridEnd = grid.gridEnd > windowEnd ? grid.gridEnd : windowEnd;
 
-  const [bookings, feeds, anonPulls, sends, events, factsOrError, bundle, mirror, wiringPulls, closures] = await Promise.all([
+  const [bookings, feeds, anonPulls, sends, events, factsOrError, bundle, mirror, wiringPulls, closures, linkedFeed] = await Promise.all([
     safe(() => listBookingsForProperty(propertyId, gridStart, gridEnd), [] as BookingEx[]),
     safe(() => loadFeedHealth(propertyId), [] as FeedHealth[]),
     safe(() => anonymousPulls(propertyId), []),
@@ -111,6 +112,7 @@ export default async function ChannelsPropertyPage({
     // the export, and the live closures each feed's retire would cancel.
     safe(async () => (await lastPullsByProperty([propertyId])).get(propertyId) ?? [], [] as ExportPull[]),
     safe(() => liveFeedClosureCounts(), new Map<string, number>()),
+    safe(() => linkedFeedPathFor(propertyId), null),
   ]);
 
   const preflight: CutoverPreflight | null = factsOrError.facts ? evaluateCutoverPreflight(factsOrError.facts) : null;
@@ -453,6 +455,18 @@ export default async function ChannelsPropertyPage({
           </p>
         )}
       </section>
+
+      {linkedFeed && (
+        <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 56 }}>
+          <div className="eyebrow" style={{ marginBottom: 14 }}>Closed when the whole house sells</div>
+          <div style={{ borderTop: '1px solid var(--ink)', padding: '20px 0' }}>
+            <p style={{ fontSize: 13, color: 'var(--ink-3)', marginBottom: 14, maxWidth: 720, lineHeight: 1.55 }}>
+              Import this on this unit&rsquo;s Airbnb listing (Availability, Connect calendars). It closes the unit on the nights {linkedFeed.wholeLabel} is booked.
+            </p>
+            <CopyableUrl value={`${proto}://${host}${linkedFeed.path}`} />
+          </div>
+        </section>
+      )}
 
       {exportUrl && (
         <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 56 }}>
