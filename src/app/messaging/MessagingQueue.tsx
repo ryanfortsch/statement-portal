@@ -572,7 +572,7 @@ function ChannelBadge({ channel }: { channel: string }) {
 function StaffPriceNote() {
   return (
     <span className="eyebrow" style={{ color: 'var(--ink-3)' }}>
-      Ask Ryan or Dotti to price this
+      Ask Ryan to price this
     </span>
   );
 }

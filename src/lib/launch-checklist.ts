@@ -204,7 +204,7 @@ export const LAUNCH_STEPS: ReadonlyArray<LaunchStep> = [
     required: true,
     who: 'systems',
     description:
-      'Decide whether this home owes the 3% Community Impact Fee on top of the 11.7% base (Dotti decides; it is per property, never inferred from a folio). Set the Guesty listing tax config to match. If the CIF applies, it also has to be recorded in Helm (src/lib/occupancy-tax.ts, keyed by property id) and in stay-cape-ann (lib/occupancyTax.ts, keyed by Guesty listing id). A plain 11.7% home needs the Guesty config only.',
+      'Decide whether this home owes the 3% Community Impact Fee on top of the 11.7% base (an owner decides; it is per property, never inferred from a folio). Set the Guesty listing tax config to match. If the CIF applies, it also has to be recorded in Helm (src/lib/occupancy-tax.ts, keyed by property id) and in stay-cape-ann (lib/occupancyTax.ts, keyed by Guesty listing id). A plain 11.7% home needs the Guesty config only.',
     why: 'Helm cannot read the listing tax config, so this is a hand tick. When the three disagree, either the state is under-filed by 3% or over-collected tax is paid to the owner as rent (the 79 Main July bug). 17 Beach billed the CIF for a year without owing it.',
   },
 

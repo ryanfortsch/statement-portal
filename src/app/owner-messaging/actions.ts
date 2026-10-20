@@ -134,7 +134,7 @@ export async function saveOwnerFacts(content: string): Promise<ActionResult> {
   try {
     await requireOwnerEmail();
   } catch {
-    return { ok: false, error: 'Only Ryan or Dotti can change the owner rules.' };
+    return { ok: false, error: 'Only an owner can change the owner rules.' };
   }
   const res = await saveOwnerCuratedFacts(content);
   if (!res.ok) return { ok: false, error: explainError(res.error) };

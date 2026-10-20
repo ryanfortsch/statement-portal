@@ -11,7 +11,7 @@ import {
   STATUS_LABELS,
 } from '@/lib/playbook';
 import { getPropertyOptions } from '@/lib/playbook-properties';
-import { displayNameForEmail } from '@/lib/team';
+import { teamBylineForEmail } from '@/lib/team';
 import { DeleteEntryButton } from './DeleteEntryButton';
 
 export const dynamic = 'force-dynamic';
@@ -88,7 +88,7 @@ export default async function PlaybookEntryPage({ params }: { params: Promise<{ 
             }}
           >
             <span>Updated {formatDate(entry.updated_at)}</span>
-            <span>By {displayNameForEmail(entry.updated_by_email || entry.created_by_email)}</span>
+            <span>By {teamBylineForEmail(entry.updated_by_email || entry.created_by_email)}</span>
             {propertyName && <span style={{ color: 'var(--tide-deep)' }}>Scope: {propertyName}</span>}
             {!propertyName && <span>Scope: All properties</span>}
             {entry.tags.length > 0 && (
@@ -112,7 +112,7 @@ export default async function PlaybookEntryPage({ params }: { params: Promise<{ 
                     style={{ display: 'flex', gap: 12, justifyContent: 'space-between', padding: '9px 0', borderBottom: '1px solid var(--rule-soft)', fontSize: 12.5, color: 'var(--ink-3)' }}
                   >
                     <span>
-                      {displayNameForEmail(r.by_email)}
+                      {teamBylineForEmail(r.by_email)}
                       {r.change_note && <span style={{ color: 'var(--ink-4)' }}> · {r.change_note}</span>}
                     </span>
                     <span style={{ color: 'var(--ink-4)', whiteSpace: 'nowrap' }}>{formatDate(r.created_at)}</span>

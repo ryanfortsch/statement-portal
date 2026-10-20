@@ -118,6 +118,18 @@ export function displayNameForEmail(email: string | null | undefined): string {
   return email.split('@')[0];
 }
 
+/**
+ * The byline on what the whole team reads, the Playbook: an owner's edit
+ * reads as Rising Tide, a staff member's under their own name. Staff read
+ * Ryan or Rising Tide, never Dotti (Dotti, 2026-10-07), and naming one
+ * owner over another tells a reader nothing they act on.
+ */
+export function teamBylineForEmail(email: string | null | undefined): string {
+  const m = getTeamMember(email);
+  if (!email || m?.access === 'owner') return 'Rising Tide';
+  return displayNameForEmail(email);
+}
+
 /** 1-2 char initials for the avatar — same fallback rules as displayName. */
 export function initialsForEmail(email: string | null | undefined): string {
   if (!email) return '·';
