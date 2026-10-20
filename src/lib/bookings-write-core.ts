@@ -248,7 +248,6 @@ export function pickPatch<K extends string>(
  *  units of a split home (Airbnb only, Jan to Apr), linked to the whole house. */
 export const OTA_ONLY_HOMES: ReadonlySet<string> = new Set([
   '17_beach_front', '17_beach_back',
-  '7_sumac_main', '7_sumac_back',
   '4_middle_main', '4_middle_unit',
 ]);
 
