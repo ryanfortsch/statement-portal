@@ -245,7 +245,7 @@ describe('the money server actions refuse a staff session', () => {
   const gated: Record<string, string[]> = {
     'src/app/fieldwork/packets/actions.ts': [
       'revealW9', 'revealPay', 'setPacketPrice', 'raisePacketEstimate', 'setPacketBonus',
-      'finalizePacketPayout', 'markContractorPaid', 'markPacketPaid', 'approvePacket',
+      'finalizePacketPayout', 'markContractorPaid', 'markPacketPaid',
       'rotateContractorToken', 'setContractorW9', 'setContractorEmployment',
       'homeReceiptOnPacket', 'unhomeReceiptFromPacket',
     ],
@@ -284,6 +284,31 @@ describe('the money server actions refuse a staff session', () => {
     const status = read('src/app/fieldwork/packets/actions.ts').match(/export async function setContractorStatus[\s\S]*?(?=\nexport async function |$)/)![0];
     assert.ok(status.includes("if (status === 'archived') await ownerEmail();"), 'retiring a contractor stays with the owners');
     assert.ok(/=== 'archived'\) await ownerEmail\(\);\s*\}/.test(status), 'and so does bringing a retired one back');
+  });
+
+  test('staff approve submitted packets, never their own and never the pay on them (Dotti, 2026-10-20)', () => {
+    const src = read('src/app/fieldwork/packets/actions.ts');
+    const fn = src.match(/export async function approvePacket[\s\S]*?(?=\nexport async function |$)/)![0];
+    assert.ok(fn.includes('await staffEmail()'), 'approvePacket must require a signed-in login');
+    assert.ok(fn.includes('const owner = await isOwnerSession();'), 'and know whether it is an owner');
+    assert.ok(fn.includes("const bonusDollars = owner ? Number(formData.get('bonus_dollars') || 0) : 0;"), 'a staff approval sets no bonus');
+    assert.ok(fn.includes("const finalRaw = owner ? String(formData.get('final_dollars') ?? '').trim() : '';"), 'and keeps the estimate as the pay');
+    assert.ok(fn.includes('isOwnWork(email,'), 'nobody approves their own packet');
+    const page = read('src/app/fieldwork/packets/[id]/page.tsx');
+    const staffBlock = page.slice(page.indexOf("{!owner && packet.status === 'submitted' && ("), page.indexOf('{finalizing && ('));
+    assert.ok(staffBlock.includes('action={approvePacket}'), 'staff get an Approve on a submitted packet');
+    assert.ok(!staffBlock.includes('FinalPayoutField') && !staffBlock.includes('BonusFields'), 'with no pay fields');
+  });
+
+  test('nightly prices are the owners\' (Dotti, 2026-10-20)', () => {
+    const src = read('src/app/channels/calendar/calendar-actions.ts');
+    const fn = src.match(/export async function saveRateDaysAction[\s\S]*?(?=\nexport async function |$)/)![0];
+    assert.ok(/input\.nightlyDollars !== undefined && !\(await isOwnerSession\(\)\)/.test(fn), 'saveRateDaysAction refuses a staff price');
+    const rates = read('src/app/properties/[id]/rates-actions.ts');
+    assert.ok(rates.includes('An owner sets the prices on a home Helm runs.'), 'the rate plan stays owners only on a Helm-run home');
+    assert.ok(read('src/app/channels/calendar/page.tsx').includes('canPrice={owner}'), 'the fleet grid hides the price field from staff');
+    assert.ok(read('src/app/channels/[propertyId]/calendar/page.tsx').includes('canPrice={owner}'), 'and so does the month grid');
+    assert.ok(read('src/app/channels/[propertyId]/page.tsx').includes('canPrice={owner}'), 'and the channel page calendar');
   });
 
   test('owner money on the pages staff keep renders for owners only', () => {
@@ -452,7 +477,7 @@ describe('no card or link on a staff page lands on /not-available', () => {
     const src = read('src/components/ForMeFeed.tsx');
     assert.ok(src.includes('owner ? loadCreativeQueue() : null'), 'the creative pay card is owners only');
     assert.ok(src.includes('owner ? loadStatementQueue() : null'), 'the statements card is owners only');
-    assert.ok(src.includes('owner ? loadPacketQueue() : []'), 'the packet approve cards are owners only: approving is an owner action on a page staff can open');
+    assert.ok(src.includes('    loadPacketQueue(),'), 'the packet approve cards reach staff too: staff approve submitted packets (2026-10-20)');
     assert.ok(src.includes('.filter((c) => roleMayOpen(role, c.href))'), 'every queue card is checked against the gate');
   });
 

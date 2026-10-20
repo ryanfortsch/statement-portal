@@ -50,7 +50,9 @@ test('no rendered line is addressed to someone else', () => {
 
 test("the owner's decision comes before what they found, the utilities and the stops", () => {
   const decision = src.indexOf('{finalizing && (');
-  const approve = src.indexOf('<form action={approvePacket}');
+  // The owners' approve form inside the decision card (staff have their own,
+  // without the pay fields, above it).
+  const approve = src.indexOf('<form action={approvePacket}', decision);
   const paid = src.indexOf('<form action={markPacketPaid}');
   assert.ok(decision > -1 && approve > decision && paid > decision);
   for (const later of ['Inspection summary', '{owner && (homedReceipts.length', 'Preview as inspector', 'When ▾', '<StopList']) {

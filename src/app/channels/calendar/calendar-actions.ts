@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
+import { isOwnerSession } from '@/lib/helm-access-server';
 import { getFleetProperty } from '@/lib/fleet';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getRateDays, loadPricingBundle, setRateDays, type RateDayWrite } from '@/lib/property-rates';
@@ -104,6 +105,11 @@ export async function saveRateDaysAction(input: SaveRateDaysInput): Promise<Cale
       };
     }
 
+    // Nightly prices are the owners' call (Dotti, 2026-10-20); staff may still
+    // set minimums, close nights and leave notes.
+    if (input.nightlyDollars !== undefined && !(await isOwnerSession())) {
+      return { ok: false, error: 'An owner sets nightly prices.' };
+    }
     const nightly = parseDollars(input.nightlyDollars);
     if (nightly === 'invalid') return { ok: false, error: 'The nightly rate must be a positive dollar amount.' };
     const minNights = parseIntOrNull(input.minNights);

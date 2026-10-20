@@ -46,6 +46,12 @@ export type TeamMember = {
    * day, not from the day the row was added.
    */
   starts?: string;
+  /**
+   * Other addresses this person has worked under on the Field roster (a
+   * contractor record from before they joined the team). Nobody approves
+   * their own work: `isOwnWork` refuses a packet awarded to any of these.
+   */
+  fieldEmails?: string[];
 };
 
 export const TEAM_MEMBERS: TeamMember[] = [
@@ -92,6 +98,7 @@ export const TEAM_MEMBERS: TeamMember[] = [
     access: 'staff',
     active: true,
     starts: '2026-11-01',
+    fieldEmails: ['delaneyjordan@outlook.com'],
   },
 ];
 
@@ -137,4 +144,17 @@ export function initialsForEmail(email: string | null | undefined): string {
   if (m) return m.initials;
   const local = email.split('@')[0];
   return local.slice(0, 2).toUpperCase();
+}
+
+/**
+ * True when the packet's contractor is the person approving it: the same
+ * address, or one of the approver's own `fieldEmails`. Staff approve
+ * submitted Field work (2026-10-20); nobody approves their own.
+ */
+export function isOwnWork(approverEmail: string | null | undefined, contractorEmail: string | null | undefined): boolean {
+  const c = (contractorEmail ?? '').toLowerCase().trim();
+  const a = (approverEmail ?? '').toLowerCase().trim();
+  if (!c || !a) return false;
+  if (c === a) return true;
+  return (getTeamMember(a)?.fieldEmails ?? []).some((e) => e.toLowerCase().trim() === c);
 }

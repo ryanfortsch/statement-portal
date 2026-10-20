@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { isOwnerSession } from '@/lib/helm-access-server';
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { GuestyWritesNotice } from '@/components/channels/GuestyWritesNotice';
@@ -56,6 +57,8 @@ export default async function PropertyMonthGridPage({
   params: Promise<{ propertyId: string }>;
   searchParams: Promise<SearchParams>;
 }) {
+  // Nightly prices are owners only (2026-10-20); staff keep minimums, closes and notes.
+  const owner = await isOwnerSession();
   const { propertyId } = await params;
   const sp = await searchParams;
   const property = await getFleetProperty(propertyId);
@@ -151,7 +154,7 @@ export default async function PropertyMonthGridPage({
       </section>
 
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 40 }}>
-        <PropertyMonthCalendar row={row} weeks={grid.weeks.map((w) => w.map((c) => c.date))} monthStart={grid.start} monthEnd={grid.end} today={today} monthLabel={grid.label} />
+        <PropertyMonthCalendar row={row} weeks={grid.weeks.map((w) => w.map((c) => c.date))} monthStart={grid.start} monthEnd={grid.end} today={today} monthLabel={grid.label} canPrice={owner} />
       </section>
 
       {/* Unsellable nights, spelled out */}
@@ -200,9 +203,11 @@ export default async function PropertyMonthGridPage({
                 </Field>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, alignItems: 'end' }}>
-                <Field label={<Tick name="touch_price" label="Nightly rate" />}>
-                  <input name="nightly" type="text" inputMode="decimal" placeholder={bundle?.plan ? `plan: $${Math.round(bundle.plan.base_nightly_cents / 100)}` : 'no plan'} style={inputStyle} />
-                </Field>
+                {owner && (
+                  <Field label={<Tick name="touch_price" label="Nightly rate" />}>
+                    <input name="nightly" type="text" inputMode="decimal" placeholder={bundle?.plan ? `plan: $${Math.round(bundle.plan.base_nightly_cents / 100)}` : 'no plan'} style={inputStyle} />
+                  </Field>
+                )}
                 <Field label={<Tick name="touch_min" label="Minimum nights" />}>
                   <input name="min_nights" type="number" min={1} max={365} placeholder={bundle?.plan ? `plan: ${bundle.plan.min_nights_default}` : ''} style={inputStyle} />
                 </Field>

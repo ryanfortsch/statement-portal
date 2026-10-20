@@ -31,6 +31,7 @@ import {
 import { CHANNEL_LABELS, type BookingChannel } from '@/lib/channels-types';
 import { conflictFromSearchParams, describeConflict } from '@/lib/bookings-write-core';
 import { MultiCalendarGrid, type CalendarRowVM } from './MultiCalendarGrid';
+import { isOwnerSession } from '@/lib/helm-access-server';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,6 +45,7 @@ function one(v: string | string[] | undefined): string {
 
 export default async function ChannelsCalendarPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const sp = await searchParams;
+  const owner = await isOwnerSession();
   const now = new Date();
   const today = todayInEastern(now);
   const ym = parseMonthParam(one(sp.month)) ?? monthOf(today);
@@ -221,7 +223,7 @@ export default async function ChannelsCalendarPage({ searchParams }: { searchPar
       <section className="max-w-[1400px] mx-auto" style={{ width: '100%', paddingBottom: 80, paddingLeft: 24, paddingRight: 24 }}>
         <Legend />
         <div style={{ marginTop: 12 }}>
-          <MultiCalendarGrid rows={rows} dates={dates} today={today} monthLabel={grid.label} />
+          <MultiCalendarGrid rows={rows} dates={dates} today={today} monthLabel={grid.label} canPrice={owner} />
         </div>
         <p style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 14, lineHeight: 1.55, maxWidth: 760 }}>
           Upright prices are Helm&apos;s plan and edit here; italic prices are Guesty&apos;s and edit in Guesty or PriceLabs.
