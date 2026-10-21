@@ -13,6 +13,8 @@ import { getTeamMember } from '@/lib/team';
 import { dutyEmails } from '@/lib/team-recipients';
 import { staffDocumentById } from '@/lib/staff-documents-db';
 import { STAFF_DOCUMENT_STATUS_LABEL } from '@/lib/staff-documents';
+import { staffDocumentEnvelope, staffDocumentFromEmail } from '@/lib/staff-document-envelope';
+import { signingEmailText } from '@/lib/staff-document-email';
 import {
   countersignStaffDocument,
   resendSigningLink,
@@ -69,6 +71,8 @@ export default async function StaffDocumentPage({
   const countersigner = dutyEmails('countersign')[0] ?? null;
   const mayCountersign = !!session?.user?.email && session.user.email.toLowerCase() === countersigner;
   const counterName = getTeamMember(countersigner)?.name ?? 'The countersigner';
+  const envelope = staffDocumentEnvelope(staffDocumentFromEmail());
+  const first = doc.recipient_name.split(' ')[0];
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -149,6 +153,32 @@ export default async function StaffDocumentPage({
             )}
           </div>
         </div>
+
+        {(doc.status === 'draft' || doc.status === 'sent') && (
+          <details open={doc.status === 'draft'} style={{ marginTop: 18, border: '1px solid var(--rule)', padding: '14px 18px' }}>
+            <summary style={{ cursor: 'pointer', fontWeight: 600, fontSize: 14 }}>
+              {doc.status === 'draft' ? `The email ${first} gets when you press Send` : `The email ${first} got`}
+            </summary>
+            <dl style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '6px 14px', fontSize: 13, margin: '14px 0 12px' }}>
+              <dt style={{ color: 'var(--ink-3)' }}>From</dt>
+              <dd style={{ margin: 0 }}>{envelope.fromName} &lt;{envelope.fromEmail}&gt;</dd>
+              <dt style={{ color: 'var(--ink-3)' }}>To</dt>
+              <dd style={{ margin: 0 }}>{doc.recipient_name} &lt;{doc.recipient_email}&gt;</dd>
+              <dt style={{ color: 'var(--ink-3)' }}>Copy</dt>
+              <dd style={{ margin: 0 }}>{envelope.cc.length > 0 ? envelope.cc.join(', ') : 'Nobody'}</dd>
+              <dt style={{ color: 'var(--ink-3)' }}>Replies go to</dt>
+              <dd style={{ margin: 0 }}>{envelope.replyTo ?? envelope.fromEmail}</dd>
+              <dt style={{ color: 'var(--ink-3)' }}>Subject</dt>
+              <dd style={{ margin: 0 }}>Please sign: {doc.title}</dd>
+            </dl>
+            <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: 14, lineHeight: 1.6, margin: 0, padding: '12px 14px', background: 'var(--paper-2, #fff)', border: '1px solid var(--rule)' }}>
+              {signingEmailText(doc, signUrl, envelope.signOff)}
+            </pre>
+            <p style={{ fontSize: 12, color: 'var(--ink-3)', margin: '10px 0 0', lineHeight: 1.5 }}>
+              The link is private to {first}. Once {first} signs, {counterName} gets an email to countersign here, and the fully signed PDF then goes to {first} from the same address, copying {counterName}, and is filed in Drive.
+            </p>
+          </details>
+        )}
 
         {doc.status === 'draft' && (
           <details style={{ marginTop: 18, border: '1px solid var(--rule)', padding: '14px 18px' }}>

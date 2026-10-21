@@ -1,17 +1,16 @@
 import { sendTransactionalViaResend } from '@/lib/resend';
-import { getTeamMember } from '@/lib/team';
 import { dutyEmails } from '@/lib/team-recipients';
 import { staffDocumentFilename, type StaffDocumentRow } from '@/lib/staff-documents';
+import { staffDocumentEnvelope, staffDocumentFromEmail } from '@/lib/staff-document-envelope';
 
 /**
  * Emails for staff documents (offer letters). Mirrors agreement-email.ts:
  * the signing link, a note to the owners once it is signed, and the fully
- * signed copy to the signer. Sent through Resend from the Rising Tide
- * address, with replies going to the owner who sent the document.
+ * signed copy to the signer. Every one speaks as the countersigner (see
+ * staff-document-envelope.ts): his name, his reply-to, a copy to him.
  */
 
-const FROM_NAME = 'Rising Tide';
-const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'allie@risingtidestr.com';
+const FROM_EMAIL = staffDocumentFromEmail();
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -19,10 +18,6 @@ function esc(s: string): string {
 
 function firstName(full: string): string {
   return full.trim().split(/\s+/)[0] || full;
-}
-
-function senderName(email: string | null | undefined): string {
-  return getTeamMember(email)?.name ?? 'Rising Tide';
 }
 
 const WRAP_OPEN =
@@ -33,15 +28,25 @@ export function countersignerEmails(): string[] {
   return dutyEmails('countersign');
 }
 
+/** The words of the signing email, for sending and for the preview on the page. */
+export function signingEmailText(doc: Pick<StaffDocumentRow, 'recipient_name' | 'title'>, url: string, signOff: string): string {
+  return (
+    `Hi ${firstName(doc.recipient_name)},\n\n` +
+    `Your ${doc.title} is ready to read and sign online:\n${url}\n\n` +
+    `Once you sign, I'll countersign and you'll get the fully signed copy by email. Questions first? Just reply to this email.\n\n` +
+    `${signOff}\nRising Tide\n`
+  );
+}
+
 /** An owner sends the recipient their signing link. */
 export async function sendSigningLinkEmail(args: {
   doc: StaffDocumentRow;
   origin: string;
-  senderEmail: string;
 }): Promise<boolean> {
-  const { doc, origin, senderEmail } = args;
+  const { doc, origin } = args;
   const url = `${origin}/sign/${doc.token}`;
-  const from = senderName(senderEmail);
+  const env = staffDocumentEnvelope(FROM_EMAIL);
+  const from = env.signOff;
   const html = `${WRAP_OPEN}
       <p>Hi ${esc(firstName(doc.recipient_name))},</p>
       <p>Your <strong>${esc(doc.title)}</strong> is ready to read and sign online. It takes a couple of minutes:</p>
@@ -49,16 +54,13 @@ export async function sendSigningLinkEmail(args: {
       <p>Once you sign, I'll countersign and you'll get the fully signed copy by email. Questions first? Just reply to this email.</p>
       <p style="margin-top: 28px;">${esc(from)}<br/>Rising Tide</p>
     </div>`;
-  const text =
-    `Hi ${firstName(doc.recipient_name)},\n\n` +
-    `Your ${doc.title} is ready to read and sign online:\n${url}\n\n` +
-    `Once you sign, I'll countersign and you'll get the fully signed copy by email. Questions first? Just reply to this email.\n\n` +
-    `${from}\nRising Tide\n`;
+  const text = signingEmailText(doc, url, from);
   return sendTransactionalViaResend({
     to: doc.recipient_email,
-    fromName: FROM_NAME,
-    fromEmail: FROM_EMAIL,
-    replyTo: senderEmail,
+    cc: env.cc,
+    fromName: env.fromName,
+    fromEmail: env.fromEmail,
+    replyTo: env.replyTo ?? undefined,
     subject: `Please sign: ${doc.title}`,
     html,
     text,
@@ -93,8 +95,8 @@ export async function sendExecutedCopyEmail(args: {
   pdf: Buffer;
 }): Promise<boolean> {
   const { doc, pdf } = args;
-  const by = doc.countersigned_by_email;
-  const from = senderName(by);
+  const env = staffDocumentEnvelope(FROM_EMAIL);
+  const from = env.signOff;
   const html = `${WRAP_OPEN}
       <p>Hi ${esc(firstName(doc.recipient_name))},</p>
       <p>Attached is your fully signed <strong>${esc(doc.title)}</strong> for your records.</p>
@@ -107,10 +109,10 @@ export async function sendExecutedCopyEmail(args: {
     `Thank you.\n\n${from}\nRising Tide\n`;
   return sendTransactionalViaResend({
     to: doc.recipient_email,
-    cc: by ? [by] : undefined,
-    replyTo: by ?? undefined,
-    fromName: FROM_NAME,
-    fromEmail: FROM_EMAIL,
+    cc: env.cc,
+    replyTo: env.replyTo ?? undefined,
+    fromName: env.fromName,
+    fromEmail: env.fromEmail,
     subject: `Fully signed: ${doc.title}`,
     html,
     text,

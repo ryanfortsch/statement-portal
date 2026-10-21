@@ -98,17 +98,17 @@ export async function sendStaffDocument(formData: FormData): Promise<void> {
     .select('*');
   if (!data || data.length === 0) back(id, 'Already sent.');
   const o = await origin();
-  const ok = o ? await sendSigningLinkEmail({ doc: data[0] as typeof doc, origin: o, senderEmail: by }) : false;
+  const ok = o ? await sendSigningLinkEmail({ doc: data[0] as typeof doc, origin: o }) : false;
   back(id, ok ? `Sent to ${doc.recipient_email}.` : 'Ready to sign, but the email did not go out. Copy the link below and send it yourself.');
 }
 
 export async function resendSigningLink(formData: FormData): Promise<void> {
-  const by = await requireOwnerEmail();
+  await requireOwnerEmail();
   const id = field(formData, 'id');
   const doc = await staffDocumentById(id);
   if (!doc || doc.status !== 'sent') back(id, 'Only a document waiting for a signature can be resent.');
   const o = await origin();
-  const ok = o ? await sendSigningLinkEmail({ doc, origin: o, senderEmail: by }) : false;
+  const ok = o ? await sendSigningLinkEmail({ doc, origin: o }) : false;
   back(id, ok ? `Sent again to ${doc.recipient_email}.` : 'The email did not go out. Copy the link below and send it yourself.');
 }
 
