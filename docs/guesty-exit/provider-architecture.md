@@ -1684,3 +1684,18 @@ archival of real change/attempt history, operator conflict handling, PriceLabs
 parity and genuine automated guest/cleaner receipts. The idle growth fix does
 not claim these are complete. No production cutover, paid service or live
 messaging change is part of this batch.
+
+
+The existing Render worker was manually deployed at the exact tested code commit
+`d36dcafa6061a6c95a497d5f6185452eee02d248`. Deployment
+[`dep-dbc10u0n74is73evv1gg`](https://dashboard.render.com/worker/srv-db05t2id0e5s73a7r8gg/deploys/dep-dbc10u0n74is73evv1gg)
+succeeded; service-live time was **2026-10-21 01:08:30 UTC** (October 20,
+9:08:30 PM Eastern). Replacement instance `gkggg` logged zero-failure inventory
+`plan/blocked`, as expected with the publisher paused and coverage expired.
+Canonical revision recovery also logged success with zero received/applied/ACKed
+revisions. No environment setting changed. Rolling-window code is now packaged
+but the separate window RPC remains uninstalled and rolling mode remains disabled.
+The hosted evidence proves installation/startup and the paused boundary; positive
+refresh, drift recovery and long-running behavior were tested locally, not on a
+live listing. This documentation-only deployment receipt requires diff/path
+checks rather than another application test run.

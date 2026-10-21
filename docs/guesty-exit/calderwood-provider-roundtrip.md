@@ -493,3 +493,18 @@ This fixes idle history growth; it does not archive genuine change/attempt
 history or remove the 10,000-command limit. Continuous complete source coverage,
 rolling-year activation, PriceLabs parity, real automatic guest/cleaner delivery
 and production account/cost readiness remain separate launch requirements.
+
+
+The existing Render worker was manually deployed at the exact tested code commit
+`d36dcafa6061a6c95a497d5f6185452eee02d248`. Deployment
+[`dep-dbc10u0n74is73evv1gg`](https://dashboard.render.com/worker/srv-db05t2id0e5s73a7r8gg/deploys/dep-dbc10u0n74is73evv1gg)
+succeeded; service-live time was **2026-10-21 01:08:30 UTC** (October 20,
+9:08:30 PM Eastern). Replacement instance `gkggg` logged zero-failure inventory
+`plan/blocked`, as expected with the publisher paused and coverage expired.
+Canonical revision recovery also logged success with zero received/applied/ACKed
+revisions. No environment setting changed. Rolling-window code is now packaged
+but the separate window RPC remains uninstalled and rolling mode remains disabled.
+The hosted evidence proves installation/startup and the paused boundary; positive
+refresh, drift recovery and long-running behavior were tested locally, not on a
+live listing. This documentation-only deployment receipt requires diff/path
+checks rather than another application test run.
