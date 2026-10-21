@@ -13,38 +13,45 @@ messages are not an acceptable launch fallback. Preserve Guesty's existing
 message times, including 3 PM code delivery with a rare operator hold; PriceLabs
 continues to own dynamic rates and minimum stays.
 
-The hosted **full-year calendar rehearsal is complete**: the 366-date projection,
-far-future booking/move/cancel flow and injected-closure recovery passed on the
-unconnected staging property. Rates and stay restrictions were preserved, all
-dates remained stopped, and publishing is paused at the completed checkpoint.
-The window RPC and rolling-year worker mode are installed; actual midnight
-advancement remains unobserved. See the [acceptance record](calderwood-provider-roundtrip.md#full-year-hosted-acceptance-october-21-2026)
-and [structured receipt](calderwood-rolling-year-receipt.json). Next engineering
-work is archival/checkpointing and operator conflict resolution, then PriceLabs and genuine
-automated-message acceptance before a contract-timed production cutover.
+The hosted **full-year calendar rehearsal and explicit history archive are
+complete**. The 366-date projection and booking/move/cancel recovery passed on
+the unconnected staging property. Compatible worker commit `e0e5adbd` is deployed;
+independent October 21 acceptance verified an immutable archive of all 70
+commands and nine completed attempts, with journal/base version 71 and an empty
+active segment. Publishing remains paused. See the
+[archive receipt](calderwood-archive-receipt.json) and
+[provider acceptance record](calderwood-provider-roundtrip.md). Actual midnight
+advancement, resumed publishing after archive, and a longer unattended soak still
+need observation. These results use test rates; they do not prove PriceLabs.
 
-The October 21 safety batch adds durable rejected-revision diagnostics and
-reserves history capacity before starting a new calendar request. Both database
-patches are installed in the isolated project; installation preserved the entire
-70-command journal and paused publisher. The worker adapter calls the new
-observe wrapper, which never ACKs a conflict. The authenticated preview-only
-`GET /api/channels/staging/diagnostics` combines bounded conflict records, history
-capacity, source freshness and outstanding attempts; it grants no write authority.
-The two database reads are independent diagnostic snapshots, not a dispatch CAS.
+Rejected-revision diagnostics and history-capacity guards are installed. A
+conflict resolves when its unchanged revision can commit against the corrected
+calendar or match an existing receipt; there is no force-ACK. A production
+operator-resolution flow is still needed. The authenticated preview diagnostics
+route returned HTTP 200, but its JSON body was not inspected after a browser
+download stalled. Detailed historical receipts remain below.
 
-Commit `f5f6b936` is deployed to the existing worker and branch preview. Worker
-startup and independent database acceptance passed; all 70 history commands
-remain, publishing is paused, and no sender/channel is enabled. The diagnostics
-route returned HTTP 200 in Vercel logs, but its JSON body was not inspected after
-a browser download stalled. See the [deployment receipt](calderwood-provider-roundtrip.md#safety-deployment-acceptance-october-21).
+**October 21 messaging batch:** `src/lib/channex-messaging/transport.ts` now
+implements Channex's actual text-message HTTP contract and receipt readback.
+It validates the property/channel/booking/thread before sending, gives the caller
+a final durable-claim/ownership check, makes at most one POST per invocation and
+preserves uncertain outcomes without retry. It defaults to sending disabled and
+has no runtime caller, credential loader, route or cron. Acceptance and provider
+history are explicitly distinct from delivery to the guest. Forty synthetic
+transport tests pass; no real message or delivery test has occurred.
 
-This closes the silent-conflict and late-history-exhaustion gaps, **not archival**.
-History is warned at 8,000 and new work stops at 9,990, preserving ten settlement
-slots. All records remain retained. A conflict resolves when its unchanged
-revision can commit against the corrected calendar (or matches an existing
-committed receipt); there is no force-ACK or ignore button. Polling retains the
-conflict at the head of its page and can delay subsequent revisions. Safe
-checkpoint/archival and a production operator-resolution flow remain launch work.
+The existing Helm Quo and Resend senders can be reused. The production OTA rail
+still requires manual posting, and its cleaner SMS loop stores only the first
+provider ID across recipients; neither satisfies this pilot's automatic delivery
+and per-recipient recovery requirements. Do not turn on that existing rail as a
+substitute for the remaining worker integration. See the
+[messaging handoff](staging-storage/calderwood-message-handoff.md#current-integration-status-october-21-2026).
+
+Next launch work is full-window PriceLabs parity, a durable automatic message
+worker using these transports, verified recipient/booking bindings and real
+channel delivery acceptance. PriceLabs' Chrome session currently requires login.
+Production Channex access, its approved costs and contract-timed cutover remain
+open gates. No new subscription or production sender was activated.
 
 The implemented **synthetic booking ingestion transaction** has now passed an
 actual Channex staging create/change/cancel round trip through the deployed

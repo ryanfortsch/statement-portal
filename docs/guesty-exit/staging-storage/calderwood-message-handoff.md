@@ -4,6 +4,68 @@ Implemented October 13, 2026 in `src/lib/calderwood-rehearsal/message-handoff.ts
 This pure function reviews synthetic evidence. It does not fetch Guesty records,
 change either queue, stop Guesty, persist results, or authorize sending.
 
+## Current integration status, October 21, 2026
+
+The new `src/lib/channex-messaging/transport.ts` is a server/CLI transport for
+Airbnb and Booking.com text messages. It follows the
+[Channex messages contract](https://docs.channex.io/api-v.1-documentation/messages-collection).
+It is separate from the read-only Beach pilot and has no route, scheduler,
+credential loader or production caller. Sending defaults off. Explicit scope
+selects one environment, property, channel and provider; thread inspection must
+also match the booking. Closed threads, inquiries, unresolved merge fields and
+invalid inputs cannot send. Credentials never appear in URLs or returned errors.
+
+`sendText` invokes the caller's `beforePost` with the complete immutable route
+and body digest immediately before the one POST. That callback must durably
+claim/revalidate the message against the current booking, schedule, hold, sender
+ownership and source-sender drain. This callback is a contract, not an implemented
+database claim. The transport itself provides no cross-process deduplication.
+The durable queue must preserve an uncertain outcome across retries/restarts;
+calling `sendText` again is a new send, not a recovery method.
+
+A validated success returns the provider ID, route and content digest, never the
+body or access details. Documented terminal refusals return rejection; timeouts,
+unexpected statuses, malformed replies and mismatched responses remain unknown.
+No status triggers an automatic retry. `verifyReceipt` only reads provider
+history, with bounded pagination, and verifies the exact ID/thread/content.
+Neither an accepted response nor a history record proves guest delivery. Missing
+history never authorizes another send. Actual OTA readback remains a separate
+acceptance requirement. No live channel or recipient was used for this batch.
+
+Existing transport audit: Helm already uses Quo for cleaner SMS and Resend for
+email. Reuse those accounts after checking their applicable billing/access;
+this change adds no service or paid subscription. `automations.ts` still routes
+OTA work to `ota_manual` or `configured_in_ota`. Its cleaner loop records one
+provider ID for a potentially multi-recipient send, so the rehearsed durable
+per-recipient ledger must be integrated before enabling Calderwood automation.
+The fictional cleaner worker must remain isolated from production credentials.
+
+Remaining delivery batch:
+
+1. Bind the verified real property, booking, thread and recipient identities to
+   a durable queue; preserve existing Guesty times, expiry, holds and sent history.
+2. Implement the final atomic claim/context check and persist each provider
+   attempt/result, including unknown outcomes and per-recipient cleaner receipts.
+3. Wire the Channex transport and existing Quo/Resend senders to that worker only
+   after source-sender handoff and production-account/cost checks.
+4. Run an explicitly approved, controlled actual-channel delivery check; verify
+   the message in the destination and restart without a duplicate. Then activate
+   future unsent messages at the contract-timed cutover.
+
+PriceLabs remains independently responsible for current daily rates and minimum
+stays. Its October 21 Chrome session expired and awaits user login. No current
+PriceLabs snapshot or functioning production connector has been verified here.
+
+Validation: 40 new synthetic HTTP/ownership/error/readback checks; full suite
+2,169 tests / 240 suites; nonincremental TypeScript; scoped ESLint. No SQL, runtime
+flags or sender configuration changed. A branch push may create a preview;
+no new worker deployment is required for this unused transport. Branch `codex/channex-staging-pilot`, original
+base `a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`, starting HEAD `72dc1a84`;
+fetched main `dd85f1c1b61eb28c676fb6a7c542d91777517399`. Files in this batch:
+transport, transport tests, this handoff and the architecture's current status.
+The unrelated contract edits remain excluded. Integrating with current main must
+preserve its newer guest-time sourcing; this batch does not change that code.
+
 ## Decisions
 
 - Verified sent history: suppress replay.
