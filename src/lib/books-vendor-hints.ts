@@ -14,6 +14,10 @@
  * pass-through, Amazon into property repair vs company supplies, etc.).
  */
 
+import type { CoaScope } from './books.ts';
+
+type BooksEntityId = Exclude<CoaScope, 'shared'>;
+
 export type VendorHint = {
   /** Lowercased substring matched against the bank descriptor. */
   matcher: string;
@@ -21,6 +25,13 @@ export type VendorHint = {
   rule: string;
   /** Default category_key if the rule doesn't have additional context. */
   default_category: string;
+  /**
+   * The key on one entity's books when it is not default_category: the
+   * same vendor can file differently per LLC (Guild Mortgage is 3 Locust's
+   * loan on Goose of Astoria and a partner distribution on Goose of
+   * Calderwood). The prompt shows each entity its own key.
+   */
+  entity_category?: Partial<Record<BooksEntityId, string>>;
 };
 
 export const VENDOR_HINTS: VendorHint[] = [
@@ -46,6 +57,12 @@ export const VENDOR_HINTS: VendorHint[] = [
     matcher: 'booking.com',
     rule: 'Booking.com is similar to VRBO -- gross to Accommodation Fares, with channel commission auto-debited the following month.',
     default_category: 'accommodation_fares',
+  },
+  {
+    matcher: 'stripe',
+    rule: 'A Stripe ACH deposit (IN) is a payout of guest money from the home\'s own Stripe account, already net of Stripe\'s fees: rental_income on Goose of Astoria (3 Locust), str_income on Goose of Calderwood (65 Calderwood), accommodation_fares on a Rising Tide per-property account. NEVER host_channel_stripe: Stripe Fees takes only a Stripe fee debited (OUT).',
+    default_category: 'rental_income',
+    entity_category: { goose_calderwood: 'str_income', rising_tide: 'accommodation_fares' },
   },
 
   // ── Software / SaaS — Rising Tide operating ─────────────────────────
@@ -318,30 +335,35 @@ export const VENDOR_HINTS: VendorHint[] = [
   },
 
   // ── Mortgages (Goose entities) ──────────────────────────────────────
+  // A loan payment files WHOLE to the loan's liability (books.ts,
+  // mortgage_3_locust); the 1098's interest moves to expense by one
+  // year-end journal entry (books-balance-sheet.ts). The Florida house
+  // loan is not a Goose loan: every payment on it is due_from_florida_property.
   {
     matcher: 'guild mortgage',
-    rule: 'Guild Mortgage on Goose of Astoria = the 3 Locust mortgage -> mortgage_interest (the GL splits into Mortgages/principal + Mortgage interest + Escrow, but the categorizer should pick mortgage_interest as the default; the bookkeeper-style split is journal-entry territory). Guild Mortgage on Goose of Calderwood = the 11 Rockholm mortgage -> mortgage_interest_11_rockholm.',
-    default_category: 'mortgage_interest',
+    rule: 'Guild Mortgage on Goose of Astoria is the 3 Locust loan -> mortgage_3_locust. The WHOLE payment (principal, interest and escrow) files to the loan; the 1098\'s interest moves to mortgage_interest by a year-end journal entry, so never split or expense the payment here. Guild Mortgage on Goose of Calderwood is the 11 Rockholm loan; 11 Rockholm is no longer Goose of Calderwood\'s, so a payment from Calderwood is a partner distribution -> owner_draw, NOT mortgage_interest_11_rockholm (2025 history only).',
+    default_category: 'mortgage_3_locust',
+    entity_category: { goose_calderwood: 'owner_draw' },
   },
   {
     matcher: 'carrington mortgage',
-    rule: 'Carrington Mortgage is the 65 Calderwood mortgage on Goose of Calderwood -> mortgage_interest_65_calderwood.',
-    default_category: 'mortgage_interest_65_calderwood',
+    rule: 'Carrington Mortgage is the 65 Calderwood loan on Goose of Calderwood -> mortgage_65_calderwood. The WHOLE payment (principal, interest and escrow) files to the loan; the 1098\'s interest moves to mortgage_interest_65_calderwood by a year-end journal entry, so never split or expense the payment here.',
+    default_category: 'mortgage_65_calderwood',
   },
   {
     matcher: 'willow servicing',
-    rule: 'Willow Servicing (later relabeled NSM DBAMR.COOPER) on Goose of Astoria is the FLORIDA-property mortgage -> due_from_florida_property (intercompany), NOT mortgage_interest. 3246 NE 27th servicing.',
+    rule: 'Willow Servicing (later relabeled NSM DBAMR.COOPER, then Rocket Mortgage) on Goose of Astoria is the FLORIDA-property mortgage -> due_from_florida_property (intercompany), NOT mortgage_interest. 3246 NE 27th servicing.',
     default_category: 'due_from_florida_property',
   },
   {
     matcher: 'nsm dba',
-    rule: 'NSM DBAMR.COOPER on Goose of Astoria is the same FL mortgage as Willow Servicing (post-rebrand) -> due_from_florida_property.',
+    rule: 'NSM DBAMR.COOPER on Goose of Astoria is the same FL mortgage as Willow Servicing (post-rebrand) -> due_from_florida_property. Renamed ROCKET MORTGAGE from March 2026 (same ACH ORIG ID 0000452701).',
     default_category: 'due_from_florida_property',
   },
   {
     matcher: 'rocket mortgage',
-    rule: 'Rocket Mortgage on Goose of Astoria is the pre-Guild Mortgage transition; same property (3 Locust) -> mortgage_interest.',
-    default_category: 'mortgage_interest',
+    rule: 'Rocket Mortgage on Goose of Astoria is the FLORIDA house loan (3246 NE 27th), the same loan NSM DBAMR.COOPER paid through February 2026: same ACH ORIG ID 0000452701, same $7,202.13 payment, renamed Rocket from March 2026 -> due_from_florida_property, like Willow Servicing and NSM. NOT 3 Locust (its loan is Guild Mortgage) and NOT mortgage_interest.',
+    default_category: 'due_from_florida_property',
   },
   {
     matcher: 'eastern bank',
@@ -396,25 +418,44 @@ export const VENDOR_HINTS: VendorHint[] = [
   },
 
   // ── Utilities, MA / Gloucester side ─────────────────────────────────
+  // On Goose of Calderwood these are 11 Rockholm's bills. 11 Rockholm is
+  // no longer the entity's, so its bills paid from Calderwood are partner
+  // distributions (Dotti, 2026-10-21). 65 Calderwood is in CT.
   {
     matcher: 'national grid',
-    rule: 'National Grid = MA electric/gas. On Goose Astoria -> utilities_electricity or utilities_heating_cooling for 3 Locust. On Goose Calderwood -> utilities for 11 Rockholm. Descriptor pattern: "ORIG CO NAME:NGRID05" or "NATIONAL GRID NE".',
+    rule: 'National Grid = MA electric/gas. Descriptor pattern: "ORIG CO NAME:NGRID05" or "NATIONAL GRID NE". On Goose of Astoria it is 3 Locust\'s -> utilities_electricity, or utilities_heating_cooling for gas. On Goose of Calderwood it is 11 Rockholm\'s bill, a home the entity no longer owns -> owner_draw (partner distribution), never a utility expense.',
     default_category: 'utilities_electricity',
+    entity_category: { goose_calderwood: 'owner_draw' },
   },
   {
     matcher: 'ngrid',
-    rule: 'NGRID is the same as National Grid (Mass) -> utilities_electricity / utilities_heating_cooling based on memo.',
+    rule: 'NGRID (e.g. "ORIG CO NAME:NGRID05") is National Grid (Mass). On Goose of Astoria -> utilities_electricity, or utilities_heating_cooling for gas, for 3 Locust. On Goose of Calderwood it is 11 Rockholm\'s bill -> owner_draw (partner distribution).',
     default_category: 'utilities_electricity',
+    entity_category: { goose_calderwood: 'owner_draw' },
   },
   {
     matcher: 'comcast',
-    rule: 'Comcast = internet/cable. On Goose Astoria -> utilities_internet_tv for 3 Locust. On Goose Calderwood -> utilities_internet_tv for 11 Rockholm.',
+    rule: 'Comcast / Xfinity = internet and TV. On Goose of Astoria -> utilities_internet_tv for 3 Locust. On Goose of Calderwood it is 11 Rockholm\'s bill (65 Calderwood\'s internet is Optimum) -> owner_draw (partner distribution), never a utility expense.',
     default_category: 'utilities_internet_tv',
+    entity_category: { goose_calderwood: 'owner_draw' },
+  },
+  {
+    matcher: 'xfinity',
+    rule: 'Xfinity is Comcast. On Goose of Astoria -> utilities_internet_tv for 3 Locust. On Goose of Calderwood it is 11 Rockholm\'s bill -> owner_draw (partner distribution).',
+    default_category: 'utilities_internet_tv',
+    entity_category: { goose_calderwood: 'owner_draw' },
+  },
+  {
+    matcher: 'eastern propane',
+    rule: 'Eastern Propane Gas delivers 11 Rockholm\'s propane. 11 Rockholm is no longer Goose of Calderwood\'s, so a delivery paid from Calderwood is a partner distribution -> owner_draw, never utilities_heating_cooling.',
+    default_category: 'utilities_heating_cooling',
+    entity_category: { goose_calderwood: 'owner_draw' },
   },
   {
     matcher: 'city of gloucester',
-    rule: 'City of Gloucester is multi-purpose. Water bills -> utilities_water_sewer; permits/registration -> business_licenses; property tax -> property_taxes; "11 Rockholm Rd" memo on Goose Calderwood -> property_taxes (11 Rockholm side). Use memo context.',
+    rule: 'City of Gloucester is multi-purpose. Water bills -> utilities_water_sewer; permits/registration -> business_licenses; property tax -> property_taxes. On Goose of Calderwood it is an 11 Rockholm bill (often an "11 Rockholm Rd" memo), a home the entity no longer owns -> owner_draw (partner distribution). Use memo context.',
     default_category: 'utilities_water_sewer',
+    entity_category: { goose_calderwood: 'owner_draw' },
   },
 
   // ── Utilities, CT / Fairfield side (Goose Calderwood, 65 Calderwood) ─
@@ -436,11 +477,6 @@ export const VENDOR_HINTS: VendorHint[] = [
   {
     matcher: 'hoffman energy',
     rule: 'Hoffman Energy = 65 Calderwood oil/propane delivery -> utilities_heating_cooling on Goose Calderwood.',
-    default_category: 'utilities_heating_cooling',
-  },
-  {
-    matcher: 'eastern propane',
-    rule: 'Eastern Propane Gas = 11 Rockholm propane delivery -> utilities_heating_cooling on Goose Calderwood.',
     default_category: 'utilities_heating_cooling',
   },
   {
@@ -582,13 +618,19 @@ export const VENDOR_HINTS: VendorHint[] = [
   },
 ];
 
+/** The key a hint names on one entity's books. */
+export function hintCategoryFor(hint: VendorHint, entityId?: string): string {
+  return hint.entity_category?.[entityId as BooksEntityId] ?? hint.default_category;
+}
+
 /**
  * Renders the vendor hint table as a compact bullet list for the AI
- * categorizer's system prompt. Kept short -- under 2k tokens -- so it
- * doesn't crowd out the chart of accounts.
+ * categorizer's system prompt, each arrow naming the entity's own key.
+ * Kept short -- under 2k tokens -- so it doesn't crowd out the chart of
+ * accounts.
  */
-export function vendorHintsForPrompt(): string {
+export function vendorHintsForPrompt(entityId?: string): string {
   return VENDOR_HINTS
-    .map((h) => `  - "${h.matcher}" → ${h.default_category} | ${h.rule}`)
+    .map((h) => `  - "${h.matcher}" → ${hintCategoryFor(h, entityId)} | ${h.rule}`)
     .join('\n');
 }

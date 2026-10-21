@@ -116,8 +116,8 @@ ACCOUNT CONTEXT MATTERS:
   - For Rising Tide STR LLC, transactions on PER-PROPERTY accounts (e.g. KITTREDGE ⋯1323, MOYNAHAN ⋯3227) represent money flowing through that owner's trust account, so most expenses there are pass-through (property_*). Transactions on the main operating account (⋯5130) or the A. OBrien CC (⋯3878) are Rising Tide's own operating expenses.
   - For Goose holding entities, every transaction is the entity's own income or expense (no pass-through).
 
-VENDOR HINTS (distilled from the 2025 GL — apply unless context contradicts):
-${vendorHintsForPrompt()}
+VENDOR HINTS (distilled from the 2025 GL. Apply unless context contradicts; each arrow names this entity's key):
+${vendorHintsForPrompt(entityId)}
 
 CRITICAL RULES:
   1. Output the chart-of-accounts \`key\` EXACTLY as it appears above (snake_case). Never invent a key.
@@ -125,7 +125,8 @@ CRITICAL RULES:
   3. \`intercompany_due\` / \`transfer\` is for internal money movement between Rising Tide's own accounts or between entities. These are NOT expenses; mark as transfers.
   4. Negative entries on expense categories are valid (refunds, contra-entries). Don't flip the sign or "fix" them.
   5. confidence "high" = unambiguous vendor pattern with clear category; "medium" = reasonable inference; "low" = guess based on weak signal.
-  6. Pass-through categories (marked [PASS-THROUGH]) are valid for Rising Tide only.`,
+  6. Pass-through categories (marked [PASS-THROUGH]) are valid for Rising Tide only.
+  7. Money IN from a payment processor or booking channel (Stripe, Airbnb, VRBO, Booking.com) is a payout of guest money: income (a pass-through fare on a Rising Tide per-property account), never a fee account. A fee account (host_channel_*, merchant_account_fees) takes the fee charged, money OUT.`,
     prompt: `Categorize each of the following ${txns.length} transactions. Return one categorization per transaction, keyed by id.
 
 TRANSACTIONS:
