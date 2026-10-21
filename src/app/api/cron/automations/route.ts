@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { authorizeCron } from '@/lib/cron-auth';
 import { recordSyncResult } from '@/lib/sync-status';
 import { planAutomations, dispatchDue } from '@/lib/automations';
+import { dispatchScheduledChannex } from '@/lib/channex-messaging/cron';
 
 /**
  * Message automations: planner plus dispatcher.
@@ -24,6 +25,7 @@ import { planAutomations, dispatchDue } from '@/lib/automations';
  */
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
+export const maxDuration = 300;
 
 async function handle(request: NextRequest) {
   const denied = await authorizeCron(request);
@@ -37,6 +39,7 @@ async function handle(request: NextRequest) {
   try {
     const plan = await planAutomations({ now, propertyId, dry });
     const dispatch = await dispatchDue({ now, propertyId, dry });
+    const channex = await dispatchScheduledChannex({ propertyId, dry });
     const body = {
       ok: true,
       dry,
@@ -46,17 +49,19 @@ async function handle(request: NextRequest) {
       awaiting_approval: dispatch.awaiting_approval,
       skipped_no_contact: dispatch.skipped_no_contact,
       configured_in_ota: dispatch.configured_in_ota,
-      failed: dispatch.failed,
+      failed: dispatch.failed + channex.attention + channex.blocked,
       plan,
       dispatch,
+      channex,
       at: now.toISOString(),
     };
     if (!dry) {
       await recordSyncResult('automations', {
-        processed: plan.planned + dispatch.claimed,
-        failed: dispatch.failed,
-        firstError: dispatch.firstError ?? undefined,
+        processed: plan.planned + dispatch.claimed + channex.refreshed + channex.recorded,
+        failed: dispatch.failed + channex.attention + channex.blocked,
+        firstError: dispatch.firstError ?? (channex.attention + channex.blocked ? 'Channex message reconciliation or context review required' : undefined),
         result: {
+          channex,
           properties: plan.properties,
           bookings: plan.bookings,
           planned: plan.planned,

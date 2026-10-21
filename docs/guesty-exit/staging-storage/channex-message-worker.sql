@@ -1,6 +1,7 @@
 -- DRAFT, NOT APPLIED. Existing Helm schema + automation-holds.sql required.
 -- Install/review with the matching worker and native-dispatch exclusions before
--- registering jobs. No credentials, routes, jobs, activations or customer rows.
+-- registering jobs. Install channex-message-schedule.sql immediately afterward.
+-- No credentials, routes, jobs, activations or customer rows.
 begin;
 create table public.automation_channex_routes (
  property_id text primary key references public.properties(id),
@@ -178,7 +179,11 @@ begin
    or lower(b.channel)=any(select lower(x) from unnest(rule.channel_exclusions) x)
    or exists(select 1 from public.message_automations o where rule.property_id is null and o.property_id=j.property_id and o.key=rule.key)
    or exists(select 1 from public.automation_sends other where other.booking_id=j.booking_id and other.automation_key=j.automation_key and other.id<>s.id)
-   or j.context_revision is distinct from public.automation_channex_context(s.id)
+   or j.context_revision is distinct from public.automation_channex_schedule_context(s.id)
+   or j.fire_at is distinct from public.automation_channex_schedule(s.id)
+   or rule.trigger is distinct from (case j.workflow when 'confirmation' then 'booking_confirmed'
+      when 'key_code' then 'checkin_day' when 'pre_arrival' then 'pre_arrival' when 'pre_checkout' then 'pre_checkout' end)
+   or (rule.min_nights is not null and b.check_out-b.check_in<rule.min_nights)
    or p_attempt is distinct from jsonb_build_object('environment',r.environment,'propertyId',r.channex_property_id,
       'channelId',r.channel_id,'provider',r.provider,'bookingId',j.channex_booking_id,'threadId',j.thread_id,'bodySha256',j.body_sha256)
  then return false; end if;

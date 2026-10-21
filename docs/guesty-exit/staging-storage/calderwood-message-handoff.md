@@ -6,84 +6,96 @@ change either queue, stop Guesty, persist results, or authorize sending.
 
 ## Current integration status, October 21, 2026
 
-`src/lib/channex-messaging/transport.ts` implements scoped Channex text sending
-and provider-history readback. `worker.ts` now connects it to durable PostgreSQL
-claim/result RPCs in the **unapplied draft** `channex-message-worker.sql`.
-The worker defaults disabled and accepts an explicit service-role RPC client,
-transport and renderer. It has no credential loader, route or scheduled caller.
-No live messages, channel changes, subscriptions or database migrations occurred.
+The automatic guest-message path now connects the existing authenticated
+`/api/cron/automations` job to authoritative SQL snapshots, the existing message
+renderer, schedule refresh, the durable worker and the Channex transport.
+`scheduled.ts` processes one explicitly configured property/environment, up to
+ten candidates per tick with a bounded processing budget. No additional cron or
+server is introduced. It remains **disabled and undeployed**; both messaging SQL
+files are **unapplied drafts**. No live messages or charges occurred.
 
-The draft extends the existing `automation_sends` row; it does not introduce a
-second schedule. A job binds its canonical booking/key to an exact Channex
-property, channel, booking and thread, body digest, context revision, source
-handoff evidence, original fire time and expiry. Registration is restricted to
-future unsent rows. The route defaults disabled and the worker role cannot
-register jobs, change routes or enable sending. Identity survives replacement
-of an automation rule. Route identity is immutable so old receipts cannot be
-reinterpreted using a later channel mapping.
+The draft extends canonical `automation_sends`. Registering an existing future
+unsent row binds its booking/key to a permanent attempt identity, exact provider
+route/booking/thread, source stop/drain evidence and expiry. Registration still
+requires a reviewed external history/queue manifest; this worker cannot invent
+that evidence, register a job, change a route or enable sending.
 
-Immediately before the one POST, an atomic claim locks the booking, schedule and
-job and checks the current hold/status/dates, effective rule, due time, expiry,
-Helm ownership, route generation and source stop/drain evidence. The context
-revision covers guest-facing times, checkout adjustments, templates, guest and
-access sources. Any changed context blocks the prepared body. This deliberately
-conservative revision still needs integration with the current renderer and
-automatic schedule refresh before live activation; it is not a completed live
-reservation adapter. Preserve main's newer `loadGuestTimes` sourcing (rate-plan
-check-in and `properties.default_checkout_time`) when integrating.
+`channex-message-schedule.sql` adds provider-normalized timing observations,
+bound to the canonical booking dates. A null ETA/ETD means the source was checked
+and has no override. A missing observation is unresolved. Confirmation uses the
+actual confirmation event, never first-seen/import time. The four guest workflows
+preserve confirmation +30 minutes, pre-arrival one calendar day before ETA, code
+60 minutes before ETA, and pre-checkout one calendar day before ETD. Listing
+fallbacks use rate-plan check-in and `properties.default_checkout_time`, matching
+current main. Checkout adjustments take precedence. Nonexistent/ambiguous local
+DST times block for source resolution. Cleaner execution remains separate work.
 
-Only a newly committed claim permits a POST. A claim replay, lost acknowledgement,
-provider timeout, unexpected response or lost result write cannot cause another
-send. Each job permanently retains its attempt identity. Accepted, unknown and
-rejected results are distinct; no automatic retry path exists. A result write
-can be replayed identically, but conflicting results and downgrades are refused.
-If result persistence is uncertain, the worker returns the body-free outcome and
-attempt ID so the caller can reconcile/save that receipt without another POST.
-Accepted messages can be reconciled by GET against the exact provider ID and
-content hash. `recorded` proves a provider-history record, not guest delivery.
-An uncertain send without a provider ID remains unresolved for reconciliation.
+A single database statement returns the current timing, template and minimum
+render inputs with a context digest. Clear access values exist only in server
+memory; no clear body is written to the schedule or job. A compare-and-swap
+refresh updates only unattempted scheduled/held jobs, preserving holds and their
+source expiry. Due work can refresh content, but a changed schedule moving into
+the past cannot silently become catch-up. Moves beyond the original expiry need
+reviewed replacement evidence; refresh never extends it. Cancelled and attempted
+jobs cannot be revived. The native planner no longer retimes reserved jobs.
 
-The native dispatcher, stuck-send cleanup and operator approval exclude reserved
-`delivery_used='channex'` rows. Database triggers also prevent a legacy claim or
-manual rerouting of a registered job. A hold/cancellation committed before the
-claim wins; one arriving after the claim cannot recall an in-flight HTTP request.
-Finish preserves any schedule cancellation while retaining the provider receipt.
-The schedule planner may invalidate a prepared job by retiming it, but cannot
-silently send the stale body or create a replacement attempt.
+Immediately before one POST, the durable claim rechecks the current schedule,
+hold, booking, effective rule, minimum stay, workflow binding, rendered-context
+digest, route generation, Helm ownership and source handoff. Changes after the
+snapshot invalidate the render. A hold/cancellation committed before claim wins;
+after claim it cannot recall an in-flight request. The existing native sender and
+approval path exclude this rail, and SQL prevents manual rerouting.
 
-Validation: 10 new worker/RPC tests plus 28 disposable local PostgreSQL scenarios
-using the actual SQL, worker and transport with synthetic provider responses.
-These exercise competing workers, holds, cancellation, context changes, expiry,
-route/role boundaries, conflicting results, PostgreSQL restart and lost-save
-recovery. The full suite passes 2,179 tests / 240 suites; nonincremental TypeScript
-and scoped ESLint pass. No hosted test or actual delivery was performed.
+Attempt identity survives restart. Provider timeout, ambiguous response or lost
+acknowledgement cannot trigger another POST. The scheduled caller can retry the
+idempotent database receipt save only. Accepted receipts reconcile by exact
+provider-ID/history GET; `recorded` is not proof of guest delivery. Unknown sends
+without a provider ID remain unresolved. A scan timestamp rotates blocked work
+and unconfirmed receipts so they cannot starve other messages. Cron returns only
+counts and fixed error text, with attention counts in the existing sync status.
 
-PriceLabs source capture is now complete: 541 consecutive daily rates/minimum
-stays from October 21, 2026 through April 13, 2028, plus the visible rule settings.
-See `../provider-architecture.md` for the private-file digest and audit.
-Production Channex access and PriceLabs-to-Channex parity remain unverified.
+Deployment contract (not activated): install `automation-holds.sql`,
+`channex-message-worker.sql`, then `channex-message-schedule.sql` before any job
+registration. The pair is an initial draft installation, not an upgrade script
+for populated message tables. Set server-only `CHANNEX_MESSAGES_ENABLED=true`,
+`CHANNEX_MESSAGES_PROPERTY_ID` (canonical Helm ID),
+`CHANNEX_MESSAGES_ENVIRONMENT` (`staging` or `production`) and
+`CHANNEX_MESSAGES_API_KEY` only after account, cost and handoff acceptance. The
+route must also be enabled independently. Absent the exact enable flag, the cron
+performs no Channex database/provider work. `?dry=1` only counts candidates; it
+loads no access snapshot and writes/sends nothing. The existing 15-minute cadence
+is a dispatch opportunity, not a guarantee of instantaneous delivery.
+
+Validation: 11 new scheduling tests; full suite **2,190 tests / 240 suites**;
+nonincremental TypeScript and scoped ESLint. The actual SQL, scheduled adapter,
+worker and transport passed **42 disposable local PostgreSQL scenarios**, using
+synthetic provider responses only. These include concurrent workers, restart,
+lost-save recovery, holds, moved ETA, checkout precedence, DST, source/template
+races, no catch-up, fair scans and role boundaries. Initial checks caught SQL CASE
+syntax and a timestamp-display test mismatch; both were corrected before the
+final passing run. No hosted delivery or migration acceptance is claimed.
 
 Remaining delivery work:
 
-1. Complete verified real identity/source-history registration, automatic
-   rendering/schedule refresh and the scheduled worker caller. Import only
-   future unsent messages after verified source-sender stop/drain; retain holds
-   and prior sent identities. Keep the existing Guesty relative times.
-2. Integrate the existing Quo cleaner sender with durable **per-recipient**
-   attempts and authenticated delivery receipts. The current production cleaner
-   loop records only the first provider ID for multiple texts. Do not repurpose
-   the fictional rehearsal worker with production credentials.
+1. Implement verified real booking/thread and source-history registration plus
+   the timing-observation writer. Bind observations to each provider revision
+   and canonical stay update; do not reuse the fictional importer as production.
+   Import future unsent work after verified source stop/drain, retaining holds
+   and prior identities. Confirm source expiry policy and real DST queue parity.
+2. Integrate Quo cleaner sending with durable **per-recipient** attempts and
+   authenticated delivery receipts. The current cleaner loop records only the
+   first provider ID across recipients. Keep the existing cleaner reminder times.
 3. Review/apply the schema and scoped runtime configuration after production
-   account/cost checks. Reuse Quo/Resend; this batch adds no paid service.
-4. Run an explicitly approved actual-channel delivery and restart check. Then
-   activate future unsent messages at the contract-timed cutover. No manual
-   guest-message fallback is an acceptable substitute for that acceptance.
+   account/cost checks. PriceLabs source capture is complete (541 daily values),
+   but PriceLabs-to-Channex parity and production access remain unverified.
+4. Run an explicitly authorized actual-channel delivery/restart check, then
+   activate at the contract-timed cutover. Manual messages are not a substitute.
 
 Branch `codex/channex-staging-pilot`; original base
-`a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`; batch starts at `70e1b4d9`.
+`a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`; this batch starts at `21db3063`.
 Fetched main `dd85f1c1b61eb28c676fb6a7c542d91777517399`. Unrelated contract edits
-are excluded. Native sender changes only exclude the reserved rail; guest-time
-loading and existing guest/cleaner delivery behavior otherwise remain untouched.
+are excluded. Main's newer guest-time sourcing is preserved in the new adapter;
+existing native guest/cleaner behavior is otherwise unchanged.
 
 ## Decisions
 

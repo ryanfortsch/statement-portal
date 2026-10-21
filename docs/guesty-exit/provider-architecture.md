@@ -31,20 +31,22 @@ operator-resolution flow is still needed. The authenticated preview diagnostics
 route returned HTTP 200, but its JSON body was not inspected after a browser
 download stalled. Detailed historical receipts remain below.
 
-**October 21 messaging batch:** the Channex text transport is now composed with
-`src/lib/channex-messaging/worker.ts` and draft PostgreSQL claim/result RPCs.
-It extends an existing schedule row with a permanent attempt identity, exact
-route/body binding and source handoff evidence. A claim rechecks holds, ownership,
-context, due time and expiry before one POST. Restart or an uncertain outcome
-cannot resend; accepted receipts recover through provider-history GETs. The
-native sender excludes reserved jobs, with matching database enforcement.
+**October 21 messaging batch:** the Channex transport, durable claim/result
+worker, authoritative renderer and schedule refresh now run together through the
+existing authenticated automation cron. An explicit property/environment flag
+keeps the new path off by default. Provider-normalized ETA/ETD observations bind
+to current stay dates; current guest-facing house times supply verified defaults.
+Refresh preserves holds and expiry, blocks catch-up and cannot revive an attempt.
+The final claim catches changed source facts before one POST. Accepted receipts
+reconcile by provider-history GET; unknown outcomes cannot trigger resend.
 
-Ten worker tests and 28 actual local PostgreSQL scenarios passed, including
-competing workers, cancellation/holds and lost-save recovery. Full suite: 2,179
-passing tests. The draft SQL is **not applied**, the worker defaults disabled,
-and registration, automatic rendering/schedule refresh and a scheduled caller
-remain to be integrated. No live recipient or production sender was used.
-Acceptance/provider-history records do not establish guest delivery.
+Eleven new scheduler tests and 42 actual local PostgreSQL scenarios passed,
+including the complete scheduled path, date/time changes, DST, template races,
+concurrent workers, fair scans and lost-save recovery. Full suite: 2,190 passing
+tests. The paired SQL drafts are **not applied**, the scheduled path is disabled,
+and the real booking/thread/source-history/timing writer remains unfinished.
+No new server or subscription is required by this batch. Acceptance/history
+records do not establish recipient delivery.
 
 The existing Helm Quo and Resend senders can be reused. The production OTA rail
 still requires manual posting, and its cleaner SMS loop stores only the first
@@ -53,8 +55,8 @@ and per-recipient recovery requirements. Do not turn on that existing rail as a
 substitute for the remaining worker integration. See the
 [messaging handoff](staging-storage/calderwood-message-handoff.md#current-integration-status-october-21-2026).
 
-Next launch work is full-window PriceLabs parity, automatic schedule/render
-integration, durable per-recipient cleaner delivery, verified real bindings and
+Next launch work is full-window PriceLabs parity, verified reservation/source
+registration, durable per-recipient cleaner delivery, and
 actual-channel acceptance. PriceLabs access is now verified: an October 21
 read-only capture contains 541 consecutive dates of actual daily prices and
 minimum stays, plus the current customization and override audit. This is the

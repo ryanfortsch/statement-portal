@@ -1,5 +1,5 @@
 /**
- * Server/CLI transport, deliberately not connected to a route, cron or env loader.
+ * Server/CLI transport. Scheduling and credentials belong to the scheduled adapter.
  * The caller must durably claim a send and recheck booking/hold/sender ownership in
  * beforePost. This module is not a queue or a cross-process idempotency mechanism.
  * Contract: https://docs.channex.io/api-v.1-documentation/messages-collection

@@ -583,7 +583,16 @@ rows use `delivery_used='channex'`, excluded from the native dispatcher and
 protected from fallback by a database trigger. Job states distinguish `prepared`,
 `attempting`, `unknown`, `rejected`, `accepted` and provider-history `recorded`.
 Existing schedule status `sent` means provider acceptance here, not proof of
-recipient delivery. See the message handoff document for activation gaps.
+recipient delivery. The paired unapplied `channex-message-schedule.sql` adds
+`automation_channex_stay_times`: verified confirmation/ETA/ETD source observations
+bound to the canonical booking dates, plus explicit workflow and last-scan fields
+on jobs. Server-only snapshot/refresh/scan RPCs feed the existing cron and renderer.
+Refresh preserves holds and expiry, never revives attempts or manufactures catch-up;
+clear access/body values are never persisted by this path. Null ETA/ETD means
+verified source absence, not a missing fetch. The worker cannot write observations
+or register jobs. Current house checkout comes from `properties.default_checkout_time`.
+Both drafts must be installed before any registration; neither has been deployed.
+See the message handoff document for activation and source-writer gaps.
 
 Door codes never enter these tables in the clear: the rendered body in
 `automation_sends` is masked and the code goes only over the wire. Codes

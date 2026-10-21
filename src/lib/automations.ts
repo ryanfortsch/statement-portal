@@ -635,7 +635,8 @@ export async function planAutomations(opts: { now?: Date; propertyId?: string | 
       // resume only on a row still cancelled FOR THE SAME PAUSE REASON, so a
       // row an operator skipped, or one that sent, between read and write is
       // never touched.
-      const base = supabaseAdmin.from('automation_sends').update({ ...u.patch, updated_at: now.toISOString() }).eq('id', u.id);
+      const base = supabaseAdmin.from('automation_sends').update({ ...u.patch, updated_at: now.toISOString() }).eq('id', u.id)
+        .or('delivery_used.is.null,delivery_used.neq.channex');
       const { error } =
         u.resumeFrom !== null
           ? await base.eq('status', 'cancelled').eq('error', u.resumeFrom)
