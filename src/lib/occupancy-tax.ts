@@ -76,13 +76,20 @@ const CIF_BILLED_WINDOW: Record<string, { from: string; until: string | null }> 
   // bug ($132.74 over-credited, Dotti's ruling 2026-08-02). Nicole Handley
   // alone would have moved $266.77.
   //
-  // `until` is 09-03, not 09-02, because the switch was thrown partway
-  // through 09-02 and a date cannot split a day. Charges created that day
-  // therefore invert at 14.7%. That is the deliberate direction: a charge
-  // billed at 11.7% and inverted at 14.7% under-recognizes rent by ~2.6%
-  // and shows up in collected_rebuilds, whereas the other rounding would
-  // silently pay an owner tax money.
-  '17_beach_rd': { from: '1970-01-01', until: '2026-09-03' },
+  // The 09-02 switch did not hold: Guesty kept adding the CIF to new VRBO
+  // folios (Gale Weisenfeld HA-lS5iVPo, booked 09-22, $310.58) until Allie
+  // moved every managed listing to the account-level 11.7% on 2026-10-21
+  // (state and local combined into one line for Booking.com). So the
+  // window runs to 10-22.
+  //
+  // `until` is the day AFTER the switch because a date cannot split a day.
+  // Charges created on the switch day therefore invert at 14.7%. That is
+  // the deliberate direction: a charge billed at 11.7% and inverted at
+  // 14.7% under-recognizes rent by ~2.6% and shows up in collected_rebuilds,
+  // whereas the other rounding would silently pay an owner tax money.
+  // A stay with its own folio inverts at the folio's rate regardless
+  // (stripe-sync), so this only governs folio-less charges.
+  '17_beach_rd': { from: '1970-01-01', until: '2026-10-22' },
 };
 
 function inWindow(w: { from: string; until: string | null } | undefined, iso: string): boolean {
