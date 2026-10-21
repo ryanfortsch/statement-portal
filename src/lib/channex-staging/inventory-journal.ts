@@ -2,6 +2,24 @@ import { z } from 'zod';
 import { availabilityRequestSchema, availabilityReceiptSchema } from './availability-request.ts';
 import { MemoryInventoryOutbox } from './inventory-outbox.ts';
 
+export const INVENTORY_JOURNAL_LIMIT = 10_000;
+// Reserve settlement space before beginning more work on the single pilot lane.
+export const INVENTORY_JOURNAL_START_LIMIT = 9_990;
+export class InventoryHistoryCapacityError extends Error {
+  constructor() { super('Inventory history requires archival before new work'); }
+}
+export function inventoryJournalCapacity(commands: number) {
+  if (!Number.isSafeInteger(commands) || commands < 0 || commands > INVENTORY_JOURNAL_LIMIT) throw Error('Invalid history size');
+  return { commands, remaining: INVENTORY_JOURNAL_LIMIT - commands,
+    status: commands >= INVENTORY_JOURNAL_START_LIMIT ? 'needs-archive' as const
+      : commands >= 8_000 ? 'warning' as const : 'healthy' as const };
+}
+export function assertInventoryCommandCapacity(commands: number, kind: InventoryCommand['kind']) {
+  inventoryJournalCapacity(commands);
+  if (commands >= INVENTORY_JOURNAL_LIMIT || (commands >= INVENTORY_JOURNAL_START_LIMIT &&
+      ['enqueue', 'retire-pending', 'claim', 'dispatch'].includes(kind))) throw new InventoryHistoryCapacityError();
+}
+
 const int = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const positive = int.min(1);
 const id = z.string().trim().min(1);
@@ -26,7 +44,7 @@ const commandSchema = z.discriminatedUnion('kind', [
     completion: z.object({ receivedAt: int, executedAt: int, finishedAt: int, observedAt: int }).strict().optional(),
   }).strict() }).strict(),
 ]);
-const journalSchema = z.object({ format: z.literal(1), commands: z.array(commandSchema).max(10_000) }).strict();
+const journalSchema = z.object({ format: z.literal(1), commands: z.array(commandSchema).max(INVENTORY_JOURNAL_LIMIT) }).strict();
 export type InventoryCommand = z.infer<typeof commandSchema>;
 export type InventoryJournal = z.infer<typeof journalSchema>;
 export const emptyInventoryJournal = (): InventoryJournal => ({ format: 1, commands: [] });
@@ -63,11 +81,11 @@ export async function recordInventoryCommand(store: InventoryJournalStore, input
   int.parse(state.version);
   const { journal, queue } = replayInventoryJournal(state.journal);
   if (state.version !== journal.commands.length) throw new Error('Inventory journal version mismatch');
-  if (journal.commands.length >= 10_000) throw new Error('Inventory journal needs reviewed compaction');
   const before = JSON.stringify(queue.list());
   const result = apply(queue, command);
   // A failed claim cannot authorize dispatch and does not need a stored event.
   if (before === JSON.stringify(queue.list())) return { saved: false as const, result: undefined };
+  assertInventoryCommandCapacity(journal.commands.length, command.kind);
   journal.commands.push(command);
   if (!await store.append(state.version, journal)) return { saved: false as const, result: undefined };
   return { saved: true as const, result };

@@ -189,6 +189,31 @@ never key per-stay logic on `bookings.id` (`memory/project_bookings_duplicate_ro
   delta checks and two stable database reads before calling certification. SQL
   cannot independently attest to those HTTP observations. Browser roles have no
   access; manual `synthetic-canonical` evidence cannot silently become automatic.
+- **Installed only in isolated staging (October 21):**
+  `staging-storage/canonical-conflicts.sql` adds private
+  `helm_channex_revisions.conflicts` and service-only observe/report RPCs.
+  The observe wrapper retains the canonical transaction's booking-table/scope
+  lock order. A nested rollback removes failed booking, audit, automation and
+  receipt writes; only six fixed conflict classifications and the allowlisted
+  fictional revision survive. Repeats increment one identity's observation count.
+  A changed rejected payload cannot silently replace the first observation;
+  an existing committed receipt remains authoritative. Successful exact import
+  resolves its alert without deleting evidence. Unknown faults remain errors.
+  Reports expose at most 100 open identities, dates, reasons and timestamps plus
+  full counts; truncation is explicit. Browser roles and direct service writes
+  are denied. A conflict is not a receipt and never permits provider ACK. The
+  current batch still stops at its first conflict; later feed entries may wait.
+  This is an isolated diagnostic store, not a production conflict-resolution UI.
+- **Installed only in isolated staging (October 21):**
+  `staging-storage/booking-inventory-capacity.sql` replaces the private append
+  primitive without changing existing history or RPC signatures. From command
+  9,990 it refuses enqueue, rollover, claim and dispatch, leaving ten slots for
+  settlement of the pilot's existing attempt. The TypeScript journal enforces the
+  same boundary and reports a warning at 8,000. No-op expiry remains readable at
+  the absolute ceiling. The 10,000 limit remains: archival/compaction is still
+  required for sustained operation. No reset, pruning or archive is implemented.
+  Guarded hosted installation retained capture 23, plan 34 and journal 70, with
+  publishing paused and zero open conflicts. All old receipts remained intact.
 - **Installed only in isolated staging (October 19):** `docs/guesty-exit/staging-storage/canonical-revisions.sql`
   wraps the existing booking RPCs for the synthetic Calderwood Channex rehearsal.
   Private `helm_channex_revisions.scope`, `.bookings` and `.receipts` hold the

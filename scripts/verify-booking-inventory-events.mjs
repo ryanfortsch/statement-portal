@@ -1,3 +1,4 @@
+import { verifyBookingInventoryCapacity } from './verify-booking-inventory-capacity.mjs';
 import { verifyCanonicalSourceDatabase } from './verify-canonical-source.mjs';
 import { verifyBookingInventoryRefresh } from './verify-booking-inventory-refresh.mjs';
 import { verifyBookingInventoryWindow } from './verify-booking-inventory-window.mjs';
@@ -242,8 +243,10 @@ try {
     await verifyBookingInventoryWindow(windowDb, check);
   } finally { await windowDb.close(); }
   await verifyBookingInventorySchema(db, check);
-  await verifyCanonicalRevisions(db, check);
+  const canonical = await verifyCanonicalRevisions(db, check);
   await verifyCanonicalSourceDatabase(db, check);
+  await verifyBookingInventoryCapacity(db, check);
+  await canonical.verifyConflicts();
   console.log(`PASS: ${passed} local PostgreSQL integration checks; canonical RPC bodies exercised; no external connections.`);
 } catch (error) {
   console.error('FAIL:', error.message);

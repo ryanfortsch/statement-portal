@@ -2,12 +2,13 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 import { createCanonicalRevisionClient } from './canonical-revision-client.ts';
 import { createCanonicalRevisionStore } from './canonical-revision-store.ts';
+import { CanonicalRevisionConflict } from './canonical-conflicts.ts';
 import { ingestCanonicalRevisions } from './canonical-revisions.ts';
 
 type Environment = Record<string, string | undefined>;
 type Page = Awaited<ReturnType<typeof ingestCanonicalRevisions>>;
 type CycleLog = { event: 'canonical-revision-cycle'; at: string; outcome: 'success' | 'failure'; failures: number;
-  received?: number; applied?: number; stale?: number; acknowledged?: number };
+  conflict?: CanonicalRevisionConflict['reason']; received?: number; applied?: number; stale?: number; acknowledged?: number };
 export function canonicalPollingEnabled(env: Environment) {
   return env.CHANNEX_CANONICAL_POLLING_ENABLED === 'true' && env.CHANNEX_WORKER_MODE === 'isolated-staging'
     && !env.VERCEL_ENV && env.CHANNEX_STAGING_DB_PROJECT_REF === 'jgkblfozftcvymvwhhii'
@@ -44,10 +45,11 @@ export async function runCanonicalRevisionScheduler(input: {
       received = page.received; failures = 0;
       entry = { event: 'canonical-revision-cycle', at: new Date((input.now ?? Date.now)()).toISOString(),
         outcome: 'success', failures, received, applied: page.applied, stale: page.stale, acknowledged: page.acknowledged };
-    } catch {
+    } catch (error) {
       if (input.signal.aborted) break;
       failures++;
-      entry = { event: 'canonical-revision-cycle', at: new Date((input.now ?? Date.now)()).toISOString(), outcome: 'failure', failures };
+      entry = { event: 'canonical-revision-cycle', at: new Date((input.now ?? Date.now)()).toISOString(), outcome: 'failure', failures,
+        ...(error instanceof CanonicalRevisionConflict ? { conflict: error.reason } : {}) };
     }
     cycles++;
     try { input.log(entry); } catch { /* Telemetry cannot undo a durable import or cause an immediate retry. */ }

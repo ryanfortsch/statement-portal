@@ -1,3 +1,4 @@
+import { verifyBookingInventoryCapacity } from './verify-booking-inventory-capacity.mjs';
 import { verifyCanonicalSourceDatabase } from './verify-canonical-source.mjs';
 import { verifyBookingInventoryRefresh } from './verify-booking-inventory-refresh.mjs';
 import { verifyCanonicalRevisions } from './verify-canonical-revisions.mjs';
@@ -219,9 +220,10 @@ try{
   });
   await verifyBookingInventoryRefresh({exec:sql=>monitor.query(sql),query:(sql,args)=>monitor.query(sql,args)},check);
   await verifyBookingInventorySchema({exec:sql=>monitor.query(sql),query:(sql,args)=>monitor.query(sql,args)},check);
-  await verifyCanonicalRevisions({exec:sql=>monitor.query(sql),query:(sql,args)=>monitor.query(sql,args)},check);
+  const canonical = await verifyCanonicalRevisions({exec:sql=>monitor.query(sql),query:(sql,args)=>monitor.query(sql,args)},check);
 
   const source=await verifyCanonicalSourceDatabase({exec:sql=>monitor.query(sql),query:(sql,args)=>monitor.query(sql,args)},check);
+  await verifyBookingInventoryCapacity({exec:sql=>monitor.query(sql),query:(sql,args)=>monitor.query(sql,args)},check);
 
   const certifyWith=async(c,s,observed=Date.now())=>(await c.query('select helm_pilot_source_certify($1,$2,$3,$4,$5) ok',
     [JSON.stringify(s),JSON.stringify(s.bindings.map(b=>b.booking)),observed,source.start,source.end])).rows[0].ok;
@@ -253,6 +255,20 @@ try{
     await a.query("select property_id from helm_booking_inventory_consumers where property_id='HELMTEST-calderwood' for update");
     const pending=certifyWith(b,before,Date.now()-59900);await blocked(pending,pidB,pidA);
     await delay(150);await a.query('commit');assert.equal(await pending,false);
+  });
+
+  await canonical.verifyConflicts();
+  await check('conflict race: concurrent rejected duplicates retain one alert without calendar or receipt mutations',async()=>{
+    const prior=(await query("select revision from helm_channex_revisions.receipts where revision_id='80d4fed1-c4bc-4d30-b096-000000000020'")).rows[0].revision;
+    const revision={...prior,id:'984badb7-7810-42c2-a951-86c98977d101',bookingId:'984badb7-7810-42c2-a951-86c98977d102',code:'HELMTEST-concurrent-conflict'};
+    const before=(await query('select count(*)::int n from helm_channex_revisions.receipts')).rows[0].n;
+    await a.query('begin');
+    const first=(await a.query('select helm_pilot_revision_observe($1) result',[revision])).rows[0].result;
+    assert.equal(first.conflict.reason,'booking_overlap');
+    const pending=b.query('select helm_pilot_revision_observe($1) result',[revision]);
+    await blocked(pending,pidB,pidA);await a.query('commit');assert.deepEqual((await pending).rows[0].result,first);
+    const alert=(await query('select observations::int n from helm_channex_revisions.conflicts where revision_id=$1',[revision.id])).rows[0];
+    assert.equal(alert.n,2);assert.equal((await query('select count(*)::int n from helm_channex_revisions.receipts')).rows[0].n,before);
   });
 
   await check('canonical import race: concurrent duplicate notices create one canonical update',async()=>{

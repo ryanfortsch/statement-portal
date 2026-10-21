@@ -20,8 +20,25 @@ dates remained stopped, and publishing is paused at the completed checkpoint.
 The window RPC and rolling-year worker mode are installed; actual midnight
 advancement remains unobserved. See the [acceptance record](calderwood-provider-roundtrip.md#full-year-hosted-acceptance-october-21-2026)
 and [structured receipt](calderwood-rolling-year-receipt.json). Next engineering
-work is bounded history retention/operator conflicts, then PriceLabs and genuine
+work is archival/checkpointing and operator conflict resolution, then PriceLabs and genuine
 automated-message acceptance before a contract-timed production cutover.
+
+The October 21 safety batch adds durable rejected-revision diagnostics and
+reserves history capacity before starting a new calendar request. Both database
+patches are installed in the isolated project; installation preserved the entire
+70-command journal and paused publisher. The worker adapter calls the new
+observe wrapper, which never ACKs a conflict. The authenticated preview-only
+`GET /api/channels/staging/diagnostics` combines bounded conflict records, history
+capacity, source freshness and outstanding attempts; it grants no write authority.
+The two database reads are independent diagnostic snapshots, not a dispatch CAS.
+
+This closes the silent-conflict and late-history-exhaustion gaps, **not archival**.
+History is warned at 8,000 and new work stops at 9,990, preserving ten settlement
+slots. All records remain retained. A conflict resolves when its unchanged
+revision can commit against the corrected calendar (or matches an existing
+committed receipt); there is no force-ACK or ignore button. Polling retains the
+conflict at the head of its page and can delay subsequent revisions. Safe
+checkpoint/archival and a production operator-resolution flow remain launch work.
 
 The implemented **synthetic booking ingestion transaction** has now passed an
 actual Channex staging create/change/cancel round trip through the deployed
@@ -1802,3 +1819,22 @@ PriceLabs rates/minimum-stay parity, automatic guest and cleaner delivery with
 original timing/hold controls, real Channex account/cost verification, existing
 reservation reconciliation, sales pauses and the Guesty contract exit timetable.
 Hosted midnight rollover and prolonged reliability remain unobserved.
+
+## October 21 safety batch handoff
+
+Owned branch `codex/channex-staging-pilot`, original base `a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`;
+upstream main verified as `51c84564d46debc3b1c24d6ed4a325b1df9115af` during this batch.
+Scope: journal/planner/window guards, canonical import store and both scheduler
+logs, new conflict/diagnostic modules, one authenticated read-only API route,
+two isolated SQL patches, three unit-test files, the existing database runners
+plus one capacity verifier, and the existing architecture/schema/deployment docs.
+Unrelated dirty contract notes in `calderwood-cutover-readiness.md` are excluded.
+
+Validation: 2,122 tests / 240 suites; nonincremental TypeScript; scoped ESLint;
+122 PGlite and 104 native PostgreSQL checks. The latter include a real concurrent
+conflict observation race and prior canonical/source locking checks. The exact
+hosted installation transaction was rehearsed locally for preservation, repeat
+refusal and denied browser access. Installation then returned plan 34, journal
+70, publishing false and zero conflicts. No provider calendar or message call
+was made by that installation. Hosted conflict lifecycle remains to be exercised;
+local tests prove rollback, retry, resolution and immutable identity behavior.

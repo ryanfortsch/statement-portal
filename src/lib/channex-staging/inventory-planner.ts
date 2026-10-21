@@ -1,7 +1,7 @@
 /** Snapshot-to-outbox transaction boundary. No production adapter or provider IO. */
 import { createHash } from 'node:crypto';
 import { projectInventory, type InventorySnapshot } from './inventory-projection.ts';
-import { replayInventoryJournal, type InventoryJournal } from './inventory-journal.ts';
+import { assertInventoryCommandCapacity, replayInventoryJournal, type InventoryJournal } from './inventory-journal.ts';
 import type { InventoryIntent } from './inventory-outbox.ts';
 export type PlanningState = {
   snapshot: InventorySnapshot;
@@ -42,7 +42,7 @@ export async function planInventory(store: InventoryPlanningStore, start: string
   const before = JSON.stringify(queue.list());
   queue.enqueue(intent, now); // Enforces ordering and detects reused identity with changed content.
   if (before === JSON.stringify(queue.list())) return { status: 'unchanged' as const, projection };
-  if (journal.commands.length >= 10_000) throw new Error('Inventory journal needs reviewed compaction');
+  assertInventoryCommandCapacity(journal.commands.length, 'enqueue');
   journal.commands.push({ kind: 'enqueue', intent, now });
   const saved = await store.commit({ snapshotVersion: projection.version,
     configurationVersion: state.configurationVersion, journalVersion: state.journalVersion }, journal, projection.freshUntil);

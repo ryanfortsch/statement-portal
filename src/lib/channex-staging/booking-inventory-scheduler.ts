@@ -6,7 +6,7 @@ import { createBookingInventoryConsumerStore } from './booking-inventory-consume
 import { bookingInventoryCoverage, bookingInventorySnapshot, parseBookingInventoryState } from './booking-inventory-consumer.ts';
 import { runBookingInventoryCycle, reconcileBookingInventoryOnce } from './booking-inventory-cycle.ts';
 import { advanceInventoryWindow, inventoryWindowDecision, rollingInventoryWindow } from './booking-inventory-window.ts';
-import { recordInventoryCommand } from './inventory-journal.ts';
+import { InventoryHistoryCapacityError, recordInventoryCommand } from './inventory-journal.ts';
 
 import { CANONICAL_BOOKING_SOURCE, renewCanonicalSourceCoverage } from './canonical-source.ts';
 import { createCanonicalSourceClient } from './canonical-source-client.ts';
@@ -97,9 +97,10 @@ export async function runInventoryScheduler(input: {
     try {
       result = await input.cycle(AbortSignal.any([input.signal, AbortSignal.timeout(120000)]));
       failures = ['failed', 'needs-review', 'incomplete', 'mismatch', 'expired', 'disabled', 'source-not-configured'].includes(result.status) ? failures + 1 : 0;
-    } catch {
+    } catch (error) {
       if (input.signal.aborted) break;
-      failures++; result = { phase: 'cycle', status: 'failed' };
+      failures++; result = error instanceof InventoryHistoryCapacityError
+        ? { phase: 'history', status: 'needs-review' } : { phase: 'cycle', status: 'failed' };
     }
     cycles++;
     try { input.log({ event: 'canonical-inventory-cycle', at: new Date((input.now ?? Date.now)()).toISOString(), failures, ...result }); }

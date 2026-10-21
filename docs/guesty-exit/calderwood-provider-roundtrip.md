@@ -8,6 +8,13 @@ RPC is installed and rolling mode is configured. Test publishing is paused after
 the completed run. See the [structured receipt](calderwood-rolling-year-receipt.json)
 and the dated acceptance section below. Hosted midnight rollover remains unobserved.
 
+**Safety installation, October 21:** private conflict observations and the
+history settlement reserve are installed. The guarded transaction preserved all
+bookings, capture events, receipts and consumer state; its result was plan 34,
+journal 70, publishing false and zero open conflicts. No history was archived or
+removed. The new importer/status code requires this patch before deployment.
+[Hosted installation receipt](https://supabase.com/dashboard/project/jgkblfozftcvymvwhhii/sql/b89dafd2-dff3-459c-a67c-839518644f08).
+
 **Previous hosted milestone, October 20:** the deployed worker automatically closed dates
 for a fictional Helm booking, reopened/closed dates when it moved, and reopened
 them after cancellation. A service restart recovered the pending cancellation;

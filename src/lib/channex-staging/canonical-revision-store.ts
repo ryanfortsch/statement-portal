@@ -1,6 +1,7 @@
+import { assertNoCanonicalConflict, parseCanonicalConflictReport } from './canonical-conflicts.ts';
 import { createClient } from '@supabase/supabase-js';
 import { parseCanonicalRevision, type CanonicalRevisionStore } from './canonical-revisions.ts';
-export function createCanonicalRevisionStore(url: string, key: string, fetcher: typeof fetch = fetch): CanonicalRevisionStore {
+export function createCanonicalRevisionStore(url: string, key: string, fetcher: typeof fetch = fetch): CanonicalRevisionStore & { conflicts(): Promise<ReturnType<typeof parseCanonicalConflictReport>> } {
   if (typeof window !== 'undefined' || url !== 'https://jgkblfozftcvymvwhhii.supabase.co' || !key.trim()) {
     throw Error('Explicit isolated staging storage required');
   }
@@ -11,7 +12,13 @@ export function createCanonicalRevisionStore(url: string, key: string, fetcher: 
     return data;
   }
   return {
-    commit: r => rpc('helm_pilot_revision_commit', { p_revision: parseCanonicalRevision(r) }),
+    async commit(r) {
+      const revision = parseCanonicalRevision(r);
+      const result = await rpc('helm_pilot_revision_observe', { p_revision: revision });
+      assertNoCanonicalConflict(result, revision);
+      return result;
+    },
+    conflicts: async () => parseCanonicalConflictReport(await rpc('helm_pilot_revision_conflicts', {})),
     receipt: id => {
       if (!/^[0-9a-f-]{36}$/i.test(id)) throw Error('Invalid revision ID');
       return rpc('helm_pilot_revision_receipt', { p_id: id });

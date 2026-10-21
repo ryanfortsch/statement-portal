@@ -25,7 +25,10 @@ One replica only. Messaging has no webhook or outbound operation. Empty successf
 `CHANNEX_CANONICAL_POLLING_ENABLED=true` enables the independent canonical booking
 loop. It also requires the exact staging URL above, `CHANNEX_STAGING_DB_PROJECT_REF=jgkblfozftcvymvwhhii`,
 worker mode `isolated-staging`, no `VERCEL_ENV`, and both existing staging credentials.
-The canonical pilot baseline and import scope must already be installed. Configuration
+The canonical pilot baseline, import scope and `canonical-conflicts.sql` patch must
+already be installed. Install `booking-inventory-capacity.sql` after the planning
+SQL before deploying the matching inventory worker. Missing conflict RPCs fail
+closed; the importer does not fall back to the old path. Configuration
 errors fail startup; the loop never initializes or rewrites missing storage.
 
 It starts immediately, imports at most 100 revisions per page through the same
@@ -37,7 +40,8 @@ page. Partial commits/ACKs recover from the retained feed and durable receipts.
 One-shot mode runs one page and exits nonzero on failure. No loop overlaps itself.
 
 `canonical-revision-cycle` logs outcome, time, failure count and revision counts
-only. These are separate from Beach worker health; a healthy Beach heartbeat does
+and, for a known conflict, its fixed reason code only. No raw exception text or
+booking identity is logged. These are separate from Beach worker health; a healthy Beach heartbeat does
 not prove Calderwood polling. Logs are not a durable freshness dashboard. The loop
 cannot activate message sending, publish inventory, or attest initial coverage.
 Disable its flag to return to the existing worker loops while keeping receipts.

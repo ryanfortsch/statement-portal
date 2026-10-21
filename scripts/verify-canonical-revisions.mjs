@@ -123,4 +123,85 @@ export async function verifyCanonicalRevisions(db, check) {
     assert.equal(saved.committed,true);assert.equal(saved.revision.id,make(1).id);
     assert.equal(saved.canonicalBookingId,(await current()).id);
   });
+  return { verifyConflicts: async () => {
+  const conflictsSql=readFileSync(new URL('../docs/guesty-exit/staging-storage/canonical-conflicts.sql',import.meta.url),'utf8');
+  await db.exec(conflictsSql);
+  const observe=async r=>(await query('select helm_pilot_revision_observe($1) result',[r]))[0].result;
+  const report=async()=>(await query('select helm_pilot_revision_conflicts() result'))[0].result;
+  const overlap=make(20,{bookingId:'71fd4039-cef3-4495-aac8-1979cac9890b',code:'HELMTEST-conflict',checkIn:'2027-02-13',checkOut:'2027-02-14'});
+  await check('conflict: failed transaction leaves only a private conflict and no booking, capture, receipt or message changes',async()=>{
+    const before=await counts();
+    await db.exec('set role service_role');
+    try {assert.deepEqual(await observe(overlap),{committed:false,conflict:{revisionId:overlap.id,bookingId:overlap.bookingId,reason:'booking_overlap'}});}
+    finally {await db.exec('reset role');}
+    assert.deepEqual(await counts(),before);
+    assert.equal(await store.receipt(overlap.id),null);
+    assert.equal((await report()).openCount,1);
+    assert.equal((await report()).open[0].observations,1);
+    assert.ok(!JSON.stringify(await report()).includes('Fictional'));
+  });
+  await check('conflict: repeats keep one identity and a monotonic observation count',async()=>{
+    const before=(await report()).open[0];await observe(overlap);
+    const after=(await report()).open[0];assert.equal(after.observations,2);
+    assert.equal(after.firstSeenAt,before.firstSeenAt);assert.ok(after.lastSeenAt>=before.lastSeenAt);
+    assert.equal((await report()).openCount,1);
+  });
+  await check('conflict: changed content for a previously rejected revision cannot create a booking',async()=>{
+    const before=await counts();
+    const changed=await observe({...overlap,checkIn:'2027-03-01',checkOut:'2027-03-02'});
+    assert.equal(changed.conflict.reason,'revision_identity_conflict');assert.deepEqual(await counts(),before);
+    const saved=(await query('select revision from helm_channex_revisions.conflicts where revision_id=$1',[overlap.id]))[0].revision;
+    assert.deepEqual(saved,overlap);
+  });
+  await check('conflict: missing capture, disabled scope and invalid input remain hard failures',async()=>{
+    const before=await report();
+    for(const r of [{...overlap,customer:'PRIVATE'}, {...overlap,propertyId:remote}])await assert.rejects(()=>observe(r));
+    await db.exec('update helm_channex_revisions.scope set enabled=false');
+    try {await assert.rejects(()=>observe(overlap),/disabled/);} finally {await db.exec('update helm_channex_revisions.scope set enabled=true');}
+    assert.deepEqual(await report(),before);
+  });
+  await check('conflict: resolving the actual calendar collision permits a receipt and closes the alert',async()=>{
+    await observe(make(21,{status:'cancelled',checkIn:'2027-02-13',checkOut:'2027-02-15'}));
+    const result=await observe(overlap);assert.equal(result.committed,true);assert.equal(result.outcome,'applied');
+    const after=await counts();await observe(overlap);assert.deepEqual(await counts(),after);
+    assert.equal((await report()).openCount,0);assert.equal((await report()).resolvedCount,1);
+    assert.equal((await store.receipt(overlap.id)).canonicalBookingId,result.canonicalBookingId);
+  });
+  await check('conflict: unknown database faults roll back instead of becoming acknowledged conflicts',async()=>{
+    await db.exec("create function helm_channex_revisions.fixture_fail() returns trigger language plpgsql as $$begin raise exception 'fixture_receipt_failure'; end$$; create trigger fixture_failure before insert on helm_channex_revisions.receipts for each row execute function helm_channex_revisions.fixture_fail()");
+    const before=await counts(),alerts=await report();
+    try {await assert.rejects(()=>observe(make(22,{status:'cancelled'})),/fixture_receipt_failure/);}
+    finally {await db.exec('drop trigger fixture_failure on helm_channex_revisions.receipts; drop function helm_channex_revisions.fixture_fail()');}
+    assert.deepEqual(await counts(),before);assert.deepEqual(await report(),alerts);
+  });
+  await check('conflict: historical receipt identity and equal-time ordering stay blocked',async()=>{
+    assert.equal((await observe({...make(1),checkOut:'2027-02-06'})).conflict.reason,'revision_identity_conflict');
+    assert.equal((await observe(make(23,{receivedAt:make(21).receivedAt}))).conflict.reason,'ambiguous_revision_order');
+    assert.equal((await report()).openCount,2);
+  });
+  await check('conflict: returning to the authoritative committed payload resolves a changed-payload alert',async()=>{
+    const before=await counts();assert.equal((await observe(make(1))).committed,true);
+    assert.deepEqual(await counts(),before);assert.equal((await report()).openCount,1);
+    assert.equal((await report()).resolvedCount,2);
+  });
+  await check('conflict: browser roles have no function/table access; service has no direct writes',async()=>{
+    for(const role of ['anon','authenticated','service_role']){
+      await db.exec('set role '+role);
+      try {
+        await assert.rejects(()=>query('select * from helm_channex_revisions.conflicts'),/permission denied/);
+        await assert.rejects(()=>query('delete from helm_channex_revisions.conflicts'),/permission denied/);
+        if(role!=='service_role'){
+          await assert.rejects(()=>observe(overlap),/permission denied/);
+          await assert.rejects(()=>report(),/permission denied/);
+        } else assert.equal((await report()).openCount,1);
+      }finally{await db.exec('reset role');}
+    }
+  });
+  await check('conflict: reinstall preserves open and resolved evidence',async()=>{
+    const before=await report(),rows=await query('select * from helm_channex_revisions.conflicts order by revision_id');
+    await db.exec(conflictsSql);assert.deepEqual(await report(),before);
+    assert.deepEqual(await query('select * from helm_channex_revisions.conflicts order by revision_id'),rows);
+  });
+
+  } };
 }

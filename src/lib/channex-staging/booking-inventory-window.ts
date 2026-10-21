@@ -1,7 +1,7 @@
 /** One-day rolling-window boundary. No source renewal, initial enablement or IO. */
 import { shiftIsoDay, todayInEastern } from '../sca-quotes-types.ts';
 import { bookingInventoryCoverage, type BookingInventoryState, type BookingInventoryConsumerStore } from './booking-inventory-consumer.ts';
-import { replayInventoryJournal, type InventoryCommand } from './inventory-journal.ts';
+import { assertInventoryCommandCapacity, replayInventoryJournal, type InventoryCommand } from './inventory-journal.ts';
 
 export function rollingInventoryWindow(now: number) {
   if (!Number.isSafeInteger(now) || now < 0) throw Error('Invalid inventory clock');
@@ -24,6 +24,7 @@ export function inventoryWindowDecision(state: BookingInventoryState, now: numbe
   const { journal, queue } = replayInventoryJournal(state.journal);
   const unsettled = queue.list().find(j => !['pending', 'verified', 'superseded'].includes(j.status));
   if (unsettled) return { status: 'unsettled' as const, id: unsettled.id };
+  assertInventoryCommandCapacity(journal.commands.length, 'retire-pending');
   const command: InventoryCommand = { kind: 'retire-pending', connection: c.connection, property: state.property, generation: c.generation };
   const next = { ...journal, commands: [...journal.commands, command] };
   replayInventoryJournal(next); // Also refuses generation skew and exhausted history.
