@@ -3,13 +3,19 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { CALDERWOOD_STAGING, readCalderwoodChannex } from '../calderwood-readonly/channex.ts';
 import { ChannexAvailabilityClient } from './availability-client.ts';
 import { createBookingInventoryConsumerStore } from './booking-inventory-consumer-store.ts';
-import { bookingInventorySnapshot, parseBookingInventoryState } from './booking-inventory-consumer.ts';
+import { bookingInventoryCoverage, bookingInventorySnapshot, parseBookingInventoryState } from './booking-inventory-consumer.ts';
 import { runBookingInventoryCycle, reconcileBookingInventoryOnce } from './booking-inventory-cycle.ts';
-import { advanceInventoryWindow, inventoryWindowDecision } from './booking-inventory-window.ts';
+import { advanceInventoryWindow, inventoryWindowDecision, rollingInventoryWindow } from './booking-inventory-window.ts';
 import { recordInventoryCommand } from './inventory-journal.ts';
 
+import { CANONICAL_BOOKING_SOURCE, renewCanonicalSourceCoverage } from './canonical-source.ts';
+import { createCanonicalSourceClient } from './canonical-source-client.ts';
+import { createCanonicalSourceStore } from './canonical-source-store.ts';
+import { canonicalPollingEnabled } from './canonical-revision-scheduler.ts';
+import { shiftIsoDay } from '../sca-quotes-types.ts';
+
 type Environment = Record<string, string | undefined>;
-type Result = Awaited<ReturnType<typeof runBookingInventoryCycle>> | { phase: 'window'; status: 'blocked' | 'needs-review' | 'superseded' };
+type Result = { phase: 'source'; status: string } | Awaited<ReturnType<typeof runBookingInventoryCycle>> | { phase: 'window'; status: 'blocked' | 'needs-review' | 'superseded' };
 export const CALDERWOOD_INVENTORY_PILOT = Object.freeze({ property: 'HELMTEST-calderwood',
   connection: 'calderwood-hosted-inventory', generation: 1, start: '2027-04-10', end: '2027-04-13', source: 'synthetic-canonical' });
 export function inventoryPollingEnabled(env: Environment) {
@@ -21,6 +27,8 @@ export function createInventoryCycleRunner(env: Environment, fetcher: typeof fet
   if (!inventoryPollingEnabled(env) || !env.CHANNEX_STAGING_API_KEY?.trim() || !env.CHANNEX_STAGING_DB_SERVICE_KEY?.trim()) {
     throw Error('Explicit isolated inventory worker configuration required');
   }
+  const automaticSource = env.CHANNEX_CALDERWOOD_SOURCE_COVERAGE_ENABLED === 'true';
+  if (automaticSource && !canonicalPollingEnabled(env)) throw Error('Canonical polling required for automatic source coverage');
   const mode = env.CHANNEX_CALDERWOOD_INVENTORY_WINDOW ?? 'fixed-pilot';
   if (!['fixed-pilot', 'rolling-year'].includes(mode)) throw Error('Unknown inventory window mode');
   return async (signal: AbortSignal): Promise<Result> => {
@@ -35,10 +43,23 @@ export function createInventoryCycleRunner(env: Environment, fetcher: typeof fet
     const assertRoute = () => {
       const c = state.configuration;
       if (c.connection !== p.connection || c.generation !== p.generation || c.listing !== m.roomTypeId ||
-          c.requiredSources.length !== 1 || c.requiredSources[0] !== p.source || state.inputs.authority !== 'helm' ||
+          c.requiredSources.length !== 1 || c.requiredSources[0] !== (automaticSource ? CANONICAL_BOOKING_SOURCE : p.source) || state.inputs.authority !== 'helm' ||
           (mode === 'fixed-pilot' && (c.start !== p.start || c.end !== p.end))) throw Error('Inventory pilot configuration changed');
     };
     assertRoute();
+    if (automaticSource) {
+      const target = mode === 'rolling-year' ? rollingInventoryWindow(Date.now()) : state.configuration;
+      const coverage = bookingInventoryCoverage(state, target.start, target.end, Date.now());
+      if (!coverage || coverage.some(c => c.freshUntil <= Date.now() + 300000)) {
+        if (!state.inputs.plan) return { phase: 'source', status: 'blocked' };
+        const buffer = state.inputs.plan.turnover_buffer_days;
+        const verified = await renewCanonicalSourceCoverage(createCanonicalSourceClient(env.CHANNEX_STAGING_API_KEY!, boundedFetch),
+          createCanonicalSourceStore(env.CHANNEX_STAGING_DB_URL!, env.CHANNEX_STAGING_DB_SERVICE_KEY!, boundedFetch),
+          { start: shiftIsoDay(target.start, -buffer), end: shiftIsoDay(target.end, buffer) });
+        if (!verified.complete) return { phase: 'source', status: verified.status };
+        state = parseBookingInventoryState(await store.read(), p.property); assertRoute();
+      }
+    }
     const client = new ChannexAvailabilityClient(env.CHANNEX_STAGING_API_KEY!, {
       environment: 'staging', helmProperty: p.property, connection: p.connection, generation: p.generation,
       propertyId: m.propertyId, roomTypeId: m.roomTypeId, propertyTitle: '65 Calderwood - Isolated Staging',
@@ -53,7 +74,8 @@ export function createInventoryCycleRunner(env: Environment, fetcher: typeof fet
       if (inventoryWindowDecision(state, Date.now()).status !== 'current') return { phase: 'plan', status: 'blocked' };
     }
     const c = state.configuration;
-    // Coverage is owner-reviewed and expires within one hour. Never renew it here.
+    // Only the explicitly configured complete-source verifier can renew coverage.
+    // Publish authority remains independent, including after successful certification.
     if (!c.publishEnabled || !bookingInventorySnapshot(state, Date.now())) return { phase: 'plan', status: 'blocked' };
     // Also retain the stopped rate/default and exact occupancy guards used by ingestion.
     const isolated = await readCalderwoodChannex(env.CHANNEX_STAGING_API_KEY!, { from: c.start, to: c.end }, boundedFetch);
@@ -74,7 +96,7 @@ export async function runInventoryScheduler(input: {
     let result: { phase: string; status: string };
     try {
       result = await input.cycle(AbortSignal.any([input.signal, AbortSignal.timeout(120000)]));
-      failures = ['failed', 'needs-review', 'incomplete'].includes(result.status) ? failures + 1 : 0;
+      failures = ['failed', 'needs-review', 'incomplete', 'mismatch', 'expired', 'disabled', 'source-not-configured'].includes(result.status) ? failures + 1 : 0;
     } catch {
       if (input.signal.aborted) break;
       failures++; result = { phase: 'cycle', status: 'failed' };

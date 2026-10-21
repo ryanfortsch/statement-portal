@@ -12,7 +12,7 @@ function state() {
   return { property:p.property,captureEnabled:true,captureVersion:1,configurationVersion:1,
     configuration:{environment:'staging',topology:'single-unit',connection:String(p.connection),listing:m.roomTypeId,generation:1,
       publishEnabled:true,timeZone:'America/New_York',start:String(p.start),end:String(p.end),requiredSources:[String(p.source)],
-      coverage:[{source:p.source,start:String(p.start),end:String(p.end),complete:true,observedAt:now-1000,freshUntil:now+1800000}]},
+      coverage:[{source:String(p.source),start:String(p.start),end:String(p.end),complete:true,observedAt:now-1000,freshUntil:now+1800000}]},
     plannedCaptureVersion:0,plannedConfigurationVersion:0,planVersion:0,journalVersion:0,journal:{format:1,commands:[]},
     lastDigest:null,plannedFreshUntil:0,inputsMatchPlan:false,
     inputs:{authority:'helm',plan:{advance_notice_hours:24,booking_window_days:365,turnover_buffer_days:0,checkin_time:'16:00'},bookings:[],rateDays:[],periods:[]} };
@@ -99,4 +99,46 @@ test('rolling worker refuses a full-year provider response missing even one inve
   await assert.rejects(()=>runner(new AbortController().signal),/Complete stopped/);
   assert.equal(calls.filter(p=>p.endsWith('/availability')).length,1);
   assert.equal(calls.filter(p=>p.endsWith('/restrictions')).length,1);
+});
+
+
+test('automatic source coverage requires importer polling and a separately reviewed source route',async()=>{
+  const flagged={...env,CHANNEX_CALDERWOOD_SOURCE_COVERAGE_ENABLED:'true'};
+  assert.throws(()=>createInventoryCycleRunner(flagged),/Canonical polling required/);
+  let calls=0;
+  const runner=createInventoryCycleRunner({...flagged,CHANNEX_CANONICAL_POLLING_ENABLED:'true'},async()=>{calls++;return Response.json(state());});
+  await assert.rejects(()=>runner(new AbortController().signal),/configuration changed/);assert.equal(calls,1);
+});
+test('worker certifies a complete source while paused without publishing inventory or sending messages',async()=>{
+  for(const saved of [false,true]) {
+    const s=state();s.configuration.requiredSources=['channex-staging-bookings'];s.configuration.coverage=[];s.configuration.publishEnabled=false;
+    const calls:{path:string;method:string}[]=[];
+    const source=()=>({property:p.property,captureEnabled:true,importEnabled:true,authority:'helm',captureVersion:s.captureVersion,
+      configurationVersion:s.configurationVersion,connection:p.connection,listing:m.roomTypeId,generation:1,
+      requiredSources:s.configuration.requiredSources,bindings:[],unmappedRemoteRows:0});
+    const runner=createInventoryCycleRunner({...env,CHANNEX_CALDERWOOD_SOURCE_COVERAGE_ENABLED:'true',CHANNEX_CANONICAL_POLLING_ENABLED:'true'},async(input,init)=>{
+      const u=new URL(String(input));calls.push({path:u.pathname,method:init?.method??'GET'});
+      if(u.pathname.endsWith('/helm_booking_inventory_read'))return Response.json(s);
+      if(u.pathname.endsWith('/helm_pilot_source_read'))return Response.json(source());
+      if(u.pathname.endsWith('/helm_pilot_source_certify')){
+        const args=JSON.parse(String(init?.body));assert.deepEqual(args.p_bookings,[]);assert.deepEqual(args.p_expected,source());
+        if(saved){s.configurationVersion++;s.configuration.coverage=[{source:'channex-staging-bookings',start:args.p_start,end:args.p_end,
+          complete:true,observedAt:args.p_observed_at,freshUntil:args.p_observed_at+900000}];}
+        return Response.json(saved);
+      }
+      assert.equal(init?.method,'GET');const rel=(id:string)=>({data:{id}});
+      if(u.pathname.includes('/properties/'))return Response.json({data:{id:m.propertyId,attributes:{title:'65 Calderwood - Isolated Staging',currency:'USD',timezone:'America/New_York'}}});
+      if(u.pathname.includes('/room_types/'))return Response.json({data:{id:m.roomTypeId,attributes:{count_of_rooms:1,occ_adults:6,occ_children:0,occ_infants:0},relationships:{property:rel(m.propertyId)}}});
+      if(u.pathname.includes('/rate_plans/'))return Response.json({data:{id:m.ratePlanId,attributes:{title:'TEST ONLY - Calderwood - CLOSED - $100 placeholder',currency:'USD',sell_mode:'per_room',stop_sell:Array(7).fill(true)},relationships:{property:rel(m.propertyId),room_type:rel(m.roomTypeId)}}});
+      if(u.pathname.endsWith('/channels'))return Response.json({data:[],meta:{total:0,page:1}});
+      if(u.pathname.endsWith('/bookings')||u.pathname.endsWith('/booking_revisions/feed'))return Response.json({data:[],meta:{total:0,page:1,limit:100}});
+      if(u.pathname.endsWith('/availability'))return Response.json({data:{[m.roomTypeId]:{'2027-01-01':0}}});
+      assert.ok(u.pathname.endsWith('/restrictions'));return Response.json({data:{[m.ratePlanId]:{'2027-01-01':{rate:100,min_stay_arrival:1,min_stay_through:1,max_stay:0,closed_to_arrival:false,closed_to_departure:false,stop_sell:true}}}});
+    });
+    assert.deepEqual(await runner(new AbortController().signal),saved?{phase:'plan',status:'blocked'}:{phase:'source',status:'superseded'});
+    assert.equal(calls.filter(c=>c.path.endsWith('/bookings')).length,2);
+    assert.equal(calls.filter(c=>c.path.endsWith('/helm_pilot_source_certify')).length,1);
+    assert.ok(calls.every(c=>c.method==='GET'||c.path.includes('/rpc/helm_')));
+    if(saved) {calls.length=0;await runner(new AbortController().signal);assert.deepEqual(calls.map(c=>c.path),['/rest/v1/rpc/helm_booking_inventory_read']);}
+  }
 });

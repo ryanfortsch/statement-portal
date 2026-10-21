@@ -1,3 +1,4 @@
+import { verifyCanonicalSourceDatabase } from './verify-canonical-source.mjs';
 import { verifyBookingInventoryRefresh } from './verify-booking-inventory-refresh.mjs';
 import { verifyCanonicalRevisions } from './verify-canonical-revisions.mjs';
 // Usage: node scripts/verify-booking-inventory-concurrency.mjs /path/to/pg/bin /path/to/pg/lib/index.js
@@ -219,6 +220,40 @@ try{
   await verifyBookingInventoryRefresh({exec:sql=>monitor.query(sql),query:(sql,args)=>monitor.query(sql,args)},check);
   await verifyBookingInventorySchema({exec:sql=>monitor.query(sql),query:(sql,args)=>monitor.query(sql,args)},check);
   await verifyCanonicalRevisions({exec:sql=>monitor.query(sql),query:(sql,args)=>monitor.query(sql,args)},check);
+
+  const source=await verifyCanonicalSourceDatabase({exec:sql=>monitor.query(sql),query:(sql,args)=>monitor.query(sql,args)},check);
+
+  const certifyWith=async(c,s,observed=Date.now())=>(await c.query('select helm_pilot_source_certify($1,$2,$3,$4,$5) ok',
+    [JSON.stringify(s),JSON.stringify(s.bindings.map(b=>b.booking)),observed,source.start,source.end])).rows[0].ok;
+  for(const [name,write] of [
+    ['booking date',"update bookings set check_out=check_out+1 where property_id='HELMTEST-calderwood'"],
+    ['uncaptured identity',"update bookings set source_ref='changed' where property_id='HELMTEST-calderwood'"],
+    ['configuration',"update helm_booking_inventory_consumers set configuration=jsonb_set(configuration,'{publishEnabled}','true') where property_id='HELMTEST-calderwood'"],
+  ]) await check(`source certification race: ${name} commit defeats an older proof`,async()=>{
+    const before=await source.read();await a.query('begin');await a.query(write);
+    const pending=certifyWith(b,before);await blocked(pending,pidB,pidA);await a.query('commit');assert.equal(await pending,false);
+    // Restore only this local fixture so later races test a valid source.
+    if(name==='booking date')await query("update bookings set check_out=check_out-1 where property_id='HELMTEST-calderwood'");
+    if(name==='uncaptured identity')await query("update bookings b set source_ref='channex-staging:'||m.remote_id from helm_channex_revisions.bookings m where b.id=m.canonical_id");
+    if(name==='configuration')await query("update helm_booking_inventory_consumers set configuration=jsonb_set(configuration,'{publishEnabled}','false') where property_id='HELMTEST-calderwood'");
+  });
+  await check('source certification race: accepted proof holds booking identity stable through commit',async()=>{
+    const before=await source.read();await a.query('begin');assert.equal(await certifyWith(a,before),true);
+    const pending=b.query("update bookings set source_ref='changed' where property_id='HELMTEST-calderwood'");
+    await blocked(pending,pidB,pidA);await a.query('commit');await pending;
+    assert.equal((await source.read()).bindings[0].valid,false);
+    await query("update bookings b set source_ref='channex-staging:'||m.remote_id from helm_channex_revisions.bookings m where b.id=m.canonical_id");
+  });
+  await check('source certification race: concurrent proofs cannot both advance the same configuration',async()=>{
+    const before=await source.read();await a.query('begin');assert.equal(await certifyWith(a,before),true);
+    const pending=certifyWith(b,before);await blocked(pending,pidB,pidA);await a.query('commit');assert.equal(await pending,false);
+  });
+  await check('source certification race: proof expiring in a lock wait cannot renew coverage',async()=>{
+    const before=await source.read();await a.query('begin');
+    await a.query("select property_id from helm_booking_inventory_consumers where property_id='HELMTEST-calderwood' for update");
+    const pending=certifyWith(b,before,Date.now()-59900);await blocked(pending,pidB,pidA);
+    await delay(150);await a.query('commit');assert.equal(await pending,false);
+  });
 
   await check('canonical import race: concurrent duplicate notices create one canonical update',async()=>{
     const prior=(await query("select revision from helm_channex_revisions.receipts order by committed_at desc limit 1")).rows[0].revision;

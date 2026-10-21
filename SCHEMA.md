@@ -165,6 +165,25 @@ never key per-stay logic on `bookings.id` (`memory/project_bookings_duplicate_ro
   interpreter. The old generic append RPC cannot append the retirement command.
   Deploy compatible journal readers with this candidate before enabling rolling
   mode. No new tables, public permissions or production migration are added.
+- **Installed only in isolated staging (October 21):**
+  `docs/guesty-exit/staging-storage/canonical-source.sql` adds service-only
+  `helm_pilot_source_read()` and `helm_pilot_source_certify(...)`; no new tables.
+  The read projects exact remote/latest-revision bindings and verifies the saved
+  receipt against the current canonical row, including source identity, dates,
+  status, duplicates and holds. Unmapped remote rows are counted; a 101st binding
+  makes the trusted parser refuse truncation. No guest or financial fields leave
+  this boundary. Certification locks booking writes, import scope, property,
+  capture and consumer in that order, then compares the full expected snapshot.
+  Only the exact fictional route with reviewed `channex-staging-bookings` source
+  can renew coverage. A proof must be at most 60 seconds old; coverage expires
+  15 minutes after observation and cannot regress. Configuration version advances;
+  publish authority, queue history, reservations and messages do not change.
+  Valid cancelled local rehearsal history may remain absent from the provider
+  list; every active binding and every provider booking must match exactly.
+  The trusted worker requires two complete all-status provider lists, two empty
+  delta checks and two stable database reads before calling certification. SQL
+  cannot independently attest to those HTTP observations. Browser roles have no
+  access; manual `synthetic-canonical` evidence cannot silently become automatic.
 - **Installed only in isolated staging (October 19):** `docs/guesty-exit/staging-storage/canonical-revisions.sql`
   wraps the existing booking RPCs for the synthetic Calderwood Channex rehearsal.
   Private `helm_channex_revisions.scope`, `.bookings` and `.receipts` hold the

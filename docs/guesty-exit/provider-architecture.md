@@ -1699,3 +1699,31 @@ The hosted evidence proves installation/startup and the paused boundary; positiv
 refresh, drift recovery and long-running behavior were tested locally, not on a
 live listing. This documentation-only deployment receipt requires diff/path
 checks rather than another application test run.
+
+
+### Complete-source verifier handoff (October 21, 2026)
+
+Branch `codex/channex-staging-pilot`; starting HEAD `2338448e8643e76811d4cfc324168467e6d0a107`;
+original base `a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`; current-batch main reference
+`589dfe3549c8c9de7ab526f591b255539c37e92b`. No main merge or other checkout edits.
+
+Changed files: `canonical-source.ts`, `canonical-source-client.ts`,
+`canonical-source-store.ts` and `booking-inventory-scheduler.ts` under
+`src/lib/channex-staging`; source and scheduler tests under `src/lib/__tests__`;
+`scripts/verify-canonical-source.mjs`, the inventory events/concurrency runners;
+`staging-storage/canonical-source.sql`, the rolling-window SQL and its local
+verification script; `SCHEMA.md`, the provider round-trip
+record and this handoff. Dirty `calderwood-cutover-readiness.md` contract notes
+are unrelated and excluded.
+
+The full source check and bounded renewal path are implemented; the source SQL
+is installed only in isolated staging. Existing paused configuration remains a
+separate activation boundary. See the round-trip record for exact semantics,
+109 local SQL and 90 multi-session checks, provider comparison and installation
+receipt. Valid cancelled test history remains intact. Positive worker activation
+and future renewals must be verified separately; this does not claim production
+completeness, pricing parity or automatic message delivery.
+
+The uninstalled rolling-window candidate now accepts either the original manual
+source or the reviewed automatic source, with exact coverage-source matching.
+Its new local rollover check preserves the original observation deadline.

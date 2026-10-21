@@ -508,3 +508,51 @@ The hosted evidence proves installation/startup and the paused boundary; positiv
 refresh, drift recovery and long-running behavior were tested locally, not on a
 live listing. This documentation-only deployment receipt requires diff/path
 checks rather than another application test run.
+
+
+## Complete booking-source verification (October 21, 2026)
+
+The new verifier reads the complete all-status Channex booking list twice and
+requires strict one-page completeness (at most 100 entries), exact synthetic
+property/room/rate mapping, unique IDs/codes and identical latest revisions,
+statuses and dates. Both intervening delta checks must be empty and both
+canonical source snapshots must agree. An empty delta alone grants nothing.
+Every provider booking must match its durable receipt and current canonical row.
+Absent active local bookings, invalid bindings and unmapped remote rows block it.
+Valid cancelled local rehearsal history is retained without occupying inventory.
+The observed staging list contained three cancelled bookings; all three matched
+Helm, alongside one valid cancelled local-only fixture. No reservations were
+created, changed or erased for this comparison.
+
+The service-only source SQL is installed in dedicated staging. Its guarded
+installation preserved the paused publisher, expired manual evidence and disabled
+senders, and all six checks passed. [Installation receipt](https://supabase.com/dashboard/project/jgkblfozftcvymvwhhii/sql/bd5e4887-37f9-47a6-9af4-5b059714c55d).
+A successful verifier can renew only the reviewed `channex-staging-bookings`
+source, with a 60-second proof deadline and 15-minute coverage lifetime.
+Certification rechecks the complete snapshot under locks; stale configuration,
+booking/date/identity changes, withdrawn authority and replayed observations
+cannot extend coverage. No network request runs while database locks are held.
+
+Worker integration requires `CHANNEX_CALDERWOOD_SOURCE_COVERAGE_ENABLED=true`,
+canonical polling, the isolated database and the reviewed new source. It starts
+verification when coverage is absent or has five minutes remaining. Failed
+verification stops the cycle; provider failure never renews old evidence.
+Publishing remains a separate flag. The default manual-source path is unchanged.
+This is bounded source freshness, not an atomic transaction across two systems
+or a prolonged reliability test. Real source renewals still consume configuration
+versions and eventual plan history; the 10,000-command retention work remains.
+
+Checks: **2,109 application tests / 240 suites**, **109 PGlite checks**, **90 native
+PostgreSQL concurrency/schema checks**, nonincremental TypeScript, scoped ESLint,
+exact Docker source imports with locked dependencies, diff checks, and guarded
+installation/reinstallation/wrong-project local rehearsals. Native sessions
+proved blocking order for date, uncaptured source identity and configuration
+writes, competing certification and proof expiry during a lock wait.
+
+Rolling-year activation/rehearsal, PriceLabs parity, real automated guest/cleaner
+delivery, production access/cost confirmation and contract-timed cutover remain.
+Guesty stays live. No additional paid service or channel change was introduced.
+
+The uninstalled rolling-window candidate now accepts either the original manual
+source or the reviewed automatic source, with exact coverage-source matching.
+Its new local rollover check preserves the original observation deadline.

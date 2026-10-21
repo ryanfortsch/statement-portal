@@ -41,13 +41,22 @@ export async function verifyBookingInventoryWindow(db,check) {
     for(const mutate of [
       c=>{c.coverage=[];},c=>{c.coverage[0].complete=false;},c=>{c.coverage[0].freshUntil=Date.now()-1;},
       c=>{c.coverage[0].end=c.end;},c=>{c.coverage[0].freshUntil=stamp+7200000;},
-      c=>{c.publishEnabled=false;},c=>{c.requiredSources=['unknown'];}
+      c=>{c.publishEnabled=false;},c=>{c.requiredSources=['unknown'];},
+      c=>{delete c.requiredSources;delete c.coverage[0].source;}
     ]) await transaction(async()=>{
       const c=structuredClone(config);mutate(c);await resetConfig(c);
       const s=await read(),j={...s.journal,commands:[...s.journal.commands,{kind:'retire-pending',property,connection:c.connection,generation:1}]};
       assert.equal(await advance({captureVersion:s.captureVersion,configurationVersion:s.configurationVersion,planVersion:s.planVersion,
         journalVersion:s.journalVersion,inputs:s.inputs},target.start,target.end,j),false);
       assert.deepEqual(await read(),s);
+    });
+  });
+  await check('year rollover accepts the reviewed automatic source while preserving its freshness deadline',async()=>{
+    await transaction(async()=>{
+      const c=structuredClone(config);c.requiredSources=['channex-staging-bookings'];c.coverage[0].source=c.requiredSources[0];
+      await resetConfig(c);const before=await read();assert.equal((await run()).status,'advanced');
+      const after=await read();assert.deepEqual(after.configuration.coverage,before.configuration.coverage);
+      assert.equal(after.configuration.start,target.start);
     });
   });
   await check('booking or policy races invalidate the rollover CAS even when dates remain unchanged',async()=>{

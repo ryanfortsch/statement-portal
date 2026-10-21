@@ -31,13 +31,13 @@ begin
    or expected_inputs->'plan'->'booking_window_days' is distinct from '365'::jsonb
    or next_start is distinct from today or next_end is distinct from today+366
    or (cfg->>'start')::date is distinct from today-1 or (cfg->>'end')::date is distinct from today+365
-   or cfg->'requiredSources' is distinct from '["synthetic-canonical"]'::jsonb
+   or cfg->'requiredSources' is null or cfg->'requiredSources' not in ('["synthetic-canonical"]'::jsonb,'["channex-staging-bookings"]'::jsonb)
    or jsonb_typeof(cfg->'coverage') is distinct from 'array' then return false; end if;
  if jsonb_array_length(cfg->'coverage')<>1 then return false; end if;
  cover := cfg->'coverage'->0;
  buffer_days := (expected_inputs->'plan'->>'turnover_buffer_days')::integer;
  if buffer_days is null or buffer_days not between 0 and 30
-   or cover->>'source' is distinct from 'synthetic-canonical' or cover->'complete' is distinct from 'true'::jsonb
+   or cover->>'source' is distinct from (cfg->'requiredSources'->>0) or cover->'complete' is distinct from 'true'::jsonb
    or (cover->>'start') is null or (cover->>'end') is null
    or (cover->>'start')::date > today-buffer_days or (cover->>'end')::date < next_end+buffer_days
    or (cover->>'end')::date-(cover->>'start')::date not between 1 and 426
