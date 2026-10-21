@@ -1,3 +1,4 @@
+import { verifyBookingInventoryRefresh } from './verify-booking-inventory-refresh.mjs';
 import { verifyCanonicalRevisions } from './verify-canonical-revisions.mjs';
 // Usage: node scripts/verify-booking-inventory-concurrency.mjs /path/to/pg/bin /path/to/pg/lib/index.js
 // Owns a NEW temporary PostgreSQL cluster. No connection string/env database,
@@ -178,6 +179,44 @@ try{
     assert.equal(replay.journal.commands.length,state.journalVersion);
     for(const job of replay.queue.list())assert.equal(inventoryDigest(job.days),job.digest);
   });
+  await monitor.query(readFileSync(new URL('../docs/guesty-exit/staging-storage/booking-inventory-refresh.sql',import.meta.url),'utf8'));
+  const refreshFor=(client,s,until)=>client.query('select helm_booking_inventory_plan_refresh($1,$2,$3,$4,$5,$6,$7,$8) ok',
+    ['home',s.captureVersion,s.configurationVersion,s.planVersion,s.journalVersion,s.inputs,until,s.lastDigest]).then(r=>r.rows[0].ok);
+  const refreshBaseline=async()=>{
+    await create(monitor);await plan();
+    await query("update helm_booking_inventory_consumers set planned_fresh_until=1 where property_id='home'");
+    return read();
+  };
+  for(const [name,mutate] of sources) await check(`refresh race: ${name} writer wins over stale deadline renewal`,async()=>{
+    const before=await refreshBaseline();await a.query('begin');await mutate(a);
+    const pending=refreshFor(b,before,Date.now()+20000);await blocked(pending,pidB,pidA);
+    await a.query('commit');assert.equal(await pending,false);
+    const after=await read();assert.equal(after.plannedFreshUntil,1);assert.deepEqual(after.journal,before.journal);
+    assert.equal(after.captureVersion,before.captureVersion+1);
+  });
+  await check('refresh race: completed renewal holds source writers until its atomic commit',async()=>{
+    const before=await refreshBaseline();await a.query('begin');
+    assert.equal(await refreshFor(a,before,Date.now()+20000),true);
+    const pending=create(b);await blocked(pending,pidB,pidA);
+    await a.query('commit');await pending;const after=await read();
+    assert.equal(after.plannedCaptureVersion,before.captureVersion);assert.equal(after.captureVersion,before.captureVersion+1);
+    assert.deepEqual(after.journal,before.journal);
+  });
+  await check('refresh race: two workers cannot overwrite or regress the same refreshed deadline',async()=>{
+    const before=await refreshBaseline(),until=Date.now()+20000;await a.query('begin');
+    assert.equal(await refreshFor(a,before,until),true);
+    const pending=refreshFor(b,before,until);await blocked(pending,pidB,pidA);
+    await a.query('commit');assert.equal(await pending,false);
+    const after=await read();assert.equal(after.plannedFreshUntil,until);assert.deepEqual(after.journal,before.journal);
+  });
+  await check('refresh race: expiry during a consumer lock wait refuses the stale calculation',async()=>{
+    const before=await refreshBaseline();await a.query('begin');
+    await a.query("select property_id from helm_booking_inventory_consumers where property_id='home' for update");
+    const pending=refreshFor(b,before,Date.now()+100);await blocked(pending,pidB,pidA);
+    await delay(125);await a.query('commit');assert.equal(await pending,false);
+    assert.deepEqual(await read(),before);
+  });
+  await verifyBookingInventoryRefresh({exec:sql=>monitor.query(sql),query:(sql,args)=>monitor.query(sql,args)},check);
   await verifyBookingInventorySchema({exec:sql=>monitor.query(sql),query:(sql,args)=>monitor.query(sql,args)},check);
   await verifyCanonicalRevisions({exec:sql=>monitor.query(sql),query:(sql,args)=>monitor.query(sql,args)},check);
 

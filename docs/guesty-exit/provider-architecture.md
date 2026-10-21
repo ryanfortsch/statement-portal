@@ -1648,3 +1648,39 @@ do not prove recipient/provider delivery. The earlier PriceLabs staging-key
 attempt failed and was withdrawn; no working connector or paid entitlement is
 assumed. Resolve production Channex access/costs and channel sales pauses before
 the final cutover. Guesty remains live; no additional subscription was added.
+
+
+### Checked refresh handoff (October 20, 2026)
+
+Branch `codex/channex-staging-pilot`; starting HEAD
+`ba799fbeead3bedb873fa799813af32446b788dc`; original base
+`a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`; verified current main
+`589dfe3549c8c9de7ab526f591b255539c37e92b`. No rebase or other checkout changes.
+Draft PR #1714 remains the integration/review path.
+
+Changed code: `booking-inventory-consumer.ts`, `booking-inventory-consumer-store.ts`
+and `booking-inventory-cycle.ts` under `src/lib/channex-staging/`; their consumer
+and delivery tests; `scripts/verify-booking-inventory-refresh.mjs`, the events and
+concurrency runners; `staging-storage/booking-inventory-refresh.sql`; `SCHEMA.md`,
+`calderwood-provider-roundtrip.md` and this file. The unrelated dirty contract
+notes in `calderwood-cutover-readiness.md` remain excluded.
+
+The refresh RPC is installed in isolated staging and changes only an identical
+plan's deadline. It preserves the complete journal and source evidence. SQL
+rechecks versions/inputs/digest, coverage set/buffers and expiry while holding
+capture-then-consumer locks. Real PostgreSQL sessions verify both lock orderings,
+competing workers and deadline expiry during the wait. The cycle still observes
+verified provider state and creates a new attempt for drift. Old-window
+observations cannot block a newly configured window.
+
+Checks: 2,095 tests / 240 suites; 99 PGlite checks; 75 native PostgreSQL checks;
+TypeScript without incremental cache; scoped ESLint; exact Docker source import
+with locked dependencies. The isolated SQL installation passed all six checks
+and preserved the paused publisher, expired source evidence and disabled guest
+senders. See the provider round-trip document for the linked execution receipt.
+
+Remaining: source completeness refresh, rolling-year activation/rehearsal,
+archival of real change/attempt history, operator conflict handling, PriceLabs
+parity and genuine automated guest/cleaner receipts. The idle growth fix does
+not claim these are complete. No production cutover, paid service or live
+messaging change is part of this batch.

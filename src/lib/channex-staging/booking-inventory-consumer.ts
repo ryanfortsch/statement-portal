@@ -57,6 +57,8 @@ export interface BookingInventoryConsumerStore {
   read(): Promise<unknown>;
   commit(expected: BookingInventoryExpectation, journal: InventoryJournal, freshUntil: number, digest: string): Promise<boolean>;
   journal: InventoryJournalStore;
+  /** Revalidate an identical plan without rewriting history or extending source coverage. */
+  refreshPlan?(expected: BookingInventoryExpectation, freshUntil: number, digest: string): Promise<boolean>;
   advanceWindow?(expected: BookingInventoryExpectation, start: string, end: string, journal: InventoryJournal): Promise<boolean>;
 }
 
@@ -139,15 +141,29 @@ export function bookingInventorySnapshot(state: BookingInventoryState, now: numb
 }
 
 /** One bounded pass. A lost response is not retried blindly; reread durable state. */
-export async function consumeBookingInventory(store: BookingInventoryConsumerStore, clock: () => number) {
+export async function consumeBookingInventory(store: BookingInventoryConsumerStore, clock: () => number,
+  options: { forceEnqueue?: boolean } = {}) {
   const state = parseBookingInventoryState(await store.read(), store.property);
   const snapshot = bookingInventorySnapshot(state, clock());
   if (!snapshot) return { status: 'blocked' as const };
   const c = state.configuration;
   const projection = projectInventory(snapshot, c.listing, c.start, c.end, clock());
   if (!projection.complete) return { status: 'blocked' as const };
-  if (state.plannedCaptureVersion === state.captureVersion && state.plannedConfigurationVersion === state.configurationVersion &&
-      state.inputsMatchPlan && state.lastDigest === projection.digest && state.plannedFreshUntil > clock()) return { status: 'unchanged' as const };
+  const identical = state.plannedCaptureVersion === state.captureVersion && state.plannedConfigurationVersion === state.configurationVersion &&
+    state.inputsMatchPlan && state.lastDigest === projection.digest;
+  if (!options.forceEnqueue && identical) {
+    if (state.plannedFreshUntil > clock()) return { status: 'unchanged' as const };
+    const jobs = replayInventoryJournal(state.journal).queue.list(), current = jobs.at(-1);
+    // Retain rejection backoff, attempt counters, task bindings and lease tokens.
+    // Unknown or active attempts must finish reconciliation, never refresh past it.
+    if (store.refreshPlan && current && current.version === state.planVersion && current.digest === projection.digest &&
+        current.connection === c.connection && current.property === state.property && current.generation === c.generation &&
+        ['pending', 'verified'].includes(current.status) && jobs.every(j => ['pending', 'verified', 'superseded'].includes(j.status))) {
+      const saved = await store.refreshPlan({ captureVersion: state.captureVersion, configurationVersion: state.configurationVersion,
+        planVersion: state.planVersion, journalVersion: state.journalVersion, inputs: state.inputs }, projection.freshUntil, projection.digest);
+      return { status: saved ? 'refreshed' as const : 'superseded' as const };
+    }
+  }
   return planInventory({
     read: async () => ({ snapshot, configurationVersion: state.configurationVersion, journalVersion: state.journalVersion,
       journal: state.journal, connection: c.connection, property: state.property, listing: c.listing, generation: c.generation }),

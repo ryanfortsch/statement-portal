@@ -135,6 +135,20 @@ never key per-stay logic on `bookings.id` (`memory/project_bookings_duplicate_ro
   the request fingerprint and receive time to the same attempt token. These are JSONB
   journal fields, not new tables or migrations. Older records remain readable with
   missing evidence marked explicitly; no task completion is inferred from acceptance.
+- **Installed only in isolated staging (October 20):**
+  `docs/guesty-exit/staging-storage/booking-inventory-refresh.sql` adds the
+  service-only `helm_booking_inventory_plan_refresh` RPC. It updates only the
+  short plan deadline after matching capture/configuration/plan/journal versions,
+  current and planned inputs, and digest. The deadline cannot regress, exceed
+  one minute, or outlive any complete source observation. SQL also checks the
+  exact source set, buffer coverage and maximum one-hour evidence age; no source
+  coverage is renewed. All queue history, attempt counters, task receipts and
+  provider backoff remain unchanged. Browser roles have no execute permission.
+  The worker recomputes availability before refresh and still observes the current
+  verified intent at Channex; drift creates a new intent rather than reopening a
+  settled task. Changed windows skip observation of retired dates and replan.
+  The existing 10,000-command ceiling remains; this prevents idle minute ticks
+  filling history, not archival of real source changes or delivery attempts.
 - **Candidate only, not installed (October 20):**
   `docs/guesty-exit/staging-storage/booking-inventory-window.sql` adds the
   service-only `helm_booking_inventory_window_advance` RPC for the exact synthetic

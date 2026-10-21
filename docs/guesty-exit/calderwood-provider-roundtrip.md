@@ -452,3 +452,44 @@ or deployment changed in this batch. Production account access/costs, continuous
 source freshness, journal retention, genuine automated guest/cleaner receipts,
 PriceLabs integration/parity and live channel cutover remain unverified. Preserve
 the original Guesty timing and PriceLabs ownership of dynamic minimum stays.
+
+
+## Idle-plan refresh and drift recovery — October 20, 2026
+
+Expired but otherwise identical plans now refresh their short validity without
+appending another inventory job. The fresh calculation must match the saved
+capture, configuration, inputs and digest. A complete original source observation
+still caps the deadline; nothing here renews old source evidence. The journal,
+retry delays, attempt counters and exact task receipts remain intact. Active or
+uncertain attempts continue through the existing reconciliation barrier.
+
+A settled task is still followed by fresh provider calendar observation on later
+cycles. A mismatch creates a new version and attempt; missing counts block it.
+A changed source/window goes straight to a new plan, so an old date disappearing
+from provider history cannot prevent the expanded window from being planned.
+
+The 24-hour synthetic simulation ran 1,440 minute ticks: **48 independently
+simulated source observations caused 48 enqueue commands; the other 1,392 ticks
+refreshed the existing plan**. This is local evidence, not 24 hours of hosted
+operation. Tests also cover lost refresh replies, competing workers, source
+round trips, expiry during a lock wait, notice boundaries, source expiry, drift,
+unchanged retry backoff and retained uncertainty.
+
+The backwards-compatible refresh RPC is installed in the dedicated
+`jgkblfozftcvymvwhhii` staging database. The installation asserted the existing
+manifest, sole fictional property, paused fixed pilot, expired coverage and no
+live channel or guest-sender configuration before proceeding. Its attempted
+refresh of that paused/expired state returned false and left all state unchanged.
+All six installation/permission/state checks passed:
+[isolated refresh installation](https://supabase.com/dashboard/project/jgkblfozftcvymvwhhii/sql/7ac51f0e-4fb5-4180-a267-364d418b0c52).
+
+Validation: **2,095 application tests / 240 suites**, **99 PGlite checks**,
+**75 native PostgreSQL concurrency/schema checks**, nonincremental TypeScript,
+scoped ESLint and the exact Docker source import using locked worker dependencies.
+The guarded installation also passed a local rehearsal, repeat installation and
+wrong-project rejection. No new paid service or live channel change was needed.
+
+This fixes idle history growth; it does not archive genuine change/attempt
+history or remove the 10,000-command limit. Continuous complete source coverage,
+rolling-year activation, PriceLabs parity, real automatic guest/cleaner delivery
+and production account/cost readiness remain separate launch requirements.

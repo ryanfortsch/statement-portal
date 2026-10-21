@@ -2,7 +2,7 @@
  * loop, coverage renewal or automatic enablement. Restart uses the saved journal.
  */
 import { ChannexAvailabilityClient } from './availability-client.ts';
-import { consumeBookingInventory, parseBookingInventoryState, type BookingInventoryConsumerStore } from './booking-inventory-consumer.ts';
+import { bookingInventoryDispatchContext, consumeBookingInventory, parseBookingInventoryState, type BookingInventoryConsumerStore } from './booking-inventory-consumer.ts';
 import { deliverBookingInventoryOnce } from './booking-inventory-delivery.ts';
 import { recordInventoryCommand, replayInventoryJournal, type InventoryJournalStore } from './inventory-journal.ts';
 
@@ -36,8 +36,22 @@ export async function runBookingInventoryCycle(store: BookingInventoryConsumerSt
     const result = await reconcileBookingInventoryOnce(store.journal, client, unresolved.id);
     if (result.status !== 'verified') return { phase: 'reconcile' as const, ...result };
   }
-  const planned = await consumeBookingInventory(store, clock);
-  if (!['queued', 'unchanged'].includes(planned.status)) return { phase: 'plan' as const, status: planned.status };
+  // A verified task settles its historical attempt, not the provider's calendar
+  // forever. Keep observing the current verified intent even when planning can
+  // reuse it. Drift creates a NEW intent; it never reopens a settled attempt.
+  const before = parseBookingInventoryState(await store.read(), store.property);
+  const latest = replayInventoryJournal(before.journal).queue.list().at(-1);
+  let forceEnqueue = false;
+  if (latest?.status === 'verified' && latest.version === before.planVersion && before.inputsMatchPlan &&
+      before.plannedCaptureVersion === before.captureVersion && before.plannedConfigurationVersion === before.configurationVersion) {
+    const context = await bookingInventoryDispatchContext(store, latest, clock);
+    if (!context.enabled || context.authority !== 'helm') return { phase: 'plan' as const, status: 'blocked' as const };
+    const observed = await client.observe(latest);
+    if (!observed.complete) return { phase: 'observe' as const, status: 'incomplete' as const };
+    forceEnqueue = !observed.matches;
+  }
+  const planned = await consumeBookingInventory(store, clock, { forceEnqueue });
+  if (!['queued', 'unchanged', 'refreshed'].includes(planned.status)) return { phase: 'plan' as const, status: planned.status };
   const current = parseBookingInventoryState(await store.read(), store.property);
   const pending = replayInventoryJournal(current.journal).queue.list().filter(j => j.status === 'pending').at(-1);
   if (!pending) return { phase: 'plan' as const, status: 'unchanged' as const };

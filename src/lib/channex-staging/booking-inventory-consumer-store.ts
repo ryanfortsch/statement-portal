@@ -15,6 +15,14 @@ export function createBookingInventoryConsumerStore(url: string, key: string, pr
     return parseBookingInventoryState(data, property);
   };
   return { property, read,
+    async refreshPlan(expected, freshUntil, digest) {
+      const { data, error } = await db.rpc('helm_booking_inventory_plan_refresh', { p_property: property,
+        expected_capture: expected.captureVersion, expected_configuration: expected.configurationVersion,
+        expected_plan: expected.planVersion, expected_journal: expected.journalVersion, expected_inputs: expected.inputs,
+        fresh_until: freshUntil, desired_digest: digest });
+      if (error || typeof data !== 'boolean') throw Error('Plan refresh uncertain; reread before continuing');
+      return data;
+    },
     async advanceWindow(expected, start, end, journal) {
       const normalized = replayInventoryJournal(journal).journal;
       if (normalized.commands.length !== expected.journalVersion + 1 ||

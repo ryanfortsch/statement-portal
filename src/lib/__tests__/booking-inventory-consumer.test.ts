@@ -141,3 +141,92 @@ test('staging adapter binds reads to the requested property and refuses malforme
   assert.equal((await store.read() as BookingInventoryState).property,'home');assert.equal(calls,1);
   f.state.property='other';await assert.rejects(()=>store.read(),/property mismatch/);
 });
+
+function enableRefresh(f: ReturnType<typeof fixture>) {
+  f.store.refreshPlan = async (e, freshUntil, digest) => {
+    if (e.captureVersion !== f.state.captureVersion || e.configurationVersion !== f.state.configurationVersion ||
+        e.planVersion !== f.state.planVersion || e.journalVersion !== f.state.journalVersion ||
+        JSON.stringify(e.inputs) !== JSON.stringify(f.state.inputs) || digest !== f.state.lastDigest ||
+        freshUntil <= f.state.plannedFreshUntil || freshUntil <= f.clock()) return false;
+    f.state.plannedFreshUntil = freshUntil; return true;
+  };
+}
+test('unchanged plans survive 1,440 minute ticks with only observed source changes adding jobs', async () => {
+  const f = fixture(); enableRefresh(f);
+  f.state.configuration.start = '2027-02-01'; f.state.configuration.end = '2027-02-08';
+  for (const c of f.state.configuration.coverage) { c.start = '2027-02-01'; c.end = '2027-02-08'; }
+  let enqueued = 0, refreshed = 0;
+  for (let minute = 0; minute < 1440; minute++) {
+    f.setNow(NOW + minute * 60000);
+    if (minute % 30 === 0) {
+      // Simulated independent source observation, not renewal by the consumer.
+      for (const c of f.state.configuration.coverage) { c.observedAt = f.clock(); c.freshUntil = f.clock() + 1800000; }
+      f.state.configurationVersion++;
+    }
+    const result = await consumeBookingInventory(f.store, f.clock);
+    if (result.status === 'queued') enqueued++;
+    else if (result.status === 'refreshed') refreshed++;
+    else assert.fail(result.status);
+  }
+  assert.equal(enqueued, 48); assert.equal(refreshed, 1392);
+  assert.equal(f.state.journalVersion, 48); assert.equal(f.state.planVersion, 48);
+  assert.equal(f.writes(), 48);
+  const before = structuredClone(f.state); f.setNow(NOW + 1440 * 60000);
+  assert.equal((await consumeBookingInventory(f.store, f.clock)).status, 'blocked');
+  assert.deepEqual(f.state, before); // Expired source evidence is never renewed.
+});
+test('a lost refresh response recovers on reread without a duplicate job or rewritten history', async () => {
+  const f = fixture(); enableRefresh(f); await consumeBookingInventory(f.store, f.clock);
+  const journal = structuredClone(f.state.journal), refresh = f.store.refreshPlan!;
+  f.setNow(NOW + 60000);
+  f.store.refreshPlan = async (...args) => { await refresh(...args); throw Error('Lost refresh reply'); };
+  await assert.rejects(() => consumeBookingInventory(f.store, f.clock), /Lost refresh/);
+  f.store.refreshPlan = refresh;
+  assert.equal((await consumeBookingInventory(f.store, f.clock)).status, 'unchanged');
+  assert.deepEqual(f.state.journal, journal); assert.equal(f.state.planVersion, 1);
+});
+test('competing refreshes and capture/configuration/input races cannot extend stale plans', async () => {
+  const f = fixture(); enableRefresh(f); await consumeBookingInventory(f.store, f.clock); f.setNow(NOW + 60000);
+  const results = await Promise.all([consumeBookingInventory(f.store, f.clock), consumeBookingInventory(f.store, f.clock)]);
+  assert.deepEqual(results.map(v => v.status).sort(), ['refreshed', 'superseded']);
+  for (const mutate of [
+    (s: BookingInventoryState) => { s.captureVersion++; },
+    (s: BookingInventoryState) => { s.configurationVersion++; },
+    (s: BookingInventoryState) => { s.journalVersion++; },
+    (s: BookingInventoryState) => { s.inputs.plan!.advance_notice_hours++; },
+  ]) {
+    const x = fixture(); enableRefresh(x); await consumeBookingInventory(x.store, x.clock); x.setNow(NOW + 60000);
+    const before = x.state.plannedFreshUntil, refresh = x.store.refreshPlan!;
+    x.store.refreshPlan = async (...args) => { mutate(x.state); return refresh(...args); };
+    assert.equal((await consumeBookingInventory(x.store, x.clock)).status, 'superseded');
+    assert.equal(x.state.plannedFreshUntil, before);
+  }
+});
+test('clock-driven availability changes still enqueue and source coverage caps every refresh', async () => {
+  const f = fixture(); enableRefresh(f);
+  f.setNow(Date.parse('2027-01-01T20:59:59Z'));
+  for (const c of f.state.configuration.coverage) { c.observedAt = f.clock(); c.freshUntil = f.clock() + 1800000; }
+  await consumeBookingInventory(f.store, f.clock);
+  f.setNow(Date.parse('2027-01-01T21:00:00.001Z'));
+  assert.equal((await consumeBookingInventory(f.store, f.clock)).status, 'queued');
+  assert.equal(f.state.planVersion, 2);
+  assert.equal(replayInventoryJournal(f.state.journal).queue.list().at(-1)!.days[0].available, 0);
+  f.setNow(Date.parse('2027-01-01T21:29:58Z'));
+  assert.equal((await consumeBookingInventory(f.store, f.clock)).status, 'refreshed');
+  assert.equal(f.state.plannedFreshUntil, f.state.configuration.coverage[0].freshUntil);
+});
+test('restricted refresh adapter passes all CAS fields and redacts uncertain RPC errors', async () => {
+  const f = fixture(); await consumeBookingInventory(f.store, f.clock);
+  const expected = { captureVersion: 1, configurationVersion: 1, planVersion: 1, journalVersion: 1, inputs: f.state.inputs };
+  let response: unknown = true;
+  const store = createBookingInventoryConsumerStore('https://jgkblfozftcvymvwhhii.supabase.co', 'fixture-key', 'home', async (input, init) => {
+    assert.match(String(input), /\/rpc\/helm_booking_inventory_plan_refresh$/);
+    assert.deepEqual(JSON.parse(String(init?.body)), { p_property: 'home', expected_capture: 1, expected_configuration: 1,
+      expected_plan: 1, expected_journal: 1, expected_inputs: expected.inputs, fresh_until: NOW + 120000, desired_digest: f.state.lastDigest });
+    return Response.json(response);
+  });
+  assert.equal(await store.refreshPlan!(expected, NOW + 120000, f.state.lastDigest!), true);
+  response = false; assert.equal(await store.refreshPlan!(expected, NOW + 120000, f.state.lastDigest!), false);
+  response = { message: 'private-provider-error' };
+  await assert.rejects(() => store.refreshPlan!(expected, NOW + 120000, f.state.lastDigest!), /^Error: Plan refresh uncertain; reread before continuing$/);
+});

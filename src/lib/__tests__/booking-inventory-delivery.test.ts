@@ -440,3 +440,62 @@ test('bounded canonical cycle waits for unresolved tasks and refuses changed rou
   f.state.configuration.generation++;
   await assert.rejects(() => runBookingInventoryCycle(f.store, f.client, f.clock), /route mismatch/);
 });
+
+function refreshFixture(f: Awaited<ReturnType<typeof fixture>>) {
+  f.store.refreshPlan = async (e, until, digest) => {
+    if (e.captureVersion !== f.state.captureVersion || e.configurationVersion !== f.state.configurationVersion ||
+        e.journalVersion !== f.state.journalVersion || digest !== f.state.lastDigest || until <= f.state.plannedFreshUntil) return false;
+    f.state.plannedFreshUntil = until; return true;
+  };
+}
+test('settled calendar observation and expired-plan refresh preserve the original completed task', async () => {
+  const f = await fixture(); refreshFixture(f); await f.run(); f.counts['2027-01-02'] = 1;
+  await reconcileBookingInventoryOnce(f.store.journal, f.client, f.job().id);
+  const history = structuredClone(f.state.journal), job = f.job(); f.advance(60000);
+  assert.deepEqual(await runBookingInventoryCycle(f.store, f.client, f.clock), { phase: 'plan', status: 'unchanged' });
+  assert.deepEqual(f.state.journal, history); assert.deepEqual(f.job(), job);
+  assert.equal(f.state.plannedFreshUntil, NOW + 100000); // Still capped by the original source expiry.
+  assert.equal(f.calls.filter(c => c.method === 'POST').length, 1);
+});
+test('drift after task settlement produces a new bound attempt and retains the old receipt', async () => {
+  const f = await fixture(); refreshFixture(f); await f.run(); f.counts['2027-01-02'] = 1;
+  await reconcileBookingInventoryOnce(f.store.journal, f.client, f.job().id);
+  const original = f.job(); f.advance(60000); f.counts['2027-01-02'] = 0;
+  f.setResponse(async () => json({ data: [{ type: 'task', id: TASK2 }], meta: { message: 'Success' } }));
+  assert.equal((await runBookingInventoryCycle(f.store, f.client, f.clock)).status, 'submitted');
+  assert.equal(f.state.planVersion, 2); assert.equal(f.job().task, TASK2); assert.notEqual(f.job().id, original.id);
+  assert.deepEqual(replayInventoryJournal(f.state.journal).queue.list()[0], original);
+  assert.equal(f.calls.filter(c => c.method === 'POST').length, 2);
+});
+test('missing provider counts after settlement cannot refresh or manufacture recovery evidence', async () => {
+  const f = await fixture(); refreshFixture(f); await f.run(); f.counts['2027-01-02'] = 1;
+  await reconcileBookingInventoryOnce(f.store.journal, f.client, f.job().id);
+  const history = structuredClone(f.state.journal), until = f.state.plannedFreshUntil;
+  f.advance(60000); delete f.counts['2027-01-03'];
+  assert.deepEqual(await runBookingInventoryCycle(f.store, f.client, f.clock), { phase: 'observe', status: 'incomplete' });
+  assert.deepEqual(f.state.journal, history); assert.equal(f.state.plannedFreshUntil, until);
+  assert.equal(f.calls.filter(c => c.method === 'POST').length, 1);
+});
+test('an idle refresh retains rate-limit backoff and cannot convert an uncertain attempt into pending', async () => {
+  const f = await fixture(); refreshFixture(f);
+  f.setResponse(async () => json({ errors: { code: 'http_too_many_requests' } }, 429, { 'Retry-After': '120' }));
+  await f.run(); const original = f.job(); f.advance(60000);
+  assert.equal((await runBookingInventoryCycle(f.store, f.client, f.clock)).status, 'blocked');
+  assert.deepEqual(f.job(), original); assert.equal(f.calls.filter(c => c.method === 'POST').length, 1);
+  const g = await fixture(); refreshFixture(g); g.setResponse(async () => { throw Error('Timeout'); }); await g.run();
+  const history = structuredClone(g.state.journal); g.advance(60000);
+  assert.deepEqual(await runBookingInventoryCycle(g.store, g.client, g.clock), { phase: 'reconcile', status: 'blocked' });
+  assert.deepEqual(g.state.journal, history); assert.equal(g.calls.filter(c => c.method === 'POST').length, 1);
+});
+
+test('a changed window replans without requiring read-back of the retired window', async () => {
+  const f = await fixture(); refreshFixture(f); await f.run(); f.counts['2027-01-02'] = 1;
+  await reconcileBookingInventoryOnce(f.store.journal, f.client, f.job().id);
+  f.advance(6000); f.state.configuration.start = '2027-01-03'; f.state.configuration.end = '2027-01-05';
+  f.state.configuration.coverage[0].end = '2027-01-05'; f.state.configurationVersion++;
+  delete f.counts['2027-01-02']; f.counts['2027-01-04'] = 0;
+  f.setResponse(async () => json({ data: [{ type: 'task', id: TASK2 }], meta: { message: 'Success' } }));
+  assert.equal((await runBookingInventoryCycle(f.store, f.client, f.clock)).status, 'submitted');
+  assert.deepEqual(f.job().days.map(d => d.date), ['2027-01-03', '2027-01-04']);
+  assert.equal(f.job().task, TASK2); assert.equal(f.calls.filter(c => c.method === 'POST').length, 2);
+});

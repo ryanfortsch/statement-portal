@@ -1,3 +1,4 @@
+import { verifyBookingInventoryRefresh } from './verify-booking-inventory-refresh.mjs';
 import { verifyBookingInventoryWindow } from './verify-booking-inventory-window.mjs';
 import { verifyCanonicalRevisions } from './verify-canonical-revisions.mjs';
 // Local PostgreSQL integration checks, no network or hosted database access.
@@ -225,10 +226,12 @@ try {
   });
   await verifyAvailabilityInputCapture(db, check, capture);
   await verifyBookingInventoryConsumer(db, check);
+  await verifyBookingInventoryRefresh(db, check);
   await check('consumer cursor and verified task evidence survive database restart', async () => {
-    const before = (await query("select helm_booking_inventory_read('home') as state"))[0].state;
+    const snapshot = () => query("select id,helm_booking_inventory_read(id) as state from (values('home'),('refresh-home')) x(id) order by id");
+    const before = await snapshot();
     await db.close(); db = new PGlite(dataDir);
-    assert.deepEqual((await query("select helm_booking_inventory_read('home') as state"))[0].state, before);
+    assert.deepEqual(await snapshot(), before);
   });
   // Independent fixture: canonical revision tests use the same fixed pilot ID.
   const windowDb = new PGlite();
