@@ -655,11 +655,33 @@ export const CONTRACTOR_CREATIVE_START_MONTH_2026 = 7;
 export const CONTRACTOR_PHOTO_MONTHLY = 1000;
 export const CONTRACTOR_PHOTO_START_MONTH_2026 = 8;
 
+/**
+ * The bench runs at half for January to April 2027.
+ *
+ * Dotti, 2026-10-21: "reduce the contractor expense by 50% from Jan-Apr of
+ * 2027". A dated ruling, applied to the whole Contractors line for those
+ * four months (creative, listing photography and the misc blend; the field
+ * work is the operations manager's salary by then and is not touched). It
+ * is scoped to 2027 because that is what was asked; extending it to the
+ * off-season of every forward year is a one-line change here, not an
+ * inference to make on her behalf.
+ */
+export const CONTRACTOR_OFF_SEASON_FACTOR = 0.5;
+export const CONTRACTOR_OFF_SEASON_YEAR = 2027;
+export const CONTRACTOR_OFF_SEASON_MONTHS: readonly number[] = [1, 2, 3, 4];
+
+/** 0.5 in the months the ruling covers, 1 everywhere else. */
+export function benchSeasonFactor(year: number, month: number): number {
+  return year === CONTRACTOR_OFF_SEASON_YEAR && CONTRACTOR_OFF_SEASON_MONTHS.includes(month)
+    ? CONTRACTOR_OFF_SEASON_FACTOR
+    : 1;
+}
+
 /** The photography part of the bench for a month: the card-paid contractor. */
 export function photoCost(year: number, month: number, activeCount: number): number {
   const start = year === 2026 ? CONTRACTOR_PHOTO_START_MONTH_2026 : 1;
   if (month < start) return 0;
-  return CONTRACTOR_PHOTO_MONTHLY * (activeCount / CONTRACTOR_FIELD_PROP_COUNT);
+  return CONTRACTOR_PHOTO_MONTHLY * (activeCount / CONTRACTOR_FIELD_PROP_COUNT) * benchSeasonFactor(year, month);
 }
 
 /**
@@ -700,7 +722,9 @@ export function contractorCost(
       ? CONTRACTOR_CREATIVE_MONTHLY * (activeCount / CONTRACTOR_FIELD_PROP_COUNT)
       : 0;
   const misc = CONTRACTOR_MISC_MONTHLY;
-  return field + creative + misc + photoCost(year, month, activeCount);
+  // photoCost carries the off-season factor itself, so a card-only ACT month
+  // (contractorCost minus photoCost) nets the right operating bench.
+  return (field + creative + misc) * benchSeasonFactor(year, month) + photoCost(year, month, activeCount);
 }
 
 /* --------------------------------------------------------------------- */

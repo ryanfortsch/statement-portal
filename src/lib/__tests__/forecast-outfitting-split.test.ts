@@ -115,7 +115,8 @@ describe('listing photography on the bench', () => {
   test('starts in August 2026 and scales with the fleet', () => {
     assert.equal(photoCost(2026, 7, 16), 0);
     assert.equal(photoCost(2026, 8, 16), CONTRACTOR_PHOTO_MONTHLY);
-    assert.equal(photoCost(2027, 1, 8), CONTRACTOR_PHOTO_MONTHLY / 2);
+    // June: outside the January to April 2027 off-season ruling of 2026-10-21.
+    assert.equal(photoCost(2027, 6, 8), CONTRACTOR_PHOTO_MONTHLY / 2);
     const withPhoto = contractorCost(2026, 9, CONTRACTOR_FIELD_PROP_COUNT, SEASON.CA[8]);
     const without = withPhoto - photoCost(2026, 9, CONTRACTOR_FIELD_PROP_COUNT);
     assert.ok(Math.abs(withPhoto - without - CONTRACTOR_PHOTO_MONTHLY) < 1e-9);
