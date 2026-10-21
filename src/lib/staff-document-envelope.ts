@@ -6,7 +6,8 @@ import { dutyEmails } from './team-recipients.ts';
  * page can show it before Send and the sender cannot drift from it. Every
  * email speaks as the countersigner (the `countersign` duty in team.ts,
  * Ryan): his name in the From line and the sign-off, replies to his inbox,
- * and a copy to him, whoever pressed the button. The address itself is the
+ * and a copy to him, whoever pressed the button. Whoever holds the
+ * `staff_copy` duty (Allie, 2026-10-21) is copied too. The address itself is the
  * verified Resend sender (RESEND_FROM_EMAIL), the same one the owner
  * contract and onboarding mail use. Pure; the `.ts` extensions let Node's
  * test runner import it.
@@ -26,7 +27,7 @@ export function staffDocumentEnvelope(fromEmail: string): StaffDocumentEnvelope 
     fromName: by ? `${name}, Rising Tide` : 'Rising Tide',
     fromEmail,
     replyTo: by,
-    cc: by ? [by] : [],
+    cc: [...new Set([...(by ? [by] : []), ...dutyEmails('staff_copy')])],
     signOff: name,
   };
 }

@@ -26,11 +26,12 @@ export type TeamAccess = 'owner' | 'staff';
  * `field_pay`: approves and pays Field packets and answers contractor
  * questions. `creative`: runs the creative program (shoots, view counts).
  * `countersign`: signs staff documents (offer letters) for Rising Tide STR,
- * LLC; their name prints on the employer's signature line.
+ * LLC; their name prints on the employer's signature line. `staff_copy`:
+ * copied on every staff document email (the signing link and the signed copy).
  * Notices resolve through `src/lib/team-recipients.ts`; nothing in the app
  * should name a teammate's inbox directly.
  */
-export type TeamDuty = 'field_pay' | 'creative' | 'countersign';
+export type TeamDuty = 'field_pay' | 'creative' | 'countersign' | 'staff_copy';
 
 export type TeamMember = {
   email: string;        // canonical id
@@ -75,6 +76,7 @@ export const TEAM_MEMBERS: TeamMember[] = [
     role: 'operations',
     access: 'owner',
     active: true,
+    duties: ['staff_copy'],
   },
   {
     email: 'dotti@risingtidestr.com',
