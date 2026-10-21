@@ -6,65 +6,84 @@ change either queue, stop Guesty, persist results, or authorize sending.
 
 ## Current integration status, October 21, 2026
 
-The new `src/lib/channex-messaging/transport.ts` is a server/CLI transport for
-Airbnb and Booking.com text messages. It follows the
-[Channex messages contract](https://docs.channex.io/api-v.1-documentation/messages-collection).
-It is separate from the read-only Beach pilot and has no route, scheduler,
-credential loader or production caller. Sending defaults off. Explicit scope
-selects one environment, property, channel and provider; thread inspection must
-also match the booking. Closed threads, inquiries, unresolved merge fields and
-invalid inputs cannot send. Credentials never appear in URLs or returned errors.
+`src/lib/channex-messaging/transport.ts` implements scoped Channex text sending
+and provider-history readback. `worker.ts` now connects it to durable PostgreSQL
+claim/result RPCs in the **unapplied draft** `channex-message-worker.sql`.
+The worker defaults disabled and accepts an explicit service-role RPC client,
+transport and renderer. It has no credential loader, route or scheduled caller.
+No live messages, channel changes, subscriptions or database migrations occurred.
 
-`sendText` invokes the caller's `beforePost` with the complete immutable route
-and body digest immediately before the one POST. That callback must durably
-claim/revalidate the message against the current booking, schedule, hold, sender
-ownership and source-sender drain. This callback is a contract, not an implemented
-database claim. The transport itself provides no cross-process deduplication.
-The durable queue must preserve an uncertain outcome across retries/restarts;
-calling `sendText` again is a new send, not a recovery method.
+The draft extends the existing `automation_sends` row; it does not introduce a
+second schedule. A job binds its canonical booking/key to an exact Channex
+property, channel, booking and thread, body digest, context revision, source
+handoff evidence, original fire time and expiry. Registration is restricted to
+future unsent rows. The route defaults disabled and the worker role cannot
+register jobs, change routes or enable sending. Identity survives replacement
+of an automation rule. Route identity is immutable so old receipts cannot be
+reinterpreted using a later channel mapping.
 
-A validated success returns the provider ID, route and content digest, never the
-body or access details. Documented terminal refusals return rejection; timeouts,
-unexpected statuses, malformed replies and mismatched responses remain unknown.
-No status triggers an automatic retry. `verifyReceipt` only reads provider
-history, with bounded pagination, and verifies the exact ID/thread/content.
-Neither an accepted response nor a history record proves guest delivery. Missing
-history never authorizes another send. Actual OTA readback remains a separate
-acceptance requirement. No live channel or recipient was used for this batch.
+Immediately before the one POST, an atomic claim locks the booking, schedule and
+job and checks the current hold/status/dates, effective rule, due time, expiry,
+Helm ownership, route generation and source stop/drain evidence. The context
+revision covers guest-facing times, checkout adjustments, templates, guest and
+access sources. Any changed context blocks the prepared body. This deliberately
+conservative revision still needs integration with the current renderer and
+automatic schedule refresh before live activation; it is not a completed live
+reservation adapter. Preserve main's newer `loadGuestTimes` sourcing (rate-plan
+check-in and `properties.default_checkout_time`) when integrating.
 
-Existing transport audit: Helm already uses Quo for cleaner SMS and Resend for
-email. Reuse those accounts after checking their applicable billing/access;
-this change adds no service or paid subscription. `automations.ts` still routes
-OTA work to `ota_manual` or `configured_in_ota`. Its cleaner loop records one
-provider ID for a potentially multi-recipient send, so the rehearsed durable
-per-recipient ledger must be integrated before enabling Calderwood automation.
-The fictional cleaner worker must remain isolated from production credentials.
+Only a newly committed claim permits a POST. A claim replay, lost acknowledgement,
+provider timeout, unexpected response or lost result write cannot cause another
+send. Each job permanently retains its attempt identity. Accepted, unknown and
+rejected results are distinct; no automatic retry path exists. A result write
+can be replayed identically, but conflicting results and downgrades are refused.
+If result persistence is uncertain, the worker returns the body-free outcome and
+attempt ID so the caller can reconcile/save that receipt without another POST.
+Accepted messages can be reconciled by GET against the exact provider ID and
+content hash. `recorded` proves a provider-history record, not guest delivery.
+An uncertain send without a provider ID remains unresolved for reconciliation.
 
-Remaining delivery batch:
+The native dispatcher, stuck-send cleanup and operator approval exclude reserved
+`delivery_used='channex'` rows. Database triggers also prevent a legacy claim or
+manual rerouting of a registered job. A hold/cancellation committed before the
+claim wins; one arriving after the claim cannot recall an in-flight HTTP request.
+Finish preserves any schedule cancellation while retaining the provider receipt.
+The schedule planner may invalidate a prepared job by retiming it, but cannot
+silently send the stale body or create a replacement attempt.
 
-1. Bind the verified real property, booking, thread and recipient identities to
-   a durable queue; preserve existing Guesty times, expiry, holds and sent history.
-2. Implement the final atomic claim/context check and persist each provider
-   attempt/result, including unknown outcomes and per-recipient cleaner receipts.
-3. Wire the Channex transport and existing Quo/Resend senders to that worker only
-   after source-sender handoff and production-account/cost checks.
-4. Run an explicitly approved, controlled actual-channel delivery check; verify
-   the message in the destination and restart without a duplicate. Then activate
-   future unsent messages at the contract-timed cutover.
+Validation: 10 new worker/RPC tests plus 28 disposable local PostgreSQL scenarios
+using the actual SQL, worker and transport with synthetic provider responses.
+These exercise competing workers, holds, cancellation, context changes, expiry,
+route/role boundaries, conflicting results, PostgreSQL restart and lost-save
+recovery. The full suite passes 2,179 tests / 240 suites; nonincremental TypeScript
+and scoped ESLint pass. No hosted test or actual delivery was performed.
 
-PriceLabs remains independently responsible for current daily rates and minimum
-stays. Its October 21 Chrome session expired and awaits user login. No current
-PriceLabs snapshot or functioning production connector has been verified here.
+PriceLabs source capture is now complete: 541 consecutive daily rates/minimum
+stays from October 21, 2026 through April 13, 2028, plus the visible rule settings.
+See `../provider-architecture.md` for the private-file digest and audit.
+Production Channex access and PriceLabs-to-Channex parity remain unverified.
 
-Validation: 40 new synthetic HTTP/ownership/error/readback checks; full suite
-2,169 tests / 240 suites; nonincremental TypeScript; scoped ESLint. No SQL, runtime
-flags or sender configuration changed. A branch push may create a preview;
-no new worker deployment is required for this unused transport. Branch `codex/channex-staging-pilot`, original
-base `a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`, starting HEAD `72dc1a84`;
-fetched main `dd85f1c1b61eb28c676fb6a7c542d91777517399`. Files in this batch:
-transport, transport tests, this handoff and the architecture's current status.
-The unrelated contract edits remain excluded. Integrating with current main must
-preserve its newer guest-time sourcing; this batch does not change that code.
+Remaining delivery work:
+
+1. Complete verified real identity/source-history registration, automatic
+   rendering/schedule refresh and the scheduled worker caller. Import only
+   future unsent messages after verified source-sender stop/drain; retain holds
+   and prior sent identities. Keep the existing Guesty relative times.
+2. Integrate the existing Quo cleaner sender with durable **per-recipient**
+   attempts and authenticated delivery receipts. The current production cleaner
+   loop records only the first provider ID for multiple texts. Do not repurpose
+   the fictional rehearsal worker with production credentials.
+3. Review/apply the schema and scoped runtime configuration after production
+   account/cost checks. Reuse Quo/Resend; this batch adds no paid service.
+4. Run an explicitly approved actual-channel delivery and restart check. Then
+   activate future unsent messages at the contract-timed cutover. No manual
+   guest-message fallback is an acceptable substitute for that acceptance.
+
+Branch `codex/channex-staging-pilot`; original base
+`a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`; batch starts at `70e1b4d9`.
+Fetched main `dd85f1c1b61eb28c676fb6a7c542d91777517399`. Unrelated contract edits
+are excluded. Native sender changes only exclude the reserved rail; guest-time
+loading and existing guest/cleaner delivery behavior otherwise remain untouched.
 
 ## Decisions
 

@@ -571,6 +571,20 @@ runs itself.
   (`quo`, `resend`, `gmail`, `airbnb_email`, `vrbo_email`),
   `delivery_status`, and `automation_send_id` when an automation wrote it.
 
+Draft Channex execution extension (**not applied**):
+`docs/guesty-exit/staging-storage/channex-message-worker.sql` defines
+`automation_channex_routes` (explicit disabled-by-default property/channel scope,
+source stop/drain and generation) and `automation_channex_jobs` (one permanent
+attempt identity per canonical stay/key, referencing the existing schedule row).
+Jobs store digests, routing, expiry, source-evidence references and provider
+receipts, never clear message bodies. Service-role RPCs read, atomically claim,
+and finish an attempt; the worker cannot register or enable routes. Registered
+rows use `delivery_used='channex'`, excluded from the native dispatcher and
+protected from fallback by a database trigger. Job states distinguish `prepared`,
+`attempting`, `unknown`, `rejected`, `accepted` and provider-history `recorded`.
+Existing schedule status `sent` means provider acceptance here, not proof of
+recipient delivery. See the message handoff document for activation gaps.
+
 Door codes never enter these tables in the clear: the rendered body in
 `automation_sends` is masked and the code goes only over the wire. Codes
 live in `property_access` and per-stay `guest_access_codes`.

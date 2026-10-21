@@ -31,14 +31,20 @@ operator-resolution flow is still needed. The authenticated preview diagnostics
 route returned HTTP 200, but its JSON body was not inspected after a browser
 download stalled. Detailed historical receipts remain below.
 
-**October 21 messaging batch:** `src/lib/channex-messaging/transport.ts` now
-implements Channex's actual text-message HTTP contract and receipt readback.
-It validates the property/channel/booking/thread before sending, gives the caller
-a final durable-claim/ownership check, makes at most one POST per invocation and
-preserves uncertain outcomes without retry. It defaults to sending disabled and
-has no runtime caller, credential loader, route or cron. Acceptance and provider
-history are explicitly distinct from delivery to the guest. Forty synthetic
-transport tests pass; no real message or delivery test has occurred.
+**October 21 messaging batch:** the Channex text transport is now composed with
+`src/lib/channex-messaging/worker.ts` and draft PostgreSQL claim/result RPCs.
+It extends an existing schedule row with a permanent attempt identity, exact
+route/body binding and source handoff evidence. A claim rechecks holds, ownership,
+context, due time and expiry before one POST. Restart or an uncertain outcome
+cannot resend; accepted receipts recover through provider-history GETs. The
+native sender excludes reserved jobs, with matching database enforcement.
+
+Ten worker tests and 28 actual local PostgreSQL scenarios passed, including
+competing workers, cancellation/holds and lost-save recovery. Full suite: 2,179
+passing tests. The draft SQL is **not applied**, the worker defaults disabled,
+and registration, automatic rendering/schedule refresh and a scheduled caller
+remain to be integrated. No live recipient or production sender was used.
+Acceptance/provider-history records do not establish guest delivery.
 
 The existing Helm Quo and Resend senders can be reused. The production OTA rail
 still requires manual posting, and its cleaner SMS loop stores only the first
@@ -47,9 +53,9 @@ and per-recipient recovery requirements. Do not turn on that existing rail as a
 substitute for the remaining worker integration. See the
 [messaging handoff](staging-storage/calderwood-message-handoff.md#current-integration-status-october-21-2026).
 
-Next launch work is full-window PriceLabs parity, a durable automatic message
-worker using these transports, verified recipient/booking bindings and real
-channel delivery acceptance. PriceLabs access is now verified: an October 21
+Next launch work is full-window PriceLabs parity, automatic schedule/render
+integration, durable per-recipient cleaner delivery, verified real bindings and
+actual-channel acceptance. PriceLabs access is now verified: an October 21
 read-only capture contains 541 consecutive dates of actual daily prices and
 minimum stays, plus the current customization and override audit. This is the
 source baseline, not proof of Channex delivery. See the
