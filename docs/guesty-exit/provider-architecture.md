@@ -49,7 +49,11 @@ substitute for the remaining worker integration. See the
 
 Next launch work is full-window PriceLabs parity, a durable automatic message
 worker using these transports, verified recipient/booking bindings and real
-channel delivery acceptance. PriceLabs' Chrome session currently requires login.
+channel delivery acceptance. PriceLabs access is now verified: an October 21
+read-only capture contains 541 consecutive dates of actual daily prices and
+minimum stays, plus the current customization and override audit. This is the
+source baseline, not proof of Channex delivery. See the
+[October 21 pricing evidence](#calderwood-pricelabs-source-capture-2026-10-21).
 Production Channex access, its approved costs and contract-timed cutover remain
 open gates. No new subscription or production sender was activated.
 
@@ -843,6 +847,72 @@ behavior and OTA delivery remain unverified. No additional sync is enabled here.
 Primary documentation rechecked 2026-10-08:
 - [Channex integration](https://help.pricelabs.co/portal/en/kb/articles/how-to-integrate-pricelabs-with-channex): supports rates and stay restrictions, parent plans and per-room prices; warns against competing PMS price writes and excludes direct-booking input via this API.
 - [PMS transition](https://help.pricelabs.co/portal/en/kb/articles/transitioning-between-management-systems): old/new mapping can copy listing customizations; account-level settings need separate handling. Both synced listings may be counted on the invoice, with a support-requested amendment described. Do not assume automatic billing relief or promise a free overlap period. No support message has been sent.
+
+
+## Calderwood PriceLabs source capture (2026-10-21)
+
+Signed-in PriceLabs inspection of the existing Calderwood Guesty listing captured
+541 unique, consecutive dates, October 21, 2026 through April 13, 2028 inclusive.
+The calendar's Download Prices control did not produce an accessible download;
+values were read from the rendered calendar cells while scrolling the full
+horizon. Date coverage, uniqueness, positive integer minimum stays and configured
+price bounds were checked independently after capture. This is a dated UI
+snapshot, not an export API, repeatable production feed or Channex parity result.
+
+Private source evidence remains outside Git:
+
+- `/tmp/calderwood-pricelabs-2026-10-21.json`, captured at
+  `2026-10-21T18:28:31.510Z`; SHA-256
+  `6b6b0ec7ad747eb9b9e663c696ef9c94078c1f0bea0e68762b6a155537001bff`.
+- `/tmp/calderwood-pricelabs-rules-2026-10-21.txt` and
+  `/tmp/calderwood-pricelabs-overrides-2026-10-21.txt`.
+- `/tmp/calderwood-pricelabs-current-2026-10-21.png`.
+
+The existing Guesty connection remains enabled; the UI last-sync indicator was
+7–8 hours old during inspection. No pricing rule, property mapping, sync target
+or paid service was changed. Calendar display preferences accidentally selected
+while operating the narrow menu were restored (Sunday start, regular colors).
+
+Current source configuration:
+
+- USD minimum/base/maximum: 225 / 445 / 1200. Observed daily prices span 277–1200.
+- Custom weekday/weekend minimums: default 2/2; beyond 15 days 2/3;
+  beyond 60 days 3/4. No separate last-minute minimum-stay row is configured.
+- Orphan gaps: Gap Length on weekdays and weekends for one-night gaps, within
+  0–999 days. November 1 currently carries a one-night minimum.
+- Observed minimum-stay counts: one night on 1 date, two on 45, three on 359,
+  four on 136. Treat these as output, never a permanent Helm rule engine.
+- Listing, group and Guesty-account Date Specific Overrides panels each report
+  no overrides; the listing's group is Nothing Selected.
+- Custom last-minute price discount: 22% at same day, tapering to zero over
+  30 days. Orphan-day price adjustment is explicitly disabled.
+- UI auto-applied pricing includes far-out premiums, booking-recency discounts,
+  occupancy adjustments and a safety minimum using historical ADR. Consequently,
+  copying minimum-stay settings alone does not preserve equivalent price inputs.
+
+Official guides rechecked October 21:
+
+- [PMS transition](https://help.pricelabs.co/portal/en/kb/articles/transitioning-between-management-systems):
+  map the old listing to the new destination and copy listing settings; account
+  customizations require separate handling. Preserve historical reservation data.
+  The guide describes possible duplicate invoice counts and a requested amendment,
+  not automatic credits.
+- [Mapping](https://help.pricelabs.co/portal/en/kb/articles/mapping-listings):
+  same-property coordinates must match; matching bedroom counts is recommended.
+  A mapped child from another PMS is listed at $1/month. This is published pricing,
+  not a quote or approval to add a paid listing.
+- [Channex connection](https://help.pricelabs.co/portal/en/kb/articles/how-to-integrate-pricelabs-with-channex):
+  active Channex subscription/API access is required, per-room parent rate plans
+  support Price and Restrictions, and direct bookings do not arrive through this
+  API. Preserve a separate verified input for those bookings.
+
+Next pricing gate: establish the production Channex account/entitlement and
+review concrete charges, then import only Calderwood's channel-free destination,
+verify inherited settings and booking-history inputs, and compare freshly synced
+Channex output date by date with a fresh PriceLabs snapshot. Reusing today's file
+later without refreshing it would confuse normal dynamic changes with transfer
+errors. No key was created or transferred, no listing was added, and no sync was
+triggered in this capture. Guesty continues to serve the live listing.
 
 
 ## Calderwood message parity audit (2026-10-08)
