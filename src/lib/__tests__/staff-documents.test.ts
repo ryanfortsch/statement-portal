@@ -162,3 +162,22 @@ describe('the gates', () => {
     assert.ok(!read('src/components/staff-documents/LetterDocument.tsx').includes('dangerouslySetInnerHTML'));
   });
 });
+
+describe('the emails speak as the countersigner, whoever presses Send', () => {
+  test('From, reply-to and copy all name the countersign duty holder', async () => {
+    const { staffDocumentEnvelope } = await import('../staff-document-envelope.ts');
+    const env = staffDocumentEnvelope('onboarding@risingtidestr.com');
+    const by = dutyEmails('countersign')[0];
+    assert.equal(env.replyTo, by);
+    assert.deepEqual(env.cc, [by]);
+    assert.match(env.fromName, /, Rising Tide$/);
+    assert.equal(env.fromEmail, 'onboarding@risingtidestr.com');
+  });
+  test('the senders use the envelope, not the button presser', () => {
+    const src = read('src/lib/staff-document-email.ts');
+    assert.ok(!src.includes('senderEmail'), 'no email takes its identity from who pressed Send');
+    assert.equal((src.match(/staffDocumentEnvelope\(FROM_EMAIL\)/g) ?? []).length, 2, 'the link and the signed copy both use it');
+    const page = read('src/app/staff-documents/[id]/page.tsx');
+    assert.ok(page.includes('signingEmailText(doc, signUrl, envelope.signOff)'), 'the page previews the exact words');
+  });
+});
