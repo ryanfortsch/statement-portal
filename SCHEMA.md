@@ -149,7 +149,7 @@ never key per-stay logic on `bookings.id` (`memory/project_bookings_duplicate_ro
   settled task. Changed windows skip observation of retired dates and replan.
   The existing 10,000-command ceiling remains; this prevents idle minute ticks
   filling history, not archival of real source changes or delivery attempts.
-- **Candidate only, not installed (October 20):**
+- **Installed only in isolated staging (October 21):**
   `docs/guesty-exit/staging-storage/booking-inventory-window.sql` adds the
   service-only `helm_booking_inventory_window_advance` RPC for the exact synthetic
   Calderwood route. It advances yesterday's 366-date interval by one Eastern day;
@@ -163,8 +163,13 @@ never key per-stay logic on `bookings.id` (`memory/project_bookings_duplicate_ro
   attempt and retiring only pending work. SQL binds the unchanged history and
   checks route/clock/coverage independently; it does not implement a second queue
   interpreter. The old generic append RPC cannot append the retirement command.
-  Deploy compatible journal readers with this candidate before enabling rolling
-  mode. No new tables, public permissions or production migration are added.
+  The compatible worker is deployed with rolling-year mode. A separately guarded
+  owner operation expanded the original fixture after verifying a complete,
+  stopped 366-date provider baseline; it preserved all history and cleared old
+  coverage until the worker supplied fresh proof. The full-year hosted rehearsal
+  passed and publishing was paused afterward. Midnight advancement remains
+  locally tested, not observed in hosting. No new tables, public permissions or
+  production migration are added.
 - **Installed only in isolated staging (October 21):**
   `docs/guesty-exit/staging-storage/canonical-source.sql` adds service-only
   `helm_pilot_source_read()` and `helm_pilot_source_certify(...)`; no new tables.

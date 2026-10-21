@@ -1,0 +1,136 @@
+{
+  "environment": "isolated-staging",
+  "property": "HELMTEST-calderwood",
+  "window": {
+    "start": "2026-10-21",
+    "endExclusive": "2027-10-22"
+  },
+  "workerCode": "ea50f81cc50d4d039d5dce4331921e1684d053f0",
+  "deployment": "dep-dbcdfh8m7kps73a9r840",
+  "booking": {
+    "code": "HELMTEST-calderwood-rolling-20261021",
+    "completed": [
+      "new",
+      "modified",
+      "cancelled"
+    ],
+    "pending": null,
+    "bookingId": "db7a8b0b-4e18-419c-b313-18ad397c5318"
+  },
+  "workerAttempts": [
+    {
+      "version": 30,
+      "task": "7506e4c9-d000-4f40-9891-5858223212ec",
+      "changedDates": 362,
+      "requestDigest": "0f37784c51871a4325a9c2167eb176c714c1742d537652e81c73d27594c2cae8",
+      "complete": true,
+      "settled": true,
+      "finishedAt": "2026-10-21T15:21:48.566000+00:00",
+      "observedAt": "2026-10-21T15:22:02.466000+00:00"
+    },
+    {
+      "version": 32,
+      "task": "2bd75fa1-0006-4ba3-8072-6ffda3344839",
+      "changedDates": 4,
+      "requestDigest": "065bf0e652f5d4fe8d0d4ca605ff818f43e2d2124f1a2ef8f8ab8831e28a19c6",
+      "complete": true,
+      "settled": true,
+      "finishedAt": "2026-10-21T15:25:16.547000+00:00",
+      "observedAt": "2026-10-21T15:25:29.835000+00:00"
+    },
+    {
+      "version": 33,
+      "task": "36801cb2-340b-4769-86d4-dcc79fcd6d60",
+      "changedDates": 1,
+      "requestDigest": "58062bdf30244b106572ec340caf8271efd1affcf4a958077edb89447195ffe5",
+      "complete": true,
+      "settled": true,
+      "finishedAt": "2026-10-21T15:27:41.140000+00:00",
+      "observedAt": "2026-10-21T15:27:54.475000+00:00"
+    },
+    {
+      "version": 34,
+      "task": "443a69b3-336c-468d-a7c6-2da24b7e1b7c",
+      "changedDates": 2,
+      "requestDigest": "fbab6e0514ea60675959a990b99ca050b7cca0dea99273ea20d9559f0a71518e",
+      "complete": true,
+      "settled": true,
+      "finishedAt": "2026-10-21T15:29:05.120000+00:00",
+      "observedAt": "2026-10-21T15:29:18.591000+00:00"
+    }
+  ],
+  "calendars": [
+    {
+      "stage": "initial",
+      "observedAt": "2026-10-21T15:22:30.426Z",
+      "dates": 366,
+      "stopped": 366,
+      "unavailable": [
+        "2026-10-21",
+        "2027-04-10",
+        "2027-04-11",
+        "2027-04-12"
+      ],
+      "restrictionsUnchanged": true
+    },
+    {
+      "stage": "new",
+      "observedAt": "2026-10-21T15:24:11.413Z",
+      "dates": 366,
+      "stopped": 366,
+      "unavailable": [
+        "2026-10-21",
+        "2027-04-10",
+        "2027-04-11",
+        "2027-04-12",
+        "2027-10-18",
+        "2027-10-19"
+      ],
+      "restrictionsUnchanged": true
+    },
+    {
+      "stage": "modified",
+      "observedAt": "2026-10-21T15:28:20.922Z",
+      "dates": 366,
+      "stopped": 366,
+      "unavailable": [
+        "2026-10-21",
+        "2027-04-10",
+        "2027-04-11",
+        "2027-04-12",
+        "2027-10-20",
+        "2027-10-21"
+      ],
+      "restrictionsUnchanged": true
+    },
+    {
+      "stage": "final",
+      "observedAt": "2026-10-21T15:31:50.310Z",
+      "dates": 366,
+      "stopped": 366,
+      "unavailable": [
+        "2026-10-21",
+        "2027-04-10",
+        "2027-04-11",
+        "2027-04-12"
+      ],
+      "restrictionsUnchanged": true
+    }
+  ],
+  "final": {
+    "publisherEnabled": false,
+    "captureVersion": 23,
+    "planVersion": 34,
+    "journalVersion": 70,
+    "validBindings": 5,
+    "appliedLifecycleRevisions": 3,
+    "pendingProviderRevisions": 0,
+    "enabledGuestSenders": 0,
+    "connectedChannels": 0
+  },
+  "limitations": [
+    "Synthetic Offline booking, not a live OTA acceptance test",
+    "No hosted midnight rollover or prolonged soak observed",
+    "PriceLabs and actual automated guest/cleaner delivery remain unproved"
+  ]
+}

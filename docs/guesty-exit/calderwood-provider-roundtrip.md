@@ -1,11 +1,12 @@
 # Calderwood provider booking rehearsal
 
-**Latest result, October 20:** the unconnected Channex property now has complete
-inventory and stopped rate restrictions for October 20, 2026 through October 20,
-2027 inclusive. Nine missing counts were initialized to zero and verified against
-the exact completed task; every pre-existing field was preserved. Rolling-year
-worker/SQL support passes local tests but is not installed or enabled in hosting.
-The bounded test publisher remains paused.
+**Latest result, October 21:** the hosted worker passed the full 366-date
+calendar rehearsal, including a fictional far-future booking, its move to the
+last two nights, cancellation and automatic recovery of an injected closure.
+All dates stayed stopped; rates and stay restrictions were unchanged. The window
+RPC is installed and rolling mode is configured. Test publishing is paused after
+the completed run. See the [structured receipt](calderwood-rolling-year-receipt.json)
+and the dated acceptance section below. Hosted midnight rollover remains unobserved.
 
 **Previous hosted milestone, October 20:** the deployed worker automatically closed dates
 for a fictional Helm booking, reopened/closed dates when it moved, and reopened
@@ -588,3 +589,62 @@ been observed. The rolling-window SQL remains uninstalled and rolling mode
 disabled. Next: closed full-year activation/rehearsal, then remaining retention,
 PriceLabs and genuine automated-message acceptance requirements. No production
 cutover, guest message or additional paid subscription was activated.
+
+
+## Full-year hosted acceptance (October 21, 2026)
+
+The independent baseline covered **October 21, 2026 through October 21, 2027
+inclusive**: 366 complete dates, all stop-sell=true and inventory=0, with zero
+connected channels. No initialization was needed. Local replay showed all 29 old
+jobs settled (five verified, 24 superseded). The [guarded installation and expansion](https://supabase.com/dashboard/project/jgkblfozftcvymvwhhii/sql/5dd8678f-35b6-4a0b-b783-063f7cd6ffd8)
+installed the unchanged window RPC and expanded the paused consumer. It preserved
+capture/plan/journal and other configuration, clearing coverage for a new worker
+observation. Five hosted assertions passed. Local rehearsal also proved repeat
+refusal, unchanged history and denial of anonymous execution.
+
+Only `CHANNEX_CALDERWOOD_INVENTORY_WINDOW=rolling-year` was added to the existing
+Render service, using Save and deploy of the same tested `ea50f81` image.
+[Deployment `dep-dbcdfh8m7kps73a9r840`](https://dashboard.render.com/worker/srv-db05t2id0e5s73a7r8gg/deploys/dep-dbcdfh8m7kps73a9r840)
+was live at **15:18:38 UTC**, instance `r2vwg`. The worker certified the complete
+year at 15:18:38 UTC while publishing was still paused. [Guarded test enablement](https://supabase.com/dashboard/project/jgkblfozftcvymvwhhii/sql/55715e8f-7f3e-4db7-82fb-a90a07e827bc)
+then changed only the publisher flag after checking fresh source coverage and
+unchanged settled history. Neither operation fabricated source freshness.
+
+| Scenario | Actual result |
+| --- | --- |
+| Initial full-year projection | 366-date plan; 362 changed counts submitted and task completed. Today remains closed by the 24-hour notice rule; April 10–12 retain existing test closures. |
+| New fictional booking, October 18–20, 2027 | Canonical capture 21 and plan 31; both nights occupied. Channex's automatic deduction already matched, so the worker logged `already-matches` and made no redundant request. |
+| Move to October 20–22 | Same canonical booking; capture 22, plan 32. Four changed counts submitted and verified, releasing old nights and protecting the final two dates. |
+| Inject an extra closure on October 19 | Single zero-count test mutation, with stop-sell unchanged. The worker detected drift, submitted one correction under plan 33, and durably verified completion. |
+| Cancel | Capture 23, plan 34. Two counts reopened in the stopped test calendar; task completed and all 366 dates matched the original expected projection. The revision feed was empty. |
+
+The three lifecycle revisions were applied once each. All five source bindings
+were valid. All four inventory tasks from this batch had exact request digests,
+provider completion and full-window read-back; nine completed attempts are
+retained across both hosted availability rehearsals. The structured receipt
+records tasks, timestamps, changed-date counts and calendar observations.
+The extra-closure injection task was `60f570a8-1433-4f60-9132-045c2903f6fc`;
+its correction was `36801cb2-340b-4769-86d4-dcc79fcd6d60`.
+
+Automatic source observations at **15:09:04**, **15:18:38** and **15:28:56 UTC**
+extend the previous 14:59 success into repeated observed renewals, not a prolonged
+soak. All 366 rates, arrival/through minimums, maximum stays, arrival/departure
+restrictions and stop-sell fields matched the baseline at each acceptance read.
+These were placeholder staging rates; this is not PriceLabs parity.
+
+After all jobs settled, the locally rehearsed [guarded pause](https://supabase.com/dashboard/project/jgkblfozftcvymvwhhii/sql/187a8d49-0609-4019-8210-fe2c39d7bb48)
+changed only publishEnabled to false. The [final hosted receipt](https://supabase.com/dashboard/project/jgkblfozftcvymvwhhii/sql/80901daa-dfd4-416d-9014-5a021c38f866)
+shows capture **23**, plan **34**, journal **70**, five valid bindings, all three
+lifecycle receipts, nine completed inventory attempts and zero enabled senders
+or channel rows. Final provider read at **15:31:50 UTC** confirmed the 366-date
+calendar, unchanged restrictions and stop-sell on every date. The cancelled
+fictional reservation and full audit history are retained.
+
+No application code changed in this batch. Guarded expansion, enablement and
+pause were rehearsed locally; provider checks and actual hosted receipts above
+are the acceptance evidence. Application tests were not rerun for the final
+documentation/receipt-only commit; paths, JSON assertions and complete diffs were
+checked. Remaining: hosted midnight rollover/longer soak, bounded history retention
+and operator conflict handling, PriceLabs parity, genuine automatic guest/cleaner
+delivery, and production account/cost/contract-timed cutover readiness. Guesty
+remains live; no subscription, real message or live channel was changed.

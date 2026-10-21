@@ -2,7 +2,7 @@
 
 Decision draft, October 7, 2026. Goal: replace Guesty across the portfolio after a successful Calderwood pilot. This is an architecture deliverable, not an implemented production connector or an approval to disconnect channels. Contract timetable remains in `calderwood-cutover-readiness.md`; `SCHEMA.md` remains authoritative for existing tables. No new platform purchase is required for the next milestone.
 
-## Current delivery status: October 20, 2026
+## Current delivery status: October 21, 2026
 
 The pilot is **Airbnb-only for new sales**: Ryan authorized pausing Booking.com;
 Vrbo is deferred. The Booking.com pause is **not executed**: its extranet requires
@@ -12,6 +12,16 @@ place. Existing stays on every channel remain in scope. Manual guest or cleaner
 messages are not an acceptable launch fallback. Preserve Guesty's existing
 message times, including 3 PM code delivery with a rare operator hold; PriceLabs
 continues to own dynamic rates and minimum stays.
+
+The hosted **full-year calendar rehearsal is complete**: the 366-date projection,
+far-future booking/move/cancel flow and injected-closure recovery passed on the
+unconnected staging property. Rates and stay restrictions were preserved, all
+dates remained stopped, and publishing is paused at the completed checkpoint.
+The window RPC and rolling-year worker mode are installed; actual midnight
+advancement remains unobserved. See the [acceptance record](calderwood-provider-roundtrip.md#full-year-hosted-acceptance-october-21-2026)
+and [structured receipt](calderwood-rolling-year-receipt.json). Next engineering
+work is bounded history retention/operator conflicts, then PriceLabs and genuine
+automated-message acceptance before a contract-timed production cutover.
 
 The implemented **synthetic booking ingestion transaction** has now passed an
 actual Channex staging create/change/cancel round trip through the deployed
@@ -1759,3 +1769,36 @@ been observed. The rolling-window SQL remains uninstalled and rolling mode
 disabled. Next: closed full-year activation/rehearsal, then remaining retention,
 PriceLabs and genuine automated-message acceptance requirements. No production
 cutover, guest message or additional paid subscription was activated.
+
+
+### Full-year acceptance handoff (October 21, 2026)
+
+Branch `codex/channex-staging-pilot`; starting HEAD
+`99e38fab9395a2ac092a32c81c69f44733a5a7ae`; original base
+`a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`; fresh main reference
+`9e113e458fcb404c42f1bb7e9cfb2dda462f3a10`. No main merge or other checkout edits.
+
+Changed repository files: `SCHEMA.md`, this handoff,
+`docs/guesty-exit/calderwood-provider-roundtrip.md` and the new
+`docs/guesty-exit/calderwood-rolling-year-receipt.json`. The dirty contract notes
+in `calderwood-cutover-readiness.md` remain excluded. This batch deployed an
+existing tested image and installed an existing tested candidate; no application
+implementation changed. Local guarded-operation rehearsals, actual full-year
+provider checks, durable queue replay, final hosted receipt, JSON assertions,
+referenced-path checks and complete diff checks passed. The documentation-only
+commit does not claim a new application-suite run.
+
+Current checkpoint: capture 23, plan 34, journal 70; every actual attempt settled,
+no pending provider revisions, test reservation cancelled, five valid source
+bindings, publishing paused. `rolling-year` remains configured, source verification
+continues, and all 366 provider dates remain stopped with zero channels. Repeated
+source renewals were observed through 15:28:56 UTC. The next window activation
+must respect the existing review boundary for a multi-day gap; do not reset
+history or invent coverage to bypass it. Follow the current top-level acceptance
+summary and final dated receipt rather than earlier historical “uninstalled” notes.
+
+Remaining production gates: history retention/operator conflict handling,
+PriceLabs rates/minimum-stay parity, automatic guest and cleaner delivery with
+original timing/hold controls, real Channex account/cost verification, existing
+reservation reconciliation, sales pauses and the Guesty contract exit timetable.
+Hosted midnight rollover and prolonged reliability remain unobserved.
