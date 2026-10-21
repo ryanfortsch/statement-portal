@@ -1,0 +1,36 @@
+{
+  "plan": 34,
+  "format": 2,
+  "capture": 23,
+  "journal": 71,
+  "senders": 0,
+  "archives": 1,
+  "channels": 0,
+  "coverage": [
+    {
+      "end": "2027-10-22",
+      "start": "2026-10-21",
+      "source": "channex-staging-bookings",
+      "complete": true,
+      "freshUntil": 1792604821688,
+      "observedAt": 1792603921688
+    }
+  ],
+  "archiveId": "a2146da1bcad84a21088fdeee0a23e19537d358f62732e83c146010772dc9bc3",
+  "checkedAt": "2026-10-21T17:37:43.757358+00:00",
+  "hashValid": true,
+  "publishing": false,
+  "baseVersion": 71,
+  "browserDenied": true,
+  "openConflicts": 0,
+  "verifiedTasks": 9,
+  "activeCommands": 0,
+  "identityCounts": {
+    "task": 9,
+    "intent": 34
+  },
+  "planInvalidated": true,
+  "archivedCommands": 70,
+  "checkpointMatches": true,
+  "serviceDirectDenied": true
+}

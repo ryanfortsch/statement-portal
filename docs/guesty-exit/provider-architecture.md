@@ -1876,3 +1876,16 @@ archive chaining, reused-identity refusal, lost response handling and both real
 worker/archive lock races. The exact guarded hosted installer was rehearsed for
 preservation, repeat refusal and browser-role denial. Hosted installation,
 deployment and rotation are separate acceptance steps, not claimed by local tests.
+
+
+Hosted completion: archive SQL installed with all 70 commands intact; compatible
+commit `e0e5adbd67599be462a912151e86110f94e1b3fa` is live on Render deployment
+`dep-dbcfeubncjis738ae7hg` since 17:34:04 UTC. The explicit check/archive/separate
+verification sequence passed. Independent acceptance at 17:37:43 UTC confirms
+capture 23, plan 34, journal/base 71, format 2, zero active commands, one archive
+containing 70 commands and nine completed attempts; publishing and sends remain
+disabled. Full evidence and limitations are in `calderwood-provider-roundtrip.md`
+and `calderwood-archive-receipt.json`. The Vercel preview of the same code is READY.
+Next substantive launch work is PriceLabs integration and genuine automated guest
+and cleaner delivery. Preserve the pending resumed-after-archive/midnight/soak
+checks and production access/cost/contract gates; do not treat archival as cutover.

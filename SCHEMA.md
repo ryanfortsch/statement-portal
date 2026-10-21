@@ -214,7 +214,7 @@ never key per-stay logic on `bookings.id` (`memory/project_bookings_duplicate_ro
   required for sustained operation. No reset, pruning or archive is implemented.
   Guarded hosted installation retained capture 23, plan 34 and journal 70, with
   publishing paused and zero open conflicts. All old receipts remained intact.
-- **Candidate, locally verified October 21:** `staging-storage/booking-inventory-archive.sql`
+- **Installed only in isolated staging (October 21):** `staging-storage/booking-inventory-archive.sql`
   adds private `helm_inventory_history.archives` (exact JSON text, SHA-256 identity,
   immutable next checkpoint) and `identities` (retired intent IDs and accepted task
   IDs). Both deny direct application/browser access. Service-only archive/read
@@ -233,8 +233,10 @@ never key per-stay logic on `bookings.id` (`memory/project_bookings_duplicate_ro
   segmented-journal compatibility. Older workers fail closed on format 2.
   This is explicit paused maintenance, not automatic log retention or backup
   outside the database. `scripts/channex-inventory-archive.mts` defaults to no
-  action unless a documented mode is supplied. Hosted installation and rotation
-  must be recorded separately from these local tests.
+  action unless a documented mode is supplied. Guarded installation preserved the
+  original 70 commands. The compatible worker then archived and independently
+  replayed all 70 commands and nine completed attempts; format 2 starts at
+  absolute version 71, publishing false. See `calderwood-archive-receipt.json`.
 - **Installed only in isolated staging (October 19):** `docs/guesty-exit/staging-storage/canonical-revisions.sql`
   wraps the existing booking RPCs for the synthetic Calderwood Channex rehearsal.
   Private `helm_channex_revisions.scope`, `.bookings` and `.receipts` hold the

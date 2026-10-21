@@ -1,5 +1,11 @@
 # Calderwood provider booking rehearsal
 
+**Archive acceptance, October 21:** the compatible worker is deployed and the
+first paused archive completed. All 70 commands and nine completed task receipts
+were independently replayed. Format 2 starts at absolute version 71; the active
+segment is empty and the old plan is invalidated. Publishing remains false.
+See [the receipt](calderwood-archive-receipt.json) and acceptance below.
+
 **Latest result, October 21:** the hosted worker passed the full 366-date
 calendar rehearsal, including a fictional far-future booking, its move to the
 last two nights, cancellation and automatic recovery of an injected closure.
@@ -686,3 +692,49 @@ checked. Remaining: hosted midnight rollover/longer soak, bounded history retent
 and operator conflict handling, PriceLabs parity, genuine automatic guest/cleaner
 delivery, and production account/cost/contract-timed cutover readiness. Guesty
 remains live; no subscription, real message or live channel was changed.
+
+
+## Hosted history archive acceptance (October 21, 2026)
+
+[Guarded installation](https://supabase.com/dashboard/project/jgkblfozftcvymvwhhii/sql/a951f18f-f2bc-496d-bf54-94ea2c2790d2)
+verified the fixed installation manifest and paused route, took source/consumer
+locks, installed the archive patch and asserted unchanged bookings, events,
+receipts and complete consumer state. Result: plan 34, journal/commands 70,
+archives 0, publishing false. The exact transaction passed a local rehearsal
+including repeat refusal and denied browser access before execution.
+
+Commit `e0e5adbd67599be462a912151e86110f94e1b3fa` built and deployed to the
+existing worker as [dep-dbcfeubncjis738ae7hg](https://dashboard.render.com/worker/srv-db05t2id0e5s73a7r8gg/deploys/dep-dbcfeubncjis738ae7hg),
+live at **17:34:04 UTC**, instance `kk5rb`. The same commit's Vercel preview
+`dpl_4XopEcuLA2UU15J9MfefUSwKowVs` reached READY. The previous deployment's
+authenticated diagnostics HTTP-status evidence remains the latest route check;
+this batch does not claim a newly inspected diagnostics response body.
+
+Inside the existing worker shell, the maintenance CLI first returned `ready`,
+then `archived`, then a separate process returned `verified` for archive
+`a2146da1bcad84a21088fdeee0a23e19537d358f62732e83c146010772dc9bc3`.
+It retained all 70 journal commands and advanced the active absolute version
+from 70 to 71. No provider call is made by these commands.
+
+[Independent database acceptance](https://supabase.com/dashboard/project/jgkblfozftcvymvwhhii/sql/a606c36e-1e7c-4ab8-867e-eca61ab4bcfd)
+at **17:37:43 UTC** confirmed one archive, nine completed task receipts,
+34 retired intent identities, nine retired task identities, valid SHA-256,
+matching checkpoint, zero active commands, invalidated old plan, capture 23,
+plan 34, publishing false, zero conflicts and zero enabled senders/channel rows.
+Browser execution and direct service-table access remain denied. Coverage was
+fresh through 17:47:01 UTC. Post-rotation worker logs at 17:38:07 UTC reported
+zero failures and the expected paused `window/blocked` state.
+
+Application validation passed 2,129 tests / 240 suites, nonincremental TypeScript
+and scoped ESLint. The 129 PGlite and 112 native PostgreSQL checks include full
+10,000-command rollover, process/database restart, retained retry deadlines,
+second-segment chaining, identity reuse refusal and both archive/worker lock
+races. Full diffs and whitespace were reviewed. Final receipt-only edits do not
+claim another application test run. Unrelated contract notes remain excluded.
+
+This closes explicit paused history maintenance. Normal resumed hosted processing
+after archival, hosted midnight rollover and a longer reliability trial are
+not yet proved. No automatic retention scheduler or off-database backup was
+added. PriceLabs parity, actual automatic guest/cleaner delivery and production
+account/cost/contract readiness remain launch gates. Guesty and real channels
+were unchanged; no new subscription was added.
