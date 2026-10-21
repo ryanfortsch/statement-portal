@@ -556,3 +556,35 @@ Guesty stays live. No additional paid service or channel change was introduced.
 The uninstalled rolling-window candidate now accepts either the original manual
 source or the reviewed automatic source, with exact coverage-source matching.
 Its new local rollover check preserves the original observation deadline.
+
+
+### Hosted source activation receipt
+
+Exact tested commit `ea50f81cc50d4d039d5dce4331921e1684d053f0` was deployed on the
+existing worker as [`dep-dbcd4q3bc2fs73c2krr0`](https://dashboard.render.com/worker/srv-db05t2id0e5s73a7r8gg/deploys/dep-dbcd4q3bc2fs73c2krr0).
+Render reported success and service live at **2026-10-21 14:56:01 UTC**.
+Only `CHANNEX_CALDERWOOD_SOURCE_COVERAGE_ENABLED=true` was added; existing
+credentials, services and billing were unchanged. Replacement instance `fpcpp`
+initially rejected the still-manual source configuration, as designed.
+
+The locally rehearsed [guarded activation](https://supabase.com/dashboard/project/jgkblfozftcvymvwhhii/sql/ea04cfde-d611-4bce-bb35-8f3fb5a1f488)
+then selected `channex-staging-bookings` and cleared the expired manual coverage.
+It asserted unchanged bookings/inputs, capture, plan and journal, and unchanged
+configuration except the source selection, coverage and incremented config
+version. Publishing stayed false; no timestamp was manually certified.
+
+The [read-only hosted receipt](https://supabase.com/dashboard/project/jgkblfozftcvymvwhhii/sql/dafaeada-b481-4221-be78-3df167cac149)
+confirmed the worker's first fresh observation at **14:59:00 UTC**, expiring at
+**15:14:00 UTC**: complete=true, fresh=true, exactly 15 minutes. All four canonical
+bindings remained valid (three matched provider cancellations plus one retained
+cancelled local rehearsal). Capture version stayed **20** and journal version
+**49**; the April 10–13 exclusive window stayed fixed. There were zero enabled
+guest senders and zero connected channel rows. At 14:59:03.249 UTC the worker
+logged zero failures and `plan/blocked`, expected because publishing is paused.
+
+This proves an unattended successful verification and initial renewal using the
+hosted worker. Repeated future renewals and a prolonged hosted soak have not yet
+been observed. The rolling-window SQL remains uninstalled and rolling mode
+disabled. Next: closed full-year activation/rehearsal, then remaining retention,
+PriceLabs and genuine automated-message acceptance requirements. No production
+cutover, guest message or additional paid subscription was activated.
