@@ -44,9 +44,29 @@ const commandSchema = z.discriminatedUnion('kind', [
     completion: z.object({ receivedAt: int, executedAt: int, finishedAt: int, observedAt: int }).strict().optional(),
   }).strict() }).strict(),
 ]);
-const journalSchema = z.object({ format: z.literal(1), commands: z.array(commandSchema).max(INVENTORY_JOURNAL_LIMIT) }).strict();
+const commands = z.array(commandSchema).max(INVENTORY_JOURNAL_LIMIT);
+const retired = z.object({ property: id, connection: id, generation: positive, version: int }).strict();
+const journalSchema = z.discriminatedUnion('format', [
+  z.object({ format: z.literal(1), commands }).strict(),
+  z.object({ format: z.literal(2), baseVersion: positive, archiveId: z.string().regex(/^[a-f0-9]{64}$/),
+    retired, resumeAfter: int, commands }).strict(),
+]);
 export type InventoryCommand = z.infer<typeof commandSchema>;
 export type InventoryJournal = z.infer<typeof journalSchema>;
+export function inventoryJournalVersion(journal: InventoryJournal): number {
+  return int.parse((journal.format === 2 ? journal.baseVersion : 0) + journal.commands.length);
+}
+export function inventoryResumeAfter(journal: InventoryJournal): number {
+  return int.parse(Math.max(journal.format === 2 ? journal.resumeAfter : 0, ...journal.commands.map(cmd =>
+    cmd.kind === 'dispatch' ? cmd.now + 6000 : cmd.kind === 'rejected' && cmd.failure === 'retryable'
+      ? cmd.now + Math.max(60_000, cmd.retryAfterMs) : 0)));
+}
+export function assertInventoryEnqueue(journal: InventoryJournal, input: z.infer<typeof intent>) {
+  if (journal.format === 2 && (input.property !== journal.retired.property || input.connection !== journal.retired.connection ||
+      input.generation !== journal.retired.generation || input.version <= journal.retired.version)) {
+    throw Error('Archived inventory version cannot be reused');
+  }
+}
 export const emptyInventoryJournal = (): InventoryJournal => ({ format: 1, commands: [] });
 function apply(queue: MemoryInventoryOutbox, command: InventoryCommand) {
   switch (command.kind) {
@@ -67,7 +87,14 @@ function apply(queue: MemoryInventoryOutbox, command: InventoryCommand) {
 export function replayInventoryJournal(value: unknown) {
   const journal = journalSchema.parse(value);
   const queue = new MemoryInventoryOutbox();
-  for (const command of journal.commands) apply(queue, command);
+  inventoryJournalVersion(journal);
+  for (const command of journal.commands) {
+    if (command.kind === 'enqueue') assertInventoryEnqueue(journal, command.intent);
+    if (command.kind === 'dispatch' && journal.format === 2 && command.now < journal.resumeAfter) {
+      throw Error('Archived inventory pacing is still active');
+    }
+    apply(queue, command);
+  }
   return { journal, queue };
 }
 export interface InventoryJournalStore {
@@ -80,8 +107,12 @@ export async function recordInventoryCommand(store: InventoryJournalStore, input
   const state = await store.read();
   int.parse(state.version);
   const { journal, queue } = replayInventoryJournal(state.journal);
-  if (state.version !== journal.commands.length) throw new Error('Inventory journal version mismatch');
+  if (state.version !== inventoryJournalVersion(journal)) throw new Error('Inventory journal version mismatch');
   const before = JSON.stringify(queue.list());
+  if (command.kind === 'enqueue') assertInventoryEnqueue(journal, command.intent);
+  if (command.kind === 'dispatch' && journal.format === 2 && command.now < journal.resumeAfter) {
+    throw Error('Archived inventory pacing is still active');
+  }
   const result = apply(queue, command);
   // A failed claim cannot authorize dispatch and does not need a stored event.
   if (before === JSON.stringify(queue.list())) return { saved: false as const, result: undefined };

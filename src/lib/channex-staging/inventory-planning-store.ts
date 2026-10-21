@@ -37,6 +37,7 @@ export function createInventoryPlanningStore(url: string, key: string, fetcher: 
     },
     async commit(expected, journal, freshUntil) {
       const normalized = replayInventoryJournal(journal).journal;
+      if (normalized.format !== 1) throw Error('Segmented history requires the canonical store');
       for (const [value, min] of [[expected.snapshotVersion, 1], [expected.configurationVersion, 1], [expected.journalVersion, 0], [freshUntil, 0]]) {
         if (!Number.isSafeInteger(value) || value < min) throw new Error('Invalid planning version or freshness');
       }

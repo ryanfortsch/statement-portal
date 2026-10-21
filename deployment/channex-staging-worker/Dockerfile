@@ -8,6 +8,7 @@ COPY src/lib/calderwood-readonly/channex.ts src/lib/calderwood-readonly/calendar
 COPY src/lib/calderwood-rehearsal ./src/lib/calderwood-rehearsal
 COPY scripts/channex-shared-worker.mts ./scripts/channex-shared-worker.mts
 COPY scripts/channex-inventory-rehearsal.mts ./scripts/channex-inventory-rehearsal.mts
+COPY scripts/channex-inventory-archive.mts ./scripts/channex-inventory-archive.mts
 USER node
 ENV CHANNEX_WORKER_MODE=isolated-staging
 CMD ["node", "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON", "scripts/channex-shared-worker.mts"]

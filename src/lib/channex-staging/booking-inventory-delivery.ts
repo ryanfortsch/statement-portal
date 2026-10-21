@@ -1,7 +1,7 @@
 /** One explicit attempt. No loop, env credentials, scheduler or production URL. */
 import { ChannexAvailabilityClient } from './availability-client.ts';
 import { bookingInventoryDispatchContext, parseBookingInventoryState, type BookingInventoryConsumerStore } from './booking-inventory-consumer.ts';
-import { recordInventoryCommand, replayInventoryJournal } from './inventory-journal.ts';
+import { inventoryResumeAfter, recordInventoryCommand, replayInventoryJournal } from './inventory-journal.ts';
 import { prepareInventoryDispatch } from './inventory-worker.ts';
 
 export async function deliverBookingInventoryOnce(store: BookingInventoryConsumerStore, client: ChannexAvailabilityClient,
@@ -22,10 +22,7 @@ export async function deliverBookingInventoryOnce(store: BookingInventoryConsume
   const context = await bookingInventoryDispatchContext(store, job, clock);
   if (!context.enabled || !context.complete || context.authority !== 'helm' || now >= context.freshUntil) return { status: 'blocked' as const };
   // Conservative property pacing survives process restarts through the journal.
-  const lastAttempt = Math.max(-6000, ...journal.commands.filter(cmd => cmd.kind === 'dispatch').map(cmd => cmd.now));
-  const retryUntil = Math.max(0, ...journal.commands.filter(cmd => cmd.kind === 'rejected' && cmd.failure === 'retryable')
-    .map(cmd => cmd.kind === 'rejected' ? cmd.now + Math.max(60_000, cmd.retryAfterMs) : 0));
-  if (now < lastAttempt + 6000 || now < retryUntil) return { status: 'blocked' as const };
+  if (now < inventoryResumeAfter(journal)) return { status: 'blocked' as const };
   const permit = await client.prepare(job);
   if (!permit.request) return { status: 'already-matches' as const }; // Observation, not task settlement.
   let freshUntil = 0;

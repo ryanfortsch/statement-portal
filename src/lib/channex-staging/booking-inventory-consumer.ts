@@ -9,7 +9,7 @@ import { shiftIsoDay, todayInEastern } from '../sca-quotes-types.ts';
 import { nights } from './core.ts';
 import { planInventory } from './inventory-planner.ts';
 import { projectInventory, type InventorySnapshot } from './inventory-projection.ts';
-import { replayInventoryJournal, type InventoryJournal, type InventoryJournalStore } from './inventory-journal.ts';
+import { inventoryJournalVersion, replayInventoryJournal, type InventoryJournal, type InventoryJournalStore } from './inventory-journal.ts';
 import type { DispatchContext, InventoryJob } from './inventory-outbox.ts';
 
 const int = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
@@ -44,7 +44,7 @@ const stateSchema = z.object({
       observedAt: int, freshUntil: int }).strict()).max(20),
   }).strict(),
   plannedCaptureVersion: int, plannedConfigurationVersion: int, planVersion: int,
-  journalVersion: int.max(10000), journal: z.unknown(), lastDigest: z.string().nullable(),
+  journalVersion: int, journal: z.unknown(), lastDigest: z.string().nullable(),
   plannedFreshUntil: int, inputsMatchPlan: z.boolean(), inputs: inputsSchema,
 }).strict();
 export type BookingInventoryState = z.infer<typeof stateSchema>;
@@ -70,7 +70,7 @@ export function parseBookingInventoryState(raw: unknown, property: string): Book
     throw new Error('Inventory checkpoint is ahead of source');
   }
   const { journal } = replayInventoryJournal(state.journal);
-  if (journal.commands.length !== state.journalVersion) throw new Error('Inventory journal version mismatch');
+  if (inventoryJournalVersion(journal) !== state.journalVersion) throw new Error('Inventory journal version mismatch');
   return state;
 }
 

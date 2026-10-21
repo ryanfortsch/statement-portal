@@ -1,7 +1,7 @@
 /** Snapshot-to-outbox transaction boundary. No production adapter or provider IO. */
 import { createHash } from 'node:crypto';
 import { projectInventory, type InventorySnapshot } from './inventory-projection.ts';
-import { assertInventoryCommandCapacity, replayInventoryJournal, type InventoryJournal } from './inventory-journal.ts';
+import { assertInventoryEnqueue, assertInventoryCommandCapacity, inventoryJournalVersion, replayInventoryJournal, type InventoryJournal } from './inventory-journal.ts';
 import type { InventoryIntent } from './inventory-outbox.ts';
 export type PlanningState = {
   snapshot: InventorySnapshot;
@@ -28,7 +28,7 @@ export async function planInventory(store: InventoryPlanningStore, start: string
     if (!Number.isSafeInteger(v) || v < 1) throw new Error('Invalid planning configuration');
   }
   const { journal, queue } = replayInventoryJournal(state.journal);
-  if (state.journalVersion !== journal.commands.length) throw new Error('Planning journal version mismatch');
+  if (state.journalVersion !== inventoryJournalVersion(journal)) throw new Error('Planning journal version mismatch');
   const now = clock();
   const projection = projectInventory(state.snapshot, state.listing, start, end, now);
   if (!projection.complete) return { status: 'blocked' as const, projection };
@@ -40,6 +40,7 @@ export async function planInventory(store: InventoryPlanningStore, start: string
     generation: state.generation, version: projection.version, days: projection.days,
   };
   const before = JSON.stringify(queue.list());
+  assertInventoryEnqueue(journal, intent);
   queue.enqueue(intent, now); // Enforces ordering and detects reused identity with changed content.
   if (before === JSON.stringify(queue.list())) return { status: 'unchanged' as const, projection };
   assertInventoryCommandCapacity(journal.commands.length, 'enqueue');

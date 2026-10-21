@@ -1844,3 +1844,35 @@ refusal and denied browser access. Installation then returned plan 34, journal
 70, publishing false and zero conflicts. No provider calendar or message call
 was made by that installation. Hosted conflict lifecycle remains to be exercised;
 local tests prove rollback, retry, resolution and immutable identity behavior.
+
+
+## October 21 history archive batch handoff
+
+Owned branch `codex/channex-staging-pilot`, starting HEAD `cdcb5204`; original
+base `a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`; current fetched main reference
+`dd85f1c1b61eb28c676fb6a7c542d91777517399`. Contract notes in
+`calderwood-cutover-readiness.md` remain excluded; no main merge.
+
+The explicit paused maintenance command archives the exact journal under its
+SHA-256 identity, independently reads and replays it, and starts a bounded new
+segment at a higher absolute version. SQL commits archive, retired intent/task
+identities and checkpoint atomically. Retired plan versions, old task identities
+and provider pacing survive rotation. The old plan is invalidated; publishing
+does not resume. Unresolved, uncertain, leased or retrying work and unbound
+legacy receipts cannot be archived. The trusted TypeScript service interprets
+queue safety; SQL binds that result to the exact locked state.
+
+Scope: journal/consumer/planner/delivery/store compatibility, diagnostics archive
+metadata, new archive interpreter/CLI/SQL, Docker inclusion, focused unit and
+shared database tests, both existing database runners and deployment/schema docs.
+Legacy standalone stores explicitly refuse segmented journals. This is explicit
+maintenance, not an automatic scheduler or a backup outside the database. Deploy
+a compatible worker before rotation; older workers fail closed on format 2.
+
+Validation: 2,129 tests / 240 suites; nonincremental TypeScript; scoped ESLint;
+129 PGlite and 112 native PostgreSQL checks. Coverage includes full 10,000-command
+recovery, a new OS process, a database restart, exact receipt replay, second
+archive chaining, reused-identity refusal, lost response handling and both real
+worker/archive lock races. The exact guarded hosted installer was rehearsed for
+preservation, repeat refusal and browser-role denial. Hosted installation,
+deployment and rotation are separate acceptance steps, not claimed by local tests.

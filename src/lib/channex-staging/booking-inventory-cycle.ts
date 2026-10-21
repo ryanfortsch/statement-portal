@@ -4,11 +4,11 @@
 import { ChannexAvailabilityClient } from './availability-client.ts';
 import { bookingInventoryDispatchContext, consumeBookingInventory, parseBookingInventoryState, type BookingInventoryConsumerStore } from './booking-inventory-consumer.ts';
 import { deliverBookingInventoryOnce } from './booking-inventory-delivery.ts';
-import { recordInventoryCommand, replayInventoryJournal, type InventoryJournalStore } from './inventory-journal.ts';
+import { recordInventoryCommand, inventoryJournalVersion, replayInventoryJournal, type InventoryJournalStore } from './inventory-journal.ts';
 
 export async function reconcileBookingInventoryOnce(store: InventoryJournalStore, client: ChannexAvailabilityClient, id: string) {
   const state = await store.read(), { journal, queue } = replayInventoryJournal(state.journal);
-  if (state.version !== journal.commands.length) throw Error('Inventory journal version mismatch');
+  if (state.version !== inventoryJournalVersion(journal)) throw Error('Inventory journal version mismatch');
   const job = queue.list().find(j => j.id === id);
   if (!job || !['submitted', 'uncertain'].includes(job.status) || !job.task || !job.receipt || !job.request || !job.token) {
     return { status: 'blocked' as const };

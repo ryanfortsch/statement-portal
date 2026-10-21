@@ -1,3 +1,4 @@
+import { verifyBookingInventoryArchive } from './verify-booking-inventory-archive.mjs';
 import { verifyBookingInventoryCapacity } from './verify-booking-inventory-capacity.mjs';
 import { verifyCanonicalSourceDatabase } from './verify-canonical-source.mjs';
 import { verifyBookingInventoryRefresh } from './verify-booking-inventory-refresh.mjs';
@@ -247,6 +248,14 @@ try {
   await verifyCanonicalSourceDatabase(db, check);
   await verifyBookingInventoryCapacity(db, check);
   await canonical.verifyConflicts();
+  const archived=await verifyBookingInventoryArchive(db, check);
+  await check('archive: immutable evidence and active checkpoint survive a database restart',async()=>{
+    const state=await archived.read(),id=state.journal.archiveId,receipt=await archived.store.readArchive(id);
+    await db.close();db=new PGlite(dataDir);
+    const after=(await db.query('select helm_booking_inventory_read($1) state',[archived.property])).rows[0].state;
+    const saved=(await db.query('select helm_booking_inventory_archive_read($1,$2) a',[archived.property,id])).rows[0].a;
+    assert.deepEqual(after,state);assert.deepEqual(saved,receipt);
+  });
   console.log(`PASS: ${passed} local PostgreSQL integration checks; canonical RPC bodies exercised; no external connections.`);
 } catch (error) {
   console.error('FAIL:', error.message);

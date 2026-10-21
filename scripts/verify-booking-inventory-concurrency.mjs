@@ -1,3 +1,5 @@
+import { prepareInventoryArchive } from '../src/lib/channex-staging/inventory-archive.ts';
+import { verifyBookingInventoryArchive } from './verify-booking-inventory-archive.mjs';
 import { verifyBookingInventoryCapacity } from './verify-booking-inventory-capacity.mjs';
 import { verifyCanonicalSourceDatabase } from './verify-canonical-source.mjs';
 import { verifyBookingInventoryRefresh } from './verify-booking-inventory-refresh.mjs';
@@ -313,6 +315,25 @@ try{
     await blocked(pending,pidB,pidA);await a.query('commit');await rejected;
   });
 
+  const history=await verifyBookingInventoryArchive({exec:sql=>monitor.query(sql),query:(sql,args)=>monitor.query(sql,args)},check);
+  await history.pause(true);const archiveJob=await history.plan();await history.pause(false);
+  await check('archive race: a worker claim commits first and invalidates the waiting archive proof',async()=>{
+    const s=await history.read(),proof=prepareInventoryArchive(s);
+    const next={...s.journal,commands:[...s.journal.commands,{kind:'claim',id:archiveJob.id,now:Date.now(),leaseMs:1}]};
+    await a.query('begin');assert.equal((await a.query('select helm_booking_inventory_journal_append($1,$2,$3) ok',[history.property,s.journalVersion,next])).rows[0].ok,true);
+    const pending=b.query(history.archiveSql,history.args(s,proof));
+    await blocked(pending,pidB,pidA);await a.query('commit');assert.equal((await pending).rows[0].ok,false);
+    assert.equal(await history.store.readArchive(proof.id),null);
+  });
+  await recordInventoryCommand(history.store.journal,{kind:'expire',now:Date.now()+10});
+  await check('archive race: rotation commits first and an old worker cannot claim from its retired segment',async()=>{
+    const s=await history.read(),proof=prepareInventoryArchive(s);
+    await a.query('begin');assert.equal((await a.query(history.archiveSql,history.args(s,proof))).rows[0].ok,true);
+    const next={...s.journal,commands:[...s.journal.commands,{kind:'claim',id:archiveJob.id,now:Date.now()+11,leaseMs:1000}]};
+    const pending=b.query('select helm_booking_inventory_journal_append($1,$2,$3) ok',[history.property,s.journalVersion,next]);
+    await blocked(pending,pidB,pidA);await a.query('commit');assert.equal((await pending).rows[0].ok,false);
+    assert.equal((await history.read()).journalVersion,s.journalVersion+1);assert.ok(await history.store.readArchive(proof.id));
+  });
   console.log(`PASS: ${passed} native PostgreSQL concurrency/schema checks; observed lock waits; no provider or hosted connections.`);
 }catch(error){console.error('FAIL:',error.message);process.exitCode=1;}
 finally{

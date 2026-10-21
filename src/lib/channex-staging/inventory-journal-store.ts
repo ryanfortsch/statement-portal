@@ -16,6 +16,7 @@ export function createInventoryJournalStore(url: string, key: string, fetcher: t
     },
     async append(expectedVersion, journal) {
       const normalized = replayInventoryJournal(journal).journal;
+      if (normalized.format !== 1) throw Error('Segmented history requires the canonical store');
       if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 0 || normalized.commands.length !== expectedVersion + 1) {
         throw new Error('Invalid inventory append');
       }

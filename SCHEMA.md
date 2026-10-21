@@ -214,6 +214,27 @@ never key per-stay logic on `bookings.id` (`memory/project_bookings_duplicate_ro
   required for sustained operation. No reset, pruning or archive is implemented.
   Guarded hosted installation retained capture 23, plan 34 and journal 70, with
   publishing paused and zero open conflicts. All old receipts remained intact.
+- **Candidate, locally verified October 21:** `staging-storage/booking-inventory-archive.sql`
+  adds private `helm_inventory_history.archives` (exact JSON text, SHA-256 identity,
+  immutable next checkpoint) and `identities` (retired intent IDs and accepted task
+  IDs). Both deny direct application/browser access. Service-only archive/read
+  RPCs target the fixed paused fictional Calderwood route. The trusted TypeScript
+  interpreter refuses unresolved attempts, pending retries and unbound legacy
+  evidence; SQL compares its exact journal/source/configuration/plan expectation
+  under capture/consumer locks. SQL does not independently replay queue semantics.
+  Rotation atomically saves the full history, indexes identities, starts format 2
+  at the next absolute journal version and clears plan freshness/inputs/digest.
+  Plan versions never reset. Active segments keep the 10,000-command limit and
+  ten-slot settlement reserve. A retired version fence, cross-segment identity
+  checks and retained pacing prevent old work or task receipts from being reused.
+  Never-dispatched pending work may retire and be replanned. No source, booking,
+  rate, channel or message authority changes. Install this patch after the older
+  planning/window/capacity definitions; rerunning an older patch would remove
+  segmented-journal compatibility. Older workers fail closed on format 2.
+  This is explicit paused maintenance, not automatic log retention or backup
+  outside the database. `scripts/channex-inventory-archive.mts` defaults to no
+  action unless a documented mode is supplied. Hosted installation and rotation
+  must be recorded separately from these local tests.
 - **Installed only in isolated staging (October 19):** `docs/guesty-exit/staging-storage/canonical-revisions.sql`
   wraps the existing booking RPCs for the synthetic Calderwood Channex rehearsal.
   Private `helm_channex_revisions.scope`, `.bookings` and `.receipts` hold the

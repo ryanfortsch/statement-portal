@@ -47,3 +47,30 @@ cannot activate message sending, publish inventory, or attest initial coverage.
 Disable its flag to return to the existing worker loops while keeping receipts.
 The Docker image includes only the Channex read adapter and its pure date-window
 helper from `calderwood-readonly`; no Guesty reader or app credentials are needed.
+
+## Inventory history maintenance
+
+Install `docs/guesty-exit/staging-storage/booking-inventory-archive.sql` only in the
+reviewed isolated database, after the planning/window/capacity patches. Deploy a
+format-2-compatible worker before the first rotation. Installation alone does
+not rotate history or enable publishing. Keep the pilot paused for maintenance.
+
+In the existing worker environment (no keys in command arguments):
+
+```sh
+node scripts/channex-inventory-archive.mts --check
+node scripts/channex-inventory-archive.mts --archive
+node scripts/channex-inventory-archive.mts --verify <returned-archive-id>
+```
+
+The check requires the exact paused pilot and a replayable queue containing only
+settled, superseded or never-dispatched pending work. An unresolved/uncertain
+attempt or pending retry must settle first; do not reset it to pass. The operation
+retains exact requests/receipts, monotonic versions and provider retry deadlines.
+It invalidates the old plan but does not resume publishing. A failed/lost response
+requires reading the active checkpoint and archive receipt before another action.
+Follow each `previous` hash to audit older segments; these remain in the same
+private database, so a separate disaster-recovery backup remains necessary.
+No scheduler calls this command automatically. Older workers cannot read format 2;
+rolling back the binary after rotation requires a compatible version, never a
+journal reset. No new service or subscription is introduced by this maintenance.
