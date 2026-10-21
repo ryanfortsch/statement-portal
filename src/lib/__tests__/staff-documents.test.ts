@@ -172,8 +172,10 @@ describe('the emails speak as the countersigner, whoever presses Send', () => {
     assert.equal(env.cc[0], by);
     assert.ok(env.cc.includes('allie@risingtidestr.com'), 'Allie is copied (staff_copy duty)');
     assert.equal(new Set(env.cc).size, env.cc.length, 'nobody twice');
-    assert.match(env.fromName, /, Rising Tide$/);
-    assert.equal(env.fromEmail, 'onboarding@risingtidestr.com');
+    assert.equal(env.fromEmail, by, 'sent from his own address on the verified domain');
+    assert.ok(!env.fromName.includes('Rising Tide') || !by, 'the From name is his name');
+    const other = staffDocumentEnvelope('mail@another-domain.com');
+    assert.equal(other.fromEmail, 'mail@another-domain.com', 'a different verified domain falls back to the sender');
   });
   test('the senders use the envelope, not the button presser', () => {
     const src = read('src/lib/staff-document-email.ts');
