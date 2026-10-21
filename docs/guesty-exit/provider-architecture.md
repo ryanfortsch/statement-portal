@@ -32,6 +32,12 @@ observe wrapper, which never ACKs a conflict. The authenticated preview-only
 capacity, source freshness and outstanding attempts; it grants no write authority.
 The two database reads are independent diagnostic snapshots, not a dispatch CAS.
 
+Commit `f5f6b936` is deployed to the existing worker and branch preview. Worker
+startup and independent database acceptance passed; all 70 history commands
+remain, publishing is paused, and no sender/channel is enabled. The diagnostics
+route returned HTTP 200 in Vercel logs, but its JSON body was not inspected after
+a browser download stalled. See the [deployment receipt](calderwood-provider-roundtrip.md#safety-deployment-acceptance-october-21).
+
 This closes the silent-conflict and late-history-exhaustion gaps, **not archival**.
 History is warned at 8,000 and new work stops at 9,990, preserving ten settlement
 slots. All records remain retained. A conflict resolves when its unchanged

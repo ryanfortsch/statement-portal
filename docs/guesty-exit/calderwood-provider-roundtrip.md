@@ -12,7 +12,7 @@ and the dated acceptance section below. Hosted midnight rollover remains unobser
 history settlement reserve are installed. The guarded transaction preserved all
 bookings, capture events, receipts and consumer state; its result was plan 34,
 journal 70, publishing false and zero open conflicts. No history was archived or
-removed. The new importer/status code requires this patch before deployment.
+removed. The importer/status code was deployed after this patch, as recorded below.
 [Hosted installation receipt](https://supabase.com/dashboard/project/jgkblfozftcvymvwhhii/sql/b89dafd2-dff3-459c-a67c-839518644f08).
 
 **Previous hosted milestone, October 20:** the deployed worker automatically closed dates
@@ -27,6 +27,37 @@ The first manually triggered import was verified October 19, 2026, evening ET
 (provider timestamps are October 20 UTC).
 This is an actual Channex staging to deployed Helm preview to isolated Supabase
 round trip with fictional data. It is not a live Airbnb booking or message test.
+
+## Safety deployment acceptance, October 21
+
+Tested commit `f5f6b936406bd40af069694a5a425dddf074c146` is live on the existing
+Render worker as `dep-dbce9abncjis7398brug`, since `2026-10-21T16:13:52Z`.
+Its Docker build succeeded. Startup reported a successful empty canonical scan
+with zero failures; the inventory cycle returned the expected paused
+`window/blocked` state. Existing cleaner and Beach loops also reported success.
+No provider conflict was injected into the hosted feed in this batch.
+
+Independent read-only acceptance at `2026-10-21T16:19:50Z` confirmed capture 23,
+plan 34, journal 70 with all 70 commands retained, fresh source coverage, zero
+open/resolved conflicts, publishing false and zero enabled senders/channel rows.
+The conflict RPCs deny browser roles and grant service execution; the conflict
+table denies direct service reads. The settlement reserve is installed.
+[Hosted acceptance](https://supabase.com/dashboard/project/jgkblfozftcvymvwhhii/sql/70765d83-c6ab-48d7-8fb7-a8aeb73d906a).
+
+The same commit built successfully as preview `dpl_qr4LKbUCSoUVLTu2Ygk9MDvb3etg`.
+Vercel request logs show HTTP 200 for the authenticated diagnostics route and
+HTTP 401 for the unauthenticated exact-deployment request. The browser did not
+render the JSON body; a download attempt stalled and was interrupted. Therefore
+hosted response content is not claimed as inspected. Pure report behavior is
+covered by tests. No authentication or deployment-skew protection was changed.
+
+Validation: 2,122 tests in 240 suites, nonincremental TypeScript, scoped ESLint,
+122 PGlite checks and 104 native PostgreSQL concurrency/schema checks passed.
+This includes concurrent duplicate conflicts, rollback, unchanged-revision
+recovery, payload mismatch refusal and settlement at the history boundary.
+Archival/checkpointing, operator resolution, hosted midnight rollover and a
+prolonged soak remain open. This receipt-only follow-up used complete diff and
+whitespace checks; application checks belong to the unchanged deployed code.
 
 ## Result
 
