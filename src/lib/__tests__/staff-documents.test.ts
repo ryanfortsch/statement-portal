@@ -169,7 +169,9 @@ describe('the emails speak as the countersigner, whoever presses Send', () => {
     const env = staffDocumentEnvelope('onboarding@risingtidestr.com');
     const by = dutyEmails('countersign')[0];
     assert.equal(env.replyTo, by);
-    assert.deepEqual(env.cc, [by]);
+    assert.equal(env.cc[0], by);
+    assert.ok(env.cc.includes('allie@risingtidestr.com'), 'Allie is copied (staff_copy duty)');
+    assert.equal(new Set(env.cc).size, env.cc.length, 'nobody twice');
     assert.match(env.fromName, /, Rising Tide$/);
     assert.equal(env.fromEmail, 'onboarding@risingtidestr.com');
   });

@@ -33,7 +33,6 @@ export function signingEmailText(doc: Pick<StaffDocumentRow, 'recipient_name' | 
   return (
     `Hi ${firstName(doc.recipient_name)},\n\n` +
     `Your ${doc.title} is ready to read and sign online:\n${url}\n\n` +
-    `Once you sign, I'll countersign and you'll get the fully signed copy by email. Questions first? Just reply to this email.\n\n` +
     `${signOff}\nRising Tide\n`
   );
 }
@@ -51,7 +50,6 @@ export async function sendSigningLinkEmail(args: {
       <p>Hi ${esc(firstName(doc.recipient_name))},</p>
       <p>Your <strong>${esc(doc.title)}</strong> is ready to read and sign online. It takes a couple of minutes:</p>
       <p><a href="${url}" style="color: #c85a3a; font-weight: 600;">Read and sign</a></p>
-      <p>Once you sign, I'll countersign and you'll get the fully signed copy by email. Questions first? Just reply to this email.</p>
       <p style="margin-top: 28px;">${esc(from)}<br/>Rising Tide</p>
     </div>`;
   const text = signingEmailText(doc, url, from);
