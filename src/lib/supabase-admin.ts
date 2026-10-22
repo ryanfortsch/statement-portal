@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { serverDatabaseConfig } from './server-database-config.ts';
 
 /**
  * Server-only Supabase client using the SERVICE ROLE key.
@@ -22,8 +23,15 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
  *   +   from '@/lib/supabase-admin';
  */
 
-const url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const { url, serviceKey } = serverDatabaseConfig({
+  publicUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
+  serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
+  isolatedCalendarEnabled: process.env.HELM_ISOLATED_CALENDAR_ENABLED,
+  stagingUrl: process.env.CHANNEX_STAGING_DB_URL,
+  stagingServiceKey: process.env.CHANNEX_STAGING_DB_SERVICE_KEY,
+  vercelEnv: process.env.VERCEL_ENV,
+  branch: process.env.VERCEL_GIT_COMMIT_REF,
+});
 
 /**
  * True when both the Supabase URL and the service-role key are present. Always

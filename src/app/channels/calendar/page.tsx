@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { isOwnerSession } from '@/lib/helm-access-server';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
@@ -42,6 +43,7 @@ function one(v: string | string[] | undefined): string {
 
 export default async function ChannelsCalendarPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const sp = await searchParams;
+  const owner = await isOwnerSession();
   const now = new Date();
   const today = todayInEastern(now);
   const ym = parseMonthParam(one(sp.month)) ?? monthOf(today);
@@ -221,7 +223,7 @@ export default async function ChannelsCalendarPage({ searchParams }: { searchPar
       <section className="max-w-[1400px] mx-auto" style={{ width: '100%', paddingBottom: 80, paddingLeft: 24, paddingRight: 24 }}>
         <Legend />
         <div style={{ marginTop: 12 }}>
-          <MultiCalendarGrid rows={rows} dates={dates} today={today} monthLabel={grid.label} />
+          <MultiCalendarGrid rows={rows} dates={dates} today={today} monthLabel={grid.label} canPrice={owner} />
         </div>
         <p style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 14, lineHeight: 1.55, maxWidth: 760 }}>
           Upright prices are Helm&apos;s rate plan and can be edited here. Italic prices are the Guesty mirror, set in Guesty or PriceLabs; Helm shows them and refuses to edit them, because the OTAs would never receive a number typed here. A bar starts at the middle of its check-in day and ends at the middle of its checkout day, so a same-day turnover reads as two half cells. Hatched bars are holds; the small glyph says where a stay came from.

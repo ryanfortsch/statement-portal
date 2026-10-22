@@ -17,6 +17,7 @@ export function calendarAppQueries() {
     ['fleet', `select ${cols('fleet.ts', 'FLEET_COLS')} from public.properties where is_active and kind='managed' order by id limit 2`],
     ['calendar bookings', "select * from public.bookings where property_id='HELMTEST-calderwood' and duplicate_of is null and status<>'cancelled' order by check_in,id limit 1"],
     ['mirror bookings', `select ${cols('helm-calendar-mirror.ts', 'MIRROR_BOOKING_COLS')} from public.bookings limit 0`],
+    ['house policy', `select ${cols('house-policy.ts', 'HOUSE_POLICY_COLS')} from public.properties limit 0`],
     ['rate plan', `select ${cols('property-rates.ts', 'RATE_PLAN_COLS')} from public.property_rate_plans limit 0`],
     ['rate days', `select ${cols('property-rates.ts', 'RATE_DAY_COLS')} from public.property_rate_days limit 0`],
     ['rental seasons', 'select property_id,start_month,start_day,end_month,end_day,note from public.property_rental_periods limit 0'],

@@ -2,6 +2,40 @@
 
 Decision draft, October 7, 2026. Goal: replace Guesty across the portfolio after a successful Calderwood pilot. This is an architecture deliverable, not an implemented production connector or an approval to disconnect channels. Contract timetable remains in `calderwood-cutover-readiness.md`; `SCHEMA.md` remains authoritative for existing tables. No new platform purchase is required for the next milestone.
 
+## Ordinary application preview binding — October 22, 2026
+
+Prepared the existing pilot preview to run the normal calendar against the same
+isolated database as the worker. The branch previously inherited the application's
+general database settings. Three overrides are scoped only to
+`codex/channex-staging-pilot`: `NEXT_PUBLIC_SUPABASE_URL`, the existing public anon
+key, and `HELM_ISOLATED_CALENDAR_ENABLED=true`. The server binding reuses
+`CHANNEX_STAGING_DB_SERVICE_KEY` already stored in that preview; no privileged
+credential was extracted or copied. Automatic approval review rejected an initial
+proposal to copy that secret to a temporary file, so that action was abandoned.
+The temporary public-key file was removed.
+
+The opt-in requires the exact preview environment, branch and matching isolated
+public/server database URLs. Missing staging credentials or any mismatch fails
+closed without falling back to the inherited production credential. Normal
+Google sign-in, proxy rules and production database selection are unchanged.
+The setting takes effect in a fresh build; an old deployment is not proof of it.
+
+Reconciled calendar owner-only nightly-price editing, feed-only OTA hold types,
+and house-policy reads from current main `733591b85d91a91551777cecbc6351cade2eca4d`.
+Both calendar pages pass the resolved permission into their drawers; the legacy
+single-home bulk price control also hides for staff. Guest check-in remains the
+rate plan's value, distinct from the cleaner deadline on properties. House
+checkout/policy comes from properties. This is a scoped reconciliation, not a
+whole-branch merge of current main or a claim of complete current-main role UI.
+
+Validation: **2,217 application tests / 242 suites**, TypeScript, scoped ESLint,
+and **18 disposable database checks** passed. The calendar preflight now covers
+**14** reads including the house-policy contract. Existing create/move/cancel,
+overlap rollback and closure-to-queue tests pass; prices/minimums do not create
+an availability command by themselves. Browser and hosted provider acceptance
+remain pending until explicitly recorded below. Publishing and all senders stay
+off during ordinary app binding verification.
+
 ## Calendar application compatibility — October 22, 2026
 
 The isolated database now supports the ordinary calendar's property and calendar

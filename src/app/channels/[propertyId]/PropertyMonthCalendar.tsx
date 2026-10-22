@@ -34,6 +34,8 @@ type Props = {
   monthLabel: string;
   /** Shorter cells for the hub; the full page uses the default. */
   compact?: boolean;
+  /** Owners set nightly prices; staff get the drawer without the price field. */
+  canPrice?: boolean;
 };
 
 type Selection = { anchor: string; focus: string };
@@ -47,7 +49,7 @@ function orderRange(a: string, b: string): { start: string; end: string } {
   return a <= b ? { start: a, end: b } : { start: b, end: a };
 }
 
-export function PropertyMonthCalendar({ row, weeks, monthStart, monthEnd, today, monthLabel, compact = false }: Props) {
+export function PropertyMonthCalendar({ row, weeks, monthStart, monthEnd, today, monthLabel, compact = false, canPrice = true }: Props) {
   const router = useRouter();
   const p = row.property;
   const cellH = compact ? 64 : 84;
@@ -283,6 +285,7 @@ export function PropertyMonthCalendar({ row, weeks, monthStart, monthEnd, today,
           start={drawer.start}
           end={drawer.end}
           initialMode={drawer.mode}
+          canPrice={canPrice}
           onClose={close}
           onSaved={() => {
             close();

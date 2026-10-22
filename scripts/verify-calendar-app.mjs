@@ -79,7 +79,7 @@ try {
     assert.deepEqual(await q('select * from property_rate_plans'), ratesBefore);
     assert.equal((await q('select bundle_digest from helm_pilot_installation.manifest'))[0].bundle_digest, install.digest);
   });
-  await check('ordinary calendar reads all 13 contracts as the app service role', async () => {
+  await check('ordinary calendar reads all 14 contracts as the app service role', async () => {
     await db.exec(buildCalendarAppPreflight());
     await asService(async () => {
       const rows = await q(calendarAppQueries()[0][1]);

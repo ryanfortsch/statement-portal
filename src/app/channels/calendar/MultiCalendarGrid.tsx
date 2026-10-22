@@ -14,6 +14,7 @@ import {
   type Freshness,
 } from '@/lib/calendar-model';
 import { createBlockAction, quoteRangeAction, saveRateDaysAction, type CalendarActionResult, type QuoteRangeResult } from './calendar-actions';
+import { GUESTY_HOME_SENTENCE } from '@/lib/guesty-writes';
 
 /**
  * The fleet multi-calendar: one row per home, one column per night of the
@@ -25,11 +26,10 @@ import { createBlockAction, quoteRangeAction, saveRateDaysAction, type CalendarA
  *                                              other, with a note)
  *   click a bar                                the stay card with its links
  *
- * A guesty-run row opens the same drawer but the price fields are disabled
- * with the reason: Guesty or PriceLabs set that number and Airbnb, VRBO and
- * Booking.com would never receive one typed here. Blocks are still allowed
- * (a hold in Helm is a hold on the Operations calendar and the export feed),
- * and the result copy says the hold lives in Helm only until the flip.
+ * A guesty-run row opens the drawer on Block these nights alone, headed by
+ * the Guesty sentence (lib/guesty-writes): Helm cannot price or quote that
+ * home, and a hold typed here reaches the Operations calendar and the
+ * cleaner schedule, never Airbnb, VRBO or Booking.com, until the flip.
  */
 
 export type CalendarRowVM = {
@@ -58,6 +58,8 @@ type Props = {
   dates: string[];
   today: string;
   monthLabel: string;
+  /** Owners set nightly prices; staff see the drawer without the price field. */
+  canPrice?: boolean;
 };
 
 type Selection = { propertyId: string; anchor: string; focus: string };
@@ -94,7 +96,7 @@ function weekdayShort(iso: string): string {
   return new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' }).slice(0, 2);
 }
 
-export function MultiCalendarGrid({ rows, dates, today, monthLabel }: Props) {
+export function MultiCalendarGrid({ rows, dates, today, monthLabel, canPrice = true }: Props) {
   const router = useRouter();
   const [selection, setSelection] = useState<Selection | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -214,6 +216,7 @@ export function MultiCalendarGrid({ rows, dates, today, monthLabel }: Props) {
           row={rowById.get(drawer.propertyId)!}
           start={drawer.start}
           end={drawer.end}
+          canPrice={canPrice}
           onClose={close}
           onSaved={() => {
             close();
@@ -468,6 +471,7 @@ export function EditDrawer({
   onClose,
   onSaved,
   initialMode,
+  canPrice = true,
 }: {
   row: CalendarRowVM;
   start: string;
@@ -475,12 +479,16 @@ export function EditDrawer({
   onClose: () => void;
   onSaved: () => void;
   initialMode?: 'price' | 'block' | 'quote';
+  /** False for staff: the nightly price field is hidden (the action refuses it too). */
+  canPrice?: boolean;
 }) {
   const p = row.property;
   const nights = row.cells.filter((c) => c.date >= start && c.date <= end);
   const single = nights.length === 1;
   const first = nights[0];
-  const [mode, setMode] = useState<'price' | 'block' | 'quote'>(initialMode ?? (p.helmRun && single ? 'price' : 'block'));
+  // A home Guesty runs gets the block form only: Helm cannot price or quote
+  // it, so the drawer opens on Block these nights with no tabs to refuse.
+  const [mode, setMode] = useState<'price' | 'block' | 'quote'>(!p.helmRun ? 'block' : initialMode ?? (single ? 'price' : 'block'));
   const [pending, startTransition] = useTransition();
   const [result, setResult] = useState<CalendarActionResult | null>(null);
 
@@ -504,7 +512,9 @@ export function EditDrawer({
   const [touched, setTouched] = useState<ReadonlySet<'nightly' | 'min' | 'closed' | 'note'>>(new Set());
   const touch = (f: 'nightly' | 'min' | 'closed' | 'note') => setTouched((t) => new Set(t).add(f));
 
-  const [holdKind, setHoldKind] = useState<'owner' | 'maintenance' | 'ota' | 'other'>('owner');
+  // Hand-entered holds only: 'ota' (a channel's own closure) is written by
+  // the feed imports, never picked here.
+  const [holdKind, setHoldKind] = useState<'owner' | 'maintenance' | 'other'>('owner');
   const [holdNote, setHoldNote] = useState('');
 
   const rangeLabel = single ? start : `${start} to ${end} · ${nights.length} nights`;
@@ -565,11 +575,13 @@ export function EditDrawer({
 
   return (
     <DrawerShell eyebrow={`${p.name} · ${p.badgeLabel}`} title={rangeLabel} onClose={onClose}>
-      <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--rule)', marginBottom: 18 }}>
-        <TabButton active={mode === 'price'} onClick={() => setMode('price')} label="Price and rules" />
-        <TabButton active={mode === 'block'} onClick={() => setMode('block')} label="Block these nights" />
-        <TabButton active={mode === 'quote'} onClick={openQuote} label="Quote" />
-      </div>
+      {p.helmRun && (
+        <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--rule)', marginBottom: 18 }}>
+          <TabButton active={mode === 'price'} onClick={() => setMode('price')} label="Price and rules" />
+          <TabButton active={mode === 'block'} onClick={() => setMode('block')} label="Block these nights" />
+          <TabButton active={mode === 'quote'} onClick={openQuote} label="Quote" />
+        </div>
+      )}
 
       {mode === 'price' && (
         <div style={{ display: 'grid', gap: 14 }}>
@@ -581,9 +593,10 @@ export function EditDrawer({
           {p.helmRun && !p.hasPlan && (
             <Note tone="negative">
               This home has no rate plan yet, so a per-night override has nothing to override.{' '}
-              <Link href={`/properties/${p.id}?tab=guest#rates`} style={{ color: 'inherit' }}>Set the plan under Rates & taxes (property page, Guest & listing).</Link>
+              <Link href={`/properties/${p.id}?tab=guest#rates`} style={{ color: 'inherit' }}>Set the plan under Pricing (property page, Guest & listing).</Link>
             </Note>
           )}
+          {canPrice && (
           <Field label="Nightly rate (USD)" hint="Blank returns the night to the plan's own rate (weekend or base).">
             <input
               type="text"
@@ -598,6 +611,7 @@ export function EditDrawer({
               style={inputStyle}
             />
           </Field>
+          )}
           <Field label="Minimum nights" hint="Blank uses the plan default.">
             <input
               type="number"
@@ -650,11 +664,14 @@ export function EditDrawer({
 
       {mode === 'block' && (
         <div style={{ display: 'grid', gap: 14 }}>
+          {!p.helmRun && !p.exportTicked && (
+            <p className="font-serif" style={{ fontSize: 17, lineHeight: 1.35, color: 'var(--ink)', margin: 0 }}>{GUESTY_HOME_SENTENCE}</p>
+          )}
           <p style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.5, margin: 0 }}>
             Holds {nights.length} night{nights.length === 1 ? '' : 's'}, {start} to {checkOut} (the morning the hold ends). The database refuses the hold if another stay has any of these nights.
           </p>
           {!p.helmRun && !p.exportTicked && (
-            <Note tone="signal">Guesty still runs this calendar: the hold lives in Helm only until the flip. Block the dates in Guesty too.</Note>
+            <Note tone="signal">Block the dates in Guesty too. This hold reaches the Operations calendar and the cleaner schedule only.</Note>
           )}
           {!p.helmRun && p.exportTicked && (
             <Note tone="signal">An OTA on this home already imports Helm&apos;s export, so the hold reaches it on its next pull. Any OTA still fed by Guesty needs the dates blocked there too.</Note>
@@ -664,7 +681,6 @@ export function EditDrawer({
               <option value="owner">Owner stay</option>
               <option value="maintenance">Maintenance</option>
               <option value="other">Other</option>
-              <option value="ota">Channel block</option>
             </select>
           </Field>
           <Field label="Note" hint="Who or what. Rides into the Operations calendar and the cleaner schedule.">
