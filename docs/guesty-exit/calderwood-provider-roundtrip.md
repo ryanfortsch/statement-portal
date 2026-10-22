@@ -76,13 +76,15 @@ were independently replayed. Format 2 starts at absolute version 71; the active
 segment is empty and the old plan is invalidated. Publishing remains false.
 See [the receipt](calderwood-archive-receipt.json) and acceptance below.
 
-**Latest result, October 21:** the hosted worker passed the full 366-date
+**Historical result, October 21:** the hosted worker passed the full 366-date
 calendar rehearsal, including a fictional far-future booking, its move to the
 last two nights, cancellation and automatic recovery of an injected closure.
 All dates stayed stopped; rates and stay restrictions were unchanged. The window
 RPC is installed and rolling mode is configured. Test publishing is paused after
 the completed run. See the [structured receipt](calderwood-rolling-year-receipt.json)
-and the dated acceptance section below. Hosted midnight rollover remains unobserved.
+and the dated acceptance section below. The October 22 result above subsequently
+proved one-day advancement on resumption; continuous midnight operation remains
+unobserved.
 
 **Safety installation, October 21:** private conflict observations and the
 history settlement reserve are installed. The guarded transaction preserved all
@@ -802,9 +804,10 @@ second-segment chaining, identity reuse refusal and both archive/worker lock
 races. Full diffs and whitespace were reviewed. Final receipt-only edits do not
 claim another application test run. Unrelated contract notes remain excluded.
 
-This closes explicit paused history maintenance. Normal resumed hosted processing
-after archival, hosted midnight rollover and a longer reliability trial are
-not yet proved. No automatic retention scheduler or off-database backup was
-added. PriceLabs parity, actual automatic guest/cleaner delivery and production
+This October 21 checkpoint closed explicit paused history maintenance. The
+October 22 ordinary-calendar result above subsequently proved resumed processing
+after archival and one-day advancement after midnight. Continuous unattended
+midnight operation and a longer reliability trial remain unproved. No automatic
+retention scheduler or off-database backup was added. PriceLabs parity, actual automatic guest/cleaner delivery and production
 account/cost/contract readiness remain launch gates. Guesty and real channels
 were unchanged; no new subscription was added.

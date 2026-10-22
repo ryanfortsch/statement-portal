@@ -1,5 +1,18 @@
 # Helm provider architecture and next implementation boundary
 
+## Current handoff index, October 22
+
+Use [the certification handoff](channex-certification-readiness.md) and
+[its pinned evidence packet](channex-certification-evidence.json) for current
+milestones. Older dated notes below describe their historical checkpoint.
+The normal calendar and signed booking webhook have hosted evidence; messaging
+SQL and queue preparation are installed in isolated staging. Production remains
+unapplied. The next implementation is reusable connection mapping, followed by
+the applicable certification demonstration and production access. PriceLabs
+parity, continuous automatic messaging and real delivery remain launch gates.
+The earlier blanket “unapplied” and pending calendar statements are superseded
+only within their documented isolated scope. Guesty still operates Calderwood.
+
 ## Exact Guesty queue-time handoff — October 22, 2026
 
 The shared guest/cleaner scheduler now accepts a reviewed exact source instant

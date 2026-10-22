@@ -1,0 +1,108 @@
+{
+  "reviewedOn": "2026-10-22",
+  "status": "preparation-incomplete-not-submitted",
+  "scope": "Existing fictional staging evidence only; no production authorization",
+  "sources": [
+    {
+      "path": "calderwood-full-app-receipt.json",
+      "sha256": "8954b9f502d6d33c542b5e0a5ad9e992a316ab970b32b8c4cf1f07c26917022b"
+    },
+    {
+      "path": "calderwood-rolling-year-receipt.json",
+      "sha256": "d70179d61b3f6adbf9c785b80bdf7c60aafe31acfb290d312b0e7acf85b2d14c"
+    },
+    {
+      "path": "calderwood-archive-receipt.json",
+      "sha256": "92e75192f987401ed7c0db398da9ec0b419a34dece04c34074825fd8b96b8c16"
+    },
+    {
+      "path": "staging-storage/calderwood-message-queue-install-receipt.json",
+      "sha256": "e455f416b8290dfe07e3ade53471507ae691a3d3950f700961639b63aa4469a2"
+    }
+  ],
+  "calendarApplicationCommit": "91ceab2fb6389a0ca1810f82a8f954200a8a33c2",
+  "calendarWorkerCommit": "e0e5adbd67599be462a912151e86110f94e1b3fa",
+  "calendarActions": [
+    {
+      "action": "create",
+      "taskId": "d1b31450-164c-4151-acd9-cd70b4d6f393",
+      "observedAt": "2026-10-22T08:28:18.305Z",
+      "completed": true,
+      "settled": true
+    },
+    {
+      "action": "move",
+      "taskId": "23ebf972-2c1d-41e6-885a-20c6808ddfe0",
+      "observedAt": "2026-10-22T08:30:18.412Z",
+      "completed": true,
+      "settled": true
+    },
+    {
+      "action": "release",
+      "taskId": "2c882e1a-374b-4cb6-8a04-fa0540fd3a2d",
+      "observedAt": "2026-10-22T08:31:32.840Z",
+      "completed": true,
+      "settled": true
+    },
+    {
+      "action": "close",
+      "taskId": "2559e7b2-0a21-4b00-926f-030742288b2c",
+      "observedAt": "2026-10-22T08:33:37.820Z",
+      "completed": true,
+      "settled": true
+    },
+    {
+      "action": "reopen",
+      "taskId": "3d01aded-d65e-4944-ac79-4fa587a014ec",
+      "observedAt": "2026-10-22T08:35:30.805Z",
+      "completed": true,
+      "settled": true
+    }
+  ],
+  "bookingLifecycle": {
+    "source": "calderwood-provider-roundtrip.md#signed-notification-delivery-verified-october-20",
+    "scope": "Offline fictional CRS booking; not an OTA booking",
+    "bookingId": "29673a62-d37e-4109-91a0-7edfae1f6dbe",
+    "revisionIds": [
+      "e5c1d27d-6830-4ad5-a466-cc28b3946cb1",
+      "9acf9726-c5c1-4814-a889-6b3fb60f1e74",
+      "7ef7c195-4d05-4a3b-b603-4d8836e2b40a"
+    ],
+    "deliveredBySignedWebhook": true,
+    "finalFeedEmpty": true
+  },
+  "readiness": {
+    "normalCalendarAvailabilityActions": "hosted-evidence",
+    "bookingCreateModifyCancelAndAck": "hosted-offline-evidence",
+    "resumeAfterArchiveAndOneDayWindowAdvance": "hosted-evidence",
+    "continuousMidnightReliabilitySoak": "not-demonstrated",
+    "configurableRuntimeMapping": "not-implemented",
+    "fiveHundredDayFullAriUpdate": "not-demonstrated",
+    "pricingAndRestrictionsScopeAcceptedByChannex": "not-verified",
+    "certificationFormSubmitted": false,
+    "certificationPassed": false,
+    "productionEntitlement": "not-verified",
+    "priceLabsDestinationParity": "not-demonstrated",
+    "continuousMessageScheduling": "not-demonstrated",
+    "cleanerSourceHistoryAndDstTime": "unresolved",
+    "realGuestAndCleanerDelivery": "not-demonstrated"
+  },
+  "budget": {
+    "basis": "Public Channex list pricing; not an account invoice or purchase approval",
+    "monthlyPlatformUsd": 130,
+    "monthlySingleVacationRentalChannelUsd": 0.5,
+    "monthlySingleVacationRentalMessagingUsd": 0.5,
+    "monthlyPilotSubtotalUsd": 131,
+    "includesTaxHostingPriceLabsQuoOrDevelopment": false
+  },
+  "lastVerifiedControls": {
+    "at": "2026-10-22T17:25:10Z",
+    "publisherEnabled": false,
+    "activeMessageControls": 0,
+    "connectedChannels": 0
+  },
+  "references": {
+    "certification": "https://docs.channex.io/api-v.1-documentation/pms-certification-tests",
+    "pricing": "https://channex.io/pricing"
+  }
+}
