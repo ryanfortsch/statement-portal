@@ -31,7 +31,7 @@ export default async function LeasesPage() {
         plain
         eyebrow="Helm · Properties"
         title="Leases"
-        line="Zillow leads for the winter leases, read every half hour and held to the playbook's written criteria. Only serious ones reach your home feed."
+        line="Zillow leads for the winter leases, read every half hour and held to the playbook's written criteria. Each lead that needs answers gets the screening questions once; only serious ones reach your home feed."
       />
       <PropertiesTabBar active="leases" />
 
@@ -158,6 +158,11 @@ function LeadRow({ lead }: { lead: LeaseLeadRow }) {
           <span style={{ color: 'var(--ink-3)' }}> · {lead.label ?? lead.zillow_address ?? 'unmatched'} · {when(lead.last_message_at)} · {verdictWord(lead.verdict)}</span>
         </div>
         {lead.summary && <div style={{ fontSize: 13, color: 'var(--ink-2)', marginTop: 4 }}>{lead.summary}</div>}
+        {(lead.screening_sent_at || lead.screening_error) && (
+          <div style={{ fontSize: 12, color: lead.screening_sent_at ? 'var(--ink-3)' : 'var(--negative)', marginTop: 4 }}>
+            {lead.screening_sent_at ? `Screening questions sent ${when(lead.screening_sent_at)}` : `Screening questions not sent: ${lead.screening_error}`}
+          </div>
+        )}
         {(missing.length > 0 || other.length > 0) && (
           <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 4 }}>
             {other.join(' · ')}
