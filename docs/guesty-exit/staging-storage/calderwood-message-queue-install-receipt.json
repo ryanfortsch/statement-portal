@@ -1,0 +1,43 @@
+{
+  "environment": "isolated-staging",
+  "projectRef": "jgkblfozftcvymvwhhii",
+  "verifiedAt": "2026-10-22T17:25:10Z",
+  "priorBundleSha256": "d565811589a8df2182093c6799005e91ba7ac35e3af4fcbe07a241e93ab13094",
+  "bundleSha256": "bd916ca47ac1d3b323f169e8d2d0065e80f02763440b0e7802812b669b3afc81",
+  "installationQuery": "4232d5c6-6971-4a3d-a2bb-219ccac85282",
+  "readbackQuery": "fcc46fdb-9c0f-4666-b57e-4c0fe0b29bf0",
+  "rehearsal": {
+    "workflows": 6,
+    "newSchedules": 5,
+    "heldIdentityPreserved": true,
+    "alreadySentImported": 1,
+    "futureGuestJobs": 3,
+    "futureCleanerBatches": 2,
+    "fictionalCleanerRecipientJobs": 4,
+    "keyCodeHeld": true,
+    "repeatIsIdempotent": true,
+    "lateFailureAtomic": true,
+    "sourceHistoryReplayBlocked": true,
+    "ownerOnlyHandoff": true,
+    "fixtureRolledBack": true,
+    "existingRowsPreserved": true,
+    "providerCalls": 0
+  },
+  "retainedState": {
+    "messageJobs": 0,
+    "activeSendControls": 0,
+    "connectedChannels": 0,
+    "bookings": 7,
+    "automationSends": 12,
+    "captureVersion": 28,
+    "planVersion": 40,
+    "journalVersion": 98,
+    "publishing": false
+  },
+  "limits": [
+    "Fictional source assertions only; no live Guesty history, cleaner receipt or source stop/drain imported.",
+    "No Channex or Quo provider delivery, sender activation, new credential or paid service.",
+    "Incremental owner-only database functions and private aggregate receipt; no continuous source collector or runtime write endpoint.",
+    "Production account, PriceLabs parity, cleaner evidence, channel pause and delivery acceptance remain open."
+  ]
+}

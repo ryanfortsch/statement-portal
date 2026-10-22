@@ -1730,3 +1730,60 @@ behavior, independent calendar/cache credentials and thirteen invalid isolation
 configurations. Native PostgreSQL remains the preceding 146-scenario result;
 this repair changes no SQL. The new preview needs an authenticated read before
 source connectivity or actual timing collection can be claimed as passing.
+
+
+## Incremental queue installation and source review, October 22
+
+`scripts/build-message-queue-install.mjs` now builds the separate guarded upgrade
+for the already-installed isolated messaging bundle. It pins the prior receipt
+and the original context function body, requires empty messaging support and
+paused fictional-only controls, and refuses installation collisions or widened
+source-handoff permissions. All existing isolated tables are locked during the
+bounded transaction. The old six-component installer remains byte-for-byte
+reproducible and must not be rerun as an upgrade.
+
+The bundled canonical-schema rehearsal starts with one held key-code row, creates
+five missing schedules, imports fictional confirmation history and registers the
+other five workflows without enabling them. It verifies exact held-row identity,
+idempotent replay, rollback after a late invalid review, and existing table-content
+preservation. All fictional booking/message/inventory effects roll back. Only the
+three new owner-only preparation functions, the context wrapper and a private
+aggregate installation receipt persist in isolated staging only. No new execution grant,
+credential, runtime route, real recipient, subscription or production change.
+
+Local validation: **20 installation/preparation scenarios**, **2,250 application
+tests / 242 suites**, and nonincremental TypeScript passed. This reruns the earlier
+canonical installation checks and adds eight upgrade scenarios. The 146 broader
+messaging scenarios passed in the preceding increment and were not rerun because
+the underlying messaging SQL/worker code did not change. Independent hosted status
+is provided by `message-queue-status.sql`; a submitted query alone is not proof
+of installation and must be reconciled before retry.
+
+A fresh read-only Guesty reservation-panel check resolved one source comparison:
+the checkout reminder crossing the fall DST boundary displays the elapsed-24-hour
+candidate (noon before an 11 AM checkout the following day), with its row and
+master switches enabled. This is a dated source observation, not a universal DST
+rule, sent receipt or stop/drain authorization. No reservation identifiers, guest
+names, message bodies or contacts are retained here. The cleaner advance reminder
+across that boundary remains unverified. The existing official Guesty guidance
+continues to exclude contact/cleaner automations from the guest Inbox; another
+blank Inbox view must not be used as cleaner history or an empty-queue proof.
+
+Continues `codex/channex-staging-pilot`, original base `a148b0e6`; remote main
+observed `89f145821980c588feb28d7d81f31606a62ff1c3`. Unrelated contract-readiness
+edits remain excluded. Guesty continues as sender.
+
+Hosted outcome independently verified at 17:25 UTC: **queue creation rehearsal
+PASS**, five created schedules and preserved held identity, zero retained test
+jobs, zero active send controls, zero connected channels, publishing false,
+calendar versions **28 / 40 / 98**, and the existing **7 bookings / 12 sends**.
+The generated SQL matched the editor contents before execution. Receipt:
+`calderwood-message-queue-install-receipt.json`. Only one installation was
+submitted; the slow response was reconciled by read-back rather than resubmission.
+Production remains unapplied. Source SQL headers referring to unapplied drafts
+continue to describe production, not this isolated installation.
+
+The preceding `53c0f25c` preview routing repair was verified by an authenticated
+read at 12:54 PM New York time: five confirmed stays cross-checked, zero incomplete
+timing candidates and 27 conversation records. No live timing or message-history
+record was imported into this database rehearsal.

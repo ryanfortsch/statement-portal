@@ -602,7 +602,7 @@ holds, and never enables senders. Worker/browser roles cannot read these source
 tables or call these ingestion functions. This is reviewed evidence ingestion,
 not a remote source collector or independent proof of delivery.
 
-Atomic queue preparation (**candidate; not applied to hosted databases**):
+Atomic queue preparation (**isolated staging only; unapplied in production**):
 `staging-storage/message-queue-preparation.sql` extends the six-workflow handoff
 without adding a table. An owner-only preparation snapshot returns the current
 canonical, content and timing revision tokens before message rows exist. The
@@ -616,7 +616,15 @@ This is not a retime/revive API or source collector. Browser and service roles
 have no execution grants; no sender is enabled. The server adapter in
 `src/lib/channex-messaging/queue-preparation.ts` checks the complete response and
 reports lost/partial replies as unconfirmed without retrying. The previous hosted
-installation bundle remains unchanged; this file is a separate incremental candidate.
+installation bundle remains unchanged; this extension was installed separately on October 22.
+The guarded `scripts/build-message-queue-install.mjs` packages this extension for
+isolated staging and records only its bundle/source digests and aggregate rolled-back
+rehearsal result in owner-only `helm_pilot_installation.message_queue`. It requires
+the pinned prior messaging receipt, original context body, empty supporting tables
+and disabled controls. Independent read-back passed with five new rehearsal schedules,
+preserved held identity, zero retained test jobs and unchanged calendar versions.
+See `docs/guesty-exit/staging-storage/calderwood-message-queue-install-receipt.json` for the deployed
+bundle and query references. No production change or runtime caller access was added.
 
 Reviewed timing capture adapter (**application candidate; no new database objects**):
 `src/lib/channex-messaging/timing-ingestion.ts` consumes an explicitly reviewed

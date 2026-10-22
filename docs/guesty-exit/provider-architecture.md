@@ -2388,3 +2388,25 @@ or role is created, and unflagged production configuration is unchanged. Missing
 or foreign source-cache configuration fails closed; source protocol and token
 refresh behavior are unchanged. The runtime repair requires fresh preview
 verification, not just a successful build.
+
+
+## October 22 isolated queue upgrade acceptance
+
+The separate `build-message-queue-install.mjs` installer targets only the exact
+prior isolated messaging receipt. It refuses existing messaging records, active
+controls, unexpected context code and widened source-handoff access. A fictional
+canonical rehearsal creates five missing message rows, preserves a sixth held
+row and rolls back all fixture effects before an aggregate private receipt can
+commit. Hosted installation and independent `message-queue-status.sql` read-back
+passed: zero retained jobs, zero active send controls, seven preserved bookings,
+twelve preserved sends and unchanged calendar versions 28 / 40 / 98. Receipt:
+`staging-storage/calderwood-message-queue-install-receipt.json`. The original
+installer and source worker SQL remain unchanged. No service/browser execution grants or production
+activation are added. Twenty canonical installation/upgrade scenarios and the
+2,250-test application suite passed; continuous source evidence, cleaner history
+and real authorized delivery remain launch requirements.
+
+The preceding preview routing repair was also verified at `53c0f25c`: the real
+Guesty read cross-checked all five confirmed stays, found zero incomplete timing
+candidates and returned 27 conversation records. Those metadata reads remain
+separate from automation send/stop/drain proof.
