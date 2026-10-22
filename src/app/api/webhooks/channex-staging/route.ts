@@ -14,6 +14,7 @@ export async function POST(request: Request) {
     run: (revisionId, bookingId) => runMappedCanonicalRevisions({
       url: process.env.CHANNEX_STAGING_DB_URL ?? '', storageKey: process.env.CHANNEX_STAGING_DB_SERVICE_KEY ?? '',
       providerKey: process.env.CHANNEX_STAGING_API_KEY ?? '', revisionId, bookingId,
+      refreshMessageDates: process.env.CHANNEX_CANONICAL_MESSAGE_TIMING_ENABLED === 'true',
     }),
   });
 }

@@ -2,12 +2,11 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 import { runMappedCanonicalRevisions } from './canonical-revision-mapped.ts';
 import { CanonicalRevisionConflict } from './canonical-conflicts.ts';
-import { ingestCanonicalRevisions } from './canonical-revisions.ts';
 
 type Environment = Record<string, string | undefined>;
-type Page = Awaited<ReturnType<typeof ingestCanonicalRevisions>>;
+type Page = Awaited<ReturnType<typeof runMappedCanonicalRevisions>>;
 type CycleLog = { event: 'canonical-revision-cycle'; at: string; outcome: 'success' | 'failure'; failures: number;
-  conflict?: CanonicalRevisionConflict['reason']; received?: number; applied?: number; stale?: number; acknowledged?: number };
+  conflict?: CanonicalRevisionConflict['reason']; received?: number; applied?: number; stale?: number; acknowledged?: number; timing?: { scanned: number; refreshed: number; unchanged: number; blocked: number; inactive: number; canSend: false } };
 export function canonicalPollingEnabled(env: Environment) {
   return env.CHANNEX_CANONICAL_POLLING_ENABLED === 'true' && env.CHANNEX_WORKER_MODE === 'isolated-staging'
     && !env.VERCEL_ENV && env.CHANNEX_STAGING_DB_PROJECT_REF === 'jgkblfozftcvymvwhhii'
@@ -26,7 +25,8 @@ export function createCanonicalRevisionPageRunner(env: Environment, fetcher: typ
         ...(init?.signal ? [init.signal] : [])]) });
     };
     return runMappedCanonicalRevisions({ url: env.CHANNEX_STAGING_DB_URL!,
-      storageKey: env.CHANNEX_STAGING_DB_SERVICE_KEY!, providerKey: env.CHANNEX_STAGING_API_KEY! }, boundedFetch);
+      storageKey: env.CHANNEX_STAGING_DB_SERVICE_KEY!, providerKey: env.CHANNEX_STAGING_API_KEY!,
+      refreshMessageDates: env.CHANNEX_CANONICAL_MESSAGE_TIMING_ENABLED === 'true' }, boundedFetch);
   };
 }
 export async function runCanonicalRevisionScheduler(input: {
@@ -44,7 +44,7 @@ export async function runCanonicalRevisionScheduler(input: {
       const page = await input.drainPage(AbortSignal.any([input.signal, AbortSignal.timeout(120000)]));
       received = page.received; failures = 0;
       entry = { event: 'canonical-revision-cycle', at: new Date((input.now ?? Date.now)()).toISOString(),
-        outcome: 'success', failures, received, applied: page.applied, stale: page.stale, acknowledged: page.acknowledged };
+        outcome: 'success', failures, received, applied: page.applied, stale: page.stale, acknowledged: page.acknowledged, ...('timing' in page ? { timing: page.timing } : {}) };
     } catch (error) {
       if (input.signal.aborted) break;
       failures++;

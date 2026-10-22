@@ -619,6 +619,16 @@ announced" placeholder replaced by the named record). Only closed BEFORE arrival
 `src/lib/guesty-legacy-status.ts` maps it so for the `bookings` backfill, and the dedupe never lets
 an unnamed record's cancel hide a named twin (`isUnnamedRecord` in `src/lib/booking-dedupe.ts`).
 
+### Calderwood message timing pilot
+
+The isolated date-feed candidate retains an explicitly reviewed stay's local
+check-in/check-out message clocks and original confirmation time while Channex
+supplies revised stay dates. A Channex revision's receipt time is not the booking's
+confirmation time, and an OTA arrival estimate is not automatically the property's
+check-in policy. Clock changes require a fresh owner decision; scheduled date
+changes alone must not release a key-code hold, extend handoff expiry or replay
+sent confirmations. This candidate is disabled and unapplied; Guesty remains live.
+
 ## Quo (OpenPhone)
 
 Rebranded OpenPhone. Cross-cutting: cleaning completion pings, CRM contact timeline, owner

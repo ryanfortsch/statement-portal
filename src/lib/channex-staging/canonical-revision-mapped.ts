@@ -1,4 +1,5 @@
 /** Calderwood ingestion bound to the same owner-reviewed route as inventory. */
+import { z } from 'zod';
 import { createClient } from '@supabase/supabase-js';
 import { CALDERWOOD_STAGING } from '../calderwood-readonly/channex.ts';
 import { stagingInventoryRouteSchema, type StagingInventoryRoute } from './inventory-route.ts';
@@ -6,6 +7,10 @@ import { assertNoCanonicalConflict } from './canonical-conflicts.ts';
 import { createCanonicalRevisionClient } from './canonical-revision-client.ts';
 import { CANONICAL_PILOT_PROPERTY, ingestCanonicalRevisions, parseCanonicalRevision, type CanonicalRevisionStore } from './canonical-revisions.ts';
 
+const count = z.number().int().min(0).max(100);
+export const messageDateRefreshSchema = z.object({ scanned: count, refreshed: count, unchanged: count,
+  blocked: count, inactive: count, canSend: z.literal(false) }).strict().refine(r =>
+  r.scanned === r.refreshed + r.unchanged + r.blocked + r.inactive);
 export function parseCanonicalPilotRoute(raw: unknown): Readonly<StagingInventoryRoute> {
   const route = stagingInventoryRouteSchema.parse(raw);
   if (route.helmProperty !== CANONICAL_PILOT_PROPERTY ||
@@ -25,6 +30,14 @@ export function createMappedCanonicalRevisionAccess(url: string, key: string, fe
   }
   return {
     route: async () => parseCanonicalPilotRoute(await rpc('helm_pilot_revision_route', {})),
+    async refreshMessageDates(raw: StagingInventoryRoute) {
+      const route = parseCanonicalPilotRoute(raw);
+      try {
+        return messageDateRefreshSchema.parse(await rpc('helm_pilot_message_times_refresh', {
+          p_connection: route.connection, p_generation: route.generation, p_limit: 100,
+        }));
+      } catch { throw Error('Message date refresh unconfirmed; canonical receipts retained'); }
+    },
     store(raw: StagingInventoryRoute): CanonicalRevisionStore {
       const route = parseCanonicalPilotRoute(raw);
       const binding = { p_connection: route.connection, p_generation: route.generation };
@@ -45,10 +58,14 @@ export function createMappedCanonicalRevisionAccess(url: string, key: string, fe
 }
 /** Both entry points resolve the route before any provider request. No legacy fallback. */
 export async function runMappedCanonicalRevisions(input: {
-  url: string; storageKey: string; providerKey: string; revisionId?: string; bookingId?: string;
+  url: string; storageKey: string; providerKey: string; refreshMessageDates?: boolean; revisionId?: string; bookingId?: string;
 }, fetcher: typeof fetch = fetch) {
   const access = createMappedCanonicalRevisionAccess(input.url, input.storageKey, fetcher);
   const client = createCanonicalRevisionClient(input.providerKey, fetcher);
   const route = await access.route();
-  return ingestCanonicalRevisions(client, access.store(route), input.revisionId, input.bookingId);
+  const result = await ingestCanonicalRevisions(client, access.store(route), input.revisionId, input.bookingId);
+  // ACKed revisions remain durable. Empty polling cycles recover a lost refresh
+  // response or a restart between the ACK and this independently idempotent step.
+  if (input.refreshMessageDates === true) return { ...result, timing: await access.refreshMessageDates(route) };
+  return result;
 }

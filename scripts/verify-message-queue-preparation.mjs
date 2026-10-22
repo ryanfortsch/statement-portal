@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { verifyMessageLifecycle } from './verify-message-lifecycle.mjs';
+import { verifyMessageDateFeed } from './verify-message-date-feed.mjs';
 import { verifyTimingCapture } from './verify-message-timing-capture.mjs';
 import { prepareReviewedMessageQueue } from '../src/lib/channex-messaging/queue-preparation.ts';
 export async function verifyQueuePreparation({db,a,b,bundle,scalar}) {
@@ -95,4 +96,5 @@ export async function verifyQueuePreparation({db,a,b,bundle,scalar}) {
   await db.query('reset role');
  }pass('browser and sender roles cannot manufacture preparation evidence or populate the queue');
  console.log(`PASS ${count} additional queue-preparation PostgreSQL scenarios; no external IO`);
+ await verifyMessageDateFeed({db,a,b,scalar});
 }

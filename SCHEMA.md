@@ -672,6 +672,28 @@ The capture fingerprint is not a Guesty revision or delivery proof. Owner review
 and identity binding remain explicit; this adapter is not exposed through an app
 write route or automatic scheduler. No schema, grants or activation change.
 
+Automatic message date feed (**candidate; unapplied in all environments**):
+`staging-storage/message-date-feed.sql` adds private
+`helm_channex_revisions.message_timing_policies`. An owner-only registration binds
+one existing reviewed timing observation to an exact mapped synthetic stay,
+connection/generation, original confirmation, local arrival/departure clocks and
+expiry. Registration defaults disabled. It does not accept new clock values or
+invent a confirmation from a Channex receipt timestamp. The bounded service RPC
+`helm_pilot_message_times_refresh` reconciles the latest durable applied revision
+against canonical identity/status/dates, then advances the existing observation
+with the retained clocks. Its policy cursor and observation history commit together.
+A changed owner observation, raw timing edit, unmatched receipt, wrong generation,
+local edit/revert, cancellation or expiry cannot silently renew the policy.
+Only the refresh RPC is granted to service_role; browser roles and worker policy
+registration/table access remain denied. No schedules or sender controls are written.
+The existing signed revision route and backup poll opt in only with
+`CHANNEX_CANONICAL_MESSAGE_TIMING_ENABLED=true`; normal ingestion remains unchanged
+when absent. Empty successful polls recover pending refresh after ACK/restart.
+Aggregate counts identify blocked/inactive policies without exposing stay data.
+This supports date changes for already registered stays, not discovery/bootstrap
+of new stays or importing changed OTA arrival estimates. Future clock changes
+still need explicit authority; the reviewed source-clock adapter remains separate.
+
 Exact source-time resolution (**isolated staging only; unapplied in production**):
 `channex-message-schedule.sql` adds `automation_message_schedule_resolutions`,
 one private row per canonical send. It stores the reviewed workflow, timing

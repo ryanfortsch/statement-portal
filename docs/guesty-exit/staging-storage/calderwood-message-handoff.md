@@ -1840,3 +1840,69 @@ cleaner queue/history evidence, exact DST source coverage, production Channex
 access, PriceLabs parity, and authorized real recipient delivery acceptance.
 Fresh observations in this rehearsal were fictional owner-reviewed inputs;
 there is still no continuous production collector. Guesty remains the live sender.
+
+
+## October 22: automatic date feed for reviewed message clocks
+
+The new date-feed candidate closes the repeated-import gap for **date changes to
+already registered stays**. The owner registers the original reviewed local clocks
+and actual confirmation once. The runtime refresh can then follow exact durable
+Channex revisions without constructing a fresh human-review packet on each move.
+It never uses Channex `inserted_at` as confirmation, interprets `arrival_hour` as
+an approved check-in-policy override, or adopts a new stay by matching dates.
+The provider field distinction was checked against the official
+[Bookings Collection documentation](https://docs.channex.io/api-v.1-documentation/bookings-collection).
+
+`message-date-feed.sql` is a new **unapplied** candidate after the existing mapped
+revision and message-observation SQL. Its private policy rows pin source observation,
+remote/canonical IDs, inventory connection/generation, local clocks, confirmation,
+review reference and expiry. Registration is owner-only and defaults disabled.
+The service refresh accepts only a route and bounded batch size. It reads stored
+applied revision receipts, matches the canonical stay, and atomically advances the
+existing timing observation and policy cursor. No guest, cleaner, history, hold,
+recipient, send-job, or activation row is created or modified by this feed.
+
+Both the signed handler and backup poll have an explicit opt-in:
+`CHANNEX_CANONICAL_MESSAGE_TIMING_ENABLED=true`. It was **not set** in any hosted
+environment. With it absent, the existing ingestion path does not call the new
+RPC and therefore does not depend on installing this SQL. When enabled, refresh
+runs after successful canonical receipt/ACK processing, including empty feed polls.
+A lost reply can be reconciled by the next successful poll from durable receipts.
+A provider/ingestion outage still blocks that cycle; it does not assert fresh coverage.
+The scheduler logs aggregate scanned/refreshed/unchanged/blocked/inactive counts only.
+
+The local rehearsal uses the actual route-lock, observation, refresh SQL and
+service adapter against fictional durable receipt fixtures. It verifies missing
+confirmation rejection, disabled defaults, unmatched receipt refusal, concurrent
+refresh, lost-response replay, local edit/revert, changed owner clock, wrong source,
+duplicate stay, wrong generation, cancellation, expiry and role permissions. A
+concurrency test caught a real timestamp edge: a waiting transaction's original
+statement time precedes the winning observation. The refresh now compares the
+already-locked, validated observation to the current clock, so the second worker
+reports unchanged rather than a false block. No worker sending checks were relaxed.
+
+Validation: **2,272 application tests / 242 suites**, nonincremental TypeScript,
+scoped ESLint and whitespace checks passed. The local PostgreSQL messaging harness
+passed **165 scenarios**, including **13 new date-feed cases**. Seven new application
+tests exercise disabled behavior, signed-path ordering, empty backup polls,
+unverified receipts, malformed/lost responses and aggregate logging. Two initial
+fixture issues (empty scalar result and exact staging title) were corrected before
+the final green runs. No live data, credentials or provider delivery were used.
+
+Review handoff: branch `codex/channex-staging-pilot`, starting commit
+`16a497e62aab4086ab140c328288f77838f650ff`, original base
+`a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`, remote main observed
+`be43cf8867b68a93c5cce358d12dc2a8eb756db0`. Changed files: new
+`message-date-feed.sql`, `verify-message-date-feed.mjs`,
+`canonical-message-date-feed.test.ts`; existing `canonical-revision-mapped.ts`,
+`canonical-revision-scheduler.ts`, signed webhook `route.ts`,
+`verify-message-queue-preparation.mjs`, `SCHEMA.md`, `CLAUDE.md` and this handoff.
+Unrelated contract-readiness changes remain excluded.
+
+Next acceptance is installing and exercising this candidate in isolated staging,
+then connecting reviewed message handoffs to it. It is not yet a production timing
+collector: new-stay bootstrap/original-confirmation sourcing, clock-change authority,
+cleaner source history, DST source coverage, production Channex access, PriceLabs
+parity and real authorized delivery acceptance remain launch requirements. The
+synthetic Offline revision route remains separate from actual Airbnb messaging;
+this batch does not relax that boundary or activate a live channel.
