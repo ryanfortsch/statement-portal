@@ -1070,6 +1070,16 @@ are defined in `AGENTS.md`.
    monotonic by construction and needs none of this. Audited 2026-09-26: every other timestamp
    write in the cron and sync paths is `now`-based, so the Quo ingest was the only place the
    hazard lived.
+10. **A new table grants itself, in the same migration.** From 2026-10-30 Supabase stops
+    granting Data API access to new `public` tables on this project (final notice, 2026-10-20);
+    existing tables keep theirs. A table without a grant answers every service-role read and
+    write with "permission denied". So every `create table` migration also enables RLS and runs
+    `grant all on public.<table> to service_role` (a narrower set that includes `select` is a
+    choice the migration may make), as `20261018200000_vendor_visit_proposals.sql` does.
+    anon and authenticated get nothing unless a `-- client grant <table>: <reason>` comment in
+    the migration says why. `migration-grants.test.ts` holds this for every migration dated
+    2026-10-23 or later, a week early because migrations here are applied by hand, often days
+    after they are written.
 
 # Style
 
