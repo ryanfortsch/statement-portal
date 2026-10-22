@@ -34,6 +34,7 @@ import { RentalInquiryPanel } from './RentalInquiryPanel';
 import { addonItem, handoffItem, quotesItem } from './guest-card-blocks';
 import { waitReason } from '@/lib/card-wait-reason';
 import { sendsTo } from '@/lib/card-sends-to';
+import { extensionHoldChip } from '@/lib/extension-hold';
 import { reviewAskContext } from '@/lib/review-ask-context';
 import { stripeLookupHref } from '@/lib/stripe-lookup-link';
 import { HeldPitches, type HeldPitch } from './HeldPitches';
@@ -191,6 +192,9 @@ function GuestCard({
   // number the guest gave, or a relay email to the third party the booker
   // named. '' on an ordinary card.
   const destination = sendsTo(approval);
+  // A hold (not a booking) that stopped an extension the guest asked for.
+  // The reply declines it; the chip is what an overrule is decided from.
+  const hold = extensionHoldChip(approval.extension_hold);
   // "Did they pay?" one click away: the Stripe lookup prefilled with this
   // guest's email and stay, for every login (the lookup is read-only and
   // open to staff); a rental inquiry has no stay to look up.
@@ -461,6 +465,15 @@ function GuestCard({
               style={{ color: 'var(--signal)', fontWeight: 600, textTransform: 'none', letterSpacing: '0.02em', fontSize: 11, overflowWrap: 'anywhere' }}
             >
               {destination}
+            </span>
+          )}
+          {hold && (
+            <span
+              className="eyebrow"
+              title={hold.title}
+              style={{ color: 'var(--signal)', fontWeight: 600, textTransform: 'none', letterSpacing: '0.02em', fontSize: 11, overflowWrap: 'anywhere' }}
+            >
+              {hold.label}
             </span>
           )}
         </>

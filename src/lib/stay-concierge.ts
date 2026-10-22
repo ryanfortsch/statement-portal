@@ -81,6 +81,11 @@ export type Approval = MessageOutcomeCarrier & {
    * it since 2026-09-25 so a text is never approved without the number in
    * view. Null/absent on every non-SMS card. */
   sms_to?: string | null;
+  /** The hold that stopped an extension this guest asked for, when it is a
+   * manual or owner hold rather than a booking (concierge #106). The reply
+   * never offers held nights; the card names the hold so an owner can
+   * overrule a high-value ask. Null/absent otherwise. */
+  extension_hold?: { start: string; end: string; reason: string; note: string } | null;
   /** A 2027 pre-release request's own details (party size, email, phone), so
    * the quote composer can be opened complete rather than half-filled.
    * Null/absent on every other card. */
