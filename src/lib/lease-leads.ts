@@ -132,8 +132,10 @@ async function readMailbox(token: string, mb: Mailbox): Promise<FiledMail[]> {
   return out;
 }
 
-/** Which address a token opens and whether it may send (gmail.compose, gmail.send or full mail). */
-type Sender = { name: string; token: string; address: string | null; canSend: boolean };
+/** Which address a token opens, the verified addresses it may send as (its
+ *  own plus any Gmail "Send mail as" alias), and whether it may send at all
+ *  (gmail.compose, gmail.send or full mail). */
+type Sender = { name: string; token: string; address: string | null; sendAs: string[]; canSend: boolean };
 
 async function describeSender(mb: Mailbox, token: string): Promise<Sender> {
   let address: string | null = null;
@@ -149,7 +151,17 @@ async function describeSender(mb: Mailbox, token: string): Promise<Sender> {
   } catch {
     /* an unreadable token simply cannot send */
   }
-  return { name: mb.name, token, address, canSend };
+  const sendAs = new Set<string>(address ? [address] : []);
+  try {
+    const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/settings/sendAs', { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10_000) });
+    if (res.ok) {
+      const list = ((await res.json()) as { sendAs?: Array<{ sendAsEmail?: string; verificationStatus?: string; isPrimary?: boolean }> }).sendAs ?? [];
+      for (const a of list) if (a.sendAsEmail && (a.isPrimary || a.verificationStatus === 'accepted')) sendAs.add(a.sendAsEmail.toLowerCase());
+    }
+  } catch {
+    /* no alias list: the token sends as itself only */
+  }
+  return { name: mb.name, token, address, sendAs: [...sendAs], canSend };
 }
 
 /** The bare address out of a To header: "Ryan <ryan@x.com>" -> "ryan@x.com". */
@@ -198,7 +210,7 @@ export type LeaseLeadRun = {
   read: number;
   filed: number;
   vetted: number;
-  senders: Array<{ name: string; address: string | null; canSend: boolean }>;
+  senders: Array<{ name: string; address: string | null; sendAs: string[]; canSend: boolean }>;
   screening: { sent: string[]; wouldSend: string[]; skippedNoSender: string[] };
   errors: string[];
 };
@@ -311,7 +323,7 @@ export async function runLeaseLeads(opts: { dry?: boolean; now?: Date } = {}): P
   }
 
   // 4. The screening message, once per lead that needs answers.
-  run.senders = senders.map(({ name, address, canSend }) => ({ name, address, canSend }));
+  run.senders = senders.map(({ name, address, sendAs, canSend }) => ({ name, address, sendAs, canSend }));
   const { data: candidates } = await supabaseAdmin
     .from('lease_leads')
     .select('id, renter_name, zillow_address, verdict, relay_address, received_to, first_subject, first_rfc_message_id, first_seen_at, screening_sent_at, screening_attempts, dismissed_at, has_application')
@@ -322,8 +334,11 @@ export async function runLeaseLeads(opts: { dry?: boolean; now?: Date } = {}): P
   for (const c of (candidates ?? []) as Array<ScreeningLead & { id: string; renter_name: string | null; zillow_address: string | null; received_to: string | null; first_subject: string | null; first_rfc_message_id: string | null }>) {
     const listing = listingFor(c.zillow_address, listings);
     if (!listing || !shouldSendScreening(c, listing, now)) continue;
-    const sender = senders.find((s) => s.canSend && s.address && s.address === c.received_to);
-    if (!sender || !sender.address) {
+    // Zillow passes a reply on only from the address it wrote to: the
+    // mailbox that is that address, else one with it as a verified alias.
+    const to = c.received_to;
+    const sender = to ? senders.find((s) => s.canSend && s.address === to) ?? senders.find((s) => s.canSend && s.sendAs.includes(to)) : undefined;
+    if (!sender || !to) {
       run.screening.skippedNoSender.push(c.id);
       if (!opts.dry) await supabaseAdmin.from('lease_leads').update({ screening_error: `No Helm mailbox can send as ${c.received_to ?? 'the address Zillow wrote to'}` }).eq('id', c.id);
       continue;
@@ -333,7 +348,7 @@ export async function runLeaseLeads(opts: { dry?: boolean; now?: Date } = {}): P
       continue;
     }
     const msg = screeningMessage(c.renter_name, listing, c.first_subject);
-    const raw = rawReply({ from: sender.address, to: c.relay_address as string, subject: msg.subject, body: msg.body, inReplyTo: c.first_rfc_message_id });
+    const raw = rawReply({ from: to, to: c.relay_address as string, subject: msg.subject, body: msg.body, inReplyTo: c.first_rfc_message_id });
     // Claim the lead before sending, so two overlapping runs cannot both send.
     const { data: claimed } = await supabaseAdmin
       .from('lease_leads')
@@ -351,7 +366,7 @@ export async function runLeaseLeads(opts: { dry?: boolean; now?: Date } = {}): P
         signal: AbortSignal.timeout(20_000),
       });
       if (!res.ok) throw new Error(`Gmail send ${res.status}: ${(await res.text()).slice(0, 200)}`);
-      await supabaseAdmin.from('lease_leads').update({ screening_sent_at: new Date().toISOString(), screening_from: sender.address, screening_error: null }).eq('id', c.id);
+      await supabaseAdmin.from('lease_leads').update({ screening_sent_at: new Date().toISOString(), screening_from: `${to} via ${sender.name}`, screening_error: null }).eq('id', c.id);
       run.screening.sent.push(c.id);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
