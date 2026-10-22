@@ -39,7 +39,7 @@ export function OwnerMessagingQueue({
   /** The drafting AI is down: a card with no draft says so. */
   aiPaused?: { reason?: string } | null;
 }) {
-  const { approvals, refresh, watchRegen, stalledId } = useApprovalQueue(initialPending, 'owners');
+  const { approvals, refreshStatus, refresh, watchRegen, stalledId } = useApprovalQueue(initialPending, 'owners');
   const { softRefresh } = useQueueRefresh(PAGE_REFRESH_MS);
   const onRefresh = useCallback(() => {
     refresh();
@@ -50,6 +50,7 @@ export function OwnerMessagingQueue({
     <ApprovalQueue
       approvals={approvals}
       onRefresh={onRefresh}
+      refreshStatus={refreshStatus}
       undo={undoOwnerDecision}
       emptyMessage="No owner replies waiting."
       renderCard={(approval, helpers) => (

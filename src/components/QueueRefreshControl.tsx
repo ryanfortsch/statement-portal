@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
+import { Button } from '@/components/Button';
+import type { QueueLoadStatus } from '@/lib/queue-loader';
 
 /**
  * One shared refresh brain for the four messaging queues (guests, owners,
@@ -47,28 +49,57 @@ export function useQueueRefresh(baseMs = 15_000): {
   return { softRefresh, refreshTick };
 }
 
-/** Refresh, and nothing else: the queue refreshes itself every few seconds,
- *  so an "Updated Xs ago" stamp beside it was a second clock to read
- *  (cut 2026-10-19). */
-export function QueueRefreshControl({ onRefresh }: { onRefresh: () => void }) {
+/** Refresh, and nothing else while the feed is healthy: the queue refreshes
+ *  itself every few seconds, so an "Updated Xs ago" stamp beside it was a
+ *  second clock to read (cut 2026-10-19). It speaks only when something is
+ *  wrong: "Refresh failed · Retry" when the last read did not come back (the
+ *  cards on screen are the last good ones), "Offline" when the browser has no
+ *  connection (it reads again on reconnect). The button shows its pending
+ *  state while a refresh someone asked for runs. */
+export function QueueRefreshControl({
+  onRefresh,
+  status = 'ready',
+}: {
+  onRefresh: () => void;
+  status?: QueueLoadStatus;
+}) {
+  const failed = status === 'failed';
+  const problem = status === 'offline' ? 'Offline' : failed ? 'Refresh failed' : '';
   return (
-    <button
-      type="button"
-      onClick={onRefresh}
-      className="rt-queue-refresh"
-      style={{
-        fontSize: 10,
-        letterSpacing: '0.16em',
-        textTransform: 'uppercase',
-        fontWeight: 500,
-        color: 'var(--ink-3)',
-        background: 'transparent',
-        border: '1px solid var(--rule)',
-        padding: '6px 10px',
-        cursor: 'pointer',
-      }}
-    >
-      Refresh
-    </button>
+    <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+      {/* Mounted while healthy too, empty, so a screen reader hears the
+          change when the feed fails. */}
+      <span
+        role="status"
+        style={{
+          fontSize: 10,
+          letterSpacing: '0.14em',
+          textTransform: 'uppercase',
+          fontWeight: 600,
+          color: 'var(--signal)',
+          marginRight: failed ? 10 : 0,
+        }}
+      >
+        {problem}
+        {failed && <span aria-hidden="true">{' ·'}</span>}
+      </span>
+      {status !== 'offline' && (
+        <Button
+          variant="secondary"
+          size="sm"
+          // Called bare: the click event is not an argument to pass on. A
+          // callback that takes one (ApprovalQueue's onResolved) would read
+          // it as a notice to print.
+          onClick={() => onRefresh()}
+          pending={status === 'refreshing'}
+          pendingLabel="Refreshing"
+          // The read has its own 20s deadline (queue-loader.ts); the
+          // watchdog's reload would only throw away a half-typed reply.
+          watchdog={false}
+        >
+          {failed ? 'Retry' : 'Refresh'}
+        </Button>
+      )}
+    </span>
   );
 }

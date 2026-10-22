@@ -1,7 +1,14 @@
 'use client';
 
 import { invalidatePendingCounts } from '@/lib/pending-count-client';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  createQueueLoader,
+  readQueue,
+  type QueueLoader,
+  type QueueLoadMode,
+  type QueueLoadStatus,
+} from '@/lib/queue-loader';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 /** Which queue this hook is feeding. Mirrors the four messaging surfaces. */
 export type QueueAudience = 'guests' | 'owners' | 'cleaners' | 'contractors';
@@ -29,7 +36,13 @@ type QueueState<T, C> = {
    * dropdown), which is keyed by approval id and so has to travel with a
    * rewritten card rather than wait for the next page render. */
   context: C | undefined;
-  /** Fetch now (a card action just changed the queue). */
+  /** How the feed is doing, for the queue's Refresh control: 'refreshing'
+   *  while a refresh someone asked for runs, 'failed' when the last read did
+   *  not come back (the cards on screen are the last good ones), 'offline'
+   *  while the browser has no connection. Background polls stay quiet. */
+  refreshStatus: QueueLoadStatus;
+  /** Fetch now (a card action just changed the queue, or someone clicked
+   *  Refresh). Supersedes a read in flight. */
   refresh: () => void;
   /** Watch for `id` to be replaced by its coached rewrite. */
   watchRegen: (id: string) => void;
@@ -51,6 +64,10 @@ type QueueState<T, C> = {
  *
  * Hidden tabs skip ticks and the period is jittered, same as the page-level
  * refresh it replaces (#1236): several open tabs must not poll in lockstep.
+ *
+ * Each read goes through createQueueLoader (src/lib/queue-loader.ts): it
+ * gives up after 20 seconds, only the newest request may replace the cards,
+ * and a failure keeps the last good cards and says so in refreshStatus.
  */
 export function useApprovalQueue<T extends { id: string; status?: string }, C = undefined>(
   initial: T[],
@@ -70,6 +87,9 @@ export function useApprovalQueue<T extends { id: string; status?: string }, C = 
   // render can carry an older list (it started before our last poll), and
   // adopting it would flash a resolved card back into the queue.
   const ownsDataRef = useRef(false);
+  const [loadStatus, setLoadStatus] = useState<QueueLoadStatus>('ready');
+  const online = useOnline();
+  const loaderRef = useRef<QueueLoader | null>(null);
 
   useEffect(() => {
     if (ownsDataRef.current) return;
@@ -77,27 +97,43 @@ export function useApprovalQueue<T extends { id: string; status?: string }, C = 
     setContext(initialContext);
   }, [initial, initialContext]);
 
-  const load = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/messaging/queue?audience=${audience}`, { cache: 'no-store' });
-      if (!res.ok) return;
-      const data = (await res.json()) as { approvals?: T[]; context?: C };
-      if (!Array.isArray(data.approvals)) return;
-      ownsDataRef.current = true;
-      setApprovals(data.approvals);
-      if (data.context !== undefined) setContext(data.context);
-      const watch = watchRef.current;
-      // The coached card is gone: its rewrite is live under a new id, and the
-      // card unmounts on this same state update.
-      if (watch && !data.approvals.some((a) => a.id === watch.id)) {
-        watchRef.current = null;
-      }
-    } catch {
-      // Keep the last good queue on the screen. The header chip keeps
-      // counting, so a feed that has gone quiet reads as stale rather than
-      // blanking the operator's work.
-    }
+  useEffect(() => {
+    const loader = createQueueLoader<{ approvals: T[]; context?: C }>({
+      read: (signal) => readQueue<T, C>(`/api/messaging/queue?audience=${audience}`, signal),
+      status: setLoadStatus,
+      accept: (data) => {
+        ownsDataRef.current = true;
+        setApprovals(data.approvals);
+        if (data.context !== undefined) setContext(data.context);
+        const watch = watchRef.current;
+        // The coached card is gone: its rewrite is live under a new id, and
+        // the card unmounts on this same state update.
+        if (watch && !data.approvals.some((a) => a.id === watch.id)) {
+          watchRef.current = null;
+        }
+      },
+    });
+    loaderRef.current = loader;
+    // A read in flight when the connection drops can only fail; drop it
+    // quietly (the control says Offline) and read again on reconnect.
+    const onOffline = () => loader.cancel();
+    const onOnline = () => void loader.load('now');
+    window.addEventListener('offline', onOffline);
+    window.addEventListener('online', onOnline);
+    return () => {
+      loader.cancel();
+      if (loaderRef.current === loader) loaderRef.current = null;
+      window.removeEventListener('offline', onOffline);
+      window.removeEventListener('online', onOnline);
+    };
   }, [audience]);
+
+  const load = useCallback((mode: QueueLoadMode = 'poll'): Promise<void> => {
+    // Offline: nothing to read. The control already says Offline, and the
+    // reconnect reads at once.
+    if (!navigator.onLine) return Promise.resolve();
+    return loaderRef.current?.load(mode) ?? Promise.resolve();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -121,7 +157,7 @@ export function useApprovalQueue<T extends { id: string; status?: string }, C = 
 
     timer = window.setTimeout(run, nextDelay());
     const onVisible = () => {
-      if (document.visibilityState === 'visible') load();
+      if (document.visibilityState === 'visible') void load();
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => {
@@ -132,7 +168,7 @@ export function useApprovalQueue<T extends { id: string; status?: string }, C = 
   }, [load, watchSeq]);
 
   const refresh = useCallback(() => {
-    void load();
+    void load('now');
   }, [load]);
 
   const watchRegen = useCallback((id: string) => {
@@ -141,5 +177,30 @@ export function useApprovalQueue<T extends { id: string; status?: string }, C = 
     setWatchSeq((n) => n + 1);
   }, []);
 
-  return { approvals, context, refresh, watchRegen, stalledId };
+  return {
+    approvals,
+    context,
+    refreshStatus: online ? loadStatus : 'offline',
+    refresh,
+    watchRegen,
+    stalledId,
+  };
 }
+
+/** navigator.onLine as state. The server snapshot is online, so the first
+ *  render matches the server's and an offline tab corrects on hydration. */
+function useOnline(): boolean {
+  return useSyncExternalStore(subscribeOnline, readOnline, readOnlineOnServer);
+}
+
+function subscribeOnline(onChange: () => void): () => void {
+  window.addEventListener('online', onChange);
+  window.addEventListener('offline', onChange);
+  return () => {
+    window.removeEventListener('online', onChange);
+    window.removeEventListener('offline', onChange);
+  };
+}
+
+const readOnline = () => navigator.onLine;
+const readOnlineOnServer = () => true;

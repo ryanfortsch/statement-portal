@@ -79,7 +79,7 @@ export function MessagingQueue({
    *  draft written: they wait here with Release, not two folds deep. */
   held?: HeldPitch[];
 }) {
-  const { approvals, context: quotes, refresh, watchRegen, stalledId } = useApprovalQueue<Approval, GuestQuoteContext>(
+  const { approvals, context: quotes, refreshStatus, refresh, watchRegen, stalledId } = useApprovalQueue<Approval, GuestQuoteContext>(
     initialPending,
     'guests',
     initialQuotes,
@@ -94,6 +94,7 @@ export function MessagingQueue({
     <ApprovalQueue
       approvals={approvals}
       onRefresh={onRefresh}
+      refreshStatus={refreshStatus}
       undo={undoDecision}
       emptyMessage="No guest replies waiting."
       after={held && held.length > 0 ? <HeldPitches items={held} /> : undefined}

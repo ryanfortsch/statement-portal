@@ -59,8 +59,12 @@ export async function GET(req: NextRequest) {
   const param = req.nextUrl.searchParams.get('audience') || 'guests';
   const audience: Audience = isAudience(param) ? param : 'guests';
 
+  // Not connected is a failure, never an empty queue: an empty list here read
+  // as "nothing to do" while no message could arrive at all. The only caller
+  // is useApprovalQueue, which keeps its last cards on a non-200 and says
+  // the refresh failed.
   if (!isStayConciergeConfigured()) {
-    return NextResponse.json({ approvals: [] });
+    return NextResponse.json({ error: 'The messaging service is not connected to Helm.' }, { status: 503 });
   }
 
   if (audience === 'owners') {
