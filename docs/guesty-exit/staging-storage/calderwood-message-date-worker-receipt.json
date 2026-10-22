@@ -1,0 +1,132 @@
+{
+  "environment": "isolated-staging",
+  "projectRef": "jgkblfozftcvymvwhhii",
+  "sourceCommit": "8be76b6103fd03f70b652abb9ff3b8565b9e267c",
+  "render": {
+    "serviceId": "srv-db05t2id0e5s73a7r8gg",
+    "deploymentId": "dep-dbd90hjl550s73css1d0",
+    "deployedAt": "2026-10-22T22:38:23Z",
+    "status": "live",
+    "messageTimingFlag": true,
+    "previousCommit": "dbab70c9e9881a97b88d5b6fd9fb54c3670588c0"
+  },
+  "fixture": {
+    "code": "HELMTEST-calderwood-timing-20261022",
+    "remoteBookingId": "8e5fd017-492c-427b-a599-d7b0634d4f88",
+    "canonicalBookingId": "6123ec28-cbca-469e-91c8-283a7021e836",
+    "policyId": "f36f8c60-389e-4d44-aef3-19eb8dfce9b5",
+    "channel": "Offline/Other",
+    "originalDates": [
+      "2027-07-10",
+      "2027-07-13"
+    ],
+    "changedDates": [
+      "2027-07-15",
+      "2027-07-18"
+    ],
+    "arrivalTime": "16:00",
+    "departureTime": "11:00",
+    "fictionalConfirmedAt": "2026-10-22T20:00:00Z",
+    "confirmationIsConstructedTestInput": true,
+    "contactDetailsSupplied": false,
+    "finalStatus": "cancelled"
+  },
+  "signedDeliveryEvidence": {
+    "webhookId": "7336416c-039f-47b0-90c4-9d01fb9b1a02",
+    "events": [
+      {
+        "action": "create",
+        "at": "2026-10-22T22:31:58Z",
+        "httpStatus": 200
+      },
+      {
+        "action": "date-change",
+        "at": "2026-10-22T22:36:45Z",
+        "httpStatus": 200
+      },
+      {
+        "action": "cancel",
+        "at": "2026-10-22T22:41:01Z",
+        "httpStatus": 200
+      }
+    ],
+    "changedRevision": "6d45e979-bf33-4f1a-81ee-504c334fa2dc",
+    "cancelledRevision": "0ffdc530-5ede-4bb1-b513-5fd28e77447a"
+  },
+  "beforeWorker": {
+    "canonicalDatesChanged": true,
+    "observationInvalidated": true,
+    "providerCursorCurrent": false,
+    "observationHistoryCount": 1
+  },
+  "workerCycles": [
+    {
+      "instance": "v5zv8",
+      "at": "2026-10-22T22:38:25.568Z",
+      "trigger": "startup-after-deployment",
+      "outcome": "success",
+      "received": 0,
+      "applied": 0,
+      "acknowledged": 0,
+      "timing": {
+        "scanned": 1,
+        "refreshed": 1,
+        "unchanged": 0,
+        "blocked": 0,
+        "inactive": 0,
+        "canSend": false
+      }
+    },
+    {
+      "instance": "bcntm",
+      "at": "2026-10-22T22:41:30.248Z",
+      "trigger": "explicit-service-restart-after-cancellation",
+      "outcome": "success",
+      "received": 0,
+      "applied": 0,
+      "acknowledged": 0,
+      "timing": {
+        "scanned": 1,
+        "refreshed": 0,
+        "unchanged": 0,
+        "blocked": 0,
+        "inactive": 1,
+        "canSend": false
+      }
+    }
+  ],
+  "independentRefreshReadback": {
+    "at": "2026-10-22T22:39:27.808669Z",
+    "observationId": "74e0dfe9-24dc-415d-9ad0-569cd94ab177",
+    "canonicalAndMessageDatesAgree": true,
+    "clocksAndFictionalConfirmationPreserved": true,
+    "observationInvalidated": false,
+    "providerCursorCurrent": true,
+    "historyCount": 2,
+    "fixtureMessageJobs": 0
+  },
+  "retiredAt": "2026-10-22T22:42:34.777320Z",
+  "finalReadback": {
+    "at": "2026-10-22T22:43:02.390966Z",
+    "bookings": 9,
+    "messageLedgerRows": 12,
+    "providerReceipts": 22,
+    "retainedTimingPolicies": 1,
+    "enabledTimingPolicies": 0,
+    "fixtureTimingHistory": 2,
+    "fixtureMessageJobs": 0,
+    "enabledMessageControls": 0,
+    "connectedChannels": 0,
+    "inventoryPublishing": false
+  },
+  "verificationQuery": "14eb7722-c5a0-4cd1-953a-c8b2441038bc",
+  "limits": [
+    "Startup/restart recovery exercised; the normal empty-feed backup interval remains 15 minutes, not a real-time timing SLA.",
+    "No actual guest or cleaner message was queued or delivered. This is not end-to-end sender acceptance.",
+    "Policy registration and original confirmation were explicitly fictional owner-review input; automatic new-stay bootstrap is not proven.",
+    "Synthetic Offline ingestion remains separate from real Airbnb messaging.",
+    "Vercel configuration was not changed or freshly version-verified by this batch.",
+    "Production access/certification, cleaner history, PriceLabs parity, real authorized delivery and reliability acceptance remain outstanding.",
+    "Guesty and live channels remain unchanged. No new subscription or compute change."
+  ]
+}

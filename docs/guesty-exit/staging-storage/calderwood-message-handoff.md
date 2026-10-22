@@ -1959,3 +1959,55 @@ by this installation. Production Channex access/certification, new-stay original
 confirmation bootstrap, authoritative cleaner history, PriceLabs parity and
 real authorized delivery acceptance remain outstanding. Guesty stays live and
 no new subscription has been purchased.
+
+
+## October 22: deployed worker refreshes signed booking date changes
+
+Render's existing isolated worker now runs `8be76b6103fd03f70b652abb9ff3b8565b9e267c`
+with `CHANNEX_CANONICAL_MESSAGE_TIMING_ENABLED=true`, deployment
+`dep-dbd90hjl550s73css1d0`, live at 22:38:23 UTC. No compute or subscription changed.
+The image copies the date-feed modules through the existing staging directory.
+The worker has no guest/cleaner outbound-send loop; all message controls remain off.
+Vercel configuration was unchanged and its current version was not reverified.
+
+A fresh fictional Offline/Other booking was created through Channex, explicitly
+reviewed with 16:00 arrival / 11:00 departure and a **constructed test confirmation**,
+then moved from July 10–13 to July 15–18, 2027. The provider's signed delivery log
+records HTTP 200 for creation at 22:31:58, modification at 22:36:45 and cancellation
+at 22:41:01 UTC. The change was acknowledged before the worker deployment. Independent
+SQL first showed revised canonical dates with invalidated timing and an old cursor.
+
+At 22:38:25.568 the new worker's empty-feed startup cycle reported one timing refresh,
+zero failures and `canSend:false`. Independent 22:39:27 readback confirmed matching
+canonical/message dates, preserved clocks and fictional confirmation, a current
+provider cursor and exactly two observation-history rows. No manual refresh RPC
+was called for this acceptance. After cancellation, an explicit service restart
+produced a second worker instance at 22:41:30.248 reporting one inactive policy,
+zero refreshes and `canSend:false`. This exercises startup/restart recovery; it is
+not a claim of instantaneous normal polling (the empty-feed interval is 15 minutes).
+
+The cancelled fixture's policy was disabled at 22:42:34, retaining its audit rather
+than deleting evidence. Final independent 22:43:02 verification: **9 bookings /
+12 message-ledger rows / 22 provider receipts**, one retained but zero enabled timing
+policies, two timing-history rows and zero send jobs for this fictional booking,
+zero enabled message controls/channels, inventory publishing false. The worker's
+non-sending refresh flag remains enabled. Receipt:
+`calderwood-message-date-worker-receipt.json`; verification query
+`14eb7722-c5a0-4cd1-953a-c8b2441038bc` in isolated project `jgkblfozftcvymvwhhii`.
+
+This closes hosted automatic date-refresh acceptance for a previously reviewed
+fictional stay. It does not establish actual Airbnb delivery or automatic new-stay
+bootstrap. Next implementation is trustworthy original-confirmation/local-clock
+bootstrap and reviewed message handoff integration; cleaner history/queue evidence,
+production access/certification, PriceLabs parity and authorized real delivery remain
+required before a pilot switch. Guesty remains live; no real messages were sent.
+
+Review handoff: branch `codex/channex-staging-pilot`, starting/deployed commit
+`8be76b6103fd03f70b652abb9ff3b8565b9e267c`, original base
+`a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`; remote main observed
+`71b59c6b6c392e91ba026b2375334ebb74f8bb0e`. Changed files: `CLAUDE.md`, `SCHEMA.md`,
+this handoff and the new worker receipt. Documentation-only verification covers the
+complete diff, referenced paths, JSON parsing and `git diff --check`; application
+suites were not rerun. The deployed source's previous result remains 2,272 tests /
+242 suites, TypeScript, scoped lint and 35 PostgreSQL installation checks. Unrelated
+contract-readiness edits remain excluded. PR 1714 remains draft; no main merge.

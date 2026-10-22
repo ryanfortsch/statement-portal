@@ -627,8 +627,11 @@ supplies revised stay dates. A Channex revision's receipt time is not the bookin
 confirmation time, and an OTA arrival estimate is not automatically the property's
 check-in policy. Clock changes require a fresh owner decision; scheduled date
 changes alone must not release a key-code hold, extend handoff expiry or replay
-sent confirmations. The SQL is installed only in isolated staging, with no retained
-timing policies and the application opt-in unset. Production is unapplied; Guesty remains live.
+sent confirmations. The SQL is installed only in isolated staging. The dedicated
+Render worker now opts into date refresh at `8be76b61`; a signed fictional date
+change refreshed automatically after deployment, and cancellation remained inactive
+after a service restart. One disabled fictional policy and its audit remain; no
+message sender is enabled. Production is unapplied; Guesty remains live.
 
 ## Quo (OpenPhone)
 

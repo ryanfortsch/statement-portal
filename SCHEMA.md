@@ -700,7 +700,14 @@ independent readback verified zero retained policies/observations, disabled cont
 and the existing 8 bookings / 12 ledger rows / 19 provider receipts. Private
 `helm_pilot_installation.message_date_feed` records the bundle, source hashes and
 aggregate proof. See `calderwood-message-date-feed-install-receipt.json` and the
-read-only `message-date-feed-status.sql`. The application opt-in remains unset.
+read-only `message-date-feed-status.sql`. A subsequent hosted worker rehearsal
+set the dedicated Render worker opt-in and deployed `8be76b61`. A fresh signed
+fictional date change refreshed from durable receipts with an empty provider feed;
+cancellation stayed inactive after a service restart. The fixture was cancelled
+and its policy disabled, retaining one policy and two history observations for audit.
+Final counts: 9 bookings / 12 ledger rows / 22 provider receipts, zero enabled timing
+policies or message controls, zero channels, publishing false. See
+`calderwood-message-date-worker-receipt.json`. Vercel configuration was unchanged.
 
 Exact source-time resolution (**isolated staging only; unapplied in production**):
 `channex-message-schedule.sql` adds `automation_message_schedule_resolutions`,
