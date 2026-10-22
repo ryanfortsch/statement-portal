@@ -398,7 +398,8 @@ describe('the section strips never offer a tab the proxy would bounce', () => {
     'src/components/GrowthTabs.tsx': 2,
     'src/components/WorkTabs.tsx': 0,
     'src/components/TurnoverTabs.tsx': 0,
-    'src/app/properties/PropertiesTabBar.tsx': 2,
+    // Prospects, Contracts and Leases (2026-10-21).
+    'src/app/properties/PropertiesTabBar.tsx': 3,
   };
 
   /** Character ranges of every `tabs={[ ... ]}` literal handed to SectionTabs. */

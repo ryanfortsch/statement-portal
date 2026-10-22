@@ -423,6 +423,21 @@ export const HELM_MODULES: HelmModule[] = [
     section: 'properties',
     access: 'owner',
   },
+  // Winter lease leads from Zillow, vetted; serious ones reach the owners'
+  // home feed. A tab on the Properties strip, registered here for search.
+  {
+    id: 'leases',
+    href: '/properties/leases',
+    number: '05g',
+    title: 'Leases',
+    description: 'Winter lease leads from Zillow, vetted against the screening criteria. Serious applicants, who is waiting on answers, and what was filtered out.',
+    status: 'active',
+    primary: false,
+    hidden: true,
+    group: 'relationships',
+    section: 'properties',
+    access: 'owner',
+  },
   // The guest gear grid, a fact about the homes: a tab on the Properties
   // strip and the specialists' property-work board (it was a Work tab until
   // 2026-10-18; /work/gear redirects). Registered for search, hidden from
