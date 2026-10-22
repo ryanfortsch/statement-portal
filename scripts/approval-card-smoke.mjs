@@ -77,6 +77,8 @@ const guestCards=[
  {...g,id:'manual-card',guesty_message_id:'trash-manual:x',guest_first:'Mo',guest_text:'',draft:'Trash goes out tonight.',topic:'trash_reminder',channel:'Direct'},
  {...g,id:'failed-card',guesty_message_id:'gm5',guest_first:'Fay',guest_text:'Is the hot tub on?',draft:'Yes, it is heated to 102.',send_attempts:5,last_send_error:'quo_error: 402 Payment Required',age_minutes:20},
  {...g,id:'stale-card',guesty_message_id:'gm6',guest_first:'Stu',guest_text:'Where is the beach key?',draft:'It is on the hook by the door.',age_minutes:5*60+10},
+ {...g,id:'sms-card',guesty_message_id:'quo_sms:syn1',guest_first:'Sid',guest_text:'Can you text me the gate code?',draft:'Sure, it is on the way.',module:'',channel:'',sms_to:'+19785550134'},
+ {...g,id:'relay-card',guesty_message_id:'relay_email:staycontact:syn:joel.arriving.first@example.test',guest_first:'Joel',guest_text:'Booker asked us to send the arrival details to Joel.',draft:'Hi Joel, here are the arrival details.',topic:'guest_relay_request',module:'',channel:'',guest_email:'joel.arriving.first@example.test'},
  {...g,id:'inq-card',guesty_message_id:'gm4',guest_first:'Ivy',guest_text:'Price for 4 nights?',draft:'',topic:'rental_inquiry',
   rental_inquiry:{check_in:'2026-11-01',check_out:'2026-11-05',guests:4,flexible:false,history_checked:true,checked_at:now,needs:[],decision:'Needs a price for 4 nights',homes:[]}},
 ];
@@ -243,6 +245,12 @@ try{
  const heldRow=await text('[aria-label="Held as pitches"]');assert.match(heldRow,/Held as a pitch: seo@example\.test · Rank #1 on Google/);
  await page.$$eval('[aria-label="Held as pitches"] button',bs=>bs[0].click());await page.waitForFunction(()=>window.calls.some(c=>c.kind==='release'));
  pass('guests: a failed send says why it waits, an old draft says nothing more; a held pitch waits on the queue with Release');
+ // A card that leaves the platform thread says where it sends; a thread reply says nothing.
+ assert.match(await text(card('sms-card')),/Texts \(978\) 555-0134/);assert.match(await text(card('relay-card')),/Emails joel\.arriving\.first@example\.test/);
+ assert.ok(!/Texts \(|Emails /.test(await text(card('stale-card')+' header')),'a thread reply names no destination');
+ await page.setViewport({width:390,height:844});await page.reload();await page.waitForSelector(card('relay-card'));
+ assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);await page.setViewport({width:1280,height:1000});
+ pass('guests: a text or relay card says where approving sends, and fits a phone');
  // Team: cleaners and contractors in one list, each card saying whose.
  await page.evaluate(()=>{window.calls=[];});await page.goto(origin+'/?mode=team');await page.waitForSelector(card('pt-card'));
  assert.ok(await page.$(card('slip-card')),'contractor cards share the list');
