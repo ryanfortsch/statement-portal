@@ -2011,3 +2011,50 @@ complete diff, referenced paths, JSON parsing and `git diff --check`; applicatio
 suites were not rerun. The deployed source's previous result remains 2,272 tests /
 242 suites, TypeScript, scoped lint and 35 PostgreSQL installation checks. Unrelated
 contract-readiness edits remain excluded. PR 1714 remains draft; no main merge.
+
+
+## October 22: one reviewed timing import registers future date updates atomically
+
+The timing importer now accepts an optional `dateFeed` binding. A single owner-only
+RPC validates the exact remote/canonical booking identity, imports the reviewed
+source clocks and actual confirmation, then registers the existing date-feed
+policy in the same transaction. A registration conflict rolls back the observation
+and its audit history. Concurrent identical imports converge, and explicit replay
+of a lost-response packet returns the original observation/policy IDs. Automatic
+retry and observation-only fallback remain absent. Date refresh defaults disabled;
+message sending is never enabled by this operation.
+
+This removes the two-step timing-import/policy-registration gap for reviewed
+migration stays. It is **not automatic original-confirmation collection for a new
+Airbnb booking**. The official [Channex booking documentation](https://docs.channex.io/api-v.1-documentation/bookings-collection)
+does not establish an original booking-confirmation timestamp distinct from revision
+insertion; this implementation does not equate those events. The existing capture
+retains actual Guesty `confirmedAt`, exact identity binding, local clock/DST checks
+and its five-minute review window. New OTA confirmation provenance remains open.
+
+Validation: **2,277 application tests / 242 suites**, nonincremental TypeScript,
+scoped ESLint and whitespace checks passed. The disposable real PostgreSQL harness
+passed **174 scenarios**, including nine new bootstrap cases: exact replay,
+wrong binding/route/revision, late registration rollback, simultaneous requests,
+conflicting clock review, subsequent automatic date refresh through the service
+RPC, lost committed reply, role restrictions, and unchanged sending controls.
+An initial fixture used an unsupported receipt outcome; corrected it to the
+schema's `stale` outcome before the successful full SQL run. All provider data and
+source captures in these tests were synthetic; no external delivery occurred.
+
+The SQL remains a **local candidate**, unapplied in hosted staging or production.
+The previously deployed worker and its acceptance receipt remain unchanged. Next
+acceptance is installing this small extension in isolated staging and exercising
+the combined import there. Production entitlement/certification, original-confirmation
+sourcing for new bookings, cleaner history/queue evidence, PriceLabs parity and
+real authorized delivery still precede a live switch. Guesty remains live and no
+new subscription or compute charge was added.
+
+Review handoff: branch `codex/channex-staging-pilot`, starting commit
+`260d68741123637d4849ff26c10ca37191259dbf`, original base
+`a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`; fresh remote main
+`46058863638ab989a44c72d770e1956923bf9119`. Changed files: timing-ingestion adapter,
+its existing capture tests, new `message-timing-bootstrap.sql` and
+`verify-message-timing-bootstrap.mjs`, the date-feed harness entry point,
+`CLAUDE.md`, `SCHEMA.md` and this handoff. The unrelated contract-readiness edits
+remain excluded. PR 1714 remains draft; no main merge or production change.

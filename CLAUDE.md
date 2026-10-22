@@ -632,6 +632,12 @@ Render worker now opts into date refresh at `8be76b61`; a signed fictional date
 change refreshed automatically after deployment, and cancellation remained inactive
 after a service restart. One disabled fictional policy and its audit remain; no
 message sender is enabled. Production is unapplied; Guesty remains live.
+The next local candidate joins the reviewed Guesty timing import and date-feed
+registration atomically. It defaults date refresh off and never enables messaging.
+An existing confirmed stay can be bound once for later automatic date updates;
+new OTA bookings still require a proven original-confirmation source. The
+candidate is not installed in hosted staging yet; details and checks are in the
+message handoff and `SCHEMA.md`.
 
 ## Quo (OpenPhone)
 

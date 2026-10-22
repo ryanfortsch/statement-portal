@@ -17,7 +17,12 @@ const candidate = z.object({ reservationId: id, listingId: z.literal(CALDERWOOD.
   arrivalBasis: z.enum(['plannedArrival', 'listing.defaultCheckInTime']),
   departureBasis: z.enum(['plannedDeparture', 'listing.defaultCheckOutTime']),
 }).strict();
+const dateFeedSchema = z.object({ remoteBookingId: uuid, connection: z.string().regex(/^[A-Za-z0-9_.:-]{1,160}$/),
+  generation: z.number().int().positive().safe(), expiresAt: instant, enabled: z.boolean().default(false),
+}).strict();
+const bootstrapReceipt = z.object({ observationRevision: uuid, policyId: uuid, enabled: z.boolean(), canSend: z.literal(false) }).strict();
 const packetSchema = z.object({
+  dateFeed: dateFeedSchema.optional(),
   capture: z.object({ mode: z.literal('review-only-timing-capture'), canSend: z.literal(false), automaticImport: z.literal(false),
     startedAt: instant, finishedAt: instant, fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
     candidates: z.array(candidate).max(12), incompleteReservationIds: z.array(id).max(12),
@@ -48,7 +53,9 @@ export async function ingestReviewedMessageTiming(rpc: MessageRpc, input: unknow
   if (typeof window !== 'undefined') throw Error('Timing import requires a server');
   const parsed = packetSchema.safeParse(input);
   if (!parsed.success || !Number.isFinite(now.getTime())) throw Error('Complete reviewed timing packet required');
-  const { capture, binding, review } = parsed.data;
+  const { capture, binding, review, dateFeed } = parsed.data;
+  if (dateFeed && (Date.parse(dateFeed.expiresAt) <= now.getTime() ||
+      Date.parse(dateFeed.expiresAt) > now.getTime() + 366 * 86400000)) throw Error('Invalid timing policy expiry');
   const start = Date.parse(capture.startedAt), end = Date.parse(capture.finishedAt), reviewed = Date.parse(review.reviewedAt);
   const ids = [...capture.candidates.map(c => c.reservationId), ...capture.incompleteReservationIds];
   if (ids.length > 12 || new Set(ids).size !== ids.length || start > end || end - start > 120000 ||
@@ -62,10 +69,22 @@ export async function ingestReviewedMessageTiming(rpc: MessageRpc, input: unknow
     source_revision: `capture:${capture.fingerprint}`, evidence_id: `review:${review.id}`,
   };
   try {
-    const response = await rpc('automation_message_observe_times', {
+    const args = {
       p_booking_id: binding.bookingId, p_canonical_revision: binding.canonicalRevision,
       p_expected_revision: binding.expectedObservationRevision, p_observation: observation,
-    });
+    };
+    if (dateFeed) {
+      // One owner-only database transaction: a rejected policy also rolls back
+      // the observation. Never fall back to the observation-only RPC on failure.
+      const response = await rpc('helm_pilot_message_times_bootstrap', { ...args,
+        p_remote_id: dateFeed.remoteBookingId, p_connection: dateFeed.connection, p_generation: dateFeed.generation,
+        p_expires_at: dateFeed.expiresAt, p_enabled: dateFeed.enabled,
+      });
+      const receipt = bootstrapReceipt.safeParse(response.data);
+      if (response.error || !receipt.success || receipt.data.enabled !== dateFeed.enabled) throw Error();
+      return { state: 'registered' as const, ...receipt.data };
+    }
+    const response = await rpc('automation_message_observe_times', args);
     if (response.error || !uuid.safeParse(response.data).success) throw Error();
     return { state: 'observed' as const, observationRevision: response.data as string, canSend: false as const };
   } catch { throw Error('Timing import unconfirmed; reconcile this review before continuing'); }

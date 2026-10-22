@@ -672,6 +672,21 @@ The capture fingerprint is not a Guesty revision or delivery proof. Owner review
 and identity binding remain explicit; this adapter is not exposed through an app
 write route or automatic scheduler. No schema, grants or activation change.
 
+Atomic reviewed timing bootstrap (**local candidate; not installed in hosted staging**):
+`staging-storage/message-timing-bootstrap.sql` adds the owner-only
+`helm_pilot_message_times_bootstrap` RPC after the existing date feed. It checks
+an explicitly reviewed remote/canonical binding under the route/booking locks,
+then calls the existing observation and policy-registration functions in one
+transaction. A downstream registration failure rolls back the timing observation
+and history too. No new tables or worker grants are added. The timing-ingestion
+adapter opts in with `dateFeed` (remote UUID, connection/generation, expiry and
+an enabled flag that defaults false); ordinary observation-only imports retain
+their previous behavior. Strict receipt validation never falls back or retries
+a failed bootstrap. Exact explicit replay retains the observation and policy IDs.
+This connects an owner-reviewed Guesty migration capture to subsequent automatic
+Channex date refresh; it does not infer new-booking confirmation from `inserted_at`,
+collect new OTA confirmation evidence, create message jobs or enable a sender.
+
 Automatic message date feed (**installed in isolated staging only; unapplied in production**):
 `staging-storage/message-date-feed.sql` adds private
 `helm_channex_revisions.message_timing_policies`. An owner-only registration binds

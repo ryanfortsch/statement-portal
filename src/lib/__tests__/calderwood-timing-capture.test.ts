@@ -150,3 +150,60 @@ test('lost, rejected or malformed RPC replies never retry or expose details', as
     assert.equal(calls, 1);
   }
 });
+
+const dateFeed = { remoteBookingId: '20000000-0000-4000-8000-000000000001', connection: 'HELMTEST-dates',
+  generation: 1, expiresAt: '2027-02-01T00:00:00Z', enabled: false };
+const policyId = '20000000-0000-4000-8000-000000000002';
+test('reviewed bootstrap joins observation and date-feed registration in a single owner call, default disabled', async () => {
+  const value = await packet(); let calls = 0;
+  const { enabled: _enabled, ...withoutEnabled } = dateFeed; void _enabled;
+  const result = await ingestReviewedMessageTiming(async (name, args) => {
+    calls++; assert.equal(name, 'helm_pilot_message_times_bootstrap');
+    assert.equal(args.p_booking_id, bookingId); assert.equal(args.p_remote_id, dateFeed.remoteBookingId);
+    assert.equal(args.p_connection, dateFeed.connection); assert.equal(args.p_generation, 1);
+    assert.equal(args.p_expires_at, dateFeed.expiresAt); assert.equal(args.p_enabled, false);
+    assert.equal((args.p_observation as Record<string, unknown>).confirmed_at, value.capture.candidates[0].confirmedAt);
+    return { data: { observationRevision: observationId, policyId, enabled: false, canSend: false }, error: null };
+  }, { ...value, dateFeed: withoutEnabled }, now);
+  assert.equal(calls, 1);
+  assert.deepEqual(result, { state: 'registered', observationRevision: observationId, policyId, enabled: false, canSend: false });
+});
+test('bootstrap can opt into date refresh without granting message delivery', async () => {
+  const result = await ingestReviewedMessageTiming(async (name, args) => {
+    assert.equal(name, 'helm_pilot_message_times_bootstrap'); assert.equal(args.p_enabled, true);
+    return { data: { observationRevision: observationId, policyId, enabled: true, canSend: false }, error: null };
+  }, { ...await packet(), dateFeed: { ...dateFeed, enabled: true } }, now);
+  assert.equal(result.state, 'registered'); assert.equal(result.canSend, false);
+});
+test('bootstrap refuses unknown remote identity, invalid route, expiry or extra authority before any write', async () => {
+  const value = await packet(); let calls = 0;
+  for (const change of [{ remoteBookingId: 'not-id' }, { connection: '' }, { generation: 0 }, { generation: 1.5 },
+    { expiresAt: now.toISOString() }, { expiresAt: '2029-01-01T00:00:00Z' }, { enabled: 'true' }, { canSend: true }]) {
+    await assert.rejects(ingestReviewedMessageTiming(async () => { calls++; throw Error(); }, { ...value, dateFeed: { ...dateFeed, ...change } }, now));
+  }
+  assert.equal(calls, 0);
+});
+test('bootstrap retains source fingerprint and clock checks; inserted_at cannot substitute for confirmation', async () => {
+  const value = { ...await packet(), dateFeed }; let calls = 0;
+  Object.assign(value.capture.candidates[0], { confirmedAt: undefined, inserted_at: '2027-01-01T10:01:02.123Z' });
+  await assert.rejects(ingestReviewedMessageTiming(async () => { calls++; throw Error(); }, value, now));
+  assert.equal(calls, 0);
+});
+test('uncertain bootstrap never falls back to observation-only, retries or exposes provider details', async () => {
+  const value = { ...await packet(), dateFeed };
+  const good = { observationRevision: observationId, policyId, enabled: false, canSend: false };
+  for (const bad of [null, observationId, { ...good, enabled: true }, { ...good, canSend: true }, { ...good, policyId: null }, { ...good, extra: 'PRIVATE' }]) {
+    let calls = 0;
+    await assert.rejects(ingestReviewedMessageTiming(async (name) => {
+      calls++; assert.equal(name, 'helm_pilot_message_times_bootstrap'); return { data: bad, error: null };
+    }, value, now), { message: 'Timing import unconfirmed; reconcile this review before continuing' });
+    assert.equal(calls, 1);
+  }
+  for (const failure of ['throw', 'rpc']) {
+    let calls = 0;
+    await assert.rejects(ingestReviewedMessageTiming(async () => {
+      calls++; if (failure === 'throw') throw Error('PRIVATE'); return { data: good, error: { message: 'PRIVATE' } };
+    }, value, now), { message: 'Timing import unconfirmed; reconcile this review before continuing' });
+    assert.equal(calls, 1);
+  }
+});

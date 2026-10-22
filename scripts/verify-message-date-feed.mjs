@@ -1,6 +1,7 @@
 // Local PostgreSQL only. Real route/observation/feed SQL, fictional durable revision
 // fixtures. This does not simulate a live OTA or enable a guest/cleaner sender.
 import assert from 'node:assert/strict';
+import { verifyTimingBootstrap } from './verify-message-timing-bootstrap.mjs';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { CALDERWOOD_STAGING as mapping } from '../src/lib/calderwood-readonly/channex.ts';
@@ -105,4 +106,5 @@ export async function verifyMessageDateFeed({db,a,b,scalar}) {
  assert.equal(await scalar('select count(*)::int data from automation_cleaner_batches where property_id=$1',[property]),0);
  pass('automatic timing never creates a message, releases a hold or enables a sender');
  console.log(`PASS ${count} additional message date-feed PostgreSQL scenarios; zero provider calls`);
+ await verifyTimingBootstrap({db,a,b,scalar,connection,generation});
 }
