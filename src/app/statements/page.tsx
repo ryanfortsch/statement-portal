@@ -38,6 +38,7 @@ import { CleaningEventCredit } from '@/components/CleaningEventCredit';
 import { ReceiptCapture, ReceiptRowActions } from '@/components/ReceiptCapture';
 import { HandoffFileQueue } from '@/components/HandoffFileQueue';
 import { useConfirm } from '@/components/ConfirmDialog';
+import { partialSyncLine } from '@/lib/guesty-sync-plan';
 
 /* ─── Types ─── */
 type Reservation = {
@@ -2897,8 +2898,10 @@ function DashboardContent() {
   const [guestySyncResult, setGuestySyncResult] = useState<
     | {
         listings: number;
-        reviews?: { fetched: number; upserted: number; skipped: number; error?: string };
+        reviews?: { fetched: number; upserted: number; skipped: number; error?: string; skipped_reason?: string };
         reservations?: { fetched: number; upserted: number; skipped: number; error?: string };
+        /** Steps that ran out of time and catch up on the next run. */
+        waiting: string[];
       }
     | string
     | null
@@ -3688,6 +3691,7 @@ function DashboardContent() {
           listings: data.listings_mapped,
           reviews: data.reviews,
           reservations: data.reservations,
+          waiting: Array.isArray(data.waiting_steps) ? data.waiting_steps : [],
         });
         await loadLastSync();
       } else {
@@ -4267,10 +4271,14 @@ function DashboardContent() {
           </Toast>
         ) : (
           <Toast tone="tide" onDismiss={() => setGuestySyncResult(null)}>
-            <strong>{guestySyncResult.reviews?.upserted ?? 0}</strong> reviews and <strong>{guestySyncResult.reservations?.upserted ?? 0}</strong> bookings synced from Guesty
+            {!guestySyncResult.reviews?.skipped_reason && <><strong>{guestySyncResult.reviews?.upserted ?? 0}</strong> reviews and </>}
+            <strong>{guestySyncResult.reservations?.upserted ?? 0}</strong> bookings synced from Guesty
             {guestySyncResult.reviews?.error && <span style={{ color: 'var(--signal)' }}> (reviews failed: {guestySyncResult.reviews.error})</span>}
             {guestySyncResult.reservations?.error && <span style={{ color: 'var(--signal)' }}> (reservations failed: {guestySyncResult.reservations.error})</span>}
-            {'. '}These feed guest ratings and <em>On the horizon</em>. Open any statement (or regenerate a Gmail draft) to see them &mdash; no dashboard refresh needed.
+            {'. '}
+            {guestySyncResult.waiting.length > 0
+              ? partialSyncLine(guestySyncResult.waiting)
+              : <>These feed guest ratings and <em>On the horizon</em>. Open any statement (or regenerate a Gmail draft) to see them; no dashboard refresh needed.</>}
           </Toast>
         )
       )}

@@ -23,6 +23,11 @@ import { authorizeCron } from '@/lib/cron-auth';
 
 import { POST as syncGuestyPost } from '../../sync-guesty/route';
 
+// Same limit as /api/sync-guesty: the handler runs in this function, and its
+// time budget (lib/guesty-sync-plan) assumes 300s. Route config must be a
+// literal in each file, so it is repeated rather than re-exported.
+export const maxDuration = 300;
+
 async function handle(request: NextRequest) {
   // Cron auth: Vercel Cron bearer, or a signed-in Helm user (manual trigger).
   const denied = await authorizeCron(request);
