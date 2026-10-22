@@ -171,6 +171,7 @@ describe('the screening message', () => {
     assert.equal(m.subject, 'Re: Pat is requesting information about 17 Beach Rd #2, Gloucester, MA, 01930');
     assert.match(m.body, /^Hi Pat,/);
     assert.match(m.body, /January 5 to April 30, 2027, at \$2,500 a month/);
+    assert.match(screeningMessage('Pat', { ...guestHouse, monthly_rent: 12500 }, null).body, /\$12,500 a month/);
     for (const n of ['1. The dates you need', '2. How many people', '3. Your plans after April', '4. Your household', '5. Whether you will have any pets']) assert.ok(m.body.includes(n), n);
     assert.ok(!/children|kids|family|married|age\b|where are you from/i.test(m.body), 'nothing that asks after a protected trait');
     assert.ok(!m.body.includes('—'), 'no em dash');

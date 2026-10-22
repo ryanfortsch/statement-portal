@@ -284,7 +284,8 @@ function longDate(ymd: string, withYear: boolean): string {
 export function screeningMessage(renterName: string | null, listing: LeaseListing, originalSubject: string | null): { subject: string; body: string } {
   const first = (renterName ?? '').trim().split(/\s+/)[0];
   const greeting = first && /^[\p{L}'-]{2,}$/u.test(first) ? `Hi ${first[0].toUpperCase()}${first.slice(1)},` : 'Hi,';
-  const rent = `$${Math.round(listing.monthly_rent).toLocaleString('en-US')}`;
+  // Grouped by hand: the server's Intl printed "$5000" on 2026-10-21.
+  const rent = `$${String(Math.round(listing.monthly_rent)).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
   const subject = originalSubject ? (/^re:/i.test(originalSubject) ? originalSubject : `Re: ${originalSubject}`) : `Re: ${listing.label}`;
   const body = [
     greeting,
