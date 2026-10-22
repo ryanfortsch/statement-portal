@@ -1,0 +1,55 @@
+{
+  "environment": "isolated-staging",
+  "projectRef": "jgkblfozftcvymvwhhii",
+  "installedAt": "2026-10-22T20:21:50.429549Z",
+  "verifiedAt": "2026-10-22T20:24:26.995970Z",
+  "bundleSha256": "c70b5e8a8178bf47e526cd69f155000d1f71e04203782c37db5c2ba575ad8810",
+  "installationQuery": "3a715e0f-ebfa-4dca-a60a-faa12fdff6b5",
+  "independentReadbackQuery": "ace3c9de-21be-4d3b-a534-9291681f03b0",
+  "summary": {
+    "mapped_create_move_cancel": true,
+    "reviewed_clocks_preserved": true,
+    "confirmation_preserved": true,
+    "service_refresh_verified": true,
+    "repeat_is_idempotent": true,
+    "unproven_dates_blocked": true,
+    "cancellation_inactive": true,
+    "fixture_rolled_back": true,
+    "existing_rows_preserved": true,
+    "provider_calls": 0,
+    "message_jobs_created": 0
+  },
+  "preserved": {
+    "bookings": 8,
+    "messageLedgerRows": 12,
+    "providerReceipts": 19,
+    "allPriorTableContentsComparedInsideTransaction": true
+  },
+  "controls": {
+    "timingPolicies": 0,
+    "timingObservations": 0,
+    "enabledMessageControls": 0,
+    "connectedChannels": 0,
+    "inventoryPublishing": false,
+    "applicationOptInChanged": false
+  },
+  "permissions": {
+    "policyRegistration": "owner-only",
+    "policyAndManifestTableAccess": "owner-only",
+    "refreshExecution": "existing-service-role-only"
+  },
+  "limits": [
+    "Constructed revisions through actual mapped canonical CRUD; not evidence of a new provider HTTP notification or ACK.",
+    "All rehearsal fixture rows and their trigger effects rolled back. No retained policy or sender activation.",
+    "Existing deployment commits and runtime opt-in were not changed or reverified by this batch.",
+    "Production remains unapplied. New-stay timing bootstrap, real messaging handoffs and delivery acceptance remain outstanding.",
+    "Guesty, live channels, credentials and paid subscriptions were not changed."
+  ],
+  "sources": {
+    "docs/guesty-exit/staging-storage/message-date-feed.sql": "31527c13ba2d55073ee20635953781aa9a01c91e68a3ce5290a3a9d5bd3a1a58",
+    "docs/guesty-exit/staging-storage/message-date-feed-rehearsal.sql": "20e6d6bba4f3da1b61c36865a8c74acec8ab9dbf6a244d8e0309ce7c5de6639b",
+    "docs/guesty-exit/staging-storage/canonical-revision-routing.sql": "ce6e647d69bc69628f28069859b64d93a5566e9e31ed070fcd98587eee0aac50",
+    "docs/guesty-exit/staging-storage/message-handoff-registration.sql": "56efd539b74cf356dcab06dd01e1a7561be02f3c6e8d3e9ddfc87c00fab76de0",
+    "scripts/build-message-date-feed-install.mjs": "a478990db417517eec0d02d78da5a7bc433a282c98357a8a98bd218dc3c03573"
+  }
+}

@@ -1906,3 +1906,56 @@ cleaner source history, DST source coverage, production Channex access, PriceLab
 parity and real authorized delivery acceptance remain launch requirements. The
 synthetic Offline revision route remains separate from actual Airbnb messaging;
 this batch does not relax that boundary or activate a live channel.
+
+
+## October 22: date feed installed and rehearsed in hosted staging
+
+The preceding candidate is now installed **only** in isolated project
+`jgkblfozftcvymvwhhii`. The guarded upgrade pins the prior queue and routing
+receipts, verifies the existing timing/route function bodies, requires paused
+fictional-only scope and rejects collisions. A late assertion failure rolls back
+both the new schema and all fixture effects. It never replaces an existing policy.
+
+The hosted transaction exercised actual mapped canonical create, date change and
+cancellation with constructed revisions. A fictional owner review pinned 16:00
+arrival, 11:00 departure and the original confirmation. The existing service role
+refreshed the moved dates once; replay added no observation. A direct date edit
+without a matching durable receipt was blocked, and cancellation made the policy
+inactive. Every fixture row and inventory-trigger effect rolled back, with all
+prior table contents compared inside the transaction. No message jobs or provider
+calls occurred. This is database acceptance, not new HTTP/webhook delivery evidence.
+
+Independent readback at **20:24:26 UTC** confirmed the exact bundle, zero timing
+policies/observations, the same **8 bookings / 12 message ledger rows / 19 provider
+receipts**, zero active message controls/channels, and inventory publishing false.
+Registration and direct policy/manifest reads remain owner-only; only the existing
+service role has refresh execution. The worker/preview opt-in was not changed.
+Receipt: `calderwood-message-date-feed-install-receipt.json`. Status query:
+`message-date-feed-status.sql`. The installation's temporary result table is
+session-local and drops on commit; both persistent tables have RLS and revoked
+browser/service direct access.
+
+Current validation: **2,272 application tests / 242 suites**, nonincremental
+TypeScript, scoped ESLint and diff whitespace checks passed. The disposable real
+PostgreSQL installation harness now passes **35 scenarios**, including actual
+mapped create/move/cancel, wrong prior bundle, enabled-sender refusal, dependency
+drift, late rollback, collision refusal, privilege boundaries and independent
+committed readback. The separate 165-case messaging harness was not rerun for this
+installer-only batch; its previous result is retained above.
+
+Review handoff: branch `codex/channex-staging-pilot`, starting commit
+`4a325b429721955081b149ad6097997d5c968a79`, original base
+`a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`; fresh remote main
+`be43cf8867b68a93c5cce358d12dc2a8eb756db0`. Changed files: new
+`build-message-date-feed-install.mjs`, `message-date-feed-rehearsal.sql`,
+`message-date-feed-status.sql`, and the installation receipt; updated
+`verify-message-pilot-install.mjs`, `SCHEMA.md`, `CLAUDE.md` and this handoff.
+Unrelated contract-readiness edits remain excluded.
+
+The next acceptance is a worker-driven date refresh from a fresh signed staging
+revision using an explicitly reviewed fictional clock policy, followed by the
+remaining real-provider messaging prerequisites. No policy or sender is enabled
+by this installation. Production Channex access/certification, new-stay original
+confirmation bootstrap, authoritative cleaner history, PriceLabs parity and
+real authorized delivery acceptance remain outstanding. Guesty stays live and
+no new subscription has been purchased.

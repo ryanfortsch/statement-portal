@@ -621,13 +621,14 @@ an unnamed record's cancel hide a named twin (`isUnnamedRecord` in `src/lib/book
 
 ### Calderwood message timing pilot
 
-The isolated date-feed candidate retains an explicitly reviewed stay's local
+The isolated staging date feed retains an explicitly reviewed stay's local
 check-in/check-out message clocks and original confirmation time while Channex
 supplies revised stay dates. A Channex revision's receipt time is not the booking's
 confirmation time, and an OTA arrival estimate is not automatically the property's
 check-in policy. Clock changes require a fresh owner decision; scheduled date
 changes alone must not release a key-code hold, extend handoff expiry or replay
-sent confirmations. This candidate is disabled and unapplied; Guesty remains live.
+sent confirmations. The SQL is installed only in isolated staging, with no retained
+timing policies and the application opt-in unset. Production is unapplied; Guesty remains live.
 
 ## Quo (OpenPhone)
 

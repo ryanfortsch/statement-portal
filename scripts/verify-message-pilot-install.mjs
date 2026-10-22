@@ -9,6 +9,7 @@ import { buildCanonicalPilotInstall } from './build-canonical-pilot-install.mjs'
 import { buildMessagePilotInstall } from './build-message-pilot-install.mjs';
 import { buildRevisionRoutingInstall } from './build-revision-routing-install.mjs';
 import { buildMessageQueueInstall } from './build-message-queue-install.mjs';
+import { buildMessageDateFeedInstall } from './build-message-date-feed-install.mjs';
 assert.ok(isAbsolute(process.argv[2]??'')&&isAbsolute(process.argv[3]??''),'Pass absolute native-bin and pg module paths');
 const bin=process.argv[2],{default:pg}=await import(pathToFileURL(process.argv[3]).href);
 const root=mkdtempSync(join(tmpdir(),'helm-message-install-')),data=join(root,'data');
@@ -127,6 +128,51 @@ try{
  for(const role of ['anon','authenticated','service_role'])
    assert.equal(await scalar("select has_table_privilege($1,'helm_pilot_installation.revision_routing','SELECT,INSERT,UPDATE,DELETE') data",[role]),false);
  pass('routing installation manifest remains owner-only');
+ const dateFeed=buildMessageDateFeedInstall();
+ await db.query("update helm_pilot_installation.revision_routing set bundle_digest='wrong'");
+ await reject(dateFeed.sql,/Reviewed isolated date-feed prerequisites/);
+ await db.query('update helm_pilot_installation.revision_routing set bundle_digest=$1',[routing.digest]);
+ pass('date-feed installer requires the reviewed route installation');
+ await db.query("update properties set automations_enabled=true");
+ await reject(dateFeed.sql,/Paused fictional-only date-feed/);
+ await db.query("update properties set automations_enabled=false");
+ pass('date-feed installer refuses active senders');
+ const observeDefinition=await scalar("select pg_get_functiondef('public.automation_message_observe_times(uuid,text,uuid,jsonb)'::regprocedure) data");
+ await db.query("create or replace function public.automation_message_observe_times(p_booking_id uuid,p_canonical_revision text,p_expected_revision uuid,p_observation jsonb) returns uuid language sql as $$select null::uuid$$");
+ await reject(dateFeed.sql,/Reviewed date-feed dependency changed/);
+ await db.query(observeDefinition);
+ pass('date-feed installer detects observation implementation drift');
+ await reject(dateFeed.sql.replace('if after_rows is distinct from before_rows then','if true then'),/Date-feed rehearsal changed persistent data/);
+ assert.equal(await scalar("select to_regclass('helm_channex_revisions.message_timing_policies') data"),null);
+ assert.equal(await scalar("select to_regclass('helm_pilot_installation.message_date_feed') data"),null);
+ assert.equal(await scalar("select to_regprocedure('public.helm_pilot_message_times_refresh(text,bigint,integer)')::text data"),null);
+ pass('late date-feed rejection rolls back schema, canonical CRUD and observation writes');
+ await db.query(dateFeed.sql);
+ const dateProof=await scalar('select summary data from helm_pilot_installation.message_date_feed');
+ for(const key of ['mapped_create_move_cancel','reviewed_clocks_preserved','confirmation_preserved','service_refresh_verified','repeat_is_idempotent','unproven_dates_blocked','cancellation_inactive','fixture_rolled_back','existing_rows_preserved'])assert.equal(dateProof[key],true,key);
+ assert.equal(dateProof.provider_calls,0);assert.equal(dateProof.message_jobs_created,0);
+ assert.equal(await scalar('select count(*)::int data from helm_channex_revisions.message_timing_policies'),0);
+ assert.equal(await scalar('select count(*)::int data from automation_message_observations'),0);
+ pass('actual mapped CRUD moves reviewed clocks, rejects unproven edits and stops on cancellation');
+ assert.equal(await scalar('select count(*)::int data from bookings'),1);
+ assert.equal(await scalar('select count(*)::int data from automation_sends'),6);
+ assert.equal(await scalar('select count(*)::int data from helm_channex_revisions.receipts'),4);
+ assert.equal(await scalar('select version data from helm_cleaner_rehearsal.delivery'),6);
+ pass('installer retains original booking, six ledger rows, four receipts and cleaner state');
+ await reject(dateFeed.sql,/Date-feed installation collision/);
+ pass('date-feed reinstall refuses replacement');
+ for(const role of ['anon','authenticated','service_role']) {
+  assert.equal(await scalar("select has_function_privilege($1,'public.helm_pilot_message_times_register(uuid,uuid,text,bigint,text,timestamptz,boolean)','EXECUTE') data",[role]),false);
+  assert.equal(await scalar("select has_function_privilege($1,'public.helm_pilot_message_times_refresh(text,bigint,integer)','EXECUTE') data",[role]),role==='service_role');
+  for(const table of ['helm_channex_revisions.message_timing_policies','helm_pilot_installation.message_date_feed'])assert.equal(await scalar("select has_table_privilege($1,$2,'SELECT,INSERT,UPDATE,DELETE') data",[role,table]),false);
+ }
+ pass('only the existing service role can refresh; policy registration and receipts remain private');
+ const dateStatus=(await db.query(readFileSync(new URL('../docs/guesty-exit/staging-storage/message-date-feed-status.sql',import.meta.url),'utf8')))[1].rows;
+ assert.equal(dateStatus.length,12);assert.equal(dateStatus[0].Result,'PASS');
+ assert.equal(dateStatus[1].Result,'0');assert.equal(dateStatus[2].Result,'0');assert.equal(dateStatus[3].Result,'1 / 6 / 4');
+ assert.equal(dateStatus[4].Result,'0');assert.equal(dateStatus[5].Result,'0');assert.equal(dateStatus[6].Result,'false');
+ assert.equal(dateStatus[7].Result,'Owner only');assert.equal(dateStatus[8].Result,'Existing service role only');assert.equal(dateStatus[9].Result,dateFeed.digest);
+ pass('independent committed date-feed readback verifies controls, retained rows, grants and exact digest');
  console.log(`PASS ${count} installation/preparation scenarios; original digest ${bundle.digest}; no external IO`);
 }catch(e){console.error('FAIL',e.message,e.where??'');process.exitCode=1;}
 finally{if(db)await db.end();if(running)ctl('-m','immediate','-w','stop');rmSync(root,{recursive:true,force:true});}

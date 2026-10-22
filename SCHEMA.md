@@ -672,7 +672,7 @@ The capture fingerprint is not a Guesty revision or delivery proof. Owner review
 and identity binding remain explicit; this adapter is not exposed through an app
 write route or automatic scheduler. No schema, grants or activation change.
 
-Automatic message date feed (**candidate; unapplied in all environments**):
+Automatic message date feed (**installed in isolated staging only; unapplied in production**):
 `staging-storage/message-date-feed.sql` adds private
 `helm_channex_revisions.message_timing_policies`. An owner-only registration binds
 one existing reviewed timing observation to an exact mapped synthetic stay,
@@ -693,6 +693,14 @@ Aggregate counts identify blocked/inactive policies without exposing stay data.
 This supports date changes for already registered stays, not discovery/bootstrap
 of new stays or importing changed OTA arrival estimates. Future clock changes
 still need explicit authority; the reviewed source-clock adapter remains separate.
+The guarded `build-message-date-feed-install.mjs` installed bundle
+`c70b5e8a8178bf47e526cd69f155000d1f71e04203782c37db5c2ba575ad8810`
+on October 22. Its mapped create/move/cancel rehearsal rolled back all fixture rows;
+independent readback verified zero retained policies/observations, disabled controls
+and the existing 8 bookings / 12 ledger rows / 19 provider receipts. Private
+`helm_pilot_installation.message_date_feed` records the bundle, source hashes and
+aggregate proof. See `calderwood-message-date-feed-install-receipt.json` and the
+read-only `message-date-feed-status.sql`. The application opt-in remains unset.
 
 Exact source-time resolution (**isolated staging only; unapplied in production**):
 `channex-message-schedule.sql` adds `automation_message_schedule_resolutions`,
