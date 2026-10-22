@@ -25,3 +25,14 @@ test('existing token stays inside server read and raw auth errors are withheld',
   assert.ok(result.finishedAt);
   await assert.rejects(loadCalderwoodRead(input, { token: async () => { throw Error('secret-token'); } }), e => e instanceof Error && !e.message.includes('secret-token'));
 });
+
+test('source rejection explains its safe cause without exposing raw provider or auth content', async () => {
+  const { GuestySnapshotReadError } = await import('../calderwood-readonly/guesty-reader.ts');
+  const sourceError = new GuestySnapshotReadError('http', 429);
+  sourceError.message = 'PRIVATE provider payload';
+  await assert.rejects(loadCalderwoodRead(input, { token: async () => 'secret', read: async () => { throw sourceError; } }), { message: 'Guesty rejected the reservation read (HTTP 429). No calendar changes were made.' });
+  for (const error of [Error('PRIVATE'), { code: 'http', httpStatus: 429, message: 'PRIVATE' }]) {
+    await assert.rejects(loadCalderwoodRead(input, { token: async () => 'secret', read: async () => { throw error; } }), e => e instanceof Error && !e.message.includes('PRIVATE') && !e.message.includes('429'));
+  }
+  await assert.rejects(loadCalderwoodRead(input, { token: async () => 'secret', read: async () => { throw new GuestySnapshotReadError('dates'); } }), /Inconsistent reservation dates/);
+});

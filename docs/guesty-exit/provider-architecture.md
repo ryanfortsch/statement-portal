@@ -35,14 +35,22 @@ from an omitted field (unknown); missing projected overrides no longer silently
 select listing defaults. Existing per-property dynamic PriceLabs rules and all
 six message offsets remain unchanged.
 
-Validation: **2,231 application tests / 242 suites**, nonincremental TypeScript
-and scoped ESLint pass, including fourteen new collector tests and the revised
-missing-clock case. The earlier 99 PostgreSQL messaging scenarios were not rerun:
-this increment changes no SQL or sender implementation. Hosted source acceptance
-is pending; the messaging installation and source-history import remain
-unapplied. Next: verify this collector through the deployed preview, complete
-workflow/cleaner queue evidence, then exercise the atomic handoff with the
-hosted automatic senders still disabled.
+Live preview `5e9d75bc` read the October 22–December 1 exclusive window:
+**4 confirmed stays, 23 conversation records**, all four with local clock evidence
+and actual confirmation timestamps. No shared or missing threads were reported.
+This is a successful source read, not delivery or queue acceptance. The broader
+year window failed before a snapshot was returned; safe typed diagnostics now
+identify the bounded validation/HTTP category without exposing provider responses,
+error messages, credentials or reservation data. Generic/auth errors stay generic.
+
+Validation: **2,232 application tests / 242 suites**, nonincremental TypeScript
+and scoped ESLint pass. The earlier 99 PostgreSQL messaging scenarios were not
+rerun: this increment changes no SQL or sender implementation. Messaging
+installation and source-history import remain unapplied. Next: resolve the
+full-window read, complete workflow/cleaner queue evidence, then exercise the
+atomic handoff with hosted automatic senders still disabled. Fresh main checked:
+`0e9ada07c5fa670a1e83079a1f46a4803937aa07`; no main merge.
+
 
 
 Decision draft, October 7, 2026. Goal: replace Guesty across the portfolio after a successful Calderwood pilot. This is an architecture deliverable, not an implemented production connector or an approval to disconnect channels. Contract timetable remains in `calderwood-cutover-readiness.md`; `SCHEMA.md` remains authoritative for existing tables. No new platform purchase is required for the next milestone.

@@ -4,7 +4,7 @@ import { readCalderwoodLocalClocks } from './local-clock-reader.ts';
 import { proposeStoppedCalendar } from './proposal.ts';
 import { readCalderwoodChannex, compareProviders } from './channex.ts';
 import { readCalderwoodCalendar, compareCalendar } from './calendar.ts';
-import { readCalderwoodGuesty } from './guesty-reader.ts';
+import { readCalderwoodGuesty, guestySnapshotReadExplanation } from './guesty-reader.ts';
 type Environment = { VERCEL_ENV?: string; VERCEL_GIT_COMMIT_REF?: string; CHANNEX_STAGING_ENABLED?: string };
 export function calderwoodReadAllowed(email: string | null | undefined, env: Environment): boolean {
   return !!email?.endsWith('@risingtidestr.com') && env.VERCEL_ENV === 'preview'
@@ -53,5 +53,8 @@ export async function loadCalderwoodRead(input: { email?: string | null; env: En
     }
     const proposal = calendar && staging ? proposeStoppedCalendar(snapshot.window, calendar, staging) : null;
     return { ...snapshot, reservations, localClockError, confirmationError, messageHistory, messageHistoryError, calendar, calendarError, staging, stagingError, proposal, startedAt, finishedAt: new Date().toISOString() };
-  } catch { throw Error('Calderwood could not be read from the existing Guesty connection. No calendar changes were made.'); }
+  } catch (error) {
+    const reason = guestySnapshotReadExplanation(error);
+    throw Error(reason ? `${reason}. No calendar changes were made.` : 'Calderwood could not be read from the existing Guesty connection. No calendar changes were made.');
+  }
 }
