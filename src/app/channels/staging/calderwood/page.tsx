@@ -1,6 +1,7 @@
 import { CanonicalBookingImport } from './CanonicalBookingImport';
 import Link from 'next/link';
 import MessageTimingReview from './MessageTimingReview';
+import MessageHistoryReview from './MessageHistoryReview';
 import MessageWorkflowCoverage from './MessageWorkflowCoverage';
 import { auth } from '@/auth';
 import { summarizeCalderwoodReview } from '@/lib/calderwood-readonly/review-summary';
@@ -22,8 +23,8 @@ export default async function CalderwoodPage({ searchParams }: { searchParams: P
   const to = typeof params.to === 'string' ? params.to : defaultEnd;
   let result: Awaited<ReturnType<typeof loadCalderwoodRead>> | null = null;
   let error = '';
-  if (params.load === '1') {
-    try { result = await loadCalderwoodRead({ email: session.user.email, env, from, to, includeCalendar: true, includeLocalClocks: true, includeConfirmations: true }, { token: getGuestyToken, stagingKey: () => process.env.CHANNEX_STAGING_API_KEY ?? '' }); }
+  if (params.load === '1' || params.load === 'messages') {
+    try { result = await loadCalderwoodRead({ email: session.user.email, env, from, to, includeCalendar: params.load !== 'messages', includeLocalClocks: true, includeConfirmations: true, includeMessageHistory: params.load === 'messages' }, { token: getGuestyToken, stagingKey: () => process.env.CHANNEX_STAGING_API_KEY ?? '' }); }
     catch (e) { error = e instanceof Error ? e.message : 'Snapshot unavailable'; }
   }
   const summary = result ? summarizeCalderwoodReview(result) : null;
@@ -38,16 +39,16 @@ export default async function CalderwoodPage({ searchParams }: { searchParams: P
     </section>
     <CanonicalBookingImport enabled={process.env.CHANNEX_CANONICAL_REHEARSAL_ENABLED === 'true'} />
     <form method="get" className="flex flex-wrap items-end gap-4 rounded-lg border p-4">
-      <input type="hidden" name="load" value="1" />
       <label className="grid gap-1 text-sm">From<input className="rounded border p-2" type="date" name="from" required defaultValue={from} /></label>
       <label className="grid gap-1 text-sm">Until (exclusive)<input className="rounded border p-2" type="date" name="to" required defaultValue={to} /></label>
-      <button className="rounded bg-slate-900 px-4 py-2 text-white" type="submit">Compare calendars</button>
+      <button className="rounded bg-slate-900 px-4 py-2 text-white" type="submit" name="load" value="1">Compare calendars</button>
+      <button className="rounded border border-slate-300 px-4 py-2" type="submit" name="load" value="messages">Read message evidence</button>
     </form>
     <aside className="rounded-lg bg-amber-50 p-4 text-sm text-amber-950">Staging comparison only: Channex has an isolated test property with placeholder pricing and no sales channels. Differences are expected. Authoritative booking revisions and independent channel delivery checks are still missing. An empty result does not mean dates are available.</aside>
     {error && <p role="alert" className="rounded border border-red-300 p-4 text-sm">{error}</p>}
     {result?.calendarError && <p role="alert" className="rounded border border-amber-300 p-4 text-sm">Reservations loaded, but the calendar read failed. Pricing and block coverage remain unverified.</p>}
     {result?.stagingError && <p role="alert" className="rounded border border-amber-300 p-4 text-sm">Channex staging could not be verified. Its mapping, channel isolation, key access or calendar response needs review. Guesty results remain visible.</p>}
-    {summary && result && <section aria-labelledby="review-summary" className="space-y-4 rounded-lg border bg-white p-5">
+    {summary && result && params.load !== 'messages' && <section aria-labelledby="review-summary" className="space-y-4 rounded-lg border bg-white p-5">
       <div><h2 id="review-summary" className="text-lg font-semibold">Booking and hold review</h2>
         <p className="mt-1 text-sm text-slate-600">{from} to {to} (checkout excluded) · {summary.nightsRequested} nights · Read completed {new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', dateStyle: 'medium', timeStyle: 'short' }).format(new Date(result.finishedAt))} New York time</p></div>
       <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -71,6 +72,7 @@ export default async function CalderwoodPage({ searchParams }: { searchParams: P
     </section>}
     <MessageWorkflowCoverage />
     {result && <MessageTimingReview reservations={result.reservations} observedAt={result.finishedAt} localClockError={result.localClockError} confirmationError={result.confirmationError} />}
+    {result && <MessageHistoryReview history={result.messageHistory} failed={result.messageHistoryError} />}
     {result?.proposal && <section className="space-y-3 rounded-lg border border-slate-300 bg-white p-4">
       <h2 className="text-lg font-semibold">Proposed staging update</h2>
       <p className="text-sm">{result.proposal.rows.length} nights reviewed · {result.proposal.rows.filter(r => r.candidate).length} complete candidate nights · {result.proposal.status === 'incomplete' ? 'Incomplete evidence' : 'Awaiting restriction review'}</p>

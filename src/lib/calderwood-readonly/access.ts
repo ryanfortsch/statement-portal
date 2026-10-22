@@ -1,3 +1,4 @@
+import { readCalderwoodMessageHistory } from './message-history-reader.ts';
 import { readCalderwoodConfirmations } from './confirmation-reader.ts';
 import { readCalderwoodLocalClocks } from './local-clock-reader.ts';
 import { proposeStoppedCalendar } from './proposal.ts';
@@ -10,8 +11,8 @@ export function calderwoodReadAllowed(email: string | null | undefined, env: Env
     && env.VERCEL_GIT_COMMIT_REF === 'codex/channex-staging-pilot' && env.CHANNEX_STAGING_ENABLED === 'true';
 }
 /** Guard before acquiring any token. Token remains server-side and never enters the result. */
-export async function loadCalderwoodRead(input: { email?: string | null; env: Environment; from: string; to: string; includeCalendar?: boolean; includeLocalClocks?: boolean; includeConfirmations?: boolean }, dependencies: {
-  token: () => Promise<string>; confirmations?: typeof readCalderwoodConfirmations; localClocks?: typeof readCalderwoodLocalClocks; read?: typeof readCalderwoodGuesty; calendar?: typeof readCalderwoodCalendar; stagingKey?: () => string; stagingRead?: typeof readCalderwoodChannex;
+export async function loadCalderwoodRead(input: { email?: string | null; env: Environment; from: string; to: string; includeCalendar?: boolean; includeLocalClocks?: boolean; includeConfirmations?: boolean; includeMessageHistory?: boolean }, dependencies: {
+  token: () => Promise<string>; messageHistory?: typeof readCalderwoodMessageHistory; confirmations?: typeof readCalderwoodConfirmations; localClocks?: typeof readCalderwoodLocalClocks; read?: typeof readCalderwoodGuesty; calendar?: typeof readCalderwoodCalendar; stagingKey?: () => string; stagingRead?: typeof readCalderwoodChannex;
 }) {
   if (!calderwoodReadAllowed(input.email, input.env)) throw Error('Calderwood preview unavailable');
   // Validate the requested window before touching the existing connection.
@@ -32,6 +33,12 @@ export async function loadCalderwoodRead(input: { email?: string | null; env: En
       try { reservations = await (dependencies.confirmations ?? readCalderwoodConfirmations)(token, reservations, new Date()); }
       catch { confirmationError = true; }
     }
+    let messageHistory: Awaited<ReturnType<typeof readCalderwoodMessageHistory>> | null = null;
+    let messageHistoryError = false;
+    if (input.includeMessageHistory) {
+      try { messageHistory = await (dependencies.messageHistory ?? readCalderwoodMessageHistory)(token, reservations); }
+      catch { messageHistoryError = true; }
+    }
     let calendar = null;
     let calendarError = false;
     if (input.includeCalendar) {
@@ -45,6 +52,6 @@ export async function loadCalderwoodRead(input: { email?: string | null; env: En
       catch { stagingError = true; }
     }
     const proposal = calendar && staging ? proposeStoppedCalendar(snapshot.window, calendar, staging) : null;
-    return { ...snapshot, reservations, localClockError, confirmationError, calendar, calendarError, staging, stagingError, proposal, startedAt, finishedAt: new Date().toISOString() };
+    return { ...snapshot, reservations, localClockError, confirmationError, messageHistory, messageHistoryError, calendar, calendarError, staging, stagingError, proposal, startedAt, finishedAt: new Date().toISOString() };
   } catch { throw Error('Calderwood could not be read from the existing Guesty connection. No calendar changes were made.'); }
 }

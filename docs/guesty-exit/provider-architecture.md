@@ -1,5 +1,50 @@
 # Helm provider architecture and next implementation boundary
 
+## Guesty source-record collector — October 22, 2026
+
+The protected Calderwood preview now batches reservation local clocks, genuine
+confirmation timestamps and guest-conversation record metadata through **Read
+message evidence**. It uses the existing server Guesty connection; authentication
+and production settings are unchanged. No database writes, message sends or
+provider settings are included. This branch was checked against freshly fetched
+main `f357f5c2fa5142df94944c057388b9b83a38f8d4`; it is not a merge of that main.
+
+The collector requests only confirmed Calderwood stays (maximum twelve), binds
+conversation metadata to the exact reservation/listing/account and follows
+explicit cursors. Shared returning-guest threads remain unresolved, including
+when two requested stays share a thread. Missing/looping pagination, foreign
+identity, duplicate records, HTTP failures and the 75-request/90-second budget
+fail the collection instead of presenting partial data as complete. Posts have
+no documented field projection, so bodies, recipients, attachments and other
+private fields are discarded on the server. Only IDs, record creation time and
+allowlisted record/author types reach the protected review. No raw response or
+credential enters the evidence digest, logs or fixtures.
+
+The [conversation contract](https://open-api-docs.guesty.com/reference/get_communication-conversations)
+and [post contract](https://open-api-docs.guesty.com/reference/get_communication-conversations-conversationid-posts)
+provide a record inventory, **not verified automation delivery**. `createdAt` is
+not a send receipt; records can even be added without sending. This collector
+never infers a workflow from body text, treats an empty result as unsent, or
+certifies cleaner history, pending queues or source stop/drain. Its output is
+not accepted as a completed handoff. The protected page links to the exact source
+conversation for the remaining migration review; automatic messaging remains
+the launch requirement.
+
+Local-clock parsing now distinguishes explicit null (source says no override)
+from an omitted field (unknown); missing projected overrides no longer silently
+select listing defaults. Existing per-property dynamic PriceLabs rules and all
+six message offsets remain unchanged.
+
+Validation: **2,231 application tests / 242 suites**, nonincremental TypeScript
+and scoped ESLint pass, including fourteen new collector tests and the revised
+missing-clock case. The earlier 99 PostgreSQL messaging scenarios were not rerun:
+this increment changes no SQL or sender implementation. Hosted source acceptance
+is pending; the messaging installation and source-history import remain
+unapplied. Next: verify this collector through the deployed preview, complete
+workflow/cleaner queue evidence, then exercise the atomic handoff with the
+hosted automatic senders still disabled.
+
+
 Decision draft, October 7, 2026. Goal: replace Guesty across the portfolio after a successful Calderwood pilot. This is an architecture deliverable, not an implemented production connector or an approval to disconnect channels. Contract timetable remains in `calderwood-cutover-readiness.md`; `SCHEMA.md` remains authoritative for existing tables. No new platform purchase is required for the next milestone.
 
 ## Message-history and six-workflow handoff — October 22, 2026

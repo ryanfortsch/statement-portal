@@ -30,13 +30,13 @@ test('local fields resolve winter and summer clocks without offsetting V3 timest
   assert.ok(rows.every(r => r.canSend === false));
 });
 
-test('reservation overrides win, missing overrides use fetched defaults, invalid overrides never fall back', () => {
+test('reservation overrides win, explicit null uses fetched defaults, omitted and invalid overrides never fall back', () => {
   assert.equal(clock({ ...local, plannedArrival: '18:30' }).arrivalAt, '2027-01-15T23:30:00.000Z');
-  const fallback = normalizeCalderwoodLocalTiming({ ...local, plannedArrival: null, plannedDeparture: undefined }, search);
+  const fallback = normalizeCalderwoodLocalTiming({ ...local, plannedArrival: null, plannedDeparture: null }, search);
   assert.equal(fallback.arrivalAt, '2027-01-15T22:00:00.000Z');
   assert.equal(fallback.departureAt, '2027-01-18T15:00:00.000Z');
   assert.equal(fallback.localEvidence?.arrivalBasis, 'listing.defaultCheckInTime');
-  for (const plannedArrival of ['', '24:00', '16:60', '4:00', '16:00Z', '2027-01-15T16:00:00Z', 16]) {
+  for (const plannedArrival of [undefined, '', '24:00', '16:60', '4:00', '16:00Z', '2027-01-15T16:00:00Z', 16]) {
     const result = normalizeCalderwoodLocalTiming({ ...local, plannedArrival }, search);
     assert.equal(result.arrivalAt, null);
     assert.equal(result.departureAt, '2027-01-18T16:00:00.000Z');

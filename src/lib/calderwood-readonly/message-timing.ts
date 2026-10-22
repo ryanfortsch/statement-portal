@@ -64,8 +64,10 @@ export function normalizeCalderwoodLocalTiming(input: {
   const issues: string[] = [];
   if (input.timezone !== zone) return { ...search, clockVerified: false, localEvidence: undefined, issues: ['Listing timezone is missing or differs from New York; local timing withheld.'] };
   function read(date: string, override: unknown, fallback: unknown, label: string, overrideField: string, defaultField: string) {
-    const clock = override == null ? fallback : override;
-    const basis = override == null ? defaultField : overrideField;
+    // Only explicit null proves the source has no reservation override.
+    // An omitted projected field is unknown, not permission to choose a default.
+    const clock = override === null ? fallback : override;
+    const basis = override === null ? defaultField : overrideField;
     const day = Date.parse(date + 'T00:00:00Z');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(day) || new Date(day).toISOString().slice(0, 10) !== date
       || typeof clock !== 'string' || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(clock)) {
