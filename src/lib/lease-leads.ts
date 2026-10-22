@@ -7,9 +7,11 @@
  *   2. file each mail under its renter and listing (lease_leads);
  *   3. for every lead with mail newer than its last vetting, have the model
  *      read the renter's own words into facts, then decide the verdict in
- *      code (decideVerdict). Only 'serious' reaches the home feed.
- *
- * Read-only on Gmail. Nothing is sent to a renter from here.
+ *      code (decideVerdict). Only 'serious' reaches the home feed;
+ *   4. send the screening message (screeningMessage, one fixed text) once to
+ *      each lead that needs answers, through Zillow's relay address, from the
+ *      mailbox the lead was addressed to (shouldSendScreening). ?dry=1 on the
+ *      cron reports what would go out and sends nothing.
  */
 
 import 'server-only';
@@ -23,9 +25,13 @@ import {
   leadKey,
   listingFor,
   parseZillowMail,
+  rawReply,
   scamSigns,
+  screeningMessage,
+  shouldSendScreening,
   type LeadFacts,
   type LeaseListing,
+  type ScreeningLead,
 } from './lease-leads-core';
 
 const MODEL = 'anthropic/claude-sonnet-4.5';
@@ -97,10 +103,9 @@ function findPart(p: GmailPart, mime: string): GmailPart | null {
   return null;
 }
 
-type FiledMail = { messageKey: string; threadId: string; receivedAt: string; subject: string; from: string; body: string };
+type FiledMail = { messageKey: string; threadId: string; receivedAt: string; subject: string; from: string; to: string; body: string };
 
-async function readMailbox(mb: Mailbox): Promise<FiledMail[]> {
-  const token = await accessToken(mb);
+async function readMailbox(token: string, mb: Mailbox): Promise<FiledMail[]> {
   const auth = { Authorization: `Bearer ${token}` };
   const list = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(SEARCH_Q)}&maxResults=100`, { headers: auth, signal: AbortSignal.timeout(15_000) });
   if (!list.ok) throw new Error(`${mb.name}'s Gmail list: ${list.status}`);
@@ -120,10 +125,37 @@ async function readMailbox(mb: Mailbox): Promise<FiledMail[]> {
       receivedAt: new Date(Number(m.internalDate)).toISOString(),
       subject,
       from,
+      to: header('to'),
       body: bodyText(m.payload),
     });
   }
   return out;
+}
+
+/** Which address a token opens and whether it may send (gmail.compose, gmail.send or full mail). */
+type Sender = { name: string; token: string; address: string | null; canSend: boolean };
+
+async function describeSender(mb: Mailbox, token: string): Promise<Sender> {
+  let address: string | null = null;
+  let canSend = false;
+  try {
+    const prof = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10_000) });
+    if (prof.ok) address = ((await prof.json()) as { emailAddress?: string }).emailAddress?.toLowerCase() ?? null;
+    const info = await fetch(`https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(token)}`, { signal: AbortSignal.timeout(10_000) });
+    if (info.ok) {
+      const scope = ((await info.json()) as { scope?: string }).scope ?? '';
+      canSend = /auth\/gmail\.(compose|send|modify)\b|https:\/\/mail\.google\.com\//.test(scope);
+    }
+  } catch {
+    /* an unreadable token simply cannot send */
+  }
+  return { name: mb.name, token, address, canSend };
+}
+
+/** The bare address out of a To header: "Ryan <ryan@x.com>" -> "ryan@x.com". */
+function bareAddress(header: string | null | undefined): string | null {
+  const m = (header ?? '').match(/[\w.+-]+@[\w.-]+\.\w+/);
+  return m ? m[0].toLowerCase() : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -161,21 +193,33 @@ async function readFacts(listing: LeaseListing | null, messages: Array<{ at: str
   return { facts: { ...EMPTY_FACTS, ...facts }, summary };
 }
 
-export type LeaseLeadRun = { mailboxes: string[]; read: number; filed: number; vetted: number; errors: string[] };
+export type LeaseLeadRun = {
+  mailboxes: string[];
+  read: number;
+  filed: number;
+  vetted: number;
+  senders: Array<{ name: string; address: string | null; canSend: boolean }>;
+  screening: { sent: string[]; wouldSend: string[]; skippedNoSender: string[] };
+  errors: string[];
+};
 
-export async function runLeaseLeads(): Promise<LeaseLeadRun> {
-  const run: LeaseLeadRun = { mailboxes: [], read: 0, filed: 0, vetted: 0, errors: [] };
+export async function runLeaseLeads(opts: { dry?: boolean; now?: Date } = {}): Promise<LeaseLeadRun> {
+  const run: LeaseLeadRun = { mailboxes: [], read: 0, filed: 0, vetted: 0, senders: [], screening: { sent: [], wouldSend: [], skippedNoSender: [] }, errors: [] };
+  const now = opts.now ?? new Date();
   if (!isServiceConfigured) return run;
 
-  const { data: listingRows } = await supabaseAdmin.from('lease_listings').select('zillow_address, property_id, label, monthly_rent, lease_start, lease_end').eq('active', true);
-  const listings = ((listingRows ?? []) as LeaseListing[]).map((l) => ({ ...l, monthly_rent: Number(l.monthly_rent) }));
+  const { data: listingRows } = await supabaseAdmin.from('lease_listings').select('zillow_address, property_id, label, monthly_rent, lease_start, lease_end, screening_autosend').eq('active', true);
+  const listings = ((listingRows ?? []) as Array<LeaseListing & { screening_autosend: boolean }>).map((l) => ({ ...l, monthly_rent: Number(l.monthly_rent) }));
+  const senders: Sender[] = [];
 
   // 1-2. Read and file.
   const seen = new Set<string>();
   for (const mb of mailboxes()) {
     let mails: FiledMail[] = [];
     try {
-      mails = await readMailbox(mb);
+      const token = await accessToken(mb);
+      senders.push(await describeSender(mb, token));
+      mails = await readMailbox(token, mb);
       run.mailboxes.push(mb.name);
     } catch (err) {
       run.errors.push(err instanceof Error ? err.message : String(err));
@@ -185,16 +229,21 @@ export async function runLeaseLeads(): Promise<LeaseLeadRun> {
       if (seen.has(mail.messageKey)) continue;
       seen.add(mail.messageKey);
       run.read += 1;
-      const { data: dup } = await supabaseAdmin.from('lease_lead_messages').select('message_key').eq('message_key', mail.messageKey).maybeSingle();
-      if (dup) continue;
       const p = parseZillowMail(mail.subject, mail.body);
-      const relay = /@convo\.zillow\.com/i.test(mail.from) ? mail.from.match(/[\w.+-]+@convo\.zillow\.com/i)?.[0] ?? null : null;
+      const relay = /@convo\.zillow\.com/i.test(mail.from) ? mail.from.match(/[\w.+-]+@convo\.zillow\.com/i)?.[0]?.toLowerCase() ?? null : null;
       const key = leadKey(p, relay);
+      // Where to answer and as whom: fill-empty, so the first mail sets them.
+      const reach = { relay_address: relay, received_to: bareAddress(mail.to), first_subject: mail.subject, first_rfc_message_id: mail.messageKey.startsWith('<') ? mail.messageKey : null };
+      const { data: dup } = await supabaseAdmin.from('lease_lead_messages').select('message_key').eq('message_key', mail.messageKey).maybeSingle();
+      if (dup) {
+        for (const [col, val] of Object.entries(reach)) if (val) await supabaseAdmin.from('lease_leads').update({ [col]: val }).eq('lead_key', key).is(col, null);
+        continue;
+      }
       const listing = listingFor(p.zillowAddress, listings);
       const { data: lead, error: upErr } = await supabaseAdmin
         .from('lease_leads')
         .upsert(
-          { lead_key: key, zillow_address: p.zillowAddress, property_id: listing?.property_id ?? null, renter_name: p.renterName, first_seen_at: mail.receivedAt, last_message_at: mail.receivedAt },
+          { lead_key: key, zillow_address: p.zillowAddress, property_id: listing?.property_id ?? null, renter_name: p.renterName, first_seen_at: mail.receivedAt, last_message_at: mail.receivedAt, ...reach },
           { onConflict: 'lead_key', ignoreDuplicates: true },
         )
         .select('id')
@@ -214,6 +263,7 @@ export async function runLeaseLeads(): Promise<LeaseLeadRun> {
         body_text: p.message ?? (p.kind === 'application' ? mail.subject : null),
         gmail_thread_id: mail.threadId,
       });
+      for (const [col, val] of Object.entries(reach)) if (val) await supabaseAdmin.from('lease_leads').update({ [col]: val }).eq('id', leadId).is(col, null);
       // Links and the application flag only ever fill in; last_message_at only moves forward.
       const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
       if (p.replyUrl) patch.reply_url = p.replyUrl;
@@ -259,6 +309,56 @@ export async function runLeaseLeads(): Promise<LeaseLeadRun> {
       run.errors.push(`vet ${l.id}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
+
+  // 4. The screening message, once per lead that needs answers.
+  run.senders = senders.map(({ name, address, canSend }) => ({ name, address, canSend }));
+  const { data: candidates } = await supabaseAdmin
+    .from('lease_leads')
+    .select('id, renter_name, zillow_address, verdict, relay_address, received_to, first_subject, first_rfc_message_id, first_seen_at, screening_sent_at, screening_attempts, dismissed_at, has_application')
+    .eq('verdict', 'needs_answers')
+    .is('screening_sent_at', null)
+    .is('dismissed_at', null)
+    .limit(25);
+  for (const c of (candidates ?? []) as Array<ScreeningLead & { id: string; renter_name: string | null; zillow_address: string | null; received_to: string | null; first_subject: string | null; first_rfc_message_id: string | null }>) {
+    const listing = listingFor(c.zillow_address, listings);
+    if (!listing || !shouldSendScreening(c, listing, now)) continue;
+    const sender = senders.find((s) => s.canSend && s.address && s.address === c.received_to);
+    if (!sender || !sender.address) {
+      run.screening.skippedNoSender.push(c.id);
+      if (!opts.dry) await supabaseAdmin.from('lease_leads').update({ screening_error: `No Helm mailbox can send as ${c.received_to ?? 'the address Zillow wrote to'}` }).eq('id', c.id);
+      continue;
+    }
+    if (opts.dry) {
+      run.screening.wouldSend.push(c.id);
+      continue;
+    }
+    const msg = screeningMessage(c.renter_name, listing, c.first_subject);
+    const raw = rawReply({ from: sender.address, to: c.relay_address as string, subject: msg.subject, body: msg.body, inReplyTo: c.first_rfc_message_id });
+    // Claim the lead before sending, so two overlapping runs cannot both send.
+    const { data: claimed } = await supabaseAdmin
+      .from('lease_leads')
+      .update({ screening_attempts: c.screening_attempts + 1, updated_at: new Date().toISOString() })
+      .eq('id', c.id)
+      .eq('screening_attempts', c.screening_attempts)
+      .is('screening_sent_at', null)
+      .select('id');
+    if (!claimed || claimed.length === 0) continue;
+    try {
+      const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${sender.token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ raw }),
+        signal: AbortSignal.timeout(20_000),
+      });
+      if (!res.ok) throw new Error(`Gmail send ${res.status}: ${(await res.text()).slice(0, 200)}`);
+      await supabaseAdmin.from('lease_leads').update({ screening_sent_at: new Date().toISOString(), screening_from: sender.address, screening_error: null }).eq('id', c.id);
+      run.screening.sent.push(c.id);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      await supabaseAdmin.from('lease_leads').update({ screening_error: message }).eq('id', c.id);
+      run.errors.push(`screening ${c.id}: ${message}`);
+    }
+  }
   return run;
 }
 
@@ -277,6 +377,8 @@ export type LeaseLeadRow = {
   facts: LeadFacts;
   summary: string | null;
   dismissed_at: string | null;
+  screening_sent_at: string | null;
+  screening_error: string | null;
   label: string | null;
   monthly_rent: number | null;
 };
@@ -286,7 +388,7 @@ export async function loadLeaseLeads(opts: { includeDismissed?: boolean } = {}):
   if (!isServiceConfigured) return [];
   let q = supabaseAdmin
     .from('lease_leads')
-    .select('id, renter_name, zillow_address, property_id, reply_url, application_url, has_application, first_seen_at, last_message_at, verdict, verdict_reasons, facts, summary, dismissed_at')
+    .select('id, renter_name, zillow_address, property_id, reply_url, application_url, has_application, first_seen_at, last_message_at, verdict, verdict_reasons, facts, summary, dismissed_at, screening_sent_at, screening_error')
     .order('last_message_at', { ascending: false })
     .limit(200);
   if (!opts.includeDismissed) q = q.is('dismissed_at', null);

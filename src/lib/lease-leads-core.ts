@@ -260,3 +260,90 @@ export function seriousQueueText(rows: ReadonlyArray<{ renter_name: string | nul
   const homes = [...new Set(rows.map((r) => r.label ?? 'a listing'))];
   return `Leases: ${rows.length} serious applicants (${homes.join(', ')})`;
 }
+
+// ---------------------------------------------------------------------------
+// The screening message (Dotti, 2026-10-21: "yes, auto-send the screening
+// questions"). One fixed text, the same five questions for every renter, so
+// the file shows the same test was applied (playbook section 6). No model
+// writes it.
+
+/** Leads older than this get no automatic first message; a person picks them up. */
+export const SCREENING_MAX_AGE_DAYS = 14;
+/** A send that keeps failing stops trying; the page shows the error. */
+export const SCREENING_MAX_ATTEMPTS = 3;
+
+function longDate(ymd: string, withYear: boolean): string {
+  return new Date(`${ymd.slice(0, 10)}T12:00:00Z`).toLocaleDateString('en-US', {
+    month: 'long',
+    day: 'numeric',
+    ...(withYear ? { year: 'numeric' } : {}),
+    timeZone: 'UTC',
+  });
+}
+
+export function screeningMessage(renterName: string | null, listing: LeaseListing, originalSubject: string | null): { subject: string; body: string } {
+  const first = (renterName ?? '').trim().split(/\s+/)[0];
+  const greeting = first && /^[\p{L}'-]{2,}$/u.test(first) ? `Hi ${first[0].toUpperCase()}${first.slice(1)},` : 'Hi,';
+  const rent = `$${Math.round(listing.monthly_rent).toLocaleString('en-US')}`;
+  const subject = originalSubject ? (/^re:/i.test(originalSubject) ? originalSubject : `Re: ${originalSubject}`) : `Re: ${listing.label}`;
+  const body = [
+    greeting,
+    '',
+    `Thanks for your interest in ${listing.label}. It is a furnished winter rental on a fixed-term lease from ${longDate(listing.lease_start, false)} to ${longDate(listing.lease_end, true)}, at ${rent} a month.`,
+    '',
+    'So we can see whether it fits, could you reply with:',
+    '',
+    '1. The dates you need',
+    '2. How many people will be living there',
+    '3. Your plans after April, so we know the dates work (for example, a work contract ending or a home closing)',
+    "4. Your household's monthly income (all sources count)",
+    '5. Whether you will have any pets',
+    '',
+    "Once we have these, we'll be in touch about a showing, in person or by video, and the application.",
+    '',
+    'Thank you,',
+    'Rising Tide',
+  ].join('\n');
+  return { subject, body };
+}
+
+export type ScreeningLead = {
+  verdict: string;
+  relay_address: string | null;
+  first_seen_at: string;
+  screening_sent_at: string | null;
+  screening_attempts: number;
+  dismissed_at: string | null;
+  has_application: boolean;
+};
+
+/**
+ * Send the screening message? Once per lead, only through Zillow's relay
+ * (never a renter's own address), only for a listing Helm knows with
+ * autosend on, never to spam or a lead someone dismissed, never once they
+ * have applied, and never to a lead older than SCREENING_MAX_AGE_DAYS.
+ */
+export function shouldSendScreening(lead: ScreeningLead, listing: (LeaseListing & { screening_autosend?: boolean }) | null, now: Date): boolean {
+  if (!listing || listing.screening_autosend === false) return false;
+  if (lead.screening_sent_at || lead.dismissed_at || lead.has_application) return false;
+  if (lead.screening_attempts >= SCREENING_MAX_ATTEMPTS) return false;
+  if (lead.verdict !== 'needs_answers') return false;
+  if (!lead.relay_address || !/^[\w.+-]+@convo\.zillow\.com$/i.test(lead.relay_address)) return false;
+  const ageDays = (now.getTime() - new Date(lead.first_seen_at).getTime()) / 86_400_000;
+  return ageDays <= SCREENING_MAX_AGE_DAYS;
+}
+
+/** RFC 2822 plain-text mail, base64url for Gmail's messages.send. */
+export function rawReply(args: { from: string; to: string; subject: string; body: string; inReplyTo: string | null }): string {
+  const headers = [
+    `From: ${args.from}`,
+    `To: ${args.to}`,
+    `Subject: ${/^[\x20-\x7e]*$/.test(args.subject) ? args.subject : `=?UTF-8?B?${Buffer.from(args.subject, 'utf8').toString('base64')}?=`}`,
+    ...(args.inReplyTo ? [`In-Reply-To: ${args.inReplyTo}`, `References: ${args.inReplyTo}`] : []),
+    'MIME-Version: 1.0',
+    'Content-Type: text/plain; charset="UTF-8"',
+    'Content-Transfer-Encoding: 8bit',
+  ];
+  const mime = `${headers.join('\r\n')}\r\n\r\n${args.body.replace(/\r?\n/g, '\r\n')}\r\n`;
+  return Buffer.from(mime, 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}

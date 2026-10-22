@@ -9,10 +9,14 @@ import {
   listingFor,
   normalizeZillowAddress,
   parseZillowMail,
+  rawReply,
   scamSigns,
+  screeningMessage,
   seriousQueueText,
+  shouldSendScreening,
   type LeadFacts,
   type LeaseListing,
+  type ScreeningLead,
 } from '../lease-leads-core.ts';
 
 // Zillow's inquiry mail as Gmail's plain text renders it (synthetic renter).
@@ -133,6 +137,13 @@ describe('vetting', () => {
   });
 });
 
+test('the screening text is fixed in code and only goes to Zillow relays', () => {
+  const io = readFileSync(new URL('../lease-leads.ts', import.meta.url), 'utf8');
+  assert.match(io, /screeningMessage\(/, 'the IO half sends the fixed text');
+  assert.match(io, /shouldSendScreening\(/, 'and asks the rule first');
+  assert.match(io, /to: c\.relay_address/, 'the mail goes to the relay address');
+});
+
 test('the verdict is decided in code, never by the model, and the model is told to leave protected traits out', () => {
   const io = readFileSync(new URL('../lease-leads.ts', import.meta.url), 'utf8');
   assert.match(io, /decideVerdict\(/, 'the IO half calls the pure decision');
@@ -140,4 +151,52 @@ test('the verdict is decided in code, never by the model, and the model is told 
   for (const word of ['race', 'religion', 'national origin', 'children', 'disability', 'age', 'source of income']) {
     assert.ok(io.toLowerCase().includes(word), `the extraction prompt names ${word}`);
   }
+});
+
+describe('the screening message', () => {
+  const lead = (over: Partial<ScreeningLead> = {}): ScreeningLead => ({
+    verdict: 'needs_answers',
+    relay_address: 'abc123@convo.zillow.com',
+    first_seen_at: '2026-10-16T17:22:10Z',
+    screening_sent_at: null,
+    screening_attempts: 0,
+    dismissed_at: null,
+    has_application: false,
+    ...over,
+  });
+  const now = new Date('2026-10-21T20:00:00Z');
+
+  test('the same five questions for everyone, the listing facts, no model', () => {
+    const m = screeningMessage('pat example', guestHouse, 'Pat is requesting information about 17 Beach Rd #2, Gloucester, MA, 01930');
+    assert.equal(m.subject, 'Re: Pat is requesting information about 17 Beach Rd #2, Gloucester, MA, 01930');
+    assert.match(m.body, /^Hi Pat,/);
+    assert.match(m.body, /January 5 to April 30, 2027, at \$2,500 a month/);
+    for (const n of ['1. The dates you need', '2. How many people', '3. Your plans after April', '4. Your household', '5. Whether you will have any pets']) assert.ok(m.body.includes(n), n);
+    assert.ok(!/children|kids|family|married|age\b|where are you from/i.test(m.body), 'nothing that asks after a protected trait');
+    assert.ok(!m.body.includes('—'), 'no em dash');
+    assert.match(screeningMessage(null, guestHouse, null).body, /^Hi,/);
+    assert.match(screeningMessage('???', guestHouse, null).body, /^Hi,/);
+  });
+
+  test('sent once, only through the Zillow relay, only to a fresh lead that needs answers', () => {
+    assert.equal(shouldSendScreening(lead(), guestHouse, now), true);
+    assert.equal(shouldSendScreening(lead({ screening_sent_at: '2026-10-21T00:00:00Z' }), guestHouse, now), false, 'once');
+    assert.equal(shouldSendScreening(lead({ verdict: 'spam' }), guestHouse, now), false);
+    assert.equal(shouldSendScreening(lead({ verdict: 'serious' }), guestHouse, now), false);
+    assert.equal(shouldSendScreening(lead({ has_application: true }), guestHouse, now), false);
+    assert.equal(shouldSendScreening(lead({ dismissed_at: '2026-10-20T00:00:00Z' }), guestHouse, now), false);
+    assert.equal(shouldSendScreening(lead({ relay_address: 'renter@gmail.com' }), guestHouse, now), false, 'never a renter address');
+    assert.equal(shouldSendScreening(lead({ relay_address: null }), guestHouse, now), false);
+    assert.equal(shouldSendScreening(lead({ first_seen_at: '2026-10-01T00:00:00Z' }), guestHouse, now), false, 'older than 14 days');
+    assert.equal(shouldSendScreening(lead({ screening_attempts: 3 }), guestHouse, now), false);
+    assert.equal(shouldSendScreening(lead(), { ...guestHouse, screening_autosend: false }, now), false);
+    assert.equal(shouldSendScreening(lead(), null, now), false);
+  });
+
+  test('the raw reply threads under the original and decodes back', () => {
+    const raw = rawReply({ from: 'ryan@risingtidestr.com', to: 'abc123@convo.zillow.com', subject: 'Re: x', body: 'Hi,\nThanks', inReplyTo: '<m1@zillow.com>' });
+    const text = Buffer.from(raw.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
+    assert.match(text, /^From: ryan@risingtidestr\.com\r\nTo: abc123@convo\.zillow\.com\r\nSubject: Re: x\r\nIn-Reply-To: <m1@zillow\.com>\r\nReferences: <m1@zillow\.com>/);
+    assert.match(text, /\r\n\r\nHi,\r\nThanks\r\n$/);
+  });
 });
