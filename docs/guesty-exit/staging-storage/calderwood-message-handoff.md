@@ -1667,3 +1667,48 @@ and its SHA are unchanged; this incremental candidate has not been applied to
 hosted databases. Automatic source timing/history collection, continuous changes,
 authoritative cleaner history and real delivery acceptance still remain. No
 production deployment, sender activation, service purchase or Guesty change.
+
+
+### October 22: source timing capture reaches the queue through reviewed ingestion
+
+The protected preview now cross-checks both Guesty timing endpoints in opposite
+orders and re-reads the reservation collection. The capture rejects changes in
+membership, dates, status, clocks, override basis or actual confirmation instant,
+and stops after two minutes or twelve confirmed stays. Complete candidates need
+both verified local clocks and the real confirmedAt; unknown fields never become
+defaults. Local-clock enrichment preserves independently acquired confirmation
+provenance regardless of read order. A failed capture withholds derived timing,
+message history and the proposed staging update. The UI reports complete and
+incomplete counts. It performs no database write.
+
+`src/lib/channex-messaging/timing-ingestion.ts` accepts an explicit owner review,
+its capture fingerprint and exact canonical/source binding. It validates freshness,
+local dates and unambiguous minute clocks, then calls the existing owner-only
+observation RPC once. Canonical/observation compare-and-swap and exact replay are
+still enforced in SQL. Lost or malformed replies stay unconfirmed; no automatic
+retry, binding guess, queue-history assertion or sender activation is added.
+The capture fingerprint is not a provider revision or independent authorization.
+Two matching reads cannot detect a change-and-revert or future edits. The legacy
+clock dependency remains temporary; this is a reviewed migration path, not the
+continuous production collector.
+
+Validation: 2,247 application tests / 242 suites, nonincremental TypeScript,
+scoped ESLint and diff checks passed. The native PostgreSQL harness passed 146
+scenarios, including three new paths from actual reader code with fictional HTTP
+responses through owner ingestion and all six queue workflows. It proves preserved
+confirmation precision/local clocks, exact replay, stale-token refusal, the held
+key-code message and disabled guest/cleaner senders. Ten application tests cover
+source changes, missing evidence, strict packet integrity, time bounds, privacy,
+DST ambiguity and unknown replies. Initial test-fixture TypeScript errors were
+fixed before the passing run. The canonical SQL installer was unchanged and its
+previous twelve-scenario result was not rerun. No live provider writes occurred.
+
+Review handoff: branch `codex/channex-staging-pilot`, starting commit `fca779be`,
+original base `a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`; current origin/main
+`9364daf476642d8ef0172bc9243dd1210369ba8c`. Files: capture and ingestion modules,
+the protected loader/page, local-clock normalizer, unit/integration tests, existing
+queue harness integration and schema/architecture/handoff notes. The unrelated
+contract-readiness edits remain excluded. No database schema or role changes.
+The queue-preparation SQL remains locally verified and unapplied to hosted staging.
+Authoritative cleaner history, continuous scheduling updates, production access,
+PriceLabs parity and real recipient delivery acceptance still remain launch gates.

@@ -2357,3 +2357,23 @@ senders or establish delivery. The extension is locally verified and not applied
 to hosted staging or production. Automatic source ingestion and ongoing revision
 handling remain launch requirements; Guesty remains the live operator. Details,
 checks and the review handoff are in the existing messaging handoff document.
+
+
+## October 22 checked timing collection and reviewed ingestion
+
+The protected Calderwood preview now reads local clocks and true confirmation
+instants twice in opposite endpoint order, then re-reads reservation membership.
+Identity, dates, status, confirmation or effective-clock changes withhold the
+whole timing capture and message-history read. Missing evidence remains explicit;
+a complete candidate requires both clocks and actual confirmedAt. No import or
+sending follows from a successful preview. The legacy local-clock API remains a
+temporary review dependency, not a certified live scheduler source.
+
+An owner-side adapter turns an explicitly reviewed capture and canonical/source
+binding into the existing compare-and-swap timing observation. Local PostgreSQL
+acceptance exercises actual source readers with fictional HTTP data through this
+adapter and the six-workflow queue, preserving holds and disabled senders. The
+capture hash detects packet edits but cannot establish authority or detect a
+change-and-revert between reads. Continuous ingestion, independently bound source
+identity, authoritative cleaner history and actual delivery remain launch work.
+No new database objects, service, production setting or live message is added.

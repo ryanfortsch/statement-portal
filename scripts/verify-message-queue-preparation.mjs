@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
+import { verifyTimingCapture } from './verify-message-timing-capture.mjs';
 import { prepareReviewedMessageQueue } from '../src/lib/channex-messaging/queue-preparation.ts';
 export async function verifyQueuePreparation({db,a,b,bundle,scalar}) {
  let count=0;const pass=s=>{count++;console.log(`PASS queue preparation: ${s}`);};
@@ -11,6 +12,7 @@ export async function verifyQueuePreparation({db,a,b,bundle,scalar}) {
  assert.equal(await scalar('select automation_channex_context($1) data',[baseline.send]),oldContext);
  assert.equal(await scalar('select automation_message_booking_context($1) data',[baseline.booking]),oldContext);
  pass('booking context is available before queue creation and preserves every existing worker digest');
+ await verifyTimingCapture({db,bundle,scalar});
  const fixture=async(keepHeld=false)=>{
   const f=await bundle();
   const rows=(await db.query('select id,automation_id,automation_key,fire_at from automation_sends where booking_id=$1',[f.booking])).rows;

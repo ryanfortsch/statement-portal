@@ -24,7 +24,7 @@ export default async function CalderwoodPage({ searchParams }: { searchParams: P
   let result: Awaited<ReturnType<typeof loadCalderwoodRead>> | null = null;
   let error = '';
   if (params.load === '1' || params.load === 'messages') {
-    try { result = await loadCalderwoodRead({ email: session.user.email, env, from, to, includeCalendar: params.load !== 'messages', includeLocalClocks: true, includeConfirmations: true, includeMessageHistory: params.load === 'messages' }, { token: getGuestyToken, stagingKey: () => process.env.CHANNEX_STAGING_API_KEY ?? '' }); }
+    try { result = await loadCalderwoodRead({ email: session.user.email, env, from, to, includeCalendar: params.load !== 'messages', includeLocalClocks: true, includeConfirmations: true, includeTimingCapture: true, includeMessageHistory: params.load === 'messages' }, { token: getGuestyToken, stagingKey: () => process.env.CHANNEX_STAGING_API_KEY ?? '' }); }
     catch (e) { error = e instanceof Error ? e.message : 'Snapshot unavailable'; }
   }
   const summary = result ? summarizeCalderwoodReview(result) : null;
@@ -70,6 +70,8 @@ export default async function CalderwoodPage({ searchParams }: { searchParams: P
       </div>
       <aside className="border-t pt-3 text-sm text-slate-700"><strong>Still needed before switching:</strong> current sent-message history, pending queues, manual send holds, and the handoff from Guesty. These calendar reads cannot verify them. Cleaner SMS history is not covered by Guesty’s guest-message panel. Live channel delivery and pricing need separate verification.</aside>
     </section>}
+    {result?.timingCapture && <p className="rounded border bg-slate-50 p-4 text-sm">Booking times cross-checked: {result.timingCapture.candidates.length} stays have confirmation, arrival and departure times ready for review. {result.timingCapture.incompleteReservationIds.length} stays need more timing evidence. Message history and pending queues still require their own review.</p>}
+    {result?.timingCaptureError && <p role="alert" className="rounded border border-amber-300 p-4 text-sm">Booking times changed during collection or could not be cross-checked. Reload before using the timing or message-history review.</p>}
     <MessageWorkflowCoverage />
     {result && <MessageTimingReview reservations={result.reservations} observedAt={result.finishedAt} localClockError={result.localClockError} confirmationError={result.confirmationError} />}
     {result && <MessageHistoryReview history={result.messageHistory} failed={result.messageHistoryError} />}

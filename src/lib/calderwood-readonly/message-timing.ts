@@ -82,6 +82,7 @@ export function normalizeCalderwoodLocalTiming(input: {
   const departure = read(input.end, input.plannedDeparture, input.defaultDeparture, 'Departure', 'plannedDeparture', 'listing.defaultCheckOutTime');
   return {
     arrivalAt: arrival.at, departureAt: departure.at, issues, clockVerified: !!(arrival.at || departure.at),
+    confirmation: search.confirmation,
     localEvidence: { source: 'guesty-legacy-local-fields', arrivalBasis: arrival.basis, departureBasis: departure.basis,
       searchArrivalAt: search.arrivalAt, searchDepartureAt: search.departureAt,
       disagreesWithSearch: !!((arrival.at && search.arrivalAt && arrival.at !== search.arrivalAt)

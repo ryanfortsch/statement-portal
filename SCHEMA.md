@@ -618,6 +618,17 @@ have no execution grants; no sender is enabled. The server adapter in
 reports lost/partial replies as unconfirmed without retrying. The previous hosted
 installation bundle remains unchanged; this file is a separate incremental candidate.
 
+Reviewed timing capture adapter (**application candidate; no new database objects**):
+`src/lib/channex-messaging/timing-ingestion.ts` consumes an explicitly reviewed
+Calderwood capture and exact canonical/source binding, then calls the existing
+owner-only `automation_message_observe_times` RPC. Strict input/fingerprint,
+local-date, DST ambiguity and five-minute capture freshness checks precede the
+call; the database independently enforces canonical revision and observation
+compare/swap. Exact replay preserves the receipt; unknown replies are not retried.
+The capture fingerprint is not a Guesty revision or delivery proof. Owner review
+and identity binding remain explicit; this adapter is not exposed through an app
+write route or automatic scheduler. No schema, grants or activation change.
+
 Exact source-time resolution (**isolated staging only; unapplied in production**):
 `channex-message-schedule.sql` adds `automation_message_schedule_resolutions`,
 one private row per canonical send. It stores the reviewed workflow, timing
