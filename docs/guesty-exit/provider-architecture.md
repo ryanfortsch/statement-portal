@@ -32,9 +32,22 @@ Validation: **2,217 application tests / 242 suites**, TypeScript, scoped ESLint,
 and **18 disposable database checks** passed. The calendar preflight now covers
 **14** reads including the house-policy contract. Existing create/move/cancel,
 overlap rollback and closure-to-queue tests pass; prices/minimums do not create
-an availability command by themselves. Browser and hosted provider acceptance
-remain pending until explicitly recorded below. Publishing and all senders stay
-off during ordinary app binding verification.
+an availability command by themselves. The ordinary browser and hosted provider
+acceptance now passed: create, move,
+release, close and reopen produced five completed provider tasks, each with
+independent calendar verification. The deployed full app is `91ceab2f`, preview
+`dpl_7LxyGJUhc1GkMBe7RBWpTdAykbL3`; the existing worker remains `e0e5adbd`.
+See `calderwood-full-app-receipt.json` and the October 22 section of
+`calderwood-provider-roundtrip.md`. Final capture/plan/journal are **28/40/98**,
+publishing is **false**, and all senders remain off. Five queue jobs are verified;
+one unsent plan was superseded before dispatch. No unfinished attempt remains.
+
+This also verifies guarded one-day window advancement when publishing resumed
+after the first archive. It does not replace a continuous midnight/reliability
+soak. All 366 dates remain stopped, and prices/minimums retain their synthetic
+$100/one-night baseline. The next implementation boundary is production mapping
+and automatic guest/cleaner source-history/timing integration, followed by actual
+delivery and PriceLabs parity acceptance. Production access is still unverified.
 
 ## Calendar application compatibility — October 22, 2026
 
@@ -105,7 +118,7 @@ in older dated notes; completed receipts remain evidence for their stated scope.
 
 | Work package | What is already established | What closes it |
 | --- | --- | --- |
-| Application integration and certification | Hosted booking revisions, availability changes, restart recovery and a 366-date stopped calendar; immutable provider task receipts | Ordinary Helm calendar create/move/cancel and closure controls demonstrably drive the queue; reviewed configurable connection mapping and provider scope; applicable scenarios and task IDs submitted, live review passed, production access issued |
+| Application integration and certification | Hosted booking revisions, normal calendar create/move/cancel and close/reopen, resumed publication after archive, one-day window advancement and a 366-date stopped calendar; immutable provider task receipts | Reviewed configurable connection mapping and provider scope; applicable scenarios and task IDs submitted, live review passed, production access issued |
 | Pricing and automatic messages | PriceLabs source baseline; guest/cleaner transports, timing, holds, receipts and reviewed registration tested locally | Production PriceLabs mapping and repeated date-by-date parity; continuous verified booking/timing ingestion and reconciled legacy message history; approved real guest-channel and cleaner delivery, including changed/cancelled stays |
 | Calderwood switch | Airbnb-only new-sales scope; Booking.com pause authorized; Vrbo deferred; Guesty still operates the home | Verified sales pauses, fresh all-channel reservation/block reconciliation, staged handoff and rollback, channel-side prices/availability, automatic messaging and an observed reliability period |
 | Portfolio exit | Calderwood is the selected pilot; separate owner accounts identified | Pilot acceptance, per-account migration readiness and contract-aligned notice/end dates; no assumed per-listing saving before the contractual reduction takes effect |

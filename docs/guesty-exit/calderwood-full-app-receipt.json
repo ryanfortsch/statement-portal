@@ -1,0 +1,506 @@
+{
+  "scope": "fictional-only; no live channel or message delivery",
+  "testedApplicationCommit": "91ceab2fb6389a0ca1810f82a8f954200a8a33c2",
+  "applicationDeployment": "dpl_7LxyGJUhc1GkMBe7RBWpTdAykbL3",
+  "applicationUrl": "https://rising-tide-statements-git-codex-ch-605f22-rising-tide-fc584d5d.vercel.app",
+  "workerCommit": "e0e5adbd67599be462a912151e86110f94e1b3fa",
+  "workerDeployment": "dep-dbcfeubncjis738ae7hg",
+  "property": "HELMTEST-calderwood",
+  "bookingId": "78ed1c4a-960c-45b8-9942-bc7a77e5776f",
+  "sourceMain": "733591b85d91a91551777cecbc6351cade2eca4d",
+  "before": {
+    "capture": 23,
+    "plan": 34,
+    "journal": 71,
+    "publishing": false
+  },
+  "steps": [
+    {
+      "action": "create",
+      "observedAt": "2026-10-22T08:27:37.057762+00:00",
+      "capture": 24,
+      "plan": 35,
+      "journal": 77,
+      "provider": {
+        "at": "2026-10-22T08:28:18.305Z",
+        "count": 366,
+        "first": "2026-10-22",
+        "last": "2027-10-22",
+        "complete": true,
+        "stopped": true,
+        "restrictionDigest": "32c7354fcf5d58b74038528b6cbb9c69ddfb9c4e74aef604be943cc5c1fae512",
+        "nights": [
+          {
+            "date": "2026-11-10",
+            "inventory": 0,
+            "price": 100,
+            "minArrival": 1,
+            "minThrough": 1,
+            "maxStay": 0,
+            "cta": false,
+            "ctd": false,
+            "stopSell": true
+          },
+          {
+            "date": "2026-11-12",
+            "inventory": 1,
+            "price": 100,
+            "minArrival": 1,
+            "minThrough": 1,
+            "maxStay": 0,
+            "cta": false,
+            "ctd": false,
+            "stopSell": true
+          },
+          {
+            "date": "2026-11-14",
+            "inventory": 1,
+            "price": 100,
+            "minArrival": 1,
+            "minThrough": 1,
+            "maxStay": 0,
+            "cta": false,
+            "ctd": false,
+            "stopSell": true
+          }
+        ]
+      },
+      "accepted": {
+        "id": "projection-020063367b86c241cd46da8b71676d0ccf177aa03109155abd36bd016608baec",
+        "kind": "accepted",
+        "task": "d1b31450-164c-4151-acd9-cd70b4d6f393",
+        "token": "projection-020063367b86c241cd46da8b71676d0ccf177aa03109155abd36bd016608baec:1",
+        "receipt": {
+          "receivedAt": 1792657643692,
+          "requestDigest": "7f6198814c0e8ab5761a16a6c4c83ef3be375730ae1af77c9eb3bcfb895e79f2"
+        }
+      },
+      "verified": {
+        "id": "projection-020063367b86c241cd46da8b71676d0ccf177aa03109155abd36bd016608baec",
+        "kind": "reconcile",
+        "token": "projection-020063367b86c241cd46da8b71676d0ccf177aa03109155abd36bd016608baec:1",
+        "evidence": {
+          "task": "d1b31450-164c-4151-acd9-cd70b4d6f393",
+          "digest": "3f3d222ae426346d001b4a84d6930abc0ca7553cd0de96034126d95ef80c3357",
+          "settled": true,
+          "complete": true,
+          "completion": {
+            "executedAt": 1792657643662,
+            "finishedAt": 1792657643668,
+            "observedAt": 1792657656495,
+            "receivedAt": 1792657643613
+          },
+          "generation": 1,
+          "requestDigest": "7f6198814c0e8ab5761a16a6c4c83ef3be375730ae1af77c9eb3bcfb895e79f2"
+        }
+      }
+    },
+    {
+      "action": "move",
+      "observedAt": "2026-10-22T08:30:30.34279+00:00",
+      "capture": 25,
+      "plan": 36,
+      "journal": 82,
+      "provider": {
+        "at": "2026-10-22T08:30:18.412Z",
+        "count": 366,
+        "first": "2026-10-22",
+        "last": "2027-10-22",
+        "complete": true,
+        "stopped": true,
+        "restrictionDigest": "32c7354fcf5d58b74038528b6cbb9c69ddfb9c4e74aef604be943cc5c1fae512",
+        "nights": [
+          {
+            "date": "2026-11-10",
+            "inventory": 1,
+            "price": 100,
+            "minArrival": 1,
+            "minThrough": 1,
+            "maxStay": 0,
+            "cta": false,
+            "ctd": false,
+            "stopSell": true
+          },
+          {
+            "date": "2026-11-12",
+            "inventory": 0,
+            "price": 100,
+            "minArrival": 1,
+            "minThrough": 1,
+            "maxStay": 0,
+            "cta": false,
+            "ctd": false,
+            "stopSell": true
+          },
+          {
+            "date": "2026-11-14",
+            "inventory": 1,
+            "price": 100,
+            "minArrival": 1,
+            "minThrough": 1,
+            "maxStay": 0,
+            "cta": false,
+            "ctd": false,
+            "stopSell": true
+          }
+        ]
+      },
+      "accepted": {
+        "id": "projection-eb236e227c3ce6511944e2c1709c1ed06e8a0c3fc5200bfb092607928889751c",
+        "kind": "accepted",
+        "task": "23ebf972-2c1d-41e6-885a-20c6808ddfe0",
+        "token": "projection-eb236e227c3ce6511944e2c1709c1ed06e8a0c3fc5200bfb092607928889751c:2",
+        "receipt": {
+          "receivedAt": 1792657785866,
+          "requestDigest": "47bbe3b5fdcae84cde2d94620dda0b6d5bd4d644d93229155cf1842d7a2c29e1"
+        }
+      },
+      "verified": {
+        "id": "projection-eb236e227c3ce6511944e2c1709c1ed06e8a0c3fc5200bfb092607928889751c",
+        "kind": "reconcile",
+        "token": "projection-eb236e227c3ce6511944e2c1709c1ed06e8a0c3fc5200bfb092607928889751c:2",
+        "evidence": {
+          "task": "23ebf972-2c1d-41e6-885a-20c6808ddfe0",
+          "digest": "44b6b64476c84c16ecd2a671d81e9096d8ae46fe0e8eefb6637dc46cd5549ed2",
+          "settled": true,
+          "complete": true,
+          "completion": {
+            "executedAt": 1792657785854,
+            "finishedAt": 1792657785860,
+            "observedAt": 1792657798997,
+            "receivedAt": 1792657785793
+          },
+          "generation": 1,
+          "requestDigest": "47bbe3b5fdcae84cde2d94620dda0b6d5bd4d644d93229155cf1842d7a2c29e1"
+        }
+      }
+    },
+    {
+      "action": "release",
+      "observedAt": "2026-10-22T08:31:45.146029+00:00",
+      "capture": 26,
+      "plan": 37,
+      "journal": 87,
+      "provider": {
+        "at": "2026-10-22T08:31:32.840Z",
+        "count": 366,
+        "first": "2026-10-22",
+        "last": "2027-10-22",
+        "complete": true,
+        "stopped": true,
+        "restrictionDigest": "32c7354fcf5d58b74038528b6cbb9c69ddfb9c4e74aef604be943cc5c1fae512",
+        "nights": [
+          {
+            "date": "2026-11-10",
+            "inventory": 1,
+            "price": 100,
+            "minArrival": 1,
+            "minThrough": 1,
+            "maxStay": 0,
+            "cta": false,
+            "ctd": false,
+            "stopSell": true
+          },
+          {
+            "date": "2026-11-12",
+            "inventory": 1,
+            "price": 100,
+            "minArrival": 1,
+            "minThrough": 1,
+            "maxStay": 0,
+            "cta": false,
+            "ctd": false,
+            "stopSell": true
+          },
+          {
+            "date": "2026-11-14",
+            "inventory": 1,
+            "price": 100,
+            "minArrival": 1,
+            "minThrough": 1,
+            "maxStay": 0,
+            "cta": false,
+            "ctd": false,
+            "stopSell": true
+          }
+        ]
+      },
+      "accepted": {
+        "id": "projection-ce8cb071b8b2a53bb40a16de4d90c794c75677d493a82e7b291aec802c6498d2",
+        "kind": "accepted",
+        "task": "2c882e1a-374b-4cb6-8a04-fa0540fd3a2d",
+        "token": "projection-ce8cb071b8b2a53bb40a16de4d90c794c75677d493a82e7b291aec802c6498d2:3",
+        "receipt": {
+          "receivedAt": 1792657866768,
+          "requestDigest": "1e9259f92cc101610ddf6ef3e3735211f927952205da77cf7d0e3cfd999a35c5"
+        }
+      },
+      "verified": {
+        "id": "projection-ce8cb071b8b2a53bb40a16de4d90c794c75677d493a82e7b291aec802c6498d2",
+        "kind": "reconcile",
+        "token": "projection-ce8cb071b8b2a53bb40a16de4d90c794c75677d493a82e7b291aec802c6498d2:3",
+        "evidence": {
+          "task": "2c882e1a-374b-4cb6-8a04-fa0540fd3a2d",
+          "digest": "7fc4694f5e8ad5f7aca127baeee68ac70b2a6b6731e967fb511139a1e896343b",
+          "settled": true,
+          "complete": true,
+          "completion": {
+            "executedAt": 1792657866832,
+            "finishedAt": 1792657866850,
+            "observedAt": 1792657880005,
+            "receivedAt": 1792657866671
+          },
+          "generation": 1,
+          "requestDigest": "1e9259f92cc101610ddf6ef3e3735211f927952205da77cf7d0e3cfd999a35c5"
+        }
+      }
+    },
+    {
+      "action": "close",
+      "observedAt": "2026-10-22T08:32:53.931135+00:00",
+      "capture": 27,
+      "plan": 38,
+      "journal": 92,
+      "provider": {
+        "at": "2026-10-22T08:33:37.820Z",
+        "count": 366,
+        "first": "2026-10-22",
+        "last": "2027-10-22",
+        "complete": true,
+        "stopped": true,
+        "restrictionDigest": "32c7354fcf5d58b74038528b6cbb9c69ddfb9c4e74aef604be943cc5c1fae512",
+        "nights": [
+          {
+            "date": "2026-11-10",
+            "inventory": 1,
+            "price": 100,
+            "minArrival": 1,
+            "minThrough": 1,
+            "maxStay": 0,
+            "cta": false,
+            "ctd": false,
+            "stopSell": true
+          },
+          {
+            "date": "2026-11-12",
+            "inventory": 1,
+            "price": 100,
+            "minArrival": 1,
+            "minThrough": 1,
+            "maxStay": 0,
+            "cta": false,
+            "ctd": false,
+            "stopSell": true
+          },
+          {
+            "date": "2026-11-14",
+            "inventory": 0,
+            "price": 100,
+            "minArrival": 1,
+            "minThrough": 1,
+            "maxStay": 0,
+            "cta": false,
+            "ctd": false,
+            "stopSell": true
+          }
+        ]
+      },
+      "accepted": {
+        "id": "projection-dfbc7c9da71fd1de1e8b60b7a04c95e06964d8bc4787a116093e770b16c080e6",
+        "kind": "accepted",
+        "task": "2559e7b2-0a21-4b00-926f-030742288b2c",
+        "token": "projection-dfbc7c9da71fd1de1e8b60b7a04c95e06964d8bc4787a116093e770b16c080e6:4",
+        "receipt": {
+          "receivedAt": 1792657946511,
+          "requestDigest": "904ef41ab50666bb130af9e7bb5cf9901f1520c29ee51bd1ae9af08a417f5e74"
+        }
+      },
+      "verified": {
+        "id": "projection-dfbc7c9da71fd1de1e8b60b7a04c95e06964d8bc4787a116093e770b16c080e6",
+        "kind": "reconcile",
+        "token": "projection-dfbc7c9da71fd1de1e8b60b7a04c95e06964d8bc4787a116093e770b16c080e6:4",
+        "evidence": {
+          "task": "2559e7b2-0a21-4b00-926f-030742288b2c",
+          "digest": "a5d466396c68a1e3a932fe02bc2c5456719b848b2ca3f3f7803e0c5b717b1717",
+          "settled": true,
+          "complete": true,
+          "completion": {
+            "executedAt": 1792657946498,
+            "finishedAt": 1792657946509,
+            "observedAt": 1792657959643,
+            "receivedAt": 1792657946441
+          },
+          "generation": 1,
+          "requestDigest": "904ef41ab50666bb130af9e7bb5cf9901f1520c29ee51bd1ae9af08a417f5e74"
+        }
+      }
+    },
+    {
+      "action": "reopen",
+      "observedAt": "2026-10-22T08:35:48.70415+00:00",
+      "capture": 28,
+      "plan": 40,
+      "journal": 98,
+      "provider": {
+        "at": "2026-10-22T08:35:30.805Z",
+        "count": 366,
+        "first": "2026-10-22",
+        "last": "2027-10-22",
+        "complete": true,
+        "stopped": true,
+        "restrictionDigest": "32c7354fcf5d58b74038528b6cbb9c69ddfb9c4e74aef604be943cc5c1fae512",
+        "nights": [
+          {
+            "date": "2026-11-10",
+            "inventory": 1,
+            "price": 100,
+            "minArrival": 1,
+            "minThrough": 1,
+            "maxStay": 0,
+            "cta": false,
+            "ctd": false,
+            "stopSell": true
+          },
+          {
+            "date": "2026-11-12",
+            "inventory": 1,
+            "price": 100,
+            "minArrival": 1,
+            "minThrough": 1,
+            "maxStay": 0,
+            "cta": false,
+            "ctd": false,
+            "stopSell": true
+          },
+          {
+            "date": "2026-11-14",
+            "inventory": 1,
+            "price": 100,
+            "minArrival": 1,
+            "minThrough": 1,
+            "maxStay": 0,
+            "cta": false,
+            "ctd": false,
+            "stopSell": true
+          }
+        ]
+      },
+      "accepted": {
+        "id": "projection-923ab0c2785631b220807f2b37994b092b29dab57b7e1971fb65e8cbe35f845c",
+        "kind": "accepted",
+        "task": "3d01aded-d65e-4944-ac79-4fa587a014ec",
+        "token": "projection-923ab0c2785631b220807f2b37994b092b29dab57b7e1971fb65e8cbe35f845c:5",
+        "receipt": {
+          "receivedAt": 1792658092310,
+          "requestDigest": "cdec7c9e789ab71e1d05d1f8683506cbef3538a2ef18cacbae54d70b8e2b4d58"
+        }
+      },
+      "verified": {
+        "id": "projection-923ab0c2785631b220807f2b37994b092b29dab57b7e1971fb65e8cbe35f845c",
+        "kind": "reconcile",
+        "token": "projection-923ab0c2785631b220807f2b37994b092b29dab57b7e1971fb65e8cbe35f845c:5",
+        "evidence": {
+          "task": "3d01aded-d65e-4944-ac79-4fa587a014ec",
+          "digest": "7fc4694f5e8ad5f7aca127baeee68ac70b2a6b6731e967fb511139a1e896343b",
+          "settled": true,
+          "complete": true,
+          "completion": {
+            "executedAt": 1792658092317,
+            "finishedAt": 1792658092324,
+            "observedAt": 1792658107768,
+            "receivedAt": 1792658092240
+          },
+          "generation": 1,
+          "requestDigest": "cdec7c9e789ab71e1d05d1f8683506cbef3538a2ef18cacbae54d70b8e2b4d58"
+        }
+      }
+    }
+  ],
+  "final": {
+    "inspectionUrl": "https://supabase.com/dashboard/project/jgkblfozftcvymvwhhii/sql/31294f69-d0e5-4415-bb1b-e6b6ff4e95e9",
+    "at": "2026-10-22T08:38:51.353399+00:00",
+    "capture": 28,
+    "plan": 40,
+    "journal": 98,
+    "configuration": {
+      "end": "2027-10-23",
+      "start": "2026-10-22",
+      "listing": "f795ae2c-f47d-4751-86ff-e883b6d30800",
+      "coverage": [
+        {
+          "end": "2027-10-23",
+          "start": "2026-10-22",
+          "source": "channex-staging-bookings",
+          "complete": true,
+          "freshUntil": 1792658921722,
+          "observedAt": 1792658021722
+        }
+      ],
+      "timeZone": "America/New_York",
+      "topology": "single-unit",
+      "connection": "calderwood-hosted-inventory",
+      "generation": 1,
+      "environment": "staging",
+      "publishEnabled": false,
+      "requiredSources": [
+        "channex-staging-bookings"
+      ]
+    },
+    "rateDay": {
+      "cta": false,
+      "ctd": false,
+      "date": "2026-11-14",
+      "closed": false,
+      "min_nights": null,
+      "nightly_cents": null
+    },
+    "audit": [
+      "created",
+      "dates_changed",
+      "cancelled"
+    ],
+    "channels": 0,
+    "senders": 0,
+    "queue": {
+      "kind": "final-queue",
+      "publishEnabled": false,
+      "capture": 28,
+      "plan": 40,
+      "journal": 98,
+      "jobs": [
+        {
+          "id": "projection-020063367b86c241cd46da8b71676d0ccf177aa03109155abd36bd016608baec",
+          "status": "verified"
+        },
+        {
+          "id": "projection-eb236e227c3ce6511944e2c1709c1ed06e8a0c3fc5200bfb092607928889751c",
+          "status": "verified"
+        },
+        {
+          "id": "projection-ce8cb071b8b2a53bb40a16de4d90c794c75677d493a82e7b291aec802c6498d2",
+          "status": "verified"
+        },
+        {
+          "id": "projection-dfbc7c9da71fd1de1e8b60b7a04c95e06964d8bc4787a116093e770b16c080e6",
+          "status": "verified"
+        },
+        {
+          "id": "projection-050b24aa19a97b2cca937666c23b1dc12bc8906a7ff6bc0f5de318332658ba2f",
+          "status": "superseded"
+        },
+        {
+          "id": "projection-923ab0c2785631b220807f2b37994b092b29dab57b7e1971fb65e8cbe35f845c",
+          "status": "verified"
+        }
+      ]
+    }
+  },
+  "validation": {
+    "tests": 2217,
+    "suites": 242,
+    "disposableDatabaseChecks": 18,
+    "calendarReadContracts": 14,
+    "typescript": "passed",
+    "scopedEslint": "passed"
+  }
+}

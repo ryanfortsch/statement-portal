@@ -1,5 +1,75 @@
 # Calderwood provider booking rehearsal
 
+## Ordinary calendar → hosted Channex acceptance, October 22
+
+The normal authenticated Helm calendar now runs against the isolated canonical
+store and drives the existing worker. The tested application is commit `91ceab2f`
+on preview `dpl_7LxyGJUhc1GkMBe7RBWpTdAykbL3`; the worker remains commit
+`e0e5adbd` on `dep-dbcfeubncjis738ae7hg`. No custom write endpoint or SQL booking
+insert was used: the ordinary calendar created the owner hold, its booking record
+moved/released it, and the normal single-night drawer changed the closure.
+
+The full-app binding is opt-in and restricted to the named preview branch and
+exact isolated database. It reuses the existing server-only staging credential.
+Normal Google sign-in and application authorization were preserved. Relevant
+calendar permissions and house-policy reads were reconciled from main
+`733591b85d91a91551777cecbc6351cade2eca4d`.
+
+Fixture: `HELMTEST-calderwood`; hold `78ed1c4a-960c-45b8-9942-bc7a77e5776f`.
+Created November 10–11, moved November 12–13, then released with an audit reason.
+All dates are 2026 and checkout is exclusive. The separate per-night closure
+covers November 14. These are fictional rehearsals, not customer reservations.
+
+The publisher resumed from archived journal version 71 and advanced its window
+from October 21 to October 22, with fresh complete-source evidence. The new end
+is October 23, 2027 exclusive (366 dates). This proves guarded one-day advancement
+when resumed after midnight; it is not a continuous unattended-midnight soak.
+
+The independent provider read validates property/room/rate identity, no connected
+channels, complete calendar values, and stop-sell on every date. Across the window,
+the non-inventory fields retain SHA-256
+`32c7354fcf5d58b74038528b6cbb9c69ddfb9c4e74aef604be943cc5c1fae512`.
+The $100 price and one-night minimum are synthetic placeholders; this does not
+prove PriceLabs parity. Provider inventory can return to one while rate stop-sell
+stays true, so no date becomes bookable in this rehearsal.
+
+Validation for the tested code: 2,217 tests in 242 suites, nonincremental
+TypeScript, scoped ESLint, and 18 disposable database checks passed. The latter
+exercise all 14 ordinary calendar read contracts. Browser actions and hosted
+task evidence below are separate from those local tests.
+
+| Ordinary UI action | Capture / plan / journal | Completed Channex task | Independently read inventory |
+| --- | --- | --- | --- |
+| Create | 24 / 35 / 77 | `d1b31450-164c-4151-acd9-cd70b4d6f393` | 2026-11-10: 0, 2026-11-12: 1, 2026-11-14: 1 |
+| Move | 25 / 36 / 82 | `23ebf972-2c1d-41e6-885a-20c6808ddfe0` | 2026-11-10: 1, 2026-11-12: 0, 2026-11-14: 1 |
+| Release | 26 / 37 / 87 | `2c882e1a-374b-4cb6-8a04-fa0540fd3a2d` | 2026-11-10: 1, 2026-11-12: 1, 2026-11-14: 1 |
+| Close | 27 / 38 / 92 | `2559e7b2-0a21-4b00-926f-030742288b2c` | 2026-11-10: 1, 2026-11-12: 1, 2026-11-14: 0 |
+| Reopen | 28 / 40 / 98 | `3d01aded-d65e-4944-ac79-4fa587a014ec` | 2026-11-10: 1, 2026-11-12: 1, 2026-11-14: 1 |
+
+Final independent [database verification](https://supabase.com/dashboard/project/jgkblfozftcvymvwhhii/sql/31294f69-d0e5-4415-bb1b-e6b6ff4e95e9) at
+`2026-10-22T08:38:51.353399+00:00` confirms capture **28**, plan **40**, journal **98**,
+publishing **false**, no connected channels and no enabled senders. The booking
+retains exactly `created`, `dates_changed`, `cancelled` audit events. November 14
+is open again with null nightly/minimum overrides and unchanged arrival/departure
+flags. Worker-side replay finds **five verified jobs and one superseded unsent
+job**, with no pending/leased/submitting/submitted/uncertain job. The first reopen
+plan was superseded before dispatch; there were still exactly five provider POST
+attempts. This is not a sixth send or retry.
+The existing archived history is preserved.
+
+Machine-readable evidence: `calderwood-full-app-receipt.json`. The normal
+[calendar preview](https://rising-tide-statements-git-codex-ch-605f22-rising-tide-fc584d5d.vercel.app/channels/HELMTEST-calderwood/calendar?month=2026-11)
+requires the existing application sign-in. UI labels describing Helm-only closure
+still describe the general product; this isolated worker demonstration does not
+change live channel authority. No Guesty setting, production database, customer
+message, paid service, or main branch was changed.
+
+This closes the ordinary calendar demonstration and resumed-after-archive
+publishing acceptance. Still open: configurable production mapping/certification,
+real PriceLabs delivery and parity, automatic guest/cleaner delivery with source
+history/timing continuity, conflict operator handling, a continuous reliability
+soak, and independently restorable backups. No production switch is implied.
+
 **Archive acceptance, October 21:** the compatible worker is deployed and the
 first paused archive completed. All 70 commands and nine completed task receipts
 were independently replayed. Format 2 starts at absolute version 71; the active
