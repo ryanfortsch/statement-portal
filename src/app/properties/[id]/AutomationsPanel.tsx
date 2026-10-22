@@ -471,7 +471,7 @@ function SendRow({
           )}
           {s.to_address && !isOta && <div style={{ color: 'var(--ink-4)', marginBottom: 6 }}>To {s.to_address}</div>}
           {s.subject_rendered && (s.delivery_used === 'email') && <div style={{ color: 'var(--ink-2)', fontWeight: 600 }}>{s.subject_rendered}</div>}
-          <div style={{ color: 'var(--ink)', whiteSpace: 'pre-wrap', background: 'var(--paper-2)', padding: '8px 12px', borderLeft: '3px solid var(--rule)' }}>{s.body_rendered}</div>
+          <div style={{ color: 'var(--ink)', whiteSpace: 'pre-wrap', background: 'var(--paper-2)', padding: '8px 12px', borderLeft: '3px solid var(--rule)' }}>{s.body_rendered || (s.delivery_used === 'guesty_history' ? 'Imported sent history from Guesty.' : '')}</div>
           {isOta && pasteText && (
             // What goes into the OTA: the real text, shown after Copy text in
             // case the clipboard was refused. Never stored.
@@ -733,6 +733,8 @@ function railLabel(rail: string): string {
       return 'text';
     case 'email':
       return 'email';
+    case 'guesty_history':
+      return 'Guesty (imported history)';
     case 'cleaner_sms':
       return 'cleaner text';
     case 'ota_manual':

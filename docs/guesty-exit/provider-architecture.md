@@ -2,6 +2,23 @@
 
 Decision draft, October 7, 2026. Goal: replace Guesty across the portfolio after a successful Calderwood pilot. This is an architecture deliverable, not an implemented production connector or an approval to disconnect channels. Contract timetable remains in `calderwood-cutover-readiness.md`; `SCHEMA.md` remains authoritative for existing tables. No new platform purchase is required for the next milestone.
 
+## Message-history and six-workflow handoff — October 22, 2026
+
+Added a database-owner import for verified already-sent Guesty messages and one
+atomic call covering the four guest/two cleaner workflows. Historical sends retain
+their source send times and settle the native booking/key identity; future jobs
+use the existing reviewed registration path. Holds survive, cleaner receipts must
+cover every reviewed recipient, and one invalid workflow rolls the whole handoff
+back. The normal UI labels historical sends as imported Guesty history.
+
+The new SQL remains an **unapplied draft**. No actual source history was collected
+or imported, no sender was enabled and no hosted service changed. Validation:
+2,217 tests / 242 suites, TypeScript, scoped ESLint and 99 disposable PostgreSQL
+scenarios, including 13 new source-history/concurrency cases. See
+`staging-storage/calderwood-message-handoff.md` for the exact import contract.
+Remaining messaging work is authoritative source collection, continuous timing
+integration, hosted rehearsal and actual scoped recipient delivery acceptance.
+
 ## Ordinary application preview binding — October 22, 2026
 
 Prepared the existing pilot preview to run the normal calendar against the same

@@ -571,6 +571,24 @@ runs itself.
   (`quo`, `resend`, `gmail`, `airbnb_email`, `vrbo_email`),
   `delivery_status`, and `automation_send_id` when an automation wrote it.
 
+Draft source-history handoff (**not applied**):
+`docs/guesty-exit/staging-storage/message-history-handoff.sql` installs after the
+reviewed messaging registration below. `automation_message_source_stays` uniquely
+binds a reviewed source account/reservation to one canonical booking.
+`automation_message_source_history` records one settled canonical send and
+permanent booking/key, review digest, timing observation revision and source send
+time. `automation_message_source_receipts` keeps a distinct account/message ID
+and opaque recipient reference for every reviewed recipient, with no clear body.
+Owner-only history import settles `automation_sends` as `sent` on the
+`guesty_history` rail without a Channex/Quo provider ID. Its guard prevents
+requeue/rerouting and serializes competing inserts for that booking/key.
+`automation_message_handoff_stay` atomically imports sent history and registers
+future-unsent jobs for exactly the four guest/two cleaner workflows. It requires
+existing canonical schedules and current reviewed source evidence, preserves
+holds, and never enables senders. Worker/browser roles cannot read these source
+tables or call these ingestion functions. This is reviewed evidence ingestion,
+not a remote source collector or independent proof of delivery.
+
 Draft reviewed messaging registration (**not applied**):
 `docs/guesty-exit/staging-storage/message-handoff-registration.sql` installs after
 both execution drafts and the shared schedule. `automation_message_observations`

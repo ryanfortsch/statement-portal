@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { renderScheduledMessage, runScheduledChannexMessages } from '../src/lib/channex-messaging/scheduled.ts';
 import { ChannexMessageTransport } from '../src/lib/channex-messaging/transport.ts';
+import { verifySourceHistory } from './verify-message-source-history.mjs';
 import { quoFromNumber } from '../src/lib/quo-lines.ts';
 export async function verifyMessageHandoff({ db, a, b }) {
  let count=0;const pass=s=>{count++;console.log(`PASS handoff: ${s}`);};
@@ -32,7 +33,7 @@ export async function verifyMessageHandoff({ db, a, b }) {
   const trigger={confirmation:'booking_confirmed',pre_arrival:'pre_arrival',pre_checkout:'pre_checkout',key_code:'checkin_day',cleaner_advance:'pre_arrival',cleaner_arrival:'checkin_day'}[flow];
   await db.query("insert into message_automations values($1,$2,$3,$4,'auto',true,false,'{}','HELMTEST synthetic reminder','UTC',null,$5)",[f.rule,f.property,flow,flow.startsWith('cleaner')?'cleaner':'guest',trigger]);
   await db.query("insert into property_rate_plans values($1,'16:00','11:00')",[f.property]);
-  await db.query("insert into automation_sends select $1,id,property_id,$2,$3,$4,$5,check_in,check_out,null,null,null,clock_timestamp(),null from bookings where id=$6",[f.send,f.rule,flow,held?'held':'scheduled',f.fire,f.booking]);
+  await db.query("insert into automation_sends(id,booking_id,property_id,automation_id,automation_key,status,fire_at,planned_check_in,planned_check_out,delivery_used,provider_message_id,sent_at,updated_at,error) select $1,id,property_id,$2,$3,$4,$5,check_in,check_out,null,null,null,clock_timestamp(),null from bookings where id=$6",[f.send,f.rule,flow,held?'held':'scheduled',f.fire,f.booking]);
   await db.query("insert into automation_channex_routes values($1,'staging',$2,$3,'Airbnb',$4,false,$5,$6)",[f.property,f.scope.propertyId,f.scope.channelId,f.generation,times.stopped,times.drained]);
   f.canonical=await canon(f);
   f.obs={check_in:times.check_in,check_out:times.check_out,arrival_time:null,departure_time:null,confirmed_at:times.confirmed,
@@ -148,4 +149,5 @@ export async function verifyMessageHandoff({ db, a, b }) {
  assert.equal((await tick()).accepted,1);assert.equal(posts,1);
  assert.equal((await tick()).recorded,1);assert.equal(posts,1);pass('verified registration reaches the actual worker and durable receipt after separate enablement, with exactly one synthetic send');
  console.log(`PASS ${count} additional local handoff PostgreSQL scenarios; no live provider calls`);
+ await verifySourceHistory({db,a,b,fixture,scalar});
 }

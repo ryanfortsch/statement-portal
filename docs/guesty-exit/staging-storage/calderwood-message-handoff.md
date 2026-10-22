@@ -4,7 +4,68 @@ Implemented October 13, 2026 in `src/lib/calderwood-rehearsal/message-handoff.ts
 This pure function reviews synthetic evidence. It does not fetch Guesty records,
 change either queue, stop Guesty, persist results, or authorize sending.
 
-## Current integration status, October 21, 2026
+## Atomic source-history handoff — October 22, 2026
+
+Implemented `message-history-handoff.sql`, an **unapplied draft**, after the five
+registration prerequisites below. This closes the canonical import gap for
+messages Guesty already sent. It does not fetch or stop Guesty's queue and does
+not enable either sender. No hosted database, customer record or paid service
+was changed in this batch.
+
+`automation_message_handoff_stay(booking_id, canonical_revision, entries)` accepts
+exactly six distinct `{send_id, review}` entries: confirmation, pre-arrival,
+key code, pre-checkout, cleaner advance and cleaner arrival. All entries must
+belong to the same current canonical stay and its verified timing observation.
+A `sent=false` review uses the existing future-unsent registration contract.
+A `sent=true` review imports reviewed source history. One invalid entry rolls
+back the entire call, including earlier receipts and job registrations. Exact
+concurrent/retried submissions retain the same identities. Future holds remain
+held; route and cleaner-batch enablement stay separate and off.
+
+The sent-history review contains `review_id`, `context_revision`,
+`observation_revision`, `workflow`, exact booleans `complete=true`, `sent=true`,
+`queued=false`, `uncertain=false`, `evidence_id`, `observed_at`,
+`source_account_id`, `source_reservation_id`, `recipient_refs`, and `messages`.
+Each message contains only `id`, `recipient_ref` and an offset-qualified `sent_at`.
+Guest history has one `guest` recipient. Cleaner history requires a distinct
+source message for every reviewed recipient reference; a partial fan-out cannot
+settle the whole cleaner reminder. References are opaque identifiers, not message
+bodies, addresses, phone numbers or credentials. Observation must be fresh at
+submission; actual source send times may be historical and cannot be in the future.
+
+The owner-only `automation_message_import_history(send_id, review)` is also
+available for individual reviewed imports. Both entry points require an existing
+canonical schedule; they do not invent missing schedules or treat a missing
+source message as sent. Queued, uncertain, already claimed and conflicting rows
+require reconciliation. A Guesty reservation binds to one canonical stay, and a
+source account/message ID can appear in only one imported receipt.
+
+Imports settle the existing row as `status='sent'`,
+`delivery_used='guesty_history'`, with its actual source send time. Provider IDs
+remain null on the canonical row: the separate source receipt table holds Guesty's
+IDs, never a fabricated Channex or Quo acceptance. Unsent draft text, target and
+missing-field warnings are cleared so they cannot masquerade as source history.
+The existing planner recognizes
+the settled booking/key even after rule replacement. A database guard prevents
+replay/rerouting and serializes concurrent inserts for that booking/key. The
+normal automation panel and booking detail label this as imported Guesty history;
+the booking detail uses its actual send timestamp.
+
+Validation: **2,217 application tests / 242 suites**, nonincremental TypeScript,
+scoped ESLint, and **99 disposable PostgreSQL acceptance scenarios** passed
+(42 guest, 24 cleaner, 20 registration, 13 source-history). The new scenarios
+exercise the actual SQL plus the real native planner, mixed six-workflow import,
+cleaner recipient completeness, source identity reuse, true concurrent imports
+and replacement-rule inserts, rollback, holds and role boundaries.
+
+**Remaining integration:** collect authoritative Guesty sent/queued evidence and
+continuously ingest verified timing, prepare canonical schedules for all carried
+over stays, apply/rehearse the combined drafts in isolated hosted storage, and
+perform explicitly scoped real recipient delivery acceptance. These SQL functions
+record reviewed evidence; they do not independently establish remote completeness
+or delivery. All live Guesty automation remains operating.
+
+## Registration implementation, October 21, 2026 (prior batch)
 
 The next batch adds **reviewed booking/thread, source-history and timing
 registration** in `message-handoff-registration.sql`. It is an unapplied draft;

@@ -324,10 +324,10 @@ export default async function BookingDetailPage({ params, searchParams }: { para
           <div style={{ borderTop: '1px solid var(--ink)' }}>
             {sends.map((s) => (
               <div key={s.id} style={{ display: 'grid', gridTemplateColumns: '150px 170px 1fr 140px', gap: 12, padding: '10px 0', borderBottom: '1px solid var(--rule)', fontSize: 12, alignItems: 'baseline' }}>
-                <span className="font-mono" style={{ color: 'var(--ink-3)' }}>{fmtStamp(s.fire_at)}</span>
+                <span className="font-mono" style={{ color: 'var(--ink-3)' }}>{fmtStamp(s.delivery_used === 'guesty_history' && s.sent_at ? s.sent_at : s.fire_at)}</span>
                 <span style={{ fontWeight: 600 }}>{(s.automation_key ?? s.trigger ?? 'rule').replace(/_/g, ' ')}</span>
                 <span style={{ color: 'var(--ink-3)' }}>
-                  {s.delivery_used ? `${s.delivery_used} ` : ''}{s.to_address ?? ''}
+                  {s.delivery_used === 'guesty_history' ? 'Guesty (imported history) ' : s.delivery_used ? `${s.delivery_used} ` : ''}{s.to_address ?? ''}
                   {s.missing_fields.length > 0 ? ` · missing ${s.missing_fields.join(', ')}` : ''}
                   {s.error ? ` · ${s.error}` : ''}
                   {s.approved_by ? ` · approved by ${s.approved_by}` : ''}
