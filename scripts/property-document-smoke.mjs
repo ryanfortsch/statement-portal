@@ -86,7 +86,8 @@ try {
   let ready = false;
   for (let i = 0; i < 60; i++) {
     if (app.exitCode !== null) throw new Error(`Next exited with ${app.exitCode}; see smoke-next.log`);
-    try { ready = (await get('/api/version')).ok; } catch {}
+    // Any /api path the proxy does not list answers 401 JSON once the server is up.
+    try { ready = (await get('/api/smoke-ready')).status === 401; } catch {}
     if (ready) break;
     await new Promise(resolve => setTimeout(resolve, 500));
   }

@@ -41,9 +41,9 @@ const SAVE_ALL_ENABLED: boolean = true;
  * Unsaved captions survive a reload.
  *
  * Every draft here lives only in React state until the operator clicks Save
- * on that one photo, and this tab can be hard-reloaded at any moment by the
- * global VersionGuard when a deploy lands. An operator part-way through 29
- * captions lost all of them that way (2026-09-27). So drafts are mirrored to
+ * on that one photo, and a reload (a deploy, a crash, a closed tab) would
+ * lose them. An operator part-way through 29 captions lost all of them to
+ * the old VersionGuard reload (2026-09-27). So drafts are mirrored to
  * localStorage as they're typed and merged back over the live captions on
  * load. Only edits that DIFFER from what Guesty already has are stored, so a
  * saved caption prunes itself and a clean gallery leaves no key behind.

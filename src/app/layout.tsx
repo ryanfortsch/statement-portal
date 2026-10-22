@@ -4,7 +4,6 @@ import "./globals.css";
 import { Analytics } from "@vercel/analytics/next";
 import { auth } from "@/auth";
 import { CommandPalette } from "@/components/CommandPalette";
-import { VersionGuard } from "@/components/VersionGuard";
 import { Providers } from "@/components/Providers";
 import { sessionView } from "@/lib/helm-access-server";
 
@@ -80,7 +79,6 @@ export default async function RootLayout({
         <Providers session={session} view={view}>
           {children}
           <CommandPalette />
-          <VersionGuard />
           {/* Page-view analytics so IA questions are answered by data Helm
               owns (route patterns, not query strings). No-ops locally and
               until Web Analytics is enabled on the Vercel project. */}
