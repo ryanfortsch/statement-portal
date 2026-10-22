@@ -1,0 +1,41 @@
+{
+  "environment": "isolated-staging",
+  "projectRef": "jgkblfozftcvymvwhhii",
+  "verifiedAt": "2026-10-22T14:11:01Z",
+  "bundleSha256": "d565811589a8df2182093c6799005e91ba7ac35e3af4fcbe07a241e93ab13094",
+  "installationQuery": "f169cfd7-9baf-4036-9bb9-ad0e28307383",
+  "readbackQuery": "0a76250b-f7b2-4b26-a9f0-e90167cdbdc0",
+  "newEmptyTables": 19,
+  "rehearsal": {
+    "workflows": 6,
+    "alreadySentImported": 1,
+    "futureGuestJobs": 3,
+    "futureCleanerBatches": 2,
+    "fictionalCleanerRecipientJobs": 4,
+    "keyCodeHeld": true,
+    "repeatIsIdempotent": true,
+    "lateFailureAtomic": true,
+    "sourceHistoryReplayBlocked": true,
+    "ownerOnlyHandoff": true,
+    "fixtureRolledBack": true,
+    "existingRowsPreserved": true,
+    "providerCalls": 0
+  },
+  "retainedState": {
+    "messageJobs": 0,
+    "activeSendControls": 0,
+    "connectedChannels": 0,
+    "bookings": 7,
+    "automationSends": 12,
+    "captureVersion": 28,
+    "planVersion": 40,
+    "journalVersion": 98,
+    "publishing": false
+  },
+  "limits": [
+    "Fictional owner-reviewed assertions, not live Guesty history or stopped/drained proof.",
+    "No Channex or Quo provider delivery exercised.",
+    "No live source ingestion, production account, PriceLabs parity, channel pause or cutover acceptance claimed.",
+    "Installed empty SQL foundation only; no sender deployment or activation."
+  ]
+}

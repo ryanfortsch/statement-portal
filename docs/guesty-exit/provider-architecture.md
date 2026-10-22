@@ -2295,7 +2295,8 @@ The same database transaction reserves the native row and records source evidenc
 exact retries retain existing job identities. No registration enables a sender.
 
 The final schema is `staging-storage/message-handoff-registration.sql`, installed
-last after the four existing messaging drafts. It is **unapplied**. Full contract
+last after the four existing messaging drafts. At this October 21 checkpoint it
+was **unapplied**; the October 22 isolated installation is recorded below. Full contract
 and limits are in `staging-storage/calderwood-message-handoff.md`. In particular,
 SQL validates reviewed assertions rather than fetching Guesty's queue. Actual
 source collection, canonical queue preparation, continuous provider-event updates,
@@ -2318,3 +2319,24 @@ and local harness extension, both sender registration guards/channel casts,
 Unrelated contract-readiness edits remain excluded. Production Channex access,
 PriceLabs-to-Channex parity, automatic live delivery and contract-aligned cutover
 remain outstanding; this database rehearsal does not establish launch readiness.
+
+
+## October 22 isolated messaging database acceptance
+
+The six messaging components are installed in Helm Channex Staging only. A
+single guarded transaction adds nineteen empty supporting tables, rehearses all
+four guest/two cleaner workflows against canonical tables, rolls back the whole
+fictional stay and inventory effects, and records only the aggregate result.
+The hosted rehearsal passed source-history import/replay protection, five future
+registrations, per-recipient cleaner jobs, the key-code hold, late-error rollback,
+and exact idempotent replay. Independent read-back shows no retained message jobs
+or active sender controls and calendar versions 28 / 40 / 98 unchanged.
+
+The reusable builder is `scripts/build-message-pilot-install.mjs`; the exact
+bundle, hosted query IDs and limitations are recorded in
+`staging-storage/calderwood-message-install-receipt.json`. The existing messaging
+handoff documents the canonical-schema verification and remaining acceptance.
+This completes the isolated SQL installation/rehearsal gate. Automatic live
+source ingestion, authoritative cleaner history, production access and real
+recipient delivery remain separate work. No production migration, channel
+change, sender activation or additional paid service occurred.

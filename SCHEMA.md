@@ -571,7 +571,20 @@ runs itself.
   (`quo`, `resend`, `gmail`, `airbnb_email`, `vrbo_email`),
   `delivery_status`, and `automation_send_id` when an automation wrote it.
 
-Draft source-history handoff (**not applied**):
+The six messaging components were installed October 22 in **Helm Channex Staging
+only** (`jgkblfozftcvymvwhhii`) using `scripts/build-message-pilot-install.mjs`.
+`helm_pilot_installation.messaging` is an owner-only installation receipt containing
+the project, bundle/source digests, aggregate rehearsal results and timestamp.
+It contains no customer evidence. Nineteen supporting tables are empty after a
+six-workflow rehearsal rolled back its fictional data and inventory effects.
+All existing records were preserved; sender controls and channel connections
+remain off. The installer refuses an existing messaging installation and checks
+the prior canonical manifest, single fictional property, disabled rules and paused
+publisher. See `docs/guesty-exit/staging-storage/calderwood-message-install-receipt.json` for the
+exact deployed bundle. Source headers describing these as drafts still apply to
+production; installation here does not establish live delivery acceptance.
+
+Source-history handoff (**isolated staging only; unapplied in production**):
 `docs/guesty-exit/staging-storage/message-history-handoff.sql` installs after the
 reviewed messaging registration below. `automation_message_source_stays` uniquely
 binds a reviewed source account/reservation to one canonical booking.
@@ -589,7 +602,7 @@ holds, and never enables senders. Worker/browser roles cannot read these source
 tables or call these ingestion functions. This is reviewed evidence ingestion,
 not a remote source collector or independent proof of delivery.
 
-Draft exact source-time resolution (**not applied**):
+Exact source-time resolution (**isolated staging only; unapplied in production**):
 `channex-message-schedule.sql` adds `automation_message_schedule_resolutions`,
 one private row per canonical send. It stores the reviewed workflow, timing
 observation revision, context/timing digests, the two conflicting calculated
@@ -602,7 +615,7 @@ Both workers consume the same resolution and reject changed context/timing.
 No role grant, automatic activation or general DST policy is added. These rows
 are migration evidence, not an editable schedule override or live queue reader.
 
-Draft reviewed messaging registration (**not applied**):
+Reviewed messaging registration (**isolated staging only; unapplied in production**):
 `docs/guesty-exit/staging-storage/message-handoff-registration.sql` installs after
 both execution drafts and the shared schedule. `automation_message_observations`
 tracks the current verified source revision, canonical identity/date/status digest,
@@ -620,7 +633,7 @@ old/raw timing cannot stand in for reviewed evidence. Five-minute submission
 freshness is a review policy; continuous event ingestion remains a separate launch
 requirement. See the message handoff for parameter contracts and installation order.
 
-Draft cleaner execution extension (**not applied**):
+Cleaner execution extension (**isolated staging only; unapplied in production**):
 `docs/guesty-exit/staging-storage/cleaner-message-worker.sql`, installed after the
 hold and Channex message drafts, adds `automation_cleaner_batches` and
 `automation_cleaner_jobs`. A batch reserves one canonical `automation_sends` row
@@ -639,7 +652,7 @@ Authenticated Quo message-ID lookup reconciles receipts without altering the
 existing webhook handler. Clear bodies and portal tokens are not copied into the
 new ledger. See the existing messaging handoff for runtime gates and acceptance.
 
-Draft Channex execution extension (**not applied**):
+Channex execution extension (**isolated staging only; unapplied in production**):
 `docs/guesty-exit/staging-storage/channex-message-worker.sql` defines
 `automation_channex_routes` (explicit disabled-by-default property/channel scope,
 source stop/drain and generation) and `automation_channex_jobs` (one permanent
@@ -651,7 +664,7 @@ rows use `delivery_used='channex'`, excluded from the native dispatcher and
 protected from fallback by a database trigger. Job states distinguish `prepared`,
 `attempting`, `unknown`, `rejected`, `accepted` and provider-history `recorded`.
 Existing schedule status `sent` means provider acceptance here, not proof of
-recipient delivery. The paired unapplied `channex-message-schedule.sql` adds
+recipient delivery. The paired staging-only `channex-message-schedule.sql` adds
 `automation_channex_stay_times`: verified confirmation/ETA/ETD source observations
 bound to the canonical booking dates, plus explicit workflow and last-scan fields
 on jobs. Server-only snapshot/refresh/scan RPCs feed the existing cron and renderer.

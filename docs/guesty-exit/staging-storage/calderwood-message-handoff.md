@@ -1580,3 +1580,50 @@ document. Existing contract notes remain excluded. Production evidence adapters,
 recipient bindings, portal behavior, agreement approval, sender ownership and
 live channel delivery remain outstanding. No new service, subscription, live
 message or production setting is involved.
+
+
+### October 22: hosted six-message installation and rehearsal
+
+The complete messaging SQL foundation is now installed in isolated Supabase
+`jgkblfozftcvymvwhhii`; production remains unapplied. The guarded builder
+`scripts/build-message-pilot-install.mjs` takes the exact canonical definitions
+for five missing dependencies, excludes customer seeds and legacy public grants,
+and installs all six messaging components in one transaction. It refuses wrong
+installation identity, active message controls, a channel connection, publishing,
+or an existing messaging installation. All nineteen new tables have RLS and no
+browser grants. Source-history ingestion remains database-owner only.
+
+A six-workflow fictional stay runs inside a rolled-back subtransaction before
+installation can commit: one already-sent confirmation, three future guest jobs,
+two future cleaner batches with two fictional recipients each, and a held key
+code. Exact replay returns the same result; a bad final review rolls back every
+earlier registration. Imported history cannot be replayed. The test checks real
+canonical render inputs and verifies row digests across the existing public and
+private pilot tables before/after. No provider is called. Only empty support
+tables and an aggregate installation receipt persist. This is database handoff
+acceptance, not evidence of actual delivery or a continuous source collector.
+
+Independent read-back at 2026-10-22 14:11 UTC: six-message rehearsal PASS; zero
+retained message jobs, active send controls or connected booking channels;
+seven bookings and twelve existing sends preserved; inventory capture 28 / plan
+40 / journal 98, publishing false. Exact bundle SHA-256:
+`d565811589a8df2182093c6799005e91ba7ac35e3af4fcbe07a241e93ab13094`.
+See `calderwood-message-install-receipt.json` beside this document and the reusable
+owner-only read-back `message-pilot-status.sql`. The source SQL headers still
+say draft/unapplied; that now means production, not this isolated installation.
+
+Validation: 2,232 application tests / 242 suites; nonincremental TypeScript;
+scoped ESLint; ten additional real-PostgreSQL installer/read-back scenarios using
+the actual canonical application schema. The earlier 128 messaging scenarios
+remain a previous result, not a rerun for this increment. Installation failure
+including a late rehearsal assertion removes the new schema and fixture writes.
+
+Review handoff: branch `codex/channex-staging-pilot`, prior commit `92af2ebf`;
+original base `a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`; origin/main checked as
+`0e9ada07c5fa670a1e83079a1f46a4803937aa07`. Files: two installer/verifier scripts,
+the hosted fixture/read-back SQL, aggregate receipt and existing schema,
+architecture and handoff documents. Unrelated contract-readiness edits excluded.
+Next launch work remains authoritative cleaner history, automatic source timing
+and canonical queue preparation, followed by explicitly authorized delivery
+acceptance. Channex production access, PriceLabs parity and contract/channel
+cutover gates remain open. Guesty continues operating.
