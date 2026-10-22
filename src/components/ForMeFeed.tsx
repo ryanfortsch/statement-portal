@@ -25,6 +25,8 @@ import { HoldRow } from '@/app/cleaner-messaging/OwnerHoldQuestionsCard';
 import { homeFeedOrder, windowPayments, type FeedSection } from '@/lib/home-feed-order';
 import { EmptyState } from '@/components/EmptyState';
 import { seriousQueueText } from '@/lib/lease-leads-core';
+import { loadUnplacedCleanerTexts } from '@/lib/cleaner-unplaced-server';
+import { UnplacedCleanerTextRow } from '@/components/UnplacedCleanerTextRow';
 
 type MyWork = {
   id: string;
@@ -83,7 +85,8 @@ const GLANCE_WINDOW = 6;
  * One × with one meaning: it hides a row from your own feed and changes
  * nothing else (recorded per user in home_feed_dismissals), and the next
  * from the pool backfills. A card that clears by being answered (an owner
- * block, a cleaning flag, an office queue, a Stripe key to fix) has no ×.
+ * block, a cleaning flag, a cleaner text to place, an office queue, a Stripe
+ * key to fix) has no ×.
  */
 export async function ForMeFeed() {
   let needsReply: BriefEmail[] = [];
@@ -123,7 +126,7 @@ export async function ForMeFeed() {
     needsReply = [];
     fyi = [];
   }
-  const [{ work: allWork, mode: workMode }, dismissed, plannedWalks, queueCards, paymentCards, meetingCards, ownerHolds] = await Promise.all([
+  const [{ work: allWork, mode: workMode }, dismissed, plannedWalks, queueCards, paymentCards, meetingCards, ownerHolds, unplacedTexts] = await Promise.all([
     loadMyWork(email),
     loadDismissals(email),
     loadPlannedWalks(email),
@@ -134,6 +137,9 @@ export async function ForMeFeed() {
     // Owner blocks nobody has answered "clean after?" for. No clear
     // button: answering is the clear, on the buttons right here.
     loadOwnerHoldQuestions(supabase).catch(() => null),
+    // A cleaner's "done" that named no house Helm could find. No ×:
+    // attaching it to a house, or setting it aside, is the clear.
+    loadUnplacedCleanerTexts(),
   ]);
   const ownerHoldAsks: OwnerHoldQuestionCard[] = ownerHolds?.pending ?? [];
   const ownerHoldToday = ownerHolds?.today ?? todayET();
@@ -266,12 +272,29 @@ export async function ForMeFeed() {
     // CLEANINGS TO CHECK: a guest leaving and no cleaner booked, or a
     // cleaner booked before the guest is out or after the next one is in.
     // Today through the day after tomorrow, as far as the vendor announces.
-    // A flag clears itself once the vendor's schedule catches up.
+    // A flag clears itself once the vendor's schedule catches up. Above
+    // them, a cleaner's text Helm could not place on a house: pick the
+    // house and Attach, or Set aside (lib/cleaner-unplaced.ts).
     cleanings:
-      cleaningFlags.length > 0 ? (
+      cleaningFlags.length + unplacedTexts.length > 0 ? (
         <>
-          <SectionHeaderLink href="/turnovers/cleanings" title="Cleanings to check" eyebrow={`${cleaningFlags.length} to check`} />
+          <SectionHeaderLink
+            href="/turnovers/cleanings"
+            title="Cleanings to check"
+            eyebrow={`${cleaningFlags.length + unplacedTexts.length} to check`}
+          />
           <div style={{ borderTop: '1px solid var(--ink)' }}>
+            {unplacedTexts.map((t) => (
+              <UnplacedCleanerTextRow
+                key={t.id}
+                id={t.id}
+                when={t.when}
+                cleanerName={t.cleanerName}
+                line={t.line}
+                body={t.body}
+                choices={t.choices}
+              />
+            ))}
             {cleaningFlags.map((f) => (
               <CleaningFlagRow key={`${f.date}|${f.propertyId}`} flag={f} />
             ))}

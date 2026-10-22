@@ -43,7 +43,15 @@ export async function POST(request: NextRequest) {
     if (eventInsert.error.code === '23505') {
       return NextResponse.json({ ok: true, deduped: true });
     }
-    console.error('Quo webhook: failed to persist event', eventInsert.error);
+    // Ids and the error's code and message only. A Postgres error's
+    // `details` can quote the failing row, which is this event's payload:
+    // the sender's number and what they wrote.
+    console.error('Quo webhook: failed to persist event', {
+      event: parsedBody.id,
+      type: parsedBody.type,
+      code: eventInsert.error.code,
+      error: eventInsert.error.message,
+    });
     return NextResponse.json({ error: eventInsert.error.message }, { status: 500 });
   }
 
@@ -58,7 +66,9 @@ export async function POST(request: NextRequest) {
     await dispatchQuoEvent(parsedBody);
   } catch (err) {
     processError = err instanceof Error ? err.message : String(err);
-    console.error('Quo webhook: dispatch failed', err);
+    // The message only, never the error object, for the same reason as
+    // above. The ingest's own messages carry ids, never a phone or a body.
+    console.error('Quo webhook: dispatch failed', { event: parsedBody.id, type: parsedBody.type, error: processError });
   }
 
   await supabase
