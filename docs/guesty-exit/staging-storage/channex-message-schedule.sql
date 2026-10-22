@@ -51,11 +51,13 @@ language sql stable security definer set search_path='' as $$
  where s.id=p_send_id and t.observed_at<=statement_timestamp();
 $$;
 
--- Calendar-day offsets preserve Guesty's relative ETA/ETD semantics across DST.
--- Missing clocks and nonexistent local wall times block, without default clocks.
+-- Day-based offsets are unresolved when local-day and elapsed-day clocks differ.
+-- Withhold the schedule rather than choosing a time that disagrees with Guesty.
+-- Missing, nonexistent and ambiguous anchor/target clocks also block.
 create function public.automation_channex_schedule(p_send_id uuid) returns timestamptz
 language plpgsql stable security definer set search_path='' as $$
 declare input jsonb; flow text; confirmation timestamptz; wall timestamp; instant timestamptz; zone text;
+ anchor_wall timestamp; anchor_instant timestamptz; days_before integer;
 begin
  input:=public.automation_channex_render_input(p_send_id);
  if input is null then return null; end if;
@@ -65,15 +67,22 @@ begin
  zone:=input->>'timeZone';
  if zone is null or not exists(select 1 from pg_catalog.pg_timezone_names where name=zone) then return null; end if;
  if flow='pre_checkout' then
-   wall:=((input->'booking'->>'check_out')::date-1)+(input->'plan'->>'checkout_time')::time;
+   anchor_wall:=(input->'booking'->>'check_out')::date+(input->'plan'->>'checkout_time')::time;
+   days_before:=1;
  else
-   wall:=((input->'booking'->>'check_in')::date-case when flow='pre_arrival' then 1 else 0 end)
-     +(input->'plan'->>'checkin_time')::time;
+   anchor_wall:=(input->'booking'->>'check_in')::date+(input->'plan'->>'checkin_time')::time;
+   days_before:=case when flow='pre_arrival' then 1 else 0 end;
  end if;
+ anchor_instant:=anchor_wall at time zone zone;
+ if anchor_instant at time zone zone is distinct from anchor_wall
+   or (anchor_instant-interval '1 hour') at time zone zone=anchor_wall
+   or (anchor_instant+interval '1 hour') at time zone zone=anchor_wall then return null; end if;
+ wall:=anchor_wall-days_before*interval '1 day';
  instant:=wall at time zone zone;
  if instant at time zone zone is distinct from wall then return null; end if;
  -- Ambiguous fall-back wall clocks also require a source-specific resolution.
  if (instant-interval '1 hour') at time zone zone=wall or (instant+interval '1 hour') at time zone zone=wall then return null; end if;
+ if days_before>0 and instant is distinct from anchor_instant-days_before*interval '24 hours' then return null; end if;
  return instant-case when flow='key_code' then interval '1 hour' else interval '0' end;
 exception when invalid_datetime_format or datetime_field_overflow then return null;
 end;

@@ -4,6 +4,53 @@ Implemented October 13, 2026 in `src/lib/calderwood-rehearsal/message-handoff.ts
 This pure function reviews synthetic evidence. It does not fetch Guesty records,
 change either queue, stop Guesty, persist results, or authorize sending.
 
+## Live source acceptance and executable timing correction — October 22, 2026
+
+Protected preview `029b99c2` read the complete October 22, 2026–October 22,
+2027 exclusive window: **5 confirmed stays, 25 conversation records**, five local
+clock observations and five actual confirmation timestamps. No shared/missing
+threads were returned. The earlier generic full-window failure did not recur;
+its cause remains unknown. Safe error categories now distinguish bounded source
+validation failures from validated HTTP status without exposing raw responses.
+
+Guesty's Scheduled/History UI was reviewed for all five source threads. Across
+the four recurring guest workflows it shows **14 scheduled/enabled messages and
+6 Completed entries**, with no disabled master or row switch and no failure state
+observed. These are aggregate observations only; no customer record is saved here.
+Completed is Guesty's displayed state, not independent delivery proof. Neither
+pending work nor source ownership was changed; this is not stop/drain evidence.
+
+The cleaner workflow Activity Log shows template creation/edit history, not
+per-reservation SMS receipts. [Guesty's current documentation](https://help.guesty.com/hc/en-gb/articles/9365081186205-Managing-automated-messages-for-guests-owners-and-team-members)
+explicitly says user/contact/cleaner automated messages do not appear in the
+Inbox. A blank guest history cannot establish cleaner completion. Cleaner
+obligations remain unverified; no generic conversation record was imported as
+an automation receipt and no manual-send fallback was introduced.
+
+The prior DST review correctly withheld disputed times, but the executable draft
+SQL still chose calendar-day times. Both guest and cleaner scheduling now return
+no schedule when calendar-day and elapsed-day results differ, or when the anchor
+or target wall clock is nonexistent/ambiguous. This supersedes earlier statements
+that calendar-day offsets preserve Guesty timing through every DST boundary.
+It does not establish a universal source timing policy or resolve the existing
+source discrepancy. One-hour key-code and seven-hour cleaner offsets preserve
+3 PM and 9 AM for the normal 4 PM arrival in both seasons.
+
+Validation: **2,232 application tests / 242 suites**, nonincremental TypeScript,
+scoped ESLint and **103 disposable PostgreSQL scenarios** (44 guest, 26 cleaner,
+20 registration, 13 history). New cases exercise spring/fall mismatches, invalid
+anchors, unchanged hourly offsets and zero provider POSTs for disputed schedules.
+All provider calls were synthetic. The first new guest assertion expected the
+blocked counter; the implementation returns needs-attention when rendering a
+missing time, and the corrected test verifies that result plus zero acceptance
+and zero POSTs. No production behavior was altered to satisfy the test.
+
+Handoff: `codex/channex-staging-pilot`, base `a148b0e6`, main reference
+`0e9ada07c5fa670a1e83079a1f46a4803937aa07`. Changed SQL is still unapplied; no
+schema/recipient/queue activation or subscription occurred. The two scheduler
+files, two local acceptance harnesses and current architecture/handoff notes are
+the scope. Existing dirty contract-readiness notes remain excluded.
+
 ## Atomic source-history handoff — October 22, 2026
 
 Implemented `message-history-handoff.sql`, an **unapplied draft**, after the five

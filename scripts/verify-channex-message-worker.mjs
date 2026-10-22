@@ -211,14 +211,29 @@ try {
  assert.equal((await snapshot()).fireAt,'2027-01-04T19:00:00+00:00');
  pass('checkout schedule uses current house policy, then ETD, then approved adjustment');
  await reset();await db.query("update automation_channex_jobs set workflow='pre_arrival',expires_at='2028-01-01'; update message_automations set trigger='pre_arrival'");
- for(const [arrival,expected] of [['2027-03-14','2027-03-13T21:00:00+00:00'],['2027-03-15','2027-03-14T20:00:00+00:00'],['2027-11-08','2027-11-07T21:00:00+00:00']]){
+ for(const [arrival,expected] of [['2027-03-14',null],['2027-11-07',null],['2027-03-15','2027-03-14T20:00:00+00:00'],['2027-11-08','2027-11-07T21:00:00+00:00']]){
   await db.query("update bookings set check_in=$1,check_out=$1::date+3",[arrival]);
   await db.query("update automation_channex_stay_times set check_in=$1,check_out=$1::date+3",[arrival]);
   assert.equal((await snapshot()).fireAt,expected);
  }
  await db.query("update bookings set check_in='2027-03-15',check_out='2027-03-18'; update automation_channex_stay_times set check_in='2027-03-15',check_out='2027-03-18',arrival_time='02:30'");
  assert.equal((await snapshot()).fireAt,null);
- pass('calendar-day offsets survive DST; nonexistent wall time blocks');
+ pass('day offsets withhold DST disagreement and missing target clocks');
+ for(const [departure,clock] of [['2027-03-14','11:00'],['2027-11-07','11:00'],['2027-03-14','02:30'],['2027-11-07','01:30']]){
+  await db.query("update automation_channex_jobs set workflow='pre_checkout'; update message_automations set trigger='pre_checkout'");
+  await db.query("update bookings set check_in=$1::date-3,check_out=$1",[departure]);
+  await db.query("update automation_channex_stay_times set check_in=$1::date-3,check_out=$1,departure_time=$2",[departure,clock]);
+  assert.equal((await snapshot()).fireAt,null);
+  const prePosts=posts;const withheld=await tick(db);assert.equal(withheld.attention,1);assert.equal(withheld.accepted,0);assert.equal(posts,prePosts);
+ }
+ pass('checkout DST disagreement or invalid anchor never reaches a provider POST');
+ await db.query("update automation_channex_jobs set workflow='key_code'; update message_automations set trigger='checkin_day'");
+ for(const [arrival,clock,expected] of [['2027-03-14','16:00','2027-03-14T19:00:00+00:00'],['2027-11-07','16:00','2027-11-07T20:00:00+00:00'],['2027-03-14','02:30',null],['2027-11-07','01:30',null]]){
+  await db.query("update bookings set check_in=$1,check_out=$1::date+3",[arrival]);
+  await db.query("update automation_channex_stay_times set check_in=$1,check_out=$1::date+3,arrival_time=$2",[arrival,clock]);
+  assert.equal((await snapshot()).fireAt,expected);
+ }
+ pass('hour-based code timing retains 3 PM across DST and rejects invalid anchors');
  await reset();let snap=await snapshot();
  await db.query("insert into property_access values('HELMTEST-home','HELMTEST-only')");
  assert.equal(await refresh(snap),false);

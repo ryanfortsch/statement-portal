@@ -99,6 +99,21 @@ export async function verifyCleaners({ db, a, b, restart }) {
  ids=await fixture();const restartToken=randomUUID();assert.equal(await claim(ids[0],restartToken),true);
  ({db,a,b}=await restart());assert.equal(await claim(ids[0]),false);const restartPosts=posts;await tick();assert.equal(posts-restartPosts,1);pass('database restart preserves the first attempt and sends only the remaining recipient');
  ids=await fixture('cleaner_advance');const advance=await snap(ids[0]);assert.equal(new Date(advance.fireAt).toISOString().slice(0,10),new Date(advance.renderAt).toISOString().slice(0,10));assert.equal((await tick()).accepted,2);pass('ten-calendar-day reminder executes at the verified arrival clock');
+ ids=await fixture('cleaner_advance');await db.query("update message_automations set timezone='America/New_York'");
+ for(const arrival of ['2027-03-15','2027-11-08']){
+  await db.query("update bookings set check_in=$1,check_out=$1::date+3",[arrival]);
+  await db.query("update automation_channex_stay_times set check_in=$1,check_out=$1::date+3,arrival_time='16:00'",[arrival]);
+  assert.equal((await snap(ids[0])).fireAt,null);
+  const beforeDstPosts=posts;assert.equal((await tick()).blocked,2);assert.equal(posts,beforeDstPosts);
+ }
+ pass('ten-day reminder withholds spring/fall clock conflicts without SMS');
+ ids=await fixture();await db.query("update message_automations set timezone='America/New_York'");
+ for(const [arrival,clock,expected] of [['2027-03-14','16:00','2027-03-14T13:00:00+00:00'],['2027-11-07','16:00','2027-11-07T14:00:00+00:00'],['2027-03-14','02:30',null],['2027-11-07','01:30',null]]){
+  await db.query("update bookings set check_in=$1,check_out=$1::date+3",[arrival]);
+  await db.query("update automation_channex_stay_times set check_in=$1,check_out=$1::date+3,arrival_time=$2",[arrival,clock]);
+  assert.equal((await snap(ids[0])).fireAt,expected);
+ }
+ pass('seven-hour cleaner timing retains 9 AM across DST and rejects invalid anchors');
  ids=await fixture();await db.query("update message_automations set trigger='pre_checkout'");assert.equal(await claim(ids[0]),false);pass('changed workflow binding cannot silently reuse the cleaner schedule');
  ids=await fixture();await db.query('delete from automation_channex_stay_times');assert.equal((await snap(ids[0])).fireAt,null);assert.equal((await tick()).blocked,2);pass('missing verified timing never falls back to an assumed arrival');
  ids=await fixture();await tick();await db.query('update automation_cleaner_batches set enabled=false');assert.equal((await tick()).delivered,2);pass('disabling future sends does not stop read-only receipt reconciliation');

@@ -53,17 +53,25 @@ $$;
 create function public.automation_cleaner_schedule(p_send_id uuid) returns timestamptz
 language plpgsql stable security definer set search_path='' as $$
 declare input jsonb; flow text; wall timestamp; instant timestamptz; zone text;
+ anchor_wall timestamp; anchor_instant timestamptz; days_before integer;
 begin
  input:=public.automation_channex_render_input(p_send_id);
  select workflow into flow from public.automation_cleaner_batches where send_id=p_send_id;
  if input is null or flow is null then return null; end if;
  zone:=input->>'timeZone';
  if not exists(select 1 from pg_catalog.pg_timezone_names where name=zone) then return null; end if;
- wall:=((input->'booking'->>'check_in')::date-case when flow='cleaner_advance' then 10 else 0 end)
-   +(input->'plan'->>'checkin_time')::time;
+ anchor_wall:=(input->'booking'->>'check_in')::date+(input->'plan'->>'checkin_time')::time;
+ anchor_instant:=anchor_wall at time zone zone;
+ if anchor_instant at time zone zone is distinct from anchor_wall
+   or (anchor_instant-interval '1 hour') at time zone zone=anchor_wall
+   or (anchor_instant+interval '1 hour') at time zone zone=anchor_wall then return null; end if;
+ days_before:=case when flow='cleaner_advance' then 10 else 0 end;
+ wall:=anchor_wall-days_before*interval '1 day';
  instant:=wall at time zone zone;
  if instant at time zone zone is distinct from wall or (instant-interval '1 hour') at time zone zone=wall
    or (instant+interval '1 hour') at time zone zone=wall then return null; end if;
+ -- Preserve the source-review uncertainty through the executable sender.
+ if days_before>0 and instant is distinct from anchor_instant-days_before*interval '24 hours' then return null; end if;
  return instant-case when flow='cleaner_arrival' then interval '7 hours' else interval '0' end;
 exception when invalid_datetime_format or datetime_field_overflow then return null;
 end;

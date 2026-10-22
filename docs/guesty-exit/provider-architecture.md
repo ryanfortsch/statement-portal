@@ -35,21 +35,35 @@ from an omitted field (unknown); missing projected overrides no longer silently
 select listing defaults. Existing per-property dynamic PriceLabs rules and all
 six message offsets remain unchanged.
 
-Live preview `5e9d75bc` read the October 22–December 1 exclusive window:
-**4 confirmed stays, 23 conversation records**, all four with local clock evidence
-and actual confirmation timestamps. No shared or missing threads were reported.
-This is a successful source read, not delivery or queue acceptance. The broader
-year window failed before a snapshot was returned; safe typed diagnostics now
-identify the bounded validation/HTTP category without exposing provider responses,
-error messages, credentials or reservation data. Generic/auth errors stay generic.
+Live preview `029b99c2` successfully read the October 22, 2026–October 22,
+2027 exclusive window: **5 confirmed stays, 25 conversation records**, all five
+with local clock evidence and actual confirmation timestamps. No shared or missing
+threads were reported. An earlier broader read returned a generic failure; the
+subsequent successful read does not establish its cause. Safe typed diagnostics
+now expose a bounded validation/HTTP category without provider responses,
+arbitrary error text, credentials or reservation data.
 
-Validation: **2,232 application tests / 242 suites**, nonincremental TypeScript
-and scoped ESLint pass. The earlier 99 PostgreSQL messaging scenarios were not
-rerun: this increment changes no SQL or sender implementation. Messaging
-installation and source-history import remain unapplied. Next: resolve the
-full-window read, complete workflow/cleaner queue evidence, then exercise the
-atomic handoff with hosted automatic senders still disabled. Fresh main checked:
-`0e9ada07c5fa670a1e83079a1f46a4803937aa07`; no main merge.
+Read-only Guesty UI review of these five stays found **14 enabled scheduled guest
+messages and 6 displayed Completed entries** across the four recurring guest
+workflows. This is dated queue evidence, not a drained queue or delivery/read
+receipt. No switches changed. Cleaner activity showed configuration revisions,
+not send receipts; see the current handoff note for the documented inbox limit.
+
+The native draft guest/cleaner schedulers now also withhold day-based times when
+calendar-day and 24-hour calculations differ. Previously only the review UI
+withheld those times, while SQL could choose a calendar-day time. Both anchors
+and target wall clocks must exist uniquely. The verified one-hour key-code and
+seven-hour cleaner offsets remain unchanged. No universal Guesty DST rule was
+inferred from one queue; authoritative timing resolution is still required.
+
+Validation: **2,232 application tests / 242 suites**, nonincremental TypeScript,
+scoped ESLint and **103 disposable PostgreSQL scenarios** pass (44 guest, 26
+cleaner, 20 registration, 13 history). Four added scenarios prove DST uncertainty
+cannot post to providers and ordinary 3 PM/9 AM minute offsets remain stable.
+Messaging SQL is still unapplied; no live send, source import or paid service
+was activated. Next: resolve source timing and cleaner obligations, then rehearse
+all six workflows in isolated hosted storage before scoped delivery acceptance.
+Fresh main checked: `0e9ada07c5fa670a1e83079a1f46a4803937aa07`; no main merge.
 
 
 
