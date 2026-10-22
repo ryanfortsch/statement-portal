@@ -2,6 +2,65 @@
 
 Decision draft, October 7, 2026. Goal: replace Guesty across the portfolio after a successful Calderwood pilot. This is an architecture deliverable, not an implemented production connector or an approval to disconnect channels. Contract timetable remains in `calderwood-cutover-readiness.md`; `SCHEMA.md` remains authoritative for existing tables. No new platform purchase is required for the next milestone.
 
+## Calendar application compatibility — October 22, 2026
+
+The isolated database now supports the ordinary calendar's property and calendar
+reads. Before the upgrade, all twelve supplemental property fields were absent;
+service-role SELECT on properties/seasons and calendar mirror writes were also
+missing. This made an ordinary app preview fail even though the separate worker
+could operate through its restricted RPCs.
+
+Applied `staging-storage/calendar-app.sql` only to **Helm Channex Staging**,
+project `jgkblfozftcvymvwhhii`. It adds the existing application's property
+metadata/policy column types and explicit service-role calendar permissions. It
+requires the exact original installation receipt, a fictional-only property,
+paused publishing, no connected channels and no enabled senders. It preserves the
+original installation manifest and adds no business seed or runtime activation.
+SQL SHA-256: `e9facf2699e6c12dbaaa25f659339d46721dcc9b3002c59f184bd1709ed277cf`.
+
+The [hosted read verification](https://supabase.com/dashboard/project/jgkblfozftcvymvwhhii/sql/7a0741e5-e285-448b-9527-c85594222a8a)
+executed all **13 calendar query contracts as service_role**. It confirmed capture
+**23**, plan **34**, journal **71**, publishing **false**, **0** channel rows,
+**0** enabled senders and browser access denied. These checkpoints match the
+pre-upgrade inspection. No hosted booking, rate, message or provider command was
+created by this batch. The hosted schema change is complete; it is not an
+ordinary-browser or Channex certification result.
+
+`scripts/calendar-app-preflight.mjs` generates read-only SQL from the actual
+fleet, rate-plan, rate-day and mirror column constants plus the calendar's other
+read tables. It never loads credentials or connects to a database.
+`scripts/verify-calendar-app.mjs` exercises the exact incremental SQL against the
+original canonical installation in disposable local PostgreSQL (PGlite). Its
+**18 checks** cover guarded rejection, repeatability, permissions, normal
+create/move/cancel RPCs feeding the real inventory planner/journal, overlap
+rollback, closure capture, price/minimum edits staying out of the availability
+queue, calendar mirror storage and preservation of message/finance state. It
+calls the real database commands but does not execute React/server actions or
+make provider calls. Local fixture source coverage is not hosted source evidence.
+
+Validation on this branch: **2,202 application tests / 240 suites**, TypeScript
+without incremental output, scoped ESLint, the 18 local database checks and diff
+whitespace checks passed. The overlap test initially assumed two holds should
+conflict; the documented canonical rule allows overlapping holds. The corrected
+case verifies a confirmed reservation cannot overwrite an owner hold. No product
+rule changed to make the test pass.
+
+**Next acceptance:** configure a separate full application against this isolated
+database, preserving normal Google sign-in, and demonstrate its existing calendar
+controls through the hosted queue to stopped Channex. Keep the live app's database
+binding untouched. Before that preview, reconcile relevant current-main changes:
+main `69bab2608aed472af68f76bae9b87bb7f4290e2e` has owner-only nightly-price edits,
+no hand-entered OTA hold option, and centralized house-policy reads that this
+older integration branch has not yet incorporated. This patch supplies those
+property column types but does not claim the newer app behavior is deployed.
+
+Handoff: branch `codex/channex-staging-pilot`, starting HEAD `f7b045e4`, original
+base `a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`. Changed files are this document,
+`staging-storage/calendar-app.sql`, `scripts/calendar-app-preflight.mjs` and
+`scripts/verify-calendar-app.mjs`. Unrelated contract-readiness changes are
+excluded. No main merge, live application deployment, customer send, paid service
+or production setting change occurred. Guesty continues to operate Calderwood.
+
 ## Release path reviewed October 21, 2026
 
 **Next engineering batch: make the existing calendar integration usable from
