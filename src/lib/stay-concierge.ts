@@ -71,10 +71,16 @@ export type Approval = MessageOutcomeCarrier & {
   schedule_update?: import('./checkout-commitment').ScheduleUpdate | null;
   maintenance_work?: { status: string; slip_id: string; title: string; error: string } | null;
   /** The guest's email, when the card's channel knows it: a 2027 request
-   * carries it in its own sidecar, an email card IS an address. Empty on OTA
-   * chat. Helm uses it to open the quote composer complete and to find this
-   * guest's existing quotes; both were blind on email cards until 2026-09-21. */
+   * carries it in its own sidecar, an email card IS an address, and a relay
+   * card (guesty_message_id `relay_email:`) carries the third party the
+   * booker named. Empty on OTA chat. Helm uses it to open the quote composer
+   * complete, to find this guest's existing quotes, and on a relay card to
+   * show who the email reaches (lib/card-sends-to). */
   guest_email?: string;
+  /** The phone an approved guest-SMS card will text. The concierge has sent
+   * it since 2026-09-25 so a text is never approved without the number in
+   * view. Null/absent on every non-SMS card. */
+  sms_to?: string | null;
   /** A 2027 pre-release request's own details (party size, email, phone), so
    * the quote composer can be opened complete rather than half-filled.
    * Null/absent on every other card. */

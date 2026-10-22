@@ -33,6 +33,7 @@ import {
 import { RentalInquiryPanel } from './RentalInquiryPanel';
 import { addonItem, handoffItem, quotesItem } from './guest-card-blocks';
 import { waitReason } from '@/lib/card-wait-reason';
+import { sendsTo } from '@/lib/card-sends-to';
 import { reviewAskContext } from '@/lib/review-ask-context';
 import { stripeLookupHref } from '@/lib/stripe-lookup-link';
 import { HeldPitches, type HeldPitch } from './HeldPitches';
@@ -185,6 +186,10 @@ function GuestCard({
     ? 'Opens the quote form with their home filled in. The reply above is unaffected.'
     : 'Opens the quote form with this guest filled in. Pick their home there. The reply above is unaffected.';
   const stayLabel = formatStayDates(approval.check_in, approval.check_out);
+  // Where approving sends when it leaves the platform thread: a text to the
+  // number the guest gave, or a relay email to the third party the booker
+  // named. '' on an ordinary card.
+  const destination = sendsTo(approval);
   // "Did they pay?" one click away: the Stripe lookup prefilled with this
   // guest's email and stay, for every login (the lookup is read-only and
   // open to staff); a rental inquiry has no stay to look up.
@@ -449,6 +454,14 @@ function GuestCard({
             ) : (
               <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>{topicLabel}</span>
             ))}
+          {destination && (
+            <span
+              className="eyebrow"
+              style={{ color: 'var(--signal)', fontWeight: 600, textTransform: 'none', letterSpacing: '0.02em', fontSize: 11, overflowWrap: 'anywhere' }}
+            >
+              {destination}
+            </span>
+          )}
         </>
       }
       queuedChips={approval.channel ? <ChannelBadge channel={approval.channel} /> : null}
