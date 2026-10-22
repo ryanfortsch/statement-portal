@@ -5,22 +5,20 @@ import { useEffect } from 'react';
 /**
  * A tiny registry of "this tab has typing that isn't saved anywhere yet".
  *
- * Why it exists: VersionGuard hard-reloads the tab whenever a deploy lands
- * (on a 60s interval AND on every tab focus). This repo deploys many times
- * an hour, so an operator part-way through filling 29 caption fields could
- * lose the lot to a reload they never asked for and could not have seen
- * coming (2026-09-27, /properties/19_rackliffe/caption-photos).
+ * Why it exists: a reload nobody asked for used to wipe typing. The old
+ * VersionGuard hard-reloaded the tab whenever a deploy landed, and an operator
+ * part-way through 29 caption fields lost the lot (2026-09-27,
+ * /properties/19_rackliffe/caption-photos). VersionGuard is retired; the
+ * reloads that remain are the ones below.
  *
  * Any client surface holding unsaved edits calls useUnsavedWorkGuard(true).
  * That does two things:
  *   1. arms the browser's own "Leave site?" prompt, so a stray Cmd+R or a
  *      back button asks first
- *   2. makes hasUnsavedWork() true, which tells the skew reload to wait
- *
- * Waiting is safe: platform Skew Protection (12h) routes a stale tab back
- * to its own deployment, so the old bundle keeps working. The skew check
- * keeps running, so the tab still heals itself the moment the work is
- * saved or discarded.
+ *   2. makes hasUnsavedWork() true, which tells Button's 30s lost-response
+ *      reload (use-pending-watchdog.ts) to stand down and AutoRefresh to
+ *      skip its tick, since a refresh into a newer deployment can be
+ *      hard-reloaded by Next's deploymentId check
  *
  * Deliberately a count, not a boolean: several surfaces can be dirty at
  * once and each must be able to disarm only its own claim.

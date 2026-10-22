@@ -7,22 +7,23 @@ import type { NextConfig } from "next";
 // itself adopts it and errors if the config disagrees. Locally all three are
 // absent and every skew feature stays inert.
 //
-// SKEW PROTECTION IS NOW ON (enabled 2026-08-26).
-// This subsystem was originally built on the premise that the project was on
-// Vercel Hobby, where Skew Protection is unavailable. That was wrong: the team
-// ("Rising Tide") is on PRO. The feature was simply never switched on. It now
-// is, at skewProtectionMaxAge = 43200 (12 hours), so the platform routes a
-// stale tab back to its ORIGINAL deployment instead of letting it break.
+// Two layers handle a tab whose bundle is older than the server's:
+//   1. Platform Skew Protection, on since 2026-08-26 at skewProtectionMaxAge =
+//      43200 (12 hours; checked on the project 2026-10-22). Vercel routes a
+//      stale tab's requests back to its ORIGINAL deployment, so it keeps
+//      working.
+//   2. `deploymentId` below, Next's own check. Past the 12 hours, a
+//      navigation, refresh or server action that comes back from a newer
+//      deployment hard-reloads the tab instead of applying a payload the old
+//      bundle can't render.
 //
-// Takes effect from the first deployment built after that setting landed.
-//
-// The homegrown machinery below is deliberately still running alongside it, as
-// belt-and-braces, until a week or so of deploys confirms the platform feature
-// is doing its job. THEN, and not before, VersionGuard's global 60s interval
-// and /api/version can be deleted (roughly 130 lines). Two things stay
-// regardless: `deploymentId` below, which is Next's own native check and is
-// independent of the platform feature, and the SubmitButton watchdog, which
-// also covers a genuinely lost response rather than only skew.
+// The homegrown layer that ran alongside them (VersionGuard's 60s poll and
+// tab-wake check, /api/version, lib/version-skew.ts) was retired on
+// 2026-10-22 after eight weeks of deploys under the platform feature. What
+// stays: the Button/SubmitButton watchdog's 30s reload, which covers a
+// response Vercel shed rather than skew (lib/use-pending-watchdog.ts), and
+// the unsaved-work registry, which keeps AutoRefresh from refreshing into
+// that hard reload while someone is typing.
 const deploymentId =
   process.env.NEXT_DEPLOYMENT_ID ||
   process.env.VERCEL_DEPLOYMENT_ID ||
@@ -35,15 +36,6 @@ const nextConfig: NextConfig = {
   // a stale client hard-navigates instead of applying a payload its bundle
   // can't render (the 2026-08-02 spin-then-error-boundary failure).
   deploymentId: deploymentId || undefined,
-
-  // The same id, inlined into BOTH the client and server bundles at build
-  // time (next.config `env` goes through the compiler's define step). The
-  // 20s AutoRefresh poller compares its inlined copy against /api/version,
-  // which returns the server bundle's inlined copy, and hard-reloads once
-  // on mismatch. See src/components/AutoRefresh.tsx.
-  env: {
-    NEXT_PUBLIC_DEPLOYMENT_ID: deploymentId,
-  },
 
   // Keep @sparticuz/chromium + puppeteer-core out of the bundler's graph --
   // they're consumed on the server at runtime and trying to trace them

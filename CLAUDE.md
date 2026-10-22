@@ -926,11 +926,11 @@ are defined in `AGENTS.md`.
    `rental_income` is the in-memory name inside `/api/ingest` before the write.
 4. **Deploy skew.** A tab on an old bundle cannot apply a new build's RSC payload. The tell is a
    DB write landing while the button spins forever. Platform Skew Protection has been on since
-   2026-08-26 (12h), so a stale tab is routed back to its original deployment instead of breaking.
-   `VersionGuard`, `AutoRefresh` and the `SubmitButton` watchdog still run alongside it as
-   belt-and-braces. Once a week of deploys confirms the platform feature, VersionGuard's global
-   60s poll and `/api/version` can be retired; `deploymentId` and the SubmitButton watchdog stay
-   regardless. See `next.config.ts`.
+   2026-08-26 (12h), so a stale tab is routed back to its original deployment instead of breaking;
+   past the 12 hours, Next's `deploymentId` check hard-reloads the tab on its next navigation,
+   refresh or action. VersionGuard, `/api/version` and `lib/version-skew.ts` were retired on
+   2026-10-22. The Button/SubmitButton watchdog's 30s reload stays (it covers a shed response,
+   not skew), and AutoRefresh skips its tick while a page holds unsaved work. See `next.config.ts`.
 5. **Agent sessions run in git worktrees** under `.claude/worktrees/<branch>`, where `node_modules`
    may need symlinking back to the parent checkout before `tsc` will run.
 6. **This is a high-concurrency multi-agent repo.** Branch off fresh `origin/main` and stage only

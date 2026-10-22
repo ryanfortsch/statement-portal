@@ -1,35 +1,36 @@
 /**
- * A deploy must not reload away typing that hasn't been saved.
+ * A reload must not take typing that hasn't been saved.
  *
- * VersionGuard hard-reloads the tab whenever /api/version reports a new
- * deployment id: on a 60s interval AND on every tab focus. This repo ships
- * many times an hour, so on a page whose edits live only in React state
- * that reload is silent data loss. It happened on the Guesty caption tool
- * (Dotti, 2026-09-27: "tried editing and they all got scrubbed and
- * reloaded and deleted") with 29 photos in flight.
+ * The old VersionGuard hard-reloaded the tab whenever a deploy landed, and on
+ * a page whose edits live only in React state that was silent data loss. It
+ * happened on the Guesty caption tool (Dotti, 2026-09-27: "tried editing and
+ * they all got scrubbed and reloaded and deleted") with 29 photos in flight.
+ * VersionGuard was retired on 2026-10-22; platform Skew Protection and Next's
+ * deploymentId check handle a stale tab now (next.config.ts).
  *
- * The fix is two one-line guards that nothing else holds in place:
+ * What still holds the line, and is cheap to delete by accident:
  *
- *   1. version-skew consults hasUnsavedWork() BEFORE reloading, and when it
- *      defers it must NOT mark the deployment as reloaded-for, or the loop
- *      guard swallows the real reload once the work is saved.
- *   2. the caption client mirrors unsaved drafts to localStorage and merges
+ *   1. the registry: a counted claim plus the browser's leave-site prompt
+ *   2. AutoRefresh skips its tick while the page holds unsaved work, because
+ *      a refresh that lands on a newer deployment is hard-reloaded by Next
+ *   3. no timer anywhere reloads the tab for a deploy (VersionGuard stays gone)
+ *   4. the caption client mirrors unsaved drafts to localStorage and merges
  *      them back on load, so a reload that happens anyway (or a crash, or a
- *      closed tab) is recoverable.
+ *      closed tab) is recoverable
  *
- * Both are cheap to delete by accident and expensive to lose, so this reads
- * the source and asserts they are still there.
+ * Button's 30s lost-response reload yields to unsaved work too; button.test.ts
+ * pins that one.
  *
  * Run: npm test
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
 const read = (repoPath: string): string =>
   readFileSync(new URL(`../../../${repoPath}`, import.meta.url), 'utf8');
 
-describe('unsaved work outranks the skew reload', () => {
+describe('unsaved work outranks a reload', () => {
   test('the registry counts scopes and arms the browser prompt', () => {
     const src = read('src/lib/unsaved-work.ts');
     assert.ok(src.includes('export function hasUnsavedWork()'), 'hasUnsavedWork is gone');
@@ -39,15 +40,16 @@ describe('unsaved work outranks the skew reload', () => {
     assert.ok(src.includes("addEventListener('beforeunload'"), 'the leave-site prompt is gone');
   });
 
-  test('the skew reload defers to unsaved work, and does not burn the guard', () => {
-    const src = read('src/lib/version-skew.ts');
-    assert.ok(src.includes('hasUnsavedWork'), 'version-skew no longer consults unsaved work');
-    const deferAt = src.indexOf('if (hasUnsavedWork()) return true;');
-    const markAt = src.indexOf('markReloadedFor(serverId);');
-    const reloadAt = src.indexOf('window.location.reload()');
-    assert.ok(deferAt > 0, 'the unsaved-work check is gone');
-    assert.ok(markAt > deferAt, 'the deploy is marked reloaded-for before the unsaved-work check');
-    assert.ok(reloadAt > deferAt, 'the tab reloads before the unsaved-work check');
+  test('AutoRefresh does not refresh over unsaved work', () => {
+    const src = read('src/components/AutoRefresh.tsx');
+    assert.match(src, /if \(cancelled \|\| document\.hidden \|\| hasUnsavedWork\(\)\) return;\s*softRefresh\(\);/,
+      'AutoRefresh no longer waits for unsaved work before refreshing');
+  });
+
+  test('no timer reloads the tab for a deploy', () => {
+    assert.ok(!existsSync(new URL('../../components/VersionGuard.tsx', import.meta.url)), 'VersionGuard is back');
+    assert.ok(!existsSync(new URL('../version-skew.ts', import.meta.url)), 'version-skew is back');
+    assert.ok(!read('src/app/layout.tsx').includes('VersionGuard'), 'the root layout mounts VersionGuard again');
   });
 
   test('caption drafts are mirrored to storage and merged back on load', () => {
