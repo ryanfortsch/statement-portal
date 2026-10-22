@@ -62,7 +62,8 @@ test('summaries are one tidy line, capped', () => {
 
 test('no em dash in anything the strip prints', () => {
   for (const k of ['pipeline_failure', 'send_delivery_failed', 'addon_sms_failed', 'sca_email_needs_you',
-    'far_future_hold_failed', 'owner_guest_notice_no_guest', 'unknown_owner_sms', 'owner_email_empty']) {
+    'far_future_hold_failed', 'owner_guest_notice_no_guest', 'unknown_owner_sms', 'owner_email_empty',
+    'extension_block_failed', 'extension_double_booked', 'extension_nights_unknown', 'payment_status_down']) {
     assert.ok(!conciergeAlertTitle(k).includes('—'), k);
   }
 });
@@ -109,6 +110,10 @@ describe('each alert reads as a home, one sentence and one verb', () => {
     ['owner_guest_notice_no_guest', 'ownervisit-noguest:17_beach_back:2026-11-03', '17_beach_back: nobody in house 2026-11-03, no guest notice sent.', '17 Beach Back'],
     ['unknown_owner_sms', 'u', 'UNIDENTIFIED SENDER ON THE OWNERS LINE: Bob (+19785551212) wrote "Hey can you check the gutters". No owner on file matches them, so no draft was made. Tag them in Quo or add their phone to the owner in Helm.', null],
     ['gear_slip_failed', 'g', 'Gear slip FAILED to open (404) for 21_horton: Pack n play - stage it by hand and check the property mapping.', '21 Horton'],
+    ['extension_block_failed', 'blockfail:x', 'Brian Nugent paid for extra nights at 17_beach_rd and 2026-10-25, 2026-10-26 is still on sale after the block. Block it in Guesty now; Helm keeps retrying every 15 minutes.', '17 Beach'],
+    ['extension_double_booked', 'extconflict:x', 'Brian Nugent paid for extra nights at 17_beach_rd, but 2026-10-25 was already booked by another reservation. Sort out the double booking now.', '17 Beach'],
+    ['extension_nights_unknown', 'extnights:x', 'Brian Nugent paid for an extension at 17_beach_rd (Extension fee) and Helm cannot tell which nights. Block them in Guesty and tell the crew.', '17 Beach'],
+    ['payment_status_down', 'paid_status_down', "Helm's payment-link status checks have failed for 4 passes in a row, so a paid extension cannot be seen or its nights blocked. Check that Helm is up.", null],
     ['a_kind_nobody_named', 'n', 'SOMETHING BROKE at 73_rocky_neck on 2026-10-19 - see prompts/reference/foo.md (reason: x)', '73 Rocky Neck'],
   ];
   for (const [kind, item_key, summary, home] of cases) {
@@ -125,6 +130,16 @@ describe('each alert reads as a home, one sentence and one verb', () => {
     assert.match(notice.sentence, /Tue, Nov 3/);
     const sms = conciergeAlertCopy({ kind: 'unknown_owner_sms', item_key: 'k', summary: 'UNIDENTIFIED SENDER ON THE OWNERS LINE: Bob (+1978) wrote "hi". No owner on file matches them.' }, HOMES);
     assert.match(sms.sentence, /^Bob texted the Owners line/);
+  });
+
+  test('a paid extension still on sale reads as the guest, the nights and what to do', () => {
+    assert.equal(conciergeAlertTitle('extension_block_failed'), 'Paid nights are still on sale');
+    assert.equal(conciergeAlertTitle('extension_double_booked'), 'Paid nights were already booked');
+    assert.equal(conciergeAlertTitle('payment_status_down'), 'Payment checks are failing');
+    const sale = conciergeAlertCopy({ kind: 'extension_block_failed', item_key: 'blockfail:x', summary: 'Brian Nugent paid for extra nights at 17_beach_rd and 2026-10-25, 2026-10-26 is still on sale after the block. Block it in Guesty now.' }, HOMES);
+    assert.equal(sale.sentence, 'Brian Nugent paid for extra nights and they are still on sale (Sun, Oct 25 to Mon, Oct 26); block them in Guesty now.');
+    const dbl = conciergeAlertCopy({ kind: 'extension_double_booked', item_key: 'extconflict:x', summary: 'Brian Nugent paid for extra nights at 17_beach_rd, but 2026-10-25 was already booked by another reservation.' }, HOMES);
+    assert.equal(dbl.sentence, 'Brian Nugent paid for Sun, Oct 25 that another guest already has; sort out the double booking now.');
   });
 
   test('a drafting failure and an emergency open their own thread', () => {

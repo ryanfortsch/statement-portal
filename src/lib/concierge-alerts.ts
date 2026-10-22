@@ -54,6 +54,11 @@ const TITLES: Record<string, string> = {
   owner_guest_message_no_property: "An owner's message had no property on file",
   unknown_owner_sms: 'Unknown number on the Owners line',
   owner_email_empty: 'An owner email could not be read',
+  // A paid extension's nights must read off sale (concierge #114, 2026-10-22).
+  extension_block_failed: 'Paid nights are still on sale',
+  extension_double_booked: 'Paid nights were already booked',
+  extension_nights_unknown: 'A paid extension has no nights to block',
+  payment_status_down: 'Payment checks are failing',
 };
 
 /** A plain title for an alert kind. A kind nobody named yet still reads as
@@ -274,6 +279,23 @@ export function conciergeAlertCopy(alert: Pick<ConciergeAlert, 'kind' | 'summary
       if (noPhone) return out(`The ${lowerFirst(noPhone[1])} link is ready and the guest has no phone on file; send it to them by email.`, { label: 'See the link', href: CHARGE.href });
       return out('A guest payment link did not go out; send it from Charge.', CHARGE);
     }
+    case 'extension_block_failed': {
+      const who = grab(/^(.+?) paid for extra nights/i, s);
+      const days = [...s.matchAll(/\b(\d{4}-\d{2}-\d{2})\b/g)].map((m) => plainDay(m[1]));
+      const when = days.length > 1 ? ` (${days[0]} to ${days[days.length - 1]})` : days.length ? ` (${days[0]})` : '';
+      return out(`${who ?? 'A guest'} paid for extra nights and they are still on sale${when}; block them in Guesty now.`, null);
+    }
+    case 'extension_double_booked': {
+      const who = grab(/^(.+?) paid for extra nights/i, s);
+      const days = [...s.matchAll(/\b(\d{4}-\d{2}-\d{2})\b/g)].map((m) => plainDay(m[1]));
+      return out(`${who ?? 'A guest'} paid for ${days.length ? days.join(' and ') : 'a night'} that another guest already has; sort out the double booking now.`, null);
+    }
+    case 'extension_nights_unknown': {
+      const who = grab(/^(.+?) paid for an extension/i, s);
+      return out(`${who ?? 'A guest'} paid for an extension and Helm can't tell which nights; block them in Guesty and tell the crew.`, null);
+    }
+    case 'payment_status_down':
+      return out("Helm's payment links can't be read right now, so a paid extension can't be seen or blocked; check that Helm is up.", null, null);
     case 'sca_email_empty': {
       const who = grab(/^(.+?) - empty/i, s);
       const subject = grab(/SCA email: (.+?)(?: \(open Gmail\))?$/i, s);
