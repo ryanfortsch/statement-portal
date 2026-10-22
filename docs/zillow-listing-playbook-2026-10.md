@@ -113,6 +113,16 @@ first: furnished, utilities, term, pets, parking, laundry, internet.
 
 ## 6. Leads, showings and screening
 
+**Helm runs the first step (since 2026-10-21).** Every half hour Helm reads Zillow's renter mail
+(Zillow writes to ryan@, which reaches the operator's inbox), files each lead under its home on
+`/properties/leases`, and vets it against the criteria below: the model only reads what the
+renter wrote, and plain code decides serious, needs answers, not a fit or spam. A lead that
+needs answers gets the five questions below once, automatically, as a reply from ryan@ through
+Zillow's relay. Only serious leads reach the owners' home feed. A person takes over from there:
+showings, the application, the decision and the lease. A home going live on Zillow needs a row
+in `lease_listings` (its Zillow street and unit, rent and lease dates) or its leads file as
+unmatched and get no message.
+
 **Reply within two hours in business hours, same day otherwise.** The first reply asks five
 things and nothing else: the dates they need, who is moving in, why the stay ends in April
 (contract end, closing, a claim, a renovation), household income, pets. A lead that cannot
@@ -201,7 +211,8 @@ with a contract end date, which is the exit the screening wants.
 
 ## 10. The tracker
 
-Keep this table current until there is a Helm page for it. Review it every Monday.
+Leads, verdicts and the screening messages now live on `/properties/leases` (2026-10-21). Keep
+this table for the listing side (listed, premium, signed) and review it every Monday.
 
 | Home | Rent, term | Listed | Premium | Leads | Showings | Applications | Signed | Notes |
 |---|---|---|---|---|---|---|---|---|
