@@ -26,6 +26,10 @@
     {
       "path": "staging-storage/calderwood-routing-runtime-receipt.json",
       "sha256": "6146c8e9aebd951a674ce5374cbde97e6556ae930f4950e5cf91b35b4e477db8"
+    },
+    {
+      "path": "staging-storage/calderwood-mapped-lifecycle-receipt.json",
+      "sha256": "49251b1b0753641a0ccbb21d0373f8a944c72a1f231d0f0edd4009aaf6c7f42b"
     }
   ],
   "calendarApplicationCommit": "91ceab2fb6389a0ca1810f82a8f954200a8a33c2",
@@ -84,7 +88,7 @@
     "bookingCreateModifyCancelAndAck": "hosted-offline-evidence",
     "resumeAfterArchiveAndOneDayWindowAdvance": "hosted-evidence",
     "continuousMidnightReliabilitySoak": "not-demonstrated",
-    "configurableRuntimeMapping": "isolated-route-and-bounded-import-guards-installed; worker-and-preview-deployed; mapped-empty-feed-poll-passed; fresh-signed-lifecycle-pending; generic-OTA-import-and-rollover-not-implemented",
+    "configurableRuntimeMapping": "isolated-route-and-bounded-import-guards-installed; worker-and-preview-deployed; mapped-empty-feed-poll-and-fresh-signed-lifecycle-passed; generic-OTA-import-and-rollover-not-implemented",
     "fiveHundredDayFullAriUpdate": "not-demonstrated",
     "pricingAndRestrictionsScopeAcceptedByChannex": "not-verified",
     "certificationFormSubmitted": false,
@@ -104,7 +108,7 @@
     "includesTaxHostingPriceLabsQuoOrDevelopment": false
   },
   "lastVerifiedControls": {
-    "at": "2026-10-22T18:49:28.991053Z",
+    "at": "2026-10-22T19:14:28.729061Z",
     "publisherEnabled": false,
     "activeMessageControls": 0,
     "connectedChannels": 0
@@ -112,5 +116,24 @@
   "references": {
     "certification": "https://docs.channex.io/api-v.1-documentation/pms-certification-tests",
     "pricing": "https://channex.io/pricing"
+  },
+  "mappedBookingLifecycle": {
+    "source": "staging-storage/calderwood-mapped-lifecycle-receipt.json",
+    "scope": "Offline fictional booking through installed reviewed-route guards; no OTA or outgoing availability claim",
+    "bookingId": "ce82c66d-0a0f-4eb5-9c98-39116d6cf877",
+    "canonicalBookingId": "cd34934c-3e97-4e7e-b402-97dc47f8da7a",
+    "revisionIds": [
+      "af36595d-0bae-4f08-bdd4-a145242f375e",
+      "5b53c554-a07d-4662-b99d-2f226d1fa767",
+      "d3e1d0ce-d365-4e60-9129-157ba74d7903"
+    ],
+    "deliveredBySignedWebhook": true,
+    "eachRevisionAcknowledged": true,
+    "finalFeedEmpty": "not-read-in-this-run",
+    "finalState": "cancelled",
+    "canonicalBookingCount": 1,
+    "auditCount": 3,
+    "inventoryEventCount": 3,
+    "newMessageRows": 0
   }
 }

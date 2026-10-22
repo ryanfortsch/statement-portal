@@ -1,0 +1,268 @@
+{
+  "environment": "isolated-staging",
+  "projectRef": "jgkblfozftcvymvwhhii",
+  "observedOn": "2026-10-22",
+  "implementationCommit": "dbab70c9e9881a97b88d5b6fd9fb54c3670588c0",
+  "repositoryHeadAtRehearsal": "138bd0719be6a966e27ded2781baee9f1cf2e007",
+  "source": "Channex staging UI; Offline / Other; fictional name; no contact or payment details",
+  "code": "HELMTEST-calderwood-mapped-20261022",
+  "webhookId": "7336416c-039f-47b0-90c4-9d01fb9b1a02",
+  "callback": "https://rising-tide-statements-git-codex-ch-605f22-rising-tide-fc584d5d.vercel.app/api/webhooks/channex-staging",
+  "baseline": {
+    "checkedAt": "2026-10-22T19:01:04.204743Z",
+    "bookings": 7,
+    "receipts": 16,
+    "messageRows": 12,
+    "captureVersion": 28,
+    "enabledRules": 0,
+    "enabledGuestRoutes": 0,
+    "enabledCleanerBatches": 0,
+    "connectedChannels": 0
+  },
+  "steps": [
+    {
+      "action": "create",
+      "deliveryId": "923e669a-4d69-4754-b156-b2371db525da",
+      "deliveredAt": "2026-10-22T19:05:12Z",
+      "signed": true,
+      "httpStatus": 200,
+      "response": "Revision durably processed",
+      "providerAcknowledged": true,
+      "observedDatabase": {
+        "booking": {
+          "id": "cd34934c-3e97-4e7e-b402-97dc47f8da7a",
+          "status": "confirmed",
+          "check_in": "2027-06-10",
+          "check_out": "2027-06-13",
+          "source_ref": "channex-staging:ce82c66d-0a0f-4eb5-9c98-39116d6cf877"
+        },
+        "receipts": [
+          {
+            "outcome": "applied",
+            "revision": {
+              "id": "af36595d-0bae-4f08-bdd4-a145242f375e",
+              "code": "HELMTEST-calderwood-mapped-20261022",
+              "status": "new",
+              "checkIn": "2027-06-10",
+              "checkOut": "2027-06-13",
+              "bookingId": "ce82c66d-0a0f-4eb5-9c98-39116d6cf877",
+              "propertyId": "30584a9a-8784-4eb1-a387-e26bd43aec1c",
+              "ratePlanId": "7f95b731-ff05-4c41-99c9-f39b3e772fec",
+              "receivedAt": "2026-10-22T19:05:06.974930Z",
+              "roomTypeId": "f795ae2c-f47d-4751-86ff-e883b6d30800"
+            },
+            "revision_id": "af36595d-0bae-4f08-bdd4-a145242f375e",
+            "committed_at": "2026-10-22T19:05:11.420958+00:00"
+          }
+        ],
+        "checked_at": "2026-10-22T19:06:33.25682+00:00",
+        "audit_count": 1,
+        "all_bookings": 8,
+        "all_messages": 12,
+        "all_receipts": 17,
+        "booking_count": 1,
+        "capture_version": 29,
+        "inventory_events": [
+          {
+            "reason": "booking_insert",
+            "version": 29
+          }
+        ],
+        "target_message_count": 0
+      }
+    },
+    {
+      "action": "modify",
+      "deliveryId": "9d63921a-295c-4fd6-9d76-61fb3fb7258b",
+      "deliveredAt": "2026-10-22T19:08:20Z",
+      "signed": true,
+      "httpStatus": 200,
+      "response": "Revision durably processed",
+      "providerAcknowledged": true,
+      "observedDatabase": {
+        "booking": {
+          "id": "cd34934c-3e97-4e7e-b402-97dc47f8da7a",
+          "status": "confirmed",
+          "check_in": "2027-06-15",
+          "check_out": "2027-06-18",
+          "source_ref": "channex-staging:ce82c66d-0a0f-4eb5-9c98-39116d6cf877"
+        },
+        "receipts": [
+          {
+            "outcome": "applied",
+            "revision": {
+              "id": "af36595d-0bae-4f08-bdd4-a145242f375e",
+              "code": "HELMTEST-calderwood-mapped-20261022",
+              "status": "new",
+              "checkIn": "2027-06-10",
+              "checkOut": "2027-06-13",
+              "bookingId": "ce82c66d-0a0f-4eb5-9c98-39116d6cf877",
+              "propertyId": "30584a9a-8784-4eb1-a387-e26bd43aec1c",
+              "ratePlanId": "7f95b731-ff05-4c41-99c9-f39b3e772fec",
+              "receivedAt": "2026-10-22T19:05:06.974930Z",
+              "roomTypeId": "f795ae2c-f47d-4751-86ff-e883b6d30800"
+            },
+            "revision_id": "af36595d-0bae-4f08-bdd4-a145242f375e",
+            "committed_at": "2026-10-22T19:05:11.420958+00:00"
+          },
+          {
+            "outcome": "applied",
+            "revision": {
+              "id": "5b53c554-a07d-4662-b99d-2f226d1fa767",
+              "code": "HELMTEST-calderwood-mapped-20261022",
+              "status": "modified",
+              "checkIn": "2027-06-15",
+              "checkOut": "2027-06-18",
+              "bookingId": "ce82c66d-0a0f-4eb5-9c98-39116d6cf877",
+              "propertyId": "30584a9a-8784-4eb1-a387-e26bd43aec1c",
+              "ratePlanId": "7f95b731-ff05-4c41-99c9-f39b3e772fec",
+              "receivedAt": "2026-10-22T19:08:17.377457Z",
+              "roomTypeId": "f795ae2c-f47d-4751-86ff-e883b6d30800"
+            },
+            "revision_id": "5b53c554-a07d-4662-b99d-2f226d1fa767",
+            "committed_at": "2026-10-22T19:08:19.400147+00:00"
+          }
+        ],
+        "checked_at": "2026-10-22T19:08:35.929408+00:00",
+        "audit_count": 2,
+        "all_bookings": 8,
+        "all_messages": 12,
+        "all_receipts": 18,
+        "booking_count": 1,
+        "capture_version": 30,
+        "inventory_events": [
+          {
+            "reason": "booking_insert",
+            "version": 29
+          },
+          {
+            "reason": "booking_update",
+            "version": 30
+          }
+        ],
+        "target_message_count": 0
+      }
+    },
+    {
+      "action": "cancel",
+      "deliveryId": "cc8c1164-3d79-4684-a107-0bcbec8aea6c",
+      "deliveredAt": "2026-10-22T19:12:45Z",
+      "signed": true,
+      "httpStatus": 200,
+      "response": "Revision durably processed",
+      "providerAcknowledged": true,
+      "observedDatabase": {
+        "booking": {
+          "id": "cd34934c-3e97-4e7e-b402-97dc47f8da7a",
+          "status": "cancelled",
+          "check_in": "2027-06-15",
+          "check_out": "2027-06-18",
+          "source_ref": "channex-staging:ce82c66d-0a0f-4eb5-9c98-39116d6cf877"
+        },
+        "receipts": [
+          {
+            "outcome": "applied",
+            "revision": {
+              "id": "af36595d-0bae-4f08-bdd4-a145242f375e",
+              "code": "HELMTEST-calderwood-mapped-20261022",
+              "status": "new",
+              "checkIn": "2027-06-10",
+              "checkOut": "2027-06-13",
+              "bookingId": "ce82c66d-0a0f-4eb5-9c98-39116d6cf877",
+              "propertyId": "30584a9a-8784-4eb1-a387-e26bd43aec1c",
+              "ratePlanId": "7f95b731-ff05-4c41-99c9-f39b3e772fec",
+              "receivedAt": "2026-10-22T19:05:06.974930Z",
+              "roomTypeId": "f795ae2c-f47d-4751-86ff-e883b6d30800"
+            },
+            "revision_id": "af36595d-0bae-4f08-bdd4-a145242f375e",
+            "committed_at": "2026-10-22T19:05:11.420958+00:00"
+          },
+          {
+            "outcome": "applied",
+            "revision": {
+              "id": "5b53c554-a07d-4662-b99d-2f226d1fa767",
+              "code": "HELMTEST-calderwood-mapped-20261022",
+              "status": "modified",
+              "checkIn": "2027-06-15",
+              "checkOut": "2027-06-18",
+              "bookingId": "ce82c66d-0a0f-4eb5-9c98-39116d6cf877",
+              "propertyId": "30584a9a-8784-4eb1-a387-e26bd43aec1c",
+              "ratePlanId": "7f95b731-ff05-4c41-99c9-f39b3e772fec",
+              "receivedAt": "2026-10-22T19:08:17.377457Z",
+              "roomTypeId": "f795ae2c-f47d-4751-86ff-e883b6d30800"
+            },
+            "revision_id": "5b53c554-a07d-4662-b99d-2f226d1fa767",
+            "committed_at": "2026-10-22T19:08:19.400147+00:00"
+          },
+          {
+            "outcome": "applied",
+            "revision": {
+              "id": "d3e1d0ce-d365-4e60-9129-157ba74d7903",
+              "code": "HELMTEST-calderwood-mapped-20261022",
+              "status": "cancelled",
+              "checkIn": "2027-06-15",
+              "checkOut": "2027-06-18",
+              "bookingId": "ce82c66d-0a0f-4eb5-9c98-39116d6cf877",
+              "propertyId": "30584a9a-8784-4eb1-a387-e26bd43aec1c",
+              "ratePlanId": "7f95b731-ff05-4c41-99c9-f39b3e772fec",
+              "receivedAt": "2026-10-22T19:12:42.685144Z",
+              "roomTypeId": "f795ae2c-f47d-4751-86ff-e883b6d30800"
+            },
+            "revision_id": "d3e1d0ce-d365-4e60-9129-157ba74d7903",
+            "committed_at": "2026-10-22T19:12:44.684643+00:00"
+          }
+        ],
+        "checked_at": "2026-10-22T19:13:20.582662+00:00",
+        "audit_count": 3,
+        "all_bookings": 8,
+        "all_messages": 12,
+        "all_receipts": 19,
+        "booking_count": 1,
+        "capture_version": 31,
+        "inventory_events": [
+          {
+            "reason": "booking_insert",
+            "version": 29
+          },
+          {
+            "reason": "booking_update",
+            "version": 30
+          },
+          {
+            "reason": "booking_update",
+            "version": 31
+          }
+        ],
+        "target_message_count": 0
+      }
+    }
+  ],
+  "finalControls": {
+    "bookings": 8,
+    "receipts": 19,
+    "publisher": {
+      "connection": "calderwood-hosted-inventory",
+      "generation": 1,
+      "planVersion": 40,
+      "journalVersion": 98,
+      "publishEnabled": false
+    },
+    "checked_at": "2026-10-22T19:14:28.729061+00:00",
+    "active_stays": 0,
+    "message_rows": 12,
+    "enabled_rules": 0,
+    "capture_version": 31,
+    "connected_channels": 0,
+    "enabled_guest_routes": 0,
+    "enabled_cleaner_batches": 0
+  },
+  "readbackQuery": "ce665eec-d094-4e27-b998-b20c1629874c",
+  "limits": [
+    "This is an Offline fictional lifecycle, not Airbnb or another OTA booking.",
+    "Publishing stayed disabled. This demonstrates canonical booking and captured calendar changes, not a fresh outbound availability task or provider inventory readback.",
+    "No message was queued for the rehearsal, and no message delivery acceptance is claimed.",
+    "Duplicate/stale replay and concurrency tests remain local evidence; this hosted run observed one delivery per lifecycle event.",
+    "The final provider booking was visibly acknowledged. A fresh empty revision-feed read was not performed in this run.",
+    "No production entitlement, certification acceptance, PriceLabs parity or portfolio migration is established."
+  ]
+}

@@ -12,8 +12,10 @@ SHA-256. Historical receipts retain their original dates and limits.
    bounded Calderwood import/receipt guards are now installed in the isolated
    database. Signed-webhook and backup-polling code now share that mapping gate;
    local integration and race checks passed. The worker and preview are deployed
-   at `dbab70c9`, and the first mapped empty-feed poll succeeded. Next repeat a
-   signed create/change/cancel demonstration through this new path. The importer intentionally remains fictional Calderwood only.
+   at `dbab70c9`. The mapped empty-feed poll and a fresh signed
+   create/change/cancel demonstration have now passed. One canonical reservation
+   retained all three exact revisions, audit and calendar events, and ACKs.
+   The importer intentionally remains fictional Calderwood only.
    Portfolio mapping UI and generation rollover are later expansion work, not
    prerequisites for this one-property rehearsal.
 2. **Certification scope and demonstration.** PriceLabs owns prices and minimum
@@ -199,8 +201,8 @@ include wrong-project refusal, enabled-publisher refusal, atomic rollback,
 record preservation and owner-only manifest access. Provider responses in these
 local checks were simulated; the hosted database checks used the existing test
 records. The worker and preview were upgraded afterward as recorded below. A
-fresh signed provider lifecycle remains next, followed by automatic-message
-delivery acceptance and PriceLabs verification.
+fresh signed provider lifecycle was subsequently verified below. Automatic-message
+delivery acceptance and PriceLabs verification remain open.
 
 Implementation branch `codex/channex-staging-pilot`; preceding commit `5554e717`;
 original base `a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`; remote main verified at
@@ -223,3 +225,51 @@ zero active channels/send controls. The
 [runtime receipt](staging-storage/calderwood-routing-runtime-receipt.json)
 records both exact deployment IDs and the observation limits. The earlier
 installation receipt remains unchanged as a record of the installation step.
+
+
+## Fresh mapped lifecycle verified, October 22
+
+The ordinary Channex staging booking UI created, modified and cancelled
+`HELMTEST-calderwood-mapped-20261022`. It used the existing isolated property,
+Offline / Other source, fictional name, two adults and the closed $100 placeholder
+rate. No contact details, card, deposit or guest access information was entered.
+The configured signed callback handled all three events with HTTP 200 and
+`Revision durably processed`; Channex showed each resulting revision acknowledged.
+
+| Action | Provider receipt UTC | Independent Helm read-back | Captured calendar version |
+| --- | --- | --- | --- |
+| Create | 19:05:12 | One confirmed stay, June 10-13, 2027 | 29 |
+| Change dates | 19:08:20 | Same stay ID, June 15-18, 2027 | 30 |
+| Cancel | 19:12:45 | Same stay ID, cancelled | 31 |
+
+The [measured lifecycle receipt](staging-storage/calderwood-mapped-lifecycle-receipt.json)
+retains provider delivery/revision IDs and independent database observations after
+each step. Final read-back at 19:14:28 UTC showed one new canonical stay, three
+new revision receipts, three audit rows and three captured calendar events.
+All eight test stays are cancelled. The prior twelve message rows remain twelve,
+with no message rows for this rehearsal. Publishing stayed false; plan/journal
+versions stayed 40/98. Channels, enabled rules, guest routes and cleaner batches
+all remained zero. The test record and history are retained, not deleted.
+
+This closes the new-runtime booking lifecycle checkpoint. It does not establish
+an OTA booking, fresh outbound availability settlement, repeated-delivery recovery,
+real automatic-message delivery or production readiness. No final empty-feed read
+was made in this run; the ACK evidence is the provider UI plus successful exact
+revision processing. Local replay/concurrency evidence and earlier outbound
+calendar evidence retain their separate dates and scope.
+
+The next acceptance batch is continuous automatic-message scheduling and verified
+history, followed by authorized delivery proof. Production entitlement/certification
+and PriceLabs destination parity remain independent launch gates. Guesty remains
+the live operator; no new subscription or live channel change was made.
+
+Documentation handoff: branch `codex/channex-staging-pilot`, starting commit
+`138bd0719be6a966e27ded2781baee9f1cf2e007`, original base
+`a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`; remote main verified at
+`be43cf8867b68a93c5cce358d12dc2a8eb756db0`. Changed files are this handoff,
+its structured evidence index and the new measured receipt. No application code
+changed. **85 evidence checks passed**, covering receipt hashes, step
+identities/dates/counts, retained controls and referenced local paths. The complete
+documentation diff and whitespace checks passed. Application
+tests were not rerun for this documentation-only update. The unrelated dirty
+contract-readiness notes are excluded.
