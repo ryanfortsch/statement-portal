@@ -2377,3 +2377,14 @@ capture hash detects packet edits but cannot establish authority or detect a
 change-and-revert between reads. Continuous ingestion, independently bound source
 identity, authoritative cleaner history and actual delivery remain launch work.
 No new database objects, service, production setting or live message is added.
+
+The authenticated preview also exposed a source-token cache routing mismatch:
+`guesty-client.ts` still combined the isolated public URL with the inherited live
+cache credential. Its new pure configuration resolver keeps the Guesty cache on
+the existing source database only for the exact pilot preview, with an explicit
+branch-scoped `GUESTY_AUTH_CACHE_URL`. The ordinary calendar resolver continues
+using only the isolated database/key. No secrets are copied, no new credential
+or role is created, and unflagged production configuration is unchanged. Missing
+or foreign source-cache configuration fails closed; source protocol and token
+refresh behavior are unchanged. The runtime repair requires fresh preview
+verification, not just a successful build.

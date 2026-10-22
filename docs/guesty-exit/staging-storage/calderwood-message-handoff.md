@@ -1712,3 +1712,21 @@ contract-readiness edits remain excluded. No database schema or role changes.
 The queue-preparation SQL remains locally verified and unapplied to hosted staging.
 Authoritative cleaner history, continuous scheduling updates, production access,
 PriceLabs parity and real recipient delivery acceptance still remain launch gates.
+
+Preview follow-up: `8207bf39` built successfully, but its authenticated source
+read failed before timing collection. Inspection found `guesty-client.ts` pairing
+the branch's isolated public database URL with the inherited source service key.
+Added a narrowly scoped token-cache resolver: only the approved isolated preview
+may use the explicitly configured existing source-cache URL. The calendar still
+uses the staging URL/key via its own resolver. `GUESTY_AUTH_CACHE_URL` is set on
+this branch only to the existing Helm source database's non-secret URL; no secret
+value was extracted or copied and no access grant changed. Without the isolated
+flag, production/default behavior is unchanged. Missing or mismatched isolated
+configuration fails closed. The OAuth/cache protocol itself is unchanged.
+
+Final local validation including this repair: 2,250 tests / 242 suites,
+nonincremental TypeScript and scoped ESLint passed. Three new cases cover ordinary
+behavior, independent calendar/cache credentials and thirteen invalid isolation
+configurations. Native PostgreSQL remains the preceding 146-scenario result;
+this repair changes no SQL. The new preview needs an authenticated read before
+source connectivity or actual timing collection can be claimed as passing.

@@ -15,14 +15,19 @@
  */
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { guestyAuthDatabaseConfig } from './guesty-auth-database-config.ts';
 
 export const GUESTY_API = 'https://open-api.guesty.com';
 
 let _supabase: SupabaseClient | null = null;
 function getSupabase(): SupabaseClient {
   if (_supabase) return _supabase;
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+  const { url, serviceKey: key } = guestyAuthDatabaseConfig({
+    publicUrl: process.env.NEXT_PUBLIC_SUPABASE_URL, serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
+    isolatedCalendarEnabled: process.env.HELM_ISOLATED_CALENDAR_ENABLED,
+    vercelEnv: process.env.VERCEL_ENV, branch: process.env.VERCEL_GIT_COMMIT_REF,
+    guestyAuthCacheUrl: process.env.GUESTY_AUTH_CACHE_URL,
+  });
   if (!url || !key) throw new Error('Supabase URL / service role key not configured');
   _supabase = createClient(url, key);
   return _supabase;
