@@ -7,6 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { buildCanonicalPilotInstall } from './build-canonical-pilot-install.mjs';
 import { buildMessagePilotInstall } from './build-message-pilot-install.mjs';
+import { buildRevisionRoutingInstall } from './build-revision-routing-install.mjs';
 import { buildMessageQueueInstall } from './build-message-queue-install.mjs';
 assert.ok(isAbsolute(process.argv[2]??'')&&isAbsolute(process.argv[3]??''),'Pass absolute native-bin and pg module paths');
 const bin=process.argv[2],{default:pg}=await import(pathToFileURL(process.argv[3]).href);
@@ -21,7 +22,7 @@ try{
  await db.query(buildCanonicalPilotInstall().sql);
  await db.query(readFileSync(new URL('../docs/guesty-exit/staging-storage/canonical-hosted-rehearsal.sql',import.meta.url),'utf8'));
  await db.query(readFileSync(new URL('../docs/guesty-exit/staging-storage/calendar-app.sql',import.meta.url),'utf8'));
- await db.query(`insert into helm_booking_inventory_consumers(property_id,configuration) values('HELMTEST-calderwood','{"publishEnabled":false}')`);
+ await db.query(`insert into helm_booking_inventory_consumers(property_id,configuration) values('HELMTEST-calderwood','{"environment":"staging","topology":"single-unit","connection":"calderwood-hosted-inventory","listing":"f795ae2c-f47d-4751-86ff-e883b6d30800","generation":1,"publishEnabled":false,"timeZone":"America/New_York"}')`);
  const bundle=buildMessagePilotInstall(),scalar=async(sql,args=[])=>(await db.query(sql,args)).rows[0].data;
  const reject=async(sql,pattern)=>{await assert.rejects(db.query(sql),pattern);await db.query('rollback');};
  await db.query("update helm_pilot_installation.manifest set project_ref='wrong'");await reject(bundle.sql,/Reviewed isolated/);
@@ -106,6 +107,26 @@ try{
  assert.equal(queueStatus[1],'New schedules created / existing held identity preserved: 5 / true');
  assert.equal(queueStatus[2],'Retained test jobs: 0');assert.equal(queueStatus[3],'Active send controls: 0');
  pass('independent queue status confirms the persisted result and disabled empty queues');
+ await db.query(readFileSync(new URL('../docs/guesty-exit/staging-storage/canonical-conflicts.sql',import.meta.url),'utf8'));
+ const routing=buildRevisionRoutingInstall();
+ await db.query("update helm_pilot_installation.message_queue set project_ref='wrong'");
+ await reject(routing.sql,/Reviewed isolated installation required/);
+ await db.query("update helm_pilot_installation.message_queue set project_ref='jgkblfozftcvymvwhhii'");pass('route installer rejects unverified project');
+ await db.query("update helm_booking_inventory_consumers set configuration=jsonb_set(configuration,'{publishEnabled}','true')");
+ await reject(routing.sql,/Paused fictional-only route/);
+ await db.query("update helm_booking_inventory_consumers set configuration=jsonb_set(configuration,'{publishEnabled}','false')");pass('route installer refuses active publishing');
+ await reject(routing.sql.replace('if h is distinct from t.row_digest then','if true then'),/Existing staging rows changed/);
+ assert.equal(await scalar("select to_regclass('public.helm_staging_inventory_routes') data"),null);
+ assert.equal(await scalar("select to_regprocedure('public.helm_pilot_revision_route()')::text data"),null);pass('route installer late failure removes all candidate objects and registration');
+ await db.query(routing.sql);
+ assert.equal(await scalar('select bundle_digest data from helm_pilot_installation.revision_routing'),routing.digest);
+ assert.equal((await scalar('select helm_pilot_revision_route() data')).generation,1);
+ assert.equal(await scalar('select count(*)::int data from helm_staging_inventory_routes'),1);
+ pass('exact route installer preserves every prior table row and verifies retained canonical receipts');
+ await reject(routing.sql,/Routing installation collision/);pass('route reinstall refuses replacement');
+ for(const role of ['anon','authenticated','service_role'])
+   assert.equal(await scalar("select has_table_privilege($1,'helm_pilot_installation.revision_routing','SELECT,INSERT,UPDATE,DELETE') data",[role]),false);
+ pass('routing installation manifest remains owner-only');
  console.log(`PASS ${count} installation/preparation scenarios; original digest ${bundle.digest}; no external IO`);
 }catch(e){console.error('FAIL',e.message,e.where??'');process.exitCode=1;}
 finally{if(db)await db.end();if(running)ctl('-m','immediate','-w','stop');rmSync(root,{recursive:true,force:true});}

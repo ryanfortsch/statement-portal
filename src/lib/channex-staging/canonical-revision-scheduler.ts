@@ -1,7 +1,6 @@
 /** Backup polling on the existing isolated worker. Never publishes or sends messages. */
 import { setTimeout as sleep } from 'node:timers/promises';
-import { createCanonicalRevisionClient } from './canonical-revision-client.ts';
-import { createCanonicalRevisionStore } from './canonical-revision-store.ts';
+import { runMappedCanonicalRevisions } from './canonical-revision-mapped.ts';
 import { CanonicalRevisionConflict } from './canonical-conflicts.ts';
 import { ingestCanonicalRevisions } from './canonical-revisions.ts';
 
@@ -15,7 +14,8 @@ export function canonicalPollingEnabled(env: Environment) {
     && env.CHANNEX_STAGING_DB_URL === 'https://jgkblfozftcvymvwhhii.supabase.co';
 }
 export function createCanonicalRevisionPageRunner(env: Environment, fetcher: typeof fetch = fetch) {
-  if (!canonicalPollingEnabled(env) || !env.CHANNEX_STAGING_API_KEY?.trim() || !env.CHANNEX_STAGING_DB_SERVICE_KEY?.trim()) {
+  if (!canonicalPollingEnabled(env) || !env.CHANNEX_STAGING_API_KEY?.trim() || !env.CHANNEX_STAGING_DB_SERVICE_KEY?.trim() ||
+      (env.CHANNEX_INVENTORY_HELM_PROPERTY && env.CHANNEX_INVENTORY_HELM_PROPERTY !== 'HELMTEST-calderwood')) {
     throw Error('Explicit isolated canonical polling configuration required');
   }
   return async (signal: AbortSignal) => {
@@ -25,8 +25,8 @@ export function createCanonicalRevisionPageRunner(env: Environment, fetcher: typ
       return fetcher(input, { ...init, signal: AbortSignal.any([signal, AbortSignal.timeout(20000),
         ...(init?.signal ? [init.signal] : [])]) });
     };
-    return ingestCanonicalRevisions(createCanonicalRevisionClient(env.CHANNEX_STAGING_API_KEY!, boundedFetch),
-      createCanonicalRevisionStore(env.CHANNEX_STAGING_DB_URL!, env.CHANNEX_STAGING_DB_SERVICE_KEY!, boundedFetch));
+    return runMappedCanonicalRevisions({ url: env.CHANNEX_STAGING_DB_URL!,
+      storageKey: env.CHANNEX_STAGING_DB_SERVICE_KEY!, providerKey: env.CHANNEX_STAGING_API_KEY! }, boundedFetch);
   };
 }
 export async function runCanonicalRevisionScheduler(input: {

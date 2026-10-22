@@ -1,0 +1,54 @@
+/** Calderwood ingestion bound to the same owner-reviewed route as inventory. */
+import { createClient } from '@supabase/supabase-js';
+import { CALDERWOOD_STAGING } from '../calderwood-readonly/channex.ts';
+import { stagingInventoryRouteSchema, type StagingInventoryRoute } from './inventory-route.ts';
+import { assertNoCanonicalConflict } from './canonical-conflicts.ts';
+import { createCanonicalRevisionClient } from './canonical-revision-client.ts';
+import { CANONICAL_PILOT_PROPERTY, ingestCanonicalRevisions, parseCanonicalRevision, type CanonicalRevisionStore } from './canonical-revisions.ts';
+
+export function parseCanonicalPilotRoute(raw: unknown): Readonly<StagingInventoryRoute> {
+  const route = stagingInventoryRouteSchema.parse(raw);
+  if (route.helmProperty !== CANONICAL_PILOT_PROPERTY ||
+      route.propertyId !== CALDERWOOD_STAGING.propertyId || route.roomTypeId !== CALDERWOOD_STAGING.roomTypeId ||
+      route.ratePlanId !== CALDERWOOD_STAGING.ratePlanId) throw Error('Reviewed Calderwood revision route required');
+  return Object.freeze(route);
+}
+export function createMappedCanonicalRevisionAccess(url: string, key: string, fetcher: typeof fetch = fetch) {
+  if (typeof window !== 'undefined' || url !== 'https://jgkblfozftcvymvwhhii.supabase.co' || !key.trim()) {
+    throw Error('Explicit isolated staging storage required');
+  }
+  const db = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false }, global: { fetch: fetcher } });
+  async function rpc(name: string, args: Record<string, unknown>) {
+    const { data, error } = await db.rpc(name, args);
+    if (error || !data) throw Error('Mapped canonical revision route/save/read incomplete; no ACK allowed');
+    return data;
+  }
+  return {
+    route: async () => parseCanonicalPilotRoute(await rpc('helm_pilot_revision_route', {})),
+    store(raw: StagingInventoryRoute): CanonicalRevisionStore {
+      const route = parseCanonicalPilotRoute(raw);
+      const binding = { p_connection: route.connection, p_generation: route.generation };
+      return {
+        async commit(rawRevision) {
+          const revision = parseCanonicalRevision(rawRevision);
+          const result = await rpc('helm_pilot_revision_observe_mapped', { ...binding, p_revision: revision });
+          assertNoCanonicalConflict(result, revision);
+          return result;
+        },
+        receipt(id) {
+          if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) throw Error('Invalid revision ID');
+          return rpc('helm_pilot_revision_receipt_mapped', { ...binding, p_id: id });
+        },
+      };
+    },
+  };
+}
+/** Both entry points resolve the route before any provider request. No legacy fallback. */
+export async function runMappedCanonicalRevisions(input: {
+  url: string; storageKey: string; providerKey: string; revisionId?: string; bookingId?: string;
+}, fetcher: typeof fetch = fetch) {
+  const access = createMappedCanonicalRevisionAccess(input.url, input.storageKey, fetcher);
+  const client = createCanonicalRevisionClient(input.providerKey, fetcher);
+  const route = await access.route();
+  return ingestCanonicalRevisions(client, access.store(route), input.revisionId, input.bookingId);
+}

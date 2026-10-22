@@ -1,7 +1,5 @@
 import { canonicalRehearsalEnabled, handleCanonicalRevisionWebhook } from '@/lib/channex-staging/canonical-revision-webhook';
-import { ingestCanonicalRevisions } from '@/lib/channex-staging/canonical-revisions';
-import { createCanonicalRevisionClient } from '@/lib/channex-staging/canonical-revision-client';
-import { createCanonicalRevisionStore } from '@/lib/channex-staging/canonical-revision-store';
+import { runMappedCanonicalRevisions } from '@/lib/channex-staging/canonical-revision-mapped';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -13,9 +11,9 @@ export async function POST(request: Request) {
       CHANNEX_CANONICAL_REHEARSAL_ENABLED: process.env.CHANNEX_CANONICAL_REHEARSAL_ENABLED,
     }),
     secret: process.env.CHANNEX_CANONICAL_SIGNING_SECRET ?? '', now: Date.now,
-    run: (revisionId, bookingId) => ingestCanonicalRevisions(
-      createCanonicalRevisionClient(process.env.CHANNEX_STAGING_API_KEY ?? ''),
-      createCanonicalRevisionStore(process.env.CHANNEX_STAGING_DB_URL ?? '', process.env.CHANNEX_STAGING_DB_SERVICE_KEY ?? ''),
-      revisionId, bookingId),
+    run: (revisionId, bookingId) => runMappedCanonicalRevisions({
+      url: process.env.CHANNEX_STAGING_DB_URL ?? '', storageKey: process.env.CHANNEX_STAGING_DB_SERVICE_KEY ?? '',
+      providerKey: process.env.CHANNEX_STAGING_API_KEY ?? '', revisionId, bookingId,
+    }),
   });
 }

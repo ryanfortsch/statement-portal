@@ -135,7 +135,7 @@ never key per-stay logic on `bookings.id` (`memory/project_bookings_duplicate_ro
   the request fingerprint and receive time to the same attempt token. These are JSONB
   journal fields, not new tables or migrations. Older records remain readable with
   missing evidence marked explicitly; no task completion is inferred from acceptance.
-- **Candidate only, locally verified October 22; not installed:**
+- **Installed only in isolated staging (October 22, 18:38 UTC):**
   `docs/guesty-exit/staging-storage/inventory-routes.sql` adds
   `helm_staging_inventory_routes`, an owner-registered, immutable destination for
   each fictional property. The row binds the consumer connection and generation
@@ -144,8 +144,9 @@ never key per-stay logic on `bookings.id` (`memory/project_bookings_duplicate_ro
   cross-property reuse. Service role can execute only the matching route read
   RPC; browser roles have no read/write access. Updates, deletes and truncation
   are refused. A changed consumer generation invalidates the existing route;
-  replacement/rollover is not implemented. Installation seeds nothing and does
-  not enable publishing, source capture, messages or channels. The revised worker
+  replacement/rollover is not implemented. The source SQL seeds nothing; the
+  guarded installer registered only the existing paused Calderwood connection.
+  It did not enable publishing, source capture, messages or channels. The revised worker
   requires this table and a reviewed row before contacting the inventory provider.
   Native SQL tests run two fictional properties through the real scheduler,
   queue and task settlement with simulated Channex responses.
@@ -251,6 +252,20 @@ never key per-stay logic on `bookings.id` (`memory/project_bookings_duplicate_ro
   original 70 commands. The compatible worker then archived and independently
   replayed all 70 commands and nine completed attempts; format 2 starts at
   absolute version 71, publishing false. See `calderwood-archive-receipt.json`.
+- **Installed only in isolated staging (October 22, 18:38 UTC):**
+  `canonical-revision-routing.sql` adds service-only route resolution and mapped
+  observe/receipt RPCs around the original Calderwood importer. The connection
+  and generation must match the owner-reviewed inventory route. Booking writes
+  retain the original capture lock order; a locked route postcondition rolls back
+  the whole transaction if configuration changed concurrently. Receipt reads also
+  verify canonical property/source ownership before ACK. Private helpers remain
+  inaccessible to app roles. No generic OTA importer or portfolio mapping is
+  implied. Signed-webhook and polling code share this path; their hosted upgrade
+  remains pending. `helm_pilot_installation.revision_routing` privately records
+  the project, exact bundle/source hashes and installation time. The installer
+  preserved every prior table row and all 16 receipts. Independent service-role
+  read-back resolved generation 1 and read the three historical webhook receipts.
+  See `docs/guesty-exit/staging-storage/calderwood-routing-install-receipt.json`.
 - **Installed only in isolated staging (October 19):** `docs/guesty-exit/staging-storage/canonical-revisions.sql`
   wraps the existing booking RPCs for the synthetic Calderwood Channex rehearsal.
   Private `helm_channex_revisions.scope`, `.bookings` and `.receipts` hold the

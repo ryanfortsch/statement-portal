@@ -12,6 +12,7 @@ test('canonical polling rejects wrong environment, storage and missing credentia
     assert.throws(() => createCanonicalRevisionPageRunner(bad));
   }
   assert.throws(() => createCanonicalRevisionPageRunner({ ...env, VERCEL_ENV: 'production' }));
+  assert.throws(() => createCanonicalRevisionPageRunner({ ...env, CHANNEX_INVENTORY_HELM_PROPERTY: 'HELMTEST-other' }));
   assert.throws(() => createCanonicalRevisionPageRunner({ ...env, CHANNEX_STAGING_DB_URL: 'https://other.supabase.co' }));
 });
 test('startup catches up sequentially, then idle polling waits fifteen minutes without logging payload fields', async () => {
@@ -44,10 +45,10 @@ test('shutdown aborts active work and never begins another page; once mode repor
     drainPage:async()=>{throw Error('no connection');},log:()=>{throw Error('telemetry down');},wait:async()=>assert.fail('once never sleeps')});
   assert.deepEqual(once,{cycles:1,failed:true,canSend:false});
 });
-test('page transport propagates cancellation into provider requests and never contacts production', async () => {
+test('page transport propagates cancellation into mapping lookup before contacting the provider', async () => {
   const controller=new AbortController(); let calls=0;
   const run=createCanonicalRevisionPageRunner(env, async (input,init)=>{
-    calls++;assert.match(String(input),/^https:\/\/staging\.channex\.io\/api\/v1\//);
+    calls++;assert.equal(String(input),'https://jgkblfozftcvymvwhhii.supabase.co/rest/v1/rpc/helm_pilot_revision_route');
     assert.equal(init?.signal?.aborted,false);controller.abort();assert.equal(init?.signal?.aborted,true);
     init?.signal?.throwIfAborted(); throw Error('unreachable');
   });

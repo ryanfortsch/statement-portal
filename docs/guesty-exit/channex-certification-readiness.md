@@ -1,20 +1,21 @@
 # Calderwood certification handoff
 
 Reviewed October 22, 2026. **Preparation incomplete; nothing submitted.** This
-index assembles existing evidence and identifies the next implementation work.
-It is not a fresh provider test, certification result, or authorization to launch.
-The [structured packet](channex-certification-evidence.json) pins four source
-receipts by SHA-256. Historical receipts retain their original dates and limits.
+index assembles existing provider evidence and a new isolated database upgrade.
+It is not a certification result or authorization to launch. The
+[structured packet](channex-certification-evidence.json) pins source receipts by
+SHA-256. Historical receipts retain their original dates and limits.
 
 ## Actual critical path
 
-1. **Reusable connection mapping.** The inventory worker now has a locally tested
-   stored-mapping path, including two fictional properties through the real queue
-   and delivery code. Install and register the reviewed isolated route before
-   upgrading that worker. The booking importer, webhook and automatic source
-   verification still use the original fixed route; extend those next. Operator
-   mapping UI and generation rollover remain unimplemented. Production activation
-   stays separate. See the implementation checkpoint below.
+1. **Upgrade and demonstrate the staging runtime.** Stored inventory mapping and
+   bounded Calderwood import/receipt guards are now installed in the isolated
+   database. Signed-webhook and backup-polling code now share that mapping gate;
+   local integration and race checks passed. Upgrade the existing staging worker
+   and preview, then repeat a signed create/change/cancel demonstration through
+   this new path. The importer intentionally remains fictional Calderwood only.
+   Portfolio mapping UI and generation rollover are later expansion work, not
+   prerequisites for this one-property rehearsal.
 2. **Certification scope and demonstration.** PriceLabs owns prices and minimum
    stays. Helm's current hosted publisher sends availability only. We must declare
    that boundary accurately and resolve the applicable pricing/restriction
@@ -81,8 +82,8 @@ Airbnb delivery or adoption of an existing customer reservation.
 An HTTP timeout or ambiguous provider response remains unresolved until
 reconciled; it is not automatically resent. These paths are application code,
 not certification-only scripts. Local test totals are engineering checks, not
-vendor acceptance. The original handoff made no source changes; the local mapping
-follow-up below changes the inventory worker.
+vendor acceptance. The original handoff made no source changes; the mapping
+follow-ups below change the inventory worker and bounded booking ingestion.
 
 ## Vendor requirements and cost boundary
 
@@ -118,7 +119,7 @@ gap. [Guesty automation guide](https://help.guesty.com/hc/en-gb/articles/9365081
 
 Branch `codex/channex-staging-pilot`, starting commit `730cfd92`, original base
 `a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`; remote main checked as
-`89f145821980c588feb28d7d81f31606a62ff1c3`. The source receipts are unchanged.
+`89f145821980c588feb28d7d81f31606a62ff1c3`. The original source receipts are unchanged.
 Validation passed 26 source-hash, task-completion, control, path and link checks.
 The complete documentation diff and whitespace checks passed. Application tests
 were not rerun for this documentation-only batch. Preserve the unrelated contract-readiness edits.
@@ -135,8 +136,9 @@ fallback destination when a mapping is missing or stale. Each operation retains
 staging-only, single-unit, USD/Eastern, stopped-rate and zero-channel checks. The
 legacy read-only Calderwood screen keeps its original fixed mapping wrapper.
 
-The SQL candidate is [inventory-routes.sql](staging-storage/inventory-routes.sql).
-It is **not installed**. It creates no route automatically and gives no mapping
+The SQL is [inventory-routes.sql](staging-storage/inventory-routes.sql).
+It was locally verified in this checkpoint and installed by the later guarded
+upgrade below. The source SQL creates no route automatically and gives no mapping
 write permission to the worker or browser. The owner registers the exact current
 connection while publishing is paused. Remote IDs are unique across properties.
 Rows are immutable; changing generation blocks the old review until a future
@@ -155,7 +157,8 @@ check, and 118 native PostgreSQL concurrency/schema checks passed. The new nativ
 checks exercise registration, immutable rows, permissions, stale generations and
 two independent scheduler-to-queue-to-task flows. All provider replies in those
 checks are simulated. No new hosted provider receipt or certification pass is
-claimed. The migration and worker upgrade remain pending; no live state changed.
+claimed. At this earlier checkpoint, installation and worker upgrade were pending;
+no hosted state changed in that batch.
 
 
 Implementation branch: `codex/channex-staging-pilot`; preceding commit `2af9fdd2`;
@@ -166,3 +169,41 @@ verification: route/scheduler application tests and the native mapping/concurren
 harness. Scoped ESLint and whitespace checks also passed; all four historical
 source-receipt hashes remain unchanged. Unrelated contract-readiness edits are
 excluded from this implementation.
+
+
+## Bound booking import and hosted installation, October 22
+
+Signed notifications and backup polling now resolve the reviewed Calderwood
+route before contacting Channex. Both use the same mapped save and independent
+receipt-read functions. A missing/stale review or changed canonical ownership
+prevents acknowledgment. The existing exact fictional payload parser, property
+metadata checks and zero-channel restriction remain in force. This is a bounded
+Calderwood improvement, not general portfolio booking support.
+
+The guarded installer completed at **18:38:19 UTC** in project
+`jgkblfozftcvymvwhhii`. It registered generation 1 and preserved every existing
+row, including seven bookings, twelve message rows and sixteen import receipts.
+Independent read-back at 18:40 UTC retained capture 28 / plan 40 / journal 98,
+zero channels/send controls and publishing false. The service role resolved the
+route and read all three historical signed-webhook receipts. The
+[installation receipt](staging-storage/calderwood-routing-install-receipt.json)
+pins the exact bundle and source hashes. No new provider operation or message
+was sent by the upgrade.
+
+Validation: **2,259 application tests / 242 suites**, fresh nonincremental
+TypeScript, scoped ESLint and whitespace checks passed. **129 native PostgreSQL
+concurrency/schema checks** include mapped notification/polling replay, lost
+responses, cancellation, source reassignment, denied access and two concurrent
+configuration/import races. **26 exact installation/preparation scenarios**
+include wrong-project refusal, enabled-publisher refusal, atomic rollback,
+record preservation and owner-only manifest access. Provider responses in these
+local checks were simulated; the hosted database checks used the existing test
+records. The worker and preview upgrade plus a fresh provider lifecycle remain
+next, followed by automatic-message delivery acceptance and PriceLabs verification.
+
+Implementation branch `codex/channex-staging-pilot`; preceding commit `5554e717`;
+original base `a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`; remote main verified at
+`be43cf8867b68a93c5cce358d12dc2a8eb756db0`. Changed files: the mapped canonical
+revision adapter, scheduler, webhook route, adapter/scheduler tests, routing SQL,
+installation builder, native concurrency/installation harnesses and this schema/
+evidence documentation. The unrelated contract-readiness edits remain excluded.

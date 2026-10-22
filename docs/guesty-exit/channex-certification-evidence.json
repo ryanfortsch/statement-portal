@@ -18,6 +18,10 @@
     {
       "path": "staging-storage/calderwood-message-queue-install-receipt.json",
       "sha256": "e455f416b8290dfe07e3ade53471507ae691a3d3950f700961639b63aa4469a2"
+    },
+    {
+      "path": "staging-storage/calderwood-routing-install-receipt.json",
+      "sha256": "128a71e11eafbd47274a4244f7e027d9a3bd0693353f3072ae50a379907597c8"
     }
   ],
   "calendarApplicationCommit": "91ceab2fb6389a0ca1810f82a8f954200a8a33c2",
@@ -76,7 +80,7 @@
     "bookingCreateModifyCancelAndAck": "hosted-offline-evidence",
     "resumeAfterArchiveAndOneDayWindowAdvance": "hosted-evidence",
     "continuousMidnightReliabilitySoak": "not-demonstrated",
-    "configurableRuntimeMapping": "inventory-worker-local-tests-passed-not-installed; booking-importer-and-webhook-still-fixed",
+    "configurableRuntimeMapping": "isolated-route-and-bounded-import-guards-installed; application-tests-passed; worker-and-preview-upgrade-pending; generic-OTA-import-and-rollover-not-implemented",
     "fiveHundredDayFullAriUpdate": "not-demonstrated",
     "pricingAndRestrictionsScopeAcceptedByChannex": "not-verified",
     "certificationFormSubmitted": false,
@@ -96,7 +100,7 @@
     "includesTaxHostingPriceLabsQuoOrDevelopment": false
   },
   "lastVerifiedControls": {
-    "at": "2026-10-22T17:25:10Z",
+    "at": "2026-10-22T18:40:10.993833Z",
     "publisherEnabled": false,
     "activeMessageControls": 0,
     "connectedChannels": 0

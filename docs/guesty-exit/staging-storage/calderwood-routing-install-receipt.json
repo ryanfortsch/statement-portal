@@ -1,0 +1,47 @@
+{
+  "environment": "isolated-staging",
+  "projectRef": "jgkblfozftcvymvwhhii",
+  "installedAt": "2026-10-22T18:38:19.238280Z",
+  "verifiedAt": "2026-10-22T18:40:10.993833Z",
+  "bundleSha256": "82fb9806b470e2bc387b436443d1072041693f80dabfdafa177412f385aaf1b9",
+  "installationAndReadbackQuery": "ce665eec-d094-4e27-b998-b20c1629874c",
+  "sources": {
+    "docs/guesty-exit/staging-storage/inventory-routes.sql": "7b441d0ad37344c70bea007ad2d4ab158f4a83e82485f5d405a72afd178426a4",
+    "docs/guesty-exit/staging-storage/canonical-revision-routing.sql": "ce6e647d69bc69628f28069859b64d93a5566e9e31ed070fcd98587eee0aac50",
+    "docs/guesty-exit/staging-storage/canonical-revisions.sql": "ee87dc05b0675d4f576a1f1d09ab54132e203fa3389d4caa3586c16917d6e275",
+    "docs/guesty-exit/staging-storage/canonical-conflicts.sql": "06c1db6d21a092d481a23d1267eebe5830907a725ae025a74efbde4678145482",
+    "scripts/build-revision-routing-install.mjs": "ddb87f2d4fa9853f25ba9a70f06d43b1c8b9351c6b1fa780bcb38851c8ab001e"
+  },
+  "route": {
+    "helmProperty": "HELMTEST-calderwood",
+    "connection": "calderwood-hosted-inventory",
+    "generation": 1,
+    "propertyId": "30584a9a-8784-4eb1-a387-e26bd43aec1c",
+    "roomTypeId": "f795ae2c-f47d-4751-86ff-e883b6d30800",
+    "ratePlanId": "7f95b731-ff05-4c41-99c9-f39b3e772fec"
+  },
+  "preservation": {
+    "allPriorTableRowsVerifiedInsideTransaction": true,
+    "bookings": 7,
+    "automationSends": 12,
+    "importReceipts": 16,
+    "allImportReceiptsReadInsideTransaction": true,
+    "historicalWebhookReceiptsReadAsServiceRole": 3,
+    "captureVersion": 28,
+    "planVersion": 40,
+    "journalVersion": 98
+  },
+  "controls": {
+    "publishing": false,
+    "connectedChannels": 0,
+    "enabledRules": 0,
+    "enabledGuestRoutes": 0,
+    "enabledCleanerBatches": 0
+  },
+  "limits": [
+    "No new provider revision, acknowledgment, availability request or message delivery was performed.",
+    "Worker and preview deployment of the mapped code and a fresh signed provider lifecycle remain pending.",
+    "Exact fictional Calderwood importer only; no real OTA/customer import, generic portfolio mapping or rollover.",
+    "No production database, Guesty connection, paid service or credential was changed."
+  ]
+}

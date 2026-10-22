@@ -1,3 +1,4 @@
+import { verifyCanonicalRevisionRouting } from './verify-canonical-revision-routing.mjs';
 import { verifyStagingInventoryRoutes } from './verify-staging-inventory-routes.mjs';
 import { prepareInventoryArchive } from '../src/lib/channex-staging/inventory-archive.ts';
 import { verifyBookingInventoryArchive } from './verify-booking-inventory-archive.mjs';
@@ -336,6 +337,7 @@ try{
     assert.equal((await history.read()).journalVersion,s.journalVersion+1);assert.ok(await history.store.readArchive(proof.id));
   });
   await verifyStagingInventoryRoutes({exec:sql=>monitor.query(sql),query:(sql,args)=>monitor.query(sql,args)},check);
+  await verifyCanonicalRevisionRouting({exec:sql=>monitor.query(sql),query:(sql,args)=>monitor.query(sql,args)},check,{a,b,blocked,pidA,pidB});
   console.log(`PASS: ${passed} native PostgreSQL concurrency/schema checks; observed lock waits; no provider or hosted connections.`);
 }catch(error){console.error('FAIL:',error.message);process.exitCode=1;}
 finally{
