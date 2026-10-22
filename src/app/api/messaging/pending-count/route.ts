@@ -38,6 +38,7 @@ async function pendingDigestCount(): Promise<number | null> {
 }
 
 import { countPendingOwnerHoldQuestions } from '@/lib/owner-hold-questions';
+import { countPendingVendorVisits } from '@/lib/vendor-visit-cards';
 import { sessionRole } from '@/lib/helm-access-server';
 
 export async function GET() {
@@ -52,13 +53,14 @@ export async function GET() {
     const cleaners = digests !== null && ownerHolds !== null ? digests + ownerHolds : null;
     return NextResponse.json({ count: cleaners, guests: 0, owners: 0, cleaners, contractors: 0 });
   }
-  const [guestRes, ownerRes, cleanerRes, contractorRes, digests, ownerHolds] = await Promise.all([
+  const [guestRes, ownerRes, cleanerRes, contractorRes, digests, ownerHolds, vendorVisits] = await Promise.all([
     listApprovals(),
     owner ? listOwnerApprovals() : Promise.resolve(null),
     listCleanerApprovals(),
     listContractorApprovals(),
     pendingDigestCount(),
     countPendingOwnerHoldQuestions(supabase),
+    countPendingVendorVisits(),
   ]);
   // Mirror the messaging PAGES' own filters exactly. Each prior tweak
   // (data.count, then approvals.length, then resolved_at filter) failed to
@@ -85,7 +87,9 @@ export async function GET() {
   const cleaners = cleanerRes.ok && digests !== null && ownerHolds !== null
     ? cleanerRes.data.approvals.filter(notScheduled).length + digests + ownerHolds
     : null;
-  const contractors = contractorRes.ok ? contractorRes.data.approvals.filter(notScheduled).length : null;
+  // A trade vendor's confirmed day is a Vendor card under the Contractors
+  // filter (docs/vendor-visit-holds.md), so it counts with them.
+  const contractors = contractorRes.ok && vendorVisits !== null ? contractorRes.data.approvals.filter(notScheduled).length + vendorVisits : null;
   return NextResponse.json({
     count: guests !== null && owners !== null && cleaners !== null && contractors !== null ? guests + owners + cleaners + contractors : null,
     guests,

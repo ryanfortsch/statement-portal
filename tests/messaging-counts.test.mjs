@@ -34,7 +34,7 @@ test('late pre-action count cannot overwrite a post-action count', async () => {
   } finally { globalThis.fetch = original; }
 });
 
-function route({ guestFailed = false, digestFailed = false, configured = true, ownerHolds = 0, role = 'owner', ownerPending = false } = {}) {
+function route({ guestFailed = false, digestFailed = false, configured = true, ownerHolds = 0, role = 'owner', ownerPending = false, vendorVisits = 0 } = {}) {
   const queries = [];
   const reads = { owner: 0 };
   const db = { from(table) { queries.push(['from',table]); return this; }, select(...a) { queries.push(['select',...a]); return this; }, eq(...a) { queries.push(['eq',...a]); return this; }, gte(...a) { queries.push(['gte',...a]); return this; }, order(...a) { queries.push(['order',...a]); return this; }, limit(...a) { queries.push(['limit',...a]); return this; }, then(done) { return Promise.resolve(digestFailed ? { error: {} } : { data: [{ id: 'visible' }] }).then(done); } };
@@ -47,6 +47,9 @@ function route({ guestFailed = false, digestFailed = false, configured = true, o
     // Owner blocks waiting on "clean after?" ride on the Cleaners badge; null
     // means the mirror could not be read.
     '@/lib/owner-hold-questions': { countPendingOwnerHoldQuestions: async () => ownerHolds },
+    // A trade vendor's confirmed day waiting on a hold rides on the
+    // Contractors count (docs/vendor-visit-holds.md); null is unreadable.
+    '@/lib/vendor-visit-cards': { countPendingVendorVisits: async () => vendorVisits },
     // The signed-in role: a staff login has no Owners tab, so the owner feed
     // is never read for it and counts as nothing.
     '@/lib/helm-access-server': { sessionRole: async () => role },
@@ -103,4 +106,14 @@ test('an owner block waiting on "clean after?" counts on the Cleaners badge, con
 test('an unreadable owner-hold count never makes the cleaner total look complete', async () => {
   const data = await route({ ownerHolds: null }).GET();
   assert.equal(data.cleaners, null); assert.equal(data.count, null); assert.equal(data.guests, 2);
+});
+
+test('a vendor visit waiting on a hold counts on the Contractors badge', async () => {
+  const data = await route({ vendorVisits: 2 }).GET();
+  assert.equal(data.contractors, 3); assert.equal(data.count, 7);
+});
+
+test('an unreadable vendor visit count never makes the contractor total look complete', async () => {
+  const data = await route({ vendorVisits: null }).GET();
+  assert.equal(data.contractors, null); assert.equal(data.count, null); assert.equal(data.cleaners, 2);
 });

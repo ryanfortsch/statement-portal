@@ -6,6 +6,7 @@ import { ingestVendorAppointments, isVendorReminderSender } from '@/lib/vendor-s
 import { recordInboundSms, recordOutboundSms } from '@/lib/helm-inbox';
 import { cachedNumberIndex, fillContactPhone } from '@/lib/known-numbers-server';
 import { selectAllPaged } from '@/lib/paged-select';
+import { proposeVendorVisit } from '@/lib/vendor-visits';
 
 /**
  * Quo (OpenPhone) WEBHOOK ingest. Shared by the live webhook
@@ -189,6 +190,24 @@ async function handleInboundMessage(msg: WebhookMessage): Promise<void> {
     } catch (err) {
       console.warn('[quo-ingest] helm inbox inbound skipped', err instanceof Error ? err.message : err);
     }
+  }
+
+  // 1c. A trade vendor naming a visit day ("Tuesday 10/27 at 1 works"), on
+  // any line. Files a PROPOSAL for the Team inbox and nothing else: the
+  // calendar hold and the slips wait for the operator's approve
+  // (docs/vendor-visit-holds.md). Fail-soft and never short-circuits, like
+  // the inbox hook above, so the contact touch and the unknown-number
+  // capture below behave exactly as before.
+  try {
+    await proposeVendorVisit(supabase, {
+      messageId: msg.id,
+      from: fromPhone,
+      body,
+      at: msg.createdAt,
+      line: quoLineOfInbound(msg),
+    });
+  } catch (err) {
+    console.warn('[quo-ingest] vendor visit skipped', err instanceof Error ? err.message : err);
   }
 
   // 1. Cleaner path: a completion ping and/or a maintenance issue.

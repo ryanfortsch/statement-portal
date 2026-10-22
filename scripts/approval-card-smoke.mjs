@@ -35,7 +35,9 @@ coachOwnerDraft=rec('coach'),editOwnerDraft=rec('edit'),redraftOwnerDraft=rec('r
 scheduleOwnerDraft=rec('schedule'),cancelOwnerSchedule=rec('cancel');
 export const approveDraft=rec('approve'),markHandled=rec('handled'),undoDecision=rec('undo'),coachDraft=rec('coach'),
 editDraft=rec('edit'),redraftDraft=rec('redraft'),scheduleDraft=rec('schedule'),cancelSchedule=rec('cancel'),dismissMaintenanceSlip=rec('dismiss');
-export const releaseHeldPitch=rec('release');`);
+export const releaseHeldPitch=rec('release');
+export const approveVendorVisitAction=rec('approve-vendor-visit'),editVendorVisitAction=rec('edit-vendor-visit'),
+markVendorVisitHandledAction=rec('handled'),undoVendorVisitAction=rec('undo-vendor-visit');`);
 await writeFile(join(scratch,'role.js'),`export const useHelmRole=()=>window.role||'owner';`);
 // version-skew reads process.env, which only Next defines; the card's Button watchdog imports it.
 await writeFile(join(scratch,'skew.js'),'export const reloadedForNewDeployment=()=>Promise.resolve(false);');
@@ -85,13 +87,25 @@ window.queue=mode==='cleaner'?cleanerCards:mode==='owner'?ownerCards:mode==='gue
 window.role=new URLSearchParams(location.search).get('role')||'owner';
 const held=[{source_id:'abc123def456',held_at:Math.floor(Date.now()/1000)-3600,sender:'seo@example.test',subject:'Rank #1 on Google'}];
 window.fetch=async url=>{const u=String(url);const aud=(u.match(/audience=(\w+)/)||[])[1];
- const approvals=!u.includes('/api/messaging/queue')?null:mode==='team'||aud==='cleaners'||aud==='contractors'?window.queues[aud]:window.queue;
+ const approvals=!u.includes('/api/messaging/queue')?null:mode==='vendor'?[]:mode==='team'||aud==='cleaners'||aud==='contractors'?window.queues[aud]:window.queue;
  return new Response(JSON.stringify(approvals?{approvals,context:aud==='guests'?guestQuotes:{}}:{}),{headers:{'Content-Type':'application/json'}});};
 const homes=[{id:'home-a',name:'Synthetic Cottage'},{id:'home-b',name:'Synthetic Barn'}];
+// Trade vendors' confirmed days (docs/vendor-visit-holds.md), Helm-native cards.
+const vplan={holdNights:['2026-10-27'],alreadyHeld:[],guestNights:[],nightBefore:{date:'2026-10-26',offered:false,suggested:false},warnings:[],outsideOffer:false};
+const vbase={status:'pending',stuck:false,vendorName:'Tom Synthetic Plumbing',tradeLabel:'Plumbing',tradeCategory:'plumbing',fromPhone:'+15550142',lineLabel:'Owners line',messageAt:now,createdAt:now,ageMinutes:4,
+ property:{id:'home-a',name:'Synthetic Cottage',authority:'guesty'},propertyBasis:'offer',endTime:null,askReason:null,candidates:[],checkoutTime:'11:00',checkinTime:'16:00',planError:null,lastError:null,
+ offer:{text:'Synthetic Cottage is open Mon 10/26 to Thu 10/29. Which day works?',at:now,windows:[{start:'2026-10-26',end:'2026-10-29'}]}};
+const vendorCards=[
+ {...vbase,id:'visit-card',messageBody:'Tuesday 10/27 at 1 works',start:'2026-10-27',end:'2026-10-27',startTime:'13:00',timeLabel:'at 1 PM',dateBasis:'named in the text',plan:vplan,
+  slips:[{id:'slip-1',title:'Upstairs toilets run',lane:'pro',matchesTrade:true,ticked:true,note:null},{id:'slip-2',title:'Shower valve drips',lane:'handyman',matchesTrade:true,ticked:false,note:null}]},
+ {...vbase,id:'ask-card',messageBody:'Tuesday works',start:null,end:null,startTime:null,timeLabel:null,dateBasis:null,askReason:'"Tuesday" could be more than one Tuesday you offered',candidates:['2026-10-20','2026-10-27'],plan:null,slips:[]},
+ {...vbase,id:'warn-card',vendorName:'Wes Synthetic Electric',tradeLabel:'Electrical',lineLabel:'24/7 line',messageBody:'Wednesday 10/28 at 10 works',start:'2026-10-28',end:'2026-10-28',startTime:'10:00',timeLabel:'at 10 AM',dateBasis:'named in the text',
+  plan:{...vplan,holdNights:[],guestNights:['2026-10-28'],warnings:['A guest arrives Wed Oct 28 at 4 PM: Wes Synthetic Electric has to be done before then.']},slips:[]},
+];
 const teamAudience=new URLSearchParams(location.search).get('audience')||(mode==='cleaner'?'cleaners':mode==='contractor'?'contractors':'all');
-createRoot(document.getElementById('root')).render(<main id={mode}>{mode==='owner'?<OwnerMessagingQueue initialPending={ownerCards}/>:mode==='guest'?<MessagingQueue initialPending={guestCards} initialQuotes={guestQuotes} held={held}/>:<TeamInboxQueue initialCleaners={mode==='contractor'?[]:cleanerCards} initialContractors={mode==='cleaner'?[]:cards} contractorContext={{}} properties={homes} audience={teamAudience}/>}</main>);
+createRoot(document.getElementById('root')).render(<main id={mode}>{mode==='owner'?<OwnerMessagingQueue initialPending={ownerCards}/>:mode==='guest'?<MessagingQueue initialPending={guestCards} initialQuotes={guestQuotes} held={held}/>:<TeamInboxQueue initialCleaners={mode==='contractor'||mode==='vendor'?[]:cleanerCards} initialContractors={mode==='cleaner'||mode==='vendor'?[]:cards} contractorContext={{}} properties={homes} audience={teamAudience} vendorVisits={mode==='vendor'?vendorCards:[]}/>}</main>);
 `);
-const alias={'@/lib/version-skew':join(scratch,'skew.js'),'./inbox-health-actions':join(scratch,'actions.js'),'@/app/cleaner-messaging/actions':join(scratch,'actions.js'),'@/app/contractor-messaging/actions':join(scratch,'actions.js'),'@/components/useHelmRole':join(scratch,'role.js'),'./Thread':join(scratch,'thread.js'),'@':join(root,'src'),'./actions':join(scratch,'actions.js'),'next/navigation':join(scratch,'navigation.js'),'next/link':join(scratch,'link.js')};
+const alias={'@/lib/version-skew':join(scratch,'skew.js'),'./inbox-health-actions':join(scratch,'actions.js'),'./vendor-visit-actions':join(scratch,'actions.js'),'@/app/cleaner-messaging/actions':join(scratch,'actions.js'),'@/app/contractor-messaging/actions':join(scratch,'actions.js'),'@/components/useHelmRole':join(scratch,'role.js'),'./Thread':join(scratch,'thread.js'),'@':join(root,'src'),'./actions':join(scratch,'actions.js'),'next/navigation':join(scratch,'navigation.js'),'next/link':join(scratch,'link.js')};
 await new Promise((resolve,reject)=>{const compiler=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.tsx'),output:{path:scratch,filename:'bundle.js'},
  resolve:{extensions:['.tsx','.ts','.js'],modules:[join(root,'node_modules')],alias},
  module:{rules:[{test:/\.tsx?$/,use:join(scratch,'ts-loader.cjs')}]},performance:{hints:false}});
@@ -241,6 +255,40 @@ try{
  pass('team: one list, an audience chip on every card, counts on the filter, and Undo goes to the card\'s own audience');
  await page.goto(origin+'/?mode=team&audience=contractors');await page.waitForSelector(card('slip-card'));
  assert.equal(await page.$(card('pt-card')),null,'the Contractors filter hides cleaner cards');pass('team: the filter narrows the list');
+ // Vendor visits: a trade vendor's confirmed day, on the one card, with no reply to send.
+ await page.evaluate(()=>{window.calls=[];});await page.goto(origin+'/?mode=vendor&audience=contractors');await page.waitForSelector(card('visit-card'));
+ assert.match(await text('nav[aria-label="Whose messages"]'),/Contractors · 3/);
+ const visit=await text(card('visit-card'));
+ assert.match(visit,/^Tom Synthetic Plumbing ?Vendor/);assert.match(visit,/Reads as ?Tue Oct 27, at 1 PM at Synthetic Cottage/);
+ assert.match(visit,/Holds Synthetic Cottage the night of Tue Oct 27 in Guesty, so Airbnb, VRBO and Booking.com stop selling it/);
+ assert.match(visit,/Schedules 1 slip for Tom Synthetic Plumbing on Tue Oct 27/);
+ for(const absent of ['Approve & send','Coach the AI','Redraft'])assert.ok(!visit.includes(absent),absent);
+ pass('vendor visit: who wrote, what it reads as, the hold and the slips, and no reply to send');
+ await click(card('visit-card'),'Details');await page.$$eval(card('visit-card')+' input[type=checkbox]',bs=>bs[1].click());
+ assert.match(await text(card('visit-card')),/Schedules 2 slips/);
+ await click(card('visit-card'),'Approve hold');await waitCalls(1);
+ assert.deepEqual((await calls())[0],{kind:'approve-vendor-visit',args:['visit-card',{propertyId:'home-a',start:'2026-10-27',end:'2026-10-27',startTime:'13:00',endTime:null,slipIds:['slip-1','slip-2'],holdNightBefore:false}]});
+ await finish(0,{ok:true,warning:'Held Synthetic Cottage the night of Tue Oct 27. 2 slips scheduled.'});
+ await page.waitForFunction(()=>document.body.innerText.includes('Held Synthetic Cottage the night of Tue Oct 27.'));
+ pass('vendor visit: the ticks ride on approve, and what was held comes back in one line');
+ const ask=await text(card('ask-card'));assert.match(ask,/Which day\? "Tuesday" could be more than one Tuesday you offered\./);assert.match(ask,/Pick the day/);
+ assert.equal(await enabled(card('ask-card'),'Approve visit'),false);
+ await click(card('ask-card'),'Tue Oct 20');await waitCalls(2);
+ assert.deepEqual((await calls())[1],{kind:'edit-vendor-visit',args:['ask-card',{propertyId:null,start:'2026-10-20',end:'2026-10-20',startTime:null,endTime:null}]});await finish(1);
+ pass('vendor visit: an unclear day asks, blocks approve, and a day is one tap');
+ const warn=await text(card('warn-card'));assert.match(warn,/A guest arrives Wed Oct 28 at 4 PM/);assert.match(warn,/Read first/);assert.match(warn,/Nothing to hold at Synthetic Cottage/);
+ await page.screenshot({path:join(process.env.SMOKE_SHOTS||tmpdir(),'approval-card-vendor.png'),fullPage:true});
+ await click(card('warn-card'),'Mark handled');await click(card('warn-card'),'Not a visit');await waitCalls(3);
+ assert.deepEqual((await calls())[2],{kind:'handled',args:['warn-card','Not a visit']});await finish(2);
+ await page.waitForSelector('.rt-undo-toast');await page.$$eval('.rt-undo-toast button',bs=>bs.find(b=>b.textContent==='Undo').click());await waitCalls(4);
+ assert.deepEqual((await calls())[3],{kind:'undo-vendor-visit',args:['warn-card']});await finish(3);
+ pass('vendor visit: the calendar warning is read first; Mark handled has its own reasons and Undo');
+ await page.setViewport({width:390,height:844});await page.goto(origin+'/?mode=vendor&audience=contractors');await page.waitForSelector(card('ask-card'));
+ assert.match(await text('#needs-review'),/Review hold/);
+ await page.$$eval('.rt-inbox-review-toggle',bs=>bs[1].click());await page.waitForSelector(card('ask-card')+' input[type=date]',{visible:true});
+ await page.screenshot({path:join(process.env.SMOKE_SHOTS||tmpdir(),'approval-card-vendor-mobile.png'),fullPage:true});
+ assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);pass('vendor visit: the day editor fits a phone');
+ await page.setViewport({width:1280,height:1000});
  await page.goto(origin+'/?mode=contractor');await page.waitForSelector('#approval-slip-card');
  await page.setViewport({width:390,height:844});await page.reload();await page.waitForSelector('.rt-inbox-review-toggle');
  await page.$$eval('.rt-inbox-review-toggle',bs=>bs[0].click());

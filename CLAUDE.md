@@ -212,6 +212,18 @@ proposals. The bridge uses the existing header-only stay-concierge authorization
 This covers concierge-delivered guest messages; Helm-native thread delivery is a separate
 rail and is not handled by this outbox.
 
+**A trade vendor's confirmed day is a hold card, never a write** (`docs/vendor-visit-holds.md`,
+since 2026-10-18). When a `trade_vendors` number texts a visit day on any line, the Quo ingest
+files one `vendor_visit_proposals` row (`src/lib/vendor-visits.ts`) and nothing else. The Team
+inbox shows it as a Vendor card under Contractors: what it reads as, the nights it would hold, the
+slips it would schedule, and what the calendar says first. Only Approve writes, through
+`src/lib/vendor-visit-approve.ts`: open nights only, re-read live (in Guesty itself on a guesty-run
+home, so a night booked since the card was drafted stops it), then the ticked slips go
+`scheduled` with `Vendor: <name>`. The reader (`src/lib/vendor-visit-dates.ts`) never guesses: an
+unclear day or home is a question on the card. A home is matched by street number AND a street
+word with dates stripped, never by a bare number, because "Wed 10/21" is not 21 Horton.
+`vendor-visit-guard.test.ts` holds the never-write-before-approve rule.
+
 ## Auth and routing
 
 `src/proxy.ts` gates everything by default. A route is public only if it appears in
@@ -775,6 +787,8 @@ The webhook ingest stamps `quo_unknown_numbers.quo_line` from the event's `phone
 /crm triage card badges it. Every Quo webhook has its own signing key: the app-made original is
 `QUO_WEBHOOK_SECRET`, API-made ones ride in `QUO_WEBHOOK_SECRETS` (comma list); any may sign.
 
+- **A trade vendor's text** (`trade_vendors.phone` / `after_hours_phone`, any line) also files a
+  vendor visit proposal when it names a day, beside the paths below and short-circuiting none.
 - **Live path**: `POST /api/webhooks/quo` verifies the `openphone-signature` HMAC
   (`hmac;1;<timestamp>;<base64-digest>`, signed payload `<timestamp>.<JSON.stringify(body)>`, secret
   base64-decoded), persists into `quo_events` (unique on `quo_event_id`, so replays 200), and
