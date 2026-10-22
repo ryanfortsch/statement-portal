@@ -1,7 +1,8 @@
 # Helm schema, source-of-truth map
 
-The Helm database has 80+ tables and the same physical thing (a stay, a
-property, a contact) lives in more than one of them for good reasons. The
+The Helm database has about 160 tables (created across the migrations,
+counted 2026-10-22) and the same physical thing (a stay, a property, a
+contact) lives in more than one of them for good reasons. The
 question "which table is authoritative for X?" is mostly tribal knowledge.
 This document writes it down. It is not exhaustive; it covers the questions
 that have actually caused confusion or carry money risk.
@@ -21,8 +22,13 @@ for its DDL or `git grep "from('<table>')"` for its writers and readers.
 - **`property_statements`** is the canonical owner statement: one row per
   property per month with `rental_revenue`, `management_fee`, `cleaning_total`,
   `repairs_total`, `owner_payout`. The editorial render at `/statements/render`
-  reads this, and so does the sent PDF.
-- **`statement_periods`** is the month-level header (`month` + `created_at`).
+  reads this, and so does the sent PDF. Its money columns are written only by
+  `writeStatementTotals` (`src/lib/statement-totals-write.ts`); see `CLAUDE.md`.
+- **`statement_periods`** is the month-level header: `month`, `status` and
+  `funds_sent_date`. `status` is `draft` until an owner presses Finalize
+  Month, then `final`, which freezes every statement in the month (the base
+  schema's comment also names `review`; nothing writes it).
+  `funds_sent_date` is the Issued/Payout date on the render.
 - **`close_handoff_items`** (2026-10-14) is the field's input to the close: repair costs, card charges by home and cleaning issues the operations manager adds on `/fieldwork/close` and marks sent three days before the close. `status` runs open, sent, filed, dismissed. It never writes a payout: an owner files a money item through `/api/receipts` (the row then carries `receipt_id`) or notes a cleaning issue on the period. Photos sit in the private `expense-receipts` bucket under `handoff/`. Service-role only.
 - **`reservations`** are the per-stay rows that fed `rental_revenue`
   (`adjusted_revenue`, `stripe_fee`, `guesty_rental_income`). The Guesty
@@ -30,22 +36,28 @@ for its DDL or `git grep "from('<table>')"` for its writers and readers.
   see `CLAUDE.md` for the channel-specific revenue rules.
 
 ### Recognised revenue, in general
-- **Past closed months**: `property_statements`. These are immutable once
-  sent. Treat them as the ledger.
+- **Past closed months**: `property_statements`. Treat them as the ledger. A
+  statement is frozen once sent (`close_tasks.email_sent_at`) or once its
+  month is `final`: every payout write is refused unless an operator forces
+  it, and a forced write files a `post_send_write` gap
+  (`src/lib/statement-finality.ts`). Frozen, not immutable.
 - **Current month and forward**: `revenue-snapshot.ts` pro-rates Guesty
   reservations by night-overlap. Do not reach for `property_statements` for
   the current month before the statement is generated.
 
 DO NOT refactor the math behind any of the above without explicit approval
 and a per-property parity harness. The accreted formulas are right; touching
-them risks paying somebody $40 short with nobody noticing. See
-`memory/feedback_hands_off_payout_math.md`.
+them risks paying somebody $40 short with nobody noticing. This is a standing
+rule for every agent (`AGENTS.md`), with the full money chapter in `CLAUDE.md`.
 
 ### Cleaning
-- **`cleaning_events`** is one row per Cape Ann Elite ACH charge. The bank
-  statement is the source of truth for the total cleaning cost (see
-  `CLAUDE.md`). Invoices from Gmail attribute charges to specific
-  check-outs but do not override the bank total.
+- **`cleaning_events`** holds the Cape Ann Elite ACH charges and also the
+  linen and laundry charges and invoice-only rows. The bank statement is the
+  source of truth for the total cleaning cost (see `CLAUDE.md`). Only rows
+  whose `source` is in `CLEANING_MONEY_SOURCES` (`src/lib/statement-totals.ts`:
+  `bank`, `matched`, `corroborated`, `bank-linen`, `bank-laundry`) are money,
+  each net of `credit_amount`. Invoice rows attribute charges to specific
+  check-outs and never bill: summing every row overbills the owner.
 - **`cleaning_completions`** is one row per cleaner-confirmed turnover
   (the Quo SMS pipeline). It says when the property was actually cleaned,
   not what we paid. Used by the Turnovers pipeline, not by the statement.
@@ -91,12 +103,12 @@ them risks paying somebody $40 short with nobody noticing. See
 
 ### Sync freshness watchdog
 - **`sync_status`** is the only place to check whether a sync ran recently.
-  One row per source (`guesty-listings`, `guesty-reservations`,
-  `guesty-calendar`, `guesty-reviews`, `guesty-guests`, `gmail-replies`,
-  `csv-fallback`, `stripe`, `quo`, `seam`, `ical`, `helm-calendar`,
-  `automations`). Written by
-  `src/lib/sync-status.ts`; read by the daily brief (which surfaces
-  `feedsNeedingAttention` on `/today`).
+  One row per source; `SYNC_SOURCES` in `src/lib/sync-status.ts` is the list
+  (the Guesty feeds, `gmail-replies`, `gmail-invoices`, `csv-fallback`,
+  `stripe`, `quo`, `vendor-appointments`, `seam`, `ical`, `helm-calendar`,
+  `automations`). Written through that file; `loadFeedsNeedingAttention()` in
+  `src/lib/daily-brief.ts` holds each source's expected cadence and feeds
+  Delivery & sync on `/messaging/status` (`/today` is retired).
 
 ---
 
@@ -113,14 +125,13 @@ different questions and you must pick the right one or get a wrong answer.
 | `bookings` (Helm-native writer) | `helm_create_booking` / `helm_move_booking` / `helm_cancel_booking` RPCs, called from the Channels pages, `/book`, the SCA quote accept path and `/api/pms` | The stay itself on a helm-run home | Direct and manual stays, owner and maintenance blocks (`hold_kind`). Advisory-locked per property; an overlap raises SQLSTATE `P0002 booking_overlap` unless `p_allow_overlap`. Every write appends a `booking_events` row. Never insert into `bookings` by hand for these. |
 | `guesty_listings` | `/api/sync-guesty` | Guesty listing-id → Helm property-id map | Lookup table, not a stay record. `flip_calendar_authority(..., 'helm')` deletes the property's row; the id is kept on `properties.former_guesty_listing_id`. |
 
-Cancel signal reliability (`memory/project_channels_cancel_signal_reliability.md`):
-the direct OTA iCal feed is trusted; the Guesty aggregate feed and
-`guesty_reservations` are NOT trusted for cancellations.
+Cancel signal reliability: the direct OTA iCal feed is trusted; the Guesty
+aggregate feed and `guesty_reservations` are NOT trusted for cancellations.
 
 **One rule regardless of writer: canonical stays are `bookings` rows with
 `duplicate_of is null` and status `confirmed` / `completed` (blocks are
 status `block`).** `bookings` holds one row per source per stay by design;
-never key per-stay logic on `bookings.id` (`memory/project_bookings_duplicate_rows.md`).
+never key per-stay logic on `bookings.id`.
 
 - **`booking_events`**: append-only change log per booking (`created`,
   `dates_changed`, `status_changed`, `cancelled`, `guest_changed`,
@@ -137,24 +148,26 @@ never key per-stay logic on `bookings.id` (`memory/project_bookings_duplicate_ro
 
 ## A property
 
-Two representations exist today. This is the dual-truth the audit flagged.
+Two representations exist today.
 
-- **`properties` (DB table)**: the registry. Has `is_rising_tide_owned`,
-  `management_fee_pct`, `is_active`, `activated_at`, plus all
-  human-readable address / name / title fields. The newer modules
-  (`/revenue`, `/forecast-smart`, `/properties`) read from here.
+- **`properties` (DB table)**: the registry and the source of truth. Has
+  `is_rising_tide_owned`, `management_fee_pct`, `is_active`, `activated_at`,
+  the owner and bank fields, plus all human-readable address / name / title
+  fields. The statements pipeline reads it too: since #498, ingest, the
+  render page and the statement email load each home through
+  `getActivePropertyForStatements` / `getActivePropertiesForStatements` in
+  `src/lib/properties.ts`, and the fee snapshotted onto a statement comes
+  from this row.
 - **`PROPERTIES` map in `src/lib/properties.ts`**: a hardcoded record
-  literal indexed by property id. Carries `fee_pct`, `owner_emails`,
-  `listing_match`, `bank_last4`, `tax_cert_id`. The older modules (the
-  ingest / statements / upload paths) read from here.
+  literal indexed by property id (`fee_pct`, `owner_emails`,
+  `listing_match`, `bank_last4`, `tax_cert_id`). The statement loaders fall
+  back to it only when the database is unreachable; a few routes still check
+  it directly (`/api/receipts` rejects an id it does not list,
+  `/api/reconcile-emails` matches names through it).
 
-Neither one currently reconciles against the other. Adding a property
-means editing both; changing a management fee means editing both. The
-audit flagged this as the biggest driver of the "bolt-on" feel.
-
-DO NOT consolidate these without explicit approval. The Statements
-ingest path is the consumer of the hardcoded map and is in the payout-
-math hands-off zone.
+So a fee or owner change goes in the DB row, and a new home still gets a map
+entry. DO NOT consolidate these without explicit approval: the statements
+paths are in the payout-math hands-off zone.
 
 ### Ops scope and the Guesty cutover switch (registry columns)
 
@@ -262,18 +275,26 @@ prices its own quotes; Helm's plan is a draft until cutover.
 
 ### Property documents / notes / notices / launch state
 - `property_documents`: uploaded PDFs / images per property.
-- `property_notes` + `property_notices`: editorial content surfaces
-  (Welcome card, Info note, WiFi placard, Home guide overrides).
+- `property_notes`: the Quick Capture notes. Each is a `fact` or an `issue`
+  (`kind`, since 2026-10-18). A fact is never resolved (a check constraint);
+  an issue is resolved when fixed. The open guest-facing notes are the guest
+  AI's knowledge base, sent through `/api/kb-facts`.
+- `property_notices`: the printed per-home placards (`src/lib/property-notices.ts`).
 - `property_launch_steps` + `sca_launches`: the Stay Cape Ann launch
-  checklist (`memory/project_sca_launch.md`).
-- `property_order_checklist`: one jsonb blob per property with the
-  outfitting order checklist's have-counts (label-keyed, same shape as
-  `projections.readiness_state`). Catalog + quantity math live in
-  `src/lib/order-checklist.ts` (Fix Linens 2.5x rules). RLS-locked,
-  service role only, via `src/lib/order-checklist-db.ts`.
-- `property_inspection_cards` + `property_zones` + `property_zone_items`
-  + `property_inspection_item_history`: the inspection scoring graph.
-  Used by the Inspections module.
+  checklist.
+- `home_walkthroughs` (#1949, `20261018210000_home_walkthroughs.sql`): one
+  outfitting walkthrough per home, keyed by its prospect (`projection_id`),
+  its property, or both once the prospect is promoted; `state` holds the
+  label-keyed have-counts. It replaced `property_order_checklist` and
+  `projections.readiness_state`, which are read only as a fallback for a
+  home with no row yet and are written by nothing. Access through
+  `src/lib/home-walkthrough-db.ts`; catalog and quantity math stay in
+  `src/lib/order-checklist.ts` (Fix Linens 2.5x rules). Service role only.
+- `property_marketing`: "How we sell it", the selling points the campaign AI
+  reads on every draft, edited on the property page. Service role only.
+- `property_inspection_cards` + `property_zones` +
+  `property_inspection_item_history`: the inspection scoring graph. Used by
+  the Inspections module. `property_zone_items` has no reader or writer.
 
 ---
 
@@ -283,10 +304,10 @@ Helm distinguishes four populations and they each have their own table:
 
 | Table | Who | Source | Sensitive? |
 |---|---|---|---|
-| `contacts` | Owners, vendors, leads | CRM module (`/crm`); inbound Quo / Gmail webhooks add unknown numbers | RLS-locked (service role only) since 2026-06-21 |
+| `contacts` | Owners, vendors, leads | CRM module (`/crm`), the New numbers card, accepted reconcile suggestions, and the concierge's `/api/prospects` and `/api/backfill-owner-phones` bridges. No webhook creates one | RLS-locked (service role only) since 2026-06-21 |
 | `audience_contacts` | Guests who have booked, signed up, or unsubscribed | `/api/guests/subscribe`, Guesty guests sync, Resend webhook | RLS-locked since 2026-06-21 |
 | `guesty_guest_checks` | Memory for the guests sync: which Guesty guests were asked, when, and whether Guesty had an email. A "no email" answer is trusted for 14 days. Memory, not truth: unreadable means ask everyone again | Guesty guests sync only | RLS on, no policies (service role) |
-| `owners` | Structured ownership graph (property-to-owner) | `/api/owners-sync` (stay-concierge writes) | not anon-readable |
+| `owners` | A legacy owners registry. `src/lib/known-numbers-server.ts` reads it to name an owner's phone | Nothing in Helm writes it and no migration here creates it. `/api/owners-sync` does not touch it: that is a read-only GET serving `properties.owners` to stay-concierge | anon revoked 2026-08-20 |
 | `trade_vendors` | Outside trade companies we hire by the job (plumber, electrician, appliance, pest) | Hand-maintained on `/fieldwork/trades`; seeded from `bank-charges.ts` + `books-vendor-hints.ts` | RLS-locked (service role only) |
 
 `contact_touches` is the cross-channel communication log for `contacts`
@@ -294,9 +315,18 @@ Helm distinguishes four populations and they each have their own table:
 calendar for the same people: a dated sit-down logged on the contact page,
 `important` ones texted the evening before by `/api/cron/meeting-reminders`,
 with `reminder_attempts` / `reminder_sent_at` as the at-most-once ledger.
-Service-role only. `audience_events` is the
-engagement log for `audience_contacts` (Resend webhook events). `comms`
-is the broader unified outbound log.
+Its `property_id` has no foreign key, so it cannot be embedded in a select;
+read `properties` separately (an embed failed every read from 10/07 until
+#2040). Service-role only. `audience_events` is the engagement log for
+`audience_contacts` (Resend webhook events). `comms` has no reader or writer
+in `src/` (dead; `20260820_rls_lockdown_unused_tables.sql`).
+
+`quo_unknown_numbers` is the queue of numbers Helm cannot name: one row per
+phone, filed by the Quo ingest (`captureUnknownInbound` in
+`src/lib/quo-ingest.ts`, forward-only on `last_message_at`) with the line it
+came in on (`quo_line`). A number becomes a contact only when someone
+attaches it, adds it or sets it aside on the New numbers card (Messaging
+inbox). Its RLS policy is still open (`using (true)`).
 
 `contractor_sessions` + `contractors`: the Field external contractor
 portal (`/field`). Token-gated, NOT Helm-SSO gated. Service-role only.
@@ -326,6 +356,23 @@ approves: `src/lib/vendor-visit-approve.ts` then writes the calendar hold
 'maintenance'` for a helm-run one) and stamps the ticked `work_slips`, and
 records what it did in `hold_result` / `scheduled_slip_ids`. Service role
 only. See `docs/vendor-visit-holds.md`.
+
+`staff_documents` is an offer letter or staff agreement signed online: the
+body is snapshotted when sent (`body_digest`), the signer types their name at
+`/sign/<token>` (the token is the credential), an owner countersigns, and
+the executed PDF is filed in Drive. `status` runs draft, sent, signed,
+executed, void. Read and written through `src/lib/staff-documents-db.ts`.
+Service role only.
+
+`lease_listings`, `lease_leads` and `lease_lead_messages` are the winter lease
+leads from Zillow (`/properties/leases`, owners only). `lease_listings` is one
+row per home listed, keyed by the address as Zillow writes it, with the rent,
+the lease dates and `label` (the renter reads it in the screening message).
+`lease_leads` is one row per renter per listing with the facts the model read
+and the `verdict` code decided (`new`, `serious`, `needs_answers`,
+`not_a_fit`, `spam`; `src/lib/lease-leads-core.ts`) and the screening-send
+stamps. `lease_lead_messages` is every Zillow email, keyed by its RFC
+Message-ID. Written by `/api/cron/lease-leads`. Service role only.
 
 ---
 
@@ -383,8 +430,12 @@ only. See `docs/vendor-visit-holds.md`.
   `channel_guess` derived from the agent. Proves an OTA is actually
   polling Helm before a cutover; not a calendar source.
 - **`cleaning_completions`** + **`cleaner_phones`**: the Quo cleaning
-  pipeline. "Has the property been cleaned for the next stay?" reads
-  from `cleaning_completions`.
+  pipeline. "Has the property been cleaned for the next stay?" reads three
+  tables (`src/lib/operations.ts`): `cleaning_completions` (the cleaner's
+  text), **`cleaning_sessions`** (lock entry and finish per checkout, with
+  the provenance rule estimate < quo < manual, so a backfill never
+  overwrites an operator's confirm) and **`turnover_completions`** (an
+  operator's Mark done, keyed by `(property_id, check_in)`).
 - **`lock_devices`** + **`lock_battery_status`** + **`lock_events`**:
   the Seam smart-lock pipeline. "Are batteries low?" reads from
   `lock_battery_status` (latest-wins).
@@ -400,6 +451,20 @@ only. See `docs/vendor-visit-holds.md`.
   moves to `ScheduleDay.skipped` and out of `rows`, so the crew's text and
   `/c/<token>` show it struck through. Separate from `checkout_adjustments`
   on purpose. Service role only.
+- **`owner_hold_decisions`**: the answer to "does this owner block need a
+  cleaning after it?", keyed on the stay `(property_id, stay_check_in)`,
+  `decision` `clean` or `no_clean`. A `no_clean` answer also writes a
+  `checkout_cleaning_skips` row, which is what the schedule honours. Written
+  from `/turnovers/schedule`; an unanswered upcoming owner hold is asked on
+  the Team inbox and the home feed (`src/lib/owner-hold-questions.ts`).
+- **`listing_links`** + `listing_link_blocks` + `listing_link_alerts`: one
+  house sold whole and as units on separate listings (17 Beach). A whole
+  booking closes the units and a unit booking closes the whole
+  (`src/lib/listing-links-core.ts`); every block Helm wrote is a
+  `listing_link_blocks` row. `lease_window_start` / `lease_window_end` (end
+  exclusive) are the nights a unit is offered for a winter lease: inside
+  them a hand block of 28+ nights on the unit's feed reads as a lease and
+  closes the whole house. Service role only.
 
 ---
 
@@ -474,7 +539,7 @@ live in `property_access` and per-stay `guest_access_codes`.
 - `work_slip_comments` + `task_comments`: append-only thread.
 - `inspections` + `inspection_items` + `inspection_results` +
   `inspection_notes`: a single inspection run with per-item scoring.
-- `inspection_templates`: the layout / item set per property type.
+- `inspection_templates`: dead, no reader or writer in `src/`.
 - `inspection_plans`: per-user upcoming walks. Read by the home
   ForMeFeed's "Planned walks" section.
 - `inspection_packets` + `packet_stops` + `packet_events`: the Field
@@ -484,17 +549,21 @@ live in `property_access` and per-stay `guest_access_codes`.
 
 ## Marketing, competitors, projections
 
-- `marketing_*` (8 tables): GA4 + GSC + Vercel speed insights, all
-  per-day per-site. Read by `/marketing`.
+- `marketing_*` (7 tables): `marketing_sites` plus six per-day per-site
+  tables (traffic, top pages, top sources, conversions, unknown landings,
+  Vercel Speed Insights). Read by `/marketing`.
 - `competitor_*` (3 tables): other Cape Ann managers. Phase 1 covers
   AVH + Shoreway. Read by `/competitors`.
-- `market_metrics_monthly` + `market_occupancy_by_bedroom_monthly` +
-  `market_revenue_benchmarks`: AirDNA-derived market context per area
-  per month. Read by Projections.
+- `market_metrics_monthly` + `market_occupancy_by_bedroom_monthly`:
+  AirDNA-derived market context per area per month, written by the AirDNA
+  upload (`/api/airdna/ingest`). `market_revenue_benchmarks` is dead: no
+  reader or writer in `src/`.
 - `projections`: prospect funnel. One row per prospect. Each generates
   the projection deck, the partnership guide, and the management
-  contract from the same shared inputs. Read by `/projections` (now
-  framed in nav as "Prospects"). The contract is re-rendered from this
+  contract from the same shared inputs. Read by the prospect pages:
+  `/properties/prospects` and each prospect's `/prospects/<id>`
+  (`/projections/<id>` redirects there; the deliverable renders stay under
+  `/projections/<id>/`). The contract is re-rendered from this
   row on every view, so the row is NOT the record of what was signed:
   `contract_signed_pdf_*` and `contract_executed_pdf_*` point at the
   sealed PDFs (exact bytes emailed, with SHA-256) in the private
@@ -515,15 +584,20 @@ But two things should make you reread it carefully:
   answer is "they read different tables that both think they're
   authoritative", that is the bolt-on feel in action.
 
-### Airbnb request notification reviews (additive, pending migration)
+### Airbnb request notification reviews and alerts (no live caller)
+
+The request desk page was removed in #1917, and
+`src/lib/airbnb-request-queue.server.ts` and
+`src/lib/airbnb-request-alerts.server.ts` have no importers, so nothing in
+the app reads or writes the two tables below today. Both migrations
+exist (`20261005010000_airbnb_request_reviews.sql`,
+`20261006010000_airbnb_request_alerts.sql`).
 
 `airbnb_request_reviews` stores staff verification of a Quo notification's property,
 explicit dates, Airbnb evidence URL, actor and timestamp. It is keyed by Quo
 message ID, RLS enabled and service-role select/insert only. It is **not** a
 reservation or calendar authority. The request queue reads signed `quo_events`
 without modifying webhook ingestion. See `docs/guesty-exit/quo-airbnb-request-queue.md`.
-
-### Airbnb request alert attempts
 
 `airbnb_request_alerts` records one internal text attempt per reviewed Quo message
 (FK to `airbnb_request_reviews`). RLS denies client access; service role can
