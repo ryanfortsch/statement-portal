@@ -642,9 +642,10 @@ answer for those rather than guessing; only an operator who has phoned DPW shoul
 Both live split-street homes are confirmed with DPW by Dotti on 2026-10-02 and set on the row:
 `84_thatcher` is **Friday** (migration `20261002_thatcher_trash_friday.sql`) and `225_washington`
 is **Wednesday** (the row already said so; now verified). `/api/kb-facts` bridges the **resolved** day plus `city` and
-`receptacle_rule`, so the guest AI can gate its own wording. Writing `trash_day` for a
-**non-Gloucester** property is currently unsafe: stay-concierge's `RECEPTACLE_RULE` has no city
-gate and emits the Gloucester cart clause for any property with a parseable day.
+`receptacle_rule`, so the guest AI can gate its own wording, and it does: the concierge's trash
+engine (the reminders and the schedule added to reply prompts) admits Gloucester homes only, and a
+missing city reads as not Gloucester (stay-concierge #102, 2026-10-22). A Rockport or Beverly
+`trash_day` reaches the guest only as the plain "Trash day" KB line.
 
 **Guest messages** (stay-concierge `src/trash_reminders.py`, approval-gated): any stay of **3+
 nights** that spans a pickup, so the city hauls the trash instead of the cleaner. A pickup the
