@@ -59,7 +59,7 @@ you where the weight sits, nothing more.
 ```
 src/
   app/          35 route groups + api/. 136 pages, 65 *actions.ts server-action files
-    api/        122 route handlers, 32 cron routes (31 scheduled in vercel.json)
+    api/        122 route handlers, 33 cron routes (32 scheduled in vercel.json)
   lib/          262 top-level modules (290 including subfolders). The domain logic lives here.
   components/   96 shared components (62 at the top level, the rest in subfolders)
   proxy.ts      Next 16 middleware. THE auth gate. Read this before adding any public route.
@@ -68,7 +68,7 @@ supabase/migrations/   256 migrations
 scripts/               parity harnesses and one-off tools (see Testing below)
 ```
 
-**32 cron routes, 31 schedules, and that is correct.** `/api/cron/reviews-to-slips` is a manual
+**33 cron routes, 32 schedules, and that is correct.** `/api/cron/reviews-to-slips` is a manual
 and backfill trigger on purpose; the recurring work runs at the end of `/api/cron/sync-guesty`.
 Do not "fix" it by adding a schedule.
 
@@ -858,7 +858,7 @@ Set in Vercel. `.env.local.example` documents a fraction of what the code reads 
 
 - **Core**: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
 - **Auth**: `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, `AUTH_SECRET`, `AUTH_URL`, `AUTH_COOKIE_DOMAIN`
-- **Cron**: `CRON_SECRET`. All 32 cron routes fail closed without it (verified 2026-09-26: every
+- **Cron**: `CRON_SECRET`. All 33 cron routes fail closed without it (verified 2026-09-26: every
   one calls `authorizeCron`).
 - **Guesty**: `GUESTY_CLIENT_ID`, `GUESTY_CLIENT_SECRET`
 - **Stripe**: `STRIPE_KEYS_JSON`, `STRIPE_KEYS_JSON_EXTRA`, `STRIPE_KEY_<PROPERTY_ID>`

@@ -116,6 +116,8 @@ export const OWNER_PATH_PREFIXES: readonly string[] = [
   // Owner relationships and the pipeline.
   '/properties/contracts',
   '/properties/prospects',
+  // Winter lease applicants: their income, dates and screening.
+  '/properties/leases',
   '/prospects',
   '/projections',
   '/owner-messaging',

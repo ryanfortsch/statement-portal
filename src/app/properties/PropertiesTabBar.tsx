@@ -6,8 +6,8 @@ import { sessionRole } from '@/lib/helm-access-server';
  *  /properties (with Coming online, the homes on a Launch list, above it),
  *  the guest gear grid at /properties/guest-gear (which home holds which
  *  pack 'n play or high chair, and where), the prospect funnel at
- *  /properties/prospects, and the management-contract register at
- *  /properties/contracts.
+ *  /properties/prospects, the management-contract register at
+ *  /properties/contracts, and the winter lease leads at /properties/leases.
  *  Server-rendered Links (no client JS) so each tab is a plain
  *  deep-linkable URL. Styled to match the property detail tab bar.
  *
@@ -15,13 +15,14 @@ import { sessionRole } from '@/lib/helm-access-server';
  *  so a staff login sees Properties only. The bar reads the
  *  session itself rather than taking a role prop, so a page that mounts it
  *  cannot forget to pass one; the gate list decides which tabs survive. */
-export async function PropertiesTabBar({ active }: { active: 'properties' | 'guest-gear' | 'prospects' | 'contracts' }) {
+export async function PropertiesTabBar({ active }: { active: 'properties' | 'guest-gear' | 'prospects' | 'contracts' | 'leases' }) {
   const role = (await sessionRole()) ?? 'staff';
   const tabs = [
     { id: 'properties' as const, label: 'Properties', href: '/properties' },
     { id: 'guest-gear' as const, label: 'Guest gear', href: '/properties/guest-gear' },
     { id: 'prospects' as const, label: 'Prospects', href: '/properties/prospects' },
     { id: 'contracts' as const, label: 'Contracts', href: '/properties/contracts' },
+    { id: 'leases' as const, label: 'Leases', href: '/properties/leases' },
   ].filter((t) => roleMayOpen(role, t.href));
   return (
     <nav aria-label="Properties sections" style={{ borderBottom: '1px solid var(--ink)', marginBottom: 28 }}>

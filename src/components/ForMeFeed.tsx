@@ -24,6 +24,7 @@ import { loadOwnerHoldQuestions, type OwnerHoldQuestionCard } from '@/lib/owner-
 import { HoldRow } from '@/app/cleaner-messaging/OwnerHoldQuestionsCard';
 import { homeFeedOrder, windowPayments, type FeedSection } from '@/lib/home-feed-order';
 import { EmptyState } from '@/components/EmptyState';
+import { seriousQueueText } from '@/lib/lease-leads-core';
 
 type MyWork = {
   id: string;
@@ -877,7 +878,8 @@ function PlannedWalkRow({ walk }: { walk: PlannedWalk }) {
  */
 async function loadQueueCards(role: HelmRole): Promise<QueueCard[]> {
   const owner = role === 'owner';
-  const [creative, packets, statements, handoff] = await Promise.all([
+  const [leases, creative, packets, statements, handoff] = await Promise.all([
+    owner ? loadLeaseQueue() : null,
     owner ? loadCreativeQueue() : null,
     // Staff approve submitted packets too (2026-10-20); the card names no
     // dollar figure, and the pay on the packet stays with the owners.
@@ -885,7 +887,7 @@ async function loadQueueCards(role: HelmRole): Promise<QueueCard[]> {
     owner ? loadStatementQueue() : null,
     loadCloseHandoffQueue(role),
   ]);
-  return [creative, ...packets, statements, handoff]
+  return [leases, creative, ...packets, statements, handoff]
     .filter((c): c is QueueCard => !!c)
     .filter((c) => roleMayOpen(role, c.href));
 }
@@ -915,6 +917,32 @@ async function loadCloseHandoffQueue(role: HelmRole): Promise<QueueCard | null> 
     const m = open.map((i) => i.month).sort()[0];
     const n = open.filter((i) => i.month === m).length;
     return { id: 'queue-close-handoff', href: `/fieldwork/close?month=${m}`, text: `Close handoff: ${n} item${n === 1 ? '' : 's'} not sent for ${monthName(m)}, ${dueWording(m, today)}` };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Winter lease applicants Helm vetted as serious (src/lib/lease-leads-core.ts)
+ * and nobody has dismissed. Everything else waits on /properties/leases and
+ * never reaches the feed: the operator asked to see only the serious ones
+ * (2026-10-21). Owners only; a lead carries a renter's income.
+ */
+async function loadLeaseQueue(): Promise<QueueCard | null> {
+  try {
+    const { data } = await supabase
+      .from('lease_leads')
+      .select('renter_name, zillow_address')
+      .eq('verdict', 'serious')
+      .is('dismissed_at', null)
+      .order('last_message_at', { ascending: false })
+      .limit(20);
+    const rows = (data ?? []) as Array<{ renter_name: string | null; zillow_address: string | null }>;
+    if (rows.length === 0) return null;
+    const { data: listings } = await supabase.from('lease_listings').select('zillow_address, label');
+    const label = new Map(((listings ?? []) as Array<{ zillow_address: string; label: string }>).map((l) => [l.zillow_address, l.label]));
+    const text = seriousQueueText(rows.map((r) => ({ renter_name: r.renter_name, label: r.zillow_address ? label.get(r.zillow_address) ?? r.zillow_address : null })));
+    return text ? { id: 'queue-leases', href: '/properties/leases', text } : null;
   } catch {
     return null;
   }
