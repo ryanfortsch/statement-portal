@@ -7,6 +7,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   REMINDER_HOUR_ET,
   REMINDER_MAX_ATTEMPTS,
@@ -141,4 +142,22 @@ test('recipients: E.164 or a typed US number, blanks dropped, no duplicates, no 
   assert.deepEqual(parseRecipientList('12345'), []);
   assert.deepEqual(parseRecipientList(''), []);
   assert.deepEqual(parseRecipientList(undefined), []);
+});
+
+test('the meetings read embeds only what has a foreign key', () => {
+  // contact_meetings.property_id is plain text, so a properties(...) embed
+  // fails every read with "Could not find a relationship". That killed the
+  // reminder cron and blanked the home Meetings card from 10/07 to 10/22.
+  const src = readFileSync(new URL('../meetings.ts', import.meta.url), 'utf8');
+  const migration = readFileSync(
+    new URL('../../../supabase/migrations/20261007100000_contact_meetings.sql', import.meta.url),
+    'utf8',
+  );
+  const propertyIsForeignKey = /property_id\s+text\s+references/i.test(migration);
+  // A quoted select string, not the comment that explains why.
+  const embedsProperties = /'[^'\n]*\bproperties\([^'\n]*'/.test(src);
+  assert.ok(propertyIsForeignKey || !embedsProperties, 'meetings.ts embeds properties(...) with no foreign key to follow');
+  assert.match(src, /const JOIN_SELECT = '\*, contacts\(id, name\)';/);
+  // A failed read is logged, not swallowed.
+  assert.match(src, /loadMeetingCards: contact_meetings read failed/);
 });
