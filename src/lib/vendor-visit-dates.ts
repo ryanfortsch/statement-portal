@@ -394,11 +394,11 @@ export function readVisitTime(text: string): VisitTime {
 const NEGATION = /\b(can[’']?t|cannot|can not|won[’']?t|wont|unable|not (?:able|available|going to|gonna|good|great|possible|free)|(?:does|do|will)n[’']?t work|does not work|do not work|will not work|no good|isn[’']?t good|is not good|busy|out of town|away that|booked solid|booked up|fully booked)\b/i;
 
 /** Words that make a dateless message a scheduling answer. */
-const INTENT = /\b(works?|work for me|confirm(?:ed|ing)?|see you|i[’']?ll be (?:there|over|by)|will be (?:there|over|by)|can do|can come|i can|we can|sounds good|perfect|great|ok(?:ay)?|yes|yep|yup|sure|pencil|put me down|plan on|planning on|be there|come by|stop by|swing by|schedule)\b/i;
+const INTENT = /\b(works?|work for me|confirm|confirmed|confirming|see you|i[’']?ll be (?:there|over|by)|will be (?:there|over|by)|can do|can come|i can|we can|sounds good|perfect|great|ok(?:ay)?|yes|yep|yup|sure|pencil|put me down|plan on|planning on|be there|come by|stop by|swing by|schedule)\b/i;
 
 /** A yes that can stand without a day, after we offered some. Narrower
  *  than INTENT: "ok" and "great" acknowledge, they do not accept. */
-const DATELESS_YES = /\b(works?|work for me|confirm(?:ed)?|see you (?:then|there)|i[’']?ll be there|will be there|can do|sounds good|yes|yep|yup|put me down|pencil me in)\b/i;
+const DATELESS_YES = /\b(works?|work for me|confirm|confirmed|see you (?:then|there)|i[’']?ll be there|will be there|can do|sounds good|yes|yep|yup|put me down|pencil me in)\b/i;
 
 /** Not an answer yet. */
 const DEFERRAL = /\b(let me (?:check|see|look)|get back to you|i[’']?ll (?:check|let you know|see)|will let you know|not sure|checking|i[’']?ll confirm|will confirm)\b/i;
