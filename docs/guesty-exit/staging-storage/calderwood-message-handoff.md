@@ -6,6 +6,74 @@ change either queue, stop Guesty, persist results, or authorize sending.
 
 ## Current integration status, October 21, 2026
 
+The next batch adds **reviewed booking/thread, source-history and timing
+registration** in `message-handoff-registration.sql`. It is an unapplied draft;
+no real records, senders, source queues or accounts were changed. Install order:
+`automation-holds.sql`, `channex-message-worker.sql`,
+`channex-message-schedule.sql`, `cleaner-message-worker.sql`, then
+`message-handoff-registration.sql`. The final file adds a mandatory provenance
+gate to the shared renderer. Earlier rehearsal jobs without verified observations
+will consequently block until reviewed; installation does not invent provenance.
+
+The owner-only entry points are:
+
+1. `automation_message_stay_revision(booking_id)` obtains the current canonical
+   identity/date/status digest. `automation_message_observe_times(booking_id,
+   canonical_revision, expected_revision, observation)` checks that exact digest
+   under the booking lock. The observation contains `check_in`, `check_out`,
+   explicit nullable `arrival_time`, `departure_time`, `confirmed_at`, and
+   `observed_at`, `source_revision`, `evidence_id`. Clock values are HH:MM[:00];
+   timestamps require an offset. Missing overrides are rejected rather than
+   treated as verified absence. Confirmation remains the actual source event.
+2. `automation_message_bind_thread(booking_id, binding)` binds an explicitly
+   verified Channex booking/thread to the current route generation and canonical
+   revision. The binding contains `canonical_revision`, `route_generation`,
+   `channex_booking_id`, `thread_id`, `verified_at`, `evidence_id`. A provider
+   booking or thread cannot belong to two canonical stays. No fuzzy matching or
+   silent remapping occurs. The transport independently rechecks the live thread
+   relationship before its final claim.
+3. `automation_message_register_handoff(send_id, review)` reserves an existing
+   future canonical schedule, preserving scheduled/held status. The review contains
+   a UUID `review_id`, current `context_revision` and `observation_revision`, exact
+   booleans `complete=true`, `sent=false`, `queued=false`, `uncertain=false`, plus
+   `evidence_id`, `observed_at`, `stopped_at`, `drained_at`, `expires_at`, `workflow`.
+   Cleaner reviews also specify `from_number` and `recipient_phones`. All six
+   supported workflows must match the existing rule and verified schedule. Guest
+   source-stop/drain must also match the route. Cleaner batches start disabled.
+   Exact retries retain existing identities; conflicting reviews are rejected.
+
+New observations, thread checks and queue reviews must be at most five minutes
+old when submitted. This is an ingestion review policy, not a claim of ongoing
+provider freshness. Observation updates use compare-and-swap, retain immutable
+provenance for earlier revisions, and invalidate stale concurrent writes. Canonical
+identity/status/date changes invalidate observations even when later reversed.
+Direct edits to raw timing also fail provenance checks. Both guest and cleaner
+renders fail closed until a fresh matching observation is recorded.
+
+Registration writes the reserved job and source audit together; failed validation
+rolls both back. Multiple workflow calls can share one transaction. Guest body
+hashes initially cannot dispatch: the worker must render and refresh the hash from
+current authoritative inputs. The worker and browser roles cannot register,
+rebind, write timing or activate anything. A reviewed database-owner ingestion
+step is still required; no public endpoint or recurring source fetcher is added.
+
+**SQL records a reviewer's verified evidence; it cannot independently prove that
+Guesty's remote queue is complete or stopped.** Real canonical booking/queue
+preparation, current source-history collection, ongoing provider-event ingestion,
+source expiry decisions and actual channel delivery remain launch work. Already
+sent or queued messages are rejected from this new-job path; they still need
+source-history reconciliation, not conversion into fresh unsent jobs.
+
+Current validation: **2,202 application tests / 240 suites**, TypeScript and scoped
+ESLint passed. **86 disposable PostgreSQL scenarios** (42 guest, 24 cleaner, 20
+handoff) passed using Helm's channel/status enum types. The handoff cases cover
+source revisions, concurrent observations, stale/reversed dates, identity reuse,
+sent/queued/uncertain history, all six held schedules, atomic rollback, role
+boundaries, and the real scheduled worker/transport reaching one synthetic POST
+and receipt after separate activation. No actual recipient delivery is implied.
+
+## Cleaner execution batch
+
 The subsequent cleaner batch connects **per-recipient Quo execution and receipt
 reconciliation** to that same authenticated cron. Install the additional
 `cleaner-message-worker.sql` only after the three prerequisites below. It remains
@@ -144,11 +212,12 @@ final passing run. No hosted delivery or migration acceptance is claimed.
 
 Remaining delivery work:
 
-1. Implement verified real booking/thread and source-history registration plus
-   the timing-observation writer. Bind observations to each provider revision
-   and canonical stay update; do not reuse the fictional importer as production.
-   Import future unsent work after verified source stop/drain, retaining holds
-   and prior identities. Confirm source expiry policy and real DST queue parity.
+1. Prepare actual canonical booking/queue rows and verified source evidence for
+   the owner-only registration entry points above. Connect ongoing provider
+   events to the timing writer; do not reuse the fictional importer as production.
+   Reconcile prior sent/queued work and confirm source expiry and real DST queue
+   parity before importing future unsent work. The registration code is complete;
+   the real operational handoff has not occurred.
 2. Register the verified cleaner handoff and recipient bindings, review the exact
    templates/portal links, then prove actual Quo delivery. The per-recipient
    scheduled execution and receipt path is implemented above but not activated.

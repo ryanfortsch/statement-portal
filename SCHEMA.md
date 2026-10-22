@@ -571,6 +571,24 @@ runs itself.
   (`quo`, `resend`, `gmail`, `airbnb_email`, `vrbo_email`),
   `delivery_status`, and `automation_send_id` when an automation wrote it.
 
+Draft reviewed messaging registration (**not applied**):
+`docs/guesty-exit/staging-storage/message-handoff-registration.sql` installs after
+both execution drafts and the shared schedule. `automation_message_observations`
+tracks the current verified source revision, canonical identity/date/status digest,
+timing digest and invalidation flag. `automation_message_observation_history`
+retains immutable revision provenance. A canonical booking change invalidates the
+observation, including a change later reversed. `automation_message_thread_bindings`
+uniquely maps an external Channex booking/thread to one canonical stay and route
+generation. `automation_message_handoffs` records an exact reviewed source
+stop/drain/history decision and observation revision per canonical send.
+Owner-only compare-and-swap timing, immutable binding and transactional registration
+functions reserve future unsent jobs and preserve holds. Neither browser nor worker
+roles can call them or write these tables. No live source fetch or activation is
+included. The final renderer gate requires matching provenance for both senders;
+old/raw timing cannot stand in for reviewed evidence. Five-minute submission
+freshness is a review policy; continuous event ingestion remains a separate launch
+requirement. See the message handoff for parameter contracts and installation order.
+
 Draft cleaner execution extension (**not applied**):
 `docs/guesty-exit/staging-storage/cleaner-message-worker.sql`, installed after the
 hold and Channex message drafts, adds `automation_cleaner_batches` and
@@ -611,7 +629,7 @@ clear access/body values are never persisted by this path. Null ETA/ETD means
 verified source absence, not a missing fetch. The worker cannot write observations
 or register jobs. Current house checkout comes from `properties.default_checkout_time`.
 Both drafts must be installed before any registration; neither has been deployed.
-See the message handoff document for activation and source-writer gaps.
+See the message handoff document for reviewed registration and remaining live-source/activation work.
 
 Door codes never enter these tables in the clear: the rendered body in
 `automation_sends` is masked and the code goes only over the wire. Codes

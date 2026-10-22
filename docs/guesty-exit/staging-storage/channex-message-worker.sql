@@ -94,7 +94,7 @@ begin
  perform 1 from public.bookings where id=new.booking_id for update;
  select * into s from public.automation_sends where id=new.send_id for update;
  if not found or s.booking_id<>new.booking_id or s.property_id<>new.property_id
-   or s.automation_key is distinct from new.automation_key or s.status<>'scheduled'
+   or s.automation_key is distinct from new.automation_key or s.status not in ('scheduled','held')
    or s.fire_at<>new.fire_at or s.fire_at<=clock_timestamp() or new.prepared_at>=s.fire_at or new.state<>'prepared'
    or s.provider_message_id is not null or s.sent_at is not null
    or new.context_revision is distinct from public.automation_channex_context(s.id) then
@@ -174,9 +174,9 @@ begin
    or rule.id is null or not rule.enabled or rule.audience<>'guest' or rule.send_mode<>'auto' or rule.configured_in_ota
    or rule.key<>j.automation_key or (rule.property_id is not null and rule.property_id<>j.property_id)
    or b.channel is null
-   or (r.provider='Airbnb' and lower(b.channel) is distinct from 'airbnb')
-   or (r.provider='BookingCom' and lower(b.channel) not in ('booking.com','booking_com','bookingcom'))
-   or lower(b.channel)=any(select lower(x) from unnest(rule.channel_exclusions) x)
+   or (r.provider='Airbnb' and lower(b.channel::text) is distinct from 'airbnb')
+   or (r.provider='BookingCom' and lower(b.channel::text) not in ('booking.com','booking_com','bookingcom'))
+   or lower(b.channel::text)=any(select lower(x) from unnest(rule.channel_exclusions) x)
    or exists(select 1 from public.message_automations o where rule.property_id is null and o.property_id=j.property_id and o.key=rule.key)
    or exists(select 1 from public.automation_sends other where other.booking_id=j.booking_id and other.automation_key=j.automation_key and other.id<>s.id)
    or j.context_revision is distinct from public.automation_channex_schedule_context(s.id)

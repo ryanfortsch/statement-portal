@@ -87,7 +87,7 @@ begin
  perform 1 from public.bookings where id=new.booking_id for update;
  select * into s from public.automation_sends where id=new.send_id for update;
  if not found or s.booking_id<>new.booking_id or s.property_id<>new.property_id
-   or s.automation_key is distinct from new.automation_key or s.status<>'scheduled'
+   or s.automation_key is distinct from new.automation_key or s.status not in ('scheduled','held')
    or s.fire_at<>new.fire_at or new.prepared_at>clock_timestamp() or new.fire_at<=clock_timestamp()
    or s.sent_at is not null or s.provider_message_id is not null or s.delivery_used in ('channex','quo_cleaner')
    or cardinality(new.recipient_phones)<>(select count(distinct x) from unnest(new.recipient_phones) x)
@@ -198,7 +198,7 @@ begin
    or r.send_mode is distinct from 'auto' or r.configured_in_ota is distinct from false
    or r.trigger is distinct from (case g.workflow when 'cleaner_advance' then 'pre_arrival' else 'checkin_day' end)
    or r.key is distinct from g.automation_key or (r.property_id is not null and r.property_id<>g.property_id)
-   or b.channel is null or lower(b.channel)=any(select lower(x) from unnest(r.channel_exclusions) x)
+   or b.channel is null or lower(b.channel::text)=any(select lower(x) from unnest(r.channel_exclusions) x)
    or (r.min_nights is not null and b.check_out-b.check_in<r.min_nights)
    or exists(select 1 from public.message_automations o where r.property_id is null and o.property_id=g.property_id and o.key=r.key)
    or exists(select 1 from public.automation_sends o where o.booking_id=g.booking_id and o.automation_key=g.automation_key and o.id<>s.id)

@@ -2,6 +2,7 @@
 // Usage: node scripts/verify-channex-message-worker.mjs <native-bin-dir> <pg-index.js>
 import assert from 'node:assert/strict';
 import { verifyCleaners } from './verify-cleaner-message-worker.mjs';
+import { verifyMessageHandoff } from './verify-message-handoff-registration.mjs';
 import { mkdtempSync, readFileSync, rmSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, isAbsolute } from 'node:path';
@@ -36,10 +37,12 @@ try {
  start();
  let db = await connect(), a = await connect(), b = await connect();
  await db.query(`create role anon; create role authenticated; create role service_role;
+ create type booking_channel as enum ('airbnb','vrbo','booking_com','direct','manual','block','other','guesty');
+ create type booking_status as enum ('inquiry','pending','confirmed','cancelled','completed','block');
  create table properties(id text primary key, automations_enabled boolean not null, calendar_authority text not null, default_checkout_time text, name text, title text, address text, wifi_name text, parking text);
  create table guests(id uuid primary key, first_name text);
  create table bookings(id uuid primary key, property_id text not null references properties(id), guest_id uuid,
- status text not null, duplicate_of uuid, check_in date not null, check_out date not null, channel text, guest_name text);
+ status booking_status not null, duplicate_of uuid, check_in date not null, check_out date not null, channel booking_channel, guest_name text);
  create table message_automations(id uuid primary key, property_id text, key text, audience text, send_mode text,
  enabled boolean, configured_in_ota boolean, channel_exclusions text[], body text, timezone text, min_nights integer, trigger text);
  create table automation_sends(id uuid primary key, booking_id uuid references bookings(id), property_id text,
@@ -274,6 +277,7 @@ try {
   await Promise.all(clients.splice(0).map(c=>c.end()));pgctl('-m','fast','-w','stop');running=false;start();
   db=await connect();a=await connect();b=await connect();return {db,a,b};
  }});
+ await verifyMessageHandoff({db,a,b});
 }finally{
  await Promise.all(clients.map(c=>c.end().catch(()=>{})));
  if(running)pgctl('-m','fast','-w','stop');

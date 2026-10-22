@@ -1976,3 +1976,41 @@ and `calderwood-archive-receipt.json`. The Vercel preview of the same code is RE
 Next substantive launch work is PriceLabs integration and genuine automated guest
 and cleaner delivery. Preserve the pending resumed-after-archive/midnight/soak
 checks and production access/cost/contract gates; do not treat archival as cutover.
+
+
+## October 21 reviewed message registration handoff
+
+The disabled guest/cleaner workers now have owner-only, transactional registration
+entry points for verified timing, exact external booking/thread identity and
+future-unsent source-history handoff. Observation writes bind the canonical stay
+revision and provider revision, use compare-and-swap and retain earlier provenance.
+Canonical identity/date/status changes and raw timing edits invalidate rendering.
+All six relative workflows retain holds and require an exact verified schedule.
+History that is incomplete, sent, queued or uncertain cannot become a new job.
+The same database transaction reserves the native row and records source evidence;
+exact retries retain existing job identities. No registration enables a sender.
+
+The final schema is `staging-storage/message-handoff-registration.sql`, installed
+last after the four existing messaging drafts. It is **unapplied**. Full contract
+and limits are in `staging-storage/calderwood-message-handoff.md`. In particular,
+SQL validates reviewed assertions rather than fetching Guesty's queue. Actual
+source collection, canonical queue preparation, continuous provider-event updates,
+source expiry policy and genuine delivery are still required. No customer rows,
+accounts, production settings, Guesty connections or subscriptions changed.
+
+Checks: 2,202 application tests / 240 suites, nonincremental TypeScript, scoped
+ESLint, diff checks, and 86 disposable native PostgreSQL scenarios. The latter
+include 20 new handoff cases and use the real channel/status enum types; explicit
+text casts repair channel comparisons that the earlier text-only fixture missed.
+An actual scheduler/transport run passed from reviewed registration through one
+synthetic POST and provider-history receipt after separate local activation.
+
+Review handoff: branch `codex/channex-staging-pilot`, starting commit
+`07d02b50da8f15125547b853538607dacf735c05`; original base
+`a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`; main reference checked this batch
+`4e0b975d6e632542837308f258cd56877bd1398c`. Changed files: the new registration SQL
+and local harness extension, both sender registration guards/channel casts,
+`SCHEMA.md`, this architecture document and the existing messaging handoff.
+Unrelated contract-readiness edits remain excluded. Production Channex access,
+PriceLabs-to-Channex parity, automatic live delivery and contract-aligned cutover
+remain outstanding; this database rehearsal does not establish launch readiness.
