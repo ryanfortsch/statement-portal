@@ -571,6 +571,25 @@ runs itself.
   (`quo`, `resend`, `gmail`, `airbnb_email`, `vrbo_email`),
   `delivery_status`, and `automation_send_id` when an automation wrote it.
 
+Draft cleaner execution extension (**not applied**):
+`docs/guesty-exit/staging-storage/cleaner-message-worker.sql`, installed after the
+hold and Channex message drafts, adds `automation_cleaner_batches` and
+`automation_cleaner_jobs`. A batch reserves one canonical `automation_sends` row
+and permanent stay/key, reviewed sender/recipient list, original reminder workflow,
+source stop/drain evidence and expiry. Registration creates one child per phone.
+The worker cannot register or activate; browser roles have no table or RPC access.
+`delivery_used='quo_cleaner'` excludes native fallback and is guarded in SQL.
+Child states are `prepared`, `attempting`, `unknown`, `rejected`, `accepted`,
+`delivered` and `undelivered`, with unique attempt/provider IDs and a body digest.
+The parent `sent` means every recipient was accepted, not delivered; its provider
+ID is null because receipts belong to children. An undelivered receipt flags its
+error. The same verified `automation_channex_stay_times` supply ETA/ETD evidence;
+cleaner scheduling retains ten calendar days / seven hours before ETA. Snapshot,
+refresh, claim, finish and bounded scan RPCs support the existing automation cron.
+Authenticated Quo message-ID lookup reconciles receipts without altering the
+existing webhook handler. Clear bodies and portal tokens are not copied into the
+new ledger. See the existing messaging handoff for runtime gates and acceptance.
+
 Draft Channex execution extension (**not applied**):
 `docs/guesty-exit/staging-storage/channex-message-worker.sql` defines
 `automation_channex_routes` (explicit disabled-by-default property/channel scope,

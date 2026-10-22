@@ -40,24 +40,26 @@ Refresh preserves holds and expiry, blocks catch-up and cannot revive an attempt
 The final claim catches changed source facts before one POST. Accepted receipts
 reconcile by provider-history GET; unknown outcomes cannot trigger resend.
 
-Eleven new scheduler tests and 42 actual local PostgreSQL scenarios passed,
-including the complete scheduled path, date/time changes, DST, template races,
-concurrent workers, fair scans and lost-save recovery. Full suite: 2,190 passing
-tests. The paired SQL drafts are **not applied**, the scheduled path is disabled,
-and the real booking/thread/source-history/timing writer remains unfinished.
-No new server or subscription is required by this batch. Acceptance/history
-records do not establish recipient delivery.
+The cleaner path now also runs through the existing cron, using separate durable
+attempts and Quo receipts for every recipient. It retains the 10-day and seven-hour
+relative reminder schedules, follows verified ETA changes, protects holds and
+rejects changed recipient assignments at final claim. Partial failures, database
+restarts and lost acknowledgements do not resend successful recipients. Authenticated
+provider-ID GET distinguishes acceptance from delivered/undelivered receipts.
+The existing generic cleaner loop remains unchanged for properties outside this
+explicitly registered rail; it is not the pilot fallback.
 
-The existing Helm Quo and Resend senders can be reused. The production OTA rail
-still requires manual posting, and its cleaner SMS loop stores only the first
-provider ID across recipients; neither satisfies this pilot's automatic delivery
-and per-recipient recovery requirements. Do not turn on that existing rail as a
-substitute for the remaining worker integration. See the
+Combined verification: **2,202 application tests / 240 suites** and **66 actual
+local PostgreSQL scenarios**, including 24 cleaner scenarios. TypeScript, scoped
+ESLint and diff checks passed. All new message schemas are **unapplied drafts**;
+both guest and cleaner runtime flags remain off. No new server/subscription was
+added. Quo API usage is separately billed per segment and still belongs in the
+activation cost review. See the
 [messaging handoff](staging-storage/calderwood-message-handoff.md#current-integration-status-october-21-2026).
 
 Next launch work is full-window PriceLabs parity, verified reservation/source
-registration, durable per-recipient cleaner delivery, and
-actual-channel acceptance. PriceLabs access is now verified: an October 21
+registration and its timing-observation writer, production account/cost readiness,
+then actual-channel acceptance. PriceLabs access is now verified: an October 21
 read-only capture contains 541 consecutive dates of actual daily prices and
 minimum stays, plus the current customization and override audit. This is the
 source baseline, not proof of Channex delivery. See the

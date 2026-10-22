@@ -1,6 +1,7 @@
 // Disposable local PostgreSQL only. No env, hosted connection or provider network.
 // Usage: node scripts/verify-channex-message-worker.mjs <native-bin-dir> <pg-index.js>
 import assert from 'node:assert/strict';
+import { verifyCleaners } from './verify-cleaner-message-worker.mjs';
 import { mkdtempSync, readFileSync, rmSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, isAbsolute } from 'node:path';
@@ -269,6 +270,10 @@ try {
  assert.deepEqual(scan,[send]);
  pass('unconfirmed receipts and blocked renders rotate fairly instead of starving new work');
  console.log(`PASS ${count} local PostgreSQL acceptance scenarios; provider POSTs were synthetic only`);
+ await verifyCleaners({db,a,b,restart:async()=>{
+  await Promise.all(clients.splice(0).map(c=>c.end()));pgctl('-m','fast','-w','stop');running=false;start();
+  db=await connect();a=await connect();b=await connect();return {db,a,b};
+ }});
 }finally{
  await Promise.all(clients.map(c=>c.end().catch(()=>{})));
  if(running)pgctl('-m','fast','-w','stop');

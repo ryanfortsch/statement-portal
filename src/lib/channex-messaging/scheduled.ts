@@ -33,7 +33,7 @@ const snapshotSchema = z.object({
   revision: z.string().regex(/^[a-f0-9]{32}$/).nullable(), fireAt: instant.nullable(), renderAt: instant,
   body: nullableText, input: z.unknown(),
 });
-export function renderScheduledMessage(snapshot: z.infer<typeof snapshotSchema>) {
+export function renderScheduledMessage(snapshot: Pick<z.infer<typeof snapshotSchema>, 'input' | 'revision' | 'fireAt' | 'renderAt' | 'body'>) {
   // Never propagate Zod's raw errors: they can include property/guest/access data.
   const parsed = inputSchema.safeParse(snapshot.input);
   if (!parsed.success || !snapshot.revision || !snapshot.fireAt || !snapshot.body) throw Error('Message context incomplete');

@@ -6,6 +6,73 @@ change either queue, stop Guesty, persist results, or authorize sending.
 
 ## Current integration status, October 21, 2026
 
+The subsequent cleaner batch connects **per-recipient Quo execution and receipt
+reconciliation** to that same authenticated cron. Install the additional
+`cleaner-message-worker.sql` only after the three prerequisites below. It remains
+an **unapplied draft** and the runtime is **disabled and undeployed**. No texts,
+provider purchases, source shutdown or live configuration changes were made.
+
+Each reviewed future-unsent cleaner schedule row owns an immutable recipient
+list, sender, source stop/drain/evidence reference, workflow and expiry. Registration
+creates one durable child job per phone and reserves `delivery_used='quo_cleaner'`.
+The existing native sender, planner retiming, stale-send cleanup and manual approval
+path exclude this rail; a database trigger also prevents fallback. Other properties
+keep their existing behavior. The worker cannot register jobs or enable batches.
+
+The reminder workflows retain **10 calendar days before verified ETA** and **7
+hours before ETA**. They use the same verified stay-time observations and renderer
+as guest messages. Refresh preserves holds/expiry and refuses catch-up or schedule
+changes after any recipient has been attempted. Final claim rechecks current source,
+property ownership, effective automatic cleaner rule, workflow binding, exclusions,
+recipient enablement and property/region assignment, exact target, context and time.
+Changing a cleaner's phone cannot redirect a registered job. New recipients require
+a separately reviewed handoff; no automatic recipient expansion occurs.
+
+A successful claim permits one private SMS to one recipient. Each child retains its
+own provider ID; the parent deliberately stores no arbitrary first-recipient ID.
+Partial rejection or timeout cannot resend successful recipients. Unknown outcomes
+remain unresolved, with no automatic resend or manual-message fallback. Lost save
+acknowledgements retry only the database receipt write. A cancelled parent remains
+cancelled even when an already attempted message later returns a receipt.
+
+Receipts use authenticated **GET /v1/messages/{id}**, matching the exact ID, sender,
+single recipient, direction and content digest. `queued`/`sent` remain unconfirmed;
+`delivered` and `undelivered` are separate terminal receipt states. Undelivered
+results flag the existing schedule row and cron sync status. The existing webhook
+handler is unchanged: readback recovers independently of webhook ordering or a
+receipt arriving before the POST acknowledgement. Reconciliation continues for
+accepted jobs when their batch is disabled, while the runtime flag remains on.
+No clear body is persisted in these new tables or returned in cron diagnostics.
+
+Runtime contract: `CLEANER_MESSAGES_ENABLED=true`, one canonical
+`CLEANER_MESSAGES_PROPERTY_ID`, and the **existing** `QUO_API_KEY`. The batch also
+requires its separate database enablement. Sending always uses `quoFromNumber('ops')`;
+no first-number discovery or guest-line fallback. Ten recipients maximum per
+batch, ten candidate jobs per tick, a 90-second loop budget and 20-second HTTP
+timeouts bound work. Matching future work stays out of the due scan; candidates
+rotate fairly. `?dry=1` loads IDs/counts only and performs no sends or writes.
+The existing 15-minute cron cadence is preserved.
+
+Validation of the combined branch: **2,202 tests / 240 suites**, nonincremental
+TypeScript and scoped ESLint. **66 actual disposable PostgreSQL scenarios**
+(42 guest + 24 cleaner) exercise the actual SQL and scheduled workers with synthetic
+HTTP only. Cleaner cases include multiple recipients, two competing workers,
+partial rejection, lost claim/save acknowledgements, database restart, holds,
+changed templates/times/phones, missing source observations, property scoping,
+role boundaries, monotonic receipts and cancellation. No hosted or customer
+message-delivery acceptance is implied.
+
+Official Quo references checked October 21:
+[send contract](https://www.quo.com/docs/mdx/api-reference/messages/send-a-text-message),
+[message lookup](https://www.quo.com/docs/mdx/api-reference/messages/get-a-message-by-id),
+and the [OpenAPI schema](https://openphone-public-api-prod.s3.us-west-2.amazonaws.com/public/openphone-public-api-v1-prod.json).
+The new transport uses the documented `api.quo.com` origin; the existing general
+`quo.ts` client and webhook signature behavior were not changed. Quo's
+[API overview](https://www.quo.com/api) says outgoing API texts use paid segments:
+reusing the account adds no new subscription here, but activation requires the
+existing cost review and an explicit actual-recipient delivery test.
+
+
 The automatic guest-message path now connects the existing authenticated
 `/api/cron/automations` job to authoritative SQL snapshots, the existing message
 renderer, schedule refresh, the durable worker and the Channex transport.
@@ -28,7 +95,7 @@ preserve confirmation +30 minutes, pre-arrival one calendar day before ETA, code
 60 minutes before ETA, and pre-checkout one calendar day before ETD. Listing
 fallbacks use rate-plan check-in and `properties.default_checkout_time`, matching
 current main. Checkout adjustments take precedence. Nonexistent/ambiguous local
-DST times block for source resolution. Cleaner execution remains separate work.
+DST times block for source resolution. Cleaner execution is covered by the subsequent batch above.
 
 A single database statement returns the current timing, template and minimum
 render inputs with a context digest. Clear access values exist only in server
@@ -56,7 +123,7 @@ counts and fixed error text, with attention counts in the existing sync status.
 
 Deployment contract (not activated): install `automation-holds.sql`,
 `channex-message-worker.sql`, then `channex-message-schedule.sql` before any job
-registration. The pair is an initial draft installation, not an upgrade script
+registration. The message schemas are an initial draft installation, not an upgrade script
 for populated message tables. Set server-only `CHANNEX_MESSAGES_ENABLED=true`,
 `CHANNEX_MESSAGES_PROPERTY_ID` (canonical Helm ID),
 `CHANNEX_MESSAGES_ENVIRONMENT` (`staging` or `production`) and
@@ -82,9 +149,9 @@ Remaining delivery work:
    and canonical stay update; do not reuse the fictional importer as production.
    Import future unsent work after verified source stop/drain, retaining holds
    and prior identities. Confirm source expiry policy and real DST queue parity.
-2. Integrate Quo cleaner sending with durable **per-recipient** attempts and
-   authenticated delivery receipts. The current cleaner loop records only the
-   first provider ID across recipients. Keep the existing cleaner reminder times.
+2. Register the verified cleaner handoff and recipient bindings, review the exact
+   templates/portal links, then prove actual Quo delivery. The per-recipient
+   scheduled execution and receipt path is implemented above but not activated.
 3. Review/apply the schema and scoped runtime configuration after production
    account/cost checks. PriceLabs source capture is complete (541 daily values),
    but PriceLabs-to-Channex parity and production access remain unverified.

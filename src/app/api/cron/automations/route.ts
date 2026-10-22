@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { authorizeCron } from '@/lib/cron-auth';
 import { recordSyncResult } from '@/lib/sync-status';
 import { planAutomations, dispatchDue } from '@/lib/automations';
+import { dispatchScheduledCleaners } from '@/lib/cleaner-messaging/cron';
 import { dispatchScheduledChannex } from '@/lib/channex-messaging/cron';
 
 /**
@@ -40,6 +41,7 @@ async function handle(request: NextRequest) {
     const plan = await planAutomations({ now, propertyId, dry });
     const dispatch = await dispatchDue({ now, propertyId, dry });
     const channex = await dispatchScheduledChannex({ propertyId, dry });
+    const cleaners = await dispatchScheduledCleaners({ propertyId, dry });
     const body = {
       ok: true,
       dry,
@@ -49,19 +51,21 @@ async function handle(request: NextRequest) {
       awaiting_approval: dispatch.awaiting_approval,
       skipped_no_contact: dispatch.skipped_no_contact,
       configured_in_ota: dispatch.configured_in_ota,
-      failed: dispatch.failed + channex.attention + channex.blocked,
+      failed: dispatch.failed + channex.attention + channex.blocked + cleaners.attention + cleaners.blocked,
       plan,
       dispatch,
       channex,
+      cleaners,
       at: now.toISOString(),
     };
     if (!dry) {
       await recordSyncResult('automations', {
-        processed: plan.planned + dispatch.claimed + channex.refreshed + channex.recorded,
-        failed: dispatch.failed + channex.attention + channex.blocked,
-        firstError: dispatch.firstError ?? (channex.attention + channex.blocked ? 'Channex message reconciliation or context review required' : undefined),
+        processed: plan.planned + dispatch.claimed + channex.refreshed + channex.recorded + cleaners.accepted + cleaners.delivered,
+        failed: dispatch.failed + channex.attention + channex.blocked + cleaners.attention + cleaners.blocked,
+        firstError: dispatch.firstError ?? (channex.attention + channex.blocked ? 'Channex message reconciliation or context review required' : (cleaners.attention + cleaners.blocked ? 'Cleaner message reconciliation or context review required' : undefined)),
         result: {
           channex,
+          cleaners,
           properties: plan.properties,
           bookings: plan.bookings,
           planned: plan.planned,

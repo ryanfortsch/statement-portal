@@ -636,7 +636,7 @@ export async function planAutomations(opts: { now?: Date; propertyId?: string | 
       // row an operator skipped, or one that sent, between read and write is
       // never touched.
       const base = supabaseAdmin.from('automation_sends').update({ ...u.patch, updated_at: now.toISOString() }).eq('id', u.id)
-        .or('delivery_used.is.null,delivery_used.neq.channex');
+        .or('delivery_used.is.null,and(delivery_used.neq.channex,delivery_used.neq.quo_cleaner)');
       const { error } =
         u.resumeFrom !== null
           ? await base.eq('status', 'cancelled').eq('error', u.resumeFrom)
@@ -993,9 +993,9 @@ export async function dispatchDue(opts: { now?: Date; propertyId?: string | null
   if (!isServiceConfigured) return { ...EMPTY_DISPATCH, dry };
   const nowIso = now.toISOString();
 
-  // Reserved Channex jobs use their durable attempt worker; no legacy fallback.
+  // Reserved provider jobs use their durable attempt workers; no legacy fallback.
   if (dry) {
-    let q = supabaseAdmin.from('automation_sends').select('id', { count: 'exact', head: true }).eq('status', 'scheduled').or('delivery_used.is.null,delivery_used.neq.channex').lte('fire_at', nowIso);
+    let q = supabaseAdmin.from('automation_sends').select('id', { count: 'exact', head: true }).eq('status', 'scheduled').or('delivery_used.is.null,and(delivery_used.neq.channex,delivery_used.neq.quo_cleaner)').lte('fire_at', nowIso);
     if (opts.propertyId) q = q.eq('property_id', opts.propertyId);
     const { count } = await q;
     return { ...EMPTY_DISPATCH, claimed: count ?? 0, dry };
@@ -1010,7 +1010,7 @@ export async function dispatchDue(opts: { now?: Date; propertyId?: string | null
       .from('automation_sends')
       .update({ status: 'failed', error: 'stuck in sending for 30+ minutes; not retried', updated_at: nowIso })
       .eq('status', 'sending')
-      .or('delivery_used.is.null,delivery_used.neq.channex')
+      .or('delivery_used.is.null,and(delivery_used.neq.channex,delivery_used.neq.quo_cleaner)')
       .lt('updated_at', stuckBefore);
     if (opts.propertyId) stuck = stuck.eq('property_id', opts.propertyId);
     await stuck;
@@ -1020,7 +1020,7 @@ export async function dispatchDue(opts: { now?: Date; propertyId?: string | null
     .from('automation_sends')
     .update({ status: 'sending', updated_at: nowIso })
     .eq('status', 'scheduled')
-    .or('delivery_used.is.null,delivery_used.neq.channex')
+    .or('delivery_used.is.null,and(delivery_used.neq.channex,delivery_used.neq.quo_cleaner)')
     .lte('fire_at', nowIso);
   if (opts.propertyId) claim = claim.eq('property_id', opts.propertyId);
   const { data, error } = await claim.select(SEND_COLS);
@@ -1083,7 +1083,7 @@ export async function approveSend(id: string, actor: string, opts: { body?: stri
     .update({ status: 'sending', updated_at: now.toISOString() })
     .eq('id', id)
     .eq('status', 'awaiting_approval')
-    .or('delivery_used.is.null,delivery_used.neq.channex')
+    .or('delivery_used.is.null,and(delivery_used.neq.channex,delivery_used.neq.quo_cleaner)')
     .select(SEND_COLS);
   if (error) return { ok: false, error: error.message };
   const row = (data ?? [])[0] as AutomationSendRow | undefined;

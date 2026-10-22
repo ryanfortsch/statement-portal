@@ -40,15 +40,15 @@ language sql stable security definer set search_path='' as $$
     and to_jsonb(c)->>'removed_at' is null order by to_jsonb(c)->>'created_at' desc nulls last,c.id desc limit 1),
   'lockMapped',exists(select 1 from public.lock_devices l where l.property_id=b.property_id and l.active),
   'trashDay',to_jsonb(p)->>'trash_day', 'timeZone',r.timezone)
- from public.automation_channex_jobs j join public.automation_sends s on s.id=j.send_id
- join public.bookings b on b.id=j.booking_id join public.properties p on p.id=b.property_id
+ from public.automation_sends s
+ join public.bookings b on b.id=s.booking_id join public.properties p on p.id=b.property_id
  join public.automation_channex_stay_times t on t.booking_id=b.id and t.check_in=b.check_in and t.check_out=b.check_out
  join public.message_automations r on r.id=s.automation_id
  left join public.property_rate_plans plan on plan.property_id=b.property_id
  left join public.checkout_adjustments a on a.property_id=b.property_id and a.stay_check_in=b.check_in
  left join public.property_access pa on pa.property_id=b.property_id
  left join public.guests g on g.id=b.guest_id
- where j.send_id=p_send_id and t.observed_at<=statement_timestamp();
+ where s.id=p_send_id and t.observed_at<=statement_timestamp();
 $$;
 
 -- Calendar-day offsets preserve Guesty's relative ETA/ETD semantics across DST.
