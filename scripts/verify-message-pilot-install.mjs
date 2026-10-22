@@ -57,6 +57,28 @@ try{
  }
  for(const role of ['anon','authenticated','service_role'])assert.equal(await scalar("select has_function_privilege($1,'public.automation_message_handoff_stay(uuid,text,jsonb)','EXECUTE') data",[role]),false);
  pass('RLS and owner-only handoff verified on actual canonical schema');
- console.log(`PASS ${count} installation scenarios; digest ${bundle.digest}; no external IO`);
+ // Verify the separate incremental candidate on the ACTUAL canonical schema.
+ // The prior installer remains byte-for-byte reproducible and is never rerun as
+ // an upgrade. This additional six-message rehearsal still rolls back all rows.
+ await db.query(readFileSync(new URL('../docs/guesty-exit/staging-storage/message-queue-preparation.sql',import.meta.url),'utf8'));
+ let automatic=readFileSync(new URL('../docs/guesty-exit/staging-storage/message-hosted-rehearsal.sql',import.meta.url),'utf8');
+ assert.ok(automatic.includes("jsonb_build_object('send_id',row_send.id,'review',review)"));
+ automatic=automatic.replace("jsonb_build_object('send_id',row_send.id,'review',review)",
+  "jsonb_build_object('automation_id',row_send.automation_id,'fire_at',row_send.fire_at,'review',review)")
+  .replaceAll('public.automation_message_handoff_stay(b,canon,','public.automation_message_prepare_handoff(b,canon,')
+  .replace('  -- Last entry rejects AFTER earlier writes,',
+   "  delete from public.automation_sends where booking_id=b and status<>'held';\n  -- Last entry rejects AFTER earlier writes,");
+ const automaticResult=await db.query('begin;create temporary table helm_message_rehearsal_result(summary jsonb) on commit drop;'+automatic+
+  'select summary from helm_message_rehearsal_result;rollback;');
+ const prepared=automaticResult.at(-2).rows[0].summary;
+ assert.equal(prepared.workflows,6);assert.equal(prepared.fixture_rolled_back,true);assert.equal(prepared.existing_rows_preserved,true);
+ assert.equal(prepared.future_guest_jobs,3);assert.equal(prepared.fictional_cleaner_recipient_jobs,4);
+ assert.equal(await scalar('select count(*)::int data from automation_channex_jobs'),0);
+ pass('incremental queue preparation reuses the held row and creates the other five on canonical tables; all fixture data rolls back');
+ for(const role of ['anon','authenticated','service_role'])for(const name of ['automation_message_prepare_handoff(uuid,text,jsonb)',
+  'automation_message_preparation_snapshot(uuid)','automation_message_booking_context(uuid)'])
+  assert.equal(await scalar("select has_function_privilege($1,$2,'EXECUTE') data",[role,'public.'+name]),false);
+ pass('incremental preparation remains owner-only on canonical schema');
+ console.log(`PASS ${count} installation/preparation scenarios; original digest ${bundle.digest}; no external IO`);
 }catch(e){console.error('FAIL',e.message,e.where??'');process.exitCode=1;}
 finally{if(db)await db.end();if(running)ctl('-m','immediate','-w','stop');rmSync(root,{recursive:true,force:true});}

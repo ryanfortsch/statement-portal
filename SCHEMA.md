@@ -602,6 +602,22 @@ holds, and never enables senders. Worker/browser roles cannot read these source
 tables or call these ingestion functions. This is reviewed evidence ingestion,
 not a remote source collector or independent proof of delivery.
 
+Atomic queue preparation (**candidate; not applied to hosted databases**):
+`staging-storage/message-queue-preparation.sql` extends the six-workflow handoff
+without adding a table. An owner-only preparation snapshot returns the current
+canonical, content and timing revision tokens before message rows exist. The
+booking-context helper preserves the existing worker context digest exactly.
+`automation_message_prepare_handoff` accepts six distinct rule/time/review entries,
+creates missing canonical `automation_sends` rows, and immediately invokes the
+existing transactional history/registration handoff. No unreserved row commits.
+Existing IDs, holds and terminal receipts persist; changed schedules, duplicate
+keys, stale context and incomplete source evidence reject the complete transaction.
+This is not a retime/revive API or source collector. Browser and service roles
+have no execution grants; no sender is enabled. The server adapter in
+`src/lib/channex-messaging/queue-preparation.ts` checks the complete response and
+reports lost/partial replies as unconfirmed without retrying. The previous hosted
+installation bundle remains unchanged; this file is a separate incremental candidate.
+
 Exact source-time resolution (**isolated staging only; unapplied in production**):
 `channex-message-schedule.sql` adds `automation_message_schedule_resolutions`,
 one private row per canonical send. It stores the reviewed workflow, timing

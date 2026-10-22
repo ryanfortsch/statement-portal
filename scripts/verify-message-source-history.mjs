@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { diffPlan } from '../src/lib/automations-core.ts';
 import { quoFromNumber } from '../src/lib/quo-lines.ts';
+import { verifyQueuePreparation } from './verify-message-queue-preparation.mjs';
 export async function verifySourceHistory({ db, a, b, fixture, scalar }) {
  await db.query("alter table automation_sends add column body_rendered text, add column subject_rendered text, add column to_address text, add column missing_fields text[] default '{}', add column secrets_sent boolean default false");
  let count=0;const pass=s=>{count++;console.log(`PASS source history: ${s}`);};
@@ -120,4 +121,5 @@ export async function verifySourceHistory({ db, a, b, fixture, scalar }) {
  }
  pass('browser and execution-worker roles cannot manufacture source history or run the migration handoff');
  console.log(`PASS ${count} additional PostgreSQL source-history scenarios; synthetic evidence only`);
+ await verifyQueuePreparation({db,a,b,bundle,scalar});
 }

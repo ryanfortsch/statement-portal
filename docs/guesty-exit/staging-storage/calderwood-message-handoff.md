@@ -1627,3 +1627,43 @@ Next launch work remains authoritative cleaner history, automatic source timing
 and canonical queue preparation, followed by explicitly authorized delivery
 acceptance. Channex production access, PriceLabs parity and contract/channel
 cutover gates remain open. Guesty continues operating.
+
+
+### October 22: one packet creates and hands over the complete queue
+
+Added the incremental candidate `message-queue-preparation.sql` and the server
+adapter `src/lib/channex-messaging/queue-preparation.ts`. A current owner-only
+snapshot supplies canonical/context/observation tokens before any send exists.
+The caller supplies six distinct rule IDs, source-reviewed fire times and the
+existing complete source reviews. One transaction creates missing canonical
+rows and calls the existing six-workflow handoff. Newly scheduled native rows
+cannot become visible before their dedicated delivery rails or sent-history
+records are attached. No source timestamp is guessed from import/receipt time.
+
+Existing rows are reused only with exact rule/key/dates/time identity. Holds
+stay held. Cancelled, failed, unapproved and in-flight rows cannot be revived;
+preparation does not change existing times. A late source/recipient failure rolls
+back every new row and preserves existing rows. Duplicate requests converge on
+six records. The application rejects partial/mismatched receipts and reports an
+unknown result after a lost reply without automatic retry. All three new RPCs
+remain database-owner only; existing worker context hashes are unchanged.
+
+Validation: 2,237 application tests / 242 suites, nonincremental TypeScript and
+scoped ESLint passed. The full native PostgreSQL messaging harness passed 143
+scenarios, including fifteen new preparation cases and the application adapter
+against actual SQL receipts. The canonical-schema installer harness passed twelve
+cases, including preparation of five missing records around an existing held
+key-code row and complete fixture rollback. Initial SQL CASE syntax failed and
+was repaired before these passing runs. No provider network calls or customer
+fixtures were used.
+
+Review handoff: branch `codex/channex-staging-pilot`, starting commit `e27f1f01`,
+original base `a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`; origin/main verified as
+`0e9ada07c5fa670a1e83079a1f46a4803937aa07`. Files: the incremental SQL, server
+adapter, five adapter tests, new PostgreSQL harness extension, two existing
+harness integrations and the existing schema/architecture/handoff documents.
+Unrelated contract-readiness edits remain excluded. The prior hosted installer
+and its SHA are unchanged; this incremental candidate has not been applied to
+hosted databases. Automatic source timing/history collection, continuous changes,
+authoritative cleaner history and real delivery acceptance still remain. No
+production deployment, sender activation, service purchase or Guesty change.

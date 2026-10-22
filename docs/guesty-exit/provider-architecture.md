@@ -2340,3 +2340,20 @@ This completes the isolated SQL installation/rehearsal gate. Automatic live
 source ingestion, authoritative cleaner history, production access and real
 recipient delivery remain separate work. No production migration, channel
 change, sender activation or additional paid service occurred.
+
+
+## October 22 atomic creation of the six-message queue
+
+The application can now submit one complete, reviewed handoff packet without
+pre-inserting six native message rows. The candidate owner-only SQL creates
+missing rows and imports/registers all four guest and two cleaner workflows in
+the same transaction. Existing holds, IDs and receipts survive; a single failed
+review removes every new row. Concurrent identical requests return the same six
+records. The adapter verifies the response and does not retry a lost reply.
+
+This closes manual canonical-row preparation for reviewed migration packets.
+It does not collect live source history/timing, retime an existing queue, enable
+senders or establish delivery. The extension is locally verified and not applied
+to hosted staging or production. Automatic source ingestion and ongoing revision
+handling remain launch requirements; Guesty remains the live operator. Details,
+checks and the review handoff are in the existing messaging handoff document.
