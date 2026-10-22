@@ -1,0 +1,54 @@
+{
+  "environment": "isolated-staging",
+  "projectRef": "jgkblfozftcvymvwhhii",
+  "applicationCommit": "dbab70c9e9881a97b88d5b6fd9fb54c3670588c0",
+  "worker": {
+    "serviceId": "srv-db05t2id0e5s73a7r8gg",
+    "deploymentId": "dep-dbd5k4favr4c73cgjhm0",
+    "deploymentStartedAt": "2026-10-22T18:46:41Z",
+    "status": "live",
+    "firstMappedPoll": {
+      "at": "2026-10-22T18:47:04.671Z",
+      "outcome": "success",
+      "failures": 0,
+      "received": 0,
+      "applied": 0,
+      "stale": 0,
+      "acknowledged": 0
+    },
+    "inventoryCycle": {
+      "at": "2026-10-22T18:47:03.106Z",
+      "failures": 0,
+      "phase": "plan",
+      "status": "blocked"
+    }
+  },
+  "preview": {
+    "deploymentId": "dpl_SRe5TrAPC2DtUtdEuF5f9e9xkNSE",
+    "status": "ready",
+    "builtAt": "2026-10-22T18:46:50Z",
+    "url": "https://rising-tide-statements-esw4at2gq-rising-tide-fc584d5d.vercel.app"
+  },
+  "controlsVerifiedAt": "2026-10-22T18:49:28.991053Z",
+  "controls": {
+    "publishing": false,
+    "connectedChannels": 0,
+    "enabledRules": 0,
+    "enabledGuestRoutes": 0,
+    "enabledCleanerBatches": 0
+  },
+  "retainedState": {
+    "bookings": 7,
+    "automationSends": 12,
+    "importReceipts": 16,
+    "captureVersion": 28,
+    "planVersion": 40,
+    "journalVersion": 98
+  },
+  "readbackQuery": "ce665eec-d094-4e27-b998-b20c1629874c",
+  "limits": [
+    "Empty feed success proves the deployed polling path resolved the stored route and completed its read; it does not prove a new booking save or ACK.",
+    "The preview build is ready; no fresh signed notification was sent through this build in this batch.",
+    "Publishing and message delivery stayed disabled; production entitlement, source history, PriceLabs parity and live acceptance remain open."
+  ]
+}

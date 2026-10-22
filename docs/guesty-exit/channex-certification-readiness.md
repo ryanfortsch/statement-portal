@@ -8,12 +8,12 @@ SHA-256. Historical receipts retain their original dates and limits.
 
 ## Actual critical path
 
-1. **Upgrade and demonstrate the staging runtime.** Stored inventory mapping and
+1. **Demonstrate the upgraded staging runtime.** Stored inventory mapping and
    bounded Calderwood import/receipt guards are now installed in the isolated
    database. Signed-webhook and backup-polling code now share that mapping gate;
-   local integration and race checks passed. Upgrade the existing staging worker
-   and preview, then repeat a signed create/change/cancel demonstration through
-   this new path. The importer intentionally remains fictional Calderwood only.
+   local integration and race checks passed. The worker and preview are deployed
+   at `dbab70c9`, and the first mapped empty-feed poll succeeded. Next repeat a
+   signed create/change/cancel demonstration through this new path. The importer intentionally remains fictional Calderwood only.
    Portfolio mapping UI and generation rollover are later expansion work, not
    prerequisites for this one-property rehearsal.
 2. **Certification scope and demonstration.** PriceLabs owns prices and minimum
@@ -73,7 +73,7 @@ Airbnb delivery or adoption of an existing customer reservation.
 | Create/move/release a hold | `src/lib/bookings-write.ts` | Hosted evidence is for the isolated fictional property |
 | Close/reopen a date | `src/lib/property-rates.ts` | Availability-only publisher preserves PriceLabs fields |
 | Transactional change capture | `docs/guesty-exit/staging-storage/booking-inventory-events.sql` | Isolated canonical store |
-| Queue, batching and task settlement | `src/lib/channex-staging/booking-inventory-cycle.ts`, `src/lib/channex-staging/booking-inventory-delivery.ts` | Stored inventory mapping implemented locally; hosted worker still fixed |
+| Queue, batching and task settlement | `src/lib/channex-staging/booking-inventory-cycle.ts`, `src/lib/channex-staging/booking-inventory-delivery.ts` | Stored inventory mapping installed; updated worker deployed |
 | Actual availability POST | `src/lib/channex-staging/availability-client.ts` | Staging host; 366-date window; zero-channel guard |
 | Signed booking notification | `src/app/api/webhooks/channex-staging/route.ts` | Preview route; exact Offline/HELMTEST scope |
 | Durable import then ACK | `src/lib/channex-staging/canonical-revisions.ts` | No real OTA provenance or existing-stay adoption yet |
@@ -198,8 +198,9 @@ configuration/import races. **26 exact installation/preparation scenarios**
 include wrong-project refusal, enabled-publisher refusal, atomic rollback,
 record preservation and owner-only manifest access. Provider responses in these
 local checks were simulated; the hosted database checks used the existing test
-records. The worker and preview upgrade plus a fresh provider lifecycle remain
-next, followed by automatic-message delivery acceptance and PriceLabs verification.
+records. The worker and preview were upgraded afterward as recorded below. A
+fresh signed provider lifecycle remains next, followed by automatic-message
+delivery acceptance and PriceLabs verification.
 
 Implementation branch `codex/channex-staging-pilot`; preceding commit `5554e717`;
 original base `a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`; remote main verified at
@@ -207,3 +208,18 @@ original base `a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`; remote main verified a
 revision adapter, scheduler, webhook route, adapter/scheduler tests, routing SQL,
 installation builder, native concurrency/installation harnesses and this schema/
 evidence documentation. The unrelated contract-readiness edits remain excluded.
+
+
+### Runtime upgrade verified
+
+The existing Render worker was upgraded to `dbab70c9` in
+[deployment dep-dbd5k4favr4c73cgjhm0](https://dashboard.render.com/worker/srv-db05t2id0e5s73a7r8gg/deploys/dep-dbd5k4favr4c73cgjhm0).
+It became live and completed a mapped booking poll at 18:47:04 UTC with zero
+failures and an empty feed. The matching Vercel preview build is Ready. This
+proves the deployed route-resolution/read path, not a new revision save or ACK.
+At 18:49 UTC, independent database read-back retained seven bookings, twelve
+message rows, sixteen receipts, versions 28 / 40 / 98, disabled publishing and
+zero active channels/send controls. The
+[runtime receipt](staging-storage/calderwood-routing-runtime-receipt.json)
+records both exact deployment IDs and the observation limits. The earlier
+installation receipt remains unchanged as a record of the installation step.

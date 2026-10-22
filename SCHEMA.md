@@ -260,8 +260,9 @@ never key per-stay logic on `bookings.id` (`memory/project_bookings_duplicate_ro
   the whole transaction if configuration changed concurrently. Receipt reads also
   verify canonical property/source ownership before ACK. Private helpers remain
   inaccessible to app roles. No generic OTA importer or portfolio mapping is
-  implied. Signed-webhook and polling code share this path; their hosted upgrade
-  remains pending. `helm_pilot_installation.revision_routing` privately records
+  implied. Signed-webhook and polling code share this path; the staging worker
+  and preview at `dbab70c9` are deployed. The first mapped empty-feed poll passed;
+  a new signed provider lifecycle is still pending. `helm_pilot_installation.revision_routing` privately records
   the project, exact bundle/source hashes and installation time. The installer
   preserved every prior table row and all 16 receipts. Independent service-role
   read-back resolved generation 1 and read the three historical webhook receipts.
