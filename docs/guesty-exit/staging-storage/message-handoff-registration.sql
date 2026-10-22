@@ -21,6 +21,8 @@ create table public.automation_message_observation_history (
  observed_at timestamptz not null,
  timing_digest text not null
 );
+alter table public.automation_message_schedule_resolutions add foreign key(observation_revision)
+ references public.automation_message_observation_history(revision);
 create table public.automation_message_thread_bindings (
  booking_id uuid primary key references public.bookings(id),
  property_id text not null references public.automation_channex_routes(property_id),
@@ -76,14 +78,6 @@ end;
 $$;
 create trigger automation_message_invalidate_observation after update on public.bookings
 for each row execute function public.automation_message_invalidate_observation();
-
--- Timestamp instants hash identically across owner/worker session time zones.
-create function public.automation_message_timing_digest(t public.automation_channex_stay_times) returns text
-language sql immutable set search_path='' as $$
- select md5(jsonb_build_object('booking',t.booking_id,'check_in',t.check_in,'check_out',t.check_out,
- 'arrival',t.arrival_time,'departure',t.departure_time,'confirmed',extract(epoch from t.confirmed_at),
- 'observed',extract(epoch from t.observed_at),'evidence',t.source_evidence_id)::text);
-$$;
 
 create function public.automation_message_observation_current(p_booking_id uuid) returns boolean
 language sql stable security definer set search_path='' as $$
@@ -194,6 +188,7 @@ declare s public.automation_sends%rowtype; b public.bookings%rowtype;
  r public.automation_channex_routes%rowtype; binding public.automation_message_thread_bindings%rowtype;
  o public.automation_message_observations%rowtype; old public.automation_message_handoffs%rowtype;
  evidence timestamptz; stopped timestamptz; drained timestamptz; expiry timestamptz; flow text;
+ schedule_proof jsonb; queue_observed timestamptz; queue_at timestamptz; candidates record;
 begin
  select * into s from public.automation_sends where id=p_send_id;
  select * into r from public.automation_channex_routes where property_id=s.property_id for share;
@@ -232,6 +227,33 @@ begin
      when 'key_code' then 'checkin_day' when 'pre_checkout' then 'pre_checkout'
      when 'cleaner_advance' then 'pre_arrival' when 'cleaner_arrival' then 'checkin_day' end)
  then raise exception 'Workflow rule binding mismatch'; end if;
+ -- Optional exact queued time only resolves an actual day-clock disagreement.
+ -- It is captured BEFORE stopping the source; the parent review separately
+ -- proves stopped/drained/unsent. Both assertions commit or roll back together.
+ if p_review ? 'source_schedule' then
+   schedule_proof:=p_review->'source_schedule';
+   if jsonb_typeof(schedule_proof) is distinct from 'object'
+     or not (schedule_proof ?& array['scheduled_at','observed_at','evidence_id'])
+     or exists(select 1 from jsonb_object_keys(schedule_proof) k where k not in ('scheduled_at','observed_at','evidence_id'))
+     or flow not in ('pre_arrival','pre_checkout','cleaner_advance')
+     or coalesce(schedule_proof->>'evidence_id','') !~ '^[A-Za-z0-9_.:-]{1,160}$'
+     or exists(select 1 from unnest(array['scheduled_at','observed_at']) k
+       where coalesce(schedule_proof->>k,'') !~ 'T.*(Z|[+-][0-9]{2}:[0-9]{2})$')
+   then raise exception 'Exact source schedule evidence required'; end if;
+   queue_at:=(schedule_proof->>'scheduled_at')::timestamptz;
+   queue_observed:=(schedule_proof->>'observed_at')::timestamptz;
+   select * into candidates from public.automation_message_schedule_candidates(s.id,flow);
+   if not found or candidates.calendar_at is not distinct from candidates.elapsed_at
+     or queue_at is distinct from s.fire_at or queue_at not in (candidates.calendar_at,candidates.elapsed_at)
+     or not isfinite(queue_at) or queue_observed<o.observed_at or queue_observed>stopped
+     or queue_observed<clock_timestamp()-interval '5 minutes'
+   then raise exception 'Exact source schedule mismatch'; end if;
+   insert into public.automation_message_schedule_resolutions
+     (send_id,workflow,observation_revision,context_revision,timing_digest,calendar_at,elapsed_at,
+      scheduled_at,source_evidence_id,source_observed_at)
+   values(s.id,flow,o.revision,p_review->>'context_revision',o.timing_digest,candidates.calendar_at,candidates.elapsed_at,
+     queue_at,schedule_proof->>'evidence_id',queue_observed);
+ end if;
  if flow in ('confirmation','pre_arrival','key_code','pre_checkout') then
    select * into binding from public.automation_message_thread_bindings where booking_id=b.id;
    if binding.booking_id is null or binding.property_id is distinct from s.property_id or binding.route_generation is distinct from r.generation

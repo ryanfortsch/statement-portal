@@ -4,6 +4,56 @@ Implemented October 13, 2026 in `src/lib/calderwood-rehearsal/message-handoff.ts
 This pure function reviews synthetic evidence. It does not fetch Guesty records,
 change either queue, stop Guesty, persist results, or authorize sending.
 
+## Exact Guesty queue-time handoff — October 22, 2026
+
+The unapplied messaging drafts can now preserve a **reviewed exact source time
+for one message** when calendar-day and elapsed-day calculations disagree.
+Both guest and cleaner workers share the same candidate calculation and resolution.
+An unresolved discrepancy still returns no schedule. The change covers
+pre-arrival, pre-checkout and the ten-day cleaner reminder; hourly offsets and
+confirmation keep their existing behavior.
+
+For an affected future-unsent entry, the existing owner-only handoff review can
+include `source_schedule` with exactly `scheduled_at`, `observed_at` and
+`evidence_id`. Times must include an explicit UTC offset; the evidence ID is an
+opaque reference to that exact reservation/workflow queue observation. The
+observation must follow the reviewed stay timing, precede or equal source stop,
+and be no more than five minutes old at submission. The parent review separately
+requires fresh stopped/drained/unsent evidence. The canonical `fire_at` must equal
+the observed source time and one of the two computed candidates. Ordinary or
+hourly schedules cannot use this field to override their time.
+
+`automation_message_schedule_resolutions` retains the selected instant, both
+candidates and its context/timing provenance, with no body or recipient details.
+Registration, source proof and canonical reservation commit together. A bad
+recipient or another failed workflow rolls back the proof as well. Exact retries
+retain one record. Holds and disabled route/batch switches remain unchanged.
+Later changes to dates, timezone, template/context or the source timing observation
+invalidate the proof at the actual worker snapshot. These immutable migration
+reviews cannot silently authorize a changed schedule: reconciliation is required.
+A new observation invalidates the proof even if its clock values are unchanged;
+continuous ingestion must account for that before activation.
+
+Validation: **2,232 application tests / 242 suites**, nonincremental TypeScript,
+scoped ESLint and **128 disposable PostgreSQL scenarios** pass (44 guest,
+26 cleaner, 20 registration, 13 history, 25 exact-time resolution). Added coverage
+includes both candidate choices across spring/fall for all three day workflows,
+missing or invented evidence, full rollback, repeat submissions, role denial and
+invalidation after changes. All fixtures/provider calls are synthetic.
+
+This implements the handoff capability; it does **not** import the earlier live
+queue observations as fresh proof, establish a universal Guesty DST policy, prove
+cleaner receipts or activate delivery. All six messaging SQL drafts remain
+unapplied. The next acceptance is the combined hosted messaging rehearsal once
+its canonical fixture prerequisites are ready, followed by authorized delivery
+acceptance and current source reconciliation. Production account/cost and
+PriceLabs parity remain separate requirements.
+
+Handoff: `codex/channex-staging-pilot`, base `a148b0e6`, main checked
+`0e9ada07c5fa670a1e83079a1f46a4803937aa07`. Scope: three draft SQL files,
+four local harness files and existing schema/architecture/handoff documentation.
+Unrelated dirty contract-readiness notes remain excluded.
+
 ## Live source acceptance and executable timing correction — October 22, 2026
 
 Protected preview `029b99c2` read the complete October 22, 2026–October 22,

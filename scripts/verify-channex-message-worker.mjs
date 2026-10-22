@@ -72,7 +72,7 @@ try {
  };
  const store = c => createChannexJobStore(rpc(c));
  const reset = async () => {
-  await db.query('truncate automation_channex_stay_times,automation_hold_events,automation_channex_jobs,automation_sends,message_automations,bookings,automation_channex_routes,properties,property_rate_plans,checkout_adjustments,property_access,guest_access_codes,lock_devices,guests');
+  await db.query('truncate automation_message_schedule_resolutions,automation_channex_stay_times,automation_hold_events,automation_channex_jobs,automation_sends,message_automations,bookings,automation_channex_routes,properties,property_rate_plans,checkout_adjustments,property_access,guest_access_codes,lock_devices,guests');
   await db.query("insert into properties values('HELMTEST-home',true,'helm','11:00','HELMTEST-home',null,null,null,null)");
   await db.query("insert into guests values($1,'HELMTEST')",[id(40)]);
   await db.query("insert into bookings values($1,'HELMTEST-home',$2,'confirmed',null,'2027-01-01','2027-01-04','airbnb','HELMTEST Person')",[booking,id(40)]);

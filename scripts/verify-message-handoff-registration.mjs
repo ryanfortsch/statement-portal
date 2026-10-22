@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { renderScheduledMessage, runScheduledChannexMessages } from '../src/lib/channex-messaging/scheduled.ts';
 import { ChannexMessageTransport } from '../src/lib/channex-messaging/transport.ts';
+import { verifyScheduleResolution } from './verify-message-schedule-resolution.mjs';
 import { verifySourceHistory } from './verify-message-source-history.mjs';
 import { quoFromNumber } from '../src/lib/quo-lines.ts';
 export async function verifyMessageHandoff({ db, a, b }) {
@@ -150,4 +151,5 @@ export async function verifyMessageHandoff({ db, a, b }) {
  assert.equal((await tick()).recorded,1);assert.equal(posts,1);pass('verified registration reaches the actual worker and durable receipt after separate enablement, with exactly one synthetic send');
  console.log(`PASS ${count} additional local handoff PostgreSQL scenarios; no live provider calls`);
  await verifySourceHistory({db,a,b,fixture,scalar});
+ await verifyScheduleResolution({db,fixture,scalar});
 }

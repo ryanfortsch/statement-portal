@@ -30,7 +30,7 @@ export async function verifyCleaners({ db, a, b, restart }) {
  };
  const finish=(id,token,state,providerId=null,c=db)=>rpc(c)('automation_cleaner_finish',{p_job_id:id,p_attempt_id:token,p_state:state,p_provider_id:providerId}).then(r=>r.data);
  const fixture=async(flow='cleaner_arrival')=>{
-  await db.query('truncate automation_cleaner_jobs,automation_cleaner_batches,automation_channex_jobs,automation_channex_stay_times,automation_hold_events,automation_sends,message_automations,bookings,automation_channex_routes,properties,property_rate_plans,checkout_adjustments,property_access,guest_access_codes,lock_devices,guests,cleaner_schedule_recipients');
+  await db.query('truncate automation_message_schedule_resolutions,automation_cleaner_jobs,automation_cleaner_batches,automation_channex_jobs,automation_channex_stay_times,automation_hold_events,automation_sends,message_automations,bookings,automation_channex_routes,properties,property_rate_plans,checkout_adjustments,property_access,guest_access_codes,lock_devices,guests,cleaner_schedule_recipients');
   await db.query("insert into properties(id,automations_enabled,calendar_authority,default_checkout_time,name,region) values($1,true,'helm','11:00',$1,'HELMTEST-ct')",[property]);
   await db.query("insert into bookings(id,property_id,status,check_in,check_out,channel,guest_name) values($1,$2,'confirmed',(clock_timestamp() at time zone 'UTC'+interval '7 hours')::date,(clock_timestamp() at time zone 'UTC'+interval '7 hours')::date+3,'airbnb','HELMTEST')",[book,property]);
   await db.query("insert into message_automations values($1,$2,'cleaner_arrival','cleaner','auto',true,false,'{}','HELMTEST cleaner reminder','UTC',null,'checkin_day')",[rule,property]);

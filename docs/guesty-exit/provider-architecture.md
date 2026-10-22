@@ -1,5 +1,30 @@
 # Helm provider architecture and next implementation boundary
 
+## Exact Guesty queue-time handoff — October 22, 2026
+
+The shared guest/cleaner scheduler now accepts a reviewed exact source instant
+for a single day-offset message when calendar-day and elapsed-day clocks disagree.
+The owner-only handoff binds its fresh pre-stop queue observation to the current
+canonical send, workflow and timing revision, then separately requires source
+stop/drain and unsent evidence. Registration and resolution commit together;
+invalid evidence or another failed workflow rolls back both. Ordinary and hourly
+schedules cannot use it as an override. Holds and disabled senders remain intact.
+
+The complete contract and limitations are in
+[the message handoff](staging-storage/calderwood-message-handoff.md); the private
+table is documented in `SCHEMA.md`. Changed context or a newer timing observation
+invalidates the proof, including an observation with unchanged clock values.
+Continuous ingestion must handle reconciliation before activation. The existing
+live discrepancy has not been imported as fresh evidence, and cleaner receipt
+coverage remains unresolved. No universal Guesty DST policy is assumed.
+
+Validation: **2,232 application tests / 242 suites**, nonincremental TypeScript,
+scoped ESLint and **128 disposable PostgreSQL scenarios** (25 new exact-time
+cases). Messaging SQL remains unapplied. Scope: three SQL drafts, four harnesses
+and existing schema/architecture/handoff records on `codex/channex-staging-pilot`,
+base `a148b0e6`, main checked `0e9ada07c5fa670a1e83079a1f46a4803937aa07`.
+No live sender, account purchase or source change; dirty contract notes excluded.
+
 ## Guesty source-record collector — October 22, 2026
 
 The protected Calderwood preview now batches reservation local clocks, genuine

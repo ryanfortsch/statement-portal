@@ -589,6 +589,19 @@ holds, and never enables senders. Worker/browser roles cannot read these source
 tables or call these ingestion functions. This is reviewed evidence ingestion,
 not a remote source collector or independent proof of delivery.
 
+Draft exact source-time resolution (**not applied**):
+`channex-message-schedule.sql` adds `automation_message_schedule_resolutions`,
+one private row per canonical send. It stores the reviewed workflow, timing
+observation revision, context/timing digests, the two conflicting calculated
+instants, the selected source instant and opaque queue evidence/time. The shared
+candidate calculation covers all six workflows. Owner-only handoff registration
+inserts a resolution only for a fresh, exact pre-stop queue observation that
+matches the canonical time and one of the two day-clock candidates. It commits
+with the separate stopped/drained/unsent review; failure rolls back both.
+Both workers consume the same resolution and reject changed context/timing.
+No role grant, automatic activation or general DST policy is added. These rows
+are migration evidence, not an editable schedule override or live queue reader.
+
 Draft reviewed messaging registration (**not applied**):
 `docs/guesty-exit/staging-storage/message-handoff-registration.sql` installs after
 both execution drafts and the shared schedule. `automation_message_observations`
