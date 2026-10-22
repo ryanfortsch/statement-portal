@@ -2,6 +2,95 @@
 
 Decision draft, October 7, 2026. Goal: replace Guesty across the portfolio after a successful Calderwood pilot. This is an architecture deliverable, not an implemented production connector or an approval to disconnect channels. Contract timetable remains in `calderwood-cutover-readiness.md`; `SCHEMA.md` remains authoritative for existing tables. No new platform purchase is required for the next milestone.
 
+## Release path reviewed October 21, 2026
+
+**Next engineering batch: make the existing calendar integration usable from
+ordinary Helm operations in an isolated full application, then collect the
+certification demonstration.** Production sign-in and another PriceLabs import
+attempt cannot replace this work. The milestones below supersede the ordering
+in older dated notes; completed receipts remain evidence for their stated scope.
+
+| Work package | What is already established | What closes it |
+| --- | --- | --- |
+| Application integration and certification | Hosted booking revisions, availability changes, restart recovery and a 366-date stopped calendar; immutable provider task receipts | Ordinary Helm calendar create/move/cancel and closure controls demonstrably drive the queue; reviewed configurable connection mapping and provider scope; applicable scenarios and task IDs submitted, live review passed, production access issued |
+| Pricing and automatic messages | PriceLabs source baseline; guest/cleaner transports, timing, holds, receipts and reviewed registration tested locally | Production PriceLabs mapping and repeated date-by-date parity; continuous verified booking/timing ingestion and reconciled legacy message history; approved real guest-channel and cleaner delivery, including changed/cancelled stays |
+| Calderwood switch | Airbnb-only new-sales scope; Booking.com pause authorized; Vrbo deferred; Guesty still operates the home | Verified sales pauses, fresh all-channel reservation/block reconciliation, staged handoff and rollback, channel-side prices/availability, automatic messaging and an observed reliability period |
+| Portfolio exit | Calderwood is the selected pilot; separate owner accounts identified | Pilot acceptance, per-account migration readiness and contract-aligned notice/end dates; no assumed per-listing saving before the contractual reduction takes effect |
+
+### What the account check established
+
+On this read-only check, `https://app.channex.io/` opened at **Sign In**. It did
+not establish a production account, subscription, payment or entitlement. The
+older support response said no production account existed under Ryan's email;
+that dated response is not a fresh account lookup. Do not restart the password
+reset loop or describe the staging login as production access.
+
+Channex's current public onboarding says certification precedes production
+credentials. It requires the application's own update paths and a live review;
+existing API rehearsal receipts alone do not establish approval. Single-unit
+models and unsupported features can be declared, but acceptance of our
+PriceLabs-owned pricing scope is still unverified. Source:
+[production onboarding](https://channex.io/connect-first-property) and
+[certification requirements](https://docs.channex.io/api-v.1-documentation/pms-certification-tests).
+
+PriceLabs documents an active Channex subscription as a connector prerequisite.
+It sends prices and stay restrictions, supports per-room pricing, and warns
+against a second PMS price writer. Direct bookings do not arrive through this
+connector. That feedback gap needs an operational solution before relying on
+occupancy-based pricing. The existing Guesty connection stays the pricing source
+until the replacement is verified. Source:
+[PriceLabs connector](https://help.pricelabs.co/portal/en/kb/articles/how-to-integrate-pricelabs-with-channex).
+
+Published Channex costs were rechecked: $130/month platform plus $0.50 per rental
+unit and $0.50 per unit for messaging, or **$131/month for one pilot with messaging**
+before tax and other services. Staging and certification are free. This is not a
+customer invoice or approval to subscribe. PriceLabs overlap and Quo API usage
+remain separate costs; no new charge was accepted. Source:
+[Channex pricing](https://channex.io/pricing).
+
+### Existing application paths and the actual remaining gap
+
+| Operation | Existing product path | Delivery path / evidence boundary |
+| --- | --- | --- |
+| Create a hold | `src/app/channels/calendar/calendar-actions.ts` → `createBlock` in `src/lib/bookings-write.ts` | Canonical booking trigger in `staging-storage/booking-inventory-events.sql` captures the change transactionally; the hosted receipt does not demonstrate this ordinary UI path |
+| Move or cancel a stay | `src/app/channels/bookings/[id]/actions.ts` → `moveBooking` / `cancelBooking` | Same booking trigger; local RPC and hosted importer evidence exist, but no ordinary-app UI demonstration is recorded |
+| Close a calendar date | `saveRateDaysAction` → `setRateDays` in `src/lib/property-rates.ts` | The rate-day trigger invalidates inventory; availability-only delivery must continue to omit PriceLabs-owned prices and restrictions |
+| Publish changed availability | `booking-inventory-scheduler.ts` → `booking-inventory-cycle.ts` → `booking-inventory-delivery.ts` → `availability-client.ts`, all under `src/lib/channex-staging/` | Real queue and transport exist. The runner is deliberately locked to the fictional property, isolated database, fixed generation and stopped staging mapping; it is not a configurable production runner |
+| Receive reservations | `src/app/api/webhooks/channex-staging/route.ts` and `canonical-revision-scheduler.ts` → `canonical-revisions.ts` | Signed webhook and backup feed work in staging. The importer deliberately accepts only the allowlisted Offline/HELMTEST scope; real OTA provenance, mapping and existing-stay adoption are unfinished |
+
+The ordinary product uses `NEXT_PUBLIC_SUPABASE_URL` through
+`src/lib/supabase-admin.ts`. The isolated integration uses its separate
+`CHANNEX_STAGING_DB_URL`. Their existence does **not** prove the ordinary calendar
+and integration currently share a database. No environment was changed in this
+audit. Do not redirect the live app to the fixture database to manufacture proof.
+
+The next batch must use the existing calendar/booking controls in an isolated
+full application with compatible schema and real environment-scoped mapping.
+Keep the old rehearsal boundaries intact while preparing the reusable connector;
+do not obtain production behavior by removing the HELMTEST filter or swapping
+only a base URL. The concrete acceptance is one operator-created hold, its move,
+cancellation and date closure reaching stopped Channex staging through the
+ordinary application writer and durable queue, with task/read-back receipts and
+unchanged PriceLabs-owned fields. Then complete the applicable certification
+scenarios and obtain review. No certification-only interface or canned success
+submission is needed.
+
+Messaging remains a separate launch requirement: owner-reviewed registration is
+implemented, but source collection and ongoing timing updates are not automated
+yet. Applying its SQL alone would not satisfy the user's no-manual-messages
+requirement. The original relative schedules and rare operator hold remain the
+accepted behavior; no further timing decision is needed from Ryan.
+
+Audit handoff: starting HEAD `ce33c3b01ce0b8be80a089888d2d792c0ca60343`, branch
+`codex/channex-staging-pilot`, original base
+`a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`; freshly fetched main
+`69bab2608aed472af68f76bae9b87bb7f4290e2e`. This batch updates this document only;
+contract-readiness edits remain excluded. Complete diff, referenced local paths
+and whitespace checks are the documentation-only validation. Historical test
+counts above belong to the unchanged implementation, not a new test run.
+No support message, certification submission, account creation, key creation,
+subscription, database mutation, channel change, merge or deployment occurred.
+
 ## Current delivery status: October 21, 2026
 
 The pilot is **Airbnb-only for new sales**: Ryan authorized pausing Booking.com;
@@ -49,8 +138,8 @@ provider-ID GET distinguishes acceptance from delivered/undelivered receipts.
 The existing generic cleaner loop remains unchanged for properties outside this
 explicitly registered rail; it is not the pilot fallback.
 
-Combined verification: **2,202 application tests / 240 suites** and **66 actual
-local PostgreSQL scenarios**, including 24 cleaner scenarios. TypeScript, scoped
+Combined verification at `ce33c3b0`: **2,202 application tests / 240 suites**
+and **86 local PostgreSQL scenarios** (42 guest, 24 cleaner and 20 registration). TypeScript, scoped
 ESLint and diff checks passed. All new message schemas are **unapplied drafts**;
 both guest and cleaner runtime flags remain off. No new server/subscription was
 added. Quo API usage is separately billed per segment and still belongs in the
