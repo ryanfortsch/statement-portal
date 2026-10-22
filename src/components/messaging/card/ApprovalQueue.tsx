@@ -5,6 +5,7 @@ import { Section } from '@/components/Section';
 import { QueueRefreshControl } from '@/components/QueueRefreshControl';
 import { UndoToast } from './UndoToast';
 import { Button } from '@/components/Button';
+import type { QueueLoadStatus } from '@/lib/queue-loader';
 import type { CardResult, Decision } from './types';
 
 /**
@@ -21,6 +22,7 @@ export type QueueCardHelpers = {
 export function ApprovalQueue<T extends { id: string; status?: string; send_at?: string }>({
   approvals,
   onRefresh,
+  refreshStatus = 'ready',
   undo,
   emptyMessage,
   toolbar,
@@ -30,6 +32,9 @@ export function ApprovalQueue<T extends { id: string; status?: string; send_at?:
   approvals: T[];
   /** Fetch the queue now and catch the page up. */
   onRefresh: () => void;
+  /** The feed's state, from useApprovalQueue: the Refresh control says
+   *  when a refresh failed or the browser is offline, and nothing else. */
+  refreshStatus?: QueueLoadStatus;
   /** The audience's undo for a Mark handled. A mixed queue gets the
    *  decision's audience too. */
   undo: (id: string, audience?: string) => Promise<CardResult>;
@@ -81,7 +86,7 @@ export function ApprovalQueue<T extends { id: string; status?: string; send_at?:
       <Section
         id="needs-review"
         title={title}
-        right={<QueueRefreshControl onRefresh={onResolved} />}
+        right={<QueueRefreshControl onRefresh={onRefresh} status={refreshStatus} />}
         empty={approvals.length === 0 && !toolbar && !after}
         emptyMessage={emptyMessage}
       >

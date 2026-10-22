@@ -59,16 +59,23 @@ export async function GET(req: NextRequest) {
   const param = req.nextUrl.searchParams.get('audience') || 'guests';
   const audience: Audience = isAudience(param) ? param : 'guests';
 
+  // /owner-messaging is an owner page; its feed is too. The proxy cannot gate
+  // this by prefix because every audience shares the route. Checked before
+  // anything else so a staff login hears "owners only", whatever the state
+  // of the feed.
+  if (audience === 'owners' && (await sessionRole()) !== 'owner') {
+    return NextResponse.json({ error: 'Owners only' }, { status: 403 });
+  }
+
+  // Not connected is a failure, never an empty queue: an empty list here read
+  // as "nothing to do" while no message could arrive at all. The only caller
+  // is useApprovalQueue, which keeps its last cards on a non-200 and says
+  // the refresh failed.
   if (!isStayConciergeConfigured()) {
-    return NextResponse.json({ approvals: [] });
+    return NextResponse.json({ error: 'The messaging service is not connected to Helm.' }, { status: 503 });
   }
 
   if (audience === 'owners') {
-    // /owner-messaging is an owner page; its feed is too. The proxy cannot
-    // gate this by prefix because every audience shares the route.
-    if ((await sessionRole()) !== 'owner') {
-      return NextResponse.json({ error: 'Owners only' }, { status: 403 });
-    }
     const res = await listOwnerApprovals();
     return res.ok ? NextResponse.json({ approvals: res.data.approvals }) : failed(res.error);
   }

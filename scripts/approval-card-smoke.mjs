@@ -3,7 +3,9 @@
  * with synthetic cards, every server action replaced by a recorder, and every
  * remote request blocked. Proves each verb calls what it says, Also on
  * approve gates a slip with no property, an open edit is saved before it
- * sends, Mark handled leaves an Undo, and the card fits a phone.
+ * sends, Mark handled leaves an Undo, the Refresh control says when the
+ * feed failed or the browser is offline (and nothing while it is healthy),
+ * and the card fits a phone.
  *
  * Run: node scripts/approval-card-smoke.mjs   (--compile-only to just bundle)
  */
@@ -88,7 +90,11 @@ window.queues={contractors:cards,cleaners:cleanerCards,owners:ownerCards,guests:
 window.queue=mode==='cleaner'?cleanerCards:mode==='owner'?ownerCards:mode==='guest'?guestCards:cards;
 window.role=new URLSearchParams(location.search).get('role')||'owner';
 const held=[{source_id:'abc123def456',held_at:Math.floor(Date.now()/1000)-3600,sender:'seo@example.test',subject:'Rank #1 on Google'}];
-window.fetch=async url=>{const u=String(url);const aud=(u.match(/audience=(\w+)/)||[])[1];
+// Inside this template literal a regex escape needs its backslash doubled.
+window.fetch=async url=>{const u=String(url);const aud=(u.match(/audience=(\\w+)/)||[])[1];
+ // The test holds a feed read open (window.feedHold) or fails it (window.feedFails: true, or one audience).
+ if(u.includes('/api/messaging/queue')){if(window.feedHold)await new Promise(r=>{window.releaseFeed=r;});
+  if(window.feedFails===true||window.feedFails===aud)return new Response('{"error":"synthetic outage"}',{status:502,headers:{'Content-Type':'application/json'}});}
  const approvals=!u.includes('/api/messaging/queue')?null:mode==='vendor'?[]:mode==='team'||aud==='cleaners'||aud==='contractors'?window.queues[aud]:window.queue;
  return new Response(JSON.stringify(approvals?{approvals,context:aud==='guests'?guestQuotes:{}}:{}),{headers:{'Content-Type':'application/json'}});};
 const homes=[{id:'home-a',name:'Synthetic Cottage'},{id:'home-b',name:'Synthetic Barn'}];
@@ -297,6 +303,36 @@ try{
  await page.screenshot({path:join(process.env.SMOKE_SHOTS||tmpdir(),'approval-card-vendor-mobile.png'),fullPage:true});
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);pass('vendor visit: the day editor fits a phone');
  await page.setViewport({width:1280,height:1000});
+ // The Refresh control: quiet while the feed is healthy, loud only when it is not.
+ const head=()=>text('#needs-review .rt-section-actions');
+ // Spacing between the status and the button is CSS, so compare without whitespace.
+ const headSays=t=>page.waitForFunction(t=>document.querySelector('#needs-review .rt-section-actions').textContent.replace(/\s+/g,'')===t.replace(/\s+/g,''),{},t);
+ const clickHead=()=>page.$eval('#needs-review .rt-section-actions button',b=>b.click());
+ await page.goto(origin+'/?mode=guest');await page.waitForSelector(card('stale-card'));
+ assert.equal((await head()).trim(),'Refresh','nothing beside Refresh while healthy');
+ await click(card('stale-card'),'Edit');await page.waitForSelector(card('stale-card')+' textarea');
+ await type(card('stale-card')+' textarea','Half-typed words');
+ await page.evaluate(()=>{window.feedHold=true;});await clickHead();
+ await page.waitForSelector('#needs-review .rt-section-actions button[aria-busy="true"]');
+ assert.match(await head(),/Refreshing/);
+ await page.evaluate(()=>{window.feedHold=false;window.feedFails=true;window.releaseFeed();});
+ await headSays('Refresh failed · Retry');
+ await page.screenshot({path:join(process.env.SMOKE_SHOTS||tmpdir(),'approval-card-refresh-failed.png'),clip:await page.$eval('#needs-review',e=>{const r=e.getBoundingClientRect();return {x:r.x,y:r.y+scrollY,width:r.width,height:Math.min(260,r.height)};})});
+ assert.equal(await page.$eval('#needs-review [role="status"]',e=>e.textContent.replace(/\s+/g,' ').trim()),'Refresh failed ·');
+ for(const id of ['guest-card','stale-card','failed-card'])assert.ok(await page.$(card(id)),id+' stays on a failed refresh');
+ assert.equal(await page.$eval(card('stale-card')+' textarea',e=>e.value),'Half-typed words','a failed refresh keeps a half-typed edit');
+ await page.evaluate(()=>{window.feedFails=false;});await clickHead();await headSays('Refresh');
+ assert.equal(await page.$eval(card('stale-card')+' textarea',e=>e.value),'Half-typed words');
+ pass('Refresh shows its pending state; a failed read says Refresh failed · Retry and keeps the cards and a half-typed edit; Retry recovers');
+ await page.evaluate(()=>{Object.defineProperty(navigator,'onLine',{configurable:true,get:()=>false});window.dispatchEvent(new Event('offline'));});
+ await headSays('Offline');assert.equal(await page.$('#needs-review .rt-section-actions button'),null,'no Refresh to press while offline');
+ await page.evaluate(()=>{Object.defineProperty(navigator,'onLine',{configurable:true,get:()=>true});window.dispatchEvent(new Event('online'));});
+ await headSays('Refresh');pass('offline says Offline, and the reconnect reads again');
+ await page.goto(origin+'/?mode=team');await page.waitForSelector(card('pt-card'));
+ await page.evaluate(()=>{window.feedFails='contractors';});await clickHead();await headSays('Refresh failed · Retry');
+ assert.ok(await page.$(card('slip-card')),'the contractor cards stay');
+ await page.evaluate(()=>{window.feedFails=false;});await clickHead();await headSays('Refresh');
+ pass('team: either feed failing is a failure on the one Refresh');
  await page.goto(origin+'/?mode=contractor');await page.waitForSelector('#approval-slip-card');
  await page.setViewport({width:390,height:844});await page.reload();await page.waitForSelector('.rt-inbox-review-toggle');
  await page.$$eval('.rt-inbox-review-toggle',bs=>bs[0].click());

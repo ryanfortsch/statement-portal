@@ -700,8 +700,11 @@ describe('the data behind the page gate refuses a staff session', () => {
   // route or a server action reachable from a page staff keep.
   test('the owner messaging feed, its count and the search panel refuse the owners audience for staff', () => {
     const queue = read('src/app/api/messaging/queue/route.ts');
-    assert.ok(queue.includes("if ((await sessionRole()) !== 'owner') {"), 'the queue must check the role for the owners audience');
+    const gate = queue.indexOf("if (audience === 'owners' && (await sessionRole()) !== 'owner') {");
+    assert.ok(gate > 0, 'the queue must check the role for the owners audience');
     assert.ok(queue.includes("return NextResponse.json({ error: 'Owners only' }, { status: 403 });"));
+    // Before anything else, so a staff login hears "owners only" whatever the feed's state.
+    assert.ok(gate < queue.indexOf('if (!isStayConciergeConfigured()) {'), 'the owners gate runs before the feed check');
     const count = read('src/app/api/messaging/pending-count/route.ts');
     assert.ok(count.includes("owner ? listOwnerApprovals() : Promise.resolve(null),"), 'the owner feed is not read for staff');
     assert.ok(count.includes('const owners = !owner ? 0 :'), 'the owners count is zero for staff');

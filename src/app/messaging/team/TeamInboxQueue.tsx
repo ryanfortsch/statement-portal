@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useQueueRefresh } from '@/components/QueueRefreshControl';
 import { useApprovalQueue } from '@/lib/use-approval-queue';
 import { invalidatePendingCounts } from '@/lib/pending-count-client';
+import { combineQueueStatus } from '@/lib/queue-loader';
 import type { CleanerApproval, ContractorApproval } from '@/lib/stay-concierge';
 import type { ApprovalContext } from '@/lib/contractor-approval-context';
 import { ApprovalQueue } from '@/components/messaging/card/ApprovalQueue';
@@ -96,6 +97,8 @@ export function TeamInboxQueue({
     <ApprovalQueue
       approvals={shown}
       onRefresh={onRefresh}
+      // Two feeds behind one Refresh: either one failing is a failure.
+      refreshStatus={combineQueueStatus(cleaners.refreshStatus, contractors.refreshStatus)}
       undo={(id, kind) =>
         kind === 'vendor_visit' ? undoVendorVisitAction(id) : kind === 'contractor' ? undoContractorDecision(id) : undoCleanerDecision(id)
       }
