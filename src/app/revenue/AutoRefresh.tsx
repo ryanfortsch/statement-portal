@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
+import { RESERVATION_STEPS } from '@/lib/guesty-sync-plan';
 
 type Props = {
   shouldRefresh: boolean;
@@ -14,13 +15,19 @@ type Props = {
  * mount, then calls softRefresh() so the server component re-runs with
  * the fresh data. The page paints immediately while this work is in flight.
  *
+ * It asks only for the reservations pull and the three steps that finish it
+ * (cancels, ghost bookings, the copy into `bookings`): that is what this page
+ * reads. Reviews and the wide calendar window are the nightly run's, and
+ * running them on every page visit is what pushed the sync past its time
+ * limit.
+ *
  * Idempotent within a session via `sessionStorage`: if a refresh just ran in
  * this tab, we don't fire another one even if React 18 strict-mode mounts the
  * effect twice.
  */
 export function AutoRefresh({ shouldRefresh, initialLabel }: Props) {
   const softRefresh = useSoftRefresh();
-  const [status, setStatus] = useState<'idle' | 'syncing' | 'done' | 'error'>(
+  const [status, setStatus] = useState<'idle' | 'syncing' | 'done' | 'partial' | 'error'>(
     shouldRefresh ? 'syncing' : 'idle',
   );
   const fired = useRef(false);
@@ -41,13 +48,14 @@ export function AutoRefresh({ shouldRefresh, initialLabel }: Props) {
         const res = await fetch('/api/sync-guesty', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ refreshMap: false }),
+          body: JSON.stringify({ refreshMap: false, steps: RESERVATION_STEPS }),
         });
-        if (!res.ok) {
+        const data = res.ok ? await res.json().catch(() => null) : null;
+        if (!data?.success || data.reservations?.error) {
           setStatus('error');
           return;
         }
-        setStatus('done');
+        setStatus(data.partial ? 'partial' : 'done');
         softRefresh();
       } catch {
         setStatus('error');
@@ -59,6 +67,7 @@ export function AutoRefresh({ shouldRefresh, initialLabel }: Props) {
   if (status === 'syncing') label = 'Refreshing from Guesty...';
   else if (status === 'error') label = `${initialLabel} (refresh failed)`;
   else if (status === 'done') label = 'Just synced';
+  else if (status === 'partial') label = 'Partly synced just now';
 
   return <span>{label}</span>;
 }

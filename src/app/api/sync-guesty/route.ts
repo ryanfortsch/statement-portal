@@ -15,6 +15,17 @@ import {
 import { backfillGuestyToBookings } from '@/lib/guesty-backfill';
 import { guestNameFromRawReview, normalizeGuestyReview } from '@/lib/guesty-review-normalize';
 import { loadHelmRunPropertyIds } from '@/lib/pms-guards';
+import { selectAllPaged } from '@/lib/paged-select';
+import {
+  SYNC_BUDGET_MS,
+  gateStep,
+  parseRequestedSteps,
+  planGuestySync,
+  syncLogLine,
+  waitingSteps,
+  type GuestySyncStep,
+  type StepOutcome,
+} from '@/lib/guesty-sync-plan';
 
 const GUESTY_API = 'https://open-api.guesty.com';
 
@@ -452,6 +463,42 @@ async function loadListingMap(): Promise<Record<string, string>> {
 
 // ---- Guest names (per-run cache) ----
 
+/**
+ * Guest names already on file, by Guesty guest id: the seed for the per-run
+ * name cache, so a guest is looked up in Guesty only once, ever.
+ *
+ * Without it the reviews step asked Guesty for the guest behind every review
+ * of the last two years on every run: about 465 calls against Guesty's
+ * 120-a-minute limit, 60 to 78 of them answered 429 and retried after a 2-10s
+ * sleep. That was about 190s of the nightly run's 237s (Vercel outbound
+ * metrics, 2026-10-21) and the reason the sync hit the 300s limit whenever
+ * two ran at once. An already-named guest keeps the name on file; a guest
+ * with no name on file is still looked up every run until one sticks. A
+ * failed read seeds nothing and every guest is looked up, as before.
+ */
+async function loadKnownGuestNames(): Promise<Map<string, string>> {
+  const names = new Map<string, string>();
+  try {
+    const rows = await selectAllPaged<{ guest_id: string | null; guest_name: string | null }>(
+      (from, to) =>
+        getSupabase()
+          .from('reviews')
+          .select('guest_id, guest_name')
+          .not('guest_id', 'is', null)
+          .not('guest_name', 'is', null)
+          .order('id', { ascending: true })
+          .range(from, to),
+      { label: 'sync-guesty known guest names' },
+    );
+    for (const r of rows) {
+      if (r.guest_id && r.guest_name) names.set(r.guest_id, r.guest_name);
+    }
+  } catch (err) {
+    console.warn('[sync-guesty] known guest names unread, looking every guest up:', err instanceof Error ? err.message : String(err));
+  }
+  return names;
+}
+
 async function resolveGuestName(guestId: string, token: string, cache: Map<string, string>): Promise<string | null> {
   if (cache.has(guestId)) return cache.get(guestId)!;
   try {
@@ -499,10 +546,24 @@ async function fetchAllReviews(token: string, sinceIso?: string): Promise<Guesty
   return all;
 }
 
-async function syncReviews(token: string, listingMap: Record<string, string>, sinceIso: string) {
+/**
+ * `deadlineMs` bounds the only open-ended part of the step, the guest
+ * lookups. Past it, a review whose guest still needs a Guesty call is left
+ * for the next run (counted in `deferred`) rather than written without its
+ * name; reviews whose guest is already known are still written.
+ */
+async function syncReviews(
+  token: string,
+  listingMap: Record<string, string>,
+  sinceIso: string,
+  opts: { deadlineMs?: number } = {},
+) {
   const reviews = await fetchAllReviews(token, sinceIso);
-  const nameCache = new Map<string, string>();
-  const rows: any[] = [];
+  const nameCache = await loadKnownGuestNames();
+  const namesKnown = nameCache.size;
+  let nameLookups = 0;
+  let deferred = 0;
+  const rows: Record<string, unknown>[] = [];
   let skipped = 0;
   // Reviews whose payload yielded no rating and no text, by channel. An
   // empty row is normal (Guesty opens one when a stay completes, before
@@ -514,6 +575,12 @@ async function syncReviews(token: string, listingMap: Record<string, string>, si
   for (const r of reviews) {
     const propertyId = r.listingId ? listingMap[r.listingId] : undefined;
     if (!propertyId) { skipped++; continue; }
+    const needsLookup = !!r.guestId && !nameCache.has(r.guestId);
+    if (needsLookup && opts.deadlineMs !== undefined && Date.now() > opts.deadlineMs) {
+      deferred++;
+      continue;
+    }
+    if (needsLookup) nameLookups++;
     // Guesty's guest record wins when it exists; 42 of the VRBO reviews on
     // file carry no guestId at all, and their payload names the guest.
     const guestName =
@@ -556,7 +623,15 @@ async function syncReviews(token: string, listingMap: Record<string, string>, si
   // already-linked reviews stay put even if the contact changes name.
   await linkReviewsToContacts();
 
-  return { fetched: reviews.length, upserted: rows.length, skipped, unparsed_by_channel: unparsedByChannel };
+  return {
+    fetched: reviews.length,
+    upserted: rows.length,
+    skipped,
+    names_known: namesKnown,
+    name_lookups: nameLookups,
+    deferred,
+    unparsed_by_channel: unparsedByChannel,
+  };
 }
 
 /**
@@ -706,7 +781,29 @@ async function syncReservations(token: string, listingMap: Record<string, string
 
 // ---- POST ----
 
+// The platform limit, also set on /api/cron/sync-guesty, which runs this
+// handler in-process. Steps stop starting at SYNC_BUDGET_MS (a minute short
+// of this, lib/guesty-sync-plan), so a slow run ends with a partial result
+// naming what waited instead of dying mid-step.
+export const maxDuration = 300;
+
+type StepResult = Record<string, unknown>;
+
+/**
+ * Body, all optional:
+ *   refreshMap         false reads the cached listing map instead of refreshing it
+ *   steps              the steps to run (GUESTY_SYNC_STEPS in lib/guesty-sync-plan);
+ *                      absent means all. The Revenue page asks for RESERVATION_STEPS.
+ *   sinceReviews       ISO floor for reviews (default two years back)
+ *   sinceReservations  ISO checkOut floor for reservations (default 90 days back)
+ *
+ * The response keeps one key per step, as before (a step that did not run
+ * carries `skipped_reason`), plus `steps` (status and ms for each, in run
+ * order), `waiting_steps` (what ran out of time and catches up on the next
+ * run) and `partial`.
+ */
 export async function POST(request: NextRequest) {
+  const startedAt = Date.now();
   const result: Record<string, unknown> = { success: false };
   try {
     if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
@@ -717,7 +814,10 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json().catch(() => ({}));
-    const refreshMap: boolean = body.refreshMap !== false;
+    const parsedSteps = parseRequestedSteps(body.steps);
+    if (!parsedSteps.ok) return NextResponse.json({ error: parsedSteps.error }, { status: 400 });
+    const requested = parsedSteps.steps;
+    if (body.refreshMap === false) requested.delete('listings');
     const sinceReviewsIso: string = body.sinceReviews || new Date(Date.now() - 2 * 365 * 86400_000).toISOString();
     // Pull reservations from 3 months back (completed) through far future.
     const sinceReservationsIso: string = body.sinceReservations || new Date(Date.now() - 90 * 86400_000).toISOString();
@@ -731,128 +831,18 @@ export async function POST(request: NextRequest) {
     // Empty on a failed read = skip nothing, today's behaviour.
     const helmRunIds = await loadHelmRunPropertyIds(sb);
 
-    // Listings. Wrapped in its own try/catch so a refreshListingMap throw
-    // (an expired Guesty token, a scope reduction, a 5xx) no longer cascades
-    // and silently aborts reviews + reservations + calendar with NO sync
-    // failure recorded for ANY guesty-* source. On a listings failure we
-    // record the failure, fall back to the cached listingMap, and continue
-    // with the rest of the sync so the rest of the dashboards stay current.
     let mapped = 0;
     let listingMap: Record<string, string> = {};
     let unmatchedListings: UnmatchedListing[] = [];
     let helmRunSkipped: HelmRunSkippedListing[] = [];
-    if (refreshMap) {
-      try {
-        const { rows, unmatched, helm_run_skipped, removed, held } = await refreshListingMap(token, helmRunIds);
-        mapped = rows.length;
-        unmatchedListings = unmatched;
-        helmRunSkipped = helm_run_skipped;
-        rows.forEach(r => { listingMap[r.listing_id] = r.property_id; });
-        await recordSyncSuccess('guesty-listings', {
-          mapped,
-          unmatched_count: unmatched.length,
-          unmatched,
-          // Listings for homes Helm now runs: not unmatched, not mapped.
-          helm_run_skipped,
-          // Rows Guesty stopped returning that this run retired, and any
-          // stale rows the guard held back for a human.
-          removed: removed.map(r => ({ listing_id: r.listing_id, property_id: r.property_id, nickname: r.nickname })),
-          held: held.map(r => ({ listing_id: r.listing_id, property_id: r.property_id, nickname: r.nickname })),
-        });
-      } catch (err) {
-        await recordSyncFailure('guesty-listings', err);
-        // Fall back to the cached map so reviews/reservations/calendar still run.
-        listingMap = await loadListingMap();
-        mapped = Object.keys(listingMap).length;
-      }
-    } else {
+    if (!requested.has('listings')) {
       listingMap = await loadListingMap();
       mapped = Object.keys(listingMap).length;
     }
 
-    // Reviews
-    let reviewsResult: Record<string, unknown> = { skipped_reason: 'not_attempted' };
-    try {
-      reviewsResult = await syncReviews(token, listingMap, sinceReviewsIso);
-      await recordSyncSuccess('guesty-reviews', reviewsResult);
-    } catch (err) {
-      reviewsResult = { error: err instanceof Error ? err.message : String(err) };
-      await recordSyncFailure('guesty-reviews', err);
-    }
-
-    // Auto-create work slips for any actionable reviews (below-five or
-    // with private feedback) that don't already have one. Idempotent
-    // via work_slips.from_review_id unique partial index.
-    let reviewsToSlipsResult: Record<string, unknown> = { skipped_reason: 'not_attempted' };
-    try {
-      const { createSlipsFromActionableReviews } = await import('@/lib/reviews-to-slips');
-      reviewsToSlipsResult = await createSlipsFromActionableReviews(sb) as unknown as Record<string, unknown>;
-    } catch (err) {
-      reviewsToSlipsResult = { error: err instanceof Error ? err.message : String(err) };
-    }
-
-    // Reservations (may fail on scope — don't take down the whole sync)
-    let reservationsResult: Record<string, unknown> = { skipped_reason: 'not_attempted' };
-    try {
-      reservationsResult = await syncReservations(token, listingMap, sinceReservationsIso);
-      await recordSyncSuccess('guesty-reservations', reservationsResult);
-    } catch (err) {
-      reservationsResult = { error: err instanceof Error ? err.message : String(err) };
-      await recordSyncFailure('guesty-reservations', err);
-    }
-
-    // Stale-row cancel reconcile (Phase 2 of the cancel-leak fix). Only
-    // after a successful pull: if the pull itself failed, every row looks
-    // stale and the per-code probes would burn rate limit for nothing.
-    let reconcileResult: Record<string, unknown> = { skipped_reason: 'reservations_sync_failed' };
-    if (!('error' in reservationsResult)) {
-      try {
-        reconcileResult = await reconcileStaleReservations();
-        await recordSyncSuccess('guesty-cancel-reconcile', reconcileResult);
-      } catch (err) {
-        reconcileResult = { error: err instanceof Error ? err.message : String(err) };
-        await recordSyncFailure('guesty-cancel-reconcile', err);
-      }
-    }
-
-    // Phase 3: cancel bookings that BOTH the calendar mirror and the
-    // (already API-probed) reservation record say are not real stays.
-    // Runs after phase 2 so it reads the freshest reservation statuses,
-    // and after the calendar sync above so the mirror is current.
-    let ghostResult: Record<string, unknown> = { skipped_reason: 'reservations_sync_failed' };
-    if (!('error' in reservationsResult)) {
-      try {
-        ghostResult = { ...(await cancelGhostBookings()) };
-        await recordSyncSuccess('guesty-ghost-bookings', ghostResult);
-      } catch (err) {
-        ghostResult = { error: err instanceof Error ? err.message : String(err) };
-        await recordSyncFailure('guesty-ghost-bookings', err);
-      }
-    }
-
-    // Carry the pull the rest of the way into `bookings`. syncReservations
-    // only fills the guesty_reservations CACHE; the copy into the Helm-native
-    // bookings table is a separate step that ran on its own cron 15 minutes
-    // later. So the dashboard's "Syncing bookings…" button truthfully synced
-    // nothing a booking-reading page could see until the next morning
-    // (2026-08-25: Andrea Richmond's stay reached the cache at 2:37 PM and
-    // still wasn't in `bookings`). Idempotent, and skipped when the pull
-    // failed — there'd be nothing new to copy.
-    let backfillResult: Record<string, unknown> = { skipped_reason: 'reservations_sync_failed' };
-    if (!('error' in reservationsResult)) {
-      try {
-        backfillResult = await backfillGuestyToBookings({}) as unknown as Record<string, unknown>;
-        await recordSyncSuccess('guesty-bookings-backfill', backfillResult);
-      } catch (err) {
-        backfillResult = { error: err instanceof Error ? err.message : String(err) };
-        await recordSyncFailure('guesty-bookings-backfill', err);
-      }
-    }
-
     // Calendar blocks (seasonal closures, manual date blocks). Pull a
-    // window of 3 months back through 12 months forward — enough for any
+    // window of 3 months back through 12 months forward: enough for any
     // current/future Revenue range we care about.
-    let calendarResult: Record<string, unknown> = { skipped_reason: 'not_attempted' };
     const calStart = new Date();
     calStart.setMonth(calStart.getMonth() - 3);
     calStart.setDate(1);
@@ -863,56 +853,213 @@ export async function POST(request: NextRequest) {
       startDate: calStart.toISOString().slice(0, 10),
       endDate: calEnd.toISOString().slice(0, 10),
     };
-    try {
-      const { startDate, endDate } = calWindow;
-      // The map already excludes helm-run homes; the skip set is the
-      // guarantee that their rows are never swept even if a stale map row
-      // slipped through (the Helm mirror owns those tables for them).
-      const cal = await syncCalendarDays(listingMap, startDate, endDate, { skipPropertyIds: helmRunIds });
-      calendarResult = cal;
-      // A property whose refresh threw is swallowed inside syncCalendarDays.
-      // Stamping unconditional success left sync_status 'ok' on a mirror
-      // that had quietly stopped updating, while every downstream freshness
-      // guard kept trusting it.
-      await recordSyncResult('guesty-calendar', {
-        processed: cal.listings_touched,
-        failed: cal.properties_failed,
-        firstError: cal.errors?.[0],
-        result: cal,
-      });
-    } catch (err) {
-      calendarResult = { error: err instanceof Error ? err.message : String(err) };
-      await recordSyncFailure('guesty-calendar', err);
+
+    // One body per step. Each records its own sync_status and returns its
+    // result; `{ error }` marks a failed step. Order, prerequisites and the
+    // time budget are lib/guesty-sync-plan's, not these bodies'.
+    const steps: Record<GuestySyncStep, () => Promise<StepResult>> = {
+      // Listings. A refreshListingMap throw (an expired Guesty token, a
+      // scope reduction, a 5xx) records the failure and falls back to the
+      // cached listingMap, so the rest of the sync still runs.
+      listings: async () => {
+        try {
+          const { rows, unmatched, helm_run_skipped, removed, held } = await refreshListingMap(token, helmRunIds);
+          mapped = rows.length;
+          unmatchedListings = unmatched;
+          helmRunSkipped = helm_run_skipped;
+          rows.forEach(r => { listingMap[r.listing_id] = r.property_id; });
+          await recordSyncSuccess('guesty-listings', {
+            mapped,
+            unmatched_count: unmatched.length,
+            unmatched,
+            // Listings for homes Helm now runs: not unmatched, not mapped.
+            helm_run_skipped,
+            // Rows Guesty stopped returning that this run retired, and any
+            // stale rows the guard held back for a human.
+            removed: removed.map(r => ({ listing_id: r.listing_id, property_id: r.property_id, nickname: r.nickname })),
+            held: held.map(r => ({ listing_id: r.listing_id, property_id: r.property_id, nickname: r.nickname })),
+          });
+          return { mapped, unmatched_count: unmatched.length };
+        } catch (err) {
+          await recordSyncFailure('guesty-listings', err);
+          listingMap = await loadListingMap();
+          mapped = Object.keys(listingMap).length;
+          return { error: err instanceof Error ? err.message : String(err), used_cached_map: mapped };
+        }
+      },
+
+      // Reservations (may fail on scope; the rest of the sync still runs).
+      reservations: async () => {
+        try {
+          const r = await syncReservations(token, listingMap, sinceReservationsIso);
+          await recordSyncSuccess('guesty-reservations', r);
+          return r;
+        } catch (err) {
+          await recordSyncFailure('guesty-reservations', err);
+          return { error: err instanceof Error ? err.message : String(err) };
+        }
+      },
+
+      // Stale-row cancel reconcile (Phase 2 of the cancel-leak fix). Runs
+      // only after a successful pull: if the pull failed, every row looks
+      // stale and the per-code probes would burn rate limit for nothing.
+      cancel_reconcile: async () => {
+        try {
+          const r = await reconcileStaleReservations();
+          await recordSyncSuccess('guesty-cancel-reconcile', r);
+          return r;
+        } catch (err) {
+          await recordSyncFailure('guesty-cancel-reconcile', err);
+          return { error: err instanceof Error ? err.message : String(err) };
+        }
+      },
+
+      // Phase 3: cancel bookings that BOTH the calendar mirror and the
+      // (already API-probed) reservation record say are not real stays.
+      // After phase 2 so it reads the freshest reservation statuses. The
+      // mirror it reads is kept current by the 30-minute channels-sync, and
+      // the step refuses a mirror older than 36 hours.
+      ghost_bookings: async () => {
+        try {
+          const r = { ...(await cancelGhostBookings()) };
+          await recordSyncSuccess('guesty-ghost-bookings', r);
+          return r;
+        } catch (err) {
+          await recordSyncFailure('guesty-ghost-bookings', err);
+          return { error: err instanceof Error ? err.message : String(err) };
+        }
+      },
+
+      // Carry the pull the rest of the way into `bookings`. syncReservations
+      // only fills the guesty_reservations CACHE; the copy into the Helm-native
+      // bookings table is a separate step that ran on its own cron 15 minutes
+      // later. So the dashboard's "Syncing bookings…" button truthfully synced
+      // nothing a booking-reading page could see until the next morning
+      // (2026-08-25: Andrea Richmond's stay reached the cache at 2:37 PM and
+      // still wasn't in `bookings`). Idempotent, and skipped when the pull
+      // failed, as there would be nothing new to copy.
+      bookings_backfill: async () => {
+        try {
+          const r = await backfillGuestyToBookings({}) as unknown as StepResult;
+          await recordSyncSuccess('guesty-bookings-backfill', r);
+          return r;
+        } catch (err) {
+          await recordSyncFailure('guesty-bookings-backfill', err);
+          return { error: err instanceof Error ? err.message : String(err) };
+        }
+      },
+
+      calendar: async () => {
+        try {
+          const { startDate, endDate } = calWindow;
+          // The map already excludes helm-run homes; the skip set is the
+          // guarantee that their rows are never swept even if a stale map row
+          // slipped through (the Helm mirror owns those tables for them).
+          const cal = await syncCalendarDays(listingMap, startDate, endDate, { skipPropertyIds: helmRunIds });
+          // A property whose refresh threw is swallowed inside syncCalendarDays.
+          // Stamping unconditional success left sync_status 'ok' on a mirror
+          // that had quietly stopped updating, while every downstream freshness
+          // guard kept trusting it.
+          await recordSyncResult('guesty-calendar', {
+            processed: cal.listings_touched,
+            failed: cal.properties_failed,
+            firstError: cal.errors?.[0],
+            result: cal,
+          });
+          return cal;
+        } catch (err) {
+          await recordSyncFailure('guesty-calendar', err);
+          return { error: err instanceof Error ? err.message : String(err) };
+        }
+      },
+
+      // Reservation gap backfill. Runs right after the calendar because it
+      // audits that step and the reservations against each other: every night
+      // the calendar mirror calls sold, matched to the reservation that should
+      // be behind it. What is left over is a stay this pull did not return.
+      // The 90-day floor #1334 gave the feed is a floor, not a guarantee, and
+      // nothing else in the sync would ever notice a stay it silently skipped.
+      // Records its own sync_status; never throws.
+      reservation_gaps: async () =>
+        (await backfillReservationGaps({
+          startDate: calWindow.startDate,
+          endDate: calWindow.endDate,
+        })) as unknown as StepResult,
+
+      // Reviews. Only the guest lookups are open-ended, so they get the
+      // budget's deadline; see syncReviews.
+      reviews: async () => {
+        try {
+          const r = await syncReviews(token, listingMap, sinceReviewsIso, { deadlineMs: startedAt + SYNC_BUDGET_MS });
+          await recordSyncSuccess('guesty-reviews', r);
+          return r;
+        } catch (err) {
+          await recordSyncFailure('guesty-reviews', err);
+          return { error: err instanceof Error ? err.message : String(err) };
+        }
+      },
+
+      // Auto-create work slips for any actionable reviews (below-five or
+      // with private feedback) that don't already have one. Idempotent
+      // via work_slips.from_review_id unique partial index, and it reads a
+      // 45-day window, so a run that waits for time loses nothing.
+      reviews_to_slips: async () => {
+        try {
+          const { createSlipsFromActionableReviews } = await import('@/lib/reviews-to-slips');
+          return await createSlipsFromActionableReviews(sb) as unknown as StepResult;
+        } catch (err) {
+          return { error: err instanceof Error ? err.message : String(err) };
+        }
+      },
+    };
+
+    const results: Partial<Record<GuestySyncStep, StepResult>> = {};
+    const outcomes: StepOutcome[] = [];
+    const outcomeByStep = new Map<GuestySyncStep, StepOutcome>();
+    for (const step of planGuestySync(requested, startedAt)) {
+      const gate = gateStep(step, { elapsedMs: Date.now() - startedAt, outcomes: outcomeByStep });
+      let outcome: StepOutcome;
+      if (!gate.run) {
+        results[step] = { skipped_reason: gate.reason };
+        outcome = { step, status: 'skipped', ms: 0, reason: gate.reason };
+      } else {
+        const t0 = Date.now();
+        let r: StepResult;
+        try {
+          r = await steps[step]();
+        } catch (err) {
+          r = { error: err instanceof Error ? err.message : String(err) };
+        }
+        results[step] = r;
+        outcome = { step, status: 'error' in r ? 'error' : 'ok', ms: Date.now() - t0 };
+      }
+      outcomes.push(outcome);
+      outcomeByStep.set(step, outcome);
     }
 
-    // Reservation gap backfill. Runs LAST because it audits the two steps
-    // above against each other: every night the calendar mirror calls sold,
-    // matched to the reservation that should be behind it. What is left over
-    // is a stay this pull did not return. The 90-day floor #1334 gave the feed
-    // is a floor, not a guarantee, and nothing else in the sync would ever
-    // notice a stay it silently skipped. Records its own sync_status; never
-    // throws.
-    let reservationGapsResult: Record<string, unknown> = { skipped_reason: 'calendar_sync_failed' };
-    if (!('error' in calendarResult)) {
-      reservationGapsResult = (await backfillReservationGaps({
-        startDate: calWindow.startDate,
-        endDate: calWindow.endDate,
-      })) as unknown as Record<string, unknown>;
-    }
+    const elapsedMs = Date.now() - startedAt;
+    const waiting = waitingSteps(outcomes);
+    console.log(syncLogLine(outcomes, elapsedMs));
 
+    const stepResult = (step: GuestySyncStep): StepResult => results[step] ?? { skipped_reason: 'not_requested' };
     return NextResponse.json({
       success: true,
+      partial: waiting.length > 0,
+      waiting_steps: waiting,
+      steps: outcomes,
+      elapsed_ms: elapsedMs,
+      budget_ms: SYNC_BUDGET_MS,
       listings_mapped: mapped,
       unmatched_listings: unmatchedListings,
       helm_run_skipped: helmRunSkipped,
-      reviews: reviewsResult,
-      reviews_to_slips: reviewsToSlipsResult,
-      reservations: reservationsResult,
-      reservations_reconcile: reconcileResult,
-      ghost_bookings: ghostResult,
-      bookings_backfill: backfillResult,
-      calendar: calendarResult,
-      reservation_gaps: reservationGapsResult,
+      reviews: stepResult('reviews'),
+      reviews_to_slips: stepResult('reviews_to_slips'),
+      reservations: stepResult('reservations'),
+      reservations_reconcile: stepResult('cancel_reconcile'),
+      ghost_bookings: stepResult('ghost_bookings'),
+      bookings_backfill: stepResult('bookings_backfill'),
+      calendar: stepResult('calendar'),
+      reservation_gaps: stepResult('reservation_gaps'),
     });
   } catch (err) {
     console.error('sync-guesty error:', err);
