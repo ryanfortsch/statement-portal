@@ -7,6 +7,9 @@ import { CALDERWOOD_STAGING as m } from '../calderwood-readonly/channex.ts';
 const env = { CHANNEX_CALDERWOOD_INVENTORY_ENABLED: 'true', CHANNEX_WORKER_MODE: 'isolated-staging',
   CHANNEX_STAGING_DB_PROJECT_REF: 'jgkblfozftcvymvwhhii', CHANNEX_STAGING_DB_URL: 'https://jgkblfozftcvymvwhhii.supabase.co',
   CHANNEX_STAGING_API_KEY: 'fake-key', CHANNEX_STAGING_DB_SERVICE_KEY: 'fake-key' };
+const reviewed = { ...m, environment: 'staging', helmProperty: p.property, connection: p.connection, generation: 1,
+  propertyTitle: '65 Calderwood - Isolated Staging', ratePlanTitle: 'TEST ONLY - Calderwood - CLOSED - $100 placeholder',
+  adults: 6, children: 0, infants: 0, reviewedAt: '2026-10-22T12:00:00Z' };
 function state() {
   const now=Date.now();
   return { property:p.property,captureEnabled:true,captureVersion:1,configurationVersion:1,
@@ -32,10 +35,8 @@ test('expired or disabled coverage stops before any provider call or database wr
     assert.deepEqual(await runner(new AbortController().signal),{phase:'plan',status:'blocked'});assert.equal(calls,1);
   }
 });
-test('hosted inventory refuses expanded windows, routes and authority before provider IO',async()=>{
+test('hosted inventory refuses unreviewed window, source and authority before provider IO',async()=>{
   for(const change of [(s:ReturnType<typeof state>)=>{s.configuration.end='2027-04-14';},
-    (s:ReturnType<typeof state>)=>{s.configuration.connection='another';},
-    (s:ReturnType<typeof state>)=>{s.configuration.generation=2;},
     (s:ReturnType<typeof state>)=>{s.configuration.requiredSources=['made-up'];},
     (s:ReturnType<typeof state>)=>{s.inputs.authority='guesty';}]){
     const s=state();change(s);let calls=0;
@@ -70,10 +71,10 @@ test('rolling mode requires a reviewed year and never expands the three-night fi
   assert.throws(()=>createInventoryCycleRunner({...env,CHANNEX_CALDERWOOD_INVENTORY_WINDOW:'guess'}),/Unknown/);
   let calls=0;const s=state();
   const runner=createInventoryCycleRunner({...env,CHANNEX_CALDERWOOD_INVENTORY_WINDOW:'rolling-year'},async(input)=>{
-    calls++;assert.match(String(input),/helm_booking_inventory_read$/);return Response.json(s);
+    calls++;if(String(input).endsWith('/helm_staging_inventory_route_read'))return Response.json(reviewed);assert.match(String(input),/helm_booking_inventory_read$/);return Response.json(s);
   });
   assert.deepEqual(await runner(new AbortController().signal),{phase:'window',status:'needs-review'});
-  assert.equal(calls,3);
+  assert.equal(calls,4);
 });
 test('rolling worker refuses a full-year provider response missing even one inventory date before enqueue or POST',async()=>{
   const s=state(),w=rollingInventoryWindow(Date.now());Object.assign(s.configuration,w);
@@ -81,6 +82,7 @@ test('rolling worker refuses a full-year provider response missing even one inve
   const dates=calendarDates({from:w.start,to:w.end}),calls:string[]=[];
   const runner=createInventoryCycleRunner({...env,CHANNEX_CALDERWOOD_INVENTORY_WINDOW:'rolling-year'},async(input,init)=>{
     const u=new URL(String(input));calls.push(u.pathname);
+    if(u.pathname.endsWith('/helm_staging_inventory_route_read'))return Response.json(reviewed);
     if(u.hostname.endsWith('supabase.co')) {
       assert.match(u.pathname,/helm_booking_inventory_read$/);return Response.json(s);
     }
@@ -119,6 +121,7 @@ test('worker certifies a complete source while paused without publishing invento
     const runner=createInventoryCycleRunner({...env,CHANNEX_CALDERWOOD_SOURCE_COVERAGE_ENABLED:'true',CHANNEX_CANONICAL_POLLING_ENABLED:'true'},async(input,init)=>{
       const u=new URL(String(input));calls.push({path:u.pathname,method:init?.method??'GET'});
       if(u.pathname.endsWith('/helm_booking_inventory_read'))return Response.json(s);
+      if(u.pathname.endsWith('/helm_staging_inventory_route_read'))return Response.json(reviewed);
       if(u.pathname.endsWith('/helm_pilot_source_read'))return Response.json(source());
       if(u.pathname.endsWith('/helm_pilot_source_certify')){
         const args=JSON.parse(String(init?.body));assert.deepEqual(args.p_bookings,[]);assert.deepEqual(args.p_expected,source());

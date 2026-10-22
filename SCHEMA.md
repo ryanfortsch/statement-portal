@@ -135,6 +135,20 @@ never key per-stay logic on `bookings.id` (`memory/project_bookings_duplicate_ro
   the request fingerprint and receive time to the same attempt token. These are JSONB
   journal fields, not new tables or migrations. Older records remain readable with
   missing evidence marked explicitly; no task completion is inferred from acceptance.
+- **Candidate only, locally verified October 22; not installed:**
+  `docs/guesty-exit/staging-storage/inventory-routes.sql` adds
+  `helm_staging_inventory_routes`, an owner-registered, immutable destination for
+  each fictional property. The row binds the consumer connection and generation
+  to Channex property/room/rate IDs, reviewed titles and occupancy. Registration
+  requires a matching paused single-unit consumer; unique remote IDs prevent
+  cross-property reuse. Service role can execute only the matching route read
+  RPC; browser roles have no read/write access. Updates, deletes and truncation
+  are refused. A changed consumer generation invalidates the existing route;
+  replacement/rollover is not implemented. Installation seeds nothing and does
+  not enable publishing, source capture, messages or channels. The revised worker
+  requires this table and a reviewed row before contacting the inventory provider.
+  Native SQL tests run two fictional properties through the real scheduler,
+  queue and task settlement with simulated Channex responses.
 - **Installed only in isolated staging (October 20):**
   `docs/guesty-exit/staging-storage/booking-inventory-refresh.sql` adds the
   service-only `helm_booking_inventory_plan_refresh` RPC. It updates only the

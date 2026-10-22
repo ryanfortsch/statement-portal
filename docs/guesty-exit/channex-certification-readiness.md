@@ -8,12 +8,13 @@ receipts by SHA-256. Historical receipts retain their original dates and limits.
 
 ## Actual critical path
 
-1. **Reusable connection mapping.** The deployed calendar runner and booking
-   importer still select the fictional Calderwood route in code. Build reviewed,
-   persisted property/room/rate/environment mapping and version it through the
-   existing event, queue, webhook and worker paths. Preserve the current isolated
-   route and keep production activation separate. A second mapping must pass
-   synthetic cross-property and stale-generation checks before hosted use.
+1. **Reusable connection mapping.** The inventory worker now has a locally tested
+   stored-mapping path, including two fictional properties through the real queue
+   and delivery code. Install and register the reviewed isolated route before
+   upgrading that worker. The booking importer, webhook and automatic source
+   verification still use the original fixed route; extend those next. Operator
+   mapping UI and generation rollover remain unimplemented. Production activation
+   stays separate. See the implementation checkpoint below.
 2. **Certification scope and demonstration.** PriceLabs owns prices and minimum
    stays. Helm's current hosted publisher sends availability only. We must declare
    that boundary accurately and resolve the applicable pricing/restriction
@@ -71,7 +72,7 @@ Airbnb delivery or adoption of an existing customer reservation.
 | Create/move/release a hold | `src/lib/bookings-write.ts` | Hosted evidence is for the isolated fictional property |
 | Close/reopen a date | `src/lib/property-rates.ts` | Availability-only publisher preserves PriceLabs fields |
 | Transactional change capture | `docs/guesty-exit/staging-storage/booking-inventory-events.sql` | Isolated canonical store |
-| Queue, batching and task settlement | `src/lib/channex-staging/booking-inventory-cycle.ts`, `src/lib/channex-staging/booking-inventory-delivery.ts` | Fixed single-property runner |
+| Queue, batching and task settlement | `src/lib/channex-staging/booking-inventory-cycle.ts`, `src/lib/channex-staging/booking-inventory-delivery.ts` | Stored inventory mapping implemented locally; hosted worker still fixed |
 | Actual availability POST | `src/lib/channex-staging/availability-client.ts` | Staging host; 366-date window; zero-channel guard |
 | Signed booking notification | `src/app/api/webhooks/channex-staging/route.ts` | Preview route; exact Offline/HELMTEST scope |
 | Durable import then ACK | `src/lib/channex-staging/canonical-revisions.ts` | No real OTA provenance or existing-stay adoption yet |
@@ -80,7 +81,8 @@ Airbnb delivery or adoption of an existing customer reservation.
 An HTTP timeout or ambiguous provider response remains unresolved until
 reconciled; it is not automatically resent. These paths are application code,
 not certification-only scripts. Local test totals are engineering checks, not
-vendor acceptance. No source behavior was changed for this handoff.
+vendor acceptance. The original handoff made no source changes; the local mapping
+follow-up below changes the inventory worker.
 
 ## Vendor requirements and cost boundary
 
@@ -112,7 +114,7 @@ needs its actual scheduled instant, distinct from the guest checkout reminder
 already observed at noon. No synthetic receipt or assumed timestamp fills this
 gap. [Guesty automation guide](https://help.guesty.com/hc/en-gb/articles/9365081186205-Managing-automated-messages-for-guests-owners-and-team-members).
 
-## Handoff and validation
+## Original documentation handoff validation
 
 Branch `codex/channex-staging-pilot`, starting commit `730cfd92`, original base
 `a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`; remote main checked as
@@ -123,3 +125,44 @@ were not rerun for this documentation-only batch. Preserve the unrelated contrac
 
 No provider configuration, channel, message, paid service, database, production
 branch or credential was changed. Guesty remains the live operator.
+
+## Stored inventory mapping checkpoint, October 22
+
+Implemented in `inventory-route.ts`, `inventory-route-store.ts` and the existing
+inventory scheduler. Provider property/room/rate IDs and reviewed metadata come
+from a stored row bound to Helm property, connection and generation. There is no
+fallback destination when a mapping is missing or stale. Each operation retains
+staging-only, single-unit, USD/Eastern, stopped-rate and zero-channel checks. The
+legacy read-only Calderwood screen keeps its original fixed mapping wrapper.
+
+The SQL candidate is [inventory-routes.sql](staging-storage/inventory-routes.sql).
+It is **not installed**. It creates no route automatically and gives no mapping
+write permission to the worker or browser. The owner registers the exact current
+connection while publishing is paused. Remote IDs are unique across properties.
+Rows are immutable; changing generation blocks the old review until a future
+rollover implementation is reviewed. Do not delete/reinsert a route to bypass it.
+
+For a second fictional property, the worker accepts
+`CHANNEX_INVENTORY_HELM_PROPERTY=HELMTEST-...` with
+`CHANNEX_CALDERWOOD_INVENTORY_WINDOW=configured-window`. This uses existing
+independently enabled capture, consumer and complete synthetic source evidence.
+It does not provision those records, renew that evidence, enable publishing or
+infer a source. Automatic booking coverage and rolling midnight SQL are still
+restricted to the original Calderwood rehearsal. No real listing is accepted.
+
+Validation: 2,255 application tests, 242 suites, fresh nonincremental TypeScript
+check, and 118 native PostgreSQL concurrency/schema checks passed. The new native
+checks exercise registration, immutable rows, permissions, stale generations and
+two independent scheduler-to-queue-to-task flows. All provider replies in those
+checks are simulated. No new hosted provider receipt or certification pass is
+claimed. The migration and worker upgrade remain pending; no live state changed.
+
+
+Implementation branch: `codex/channex-staging-pilot`; preceding commit `2af9fdd2`;
+original base `a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`. Remote main was checked at
+`be43cf8867b68a93c5cce358d12dc2a8eb756db0`. Changed source: the inventory route
+contract/reader, inventory scheduler and shared staging calendar reader. Changed
+verification: route/scheduler application tests and the native mapping/concurrency
+harness. Scoped ESLint and whitespace checks also passed; all four historical
+source-receipt hashes remain unchanged. Unrelated contract-readiness edits are
+excluded from this implementation.

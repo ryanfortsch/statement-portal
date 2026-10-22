@@ -76,7 +76,7 @@
     "bookingCreateModifyCancelAndAck": "hosted-offline-evidence",
     "resumeAfterArchiveAndOneDayWindowAdvance": "hosted-evidence",
     "continuousMidnightReliabilitySoak": "not-demonstrated",
-    "configurableRuntimeMapping": "not-implemented",
+    "configurableRuntimeMapping": "inventory-worker-local-tests-passed-not-installed; booking-importer-and-webhook-still-fixed",
     "fiveHundredDayFullAriUpdate": "not-demonstrated",
     "pricingAndRestrictionsScopeAcceptedByChannex": "not-verified",
     "certificationFormSubmitted": false,

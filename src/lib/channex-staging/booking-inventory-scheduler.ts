@@ -1,6 +1,8 @@
 /** Expiring publisher on the existing isolated worker; fixed pilot by default. */
 import { setTimeout as sleep } from 'node:timers/promises';
-import { CALDERWOOD_STAGING, readCalderwoodChannex } from '../calderwood-readonly/channex.ts';
+import { CALDERWOOD_STAGING, readIsolatedChannex } from '../calderwood-readonly/channex.ts';
+import { bindInventoryRoute, propertyMapping } from './inventory-route.ts';
+import { createInventoryRouteReader } from './inventory-route-store.ts';
 import { ChannexAvailabilityClient } from './availability-client.ts';
 import { createBookingInventoryConsumerStore } from './booking-inventory-consumer-store.ts';
 import { bookingInventoryCoverage, bookingInventorySnapshot, parseBookingInventoryState } from './booking-inventory-consumer.ts';
@@ -30,7 +32,13 @@ export function createInventoryCycleRunner(env: Environment, fetcher: typeof fet
   const automaticSource = env.CHANNEX_CALDERWOOD_SOURCE_COVERAGE_ENABLED === 'true';
   if (automaticSource && !canonicalPollingEnabled(env)) throw Error('Canonical polling required for automatic source coverage');
   const mode = env.CHANNEX_CALDERWOOD_INVENTORY_WINDOW ?? 'fixed-pilot';
-  if (!['fixed-pilot', 'rolling-year'].includes(mode)) throw Error('Unknown inventory window mode');
+  if (!['fixed-pilot', 'configured-window', 'rolling-year'].includes(mode)) throw Error('Unknown inventory window mode');
+  const property = env.CHANNEX_INVENTORY_HELM_PROPERTY ?? CALDERWOOD_INVENTORY_PILOT.property;
+  if (!/^HELMTEST-[a-z0-9-]{1,100}$/.test(property)) throw Error('Explicit fictional staging property required');
+  // Import and midnight-window SQL are still limited to the original rehearsal.
+  if (property !== CALDERWOOD_INVENTORY_PILOT.property && (automaticSource || mode !== 'configured-window')) {
+    throw Error('Additional staging properties require a reviewed configured window and synthetic source');
+  }
   return async (signal: AbortSignal): Promise<Result> => {
     const boundedFetch: typeof fetch = (input, init) => {
       signal.throwIfAborted();
@@ -38,39 +46,45 @@ export function createInventoryCycleRunner(env: Environment, fetcher: typeof fet
         ...(init?.signal ? [init.signal] : [])]) });
     };
     const p = CALDERWOOD_INVENTORY_PILOT, m = CALDERWOOD_STAGING;
-    const store = createBookingInventoryConsumerStore(env.CHANNEX_STAGING_DB_URL!, env.CHANNEX_STAGING_DB_SERVICE_KEY!, p.property, boundedFetch);
-    let state = parseBookingInventoryState(await store.read(), p.property);
+    const store = createBookingInventoryConsumerStore(env.CHANNEX_STAGING_DB_URL!, env.CHANNEX_STAGING_DB_SERVICE_KEY!, property, boundedFetch);
+    let state = parseBookingInventoryState(await store.read(), property);
     const assertRoute = () => {
       const c = state.configuration;
-      if (c.connection !== p.connection || c.generation !== p.generation || c.listing !== m.roomTypeId ||
+      if ((automaticSource && (c.connection !== p.connection || c.generation !== p.generation || c.listing !== m.roomTypeId)) ||
           c.requiredSources.length !== 1 || c.requiredSources[0] !== (automaticSource ? CANONICAL_BOOKING_SOURCE : p.source) || state.inputs.authority !== 'helm' ||
           (mode === 'fixed-pilot' && (c.start !== p.start || c.end !== p.end))) throw Error('Inventory pilot configuration changed');
     };
     assertRoute();
-    if (automaticSource) {
-      const target = mode === 'rolling-year' ? rollingInventoryWindow(Date.now()) : state.configuration;
-      const coverage = bookingInventoryCoverage(state, target.start, target.end, Date.now());
-      if (!coverage || coverage.some(c => c.freshUntil <= Date.now() + 300000)) {
-        if (!state.inputs.plan) return { phase: 'source', status: 'blocked' };
-        const buffer = state.inputs.plan.turnover_buffer_days;
-        const verified = await renewCanonicalSourceCoverage(createCanonicalSourceClient(env.CHANNEX_STAGING_API_KEY!, boundedFetch),
-          createCanonicalSourceStore(env.CHANNEX_STAGING_DB_URL!, env.CHANNEX_STAGING_DB_SERVICE_KEY!, boundedFetch),
-          { start: shiftIsoDay(target.start, -buffer), end: shiftIsoDay(target.end, buffer) });
-        if (!verified.complete) return { phase: 'source', status: verified.status };
-        state = parseBookingInventoryState(await store.read(), p.property); assertRoute();
-      }
+    // A paused worker with no coverage work has no reason to read a route or contact Channex.
+    if (!automaticSource && !bookingInventorySnapshot(state, Date.now())) return { phase: 'plan', status: 'blocked' };
+    const sourceTarget = mode === 'rolling-year' ? rollingInventoryWindow(Date.now()) : state.configuration;
+    const sourceCoverage = automaticSource ? bookingInventoryCoverage(state, sourceTarget.start, sourceTarget.end, Date.now()) : null;
+    const needsSourceCoverage = automaticSource && (!sourceCoverage || sourceCoverage.some(c => c.freshUntil <= Date.now() + 300000));
+    if (!state.configuration.publishEnabled && !needsSourceCoverage) return { phase: 'plan', status: 'blocked' };
+    const route = await createInventoryRouteReader(env.CHANNEX_STAGING_DB_URL!, env.CHANNEX_STAGING_DB_SERVICE_KEY!, boundedFetch)(state);
+    if (automaticSource && (route.propertyId !== m.propertyId || route.roomTypeId !== m.roomTypeId || route.ratePlanId !== m.ratePlanId)) {
+      throw Error('Canonical source remains limited to the reviewed Calderwood staging mapping');
+    }
+    if (needsSourceCoverage) {
+      if (!state.inputs.plan) return { phase: 'source', status: 'blocked' };
+      const buffer = state.inputs.plan.turnover_buffer_days;
+      const verified = await renewCanonicalSourceCoverage(createCanonicalSourceClient(env.CHANNEX_STAGING_API_KEY!, boundedFetch),
+        createCanonicalSourceStore(env.CHANNEX_STAGING_DB_URL!, env.CHANNEX_STAGING_DB_SERVICE_KEY!, boundedFetch),
+        { start: shiftIsoDay(sourceTarget.start, -buffer), end: shiftIsoDay(sourceTarget.end, buffer) });
+      if (!verified.complete) return { phase: 'source', status: verified.status };
+      state = parseBookingInventoryState(await store.read(), property); assertRoute(); bindInventoryRoute(route, state);
     }
     const client = new ChannexAvailabilityClient(env.CHANNEX_STAGING_API_KEY!, {
-      environment: 'staging', helmProperty: p.property, connection: p.connection, generation: p.generation,
-      propertyId: m.propertyId, roomTypeId: m.roomTypeId, propertyTitle: '65 Calderwood - Isolated Staging',
+      environment: route.environment, helmProperty: route.helmProperty, connection: route.connection, generation: route.generation,
+      propertyId: route.propertyId, roomTypeId: route.roomTypeId, propertyTitle: route.propertyTitle,
     }, boundedFetch);
     if (mode === 'rolling-year') {
       await recordInventoryCommand(store.journal, { kind: 'expire', now: Date.now() });
-      state = parseBookingInventoryState(await store.read(), p.property); assertRoute();
+      state = parseBookingInventoryState(await store.read(), property); assertRoute(); bindInventoryRoute(route, state);
       const decision = await advanceInventoryWindow(store, state, Date.now());
       if (decision.status === 'unsettled') return { phase: 'reconcile', ...await reconcileBookingInventoryOnce(store.journal, client, decision.id) };
       if (!['current', 'advanced'].includes(decision.status)) return { phase: 'window', status: decision.status === 'needs-review' ? 'needs-review' : decision.status === 'superseded' ? 'superseded' : 'blocked' };
-      state = parseBookingInventoryState(await store.read(), p.property); assertRoute();
+      state = parseBookingInventoryState(await store.read(), property); assertRoute(); bindInventoryRoute(route, state);
       if (inventoryWindowDecision(state, Date.now()).status !== 'current') return { phase: 'plan', status: 'blocked' };
     }
     const c = state.configuration;
@@ -78,7 +92,7 @@ export function createInventoryCycleRunner(env: Environment, fetcher: typeof fet
     // Publish authority remains independent, including after successful certification.
     if (!c.publishEnabled || !bookingInventorySnapshot(state, Date.now())) return { phase: 'plan', status: 'blocked' };
     // Also retain the stopped rate/default and exact occupancy guards used by ingestion.
-    const isolated = await readCalderwoodChannex(env.CHANNEX_STAGING_API_KEY!, { from: c.start, to: c.end }, boundedFetch);
+    const isolated = await readIsolatedChannex(env.CHANNEX_STAGING_API_KEY!, { from: c.start, to: c.end }, propertyMapping(route), boundedFetch);
     if (isolated.days.some(d => d.stopSell !== true || Object.values(d).some(v => v === null))) {
       throw Error('Complete stopped staging calendar required');
     }

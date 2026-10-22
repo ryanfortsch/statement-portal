@@ -1,3 +1,4 @@
+import { stagingPropertyMappingSchema, type StagingPropertyMapping } from '../channex-staging/inventory-route.ts';
 import { calendarDates } from './calendar-window.ts';
 import type { normalizeCalendar } from './calendar.ts';
 export const CALDERWOOD_STAGING = Object.freeze({ propertyId: '30584a9a-8784-4eb1-a387-e26bd43aec1c', roomTypeId: 'f795ae2c-f47d-4751-86ff-e883b6d30800', ratePlanId: '7f95b731-ff05-4c41-99c9-f39b3e772fec' });
@@ -8,7 +9,13 @@ const bool = (v: unknown) => typeof v === 'boolean' ? v : null;
 const integer = (v: unknown, min = 0) => typeof v === 'number' && Number.isInteger(v) && v >= min ? v : null;
 function rate(v: unknown) { if (typeof v !== 'number' && (typeof v !== 'string' || !/^\d+(\.\d{1,2})?$/.test(v))) return null; const n = Number(v); return Number.isFinite(n) && n >= 0 ? n : null; }
 export async function readCalderwoodChannex(key: string, window: { from: string; to: string }, fetcher: (url: string, init: RequestInit) => Promise<Response> = fetch) {
-  const dates = calendarDates(window), m = CALDERWOOD_STAGING;
+  return readIsolatedChannex(key, window, { ...CALDERWOOD_STAGING, propertyTitle: '65 Calderwood - Isolated Staging',
+    ratePlanTitle: 'TEST ONLY - Calderwood - CLOSED - $100 placeholder', adults: 6, children: 0, infants: 0 }, fetcher);
+}
+/** Same isolation checks for an explicitly reviewed property; GET-only and staging-only. */
+export async function readIsolatedChannex(key: string, window: { from: string; to: string }, mapping: StagingPropertyMapping,
+  fetcher: (url: string, init: RequestInit) => Promise<Response> = fetch) {
+  const dates = calendarDates(window), m = stagingPropertyMappingSchema.parse(mapping);
   if (typeof globalThis.window !== 'undefined' || !key.trim() || /[\r\n]/.test(key)) throw Error('Server staging key required');
   const request = async (path: string) => {
     try {
@@ -22,11 +29,11 @@ export async function readCalderwoodChannex(key: string, window: { from: string;
   };
   const startedAt = new Date().toISOString();
   const property = obj((await request(`/properties/${m.propertyId}`)).data), pa = obj(property.attributes);
-  if (property.id !== m.propertyId || pa.title !== '65 Calderwood - Isolated Staging' || pa.currency !== 'USD' || pa.timezone !== 'America/New_York') throw Error('Staging property configuration changed');
+  if (property.id !== m.propertyId || pa.title !== m.propertyTitle || pa.currency !== 'USD' || pa.timezone !== 'America/New_York') throw Error('Staging property configuration changed');
   const room = obj((await request(`/room_types/${m.roomTypeId}`)).data), ra = obj(room.attributes);
-  if (room.id !== m.roomTypeId || rel(room, 'property') !== m.propertyId || ra.count_of_rooms !== 1 || ra.occ_adults !== 6 || ra.occ_children !== 0 || ra.occ_infants !== 0) throw Error('Staging room mapping changed');
+  if (room.id !== m.roomTypeId || rel(room, 'property') !== m.propertyId || ra.count_of_rooms !== 1 || ra.occ_adults !== m.adults || ra.occ_children !== m.children || ra.occ_infants !== m.infants) throw Error('Staging room mapping changed');
   const plan = obj((await request(`/rate_plans/${m.ratePlanId}`)).data), a = obj(plan.attributes);
-  if (plan.id !== m.ratePlanId || rel(plan, 'property') !== m.propertyId || rel(plan, 'room_type') !== m.roomTypeId || a.currency !== 'USD' || a.sell_mode !== 'per_room' || a.title !== 'TEST ONLY - Calderwood - CLOSED - $100 placeholder' || !Array.isArray(a.stop_sell) || a.stop_sell.length !== 7 || !a.stop_sell.every(v => v === true)) throw Error('Staging rate mapping or stopped defaults changed');
+  if (plan.id !== m.ratePlanId || rel(plan, 'property') !== m.propertyId || rel(plan, 'room_type') !== m.roomTypeId || a.currency !== 'USD' || a.sell_mode !== 'per_room' || a.title !== m.ratePlanTitle || !Array.isArray(a.stop_sell) || a.stop_sell.length !== 7 || !a.stop_sell.every(v => v === true)) throw Error('Staging rate mapping or stopped defaults changed');
   const channelQuery = new URLSearchParams({ 'filter[property_id]': m.propertyId, 'pagination[page]': '1', 'pagination[limit]': '100' });
   const channels = await request(`/channels?${channelQuery}`), meta = obj(channels.meta);
   if (!Array.isArray(channels.data) || channels.data.length || meta.total !== 0 || meta.page !== 1) throw Error('Staging isolation unverified: channels present or incomplete response');
@@ -43,7 +50,7 @@ export async function readCalderwoodChannex(key: string, window: { from: string;
     const d = rates[date] == null ? {} : obj(rates[date]);
     return { date, inventory: counts[date] === 0 || counts[date] === 1 ? counts[date] as number : null, price: rate(d.rate), minArrival: integer(d.min_stay_arrival, 1), minThrough: integer(d.min_stay_through, 1), maxStay: integer(d.max_stay), cta: bool(d.closed_to_arrival), ctd: bool(d.closed_to_departure), stopSell: bool(d.stop_sell) };
   });
-  return { mapping: m, currency: 'USD' as const, days, startedAt, finishedAt: new Date().toISOString(), executable: false as const };
+  return { mapping: { propertyId: m.propertyId, roomTypeId: m.roomTypeId, ratePlanId: m.ratePlanId }, currency: 'USD' as const, days, startedAt, finishedAt: new Date().toISOString(), executable: false as const };
 }
 export function compareProviders(guesty: ReturnType<typeof normalizeCalendar>, staging: Awaited<ReturnType<typeof readCalderwoodChannex>>) {
   const source = new Map(guesty.days.map(d => [d.date, d]));
