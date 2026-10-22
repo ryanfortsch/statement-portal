@@ -23,10 +23,28 @@ import {
 
 type MeetingJoinRow = ContactMeetingRow & {
   contacts: { id: string; name: string } | { id: string; name: string }[] | null;
-  properties: { id: string; name: string } | { id: string; name: string }[] | null;
+  /** Filled by withPropertyNames, not by the read. */
+  property_name?: string | null;
 };
 
-const JOIN_SELECT = '*, contacts(id, name), properties(id, name)';
+// contacts(...) embeds because contact_id is a foreign key. property_id is not
+// (20261007100000_contact_meetings.sql), so PostgREST cannot embed
+// properties(...): asking for it failed EVERY read with "Could not find a
+// relationship". From 10/07 to 10/22 the reminder cron returned 500 on every
+// run and the home Meetings card was silently empty. Names come from a second
+// read in withPropertyNames; meeting-reminders.test.ts keeps the embed out.
+const JOIN_SELECT = '*, contacts(id, name)';
+
+/** The home's internal name for each meeting that names one. A failed read
+ *  leaves the names off, and the card falls back to the property id. */
+async function withPropertyNames(rows: MeetingJoinRow[]): Promise<MeetingJoinRow[]> {
+  const ids = [...new Set(rows.map((r) => r.property_id).filter((id): id is string => !!id))];
+  if (ids.length === 0) return rows;
+  const { data, error } = await supabase.from('properties').select('id, name').in('id', ids);
+  if (error) console.error(`contact_meetings: property names read failed: ${error.message}`);
+  const names = new Map(((data ?? []) as { id: string; name: string }[]).map((p) => [p.id, p.name]));
+  return rows.map((r) => ({ ...r, property_name: r.property_id ? (names.get(r.property_id) ?? null) : null }));
+}
 
 function one<T>(v: T | T[] | null | undefined): T | null {
   if (!v) return null;
@@ -35,12 +53,11 @@ function one<T>(v: T | T[] | null | undefined): T | null {
 
 function toCard(r: MeetingJoinRow): MeetingCard {
   const contact = one(r.contacts);
-  const property = one(r.properties);
   return {
     id: r.id,
     contactId: r.contact_id,
     contactName: contact?.name ?? 'Contact',
-    propertyName: property?.name ?? r.property_id,
+    propertyName: r.property_name ?? r.property_id,
     title: r.title,
     date: r.meeting_date,
     time: r.meeting_time,
@@ -103,11 +120,17 @@ export async function loadMeetingCards(
       .gte('meeting_date', today)
       .lte('meeting_date', tomorrow);
     if (opts.createdBy) q = q.eq('created_by_email', opts.createdBy);
-    const { data } = await q
+    const { data, error } = await q
       .order('meeting_date', { ascending: true })
       .order('meeting_time', { ascending: true, nullsFirst: false })
       .limit(12);
-    return ((data ?? []) as MeetingJoinRow[]).map(toCard);
+    // Still empty on a failure, but never silently again: this read failing
+    // is how the card sat blank for two weeks with nothing in the logs.
+    if (error) {
+      console.error(`loadMeetingCards: contact_meetings read failed: ${error.message}`);
+      return [];
+    }
+    return (await withPropertyNames((data ?? []) as MeetingJoinRow[])).map(toCard);
   } catch {
     return [];
   }
@@ -163,7 +186,7 @@ export async function sendMeetingReminders(opts: { dry?: boolean; now?: Date } =
     .lt('reminder_attempts', REMINDER_MAX_ATTEMPTS);
   if (error) throw new Error(`contact_meetings read failed: ${error.message}`);
 
-  const rows = meetingsDueForReminder((data ?? []) as MeetingJoinRow[], now);
+  const rows = await withPropertyNames(meetingsDueForReminder((data ?? []) as MeetingJoinRow[], now));
   const outcomes: ReminderOutcome[] = [];
 
   for (const row of rows) {
