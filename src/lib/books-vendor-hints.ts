@@ -34,6 +34,15 @@ export type VendorHint = {
   entity_category?: Partial<Record<BooksEntityId, string>>;
 };
 
+/**
+ * Rising Tide's and the Goose entities' own bank accounts, as the
+ * categorizer sees them. On a Rising Tide row, a transfer from any other
+ * Chase number came from an owner's trust account (books-vendor-hints.test.ts
+ * checks this list against LLC_ACCOUNTS).
+ */
+export const COMPANY_BANK_LAST4 = ['5130', '5623', '9928', '6966', '8203'] as const;
+const COMPANY_ACCOUNTS_TEXT = 'x5130, x5623 and x9928 (Rising Tide), x6966 (Goose of Astoria) and x8203 (Goose of Calderwood)';
+
 export const VENDOR_HINTS: VendorHint[] = [
   // ── Property pass-through (Rising Tide only) ────────────────────────
   {
@@ -45,7 +54,7 @@ export const VENDOR_HINTS: VendorHint[] = [
   // ── Channel revenue / fees (Rising Tide pass-through) ──────────────
   {
     matcher: 'airbnb',
-    rule: 'Airbnb ACH credits to per-property accounts are Accommodation Fares (gross). Net of Airbnb host fees, which appear as separate debit entries on the Airbnb statement.',
+    rule: 'Airbnb ACH credits to per-property accounts are Accommodation Fares (gross). Net of Airbnb host fees, which appear as separate debit entries on the Airbnb statement. An Airbnb deposit into Rising Tide Main (operating) x5130 is not a managed home\'s: January to April 2026 those were the Florida house\'s payouts -> intercompany_due, never Rising Tide income.',
     default_category: 'accommodation_fares',
   },
   {
@@ -274,8 +283,8 @@ export const VENDOR_HINTS: VendorHint[] = [
   // ── Taxes / regulatory ──────────────────────────────────────────────
   {
     matcher: 'massachusetts dor',
-    rule: 'Massachusetts DOR room-occupancy tax remittance -> ma_tax. These flow from the *9928 tax account.',
-    default_category: 'ma_tax',
+    rule: 'Massachusetts DOR from the Tax Account (MA occupancy remittance) x9928 is the room-occupancy tax collected from guests, paid over to the state -> sales_tax_payable, a liability, never an expense (QuickBooks carries it the same way). Only a DOR payment from another Rising Tide account that is Rising Tide\'s own tax (the memo says so) is ma_tax.',
+    default_category: 'sales_tax_payable',
   },
   {
     matcher: 'ct secretary',
@@ -298,8 +307,9 @@ export const VENDOR_HINTS: VendorHint[] = [
   },
   {
     matcher: 'online transfer from chk',
-    rule: 'Internal Chase transfer between own accounts -> intercompany_due / transfer. NOT an expense.',
+    rule: `The "...NNNN" after CHK is the account the money came FROM. ${COMPANY_ACCOUNTS_TEXT} are company accounts; any other number on a Rising Tide row is an owner's trust account. Into Rising Tide Main (operating) x5130 from a trust account: on the 1st to 5th it is the management fee sweep, the home's prior-month statement fee -> property_management_income; on the 20th to 27th it is the VRBO commission payback (VRBO bills commission to card x3878) -> pt_host_channel_fees, the same key as the card charge it repays; any other amount can be an owner reimbursing a purchase Rising Tide made for the home -> the pass-through key that purchase used, confidence low. Into the Tax Account x9928 from a trust account it is occupancy tax collected on guest stays -> sales_tax_payable. Between two company accounts -> intercompany_due / transfer. Never an expense.`,
     default_category: 'intercompany_due',
+    entity_category: { rising_tide: 'property_management_income' },
   },
   {
     matcher: 'same-day ach payment',
@@ -601,12 +611,12 @@ export const VENDOR_HINTS: VendorHint[] = [
   // ── Sales tax / customer prepayments (cycle through liability) ──────
   {
     matcher: 'ma dor pay',
-    rule: 'ORIG CO NAME containing "COMM OF MASS EFT" with DESCR "MA DOR PAY" = monthly MA lodging tax remittance from Goose entities -> sales_tax_payable (clears the liability) or ma_tax for Rising Tide.',
+    rule: 'ORIG CO NAME containing "COMM OF MASS EFT" with DESCR "MA DOR PAY" = the monthly MA lodging tax remittance -> sales_tax_payable (clears the liability), on Goose entities and on Rising Tide\'s Tax Account x9928 alike. Only Rising Tide\'s own tax paid from another Rising Tide account is ma_tax.',
     default_category: 'sales_tax_payable',
   },
   {
     matcher: 'comm of mass eft',
-    rule: 'Commonwealth of MA EFT = monthly tax remittance (lodging or income) -> sales_tax_payable on Goose entities, ma_tax on Rising Tide.',
+    rule: 'Commonwealth of MA EFT = monthly tax remittance. Lodging tax -> sales_tax_payable, on Goose entities and on Rising Tide\'s Tax Account x9928 alike (guest money paid over, never an expense). Rising Tide\'s own income tax from another Rising Tide account -> ma_tax.',
     default_category: 'sales_tax_payable',
   },
 

@@ -16,8 +16,8 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { CHART_OF_ACCOUNTS, LLC_ENTITY_IDS, coaAccountFor } from '../books.ts';
-import { VENDOR_HINTS, hintCategoryFor, vendorHintsForPrompt, type VendorHint } from '../books-vendor-hints.ts';
+import { CHART_OF_ACCOUNTS, LLC_ACCOUNTS, LLC_ENTITY_IDS, coaAccountFor } from '../books.ts';
+import { COMPANY_BANK_LAST4, VENDOR_HINTS, hintCategoryFor, vendorHintsForPrompt, type VendorHint } from '../books-vendor-hints.ts';
 
 function hint(matcher: string): VendorHint {
   const h = VENDOR_HINTS.find((v) => v.matcher === matcher);
@@ -51,6 +51,15 @@ const EXPECTED: [string, string, string][] = [
   ['stripe', 'goose_astoria', 'rental_income'],
   ['stripe', 'goose_calderwood', 'str_income'],
   ['stripe', 'rising_tide', 'accommodation_fares'],
+  // Rising Tide 2026 review (10/21): the fee sweep into x5130 is the
+  // statement's management fee, and the occupancy tax x9928 pays the
+  // state is guest money passing through a liability.
+  ['online transfer from chk', 'rising_tide', 'property_management_income'],
+  ['online transfer from chk', 'goose_astoria', 'intercompany_due'],
+  ['massachusetts dor', 'rising_tide', 'sales_tax_payable'],
+  ['massachusetts dor', 'goose_astoria', 'sales_tax_payable'],
+  ['ma dor pay', 'rising_tide', 'sales_tax_payable'],
+  ['comm of mass eft', 'rising_tide', 'sales_tax_payable'],
 ];
 
 describe('books vendor hints', () => {
@@ -110,5 +119,38 @@ describe('books vendor hints', () => {
     assert.match(src, /vendorHintsForPrompt\(entityId\)/, 'the prompt must show each entity its own hint keys');
     assert.match(src, /Money IN from a payment processor or booking channel \(Stripe/);
     assert.match(src, /never a fee account/);
+  });
+
+  test('a transfer into x5130 or x9928 says which leg it is', () => {
+    const rule = hint('online transfer from chk').rule;
+    for (const key of ['property_management_income', 'pt_host_channel_fees', 'sales_tax_payable', 'intercompany_due']) {
+      assert.ok(rule.includes(key), `the transfer rule never names ${key}`);
+    }
+    assert.match(rule, /x5130/);
+    assert.match(rule, /x9928/);
+    // x5130 also takes real owner reimbursements, so the rule may never
+    // file every transfer into it as a fee.
+    assert.match(rule, /reimbursing/);
+  });
+
+  test('the company accounts the transfer rule names are LLC_ACCOUNTS\' own', () => {
+    const own = LLC_ACCOUNTS.filter((a) => a.kind === 'bank' && !a.property_id).map((a) => a.last4).sort();
+    assert.deepEqual([...COMPANY_BANK_LAST4].sort(), own);
+    const rule = hint('online transfer from chk').rule;
+    for (const last4 of COMPANY_BANK_LAST4) assert.ok(rule.includes(`x${last4}`), `rule never names x${last4}`);
+  });
+
+  test('no MA tax remittance hint expenses the occupancy tax on x9928', () => {
+    for (const matcher of ['massachusetts dor', 'ma dor pay', 'comm of mass eft']) {
+      const h = hint(matcher);
+      assert.equal(h.default_category, 'sales_tax_payable', `"${matcher}" defaults to ${h.default_category}`);
+      assert.match(h.rule, /x9928/, `"${matcher}" never names the tax account`);
+    }
+  });
+
+  test('an Airbnb deposit into x5130 is the Florida house, not Rising Tide income', () => {
+    const rule = hint('airbnb').rule;
+    assert.match(rule, /x5130/);
+    assert.match(rule, /intercompany_due/);
   });
 });
