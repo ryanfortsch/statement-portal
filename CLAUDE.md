@@ -24,9 +24,9 @@ callback is pinned to the helm host; see `next.config.ts`).
 Related docs:
 - `AGENTS.md` at the repo root. Read it first. Next.js 16 has breaking changes from what you may
   remember; check `node_modules/next/dist/docs/` before writing framework code.
-- `SCHEMA.md`. The source-of-truth map for the database (80+ tables): which table is authoritative
-  for a stay, a property, a contact, money. **This file owns business rules; SCHEMA.md owns which
-  table holds what.** Do not duplicate schema listings here.
+- `SCHEMA.md`. The source-of-truth map for the database (about 160 tables): which table is
+  authoritative for a stay, a property, a contact, money. **This file owns business rules;
+  SCHEMA.md owns which table holds what.** Do not duplicate schema listings here.
 
 ## Tech stack
 
@@ -34,7 +34,7 @@ Related docs:
 - **Auth**: Auth.js v5 (`next-auth` 5 beta) with Google SSO. Enforced in `src/proxy.ts`, which is
   Next 16's middleware file name. It gates every page and every `/api` route except an explicit
   public allowlist.
-- **Database**: Supabase (Postgres). Migrations in `supabase/migrations/` (256 files). 20 legacy
+- **Database**: Supabase (Postgres). Migrations in `supabase/migrations/` (302 files). 20 legacy
   `supabase-schema-*.sql` files at the repo root predate that folder.
 - **Hosting**: Vercel, auto-deploy from `main`.
 - **UI**: Tailwind v4, shadcn/radix, recharts. The statement render page is the exception and uses
@@ -45,26 +45,26 @@ Related docs:
 
 **Vercel plan: Pro.** Verified against the Vercel API on 2026-08-25 (team "Rising Tide",
 `plan: pro`). Older source comments calling this a Hobby project were wrong and have been corrected.
-Practical consequences: the 27 scheduled crons and the 20 routes at `maxDuration = 300` are all
-fine, and platform Skew Protection is available. It was switched **on** on 2026-08-26 at
-`skewProtectionMaxAge = 43200` (12 hours).
+Practical consequences: the 32 scheduled crons and the 26 routes at `maxDuration = 300` (counted
+2026-10-22) are all fine, and platform Skew Protection is available. It was switched **on** on
+2026-08-26 at `skewProtectionMaxAge = 43200` (12 hours).
 
 ## Shape of the codebase
 
-Roughly 247k lines across 970 TypeScript files, counted 2026-09-26. Treat every number below as
-an order of magnitude with a date on it, not a fact: the previous set was written when the repo
-was about a quarter smaller and had drifted silently in every direction. They are here to tell
-you where the weight sits, nothing more.
+Roughly 337k lines across 1,532 TypeScript files under `src/` (279 of them tests), counted
+2026-10-22. Treat every number below as an order of magnitude with a date on it, not a fact: the
+repo grew by more than a third between 2026-09-26 and 2026-10-22, and every count drifts
+silently. They are here to tell you where the weight sits, nothing more.
 
 ```
 src/
-  app/          35 route groups + api/. 136 pages, 65 *actions.ts server-action files
-    api/        122 route handlers, 33 cron routes (32 scheduled in vercel.json)
-  lib/          262 top-level modules (290 including subfolders). The domain logic lives here.
-  components/   96 shared components (62 at the top level, the rest in subfolders)
+  app/          37 route folders + api/. 151 pages, 78 *actions.ts server-action files
+    api/        148 route handlers, 33 cron routes (32 scheduled in vercel.json)
+  lib/          450 top-level modules (478 including subfolders). The domain logic lives here.
+  components/   145 shared components (91 at the top level, the rest in subfolders)
   proxy.ts      Next 16 middleware. THE auth gate. Read this before adding any public route.
   auth.ts       Auth.js config
-supabase/migrations/   256 migrations
+supabase/migrations/   302 migrations
 scripts/               parity harnesses and one-off tools (see Testing below)
 ```
 
@@ -72,10 +72,11 @@ scripts/               parity harnesses and one-off tools (see Testing below)
 and backfill trigger on purpose; the recurring work runs at the end of `/api/cron/sync-guesty`.
 Do not "fix" it by adding a schedule.
 
-Load-bearing `src/lib` modules by import count, 2026-09-26: `supabase-admin` (171),
-`properties` (74), `stay-concierge` (55), `field-db` (46), `use-soft-refresh` (37), `work-types`
-(35), `field-types` (34), `projections-types` (31), `cron-auth` (28), `field-packets` (24). The
-ORDER is the durable part and has not moved; the numbers drift with the repo.
+Load-bearing `src/lib` modules by importing files outside tests, 2026-10-22: `supabase-admin`
+(253), `properties` (73), `stay-concierge` (71), `helm-access-server` (58), `field-db` (51),
+`unsaved-work` (48), `paged-select` (44), `work-types` (43), `use-soft-refresh` (43),
+`projections-types` (40). The top three have held since September; the rest of the order moves
+as modules land, so read it as where the weight sits today.
 
 ## Module map
 
@@ -99,17 +100,19 @@ ORDER is the durable part and has not moved; the numbers drift with the repo.
 | `/fieldwork/*` | Contractor-facing ops: packets (one "Send a job" form at `/fieldwork/packets/new`; the maintenance bundler on the Handymen board), roster (hiring folded in as Applicants at the top; `/fieldwork/hiring` redirects there), shoots (creative pay ledger), trades (the outside vendor directory), close (the field's handoff before the statement close; staff add items, owners file them through the receipt path) |
 | `/field` | The external 1099 contractor portal. Separate auth plane, magic-link tokens |
 | `/work` | Work slips per property plus office to-dos (the `tasks` table). A slip belongs to a house; an office to-do does not. Both share one priority scale (Low / Normal / High), the close verbs (Mark done, Dismiss, Reopen) and a page where each field saves on its own. The strip is Board and Maintenance |
-| `/properties` | Property registry. The largest module: 26 pages. Coming online (every home still on its Launch list) sits above the roster at `#coming-online`; `/properties/onboarding` redirects there. `/properties/guest-gear` is the guest gear grid (a tab on the Properties strip; `/work/gear` redirects) |
+| `/properties` | Property registry. The largest module: 32 pages. Coming online (every home still on its Launch list) sits above the roster at `#coming-online`; `/properties/onboarding` redirects there. `/properties/guest-gear` is the guest gear grid (a tab on the Properties strip; `/work/gear` redirects) |
 | `/properties/contracts` | Owner agreements, renewal mechanics, notice deadlines |
-| `/properties/prospects` | Prospect funnel. Generates projection decks and partnership guides |
+| `/properties/prospects` | Prospect funnel. Generates projection decks and partnership guides. A prospect's workroom is `/prospects/<id>` (`/projections/<id>` redirects there; the deliverable renders stay under `/projections/<id>/`) |
+| `/properties/leases` | Winter lease leads from Zillow, owners only. `/api/cron/lease-leads` (every 30 minutes) reads the renter mail, files it by renter and listing and vets each lead; a lead that needs answers gets the fixed screening message once, through Zillow's relay, and only a serious one reaches the owners' home feed. The model reads facts, code decides (`src/lib/lease-leads-core.ts`) |
+| `/staff-documents` | Offer letters and staff agreements, owners only: the team member signs at `/sign/<token>`, an owner countersigns, and the signed PDF is emailed and filed in Drive |
 | `/messaging` | The Guests tab: guest message drafts awaiting approval (Inbox), Send (`/messaging/send`: a message, or a payment link under Charge), Saved replies and Quality; Delivery & sync at `/messaging/status`. The Inbox carries the New numbers card, where a text from an unknown number is attached to a contact, made a new one, or set aside (Not ours). Conversations steps back past its 60 days and takes a check-in range |
 | `/owner-messaging` | Owner reply drafts (SMS + email), owners only |
 | `/messaging/team` | The Team inbox: cleaner drafts (Portuguese with the English beside them) and contractor drafts in one list, an All / Cleaners / Contractors filter, the schedule text and "clean after?" under it. `/cleaner-messaging` and `/contractor-messaging` redirect here |
-| `/guests` | Reviews (the last 30 days by default). The subscriber list is `/guests/contacts` (Add contact, New campaign, and a Manage list menu: campaigns, the CSV import, Sync from Guesty); `/guests/segments` and `/guests/import` redirect there, and a campaign's audience select carries the segments. `/guests/agreements` for SCA rental agreements. `/guests/quotes` for SCA custom quotes and booking requests (composed here, paid on staycapeann.com). All of these, `/marketing` and `/competitors` share the Growth strip |
-| `/crm` | Contacts, each with its Activity (calls, texts, emails and notes), and meetings. It opens on the contact list; one Refresh runs its syncs. Unknown numbers are triaged on the Messaging inbox (the New numbers card), not here. An important meeting (owner and prospect meetings by default) texts the operator the evening before from the 24/7 line, the AirDNA reminder's rail (`DOTTI_PHONE`); every meeting shows on an owner's home feed today and tomorrow, and a staff login sees the meetings it logged |
+| `/guests` | Reviews (the last 30 days by default). The subscriber list is `/guests/contacts` (Add contact, New campaign, and a Manage list menu: campaigns, the CSV import, Sync from Guesty); `/guests/import` redirects there and `/guests/segments` to `/guests/campaigns/new`, whose audience select carries the segments. `/guests/agreements` for SCA rental agreements. `/guests/quotes` for SCA custom quotes and booking requests (composed here, paid on staycapeann.com). All of these, `/marketing` and `/competitors` share the Growth strip |
+| `/crm` | Contacts, each with its Activity (calls, texts, emails and notes), and meetings. It opens on the contact list; one Refresh runs its syncs. Unknown numbers are triaged on the Messaging inbox (the New numbers card), not here. An important meeting (owner and prospect meetings by default) texts the evening before from the 24/7 line to `MEETING_REMINDER_PHONES`, else `DOTTI_PHONE` (the AirDNA reminder's rail); every meeting shows on an owner's home feed today and tomorrow, and a staff login sees the meetings it logged. The reminder cron and the home card failed every read from 10/07 until #2040 (2026-10-22): `contact_meetings.property_id` has no foreign key, so never embed `properties(...)` on it |
 | `/channels` | The Helm-native Guesty replacement: multi-channel listings, iCal sync, bookings. Hidden from the nav lists (the route and Cmd+K stay) until a Cape Ann home is Helm-run; its pages light the Properties tab |
-| `/marketing` | Site traffic and conversions for both sites. `/marketing/airdna` for comps |
-| `/competitors` | Other Cape Ann managers, inventory tracking |
+| `/marketing` | Site traffic and conversions for both sites. `/marketing/airdna` for comps (owners only) |
+| `/competitors` | Other Cape Ann managers, inventory tracking. Owners only: owner-of-record research is prospecting |
 | `/playbook` | SOPs and institutional knowledge |
 | `/onboarding` | Owner intake forms, token-gated, public |
 | `/today` | Retired into the home on 2026-10-18 and redirects to `/`. Today's check-ins, checkouts and walks are the home's "Today at the houses" section; sync health and Helm-run homes are on `/messaging/status` |
@@ -234,11 +237,14 @@ callers get a 401 JSON, not a sign-in redirect, so integrations can read the fai
 2026-10-12). Owners are the explicit `access: 'owner'` rows in `src/lib/team.ts` (Ryan, Allie,
 Dotti); every other `@risingtidestr.com` sign-in is staff, so a new Workspace seat fails closed.
 Staff see operations and not money: the proxy turns them away from `OWNER_PATH_PREFIXES`
-(statements, books, forecast, revenue, balance charges, contracts, prospects, owner messaging, quotes,
-creative pay, rate card, the field test page) with a redirect to `/not-available`, and from
-`OWNER_API_PREFIXES` (the statement pipeline and every `owner_payout` writer, bank and receipt
-writes, Stripe, the books, contracts, W-9 reveal) with a 403. Three things must agree, and
-`helm-access.test.ts` checks that they do:
+(statements, books, forecast, revenue, balance charges, contracts, prospects and `/projections`,
+leases, owner messaging, quotes, the AirDNA upload, competitors, creative pay, rate card, the field
+test page, staff documents) with a redirect to `/not-available`, and from `OWNER_API_PREFIXES`
+(the statement pipeline and every session-called `owner_payout` writer, bank and receipt writes,
+Stripe, the books, contracts, the prospect mail sync, the AirDNA upload and competitor sync, W-9
+reveal) with a 403. Cron routes are left out on purpose: re-running a stuck feed is an operations
+duty, so `/api/cron/sync-stripe` rewrites payouts for any signed-in session through
+`authorizeCron`. Three things must agree, and `helm-access.test.ts` checks that they do:
 
 - a module with `access: 'owner'` in `helm-modules.ts` is hidden from the staff nav and search,
   and its href must sit behind a gated prefix;
@@ -249,31 +255,47 @@ writes, Stripe, the books, contracts, W-9 reveal) with a 403. Three things must 
   open to everyone.
 
 When you add a money page, add its prefix to the list AND the flag to its module. When you add
-a money action, call `requireOwnerEmail()`. Owner money that still prints on pages staff keep
-(the home payout tile, fee percentages and payouts on property pages) is not yet redacted.
+a money action, call `requireOwnerEmail()`. Owner money on the pages staff keep renders for owners
+only, decided on the server with `isOwnerSession()` (#1772 and after): the home payout tile, the
+fee on the properties list ("Managed" for staff), a property page's fee, bank, owner emails,
+statements and contract, the calendar hover payout, the Field board and the channels bookings
+payouts; only an owner sets a nightly price. `helm-access.test.ts` asserts each one. A new
+owner-money figure on a page staff can open needs the same check and a line in that test.
+
+**View as staff** (#1961): an owner can switch their own session to staff from the avatar menu
+(the `helm_view_as` cookie); it only ever lowers a role. So every gate reads the effective role:
+`effectiveRole()` in the proxy, `sessionRole()`, `isOwnerSession()` and `requireOwnerEmail()` on
+the server, `useHelmRole()` in the client. `roleForEmail()` is the login's own role and is
+allowed only in `helm-access.ts` and `view-as-actions.ts`; `view-as-staff.test.ts` fails on any
+other caller.
 
 **Team notices resolve by role and duty, never by a named inbox** (`src/lib/team-recipients.ts`,
 since 2026-10-13). `team.ts` says who runs operations (role `operations`), who approves Field
-pay and answers contractor questions (`duties: ['field_pay']`, Ryan) and who runs the creative
-program (`duties: ['creative']`, Dotti); a member with a `starts` date joins every list on that
-day. `officeNotice()` is the Field office (first operations seat, the rest and field pay on
-copy), `operationsEmails()` is the CC on contractor-facing mail, `fieldReplyTo()` is the one
+pay and answers contractor questions (`duties: ['field_pay']`, Ryan), who runs the creative
+program (`duties: ['creative']`, Dotti), who countersigns staff documents (`countersign`, Ryan)
+and who is copied on them (`staff_copy`, Allie); a member with a `starts` date joins every list
+on that day. `officeNotice()` is the Field office (first operations seat, the rest and field pay
+on copy), `operationsEmails()` is the CC on contractor-facing mail, `fieldReplyTo()` is the one
 inbox a contractor's reply lands in, `creativeLeadEmail()` the shoot and view-count reminders.
 `team-recipients.test.ts` fails if `field-notify.ts` names an `@risingtidestr.com` address, and
 checks the operations manager's start date agrees across `team.ts`, the payroll matcher and the
-forecast. The AirDNA nudge and meeting reminders are owner work and still text `DOTTI_PHONE`.
+forecast. The AirDNA nudge and meeting reminders are owner work and still text `DOTTI_PHONE`
+(meeting reminders go to `MEETING_REMINDER_PHONES` instead when it is set).
 
 Two shared auth helpers exist. Use them; do not hand-roll a check:
 - `authorizeCron(request)` in `src/lib/cron-auth.ts`. Accepts Vercel Cron's bearer or a signed-in
   Helm session. **Fails closed** when `CRON_SECRET` is unset. Every cron route uses it.
 - `authorizeStayConcierge(req)` in `src/lib/stay-concierge-auth.ts`. Header only, always
   `x-stay-concierge-key`. **Never accept a secret in a query string.** URL logging was the leak
-  vector behind the 2026-08-20 rotation.
+  vector behind the 2026-08-20 rotation. A bridge route is a `PUBLIC_API_PREFIXES` entry in
+  `proxy.ts` whose handler calls it; three older ones (`payment-links`, `achieved-rates`,
+  `balance-charges`) check the same header inline instead.
 
 Public surfaces that self-guard by token rather than session: `/onboarding/<token>`,
-`/agreement/<token>`, `/c/<token>` (cleaner schedule), `/field/*` (contractor session cookie),
-`/book/*`, and the puppeteer-rendered deliverables under `/projections/<id>/`,
-`/properties/<id>/`, `/inspections/<id>/render`, `/statements/render`.
+`/contract/<token>`, `/agreement/<token>`, `/sign/<token>` (staff documents), `/c/<token>`
+(cleaner schedule; `/clean/` stays open only for its redirect), `/b/<token>` (shoot briefs),
+`/field/*` (contractor session cookie), `/book/*`, and the puppeteer-rendered deliverables under
+`/projections/<id>/`, `/properties/<id>/`, `/inspections/<id>/render`, `/statements/render`.
 
 The property Home Guide and WiFi placard contain credentials. They pass the proxy for PDF
 rendering but self-guard before data access: a Helm staff session or a two-minute HMAC token
@@ -343,6 +365,14 @@ the `is_final_month` installment so nothing double-counts. See `src/lib/installm
   `adjusted_revenue = rental_income - stripe_fee`. This path raises a data gap telling the operator
   to run Sync Stripe. Do not treat the fallback as the primary rule; earlier versions of this
   document did, and it was wrong.
+
+  stripe-sync then moves revenue to what Stripe actually collected, not only the fee. When Stripe
+  collected more than Guesty's `TOTAL_PAID` (Guesty recording one payment of a two-payment plan,
+  seen from July 2026), it rebuilds `adjusted_revenue` from Stripe's gross with the same formula
+  and the real fee, upward only. A Manual/Direct stay of 28 nights or fewer whose charge disagrees
+  with the folio is recognized at what was charged: `collected_gross / the stay's tax multiplier -
+  actual_fee`, either direction. Neither runs on a refunded charge, an installment row or a
+  `paid_off_stripe` row, and the second skips legacy Guesty Payments charges.
 - **Manual with $0 revenue**: homeowner stay. Skipped, no fee.
 
 **Legacy commission kludge.** Before the accounting overhaul, a 4.4% gross-up was added to
@@ -361,7 +391,9 @@ canonical copy in `/api/ingest` must not import from it.
 
 ## The canonical formula
 
-From `src/lib/statement-addons.ts`, which is the authority:
+`computeStatementTotals` in `src/lib/statement-totals.ts` is the formula: pure, no imports, and
+pinned by `statement-totals.test.ts`. `src/lib/statement-addons.ts` repeats it in its docblock
+and loads the add-on terms. Each money figure is rounded to the cent:
 
 ```
 fee_base       = rental_revenue + add_ons_mgmt_base
@@ -378,46 +410,49 @@ owner_payout   = rental_revenue + add_ons_revenue
 `add_ons_revenue`, `add_ons_mgmt_base` and `attributed_debits` all come from
 `bank_deposit_attributions` rows with `status='attributed'` for that `property_id` + `month`,
 loaded by **`loadAddOnTotals()`**. A statement with no attributions gets zeros and produces
-numbers identical to the pre-add-on formula.
+numbers identical to the pre-add-on formula. `cleaning_total` is the bank-charged
+`cleaning_events` rows (`CLEANING_MONEY_SOURCES`) net of `credit_amount`; an invoice-only row is
+attribution and never bills. `repairs_total` and `reserve_holdback` are owned columns: read as
+stored unless the writer that owns one passes a new value (ingest, fill-gap and the receipt
+routes own repairs; the reserve route owns the reserve).
 
-`management_fee_pct` is a whole number (25 means 25%), snapshotted onto the statement at ingest.
+`management_fee_pct` is a whole number (25 means 25%), snapshotted onto the statement at ingest
+from the home's `properties` row.
 
 `reserve_holdback` is the per-statement Owner Reserve withhold, $0 by default, opt-in per statement
 via the "Withhold Owner Reserve" checkbox. Policy: new owners give a $2,000 check on onboarding as
 a minimum account balance; for owners who have not paid, the operator holds $2,000 from the next
 payout instead. Preserved across re-ingest via SELECT-before-delete.
 
-### The twelve sites that write `owner_payout`, in two classes
+### One writer: `writeStatementTotals`
 
-Know which class you are in before you touch one. Getting this wrong is how #1327 happened.
+Since #1464 (2026-09-02), `writeStatementTotals` in `src/lib/statement-totals-write.ts` is the
+only code that writes a money column on `property_statements`. On every call it reads its inputs
+fresh and fails closed on any read error; refuses an empty reservations or cleaning read against
+a stored statement that has stays or cleaning (the wipe-to-zero signature) unless the caller
+asserts it; runs the finality guard before writing; then recomputes every derived column,
+`management_fee` included, and writes them together. A caller that writes child rows first (a
+credit, an attribution, a receipt, a removed stay) runs `assertStatementWritable` before those
+writes and hands its receipt in, so a refused override leaves nothing half done.
 
-**Class 1, recomputers.** These derive `management_fee` from scratch, so they MUST fold
-`add_ons_mgmt_base` into the fee base and both other terms into the payout:
+Eleven sites call it: `/api/ingest`, `/api/fill-gap`, `/api/refresh-statement`,
+`/api/resolve-gap`, `/api/reservations/remove`, `/api/bank-deposits/[id]`,
+`/api/cleaning-events/[id]`, `/api/receipts`, `/api/receipts/[id]`,
+`/api/property-statements/[id]/reserve` and `src/lib/stripe-sync.ts`. `/api/ingest` inserts the
+row with its own figures first, then calls it; a difference over $0.02 files an
+`ingest_recompute_mismatch` gap and the row-derived figure is stored. `/api/reconcile-emails`
+writes no payout: it reads statements and files `data_gaps`. No caller adjusts the payout by its
+own line against a stored fee any more; every one gets the full recompute.
 
-| Site | How it gets the terms |
-|---|---|
-| `/api/refresh-statement` | `loadAddOnTotals()` |
-| `/api/fill-gap` | `loadAddOnTotals()` |
-| `/api/resolve-gap` | `loadAddOnTotals()` |
-| `/api/reservations/remove` | `loadAddOnTotals()` |
-| `src/lib/stripe-sync.ts` | `loadAddOnTotals()` |
-| `/api/bank-deposits/[id]` | inline, correct (it owns the attribution write, so it has the rows) |
-| `/api/ingest` | `loadAddOnTotals()` |
+If you add a writer, call `writeStatementTotals`; never update a money column directly. If you
+change the formula, change `computeStatementTotals` and its test, and run
+`scripts/single_write_path_parity.sql` (read-only, against the linked database) before and after.
 
-**Class 2, payout adjusters.** These read the stored `management_fee` as given and never recompute
-it, so they do not need the fee base at all. They only move the payout by their own line item:
-`/api/property-statements/[id]/reserve`, `/api/receipts`, `/api/receipts/[id]`,
-`/api/cleaning-events/[id]`, `/api/reconcile-emails`. `receipts` says it out loud: receipts do not
-enter the fee base.
-
-If you add a recompute site, use `loadAddOnTotals()`. If you change the formula, change it in
-`statement-addons.ts` first, then propagate.
-
-All seven now go through `loadAddOnTotals()` or compute the identical three terms inline. There is
-no longer a recompute site that diverges from `statement-addons.ts`. Keep it that way: the last
-divergence was `/api/ingest`, which hand-rolled the read, omitted the `direction` column, and so
-added an attributed debit as add-on revenue instead of subtracting it. On a $275 debit at a 25% fee
-that overpaid the owner by $481.25 and under-charged the fee by $68.75.
+Keep it that way. Before the single path every site carried its own copy, and the copies drifted:
+#1327 folded the add-on terms into two recompute sites that had dropped them, and #1348 fixed
+`/api/ingest`, which hand-rolled the add-on read, omitted the `direction` column, and so added an
+attributed debit as add-on revenue instead of subtracting it. On a $275 debit at a 25% fee that
+overpaid the owner by $481.25 and under-charged the fee by $68.75.
 
 ## Stripe fees: actuals are the rule
 
@@ -439,10 +474,16 @@ metadata from `/api/payment-links`) are excluded from candidacy. Only a stay unm
 raises a `stripe_missing_charge` gap.
 
 **The estimate also survives, deliberately, on three protected classes stripe-sync will never
-rewrite**: statements already emailed to the owner (`close_tasks.email_sent_at` set), reservations
-carrying installment rows (already pro-rated), and rows marked `bank_match_status='paid_off_stripe'`
-(paid by check or wire). The email_sent_at gate is a safety invariant: a sync once moved a payout
-that had already gone out.
+rewrite**: frozen statements, reservations carrying installment rows (already pro-rated), and rows
+marked `bank_match_status='paid_off_stripe'` (paid by check or wire).
+
+**A statement is frozen** when its `close_tasks.email_sent_at` is set or its period's
+`statement_periods.status` is `'final'` (Finalize Month), in every month;
+`src/lib/statement-finality.ts` decides. The freeze is not a stripe-sync rule:
+`assertStatementWritable` refuses every payout write to a frozen statement, from any caller, unless
+the caller passes `force` after the operator confirms, and every forced write files a
+`post_send_write` gap. stripe-sync never forces; it skips the property. This is a safety invariant:
+a sync once moved a payout that had already gone out.
 
 Per-property restricted Stripe keys resolve through `getStripeKeysMap()`, merging `STRIPE_KEYS_JSON`
 (legacy blob), `STRIPE_KEYS_JSON_EXTRA` (overlay), and `STRIPE_KEY_<PROPERTY_ID>` (one key per
@@ -585,19 +626,19 @@ pipeline, and as lacking credit netting. Both were true once and both are now wr
 worse than saying nothing: it invites a fix duplicated into a file that already imports the
 rule, and it warns you off editing the one place that actually owns it.
 
-What is true, checked 2026-09-26:
+What is true, checked 2026-10-22:
 
 - **`classifyBankRow` is one function** in `src/lib/bank-charges.ts`. Both routes import and call
-  it (`ingest` line 903, `fill-gap` line 736). Adding a vendor is still the one-file change
+  it (`ingest` line 916, `fill-gap` line 746). Adding a vendor is still the one-file change
   described above, and it reaches both routes with no lockstep edit.
 - **Vendor-credit netting is shared** via `src/lib/vendor-credit-netting.ts`. fill-gap imports
   `netVendorCredits`, `vendorCreditFields` and `unappliedRefundGap` and does implement it.
-- The two routes share twelve `src/lib` modules in all, including `insertCleaningEvents`,
+- The two routes share fourteen `src/lib` modules in all, including `insertCleaningEvents`,
   `cleaning-credit-overrides`, `remittance`, `installments`, `statement-finality` and
   **`statement-totals-write`**, which is the single payout write path.
 
-What can still drift is the ORCHESTRATION around those shared pieces: ingest is ~2,700 lines and
-fill-gap ~1,200, and they differ in what they do with the results (ingest alone carries the
+What can still drift is the ORCHESTRATION around those shared pieces: ingest is ~2,750 lines and
+fill-gap ~1,250, and they differ in what they do with the results (ingest alone carries the
 month gate, cancellation matching, internal transfers and the platform-CSV cache). So read both
 before changing either. Just do not go looking for a second copy of the classification rule,
 because there is not one.
@@ -671,9 +712,16 @@ the internal name is what staff would say in Slack.
 
 ## The fleet
 
-`src/lib/properties.ts` `PROPERTIES` is the code-side roster (15 entries). The live bookable fleet
-is larger and **Guesty is canonical for what is bookable**, not this list. Do not treat the table
-below as the fleet; treat it as what the statements pipeline is configured for.
+`src/lib/properties.ts` `PROPERTIES` is the code-side roster (16 entries, 2026-10-22). The live
+bookable fleet is larger and **Guesty is canonical for what is bookable**, not this list. Do not
+treat the table below as the fleet.
+
+**Statements read the `properties` table, not this list.** Since #498, ingest, the render page
+and the statement email load each home through `getActivePropertyForStatements` /
+`getActivePropertiesForStatements` (fee, owner, emails, bank, listing match, tax cert);
+`PROPERTIES` is only their fallback when the database is unreachable. So a fee or owner change
+goes in the DB row. A few routes still check the map itself (`/api/receipts` rejects an id it does
+not list, `/api/reconcile-emails` matches names through it), so a new home still gets an entry.
 
 | ID | Internal name | Owner | Mgmt fee | Bank last4 |
 |---|---|---|---|---|
@@ -692,6 +740,7 @@ below as the fleet; treat it as what the statements pipeline is configured for.
 | `84_thatcher` | 84 Thatcher | Lopes | 25% | - |
 | `225_washington` | 225 Washington | Babson | 25% | 1229 |
 | `3_windward` | 3 Windward | Moynahan | 18% | 1232 |
+| `47_atlantic` | 47 Atlantic | Erickson (47 Atlantic LLC) | 22% | - |
 
 `53_rocky_neck_2` is a sub-unit; sub-unit matching uses longest-match on the listing name.
 Multi-property owners (Prudenzi) get per-section ingest and one combined statement email.
@@ -731,7 +780,9 @@ like a premium editorial document.
   is no `csv` parameter. Reviews and upcoming bookings are read server-side from Supabase.
 - **PDF**: `src/lib/pdf.ts` drives Puppeteer over this same URL. `/api/statement-pdf`,
   `/api/archive-statement` and `/api/draft-email` all call it. Cmd+P still works for a human.
-  **Never build a statement PDF by drawing primitives.** `pdf-lib` is an unused leftover dependency.
+  **Never build a statement PDF by drawing primitives.** `pdf-lib` builds no PDF in the app, but
+  `scripts/property-document-smoke.mjs` uses it in CI (`property-documents.yml`) to open the
+  rendered PDFs, so it stays.
 - **Reads with the service-role key**, not anon: it is a server component never bundled to the
   browser, and the statements tables are RLS-locked.
 - `force-dynamic` on purpose: it reflects mutable review-queue state.
@@ -751,9 +802,9 @@ like a premium editorial document.
 `/api/sync-guesty` pulls reviews, reservations, and the listing map. `/api/ingest-guesty-csv` is
 the fallback when the API is unavailable. Token caching is shared through the `guesty_auth` table.
 
-Two clients exist: `src/lib/guesty.ts` (7 importers) and `src/lib/guesty-client.ts` (2). They share
-the token cache and differ in one way that matters: `guesty-client.ts` throws a typed
-`GuestyNotFound` on 404, `guesty.ts` throws a generic error.
+Two clients exist: `src/lib/guesty.ts` (9 importers, 2026-10-22) and `src/lib/guesty-client.ts`
+(4). They share the token cache and differ in one way that matters: `guesty-client.ts` throws a
+typed `GuestyNotFound` on 404, `guesty.ts` throws a generic error.
 
 Watch-outs: the reservations feed drops non-confirmed rows, so a reconciler catches cancels the
 feed silently omits. A missing "Business model" setting on a Guesty listing means no OWNER NET,
@@ -781,12 +832,17 @@ the afternoon it was created.
 | RISING TIDE 24/7 | (978) 865-2500 | `PNq253fFrk` | the back office: cleaners, contractors, vendors, staff, internal pings |
 | OWNERS | (978) 865-2387 | `PNpVESxsNW` | homeowners and prospects |
 
-If it came in on the GUESTS line it is a guest. Helm sends only to the back office (cleaner digest,
-Field texts, the AirDNA nudge), all on 2500. Guest and owner texts go out from stay-concierge, which
-carries the same split (`QUO_GUEST_PHONE_NUMBER_ID`, `QUO_OPS_PHONE_NUMBER_ID`, default id = OWNERS).
-The webhook ingest stamps `quo_unknown_numbers.quo_line` from the event's `phoneNumberId`, and the
-/crm triage card badges it. Every Quo webhook has its own signing key: the app-made original is
-`QUO_WEBHOOK_SECRET`, API-made ones ride in `QUO_WEBHOOK_SECRETS` (comma list); any may sign.
+If it came in on the GUESTS line it is a guest. Helm texts the back office on 2500 (cleaner
+digest, Field texts, the AirDNA nudge, meeting reminders, cleaner automations) and guests on 2575:
+payment links (`payment-links.ts`), custom quotes (`sca-quote-email.ts`), and on helm-run homes the
+message automations (`automations.ts`) and inbox replies (`helm-inbox.ts`,
+`/api/pms/threads/[id]/messages`). Owner texts and the concierge's guest replies go out from
+stay-concierge, which carries the same split (`QUO_GUEST_PHONE_NUMBER_ID`,
+`QUO_OPS_PHONE_NUMBER_ID`, default id = OWNERS). The webhook ingest stamps
+`quo_unknown_numbers.quo_line` from the event's `phoneNumberId`, and the New numbers card on the
+Messaging inbox (`src/components/messaging/NumberTriage.tsx`) badges it. Every Quo webhook has
+its own signing key: the app-made original is `QUO_WEBHOOK_SECRET`, API-made ones ride in
+`QUO_WEBHOOK_SECRETS` (comma list); any may sign.
 
 - **A trade vendor's text** (`trade_vendors.phone` / `after_hours_phone`, any line) also files a
   vendor visit proposal when it names a day, beside the paths below and short-circuiting none.
@@ -807,10 +863,11 @@ The webhook ingest stamps `quo_unknown_numbers.quo_line` from the event's `phone
   useless on their own.
 - **Quo also sends.** `sendMessage` backs the cleaner schedule digest, guest SMS, and proactive
   reminders.
-- `/api/sync-quo` is a **parallel** implementation, not the same pipeline. It lacks unknown-number
-  capture, cleaner-issue work slips, owner stamping and cleaning-session mirroring, and it resolves
-  the cleaning checkout off `guesty_reservations` while the webhook uses `bookings`. The two can
-  disagree about which checkout a ping belongs to.
+- `/api/sync-quo` is the backfill and gap-fill path. It is still its own implementation of the
+  per-message work, not the webhook's dispatcher, but since #1627-#1636 it calls the webhook's
+  pieces: the one checkout resolver (`mostRecentCheckout`), cleaner-issue work slips, forward-only
+  owner stamping, unknown-number capture (`quo-ingest.ts`) and the cleaning-session mirror
+  (`cleaning-sessions.ts`). Changing either path still means reading both.
 - API traps: `maxResults` caps at 50 on every list endpoint, and `participants=` must be repeated
   keys, not a bracketed array. Both return 400 otherwise.
 - `cleaner_phones.property_ids = '{}'` means "serves all properties" and falls back to body matching.
@@ -863,17 +920,19 @@ Device-to-property mapping is manual: run `/api/sync-seam` once so devices regis
 
 ## stay-concierge
 
-The guest AI lives in a separate repo (`~/Developer/stay-concierge`, Python, port 8000 locally).
-It reaches Helm through the bridge routes listed in `src/lib/stay-concierge-auth.ts`, always with
+The guest AI lives in a separate repo (`~/Developer/stay-concierge`, Python, port 8000 locally). It
+reaches Helm through the bridge routes (the `PUBLIC_API_PREFIXES` entries in `src/proxy.ts` whose
+handlers call `authorizeStayConcierge`, plus the three inline checks named under Auth), always with
 the `x-stay-concierge-key` header. `/api/kb-facts` is the only Helm-to-guest-AI knowledge pipe.
 
 # Environment variables
 
-Set in Vercel. `.env.local.example` documents a fraction of what the code reads (~65 vars).
+Set in Vercel. `.env.local.example` documents a fraction of what the code reads (about 73 names,
+counted 2026-10-22).
 
 - **Core**: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
 - **Auth**: `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, `AUTH_SECRET`, `AUTH_URL`, `AUTH_COOKIE_DOMAIN`
-- **Cron**: `CRON_SECRET`. All 33 cron routes fail closed without it (verified 2026-09-26: every
+- **Cron**: `CRON_SECRET`. All 33 cron routes fail closed without it (verified 2026-10-22: every
   one calls `authorizeCron`).
 - **Guesty**: `GUESTY_CLIENT_ID`, `GUESTY_CLIENT_SECRET`
 - **Stripe**: `STRIPE_KEYS_JSON`, `STRIPE_KEYS_JSON_EXTRA`, `STRIPE_KEY_<PROPERTY_ID>`
@@ -893,7 +952,28 @@ Set in Vercel. `.env.local.example` documents a fraction of what the code reads 
 - **Maps**: `NEXT_PUBLIC_CARTO_API_KEY`, optional. CARTO basemap tiles need a key since September
   2026 or they render watermarked. `src/lib/map-tiles.ts` carries Rising Tide's key (public by
   nature, shared with staycapeann.com) as the fallback, so the var only matters for an override.
+- **W-9 encryption**: `FIELD_W9_KEY` is the key for contractors' stored TINs
+  (`src/lib/field-crypto.ts`). **When it is unset the key is derived from
+  `SUPABASE_SERVICE_ROLE_KEY`, so rotating the service-role key makes every stored TIN
+  unreadable.** Setting `FIELD_W9_KEY` for the first time does the same to TINs already stored.
+  Whichever secret encrypted them must stay until they are re-encrypted.
+- **Other signing secrets**: `HELM_INQUIRY_WEBHOOK_SECRET` (`/api/webhooks/inquiry`, 503 when
+  unset), `STORY_FACTORY_SECRET` (`/api/notify-dotti`, `/api/review-stories/*`, fail closed),
+  `AUDIENCE_UNSUBSCRIBE_SECRET` (marketing unsubscribe links; falls back to `AUTH_SECRET`, so
+  rotating `AUTH_SECRET` while it is unset breaks every unsubscribe link already mailed)
+- **Texts and codes**: `DOTTI_PHONE` (the AirDNA nudge; meeting reminders when
+  `MEETING_REMINDER_PHONES`, a comma list, is unset), `VENDOR_DISPATCH_PHONE` (A-1's Jobber relay,
+  defaulted), `SUPPLY_CLOSET_CODE` (prints on a claimed packet; unset hides the line; never in
+  source)
+- **Email routing**, all defaulted: `STAFF_NOTIFY_EMAILS` (agreement, contract and quote notices),
+  `AUTOMATIONS_REPLY_TO`, `FIELD_FROM_EMAIL`, `READINESS_FROM_EMAIL`, `READINESS_REVIEW_TO`,
+  `READINESS_REVIEW_CC`
+- **Origins in links**, all defaulted: `SCA_PUBLIC_ORIGIN` (quote links), `NEXT_PUBLIC_APP_URL`,
+  `NEXT_PUBLIC_HELM_URL`, `NEXT_PUBLIC_HELM_ORIGIN`, `NEXT_PUBLIC_SITE_URL`
 - **Other**: `GITHUB_TOKEN`, `BLOB_READ_WRITE_TOKEN`, `GOOGLE_SERVICE_ACCOUNT_KEY`,
+  `DRIVE_HELM_RECORDS_FOLDER_ID` (with the service account, turns on the Drive archive),
+  `VERCEL_API_TOKEN` (Speed Insights on `/marketing`), `CLEANING_AUTO_CONFIRM_MINUTES` (default
+  45), `AIRBNB_REQUEST_ALERTS_ENABLED` (its sender has no caller since #1917),
   `CHROME_EXECUTABLE_PATH` (local PDF), `VERCEL_PROTECTION_BYPASS`
 
 Locally, `.env.local` ships several secrets empty (service-role, `GITHUB_TOKEN`). Field pages and
@@ -901,12 +981,13 @@ anything service-role will 500 or silently degrade in local dev. That is expecte
 
 # Testing
 
-**`npm test` is the suite. Run it.** Node's own test runner over
-`src/**/__tests__/*.test.ts`, native TypeScript, no bundler and no network. It is fast (about a
-second) and currently green. This file used to say there was no test runner; that was true once
-and stopped being true, and an agent believing it duplicated an existing test into `scripts/`.
-**Put a new pure-logic test in `src/lib/__tests__/`, not in `scripts/`**, or it only runs when
-somebody remembers it exists.
+**`npm test` is the suite. Run it.** Node's own test runner over `src/**/__tests__/*.test.ts`,
+native TypeScript, no bundler and no network. It is fast (about 7 seconds for about 3,150 tests,
+2026-10-22) and currently green. CI runs it with `TZ=America/New_York`, because the civic date
+fixtures assume Massachusetts midnight. This file used to say there was no test runner; that was
+true once and stopped being true, and an agent believing it duplicated an existing test into
+`scripts/`. **Put a new pure-logic test in `src/lib/__tests__/`, not in `scripts/`**, or it only
+runs when somebody remembers it exists.
 
 A test here is not only for arithmetic. Several guard an invariant that is spread thin across
 files and easy to delete by accident, by reading the source and asserting the guard is still
@@ -916,10 +997,24 @@ you trust it.
 
 Imports inside a test need the explicit `.ts` extension or Node cannot resolve them.
 
+`npm test` also runs `tests/reliability.test.mjs` (imported by
+`src/lib/__tests__/helm-reliability.test.ts`). It renders real pages and components with every
+import mocked by hand, so adding an import to one of them fails `npm test` with
+`Unmocked import: <id>` until you add a mock there.
+
+The smoke fixtures, `scripts/*-smoke.mjs` (29; CI runs 23 of them in
+`.github/workflows/property-documents.yml` on every PR touching `src/`), bundle real components
+with webpack against a hand-written alias map. A new import in a component one of them bundles
+fails CI until it is registered in that script's map.
+
 Also present, and NOT part of `npm test`:
 
 - `scripts/*_parity.py`: read-only harnesses that prove a specific past change did not move any
   owner payout. They need a service-role key and are one-shot audits, not regression guards.
+- `scripts/single_write_path_parity.sql`: read-only. Re-derives every statement's money columns
+  from its rows with the rules in `statement-totals.ts` and compares them to what is stored. Run
+  it before and after any change to the formula or the write path. It reads live statements, so
+  it needs the user's go-ahead (`AGENTS.md`).
 - `scripts/addon_recompute_parity.mjs`: pure arithmetic, no database. Proves the add-on recompute
   sites agree with the canonical formula and that zero-attribution statements are unchanged.
 - `scripts/paged_select_check.mjs`: exercises `selectAllPaged` page boundaries via Node's native
@@ -946,8 +1041,10 @@ are defined in `AGENTS.md`.
    refresh or action. VersionGuard, `/api/version` and `lib/version-skew.ts` were retired on
    2026-10-22. The Button/SubmitButton watchdog's 30s reload stays (it covers a shed response,
    not skew), and AutoRefresh skips its tick while a page holds unsaved work. See `next.config.ts`.
-5. **Agent sessions run in git worktrees** under `.claude/worktrees/<branch>`, where `node_modules`
-   may need symlinking back to the parent checkout before `tsc` will run.
+5. **Agent sessions run in git worktrees** under `.claude/worktrees/<branch>`, which start with no
+   `node_modules`. Run `npm ci --no-audit --no-fund` in the worktree (about 11 seconds). Do not
+   symlink the parent checkout's: it is stale (it lacked `@vercel/analytics` on 2026-10-22), so
+   `tsc` fails on errors that are not yours.
 6. **This is a high-concurrency multi-agent repo.** Branch off fresh `origin/main` and stage only
    your own files.
 7. **`bookings` holds duplicate rows per stay by design** (one per source). Never key per-stay logic
