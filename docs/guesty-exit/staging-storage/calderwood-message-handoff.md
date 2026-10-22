@@ -1787,3 +1787,56 @@ The preceding `53c0f25c` preview routing repair was verified by an authenticated
 read at 12:54 PM New York time: five confirmed stays cross-checked, zero incomplete
 timing candidates and 27 conversation records. No live timing or message-history
 record was imported into this database rehearsal.
+
+
+## October 22: message ownership and booking-change rehearsal
+
+The general automation planner previously read no delivery ownership with its
+ledger. Its retime write excluded Channex/cleaner rows, but withdrawal and
+supersession could still cancel them, and a replacement rule could create a
+second native row for the same reserved message key. This could strand a reviewed
+reminder or force its dedicated worker to stop at duplicate detection.
+
+The planner now reads `delivery_used` and preserves rows reserved for `channex`,
+`quo_cleaner`, or imported `guesty_history` in every state. They remain in the
+ledger for permanent-key deduplication but cannot enter native retiming, revival,
+withdrawal or supersession. Native write filters recheck ownership in case a
+handoff happened after the read. Native SMS/email behavior remains covered by
+the regression suite. Dedicated workers keep responsibility for eligible timing
+refreshes and their final dispatch checks. This adds no schema, credential,
+source collector, grant, sender activation or hosted database write.
+
+The new `scripts/verify-message-lifecycle.mjs` runs inside the existing disposable
+PostgreSQL harness against fictional six-workflow handoffs. It verifies that the
+real native plan diff cannot replace them, stale timing blocks both dedicated
+workers, and a fresh observation lets those workers move five unsent reminders
+by the exact date/clock change. The existing confirmation receipt and all six IDs
+survive; the key-code row stays held. Repeated ticks create no duplicate, a
+cancellation stops both senders, and dates beyond the reviewed expiry cannot
+extend sending authority. Its injected transports reject every call and recorded
+zero calls. This is local execution evidence, not live OTA or SMS acceptance.
+
+Validation: **2,265 application tests / 242 suites**, nonincremental TypeScript,
+scoped ESLint and whitespace checks passed. The full local PostgreSQL messaging
+harness passed **152 scenarios**, including six new lifecycle cases. Six new
+application tests cover ownership across status, rule replacement, other
+stays/keys, revival, withdrawal and unchanged native behavior. One existing
+source-shape invariant initially failed because the ledger select gained the
+ownership column; it now verifies all required columns without depending on
+their order. The final full run passed. SQL installation/routing harnesses were
+not rerun because their source and installed bundles are unchanged.
+
+Review handoff: branch `codex/channex-staging-pilot`, starting commit
+`a2b4f03278e255f1c32dfbc3a4adf93953f797b9`, original base
+`a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`, remote main observed
+`be43cf8867b68a93c5cce358d12dc2a8eb756db0`. Changed files: `automations-core.ts`,
+`automations.ts`, `automations-provider-ownership.test.ts`, the existing
+`pms-round14-invariants.test.ts`, `verify-message-lifecycle.mjs`, its existing
+`verify-message-queue-preparation.mjs` entry point, `SCHEMA.md` and this handoff.
+The unrelated contract-readiness edits remain excluded.
+
+Remaining launch work is unchanged: continuous authoritative timing ingestion,
+cleaner queue/history evidence, exact DST source coverage, production Channex
+access, PriceLabs parity, and authorized real recipient delivery acceptance.
+Fresh observations in this rehearsal were fictional owner-reviewed inputs;
+there is still no continuous production collector. Guesty remains the live sender.

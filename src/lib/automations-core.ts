@@ -980,11 +980,25 @@ export type ExistingSend = {
   automation_key?: string | null;
   fire_at: string;
   status: string;
+  /** Dedicated workers own their reserved rows, including unresolved outcomes. */
+  delivery_used?: string | null;
   /** The ledger note; for a cancelled row, who or what cancelled it. */
   error?: string | null;
   planned_check_in: string;
   planned_check_out: string;
 };
+
+/** Keep dedicated delivery and imported source history out of native replanning.
+ * Their permanent stay/key reservation remains occupied even after a failure or
+ * cancellation. Replacing a rule must not bypass their reconciliation process.
+ */
+export function isProviderManagedSend(row: Pick<ExistingSend, 'delivery_used'>): boolean {
+  return row.delivery_used === 'channex' || row.delivery_used === 'quo_cleaner' || row.delivery_used === 'guesty_history';
+}
+
+/** PostgREST write-time guard also covers registration after the planner read. */
+export const NATIVE_AUTOMATION_DELIVERY_FILTER =
+  'delivery_used.is.null,and(delivery_used.neq.channex,delivery_used.neq.quo_cleaner,delivery_used.neq.guesty_history)';
 
 /** Statuses the planner may re-time. Anything else is history and stays put. */
 export const REPLANNABLE_STATUSES: ReadonlySet<string> = new Set(['scheduled', 'skipped_dates_moved']);
@@ -1006,8 +1020,8 @@ export const PAUSE_REASON_NO_LONGER_APPLIES = 'no longer applies to this stay';
  * stay in the window. An operator's skip ('skipped by ...'), a stay that
  * died, or anything sent is history and is never resumed.
  */
-export function isResumablePause(row: Pick<ExistingSend, 'status' | 'error'>): boolean {
-  if (row.status !== 'cancelled') return false;
+export function isResumablePause(row: Pick<ExistingSend, 'status' | 'error' | 'delivery_used'>): boolean {
+  if (isProviderManagedSend(row) || row.status !== 'cancelled') return false;
   const reason = row.error ?? '';
   return (
     reason === PAUSE_REASON_SUPERSEDED ||
@@ -1021,7 +1035,7 @@ export function isResumablePause(row: Pick<ExistingSend, 'status' | 'error'>): b
 export function stayCancelPausedKeys(existing: readonly ExistingSend[]): Set<string> {
   const out = new Set<string>();
   for (const e of existing) {
-    if (e.automation_id && e.status === 'cancelled' && e.error === PAUSE_REASON_STAY_CANCELLED) out.add(sendKey(e.booking_id, e.automation_id));
+    if (!isProviderManagedSend(e) && e.automation_id && e.status === 'cancelled' && e.error === PAUSE_REASON_STAY_CANCELLED) out.add(sendKey(e.booking_id, e.automation_id));
   }
   return out;
 }
@@ -1089,6 +1103,10 @@ export function diffPlan(planned: readonly PlannedSend[], existing: readonly Exi
       diff.inserts.push(p);
       continue;
     }
+    if (isProviderManagedSend(e)) {
+      diff.frozen += 1;
+      continue;
+    }
     const patch = {
       fire_at: p.fire_at,
       status: p.status,
@@ -1132,10 +1150,12 @@ export function diffPlan(planned: readonly PlannedSend[], existing: readonly Exi
 /**
  * A ledger row that settles its message KEY for its stay whatever rule row
  * it came from: the text went (or is going), was handed to the OTA, waits on
- * an operator, or an operator skipped it. A row the engine paused, a stale
+ * an operator, or an operator skipped it. Dedicated provider reservations also
+ * settle the key in every state. For native delivery, an engine pause, a stale
  * or dates-moved row, or a failure does not.
  */
-export function keyDecided(e: Pick<ExistingSend, 'status' | 'error'>): boolean {
+export function keyDecided(e: Pick<ExistingSend, 'status' | 'error' | 'delivery_used'>): boolean {
+  if (isProviderManagedSend(e)) return true;
   if (e.status === 'held' || e.status === 'sent' || e.status === 'sending' || e.status === 'configured_in_ota' || e.status === 'awaiting_approval') return true;
   return e.status === 'cancelled' && String(e.error ?? '').startsWith('skipped by ');
 }
@@ -1160,7 +1180,7 @@ export function withdrawnSends(
   const triggerOf = new Map(rules.map((r) => [r.id, r.trigger]));
   const out: string[] = [];
   for (const e of existing) {
-    if (e.status !== 'scheduled' && e.status !== 'awaiting_approval') continue;
+    if (isProviderManagedSend(e) || (e.status !== 'scheduled' && e.status !== 'awaiting_approval')) continue;
     if (!e.automation_id || !effectiveIds.has(e.automation_id)) continue;
     if (triggerOf.get(e.automation_id) === 'booking_confirmed') continue;
     if (!want.has(sendKey(e.booking_id, e.automation_id))) out.push(e.id);

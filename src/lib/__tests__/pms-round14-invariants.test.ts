@@ -33,7 +33,12 @@ test('removing an override keeps what was sent, keyed so it is not sent again', 
   assert.ok(SQL.includes('automation_key text,'));
   const src = read('src/lib/automations.ts');
   assert.ok(/automation_key: p\.automation_key,/.test(src), 'the planner writes the key');
-  assert.ok(/select\('id, booking_id, automation_id, automation_key, fire_at, status, error, planned_check_in, planned_check_out'\)/.test(src), 'the planner reads the key back');
+  const ledgerColumns = ['id', 'booking_id', 'automation_id', 'automation_key', 'fire_at', 'status', 'error',
+    'delivery_used', 'planned_check_in', 'planned_check_out'];
+  const selects = [...fnBody(src, 'export async function planAutomations(').matchAll(/\.select\('([^']+)'\)/g)]
+    .map(match => new Set(match[1].split(',').map(column => column.trim())));
+  assert.ok(selects.some(columns => ledgerColumns.every(column => columns.has(column))),
+    'the planner reads permanent key, ownership and schedule together');
   const chan = read('src/lib/channels.ts');
   assert.ok(!chan.includes('rows.map((r) => String(r.automation_id))'), "a deleted rule's null id is never sent as 'null'");
 });

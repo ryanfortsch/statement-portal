@@ -587,7 +587,12 @@ runs itself.
   `helm_cancel_booking` cancels the stay's scheduled rows. The
   `/api/cron/automations` planner (every 15 minutes) only plans for homes
   with `automations_enabled` AND `calendar_authority = 'helm'`; fleet
-  defaults never fire for a Guesty-run home.
+  defaults never fire for a Guesty-run home. The native planner reads
+  `delivery_used` with the ledger and treats `channex`, `quo_cleaner`, and
+  `guesty_history` as permanently reserved stay/message keys. It neither retimes,
+  revives, withdraws nor supersedes them, and a replacement rule cannot create a
+  second native send for the same key. Native writes recheck ownership in their
+  database filter; dedicated workers retain timing, hold and final-claim checks.
 - **`guest_threads`**: one thread per stay per channel (`sms`, `email`,
   `airbnb`, `vrbo`, `booking_com`, `direct`), keyed to `booking_id`,
   `guest_id` and `property_id`, with `external_thread_key` (E.164 for
