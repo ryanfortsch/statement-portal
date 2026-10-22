@@ -7,6 +7,7 @@ import { recordInboundSms, recordOutboundSms } from '@/lib/helm-inbox';
 import { cachedNumberIndex, fillContactPhone } from '@/lib/known-numbers-server';
 import { selectAllPaged } from '@/lib/paged-select';
 import { proposeVendorVisit } from '@/lib/vendor-visits';
+import { unfiledTextError, worthFiling } from '@/lib/cleaner-unplaced';
 
 /**
  * Quo (OpenPhone) WEBHOOK ingest. Shared by the live webhook
@@ -214,47 +215,18 @@ async function handleInboundMessage(msg: WebhookMessage): Promise<void> {
   const cleanerHit = await matchCleanerPhone(fromPhone);
   if (cleanerHit) {
     const propertyId = await attributeCleaningProperty(body, cleanerHit.property_ids);
-    const issue = looksLikeIssue(body);
-    const completion = looksLikeCompletion(body);
-
     if (propertyId) {
-      // "the dishwasher at 53 is broken" / "found a phone" -> work slip.
-      if (issue) {
-        await createCleanerIssueSlip(propertyId, body, fromPhone, msg.id);
-      }
-      // Any attributable cleaner text that isn't purely an issue marks the
-      // turnover done (preserves the original completion behavior). A
-      // "done, but the faucet leaks" text logs both.
-      if (completion || !issue) {
-        const checkoutDate = await mostRecentCheckout(propertyId, msg.createdAt);
-        await supabase
-          .from('cleaning_completions')
-          .insert({
-            property_id: propertyId,
-            checkout_date: checkoutDate,
-            completed_at: msg.createdAt,
-            source: 'quo',
-            source_message_id: msg.id,
-            source_phone: fromPhone,
-            raw_body: body,
-          })
-          .then((r) => {
-            if (r.error && r.error.code !== '23505') throw r.error;
-          });
-        // Mirror the authoritative "done" into cleaning_sessions (re-derives
-        // the checkout off bookings so it lands on the same row as the lock).
-        await mirrorQuoFinish(supabase, { propertyId, completedAt: msg.createdAt });
-      }
+      await recordCleanerText({ propertyId, messageId: msg.id, at: msg.createdAt, phone: fromPhone, body });
       return;
     }
 
-    // No property attributed. Surface only meaningful messages (a real
-    // completion/issue we couldn't place) so an operator can fix it; plain
-    // chatter ("OK I will") is a no-op so it stops polluting process_error.
-    if (issue || completion) {
-      throw new Error(
-        `cleaner phone ${fromPhone} matched but property could not be attributed from body: ${body.slice(0, 80)}`,
-      );
+    // No house. A real completion or issue goes to the home feed's
+    // "Cleanings to check" for a person to place (cleaner_unplaced_texts);
+    // plain chatter ("OK I will") is a no-op. This used to throw into
+    // quo_events.process_error, which no page reads, and the turnover never
+    // got its completion.
+    if (worthFiling({ issue: looksLikeIssue(body), completion: looksLikeCompletion(body) })) {
+      await fileUnplacedCleanerText(cleanerHit, msg, body);
     }
     return;
   }
@@ -711,6 +683,84 @@ function looksLikeCompletion(body: string): boolean {
 
 export function looksLikeIssue(body: string): boolean {
   return ISSUE_RE.test(body);
+}
+
+/**
+ * What a cleaner's text writes once it is on a house.
+ *
+ * "the dishwasher at 53 is broken" / "found a phone" opens a work slip. Any
+ * text that isn't purely an issue marks the turnover done (the original
+ * completion behavior), so "done, but the faucet leaks" logs both. The
+ * completion is the cleaning_completions row plus the cleaning_sessions
+ * finish, which mirrorQuoFinish moves forward only and never over an
+ * operator's own confirm (estimate < quo < manual).
+ *
+ * Exported because an operator's Attach on a text Helm could not place
+ * (cleaner-unplaced-server.ts) must write exactly this, never a second copy.
+ * The finish is still the cleaner's: `at` is when the text was sent, and the
+ * source stays 'quo'. Attach says which house, not when. Every write is
+ * idempotent on the Quo message id, so a replay or a retry is a no-op.
+ */
+export async function recordCleanerText(args: {
+  propertyId: string;
+  messageId: string;
+  /** When the cleaner sent it. The completion time, never "now". */
+  at: string;
+  phone: string;
+  body: string;
+}): Promise<void> {
+  const { propertyId, messageId, at, phone, body } = args;
+  const issue = looksLikeIssue(body);
+  const completion = looksLikeCompletion(body);
+
+  if (issue) {
+    await createCleanerIssueSlip(propertyId, body, phone, messageId);
+  }
+  if (completion || !issue) {
+    const checkoutDate = await mostRecentCheckout(propertyId, at);
+    await supabase
+      .from('cleaning_completions')
+      .insert({
+        property_id: propertyId,
+        checkout_date: checkoutDate,
+        completed_at: at,
+        source: 'quo',
+        source_message_id: messageId,
+        source_phone: phone,
+        raw_body: body,
+      })
+      .then((r) => {
+        if (r.error && r.error.code !== '23505') throw r.error;
+      });
+    // Mirror the authoritative "done" into cleaning_sessions (re-derives
+    // the checkout off bookings so it lands on the same row as the lock).
+    await mirrorQuoFinish(supabase, { propertyId, completedAt: at });
+  }
+}
+
+/**
+ * File a known cleaner's completion or issue text that matched no house, for
+ * the home feed to ask about. One row per Quo message: a replay, or the
+ * ingest running again after someone attached it, changes nothing.
+ *
+ * When even this write fails the ingest throws, so the event's
+ * process_error still holds it, with the message id and no words or phone.
+ */
+async function fileUnplacedCleanerText(cleaner: CleanerRow, msg: WebhookMessage, body: string): Promise<void> {
+  const { error } = await supabase
+    .from('cleaner_unplaced_texts')
+    .upsert(
+      {
+        quo_message_id: msg.id,
+        cleaner_phone: msg.from ?? '',
+        cleaner_name: cleaner.display_name || null,
+        cleaner_property_ids: cleaner.property_ids ?? [],
+        message_body: body,
+        message_at: msg.createdAt,
+      },
+      { onConflict: 'quo_message_id', ignoreDuplicates: true },
+    );
+  if (error) throw new Error(unfiledTextError(msg.id, error.message));
 }
 
 // Auto-open a maintenance slip from a cleaner's issue text. Idempotent on

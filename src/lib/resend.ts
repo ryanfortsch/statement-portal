@@ -19,6 +19,16 @@ const RESEND_API = 'https://api.resend.com';
 
 export const isResendConfigured = !!process.env.RESEND_API_KEY && !!process.env.RESEND_AUDIENCE_ID;
 
+/**
+ * Resend's error text, safe for the Vercel log. A validation error can echo
+ * the address it refused, and the log is not where a guest's email belongs;
+ * the status and the rest of the message are what a person debugging needs.
+ * Exported for the log-privacy test.
+ */
+export function redactEmails(text: string): string {
+  return text.replace(/[^\s@<>"'(),;:]+@[^\s@<>"'(),;:]+/g, '[email]');
+}
+
 function authHeaders(): Record<string, string> {
   return {
     Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
@@ -45,7 +55,9 @@ export async function pushContactToResend(args: {
   unsubscribed?: boolean;
 }): Promise<string | null> {
   if (!isResendConfigured) {
-    console.warn('[resend] not configured; skipping pushContactToResend for', args.email);
+    // No address in the log: this fires on every subscriber while the
+    // audience id is unset, which is production today.
+    console.warn('[resend] not configured; skipping pushContactToResend');
     return null;
   }
 
@@ -68,7 +80,7 @@ export async function pushContactToResend(args: {
 
   if (!res.ok) {
     const txt = await res.text().catch(() => '');
-    console.error('[resend] pushContact failed', res.status, txt);
+    console.error('[resend] pushContact failed', res.status, redactEmails(txt));
     return null;
   }
 
@@ -134,7 +146,7 @@ export async function sendBroadcastViaResend(args: {
 
   if (!createRes.ok) {
     const txt = await createRes.text().catch(() => '');
-    console.error('[resend] create broadcast failed', createRes.status, txt);
+    console.error('[resend] create broadcast failed', createRes.status, redactEmails(txt));
     return null;
   }
 
@@ -150,7 +162,7 @@ export async function sendBroadcastViaResend(args: {
 
   if (!sendRes.ok) {
     const txt = await sendRes.text().catch(() => '');
-    console.error('[resend] send broadcast failed', sendRes.status, txt);
+    console.error('[resend] send broadcast failed', sendRes.status, redactEmails(txt));
     return broadcastId; // created but didn't fire
   }
 
@@ -208,7 +220,7 @@ export async function sendTransactionalViaResend(args: {
 
   if (!res.ok) {
     const txt = await res.text().catch(() => '');
-    console.error('[resend] sendTransactional failed', res.status, txt);
+    console.error('[resend] sendTransactional failed', res.status, redactEmails(txt));
     return false;
   }
   return true;
