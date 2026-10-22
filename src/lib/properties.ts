@@ -185,7 +185,7 @@ export const PROPERTIES: Record<string, Property> = {
     // because fee values are payout math and off limits without a parity
     // harness; the flag, not this number, is what callers must read.
     fee_pct: 25, bank_last4: null, listing_match: '3 locust',
-    tax_cert_id: null,
+    tax_cert_id: 'C0368941070',
     is_rising_tide_owned: true,
   },
   // Seeded 2026-07-20 from the Helm properties row (external title
@@ -216,21 +216,19 @@ export const PROPERTIES: Record<string, Property> = {
   // "Stay in Central Gloucester" (note "in", not "at" -- neighborhood
   // name), launched on Stay Cape Ann 2026-08-13, Guesty listing
   // 6a79f91a320f1200145873de. The DB row is the source of truth; this
-  // static fallback is kept in sync. No MassTaxConnect cert recorded in
-  // tax_cert_id yet (the DB row's str_registration_id C0526381070 may
-  // be it -- confirm before backfilling here and in the DB).
+  // static fallback is kept in sync. The certificate was first filed as
+  // str_registration_id; Guesty's license number confirmed it (2026-10-21).
   '225_washington': {
     id: '225_washington', name: '225 Washington', address: '225 Washington Street', city: 'Gloucester, MA',
     owner_last: 'Babson', owner_full: 'Matthew Babson, Mad Dog Realty, LLC', owner_greeting: 'Matthew Babson, and Donna',
     owner_emails: ['matt@wheelerspoint.net'],
     fee_pct: 25, bank_last4: '1229', listing_match: '225 washington',
-    tax_cert_id: null,
+    tax_cert_id: 'C0526381070',
   },
   // Seeded 2026-08-20 from the Helm properties row. External title
   // "Stay at Windward Point", launched on Stay Cape Ann 2026-08-04,
   // Guesty listing 6a6d0e71a37391009dab9abb. Second Moynahan property
   // (alongside 73 Rocky Neck) at a negotiated 18% fee -- not a typo.
-  // No tax cert recorded yet; backfill here and in the DB row.
   '3_windward': {
     id: '3_windward', name: '3 Windward', address: '3 Windward Point', city: 'Gloucester, MA',
     // Both Moynahan properties share one owners row, so 73 Rocky Neck and
@@ -242,7 +240,7 @@ export const PROPERTIES: Record<string, Property> = {
     owner_last: 'Moynahan', owner_full: 'Matt Moynahan', owner_greeting: 'Matt and Laila',
     owner_emails: ['matthewmoynahan@yahoo.com', 'lailarocha@gmail.com'],
     fee_pct: 18, bank_last4: '1232', listing_match: '3 windward',
-    tax_cert_id: null,
+    tax_cert_id: 'C0596481070',
   },
   // Seeded 2026-10-16 from the Helm properties row. Signed 2026-10-15 as
   // John R Erickson / 47 Atlantic LLC at 22%, term 2026-10-28 to
@@ -251,13 +249,13 @@ export const PROPERTIES: Record<string, Property> = {
   // listing, bank account or Stripe key yet: fill bank_last4 here and on
   // the row once the Chase account opens. The tax cert the intake form
   // landed (PIT-17079881-002) was a personal income tax account id, not a
-  // Room Occupancy certificate, and was cleared; backfill the real one.
+  // Room Occupancy certificate, and was cleared; the real one is on the row.
   '47_atlantic': {
     id: '47_atlantic', name: '47 Atlantic', address: '47 Atlantic Road', city: 'Gloucester, MA',
     owner_last: 'Erickson', owner_full: 'John Erickson, 47 Atlantic LLC', owner_greeting: 'John',
     owner_emails: ['jre@amg.com'],
     fee_pct: 22, bank_last4: null, listing_match: '47 atlantic',
-    tax_cert_id: null,
+    tax_cert_id: 'C0489311070',
   },
 };
 
