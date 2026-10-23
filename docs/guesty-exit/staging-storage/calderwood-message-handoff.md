@@ -2361,3 +2361,48 @@ write canonical booking plus immutable receipt, reject conflicting revision reus
 and prevent stale changes from resurrecting cancelled inventory. Existing Offline
 SQL and receipt-based message timing are intentionally unchanged. No deployment,
 channel change, external send, or hosted SQL execution occurred.
+
+### Provider canonical storage candidate — October 23, 2026
+
+Branch `codex/channex-staging-pilot`; original base `a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`;
+current main fetched as `951b7daee9a8c7921a04e213fc3e2f0fe666b709`.
+Added `airbnb-booking-storage.sql` in this directory,
+`src/lib/channex-bookings/store.ts`, and `scripts/verify-airbnb-booking-storage.mjs`.
+
+The inactive SQL candidate provides the concrete commit/read RPCs consumed by the
+provider ingestion coordinator. A private owner-configured singleton scope binds
+canonical property, provider property/room/rate, environment and generation. It
+requires Helm calendar authority and inventory capture. Canonical changes use
+existing `helm_create_booking` / `helm_move_booking` RPCs with channel `airbnb`,
+native source `manual`, and a dedicated environment/property/remote-booking source
+reference. There is no automatic adoption of Guesty/iCal rows. No guest identity or
+financial fields are imported in this bounded candidate.
+
+Private identity mappings, latest provider revision and immutable receipts commit
+with the canonical mutation. Original durable first-receipt timestamps survive
+replay and later revisions. Equal-time distinct revisions, conflicting ID reuse,
+wrong mapping/generation, and local canonical date/status changes fail closed.
+Older revisions receive a stale receipt without mutation. A newer confirmed update
+after cancellation requires review rather than silently reopening inventory.
+Browser roles cannot invoke these RPCs; service role cannot read/write private
+scope tables directly. No scope seed, enablement, scheduler or provider HTTP adapter
+is included.
+
+Verification: 12 checks passed against disposable native PostgreSQL using the
+existing bounded canonical migration fixture and the actual canonical RPCs. Checks
+cover disabled scope, create/audit/receipt, immutable replay, concurrent duplicate
+commits, cancellation of a pending automation, stale update, identity/order/reopen
+rejection, transactional rollback on receipt failure, SQL validation, local-edit
+protection, privileges and reinstall retention. The TypeScript store and ingestion
+coordinator ran against these real RPCs with synthetic provider rows. All 2,289
+application tests and TypeScript passed; diff checks passed. This is not a replay
+of every production migration and does not verify hosted deployment or provider
+transport. Existing isolated hosted installation and Guesty remain unchanged.
+
+Remaining: concrete authenticated revision HTTP reader/ACK adapter, explicit
+production mapping/authority and existing-reservation reconciliation, integration
+of provider receipts with timing/queue preparation, and controlled hosted
+acceptance. In particular, existing message-receipt SQL remains restricted to
+Offline rehearsal provenance; this candidate does not bypass that gate. It does
+not claim imported older bookings are newly confirmed or restart confirmation
+messages for them. Production access and actual message delivery remain unverified.

@@ -972,3 +972,15 @@ The release does not enable rules, routes, properties or cleaner batches and is
 not callable by browser or service roles. This is a staging acceptance primitive,
 not a requirement for manual per-booking approval in the intended live workflow.
 Automated live activation and delivery acceptance remain unfinished.
+
+### Candidate: provider-native Airbnb ingestion (not installed)
+
+`docs/guesty-exit/staging-storage/airbnb-booking-storage.sql` is an inactive,
+separate candidate. Private `helm_airbnb_bookings.scope` binds a reviewed canonical
+property to one provider environment/property/room/rate/generation.
+`.bookings` binds provider booking IDs to canonical `public.bookings`, retaining
+latest revision and the first durable receipt time. `.receipts` stores immutable
+per-revision commit evidence. The commit RPC calls existing canonical booking
+operations; it does not write financials or grant message-send authority. No scope
+or runtime adapter is activated by the file. See the existing Calderwood message
+handoff for verification limits and remaining timing integration.
