@@ -130,6 +130,10 @@ const PUBLIC_API_PREFIXES = [
   // dropped from) their statement emails, approved on the owner card.
   // Self-guards via STAY_CONCIERGE_KEY.
   "/api/owner-recipients",
+  // Stay-concierge bridge: work an owner told us about (their roofer, a
+  // renovation) becomes a Team inbox hold card. Files the card only; its
+  // Approve is the one write. Self-guards via STAY_CONCIERGE_KEY.
+  "/api/owner-work-holds",
   // Stay-concierge bridge: creates a Stripe Payment Link in the property's
   // own Stripe account for an approved guest add-on charge (Tesla charger,
   // pet fee, early check-in). Self-guards via STAY_CONCIERGE_KEY.

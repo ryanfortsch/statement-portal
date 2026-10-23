@@ -19,7 +19,14 @@ export type VendorVisitStatus = 'pending' | 'approving' | 'approved' | 'handled'
 /** One row of vendor_visit_proposals. */
 export type VendorVisitRow = {
   id: string;
-  trade_vendor_id: string;
+  /** Null on an owner's report (source 'owner'), which names no vendor. */
+  trade_vendor_id: string | null;
+  /** 'vendor': a trade vendor's text. 'owner': work an owner told us about
+   *  (owner-work-holds.ts). Absent before 20261023130000. */
+  source?: 'vendor' | 'owner' | null;
+  /** The owner who wrote, on an owner's report. */
+  reported_by?: string | null;
+  owner_card_id?: string | null;
   vendor_name: string;
   from_phone: string;
   quo_line: string | null;

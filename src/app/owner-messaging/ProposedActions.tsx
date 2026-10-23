@@ -2,6 +2,7 @@
 
 import type { OwnerProposedAction } from '@/lib/stay-concierge';
 import type { AlsoItem } from '@/components/messaging/card/types';
+import { fmtDay } from '@/lib/vendor-visit-dates';
 
 /** One row's presentation, keyed by kind. A table rather than a ternary
  *  chain: the chain ended in "everything else is a cleaner note", so every
@@ -32,6 +33,10 @@ const ACTION_STYLE: Record<string, { label: string; color: string }> = {
     label: 'Statements',
     color: 'var(--ink-2)',
   },
+  calendar_hold: {
+    label: 'Calendar',
+    color: 'var(--tide-deep)',
+  },
 };
 
 function styleFor(kind: string) {
@@ -49,7 +54,18 @@ function actionHeadline(action: OwnerProposedAction): string {
       ? `Stop sending statements to ${who}`
       : `Add ${who} to the statement emails`;
   }
+  if (action.kind === 'calendar_hold') return calendarHoldHeadline(action);
   return action.why;
+}
+
+/** "Hold the open nights for the roofer, Mon Oct 26 to Thu Oct 29". */
+export function calendarHoldHeadline(action: Extract<OwnerProposedAction, { kind: 'calendar_hold' }>): string {
+  const days = action.end && action.end !== action.start
+    ? `${fmtDay(action.start)} to ${fmtDay(action.end)}`
+    : fmtDay(action.start);
+  const crew = (action.who || action.what || 'the work').trim();
+  const named = /'s\b|^the\b/i.test(crew) ? crew : `the ${crew}`;
+  return `Hold the open nights for ${named}, ${days}`;
 }
 
 /** The words that will actually reach someone outside the office, shown in
@@ -82,6 +98,7 @@ export function proposedActionItems(
   const guestCards = (tally.get('guest_notice') ?? 0) + (tally.get('guest_message') ?? 0);
   const turnoverNotes = tally.get('turnover_note') ?? 0;
   const recipients = tally.get('statement_recipient') ?? 0;
+  const holds = tally.get('calendar_hold') ?? 0;
   const status = enabled ? 'Create when approved or handled' : 'Skip';
 
   const items: AlsoItem[] = actions.map((action, i) => {
@@ -114,6 +131,7 @@ export function proposedActionItems(
     notes > 0 && 'A cleaner heads-up lands in the Cleaners queue for approval. It is not sent to anyone yet.',
     turnoverNotes > 0 && 'A turnover note joins the cleaners\u2019 schedule message for the day the crew is next at that house. That message still needs approving before it sends.',
     recipients > 0 && 'A recipient change updates the statement send list and the owner contacts on every property this owner receives statements for, so replies from that address reach this queue too.',
+    holds > 0 && 'A calendar hold lands in the Team inbox as a hold card. It shows which of those nights are open, booked or already blocked (a night the owner blocked herself is left alone), and nothing is blocked until you approve it there.',
     guestCards > 0 && 'Anything for a guest lands in the Guests queue for approval, addressed to whoever is actually in the house. Nothing is created if the house is empty.',
   ].filter(Boolean) as string[];
 
