@@ -783,7 +783,7 @@ export type OwnerApproval = MessageOutcomeCarrier & {
    *  heads-up cards for the cleaning crew, mined from the owner's message
    *  (2026-09-23). Empty or absent when the message asked for nothing. */
   proposed_actions?: OwnerProposedAction[];
-  followup_status?: { state: string; enabled: number; error: string };
+  followup_status?: { state: string; enabled: number; error: string; skipped?: string[] };
   /** Exactly who an approved reply reaches, and the identity it leaves as.
    *  The service computes this with the same code that sends, so the card
    *  cannot advertise a recipient the send would not use. Absent when the
@@ -837,7 +837,9 @@ export type ReplyEnvelope = {
  *  queue, in Portuguese; a guest notice becomes a card in the Guests queue
  *  for whoever is actually in the house that day. All three still need
  *  approval before they reach anyone. */
-export type OwnerProposedAction =
+/** `key` is the concierge's stable id for one action, sent back in
+ *  `skip_actions` to skip that action alone (stay-concierge #117). */
+export type OwnerProposedAction = { key?: string } & (
   | {
       kind: 'work_slip';
       title: string;
@@ -913,7 +915,7 @@ export type OwnerProposedAction =
       what: string;
       /** One line for the operator. */
       why: string;
-    };
+    });
 
 export type OwnerApprovalsResponse = {
   approvals: OwnerApproval[];
@@ -931,13 +933,14 @@ export async function listRecentOwnerApprovals(hours = 24) {
 export async function approveOwnerApproval(
   id: string,
   finalText?: string,
-  opts?: { fileActions?: boolean },
+  opts?: { fileActions?: boolean; skipActions?: string[] },
 ) {
   const body: Record<string, unknown> = {};
   if (finalText !== undefined) body.final_text = finalText;
   // Only travels when the operator unticked the proposals; the default
   // (absent) files whatever the card proposed.
   if (opts?.fileActions === false) body.file_actions = false;
+  if (opts?.skipActions?.length) body.skip_actions = opts.skipActions;
   return request<{ status: string; id: string; filed?: { slips: string[]; notes: string[] } }>(
     `/api/owner-approvals/${id}/approve`,
     { method: 'POST', ...(Object.keys(body).length ? { body } : {}) },
@@ -953,23 +956,28 @@ export async function markHandledOwnerApproval(
   fileActions = true,
   capture?: MarkHandledCapture,
   actor?: string,
+  skipActions: string[] = [],
 ) {
   return request<{ status: string; id: string }>(`/api/owner-approvals/${id}/mark_handled`, {
     method: 'POST',
     actor,
-    body: { file_actions: fileActions, ...(capture ?? {}) },
+    body: { file_actions: fileActions, ...(skipActions.length ? { skip_actions: skipActions } : {}), ...(capture ?? {}) },
   });
 }
 
 /** Queue an owner draft to send at a future UTC ISO time. `finalText` is the
  * operator's hand-edited reply (same contract as approve): it persists before
  * scheduling so the queued send fires the edited text. */
-export async function scheduleOwnerApproval(id: string, sendAtUtc: string, finalText?: string, fileActions = true) {
+export async function scheduleOwnerApproval(id: string, sendAtUtc: string, finalText?: string, fileActions = true, skipActions: string[] = []) {
   return request<{ status: string; id: string; send_at: string }>(
     `/api/owner-approvals/${id}/schedule`,
     {
       method: 'POST',
-      body: { send_at: sendAtUtc, file_actions: fileActions, ...(finalText !== undefined ? { final_text: finalText } : {}) },
+      body: {
+        send_at: sendAtUtc, file_actions: fileActions,
+        ...(skipActions.length ? { skip_actions: skipActions } : {}),
+        ...(finalText !== undefined ? { final_text: finalText } : {}),
+      },
     },
   );
 }

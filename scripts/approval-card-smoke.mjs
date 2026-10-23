@@ -67,7 +67,7 @@ const envelope={channel:'email',from_name:'Allie',from_address:'allie@example.te
 const ownerBase={...base,channel:'email_gmail',owner_contact:'owner@example.test',property_id:'home_a',property_name:'Synthetic Cottage',followup_status:{state:'done',enabled:1,error:''},envelope};
 const ownerCards=[
  {...ownerBase,id:'owner-card',owner_name:'Olive Owner',owner_text:'The soap dispenser in the downstairs bath is peeling off the wall. Can someone fix it?',draft:'Hi Olive, thanks for flagging it. We will have it fixed this week.',topic:'maintenance',status:'pending',age_minutes:20,
-  proposed_actions:[{kind:'work_slip',title:'Re-mount downstairs soap dispenser',priority:'normal'},{kind:'guest_message',why:'Tell the guest about the fix',body:'Someone will stop by to fix the soap dispenser.'}]},
+  proposed_actions:[{key:'aaaaaaaaaaaa',kind:'work_slip',title:'Re-mount downstairs soap dispenser',priority:'normal'},{key:'bbbbbbbbbbbb',kind:'guest_message',why:'Tell the guest about the fix',body:'Someone will stop by to fix the soap dispenser.'}]},
  {...ownerBase,id:'reaction-card',owner_name:'Rae Owner',owner_text:'Loved “Thanks, all set”',draft:'',topic:'reaction',status:'pending',age_minutes:3,proposed_actions:[]},
 ];
 const g={...base,conversation_id:'conv-1',listing_id:'home_a',listing_name:'Synthetic Cottage',reservation_id:'r1',guest_received_at:now,module:'airbnb2',channel:'Airbnb',check_in:'2026-10-20',check_out:'2026-10-24',topic:'question',status:'pending',age_minutes:30};
@@ -200,12 +200,14 @@ try{
  await page.evaluate(()=>{window.calls=[];});await page.goto(origin+'/?mode=owner');await page.waitForSelector(card('owner-card'));
  const own=await text(card('owner-card'));
  assert.ok(own.indexOf('Owner said')<own.indexOf('owner@example.test')&&own.indexOf('owner@example.test')<own.indexOf('Proposed reply'),'owner said, envelope, reply, in that order');
- assert.match(own,/Also on approve/);assert.match(own,/Work slip ?Re-mount downstairs soap dispenser/);assert.match(own,/Create these when I approve or mark handled/);
+ assert.match(own,/Also on approve/);assert.match(own,/Work slip ?Re-mount downstairs soap dispenser/);assert.match(own,/Ticked lines are created when you approve or mark handled/);
  assert.equal(await page.$(card('owner-card')+' textarea'),null,'no always-open editor');
- await page.$eval(card('owner-card')+' input[type=checkbox]',e=>e.click());
+ assert.equal((await page.$$(card('owner-card')+' input[type=checkbox]')).length,2,'one tick box per follow-up, not one for the set');
+ // Untick only the guest line: the work slip still files, the guest message is skipped by its key.
+ await page.$$eval(card('owner-card')+' input[type=checkbox]',els=>els[1].click());
  await click(card('owner-card'),'Approve & send');await waitCalls(1);
- assert.deepEqual((await calls())[0],{kind:'approve',args:['owner-card',null,{fileActions:false}]});await finish(0);
- pass('owners: owner said, envelope, reply in order; follow-up work is Also on approve and its tick box rides on send');
+ assert.deepEqual((await calls())[0],{kind:'approve',args:['owner-card',null,{fileActions:true,skipActions:['bbbbbbbbbbbb']}]});await finish(0);
+ pass('owners: owner said, envelope, reply in order; each follow-up has its own tick box and an untick skips just that one');
  await page.screenshot({path:join(process.env.SMOKE_SHOTS||tmpdir(),'approval-card-owner.png'),fullPage:true});
  assert.match(await text(card('reaction-card')),/Rae reacted/);
  await click(card('reaction-card'),'Mark handled');await waitCalls(2);

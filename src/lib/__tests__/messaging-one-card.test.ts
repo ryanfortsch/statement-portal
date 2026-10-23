@@ -96,7 +96,7 @@ describe('the one approval card', () => {
     const q = read('src/app/owner-messaging/OwnerMessagingQueue.tsx');
     assert.ok(q.includes('layout="stacked"') && q.includes('between={<Envelope envelope={approval.envelope} />}'), 'owner said, then where it goes, then the reply');
     assert.ok(!q.includes('<textarea'), 'no always-editable reply: a stray keystroke no longer changes what sends');
-    assert.ok(q.includes('proposedActionItems(proposedActions, fileActions, setFileActions)'), 'follow-up work is Also on approve');
+    assert.ok(q.includes('proposedActionItems(proposedActions, keys, skipped, toggleAction)'), 'follow-up work is Also on approve');
   });
 
   test('the guest card folds the add-on, quote, work slip and handoff into Also on approve', () => {

@@ -80,46 +80,58 @@ function outboundWording(action: OwnerProposedAction): string {
 
 /**
  * What approving an owner card will also do, as Also on approve lines: one
- * line per action ("Work slip: Replace the soap dispenser"), the words a
- * guest or the crew would receive under it, and one tick box for the set.
- * An owner reporting a peeling soap dispenser should leave a work slip
- * behind; before 2026-09-23 the reply was the only artifact. Untick to send
- * the reply and file nothing.
+ * line per action ("Work slip: Replace the soap dispenser"), each with its own
+ * tick box, and the words a guest or the crew would receive under it. An
+ * owner reporting a peeling soap dispenser should leave a work slip behind;
+ * before 2026-09-23 the reply was the only artifact. Before 2026-10-23 one box
+ * covered the set, so a roof card could not keep its calendar hold and drop
+ * its guest notice. Untick every line to send the reply and file nothing.
  */
 export function proposedActionItems(
   actions: OwnerProposedAction[],
-  enabled: boolean,
-  onToggle: (v: boolean) => void,
+  keys: string[],
+  skipped: Set<string>,
+  onToggle: (key: string, on: boolean) => void,
 ): AlsoItem[] {
   if (actions.length === 0) return [];
+  const kept = actions.filter((_, i) => !skipped.has(keys[i]));
   const tally = new Map<string, number>();
-  for (const a of actions) tally.set(a.kind, (tally.get(a.kind) ?? 0) + 1);
+  for (const a of kept) tally.set(a.kind, (tally.get(a.kind) ?? 0) + 1);
   const notes = tally.get('cleaner_note') ?? 0;
   const guestCards = (tally.get('guest_notice') ?? 0) + (tally.get('guest_message') ?? 0);
   const turnoverNotes = tally.get('turnover_note') ?? 0;
   const recipients = tally.get('statement_recipient') ?? 0;
   const holds = tally.get('calendar_hold') ?? 0;
-  const status = enabled ? 'Create when approved or handled' : 'Skip';
 
   const items: AlsoItem[] = actions.map((action, i) => {
+    const key = keys[i];
+    const on = !skipped.has(key);
     const { label, color } = styleFor(action.kind);
     const draft = outboundWording(action);
     const urgent = action.kind === 'work_slip' && action.priority === 'high';
     const entersUnit = action.kind === 'guest_notice' && action.enters_guest_space;
     return {
-      key: `action-${i}`,
+      key: `action-${key}`,
       line: (
-        <>
-          <span className="eyebrow" style={{ fontWeight: 600, color, marginRight: 8 }}>{label}</span>
-          {actionHeadline(action)}
-          {urgent && <span style={{ color: 'var(--signal)', fontWeight: 600 }}> · urgent</span>}
-          {entersUnit && <span style={{ color: 'var(--signal)', fontWeight: 600 }}> · enters the unit</span>}
-        </>
+        <label style={{ display: 'inline-flex', gap: 8, alignItems: 'baseline', cursor: 'pointer', opacity: on ? 1 : 0.55 }}>
+          <input
+            type="checkbox"
+            checked={on}
+            onChange={(e) => onToggle(key, e.target.checked)}
+            aria-label={`Create ${label.toLowerCase()}: ${actionHeadline(action)}`}
+          />
+          <span>
+            <span className="eyebrow" style={{ fontWeight: 600, color, marginRight: 8 }}>{label}</span>
+            {actionHeadline(action)}
+            {urgent && <span style={{ color: 'var(--signal)', fontWeight: 600 }}> · urgent</span>}
+            {entersUnit && <span style={{ color: 'var(--signal)', fontWeight: 600 }}> · enters the unit</span>}
+          </span>
+        </label>
       ),
-      status,
-      attention: urgent || entersUnit,
+      status: on ? 'Create when approved or handled' : 'Skip',
+      attention: on && (urgent || entersUnit),
       body: draft ? (
-        <p style={{ margin: 0, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+        <p style={{ margin: 0, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5, opacity: on ? 1 : 0.55 }}>
           {action.kind === 'guest_notice' && action.visit_date ? `${action.visit_date}: ` : ''}
           &ldquo;{draft}&rdquo;
         </p>
@@ -136,12 +148,13 @@ export function proposedActionItems(
   ].filter(Boolean) as string[];
 
   items.push({
-    key: 'action-toggle',
+    key: 'action-note',
     line: (
-      <label style={{ display: 'inline-flex', gap: 8, alignItems: 'center', fontSize: 12, color: 'var(--ink-3)', cursor: 'pointer' }}>
-        <input type="checkbox" checked={enabled} onChange={(e) => onToggle(e.target.checked)} />
-        Create these when I approve or mark handled
-      </label>
+      <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
+        {kept.length === 0
+          ? 'Nothing will be created. Tick a line to keep it.'
+          : 'Ticked lines are created when you approve or mark handled.'}
+      </span>
     ),
     body: explain.length ? (
       <>
