@@ -17,6 +17,7 @@ create table helm_airbnb_bookings.message_origins (
  first_revision uuid not null unique references helm_airbnb_bookings.receipts(revision_id),
  generation bigint not null,
  origin text not null check(origin in ('new','migrated')),
+ basis text not null default 'reviewed' check(basis in ('reviewed','cutover-baseline')),
  original_confirmed_at timestamptz,
  evidence_id text not null check(evidence_id ~ '^[A-Za-z0-9_.:-]{1,160}$'),
  enabled boolean not null default false,
@@ -54,6 +55,13 @@ begin
  or not exists(select 1 from public.properties where id=b.property_id and calendar_authority='helm')
  or not exists(select 1 from public.helm_inventory_capture_scopes where property_id=b.property_id and enabled)
  then return null; end if;
+ if o.basis='cutover-baseline' then
+ if not exists(select 1 from helm_airbnb_bookings.origin_cutover_baseline cb
+  where cb.singleton and cb.enabled and cb.complete and cb.evidence_id=o.evidence_id
+   and (cb.generation,cb.environment,cb.remote_property)=(s.generation,s.environment,s.remote_property)
+   and statement_timestamp()>=cb.opened_at and statement_timestamp()<cb.expires_at
+   and (o.origin<>'new' or not(m.code=any(cb.reservation_codes)))) then return null; end if;
+ end if;
  select * into first_receipt from helm_airbnb_bookings.receipts where revision_id=o.first_revision and canonical_id=b.id;
  select * into latest from helm_airbnb_bookings.receipts where revision_id=m.latest_revision and canonical_id=b.id;
  if first_receipt.revision_id is null or first_receipt.outcome<>'applied'

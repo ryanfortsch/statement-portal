@@ -150,5 +150,25 @@ export async function verifyAirbnbMessageQueue({db,scalar}) {
  assert.equal(await scalar('select outcome data from helm_airbnb_bookings.origin_matches where booking_id=$1',[conflict.booking]),'conflict');
  assert.equal(await rows(conflict),6);
  pass('cycle withdraws conflicting new-origin authority while preserving queued history');
+ const freshOrigin=await fixture();await db.query('delete from helm_airbnb_bookings.message_origins where booking_id=$1',[freshOrigin.booking]);
+ await db.query("insert into helm_airbnb_bookings.origin_cutover_baseline(generation,environment,remote_property,reservation_codes,evidence_id,sales_paused_at,captured_at,import_reconciled_at,opened_at,expires_at) values(1,$1,$2,'{}','HELMTEST-complete-baseline',clock_timestamp()-interval '20 minutes',clock_timestamp()-interval '19 minutes',clock_timestamp()-interval '18 minutes',clock_timestamp()-interval '10 minutes',clock_timestamp()+interval '250 days')",[route.environment,route.channex_property_id]);
+ assert.equal(await reconcile(freshOrigin),'unknown');
+ await db.query('update helm_airbnb_bookings.origin_cutover_baseline set enabled=true');assert.equal(await reconcile(freshOrigin),'unknown');
+ await db.query('update helm_airbnb_bookings.origin_cutover_baseline set complete=true');
+ assert.equal(await reconcile(freshOrigin),'new');assert.equal(await prepare(freshOrigin),true);
+ pass('only enabled complete cutover evidence classifies eligible post-reopen receipts as new');
+ await db.query('update helm_airbnb_bookings.origin_cutover_baseline set enabled=false');
+ assert.equal(await scalar('select automation_message_observation_current($1) data',[freshOrigin.booking]),false);
+ await db.query('update helm_airbnb_bookings.origin_cutover_baseline set enabled=true');assert.equal(await reconcile(freshOrigin),'unchanged');
+ pass('withdrawing baseline blocks already-prepared jobs and replay preserves origin');
+ const baselineOld=await fixture();await db.query('delete from helm_airbnb_bookings.message_origins where booking_id=$1',[baselineOld.booking]);
+ await db.query('update helm_airbnb_bookings.origin_cutover_baseline set reservation_codes=$1', [['SYNTHETIC-'+baselineOld.remote]]);
+ assert.equal(await reconcile(baselineOld),'migrated');await assert.rejects(()=>prepare(baselineOld));
+ pass('baseline reservation remains migrated even when imported after reopening');
+ const delayed=await fixture();await db.query('delete from helm_airbnb_bookings.message_origins where booking_id=$1',[delayed.booking]);
+ await db.query("update helm_airbnb_bookings.receipts set revision=jsonb_set(revision,'{providerReceivedAt}',to_jsonb((clock_timestamp()-interval '1 hour')::text)) where revision_id=$1",[delayed.revision]);
+ assert.equal(await reconcile(delayed),'unknown');
+ await db.query('update helm_airbnb_bookings.origin_cutover_baseline set generation=2');assert.equal(await reconcile(delayed),'unknown');
+ pass('delayed pre-cutover receipt and wrong-generation baseline cannot certify new origin');
  console.log(`PASS ${count} provider queue scenarios; no live sending`);
 }

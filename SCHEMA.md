@@ -1036,3 +1036,13 @@ never new. A match conflicting with an existing new-origin assertion disables
 that assertion without rewriting jobs/history. The bounded cycle runs reconciliation
 before preparation/refresh. This does not certify a complete Guesty export or
 supply positive new-origin evidence.
+
+The inactive origin candidate also defines private `origin_cutover_baseline`:
+complete pre-cutover reservation codes, mapping generation/environment/property,
+evidence ID, sales pause/capture/import reconciliation/reopening times, expiry and
+default-disabled enablement. An owner-reviewed complete baseline can classify
+post-reopening first `new` receipts absent from that complete list; listed codes
+remain migrated. This is conditional on actual completeness and paused-sales
+verification, not absence from Guesty's mirror. Baseline-derived origins carry
+`basis='cutover-baseline'`; schedule checks revalidate baseline authority, so
+withdrawal blocks existing work. Worker/browser roles cannot write the baseline.

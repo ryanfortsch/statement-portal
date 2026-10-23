@@ -2617,3 +2617,30 @@ This supplies positive migrated detection only. Positive evidence for genuinely
 new stays, migrated message history, production access and live acceptance remain
 outstanding. The existing mirror skips Helm-owned properties after cutover, so
 absence cannot establish completeness or certify a new booking.
+
+### Conditional cutover-baseline origin proof — 2026-10-23
+
+Continuation from `8343059d` on `codex/channex-staging-pilot`; original base
+`a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`. Origin and timing candidate SQL, shared
+queue harness, SCHEMA.md and this handoff changed. The reviewed complete baseline
+is a separate source from the incomplete Guesty mirror. It must include ALL old
+reservation codes (including historical/cancelled codes), with sales paused during
+capture/import reconciliation and a recorded actual reopening time. SQL cannot
+prove those remote facts: the owner-reviewed evidence is a prerequisite, not a
+fact inferred from toggling a boolean. No baseline is seeded or enabled.
+
+If those conditions are met, an applied first `new` receipt with provider and local
+receipt times after reopening, absent from the complete baseline, can be marked
+new automatically. Baseline codes stay migrated even on delayed import. Scope
+mismatch, incomplete/disabled baseline, pre-reopening receipts and withdrawn
+baseline fail closed. Existing origin assertions are not silently replaced.
+Source: https://docs.channex.io/api-v.1-documentation/bookings-collection documents
+inserted_at as Channex receipt time; no original booking-time field was assumed.
+
+Remaining: obtain and verify the cutover baseline, migrated message history,
+production access and live acceptance. Pausing Airbnb sales has not been executed
+or requested from the user in this batch. No production changes or spending.
+
+Validation passed: 246 shared database scenarios, 21 standalone provider storage/
+timing checks, 2,303 application tests, TypeScript and diff checks. Standalone
+provider timing remains usable without installing the optional baseline candidate.
