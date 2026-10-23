@@ -92,6 +92,8 @@ import {
   realizedForShoulder,
   shoulderMonthFor,
 } from './forecast-off-season';
+import { loadPaidAddOns } from './paid-addons';
+import { foldAddOnsIntoForecast, type ForecastCell } from './paid-addons-core';
 
 /**
  * Ceiling on the pacing scale-up.
@@ -345,7 +347,7 @@ export async function getClosedMonthStays(
 export async function getBookedByPropertyByMonth(
   forwardMonthList: string[]
 ): Promise<{
-  bookedByPropMonth: Map<string, Map<string, { nights: number; revenue: number }>>;
+  bookedByPropMonth: Map<string, Map<string, ForecastCell>>;
   properties: SmartProperty[];
 }> {
   if (forwardMonthList.length === 0) {
@@ -438,7 +440,7 @@ export async function getBookedByPropertyByMonth(
     );
   }
 
-  const bookedByPropMonth = new Map<string, Map<string, { nights: number; revenue: number }>>();
+  const bookedByPropMonth = new Map<string, Map<string, ForecastCell>>();
 
   const propById = new Map(properties.map((p) => [p.id, p]));
 
@@ -485,6 +487,19 @@ export async function getBookedByPropertyByMonth(
     }
   }
 
+  // Paid payment links: an extension's nights are booked nights, a fee is
+  // money in hand. Guesty never sees either, so until 2026-10-22 the forecast
+  // missed them until the month's statement closed (paid-addons-core.ts).
+  foldAddOnsIntoForecast(
+    bookedByPropMonth,
+    await loadPaidAddOns(supabase),
+    new Set([priorMonth, ...forwardMonthList]),
+    (pid) => {
+      const p = propById.get(pid);
+      return !!p && !p.isRtOwned;
+    },
+  );
+
   return { bookedByPropMonth, properties };
 }
 
@@ -494,7 +509,7 @@ export async function getBookedByPropertyByMonth(
  */
 export function computeSmartForecast(
   forwardMonthList: string[],
-  bookedByPropMonth: Map<string, Map<string, { nights: number; revenue: number }>>,
+  bookedByPropMonth: Map<string, Map<string, ForecastCell>>,
   properties: SmartProperty[],
   historicalAvgByMonthOfYear: number[] = HISTORICAL_AVG_RECENT,
   /**
@@ -759,10 +774,16 @@ export function computeSmartForecast(
       const bookedFloor = cell.revenue * opFactor;
       if (bookedFloor > projectedGross) projectedGross = bookedFloor;
 
+      // A paid fee (pet, docking, late checkout) is money already in hand.
+      // Added after the projection and its floor, so the pacing scale-up
+      // never multiplies it.
+      const extras = cell.extras ?? 0;
+      projectedGross += extras;
+
       return {
         month: ym,
         bookedNights: cell.nights,
-        bookedRevenue: cell.revenue,
+        bookedRevenue: cell.revenue + extras,
         projectedGross,
         projectedMgmtFee: projectedGross * feeFraction,
         operating: true,
