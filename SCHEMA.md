@@ -672,7 +672,7 @@ The capture fingerprint is not a Guesty revision or delivery proof. Owner review
 and identity binding remain explicit; this adapter is not exposed through an app
 write route or automatic scheduler. No schema, grants or activation change.
 
-Atomic reviewed timing bootstrap (**local candidate; not installed in hosted staging**):
+Atomic reviewed timing bootstrap (**installed in isolated staging only; unapplied in production**):
 `staging-storage/message-timing-bootstrap.sql` adds the owner-only
 `helm_pilot_message_times_bootstrap` RPC after the existing date feed. It checks
 an explicitly reviewed remote/canonical binding under the route/booking locks,
@@ -686,6 +686,17 @@ a failed bootstrap. Exact explicit replay retains the observation and policy IDs
 This connects an owner-reviewed Guesty migration capture to subsequent automatic
 Channex date refresh; it does not infer new-booking confirmation from `inserted_at`,
 collect new OTA confirmation evidence, create message jobs or enable a sender.
+The guarded installer `build-message-timing-bootstrap-install.mjs` installed bundle
+`6997c2373188a3907796725404b1492e24066c987a184afccb7aa202da493eff`
+at 2026-10-23 00:40 UTC (October 22 local). It pins the prior date-feed receipt and
+function bodies, rejects active controls/policies, and rolls back all synthetic
+rehearsal rows. The private `helm_pilot_installation.message_timing_bootstrap`
+manifest records source hashes and aggregate proof. Independent readback at 00:42
+UTC confirmed 9 bookings / 12 message rows / 22 provider receipts, the prior one
+disabled policy/two history rows, zero enabled controls/channels and publishing
+false. See `calderwood-message-timing-bootstrap-install-receipt.json` and
+`message-timing-bootstrap-status.sql`. No worker redeploy or live delivery is
+part of this installation.
 
 Automatic message date feed (**installed in isolated staging only; unapplied in production**):
 `staging-storage/message-date-feed.sql` adds private

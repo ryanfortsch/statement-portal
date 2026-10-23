@@ -9,6 +9,7 @@ import { buildCanonicalPilotInstall } from './build-canonical-pilot-install.mjs'
 import { buildMessagePilotInstall } from './build-message-pilot-install.mjs';
 import { buildRevisionRoutingInstall } from './build-revision-routing-install.mjs';
 import { buildMessageQueueInstall } from './build-message-queue-install.mjs';
+import { buildMessageTimingBootstrapInstall } from './build-message-timing-bootstrap-install.mjs';
 import { buildMessageDateFeedInstall } from './build-message-date-feed-install.mjs';
 assert.ok(isAbsolute(process.argv[2]??'')&&isAbsolute(process.argv[3]??''),'Pass absolute native-bin and pg module paths');
 const bin=process.argv[2],{default:pg}=await import(pathToFileURL(process.argv[3]).href);
@@ -173,6 +174,40 @@ try{
  assert.equal(dateStatus[4].Result,'0');assert.equal(dateStatus[5].Result,'0');assert.equal(dateStatus[6].Result,'false');
  assert.equal(dateStatus[7].Result,'Owner only');assert.equal(dateStatus[8].Result,'Existing service role only');assert.equal(dateStatus[9].Result,dateFeed.digest);
  pass('independent committed date-feed readback verifies controls, retained rows, grants and exact digest');
+ const bootstrap=buildMessageTimingBootstrapInstall();
+ await db.query("update helm_pilot_installation.message_date_feed set bundle_digest='wrong'");
+ await reject(bootstrap.sql,/Reviewed isolated bootstrap prerequisites/);
+ await db.query('update helm_pilot_installation.message_date_feed set bundle_digest=$1',[dateFeed.digest]);
+ pass('bootstrap installer rejects unverified prior installation');
+ await db.query('update properties set automations_enabled=true');await reject(bootstrap.sql,/Paused fictional-only bootstrap/);
+ await db.query('update properties set automations_enabled=false');pass('bootstrap installer refuses active sender');
+ const registerDefinition=await scalar("select pg_get_functiondef('public.helm_pilot_message_times_register(uuid,uuid,text,bigint,text,timestamptz,boolean)'::regprocedure) data");
+ await db.query("create or replace function public.helm_pilot_message_times_register(p_booking_id uuid,p_observation uuid,p_connection text,p_generation bigint,p_evidence_id text,p_expires_at timestamptz,p_enabled boolean default false) returns uuid language sql as $$select null::uuid$$");
+ await reject(bootstrap.sql,/Reviewed bootstrap dependency changed/);await db.query(registerDefinition);
+ pass('bootstrap installer refuses changed registration implementation');
+ await reject(bootstrap.sql.replace('if after_rows is distinct from before_rows then','if true then'),/Bootstrap rehearsal changed persistent data/);
+ assert.equal(await scalar("select to_regprocedure('public.helm_pilot_message_times_bootstrap(uuid,uuid,text,uuid,jsonb,text,bigint,timestamptz,boolean)')::text data"),null);
+ assert.equal(await scalar("select to_regclass('helm_pilot_installation.message_timing_bootstrap') data"),null);
+ pass('late bootstrap failure rolls back function, manifest and all fixture rows');
+ await db.query(bootstrap.sql);
+ const proof=await scalar('select summary data from helm_pilot_installation.message_timing_bootstrap');
+ for(const key of ['atomic_bootstrap','failed_registration_rolled_back','bootstrap_replay_is_idempotent','mapped_create_move_cancel','reviewed_clocks_preserved','confirmation_preserved','service_refresh_verified','fixture_rolled_back','existing_rows_preserved'])assert.equal(proof[key],true,key);
+ assert.equal(proof.message_jobs_created,0);assert.equal(proof.provider_calls,0);
+ assert.equal(await scalar('select count(*)::int data from helm_channex_revisions.message_timing_policies'),0);
+ assert.equal(await scalar('select count(*)::int data from automation_message_observations'),0);
+ pass('combined import replays once, rolls back partial failure and follows mapped move/cancel');
+ await reject(bootstrap.sql,/Bootstrap installation collision/);pass('bootstrap reinstall refuses replacement');
+ for(const role of ['anon','authenticated','service_role']) {
+  assert.equal(await scalar("select has_function_privilege($1,'public.helm_pilot_message_times_bootstrap(uuid,uuid,text,uuid,jsonb,text,bigint,timestamptz,boolean)','EXECUTE') data",[role]),false);
+  assert.equal(await scalar("select has_table_privilege($1,'helm_pilot_installation.message_timing_bootstrap','SELECT,INSERT,UPDATE,DELETE') data",[role]),false);
+ }
+ assert.equal(await scalar('select bundle_digest data from helm_pilot_installation.message_timing_bootstrap'),bootstrap.digest);
+ assert.equal(await scalar('select count(*)::int data from bookings'),1);assert.equal(await scalar('select count(*)::int data from automation_sends'),6);
+ pass('committed bootstrap receipt preserves prior rows and owner-only execution');
+ const bootstrapStatus=(await db.query(readFileSync(new URL('../docs/guesty-exit/staging-storage/message-timing-bootstrap-status.sql',import.meta.url),'utf8')))[1].rows;
+ assert.equal(bootstrapStatus.length,12);assert.deepEqual(bootstrapStatus.slice(0,9).map(x=>x.Result),['PASS','0','0 / 0','1 / 6 / 4','0','0','false','Owner only','PASS']);
+ assert.equal(bootstrapStatus[9].Result,bootstrap.digest);
+ pass('independent bootstrap status confirms exact receipt, preserved rows and disabled controls');
  console.log(`PASS ${count} installation/preparation scenarios; original digest ${bundle.digest}; no external IO`);
 }catch(e){console.error('FAIL',e.message,e.where??'');process.exitCode=1;}
 finally{if(db)await db.end();if(running)ctl('-m','immediate','-w','stop');rmSync(root,{recursive:true,force:true});}

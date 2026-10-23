@@ -1,0 +1,51 @@
+{
+  "project": "jgkblfozftcvymvwhhii",
+  "environment": "isolated-staging",
+  "bundleDigest": "6997c2373188a3907796725404b1492e24066c987a184afccb7aa202da493eff",
+  "sources": {
+    "docs/guesty-exit/staging-storage/message-timing-bootstrap.sql": "c2b90493ed3360c0d3aaf5377c877b17fe600659602c68a4ee4aa88e800dd18a",
+    "docs/guesty-exit/staging-storage/message-timing-bootstrap-rehearsal.sql": "9183442762629eb419d9156e83729fed02109a7dab5a771f50231e20b3503789",
+    "docs/guesty-exit/staging-storage/canonical-revision-routing.sql": "ce6e647d69bc69628f28069859b64d93a5566e9e31ed070fcd98587eee0aac50",
+    "docs/guesty-exit/staging-storage/message-handoff-registration.sql": "56efd539b74cf356dcab06dd01e1a7561be02f3c6e8d3e9ddfc87c00fab76de0",
+    "docs/guesty-exit/staging-storage/message-date-feed.sql": "31527c13ba2d55073ee20635953781aa9a01c91e68a3ce5290a3a9d5bd3a1a58",
+    "scripts/build-message-timing-bootstrap-install.mjs": "a6d834744d0dfbc461b9c8b3983625ba8b208c677c3d7d5e053baf2a1b5a8708"
+  },
+  "installedAt": "2026-10-23T00:40:24.016255Z",
+  "verifiedAt": "2026-10-23T00:42:10.113676Z",
+  "installationQuery": "f34d42b5-dd28-49d3-bb1f-64bb2eef4cc4",
+  "verificationQuery": "b5366ba1-c19b-4999-9ede-c5536017d2eb",
+  "summary": {
+    "atomic_bootstrap": true,
+    "failed_registration_rolled_back": true,
+    "bootstrap_replay_is_idempotent": true,
+    "mapped_create_move_cancel": true,
+    "reviewed_clocks_preserved": true,
+    "confirmation_preserved": true,
+    "service_refresh_verified": true,
+    "repeat_is_idempotent": true,
+    "unproven_dates_blocked": true,
+    "cancellation_inactive": true,
+    "fixture_rolled_back": true,
+    "existing_rows_preserved": true,
+    "provider_calls": 0,
+    "message_jobs_created": 0
+  },
+  "readback": {
+    "bookings": 9,
+    "messageLedger": 12,
+    "providerReceipts": 22,
+    "retainedTimingPolicies": 1,
+    "timingHistory": 2,
+    "enabledTimingPolicies": 0,
+    "enabledMessageControls": 0,
+    "connectedChannels": 0,
+    "inventoryPublishing": false,
+    "bootstrapExecution": "owner-only",
+    "receiptPrivate": true
+  },
+  "limitations": [
+    "Constructed revision and timing evidence; no HTTP provider event or real message delivery in this rehearsal.",
+    "No new OTA original-confirmation source established.",
+    "No production migration, worker redeploy or sender activation."
+  ]
+}

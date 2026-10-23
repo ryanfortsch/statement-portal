@@ -2058,3 +2058,56 @@ its existing capture tests, new `message-timing-bootstrap.sql` and
 `verify-message-timing-bootstrap.mjs`, the date-feed harness entry point,
 `CLAUDE.md`, `SCHEMA.md` and this handoff. The unrelated contract-readiness edits
 remain excluded. PR 1714 remains draft; no main merge or production change.
+
+
+## October 22: atomic timing bootstrap installed and verified in isolated staging
+
+The combined import/policy-registration extension is installed in isolated project
+`jgkblfozftcvymvwhhii`, bundle `6997c2373188a3907796725404b1492e24066c987a184afccb7aa202da493eff`.
+Installation committed at **2026-10-23 00:40:24 UTC** (October 22 local), followed by
+independent readback at **00:42:10 UTC**. The installer pins the prior date-feed
+receipt and function bodies, rejects active senders/channels/publishing or enabled
+timing policies, and refuses collisions. Its owner-only receipt has RLS and no
+browser/service table privileges; the new RPC has no worker/browser execute grant.
+
+The hosted transaction used constructed revisions through the actual mapped
+canonical importer. Missing confirmation caused downstream registration to fail
+and rolled back the attempted timing observation/history. A complete fictional
+review then imported and registered once; exact replay returned the same IDs.
+The real service refresh RPC followed a mapped date move, preserving 16:00/11:00
+clocks and the explicitly fictional original confirmation. An unproven date edit
+was rejected and cancellation became inactive. All fixture rows and inventory
+trigger effects rolled back; digests of every preexisting table matched before
+and after. No provider call, message job or delivery occurred.
+
+Independent query `b5366ba1-c19b-4999-9ede-c5536017d2eb` confirms **9 bookings /
+12 message ledger rows / 22 provider receipts**, the prior **one disabled timing
+policy / two history rows**, zero enabled timing/message controls, zero channels,
+and inventory publishing false. Installation query:
+`f34d42b5-dd28-49d3-bb1f-64bb2eef4cc4`. The machine-readable receipt is
+`calderwood-message-timing-bootstrap-install-receipt.json`; repeatable read-only
+verification is `message-timing-bootstrap-status.sql`.
+
+Current checks: **2,277 application tests / 242 suites**, nonincremental TypeScript,
+Node syntax checks and diff whitespace checks passed. The real disposable
+PostgreSQL installer harness passes **43 checks**, adding prerequisite/drift/sender
+rejection, late rollback, atomic bootstrap/move/cancel, collision and private-grant
+checks plus independent readback. The separate 174-case messaging harness result
+belongs to `11ffdd30`; it was not rerun for this installer-only change. No test
+failure occurred in this batch. The deployed worker remains at its prior verified
+source; no deployment/configuration or paid-resource change was made.
+
+This closes hosted database acceptance for reviewed migration timing bootstrap.
+It does not establish original confirmation for newly created OTA stays or real
+Airbnb message delivery. Remaining work is source confirmation and cleaner
+history/queue evidence, production entitlement/certification, PriceLabs parity and
+authorized automated delivery acceptance before the live cutover. Guesty remains
+live and no manual-message fallback has been introduced.
+
+Review handoff: branch `codex/channex-staging-pilot`, starting commit
+`11ffdd30580d8f8346b3802e31d7b8f98bd20368`, original base
+`a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`, remote main observed
+`46058863638ab989a44c72d770e1956923bf9119`. Changed files: new bootstrap installer,
+rehearsal/status SQL and receipt; expanded installation harness; `SCHEMA.md`,
+`CLAUDE.md` and this handoff. Unrelated contract-readiness changes remain excluded.
+PR 1714 remains draft; no production/main merge.
