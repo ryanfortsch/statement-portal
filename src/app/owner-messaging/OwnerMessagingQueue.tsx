@@ -23,6 +23,7 @@ import {
 import { splitOwnerText, parseTapback } from './conversation';
 import { Envelope, InboundSubject } from './Envelope';
 import { proposedActionItems } from './ProposedActions';
+import { actionKeys, initialSkipped, skipPlan } from '@/lib/owner-action-skip';
 
 // How often the REST of the page re-renders. The cards poll their own feed
 // every 15s (useApprovalQueue), so a coached draft appears as soon as the
@@ -96,7 +97,17 @@ function OwnerCard({
   const firstName = (approval.owner_name || '').trim().split(/\s+/)[0] || 'They';
 
   const proposedActions = approval.proposed_actions ?? [];
-  const [fileActions, setFileActions] = useState(approval.followup_status?.enabled !== 0);
+  // One tick box per follow-up, not one for the set (2026-10-23).
+  const keys = actionKeys(proposedActions);
+  const [skipped, setSkipped] = useState(() => initialSkipped(keys, approval.followup_status));
+  const toggleAction = (key: string, on: boolean) =>
+    setSkipped((prev) => {
+      const next = new Set(prev);
+      if (on) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  const { fileActions, skipActions } = skipPlan(keys, skipped);
   const checking =
     approval.followup_status?.enabled !== 0 &&
     approval.followup_status &&
@@ -186,17 +197,17 @@ function OwnerCard({
           </p>
         )
       }
-      also={approval.status === 'scheduled' ? undefined : proposedActionItems(proposedActions, fileActions, setFileActions)}
+      also={approval.status === 'scheduled' ? undefined : proposedActionItems(proposedActions, keys, skipped, toggleAction)}
       verbs={{
-        approve: () => approveOwnerDraft(id, undefined, { fileActions }),
-        schedule: (at) => scheduleOwnerDraft(id, at, undefined, fileActions),
+        approve: () => approveOwnerDraft(id, undefined, { fileActions, skipActions }),
+        schedule: (at) => scheduleOwnerDraft(id, at, undefined, fileActions, skipActions),
         // An edit is stored on the card when it is saved, so Send now fires it.
-        sendNow: () => approveOwnerDraft(id, undefined, { fileActions }),
+        sendNow: () => approveOwnerDraft(id, undefined, { fileActions, skipActions }),
         cancelSchedule: () => cancelOwnerSchedule(id),
         saveEdit: (text) => editOwnerDraft(id, text),
         coach: (note) => coachOwnerDraft(id, note),
         redraft: () => redraftOwnerDraft(id),
-        markHandled: (capture) => markOwnerHandled(id, fileActions, capture),
+        markHandled: (capture) => markOwnerHandled(id, fileActions, capture, skipActions),
       }}
       handledReasons={TEAM_HANDLED_REASONS}
       pastePlaceholder="Paste the reply you sent the owner, by text or by email"

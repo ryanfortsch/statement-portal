@@ -43,7 +43,7 @@ async function requireSession(): Promise<{ ok: true; email: string } | { ok: fal
 export async function approveOwnerDraft(
   id: string,
   finalText?: string,
-  opts?: { fileActions?: boolean },
+  opts?: { fileActions?: boolean; skipActions?: string[] },
 ): Promise<ActionResult> {
   const sess = await requireSession();
   if (!sess.ok) return sess;
@@ -55,10 +55,12 @@ export async function approveOwnerDraft(
 
 /** Clear the card without sending. Ticked follow-up work still files;
  *  `capture` is why, and what she sent if she replied elsewhere. */
-export async function markOwnerHandled(id: string, fileActions = true, capture?: MarkHandledCapture): Promise<ActionResult> {
+export async function markOwnerHandled(
+  id: string, fileActions = true, capture?: MarkHandledCapture, skipActions: string[] = [],
+): Promise<ActionResult> {
   const sess = await requireSession();
   if (!sess.ok) return sess;
-  return mapResult(await markHandledOwnerApproval(id, fileActions, capture, sess.email));
+  return mapResult(await markHandledOwnerApproval(id, fileActions, capture, sess.email, skipActions));
 }
 
 /** Reverse a Mark handled: the card returns exactly as it was. */
@@ -100,11 +102,12 @@ export async function scheduleOwnerDraft(
   sendAt: string,
   finalText?: string,
   fileActions = true,
+  skipActions: string[] = [],
 ): Promise<ActionResult> {
   const sess = await requireSession();
   if (!sess.ok) return sess;
   if (!sendAt) return { ok: false, error: 'Pick a time to schedule' };
-  return mapResult(await scheduleOwnerApproval(id, sendAt, finalText, fileActions));
+  return mapResult(await scheduleOwnerApproval(id, sendAt, finalText, fileActions, skipActions));
 }
 
 /** Unschedule a queued send, returning the draft to the pending queue. */
