@@ -123,8 +123,8 @@ export function VendorVisitCard({
     });
   }
 
-  // 2. The slips the visit covers.
-  if (card.property) {
+  // 2. The slips the visit covers. An owner's own crew covers none of ours.
+  if (card.property && card.source !== 'owner') {
     const total = card.slips.length;
     also.push({
       key: 'slips',
@@ -202,6 +202,7 @@ export function VendorVisitCard({
       chips={
         <>
           {audienceChip}
+          {card.source === 'owner' && <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>Owner&rsquo;s work</span>}
           {card.tradeLabel && <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>{card.tradeLabel}</span>}
           {card.lineLabel && <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>{card.lineLabel}</span>}
         </>
@@ -212,7 +213,7 @@ export function VendorVisitCard({
       wait={wait}
       layout="stacked"
       said={{
-        label: `${vendor} wrote`,
+        label: `${card.writer || vendor} wrote`,
         sub: sentAgoLabel(card.messageAt),
         subTitle: card.messageAt,
         body: <BodyText>{card.messageBody}</BodyText>,
@@ -249,7 +250,7 @@ export function VendorVisitCard({
         markHandled: (capture) => markVendorVisitHandledAction(card.id, capture?.reason),
       }}
       handledReasons={VENDOR_VISIT_HANDLED_REASONS}
-      pastePlaceholder="Paste what you told the vendor, if anything"
+      pastePlaceholder={card.source === 'owner' ? 'Paste what you told the owner, if anything' : 'Paste what you told the vendor, if anything'}
       approveBlocked={approveBlocked}
       footer={(ctl) => (
         <>

@@ -894,6 +894,25 @@ export type OwnerProposedAction =
       name?: string;
       /** One line for the operator. */
       why: string;
+    }
+  | {
+      /** Work the owner arranged at the house (their roofer, a renovation)
+       *  on named days. Approving the owner card files a Team inbox hold card
+       *  via /api/owner-work-holds; that card's Approve is what blocks the
+       *  open nights (2026-10-23). */
+      kind: 'calendar_hold';
+      /** The work days, YYYY-MM-DD, inclusive. */
+      start: string;
+      end: string;
+      start_time?: string;
+      end_time?: string;
+      /** The trade doing it: "roofer". The hold card names it the owner's:
+       *  "Claudia's roofer". */
+      who: string;
+      /** The work: "roof work". */
+      what: string;
+      /** One line for the operator. */
+      why: string;
     };
 
 export type OwnerApprovalsResponse = {

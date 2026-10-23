@@ -29,6 +29,11 @@ export type VendorVisitCardData = {
   /** An approve that started more than five minutes ago and never finished. */
   stuck: boolean;
   vendorName: string;
+  /** 'owner' when an owner told us about the work: the owner wrote the
+   *  message, the vendor is theirs, and there is no trade slip to schedule. */
+  source: 'vendor' | 'owner';
+  /** Who wrote the message: the owner on an owner's report, else the vendor. */
+  writer: string;
   tradeLabel: string | null;
   tradeCategory: string | null;
   fromPhone: string;
@@ -125,10 +130,12 @@ export async function loadVendorVisitCards(now: Date = new Date()): Promise<Vend
   if (rows.length === 0) return [];
 
   const today = etDateOf(now);
-  const vendorIds = [...new Set(rows.map((r) => r.trade_vendor_id))];
+  const vendorIds = [...new Set(rows.map((r) => r.trade_vendor_id).filter((v): v is string => !!v))];
   const propertyIds = [...new Set(rows.map((r) => r.property_id).filter(Boolean) as string[])];
   const [vendors, props, slips, times] = await Promise.all([
-    supabaseAdmin.from('trade_vendors').select('id, category').in('id', vendorIds),
+    vendorIds.length
+      ? supabaseAdmin.from('trade_vendors').select('id, category').in('id', vendorIds)
+      : Promise.resolve({ data: [], error: null }),
     propertyIds.length
       ? supabaseAdmin.from('properties').select('id, name, calendar_authority').in('id', propertyIds)
       : Promise.resolve({ data: [], error: null }),
@@ -160,7 +167,8 @@ export async function loadVendorVisitCards(now: Date = new Date()): Promise<Vend
     const offerWindows = r.offer_text && r.offer_at ? readOfferWindows(r.offer_text, etDateOf(r.offer_at)).filter((w) => w.end >= today) : [];
     const start = r.visit_date ? String(r.visit_date).slice(0, 10) : null;
     const end = start ? (r.visit_end_date ? String(r.visit_end_date).slice(0, 10) : start) : null;
-    const trade = category.get(r.trade_vendor_id) ?? null;
+    const fromOwner = r.source === 'owner';
+    const trade = r.trade_vendor_id ? category.get(r.trade_vendor_id) ?? null : null;
 
     let plan: HoldPlan | null = null;
     let planError: string | null = null;
@@ -189,6 +197,8 @@ export async function loadVendorVisitCards(now: Date = new Date()): Promise<Vend
       status: r.status === 'approving' ? 'approving' : 'pending',
       stuck: r.status === 'approving' && !!r.claimed_at && now.getTime() - Date.parse(r.claimed_at) > STUCK_CLAIM_MS,
       vendorName: r.vendor_name,
+      source: fromOwner ? 'owner' : 'vendor',
+      writer: fromOwner ? r.reported_by || 'The owner' : r.vendor_name,
       tradeLabel: trade ? categoryLabel(trade) : null,
       tradeCategory: trade,
       fromPhone: r.from_phone,
@@ -212,7 +222,8 @@ export async function loadVendorVisitCards(now: Date = new Date()): Promise<Vend
       checkinTime,
       plan,
       planError,
-      slips: home ? chooseVisitSlips(slipsByHome.get(home.id) ?? [], { category: trade ?? '', vendorName: r.vendor_name }) : [],
+      // The owner's own crew: none of our slips are theirs to schedule.
+      slips: home && !fromOwner ? chooseVisitSlips(slipsByHome.get(home.id) ?? [], { category: trade ?? '', vendorName: r.vendor_name }) : [],
       lastError: r.last_error,
     });
   }
