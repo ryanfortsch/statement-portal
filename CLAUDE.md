@@ -45,8 +45,8 @@ Related docs:
 
 **Vercel plan: Pro.** Verified against the Vercel API on 2026-08-25 (team "Rising Tide",
 `plan: pro`). Older source comments calling this a Hobby project were wrong and have been corrected.
-Practical consequences: the 32 scheduled crons and the 26 routes at `maxDuration = 300` (counted
-2026-10-22) are all fine, and platform Skew Protection is available. It was switched **on** on
+Practical consequences: the 32 scheduled crons and the 28 routes at `maxDuration = 300` (counted
+2026-10-23) are all fine, and platform Skew Protection is available. It was switched **on** on
 2026-08-26 at `skewProtectionMaxAge = 43200` (12 hours).
 
 ## Shape of the codebase
@@ -801,6 +801,16 @@ like a premium editorial document.
 
 `/api/sync-guesty` pulls reviews, reservations, and the listing map. `/api/ingest-guesty-csv` is
 the fallback when the API is unavailable. Token caching is shared through the `guesty_auth` table.
+
+**The sync runs its nine steps under a 240s budget** (`src/lib/guesty-sync-plan.ts`, since
+2026-10-22; `maxDuration = 300` on it and on `/api/cron/sync-guesty`). Reservations and the three
+steps that finish them (cancel reconcile, ghost bookings, the copy into `bookings`) run first; the
+calendar pair and the reviews pair follow and swap places every UTC day. A step starts only if its
+estimate still fits, so a slow run ends partial (`waiting_steps` in the response, one line on
+Statements and Revenue) instead of dying mid-step. Body `steps` picks steps; the Revenue page's
+auto-refresh asks only for the reservation steps. The reviews step looks a guest up in Guesty only
+when no stored review names them: re-fetching ~465 guests a night against Guesty's ~120 calls a
+minute was 190s of a 237s run. After the fix (2026-10-23): nightly 43s, Revenue refresh 11-12s.
 
 Two clients exist: `src/lib/guesty.ts` (9 importers, 2026-10-22) and `src/lib/guesty-client.ts`
 (4). They share the token cache and differ in one way that matters: `guesty-client.ts` throws a
