@@ -2597,3 +2597,23 @@ TypeScript and diff checks. No hosted install, sender activation or paid changes
 The existing Guesty reservation adapter exposes creation timestamp and confirmation
 code, but missing Guesty matches are not evidence of new origin; reliable origin
 reconciliation remains outstanding alongside production access and live acceptance.
+
+### Guesty positive-match origin reconciliation — 2026-10-23
+
+Continuation from `eba653fc` on `codex/channex-staging-pilot`; original base
+`a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`. Main reference refreshed, no merge.
+Added inactive `airbnb-origin-reconciliation.sql`; changed timing/queue candidates,
+shared database harness, SCHEMA.md and this handoff. Exact property/listing/Airbnb/
+reservation-code matches identify migrated stays. No-match remains unknown. The
+existing `booked_at` fallback is not repurposed as original confirmation time;
+migrated timing supports missing confirmation and stays blocked for history review.
+Conflicting existing new-origin assertions are disabled by the cycle, preserving
+job and origin history. The Guesty mirror is read only; money and cancellation
+logic are untouched. Source policy is disabled by default, with no seed/deploy.
+
+Validation passed: 242 shared database scenarios, 2,303 application tests,
+TypeScript and diff checks. Fixtures use synthetic Guesty rows, not customer data.
+This supplies positive migrated detection only. Positive evidence for genuinely
+new stays, migrated message history, production access and live acceptance remain
+outstanding. The existing mirror skips Helm-owned properties after cutover, so
+absence cannot establish completeness or certify a new booking.

@@ -21,7 +21,7 @@ create table helm_airbnb_bookings.message_origins (
  evidence_id text not null check(evidence_id ~ '^[A-Za-z0-9_.:-]{1,160}$'),
  enabled boolean not null default false,
  check((origin='new' and original_confirmed_at is null) or
-       (origin='migrated' and original_confirmed_at is not null and isfinite(original_confirmed_at)))
+       (origin='migrated' and (original_confirmed_at is null or isfinite(original_confirmed_at))))
 );
 alter table helm_airbnb_bookings.message_clock_policy enable row level security;
 alter table helm_airbnb_bookings.message_origins enable row level security;

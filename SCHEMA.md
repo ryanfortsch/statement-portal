@@ -1024,3 +1024,15 @@ not require origin classification or create timing observations. The processing
 cycle optionally accepts an explicit thread reader and performs discovery before
 each queue sweep; missing or rejected conversations retry without starving peers.
 No ambient reader, credential or recurring schedule is enabled by this wiring.
+
+`airbnb-origin-reconciliation.sql` is an inactive prerequisite to provider queue
+SQL. Its disabled `origin_source_policy` binds the Guesty listing to the mapping
+generation. `helm_airbnb_origin_reconcile` reads only exact property/listing/channel/
+confirmation-code matches from `guesty_reservations`, records source IDs in private
+`origin_matches`, and classifies matched stays as migrated. Original confirmation
+may remain null: the mirror's `booked_at` may be a creation-time fallback. Migrated
+plans remain blocked for source-history reconciliation. No match means unknown,
+never new. A match conflicting with an existing new-origin assertion disables
+that assertion without rewriting jobs/history. The bounded cycle runs reconciliation
+before preparation/refresh. This does not certify a complete Guesty export or
+supply positive new-origin evidence.

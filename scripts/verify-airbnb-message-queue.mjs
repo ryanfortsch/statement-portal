@@ -4,7 +4,8 @@ import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 export async function verifyAirbnbMessageQueue({db,scalar}) {
  let count=0;const pass=s=>{count++;console.log('PASS provider queue: '+s);};
- for(const name of ['airbnb-booking-storage','airbnb-message-timing','airbnb-message-queue'])
+ await db.query('create table public.guesty_reservations(guesty_reservation_id text primary key,property_id text,listing_id text,channel text,confirmation_code text,booked_at timestamptz)');
+ for(const name of ['airbnb-booking-storage','airbnb-message-timing','airbnb-origin-reconciliation','airbnb-message-queue'])
   await db.query(readFileSync(new URL('../docs/guesty-exit/staging-storage/'+name+'.sql',import.meta.url),'utf8'));
  const property='HELMTEST-calderwood';
  const route=(await db.query('select * from automation_channex_routes where property_id=$1',[property])).rows[0];
@@ -123,5 +124,31 @@ export async function verifyAirbnbMessageQueue({db,scalar}) {
  await db.query('update helm_airbnb_bookings.scope set enabled=false');assert.deepEqual(await list(),[]);await db.query('update helm_airbnb_bookings.scope set enabled=true');
  await assert.rejects(()=>scalar('select helm_airbnb_thread_candidates(101) data'));
  pass('discovery cursor is fair, bounded and disabled with its scope');
+ const imported=await fixture();await db.query('delete from helm_airbnb_bookings.message_origins where booking_id=$1',[imported.booking]);
+ const reconcile=f=>scalar('select helm_airbnb_origin_reconcile($1) data',[f.booking]);
+ await db.query("insert into helm_airbnb_bookings.origin_source_policy(generation,guesty_listing_id) values(1,'HELMTEST-listing')");
+ await db.query("insert into guesty_reservations values('HELMTEST-source',$1,'HELMTEST-listing','Airbnb',$2,clock_timestamp()-interval '1 day')",[property,'SYNTHETIC-'+imported.remote]);
+ assert.equal(await reconcile(imported),'inactive');
+ await db.query('update helm_airbnb_bookings.origin_source_policy set enabled=true');
+ await db.query('set role service_role');try{assert.equal(await reconcile(imported),'migrated');}finally{await db.query('reset role');}
+ assert.equal(await scalar('select original_confirmed_at data from helm_airbnb_bookings.message_origins where booking_id=$1',[imported.booking]),null);
+ assert.equal(await rows(imported),0);await assert.rejects(()=>prepare(imported));
+ const plan=await scalar('select helm_airbnb_message_schedule($1) data',[imported.booking]);assert.ok(plan.plans.every(p=>p.blockedReason==='source-message-history-required'));
+ pass('exact Guesty match marks migrated without treating created-at fallback as confirmation');
+ assert.equal(await reconcile(imported),'migrated');assert.equal(await scalar('select count(*)::int data from helm_airbnb_bookings.origin_matches where booking_id=$1',[imported.booking]),1);
+ pass('migration reconciliation replays without rewriting source evidence');
+ const unknown=await fixture();await db.query('delete from helm_airbnb_bookings.message_origins where booking_id=$1',[unknown.booking]);
+ assert.equal(await reconcile(unknown),'unknown');
+ await db.query("insert into guesty_reservations values('HELMTEST-wrong',$1,'WRONG','Airbnb',$2,null)",[property,'SYNTHETIC-'+unknown.remote]);
+ assert.equal(await reconcile(unknown),'unknown');assert.equal(await scalar('select count(*)::int data from helm_airbnb_bookings.message_origins where booking_id=$1',[unknown.booking]),0);
+ pass('missing or wrong-listing matches never infer new origin');
+ const conflict=await fixture();await prepare(conflict);
+ await db.query("insert into guesty_reservations values('HELMTEST-conflict',$1,'HELMTEST-listing','Airbnb',$2,null)",[property,'SYNTHETIC-'+conflict.remote]);
+ await scalar('select helm_airbnb_messages_tick(100) data');
+ assert.equal(await scalar('select enabled data from helm_airbnb_bookings.message_origins where booking_id=$1',[conflict.booking]),false);
+ assert.equal(await scalar('select automation_message_observation_current($1) data',[conflict.booking]),false);
+ assert.equal(await scalar('select outcome data from helm_airbnb_bookings.origin_matches where booking_id=$1',[conflict.booking]),'conflict');
+ assert.equal(await rows(conflict),6);
+ pass('cycle withdraws conflicting new-origin authority while preserving queued history');
  console.log(`PASS ${count} provider queue scenarios; no live sending`);
 }

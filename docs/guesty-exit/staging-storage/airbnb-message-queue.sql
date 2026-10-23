@@ -1,5 +1,5 @@
 -- INACTIVE candidate. After provider timing and shared message worker/handoff/receipt timing SQL.
--- Creates held jobs only. No release, sender enablement, origin inference or migrated replay.
+-- Requires airbnb-origin-reconciliation.sql. Creates held jobs only. No release, sender enablement, origin inference or migrated replay.
 begin;
 create table helm_airbnb_bookings.message_queue_policy (
  singleton boolean primary key default true check(singleton),
@@ -226,6 +226,7 @@ begin
   scanned:=scanned+1;
   update helm_airbnb_bookings.bookings set message_checked_at=clock_timestamp() where canonical_id=item.canonical_id;
   begin
+   perform public.helm_airbnb_origin_reconcile(item.canonical_id);
    if exists(select 1 from helm_airbnb_bookings.message_queues where booking_id=item.canonical_id) then
     if public.helm_airbnb_message_times_refresh(item.canonical_id) then refreshed:=refreshed+1; end if;
    elsif public.helm_airbnb_message_queue_prepare(item.canonical_id) then prepared:=prepared+1;
