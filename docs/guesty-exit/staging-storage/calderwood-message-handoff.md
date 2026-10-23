@@ -2239,3 +2239,33 @@ base `a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`, refreshed origin/main
 new-stay timing harness entrypoint, mapped importer, canonical scheduler, staging
 webhook, canonical-message-date-feed tests, CLAUDE.md, SCHEMA.md and this handoff.
 Unrelated contract-readiness edits remain excluded. No live setting or spend change.
+
+
+### October 23 — reviewed initial queue release acceptance
+
+Added owner-only release of the exact six prepared jobs under a reviewed snapshot.
+All schedule/route/rule/timing checks finish before any status change. Release and
+six audit records commit together; the final journal write is in that transaction.
+A stale snapshot, cancellation, expired timing, attempted job, incomplete cleaner
+queue or operator hold prevents release. Replays never release a later key-code
+hold. Rules stay locked during validation; expiry is checked again after locks.
+The operation enables no sender, route, property or cleaner batch.
+
+Validation: 2,280 application tests / 242 suites, TypeScript and 210 disposable
+PostgreSQL scenarios. Seven new cases cover atomic release and replay, later key
+hold preservation, stale snapshot, preexisting operator hold, expiry/cancellation,
+final-write rollback/recovery and owner-only privileges with senders unchanged.
+An initial fixture lost timestamp microseconds through JavaScript Date conversion;
+the fixture now passes the exact database timestamp, as the compare-and-swap guard
+requires. No guard was weakened. No real provider was called.
+
+This is the controlled pilot release primitive, not the final automatic daily
+workflow. Hosted installation, approved automatic activation, actual provider
+receipt acceptance and short-notice/DST policies remain outstanding. The prior
+short-notice cleaner question is unanswered; no default was silently adopted.
+
+Review: branch `codex/channex-staging-pilot`, starting `4bd70152`, original base
+`a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`, fresh remote main
+`99da10adb59a8ec5d9cda24031e32a8d6a0143cb`. Changed files: new release SQL,
+new release harness, queue-harness entrypoint, SCHEMA.md and this handoff.
+Unrelated contract-readiness edits excluded. No deployment, spending or live changes.

@@ -958,3 +958,17 @@ Worker/webhook preparation is separately opt-in and follows timing refresh in a
 separate committed transaction, including empty recovery cycles. No runtime flag
 was activated. Missing/past or DST-ambiguous schedules block the entire stay;
 short-notice reminder policy and automated delivery acceptance remain outstanding.
+
+
+New-stay initial release (**candidate, not installed**):
+`message-new-stay-release.sql` follows the queue candidate, adding private journal
+`released_at` and owner-only `automation_new_stay_queue_snapshot` / `_release`
+functions. A digest binds the current rules, timing policy/observation, route,
+canonical send rows, provider jobs and hold audit. Release validates the exact six
+held IDs, schedules, unattempted provider state, route generation and expiry,
+then updates all six plus audit and journal atomically. Any operator hold history
+blocks initial batch release; retries after release cannot clear a later hold.
+The release does not enable rules, routes, properties or cleaner batches and is
+not callable by browser or service roles. This is a staging acceptance primitive,
+not a requirement for manual per-booking approval in the intended live workflow.
+Automated live activation and delivery acceptance remain unfinished.

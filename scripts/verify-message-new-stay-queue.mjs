@@ -1,5 +1,6 @@
 // Disposable local database only; all destinations and bookings are synthetic.
 import assert from 'node:assert/strict';
+import { verifyNewStayRelease } from './verify-message-new-stay-release.mjs';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { CALDERWOOD_STAGING } from '../src/lib/calderwood-readonly/channex.ts';
@@ -72,4 +73,5 @@ export async function verifyNewStayQueue({db,scalar,connection,generation,fixtur
  assert.equal(await scalar("select enabled data from automation_channex_routes where property_id='HELMTEST-calderwood'"),false);
  pass('workers cannot select rules/destinations or activate policy; property and message route remain disabled');
  console.log(`PASS ${count} additional new-stay queue PostgreSQL scenarios; no live sends`);
+ await verifyNewStayRelease({db,scalar,tick,fresh:async()=>{const stay=await fixture();await refresh();await bind(stay);await tick();assert.equal(await rows(stay),6);return stay;}});
 }
