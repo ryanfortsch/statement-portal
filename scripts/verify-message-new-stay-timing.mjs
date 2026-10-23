@@ -66,14 +66,31 @@ export async function verifyNewStayTiming({db,scalar,connection,generation}) {
  assert.equal(await scalar('select status data from automation_sends where id=$1',[send]),'held');
  pass('mapped cancellation suppresses scheduling and leaves held ledger identity intact');
  // An interrupted transaction must not leave only the timing observation behind.
- const rejected=await fixture();
+ const rejected=await fixture(),healthy=await fixture();
  await db.query(`create function public.helmtest_reject_new_policy() returns trigger language plpgsql as $$ begin
  if new.booking_id='${rejected.booking}'::uuid then raise exception 'HELMTEST downstream refusal'; end if; return new; end $$;
  create trigger helmtest_reject_new_policy before insert on helm_channex_revisions.message_timing_policies for each row execute function public.helmtest_reject_new_policy();`);
- await assert.rejects(refresh(),/HELMTEST downstream refusal/);assert.equal((await state(rejected)).time,null);assert.equal((await state(rejected)).history,0);
+ await refresh();assert.equal((await state(rejected)).time,null);assert.equal((await state(rejected)).history,0);
+ assert.equal((await state(healthy)).history,1);
+ assert.equal(await scalar('select bootstrap_outcome data from helm_channex_revisions.message_receipt_anchors where booking_id=$1',[rejected.booking]),'blocked');
+ const checked=await scalar('select last_bootstrap_checked_at data from helm_channex_revisions.message_receipt_anchors where booking_id=$1',[rejected.booking]);
+ await refresh();assert.equal((await state(healthy)).history,1);assert.equal((await state(rejected)).history,0);
+ assert.ok((await scalar('select last_bootstrap_checked_at data from helm_channex_revisions.message_receipt_anchors where booking_id=$1',[rejected.booking]))>checked);
+ pass('one rejected stay cannot poison healthy onboarding; blocked retry cursor advances without partial writes');
  await db.query('drop trigger helmtest_reject_new_policy on helm_channex_revisions.message_timing_policies; drop function public.helmtest_reject_new_policy()');
  await refresh();assert.equal((await state(rejected)).history,1);
+ assert.equal(await scalar('select bootstrap_outcome data from helm_channex_revisions.message_receipt_anchors where booking_id=$1',[rejected.booking]),'registered');
  pass('late registration failure rolls back clocks/history; next tick recovers exactly once');
+ const unexpected=await fixture();
+ await db.query(`create function public.helmtest_unexpected_policy() returns trigger language plpgsql as $$ begin
+ if new.booking_id='${unexpected.booking}'::uuid then raise exception using errcode='42501',message='HELMTEST permission failure'; end if; return new; end $$;
+ create trigger helmtest_unexpected_policy before insert on helm_channex_revisions.message_timing_policies for each row execute function public.helmtest_unexpected_policy();`);
+ await assert.rejects(refresh(),/HELMTEST permission failure/);
+ assert.equal((await state(unexpected)).history,0);
+ assert.equal(await scalar('select bootstrap_outcome data from helm_channex_revisions.message_receipt_anchors where booking_id=$1',[unexpected.booking]),'pending');
+ await db.query('drop trigger helmtest_unexpected_policy on helm_channex_revisions.message_timing_policies; drop function public.helmtest_unexpected_policy()');
+ await refresh();assert.equal((await state(unexpected)).history,1);
+ pass('unexpected permission failures remain visible and abort atomically rather than being swallowed');
  const blocked=await fixture();
  await db.query('update helm_channex_revisions.message_new_stay_clocks set generation=2');await refresh();assert.equal((await state(blocked)).time,null);
  await db.query("update helm_channex_revisions.message_new_stay_clocks set generation=1,expires_at=clock_timestamp()-interval '1 second'");await refresh();assert.equal((await state(blocked)).time,null);

@@ -14,6 +14,8 @@ create table helm_channex_revisions.message_new_stay_clocks (
 alter table helm_channex_revisions.message_new_stay_clocks enable row level security;
 revoke all on helm_channex_revisions.message_new_stay_clocks from public,anon,authenticated,service_role;
 alter table helm_channex_revisions.message_receipt_anchors add column last_bootstrap_checked_at timestamptz not null default '-infinity';
+alter table helm_channex_revisions.message_receipt_anchors add column bootstrap_outcome text not null default 'pending'
+ check(bootstrap_outcome in ('pending','blocked','registered'));
 alter table helm_channex_revisions.message_timing_policies alter column confirmed_at drop not null;
 alter table helm_channex_revisions.message_timing_policies add column confirmation_basis text not null default 'original-confirmation';
 alter table helm_channex_revisions.message_timing_policies add column receipt_revision uuid
@@ -99,7 +101,9 @@ begin
     and not exists(select 1 from helm_channex_revisions.message_timing_policies p where p.booking_id=x.booking_id)
    order by x.last_bootstrap_checked_at,x.booking_id limit p_limit for update
  loop
-  update helm_channex_revisions.message_receipt_anchors set last_bootstrap_checked_at=clock_timestamp() where booking_id=a.booking_id;
+  update helm_channex_revisions.message_receipt_anchors set last_bootstrap_checked_at=clock_timestamp(),bootstrap_outcome='blocked' where booking_id=a.booking_id;
+  -- Preserve the fair retry cursor outside the per-stay subtransaction.
+  begin
   select * into b from public.bookings where id=a.booking_id for update;
   select * into m from helm_channex_revisions.bookings where remote_id=a.remote_id;
   select * into rc from helm_channex_revisions.receipts where revision_id=m.latest_revision;
@@ -122,6 +126,12 @@ begin
       'source_revision','channex-date:'||m.latest_revision,'evidence_id','new-stay-clocks:'||config.policy_id));
   perform public.helm_pilot_message_times_register(b.id,observation,p_connection,p_generation,
     'new-stay-clocks:'||config.policy_id,expiry,true);
+  update helm_channex_revisions.message_receipt_anchors set bootstrap_outcome='registered' where booking_id=a.booking_id;
+  exception when raise_exception or check_violation then
+   -- No raw error text is persisted. Unexpected DB/permission, serialization
+   -- and cancellation errors still abort the entire transaction.
+   null;
+  end;
  end loop;
 end $$;
 revoke all on function helm_channex_revisions.bootstrap_new_stay_times(text,bigint,integer) from public,anon,authenticated,service_role;

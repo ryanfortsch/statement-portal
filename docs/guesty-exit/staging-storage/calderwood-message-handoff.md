@@ -2181,3 +2181,27 @@ original base `a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`; fresh remote main
 `message-new-stay-timing.sql`, new `verify-message-new-stay-timing.mjs`, receipt
 harness entry point, CLAUDE.md, SCHEMA.md and this handoff. The unrelated
 contract-readiness edits remain excluded; no main merge or deployment.
+
+
+### October 23 — isolate rejected new-stay timing registrations
+
+Fixed a batch-wide failure discovered before automatic six-job integration: an
+expected registration rejection previously rolled back other eligible bookings.
+Each stay now has an atomic subtransaction; its fair retry cursor and private
+pending/blocked/registered outcome remain outside that subtransaction. A rejected
+stay keeps no partial clock/history/policy writes. Healthy stays proceed, repeat
+passes do not duplicate observations, and removing the rejection allows one clean
+retry. Unexpected permission failures still abort visibly; raw errors are not
+persisted. Existing holds, source reviews and disabled senders are unchanged.
+
+Validation: 2,277 application tests / 242 suites, nonincremental TypeScript and
+194 disposable PostgreSQL scenarios passed, including new mixed healthy/rejected
+batch and unexpected-permission-failure cases. No hosted SQL was applied.
+Automatic six-job creation remains unfinished; this batch fixes a prerequisite,
+not live delivery.
+
+Review: branch `codex/channex-staging-pilot`, starting commit `2fcbaf2b`, original
+base `a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`; verified remote main
+`8eca0f27af4dfe1201ea00c33b8347e1557ba29e`. Changed files: this handoff,
+SCHEMA.md, message-new-stay-timing.sql and verify-message-new-stay-timing.mjs.
+Unrelated contract-readiness edits remain excluded. No deployment or paid change.

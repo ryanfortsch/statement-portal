@@ -927,7 +927,12 @@ basis. The private `bootstrap_new_stay_times` step runs through the existing
 `helm_pilot_message_times_refresh` service RPC, with no new service/browser grant.
 It atomically observes verified mapped dates plus reviewed clocks and registers
 the date policy. Repeat passes skip registered stays, and blocked candidates rotate
-by last-check time. Existing observations/jobs are never adopted or overwritten.
+by last-check time. Receipt anchors carry a private `bootstrap_outcome`
+(`pending`, `blocked`, `registered`). Expected per-stay registration/check failures
+roll back that stay's observation and policy together while preserving its retry
+cursor and allowing other stays to proceed. Permission, serialization and other
+unexpected errors still abort the batch. No raw error details are stored.
+Existing observations/jobs are never adopted or overwritten.
 Registration uses wall-clock freshness under the booking lock so an observation
 created earlier in that same transaction can be registered. Date refresh retains
 the receipt identity, clocks and expiry; disabled receipt authority/cancellation
