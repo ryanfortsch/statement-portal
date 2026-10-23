@@ -1,5 +1,6 @@
 // Runs only inside the disposable local PostgreSQL messaging harness.
 import assert from 'node:assert/strict';
+import { verifyReceiptTiming } from './verify-message-receipt-timing.mjs';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { ingestReviewedMessageTiming } from '../src/lib/channex-messaging/timing-ingestion.ts';
@@ -93,4 +94,5 @@ export async function verifyTimingBootstrap({db,a,b,scalar,connection,generation
  assert.deepEqual(guarded,{jobs:0,enabled:false,routes:0,cleaners:0});
  pass('bootstrap creates no send jobs, recipients or sender activation');
  console.log(`PASS ${count} additional timing-bootstrap PostgreSQL scenarios; synthetic source only`);
+ await verifyReceiptTiming({db,scalar,connection,generation});
 }

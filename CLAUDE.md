@@ -634,8 +634,13 @@ after a service restart. One disabled fictional policy and its audit remain; no
 message sender is enabled. Production is unapplied; Guesty remains live.
 The isolated bootstrap joins the reviewed Guesty timing import and date-feed
 registration atomically. It defaults date refresh off and never enables messaging.
-An existing confirmed stay can be bound once for later automatic date updates;
-new OTA bookings still require a proven original-confirmation source. The
+An existing confirmed stay can be bound once for later automatic date updates.
+For new bookings, the user approved confirmation messaging 30 minutes after the
+first durable Helm receipt on October 23, 2026. Preserve this separate receipt
+basis; never relabel it as the original booking confirmation. Migrated stays keep
+the reviewed Guesty confirmation/history. The disabled-by-default candidate
+`message-receipt-timing.sql` implements this countdown in isolated staging SQL;
+it is not installed and does not yet onboard the other five workflows. The
 bootstrap is installed in isolated staging with an atomic import/move/cancel
 rehearsal and unchanged prior rows. It remains unapplied in production; details
 and checks are in the message handoff and `SCHEMA.md`.

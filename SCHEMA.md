@@ -898,3 +898,20 @@ the fixture reached version 6 with no pending receipts. Vercel deployment
 authentication remains enabled. There is no live message transport. Deployment
 identities and acceptance evidence are in
 `docs/guesty-exit/staging-storage/calderwood-message-handoff.md`.
+
+
+New-booking confirmation receipt policy (**candidate, not installed anywhere**):
+`docs/guesty-exit/staging-storage/message-receipt-timing.sql` adds private, RLS
+`helm_channex_revisions.message_receipt_policy` and `message_receipt_anchors`.
+The owner-configured policy defaults disabled and has a bounded activation window
+and route generation. An AFTER INSERT receipt trigger captures the first applied
+new revision atomically at Helm's `committed_at`, excluding earlier receipts, old
+provider receipt dates, migrated timing rows and existing message jobs. This
+implements the October 23 user-approved receipt-plus-30-minute policy without
+putting receipt time in `confirmed_at`. Receipt retries and later modifications
+do not change the anchor. The scheduler retains actual confirmation for migrated
+stays and otherwise uses the separate receipt anchor; its other five calculations
+are unchanged. It creates no jobs or sender controls, grants no new worker/browser
+authority, and does not backfill existing reservations. The reviewed date-feed
+registration still requires actual confirmation; automatic new-stay clock/date
+onboarding requires a separate integration before this can be enabled.

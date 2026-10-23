@@ -2111,3 +2111,40 @@ Review handoff: branch `codex/channex-staging-pilot`, starting commit
 rehearsal/status SQL and receipt; expanded installation harness; `SCHEMA.md`,
 `CLAUDE.md` and this handoff. Unrelated contract-readiness changes remain excluded.
 PR 1714 remains draft; no production/main merge.
+
+
+## October 23: approved new-booking receipt countdown implemented locally
+
+The user explicitly approved a confirmation 30 minutes after Helm receives a new
+booking. Candidate `message-receipt-timing.sql` captures the first durable receipt
+in the canonical receipt transaction under a disabled-by-default, bounded owner
+policy. It keeps `confirmed_at` reserved for actual source confirmation. Existing
+receipts are not backfilled; migrated timing rows and preexisting jobs are excluded.
+Later revisions cannot restart the countdown. Cancellation, disabled policy and
+expiry suppress the receipt basis. No sender/job/recipient is created by capture.
+
+The actual scheduler uses the separate anchor plus 30 minutes for eligible new
+stays and retains Guesty confirmation for migrated stays. All other five schedule
+calculations are unchanged. Verified local clock observations and all existing
+queue/ownership/hold gates remain required. The existing date-feed registration
+requires actual confirmation, so automatic new-stay clock/date onboarding still
+needs integration; this is not a completed automatic six-message onboarding flow.
+The candidate is NOT installed in hosted staging or production and has no enabled
+policy. No new paid service, provider request or guest/cleaner message was made.
+
+Validation: 2,277 application tests / 242 suites, nonincremental TypeScript, Node
+syntax and diff checks passed. The full disposable PostgreSQL suite passed 183
+scenarios, including nine new receipt timing scenarios and the existing migration,
+handoff, date-feed, hold and DST cases. Initial harness attempts hit missing
+temporary dependencies and library symlinks, then two new fixture errors (invalid
+message status and missing verified timing observation); all were corrected before
+the complete successful run. Dependencies were restored only under /private/tmp.
+
+Review handoff: branch `codex/channex-staging-pilot`, starting/base-for-this-change
+`cfe57ceef6281a6d95ee741d63c849ee1380565b`, original base
+`a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`; remote main freshly observed
+`686806d9385aa7a11d1a99120ad3f0f6dc658f66`. Changed files: new receipt timing SQL,
+new local receipt timing harness, its bootstrap harness entry point, CLAUDE.md,
+SCHEMA.md and this handoff. The unrelated contract-readiness edits are excluded.
+Next: integrate this receipt basis with automatic new-stay clock/date policy and
+six-workflow registration, then run hosted acceptance before enabling any sender.
