@@ -6,12 +6,12 @@ import { z } from 'zod';
 import { nights, record, revisionTime } from '../channex-staging/core.ts';
 
 const uuid = z.string().uuid();
-const mappingSchema = z.object({
+export const airbnbMappingSchema = z.object({
   environment: z.enum(['staging', 'production']),
   propertyId: uuid, roomTypeId: uuid, ratePlanId: uuid,
   generation: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
 }).strict();
-export type AirbnbBookingMapping = z.infer<typeof mappingSchema>;
+export type AirbnbBookingMapping = z.infer<typeof airbnbMappingSchema>;
 const revisionSchema = z.object({
   revisionId: uuid, bookingId: uuid, propertyId: uuid, roomTypeId: uuid, ratePlanId: uuid,
   reservationCode: z.string().min(1).max(160).regex(/^[A-Za-z0-9_-]+$/),
@@ -19,13 +19,25 @@ const revisionSchema = z.object({
   checkIn: z.string(), checkOut: z.string(), providerReceivedAt: z.string(),
 }).strict();
 
+export const airbnbRevisionSchema = revisionSchema.extend({
+  environment: z.enum(['staging', 'production']), mappingGeneration: z.number().int().positive().safe(),
+  channel: z.literal('airbnb'),
+}).strict();
+export type AirbnbBookingRevision = z.infer<typeof airbnbRevisionSchema>;
+export function parseAirbnbBookingRevision(raw: unknown): AirbnbBookingRevision {
+  const r = airbnbRevisionSchema.parse(raw);
+  nights(r.checkIn, r.checkOut);
+  if (/^HELMTEST-/i.test(r.reservationCode)) throw Error('Synthetic revision refused');
+  return { ...r, providerReceivedAt: revisionTime(r.providerReceivedAt) };
+}
+
 /** The caller supplies a server-reviewed mapping, never one taken from a webhook.
  * ota_name identifies origin only; it does NOT prove an authorized channel/thread.
  * Provider receipt time must never substitute for Helm's durable receipt timestamp.
  */
 export function normalizeAirbnbBookingRevision(raw: unknown, mapping: AirbnbBookingMapping) {
   try {
-    const scope = mappingSchema.parse(mapping);
+    const scope = airbnbMappingSchema.parse(mapping);
     const row = record(raw), a = record(row.attributes);
     if (a.ota_name !== 'Airbnb' || !Array.isArray(a.rooms) || a.rooms.length !== 1) throw Error();
     if (a.id !== undefined && a.id !== row.id) throw Error();

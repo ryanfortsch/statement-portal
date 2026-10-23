@@ -2334,3 +2334,30 @@ No production account or successful live delivery has been verified.
 Validation: all 2,283 application tests passed. TypeScript and diff checks are
 recorded in the accompanying commit handoff; no SQL changed, so the disposable
 Postgres suite was not repeated for this pure normalization change.
+
+### Provider ingestion sequencing contract — October 23, 2026
+
+Branch `codex/channex-staging-pilot`, base `a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`.
+Current local `origin/main` observed at `951b7daee9a8c7921a04e213fc3e2f0fe666b709`.
+Files: `src/lib/channex-bookings/revision.ts`, `ingestion.ts`, and
+`src/lib/__tests__/channex-booking-ingestion.test.ts`.
+
+Added a server-only, adapter-driven provider ingestion sequence. It snapshots and
+validates mapping configuration, validates the entire bounded batch before writes,
+checks webhook hint identities against the fetched revision, orders by provider
+microsecond timestamp, and requires matching commit and independent read receipts
+before ACK. Receipt equality includes canonical booking, immutable first receipt
+and commit timestamps, outcome, and the complete normalized revision. Errors do
+not expose provider payloads. Results are aggregate counts, never coverage or send
+certification. No message scheduler is invoked during ingestion.
+
+Six synthetic tests cover ordering; malformed/mixed/duplicate/oversized batches;
+wrong webhook revision; missing/changed receipts; lost commit response and ACK;
+stale outcome handling; and configuration/inspection failures. All 2,289 app tests
+passed. These test the coordinator with in-memory adapters, NOT database durability,
+concurrent revision ordering, or provider ACK delivery. Concrete provider storage
+and HTTP adapters remain unimplemented. In particular, a store must atomically
+write canonical booking plus immutable receipt, reject conflicting revision reuse,
+and prevent stale changes from resurrecting cancelled inventory. Existing Offline
+SQL and receipt-based message timing are intentionally unchanged. No deployment,
+channel change, external send, or hosted SQL execution occurred.
