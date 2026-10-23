@@ -2473,3 +2473,46 @@ Remaining: automatic origin/history reconciliation; bind these projections and
 exact thread/recipient evidence into existing held queue and worker controls;
 verify hosted acceptance and production account access. The short-notice cleaner
 advance-reminder policy remains unanswered and explicitly blocked.
+
+### Provider six-message held queue — October 23, 2026
+
+Branch `codex/channex-staging-pilot`; base `a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`;
+main fetched as `951b7daee9a8c7921a04e213fc3e2f0fe666b709`.
+Added `airbnb-message-queue.sql` and `scripts/verify-airbnb-message-queue.mjs`;
+connected its test module to the existing new-stay release harness. No hosted
+installation or runtime activation.
+
+The new service RPC chooses rules/destinations from private owner configuration,
+locks provider scope, clocks, route and canonical booking, and requires a complete
+eligible new-stay projection plus exact reviewed thread binding. It creates the
+shared timing observation without fabricating confirmed_at, then atomically
+inserts six held automation_sends, four Channex jobs, two disabled cleaner batches,
+and the provider queue journal. Existing shared triggers reserve the delivery
+rails. Each resolved shared schedule must match the provider projection exactly.
+Template digests, timezone, recipients, source-stop/drain evidence, generation,
+expiry and prior queues/observations are checked. Existing checkout adjustments
+require reconciliation. No migrated stay is admitted to this new-booking path.
+
+Shared confirmation-anchor logic adds provider receipt provenance while retaining
+existing original-confirmation and Offline behavior. Shared observation-current
+checks additionally refuse provider work if origin/queue authorization is withdrawn,
+clocks change, route generation/stop-drain differs, or the provider timing evidence
+is no longer current. Replays do not recreate, release or retime jobs. A canonical
+date move invalidates the observation; automatic provider refresh/reconciliation
+is still needed. No provider release function or send activation is supplied.
+
+Validation: 222 shared disposable PostgreSQL scenarios passed (214 existing plus
+8 provider queue cases); all 2,293 application tests and TypeScript passed; diff
+checks passed. New cases cover disabled policy, six held jobs, replay, evidence
+withdrawal, migrated rejection, missing thread, final-write rollback/retry, and
+absence of sender activation/fabricated history. Provider queue fixtures seed
+synthetic canonical/provider rows to exercise the real shared queue SQL; actual
+canonical ingestion was tested separately in the prior 21-case provider suite.
+No live data or provider calls were used.
+
+Remaining: automatic origin/history reconciliation and trusted thread acquisition;
+automatic refresh for changed provider stays; bounded runtime queue processing;
+controlled delivery acceptance and provider queue release, followed by hosted
+installation/account verification. This candidate alone does not make automated
+messaging operational and does not replace the user's requested automatic flow
+with a daily manual-release process.

@@ -1,3 +1,4 @@
+import { verifyAirbnbMessageQueue } from './verify-airbnb-message-queue.mjs';
 // Disposable PostgreSQL only. Release never enables a sender or calls a provider.
 import assert from 'node:assert/strict';
 import { verifyNewStayWorkers } from './verify-message-new-stay-workers.mjs';
@@ -53,4 +54,5 @@ export async function verifyNewStayRelease({db,scalar,fresh,tick}) {
  pass('release remains owner-only and cannot activate any provider or cleaner sender');
  console.log(`PASS ${count} additional new-stay release PostgreSQL scenarios; no live sends`);
  await verifyNewStayWorkers({db,scalar,fresh});
+ await verifyAirbnbMessageQueue({db,scalar});
 }

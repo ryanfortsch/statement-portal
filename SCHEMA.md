@@ -991,3 +991,11 @@ reviewed clocks and explicit new/migrated provenance to provider receipts.
 `helm_airbnb_message_schedule` projects six workflow times but creates no sends;
 unknown origin yields no plan and migrated history must be reconciled before use.
 There is no runtime origin classifier or queue wiring yet.
+
+`airbnb-message-queue.sql` (also inactive) adds private provider
+`message_queue_policy` and `message_queues`. Its service RPC atomically prepares
+six held sends using existing Channex jobs and disabled cleaner batches. It accepts
+only explicitly evidenced new stays, preserves prior queues, and enables no
+sender. Shared observation validation rejects withdrawn provider evidence. Provider
+date-refresh, runtime processing, migrated history and release remain separate
+outstanding integration work.

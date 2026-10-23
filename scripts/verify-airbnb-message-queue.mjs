@@ -1,0 +1,57 @@
+// Shared real queue/worker SQL, fictional provider identities; no outbound calls.
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+export async function verifyAirbnbMessageQueue({db,scalar}) {
+ let count=0;const pass=s=>{count++;console.log('PASS provider queue: '+s);};
+ for(const name of ['airbnb-booking-storage','airbnb-message-timing','airbnb-message-queue'])
+  await db.query(readFileSync(new URL('../docs/guesty-exit/staging-storage/'+name+'.sql',import.meta.url),'utf8'));
+ const property='HELMTEST-calderwood';
+ const route=(await db.query('select * from automation_channex_routes where property_id=$1',[property])).rows[0];
+ const room=randomUUID(),rate=randomUUID();
+ await db.query('insert into helm_airbnb_bookings.scope(property_id,environment,remote_property,room_type,rate_plan,generation,enabled) values($1,$2,$3,$4,$5,1,true)',[property,route.environment,route.channex_property_id,room,rate]);
+ await db.query("insert into helm_airbnb_bookings.message_clock_policy(generation,environment,remote_property,arrival_time,departure_time,timezone,starts_at,expires_at,enabled) values(1,$1,$2,'16:00','11:00','America/New_York',clock_timestamp()-interval '30 minutes',clock_timestamp()+interval '300 days',true)",[route.environment,route.channex_property_id]);
+ await db.query("insert into helm_airbnb_bookings.message_queue_policy select * from helm_channex_revisions.message_new_stay_queue_policy");
+ await db.query('update helm_airbnb_bookings.message_queue_policy set enabled=false,generation=1');
+ const fixture=async(origin='new')=>{
+  const f={booking:randomUUID(),remote:randomUUID(),revision:randomUUID()};
+  const stamp=await scalar(`select to_char(statement_timestamp() at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') data`);
+  await db.query("insert into bookings(id,property_id,status,check_in,check_out,channel,guest_name,source_ref,source) values($1,$2,'confirmed','2027-02-01','2027-02-04','airbnb','HELMTEST',$3,'manual')",[f.booking,property,'channex-airbnb:'+route.environment+':'+route.channex_property_id+':'+f.remote]);
+  await db.query("insert into helm_airbnb_bookings.bookings(remote_id,canonical_id,code,environment,remote_property,generation,latest_at,latest_revision,check_in,check_out,status) values($1,$2,$3,$4,$5,1,$6,$7,'2027-02-01','2027-02-04','confirmed')",[f.remote,f.booking,'SYNTHETIC-'+f.remote,route.environment,route.channex_property_id,stamp,f.revision]);
+  await db.query("insert into helm_airbnb_bookings.receipts(revision_id,canonical_id,revision,outcome,first_received_at) values($1,$2,$3,'applied',$4)",[f.revision,f.booking,{revisionId:f.revision,bookingId:f.remote,propertyId:route.channex_property_id,roomTypeId:room,ratePlanId:rate,reservationCode:'SYNTHETIC-'+f.remote,status:'new',checkIn:'2027-02-01',checkOut:'2027-02-04',providerReceivedAt:stamp,environment:route.environment,mappingGeneration:1,channel:'airbnb'},stamp]);
+  await db.query("insert into helm_airbnb_bookings.message_origins(booking_id,first_revision,generation,origin,original_confirmed_at,evidence_id,enabled) values($1,$2,1,$3,case when $3='migrated' then clock_timestamp()-interval '1 day' else null end,'HELMTEST-origin',true)",[f.booking,f.revision,origin]);
+  await db.query('insert into automation_message_thread_bindings values($1,$2,$3,$4,$5,$6,$7,$8,clock_timestamp())',[f.booking,property,route.generation,route.environment,route.channel_id,f.remote,randomUUID(),'HELMTEST-thread']);
+  return f;
+ };
+ const prepare=f=>scalar('select helm_airbnb_message_queue_prepare($1) data',[f.booking]);
+ const rows=f=>scalar('select count(*)::int data from automation_sends where booking_id=$1',[f.booking]);
+ const f=await fixture();assert.equal(await prepare(f),false);assert.equal(await rows(f),0);pass('disabled policy creates no jobs');
+ await db.query('update helm_airbnb_bookings.message_queue_policy set enabled=true');
+ await db.query('set role service_role');try{assert.equal(await prepare(f),true);}finally{await db.query('reset role');}
+ assert.equal(await rows(f),6);assert.equal(await scalar("select count(*)::int data from automation_sends where booking_id=$1 and status='held' and delivery_used in ('channex','quo_cleaner')",[f.booking]),6);
+ assert.equal(await scalar('select count(*)::int data from automation_channex_jobs where booking_id=$1',[f.booking]),4);
+ assert.equal(await scalar('select count(*)::int data from automation_cleaner_batches where booking_id=$1 and not enabled',[f.booking]),2);
+ assert.equal(await scalar('select confirmed_at data from automation_channex_stay_times where booking_id=$1',[f.booking]),null);
+ pass('six held jobs use existing provider rails without inventing original confirmation');
+ const snapshot=await scalar('select jsonb_agg(to_jsonb(s) order by id) data from automation_sends s where booking_id=$1',[f.booking]);
+ assert.equal(await prepare(f),false);assert.deepEqual(await scalar('select jsonb_agg(to_jsonb(s) order by id) data from automation_sends s where booking_id=$1',[f.booking]),snapshot);pass('replay preserves queue and hold state');
+ assert.equal(await scalar('select automation_message_observation_current($1) data',[f.booking]),true);
+ await db.query('update helm_airbnb_bookings.message_origins set enabled=false where booking_id=$1',[f.booking]);
+ assert.equal(await scalar('select automation_message_observation_current($1) data',[f.booking]),false);
+ await db.query('update helm_airbnb_bookings.message_origins set enabled=true where booking_id=$1',[f.booking]);
+ await db.query('update helm_airbnb_bookings.message_queue_policy set enabled=false');
+ assert.equal(await scalar('select automation_message_observation_current($1) data',[f.booking]),false);
+ await db.query('update helm_airbnb_bookings.message_queue_policy set enabled=true');
+ assert.equal(await scalar('select automation_message_observation_current($1) data',[f.booking]),true);
+ pass('withdrawing origin or queue authority invalidates shared rendering and final-claim observation checks');
+ const migrated=await fixture('migrated');await assert.rejects(()=>prepare(migrated));assert.equal(await rows(migrated),0);pass('migrated stay cannot enter new-booking queue');
+ const missing=await fixture();await db.query('delete from automation_message_thread_bindings where booking_id=$1',[missing.booking]);await assert.rejects(()=>prepare(missing));assert.equal(await rows(missing),0);pass('missing conversation blocks whole queue');
+ const broken=await fixture();await db.query(`create function helm_airbnb_bookings.fail_queue() returns trigger language plpgsql as $$begin raise exception 'HELMTEST';end$$;create trigger fail_queue before insert on helm_airbnb_bookings.message_queues for each row execute function helm_airbnb_bookings.fail_queue()`);
+ await assert.rejects(()=>prepare(broken));assert.equal(await rows(broken),0);assert.equal(await scalar('select count(*)::int data from automation_message_observations where booking_id=$1',[broken.booking]),0);
+ await db.query('drop trigger fail_queue on helm_airbnb_bookings.message_queues;drop function helm_airbnb_bookings.fail_queue()');assert.equal(await prepare(broken),true);pass('final journal failure rolls back six jobs and timing observation; retry succeeds');
+ assert.equal(await scalar('select enabled data from automation_channex_routes where property_id=$1',[property]),false);
+ assert.equal(await scalar('select automations_enabled data from properties where id=$1',[property]),false);
+ assert.equal(await scalar('select count(*)::int data from automation_message_handoffs h join automation_sends s on s.id=h.send_id where s.booking_id=$1',[f.booking]),0);
+ pass('sender activation and fabricated Guesty history remain absent');
+ console.log(`PASS ${count} provider queue scenarios; no live sending`);
+}
