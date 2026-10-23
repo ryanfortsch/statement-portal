@@ -12,6 +12,11 @@
 
 import { shiftIsoDay, todayInEastern } from './sca-quotes-types.ts';
 
+/** A meeting is a sit-down logged by hand on the contact page. An
+ *  appointment is something the owner booked at the house that we must be
+ *  there for or act on, filed by the concierge from their message. */
+export type MeetingKind = 'meeting' | 'appointment';
+
 export type ContactMeetingRow = {
   id: string;
   contact_id: string;
@@ -24,6 +29,9 @@ export type ContactMeetingRow = {
   location: string | null;
   notes: string | null;
   important: boolean;
+  kind: MeetingKind;
+  /** The concierge's idempotency key for an appointment; null when logged by hand. */
+  source_key: string | null;
   reminder_sent_at: string | null;
   reminder_message_id: string | null;
   reminder_attempts: number;
@@ -46,6 +54,8 @@ export type MeetingCard = {
   location: string | null;
   notes: string | null;
   important: boolean;
+  /** Absent on older callers means a meeting. */
+  kind?: MeetingKind;
 };
 
 /** The evening-before text goes at or after this Eastern hour. The cron is
@@ -122,6 +132,7 @@ export function meetingWhen(m: Pick<MeetingCard, 'date' | 'time'>, today: string
  *  header line, the facts, a link back to the contact. Internal, so it
  *  carries the property's internal name, never the guest-facing title. */
 export function meetingReminderText(m: MeetingCard, contactUrl: string): string {
+  if (m.kind === 'appointment') return appointmentReminderText(m, contactUrl);
   const time = formatMeetingTime(m.time);
   const who = m.propertyName ? `${m.contactName} (${m.propertyName})` : m.contactName;
   const lines = [
@@ -133,6 +144,24 @@ export function meetingReminderText(m: MeetingCard, contactUrl: string): string 
   }
   if (m.location) lines.push(`Where: ${m.location}`);
   if (m.notes) lines.push(m.notes);
+  lines.push(contactUrl);
+  return lines.join('\n');
+}
+
+/** The evening-before text for an appointment the owner booked at the house
+ *  (2026-10-23, Laila Rocha's city inspection at 3 Windward). The home leads,
+ *  because that is where someone has to be; the owner is who booked it. */
+export function appointmentReminderText(m: MeetingCard, contactUrl: string): string {
+  const time = formatMeetingTime(m.time);
+  const where = m.propertyName || m.location || m.contactName;
+  const lines = [
+    'Helm · Appointment tomorrow',
+    `${where}, ${formatMeetingDay(m.date)}${time ? ` at ${time}` : ''}`,
+  ];
+  if (m.title && m.title.trim()) lines.push(m.title.trim());
+  if (m.location && m.propertyName && m.location !== m.propertyName) lines.push(`Where: ${m.location}`);
+  if (m.notes) lines.push(m.notes);
+  lines.push(`Booked by ${m.contactName}`);
   lines.push(contactUrl);
   return lines.join('\n');
 }

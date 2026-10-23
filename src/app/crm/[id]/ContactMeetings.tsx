@@ -310,6 +310,11 @@ function MeetingRow({
       </span>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 14, color: 'var(--ink)' }}>
+          {m.kind === 'appointment' ? (
+            <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase', color: accent, marginRight: 8 }}>
+              Appointment
+            </span>
+          ) : null}
           {m.title}
           {propertyName ? <span style={{ color: 'var(--ink-3)' }}> · {propertyName}</span> : null}
         </div>

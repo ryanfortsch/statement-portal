@@ -834,6 +834,8 @@ function MeetingFeedRow({ meeting: m }: { meeting: MeetingCard }) {
   const isToday = m.date === today;
   const dotColor = isToday ? 'var(--signal)' : 'var(--tide-deep)';
   const detail = [m.propertyName, m.location].filter(Boolean).join(' · ');
+  // An appointment is at the house, so the home leads and the owner follows.
+  const appointment = m.kind === 'appointment';
   return (
     <Link
       href={`/crm/${m.contactId}`}
@@ -842,14 +844,14 @@ function MeetingFeedRow({ meeting: m }: { meeting: MeetingCard }) {
       <span style={{ ...dotStyle, marginTop: 0, background: dotColor }} aria-hidden="true" />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 14, color: 'var(--ink)' }}>
-          {m.contactName}
-          {m.title && m.title.toLowerCase() !== `meeting with ${m.contactName}`.toLowerCase() ? (
+          {appointment ? (m.propertyName ?? m.contactName) : m.contactName}
+          {m.title && (appointment || m.title.toLowerCase() !== `meeting with ${m.contactName}`.toLowerCase()) ? (
             <span style={{ color: 'var(--ink-3)' }}> · {m.title}</span>
           ) : null}
         </div>
         <div style={{ marginTop: 3, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.06em' }}>
           {meetingWhen(m, today)}
-          {detail ? ` · ${detail}` : ''}
+          {appointment ? ` · booked by ${m.contactName}` : detail ? ` · ${detail}` : ''}
           {m.notes ? ` · ${m.notes}` : ''}
         </div>
       </div>

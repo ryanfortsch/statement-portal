@@ -134,6 +134,11 @@ const PUBLIC_API_PREFIXES = [
   // renovation) becomes a Team inbox hold card. Files the card only; its
   // Approve is the one write. Self-guards via STAY_CONCIERGE_KEY.
   "/api/owner-work-holds",
+  // Stay-concierge bridge: an appointment the owner booked at the house (an
+  // inspection window, their electrician) becomes an important appointment on
+  // the owner's CRM contact, so the evening-before text carries it. Self-guards
+  // via STAY_CONCIERGE_KEY.
+  "/api/owner-appointments",
   // Stay-concierge bridge: creates a Stripe Payment Link in the property's
   // own Stripe account for an approved guest add-on charge (Tesla charger,
   // pet fee, early check-in). Self-guards via STAY_CONCIERGE_KEY.

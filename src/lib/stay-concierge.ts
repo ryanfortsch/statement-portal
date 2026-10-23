@@ -915,6 +915,28 @@ export type OwnerProposedAction = { key?: string } & (
       what: string;
       /** One line for the operator. */
       why: string;
+    }
+  | {
+      /** Something the owner booked at the house on a named day that we must
+       *  be there for or act on at a time: an inspection window, their
+       *  electrician, a delivery with a call-ahead. Approving files it on the
+       *  owner's CRM contact as an important appointment via
+       *  /api/owner-appointments: the evening-before text and the home feed's
+       *  Meetings card carry it, and the work slip filed beside it takes the
+       *  same date (2026-10-23). */
+      kind: 'appointment';
+      /** The day, YYYY-MM-DD. */
+      date: string;
+      start_time?: string;
+      end_time?: string;
+      /** The appointment: "City of Gloucester safety inspection". */
+      what: string;
+      /** Who is coming: "city building and fire inspectors". */
+      who?: string;
+      /** What we must do, numbers as the owner wrote them. */
+      instructions?: string;
+      /** One line for the operator. */
+      why: string;
     });
 
 export type OwnerApprovalsResponse = {
