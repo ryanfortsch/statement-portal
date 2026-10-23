@@ -984,3 +984,10 @@ per-revision commit evidence. The commit RPC calls existing canonical booking
 operations; it does not write financials or grant message-send authority. No scope
 or runtime adapter is activated by the file. See the existing Calderwood message
 handoff for verification limits and remaining timing integration.
+
+The additional inactive `airbnb-message-timing.sql` candidate adds private
+`helm_airbnb_bookings.message_clock_policy` and `.message_origins`. These bind
+reviewed clocks and explicit new/migrated provenance to provider receipts.
+`helm_airbnb_message_schedule` projects six workflow times but creates no sends;
+unknown origin yields no plan and migrated history must be reconciled before use.
+There is no runtime origin classifier or queue wiring yet.

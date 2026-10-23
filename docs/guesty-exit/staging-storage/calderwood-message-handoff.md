@@ -2437,3 +2437,39 @@ Next: add a provider-specific timing/queue path using this journal's receipts;
 current Offline timing/queue provenance stays unchanged. Production account access,
 reviewed mapping, existing-booking reconciliation, and live delivery acceptance
 remain outstanding.
+
+### Provider message timing projection — October 23, 2026
+
+Branch `codex/channex-staging-pilot`; original base `a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`;
+main freshly fetched as `951b7daee9a8c7921a04e213fc3e2f0fe666b709`.
+Added inactive `airbnb-message-timing.sql`; expanded the provider database harness.
+This is a read-only schedule projection, not queue insertion or sender activation.
+
+Private clock policy binds environment/property/generation and approved wall
+clocks/timezone to an enabled time window. Private origin evidence binds a booking
+to its first durable revision and explicitly distinguishes new from migrated.
+No origin is inferred from `status=new` or Channex `inserted_at`: the documentation
+identifies inserted_at as provider receipt time, not original reservation creation.
+No automatic origin-classification process is implemented yet. Before activation,
+reviewed cutover reconciliation must supply this evidence reliably; manual daily
+message operation is not an acceptable substitute for the requested automation.
+
+For explicitly eligible new stays, confirmation uses the first receipt's committed
+clock plus 30 minutes; prearrival/precheckout use one day, key code one hour before
+arrival, cleaner advance ten days and cleaner arrival seven hours before arrival.
+Date changes update projections without resetting the original confirmation clock.
+Migrated stays retain original confirmation time and every plan remains blocked
+pending source-message-history reconciliation. Past-due workflows and policy-window
+or DST ambiguity are labeled blocked rather than silently changed. Cancellation,
+local date drift, withdrawn evidence, changed generation, and disabled authority
+produce no projection. The function always returns canSend=false; it does not
+replace or weaken the Offline scheduler's guards.
+
+Validation: all 21 disposable PostgreSQL scenarios passed, including 9 timing
+scenarios; all 2,293 application tests and TypeScript passed; diff checks passed.
+Only fictional bookings, local PostgreSQL and injected HTTP were used. No hosted
+installation, scheduler configuration, live booking request or external send.
+Remaining: automatic origin/history reconciliation; bind these projections and
+exact thread/recipient evidence into existing held queue and worker controls;
+verify hosted acceptance and production account access. The short-notice cleaner
+advance-reminder policy remains unanswered and explicitly blocked.
