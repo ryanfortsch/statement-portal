@@ -1,5 +1,6 @@
 // Disposable PostgreSQL only. Release never enables a sender or calls a provider.
 import assert from 'node:assert/strict';
+import { verifyNewStayWorkers } from './verify-message-new-stay-workers.mjs';
 import { readFileSync } from 'node:fs';
 export async function verifyNewStayRelease({db,scalar,fresh,tick}) {
  let count=0;const pass=s=>{count++;console.log('PASS new stay release: '+s);};
@@ -51,4 +52,5 @@ export async function verifyNewStayRelease({db,scalar,fresh,tick}) {
  assert.equal(await scalar("select count(*)::int data from automation_cleaner_batches where property_id='HELMTEST-calderwood' and enabled"),0);
  pass('release remains owner-only and cannot activate any provider or cleaner sender');
  console.log(`PASS ${count} additional new-stay release PostgreSQL scenarios; no live sends`);
+ await verifyNewStayWorkers({db,scalar,fresh});
 }

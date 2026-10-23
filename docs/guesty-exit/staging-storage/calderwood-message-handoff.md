@@ -2269,3 +2269,44 @@ Review: branch `codex/channex-staging-pilot`, starting `4bd70152`, original base
 `99da10adb59a8ec5d9cda24031e32a8d6a0143cb`. Changed files: new release SQL,
 new release harness, queue-harness entrypoint, SCHEMA.md and this handoff.
 Unrelated contract-readiness edits excluded. No deployment, spending or live changes.
+
+
+### October 23 — generated-queue worker integration and live boundary
+
+Added a disposable integration harness that starts with the receipt/clock/queue
+fixture, then uses actual Channex/cleaner snapshots, the application renderer,
+refresh functions, job store and final database claims. All four guest and two
+cleaner jobs render successfully. Held claims fail; release/retry does not create
+attempts or provider receipts while eligibility remains false. Both cron adapters
+respect disabled routes/batches. Transport spies perform no network requests.
+This is negative dispatch acceptance, NOT successful live delivery acceptance.
+
+The important launch boundary is now explicit: canonical-revisions.ts accepts
+only Offline, single-room HELMTEST provider revisions. Receipt anchors are bound
+to synthetic manual/other bookings. Airbnb final claim requires channel airbnb.
+Do not change the test channel, forge confirmation/history, or relax these guards
+to make an end-to-end test look successful. A separate verified provider-native
+booking path and production account/route must be implemented and accepted.
+
+Read-only browser check: app.channex.io displayed Sign In. This proves only that
+this browser lacks a signed-in production session, not that no production account
+exists. The old staging billing tab was absent. Asked whether production access
+has since been created; no account creation, payment, credentials or channel
+changes were attempted. Short-notice cleaner preference also remains pending.
+
+Next work should prioritize the real path rather than more generic queue tests:
+1. Verify production account/entitlement and approved costs.
+2. Implement provider-native booking ingestion and timing/queue provenance with
+   exact property/channel/thread bindings; retain the isolated Offline rehearsal.
+3. Install and exercise the prepared candidates in the isolated hosted system,
+   then validate authorized delivery and receipts through the real provider path.
+4. Complete PriceLabs parity, source/channel cutover and contract gates before
+   switching Calderwood. No manual-message fallback is planned.
+
+Validation: 2,280 application tests / 242 suites, nonincremental TypeScript and
+214 disposable database scenarios passed, including four generated-queue worker
+integration cases. No runtime code or live configuration changed this batch.
+Review: branch codex/channex-staging-pilot, starting 2c23a331, original base
+ a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8; fresh origin/main
+ bdd050d6a87de2f363866153f0edbec8b7a188e1. Changed files: new worker integration
+harness, release harness entrypoint and this handoff. Contract edits excluded.
