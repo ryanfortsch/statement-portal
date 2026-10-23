@@ -116,10 +116,33 @@ const SCAM_PHRASES: readonly RegExp[] = [
   /\bsight unseen\b/i,
 ];
 
+/** The landlord name Zillow shows renters; the bots paste it back. */
+const LANDLORD_NAMES: readonly RegExp[] = [/\bryan\s+fortsch\b/gi];
+
+/**
+ * The bot template that hit 4 Middle the hour it listed (2026-10-23): the
+ * listing address, the landlord's name, and a nudge for a reply, nothing else
+ * ("4 Middle Rd #1, awaiting reply Ryan Fortsch", "Ryan Fortsch, 4 Middle Rd
+ * #1 - looking forward to your response"). Strip the address and the name;
+ * a real renter has something left to say.
+ */
+export function isReplyNudgeTemplate(message: string | null | undefined): boolean {
+  let m = ` ${(message ?? '').toLowerCase()} `;
+  for (const re of LANDLORD_NAMES) m = m.replace(re, ' ');
+  m = m
+    .replace(/\b\d+\s+[a-z]+(?:\s+[a-z]+)?\s+(?:rd|road|st|street|ln|lane|ave|avenue|way|dr|drive)\b\.?(?:\s*(?:#|unit|apt)\s*\w+)?/g, ' ')
+    .replace(/\b(?:gloucester|rockport|beverly|ma|massachusetts|\d{5})\b/g, ' ')
+    .replace(/[^a-z\s]/g, ' ');
+  const words = m.split(/\s+/).filter(Boolean);
+  return words.length > 0 && words.length <= 7 && /\b(?:await\w*|reply|response|respond|hear\w*)\b/.test(words.join(' '));
+}
+
 /** Plain-code scam signs in the renter's words. Empty when none. */
 export function scamSigns(message: string | null | undefined): string[] {
   const m = message ?? '';
-  return SCAM_PHRASES.filter((re) => re.test(m)).map((re) => `says "${m.match(re)?.[0] ?? ''}"`);
+  const signs = SCAM_PHRASES.filter((re) => re.test(m)).map((re) => `says "${m.match(re)?.[0] ?? ''}"`);
+  if (signs.length === 0 && isReplyNudgeTemplate(m)) signs.push('only the address, the landlord\'s name and a nudge to reply (a bot template)');
+  return signs;
 }
 
 // ---------------------------------------------------------------------------

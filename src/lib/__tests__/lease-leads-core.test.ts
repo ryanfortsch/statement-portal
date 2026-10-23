@@ -5,6 +5,7 @@ import {
   decideVerdict,
   EMPTY_FACTS,
   isRenterMail,
+  isReplyNudgeTemplate,
   leadKey,
   listingFor,
   normalizeZillowAddress,
@@ -91,6 +92,26 @@ describe('vetting', () => {
     assert.equal(decideVerdict(EMPTY_FACTS, guestHouse, { hasApplication: false, scamSigns: signs }).verdict, 'spam');
     assert.equal(scamSigns('Please send a cashiers check, I am overseas').length, 2);
     assert.deepEqual(scamSigns('Is this still available for January?'), []);
+  });
+
+  test('the reply-nudge template that hit 4 Middle the hour it listed is spam', () => {
+    for (const bot of [
+      '4 Middle Rd #1, awaiting reply Ryan Fortsch',
+      'Ryan Fortsch, 4 Middle Rd #1 - looking forward to your response.',
+      '17 Beach Rd #2, we are awaiting your reply Ryan Fortsch',
+      'Ryan Fortsch, 17 Beach Rd #2 - hoping to hear from you soon',
+    ]) {
+      assert.equal(isReplyNudgeTemplate(bot), true, bot);
+      assert.equal(scamSigns(bot).length, 1, bot);
+    }
+    for (const real of [
+      'I am interested in this rental and would like to schedule a viewing. Please let me know when this would be possible.',
+      'Hi Ryan Fortsch, I am a travel nurse starting at Addison Gilbert January 4 through April 20. Looking forward to your response.',
+      'Is 4 Middle Rd #1 still available for January? Two of us, no pets.',
+      'Looking forward to your reply about the dates',
+    ]) {
+      assert.equal(isReplyNudgeTemplate(real), false, real);
+    }
   });
 
   test('a submitted Zillow application is serious', () => {
