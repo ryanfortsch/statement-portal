@@ -326,7 +326,8 @@ phone, filed by the Quo ingest (`captureUnknownInbound` in
 `src/lib/quo-ingest.ts`, forward-only on `last_message_at`) with the line it
 came in on (`quo_line`). A number becomes a contact only when someone
 attaches it, adds it or sets it aside on the New numbers card (Messaging
-inbox). Its RLS policy is still open (`using (true)`).
+inbox). Service-role only: the open `using (true)` policy is dropped and
+anon revoked by `20261023170000_quo_unknown_numbers_rls_lockdown.sql`.
 
 `contractor_sessions` + `contractors`: the Field external contractor
 portal (`/field`). Token-gated, NOT Helm-SSO gated. Service-role only.
