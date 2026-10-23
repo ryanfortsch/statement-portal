@@ -1,3 +1,4 @@
+import { processAirbnbBookingCycle } from '../channex-bookings/cycle.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ingestAirbnbBookingRevisions, type AirbnbBookingReceipt, type AirbnbBookingStore, type AirbnbRevisionReader } from '../channex-bookings/ingestion.ts';
@@ -86,4 +87,20 @@ test('invalid config and failed inspect stop before saving; upstream errors are 
   h.client.inspect = async () => { throw Error('PRIVATE_SENTINEL'); };
   await assert.rejects(() => ingestAirbnbBookingRevisions(h.client, h.store, mapping), e => e instanceof Error && !e.message.includes('PRIVATE_SENTINEL'));
   assert.equal(h.receipts.size, 0);
+});
+
+test('cycle recovers an acknowledged booking after the post-intake sweep fails', async () => {
+ const h=harness();let sweeps=0,queued=0;
+ const rpc=async()=>{
+  sweeps++;
+  if(sweeps===2) throw Error('simulated interruption');
+  const prepared=h.receipts.size && !queued ? 1 : 0;queued+=prepared;
+  return {data:{scanned:h.receipts.size,prepared,refreshed:0,blocked:0,canSend:false},error:null};
+ };
+ await assert.rejects(()=>processAirbnbBookingCycle(h.client,h.store,mapping,rpc),/recovery incomplete/);
+ assert.ok(h.events.includes(`ack:${id(4)}`));assert.equal(queued,0);
+ h.client.feed=async()=>[];
+ await processAirbnbBookingCycle(h.client,h.store,mapping,rpc);
+ assert.equal(queued,1);assert.equal(h.receipts.size,1);
+ await processAirbnbBookingCycle(h.client,h.store,mapping,rpc);assert.equal(queued,1);
 });

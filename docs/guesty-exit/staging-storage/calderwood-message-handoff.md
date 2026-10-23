@@ -2536,3 +2536,21 @@ attempt preservation. Validation passed: 230 shared database scenarios, 2,293 ap
 TypeScript (`tsc --noEmit --incremental false`) and `git diff --check`.
 This is local candidate validation, not live delivery acceptance. Runtime polling,
 origin/history reconciliation, production access and cutover remain outstanding.
+
+
+### Bounded provider processing cycle — 2026-10-23
+
+Continuation on `codex/channex-staging-pilot` from `42221ac9`, original base
+`a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`; origin/main refreshed, no merge.
+Changed queue SQL, new `src/lib/channex-bookings/cycle.ts`, cycle/ingestion tests,
+shared queue SQL harness, SCHEMA.md and this handoff. Durable recovery runs before
+provider intake and again afterward; acknowledged rows are not lost when a later
+step fails. The fair SQL cursor prevents an ineligible stay starving later work.
+Expected per-stay errors are isolated without storing raw errors. No scheduler,
+credentials, deployment, source disconnection or send enablement is introduced.
+Origin evidence, thread binding, production account access, migrated history and
+live delivery acceptance remain outstanding; no claim of unattended live readiness.
+
+Validation: 233 shared local database scenarios, 2,297 application tests,
+TypeScript (`tsc --noEmit --incremental false`) and `git diff --check` passed.
+No hosted schema or live messages were changed.

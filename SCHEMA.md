@@ -1002,3 +1002,10 @@ runtime processing, migrated history and release remain separate outstanding int
 provider receipt, with queue observation/revision cursors guarding local overrides.
 Existing guest/cleaner refresh functions then retime eligible jobs without releasing
 holds or resetting delivery attempts. The candidate is not scheduled or installed.
+
+The inactive `helm_airbnb_messages_tick` scans durable provider mappings in bounded
+batches with a persisted `message_checked_at` fairness cursor. Expected per-stay
+rejections roll back that stay only; unexpected database failures abort the tick.
+`src/lib/channex-bookings/cycle.ts` sweeps before and after provider ingestion,
+so acknowledged bookings remain recoverable even after feed removal. It uses
+explicit server adapters and neither schedules itself nor activates senders.

@@ -85,5 +85,18 @@ export async function verifyAirbnbMessageQueue({db,scalar}) {
  await db.query('update helm_airbnb_bookings.message_origins set enabled=true where booking_id=$1',[f.booking]);
  await db.query("update bookings set status='cancelled' where id=$1",[f.booking]);
  assert.equal(await refresh(f),false);pass('cancellation cannot renew message timing');
+ const recover=await fixture();
+ await db.query('set role service_role');
+ let tick;try{tick=await scalar('select helm_airbnb_messages_tick(100) data');}finally{await db.query('reset role');}
+ assert.equal(tick.canSend,false);assert.equal(await rows(recover),6);assert.ok(tick.blocked>=2);
+ pass('durable sweep prepares an unqueued stay despite other rejected stays');
+ const before=await rows(recover);await scalar('select helm_airbnb_messages_tick(100) data');assert.equal(await rows(recover),before);
+ pass('recovery replay does not duplicate queued jobs');
+ await db.query("update helm_airbnb_bookings.bookings set message_checked_at='-infinity'");
+ const first=await scalar('select helm_airbnb_messages_tick(1) data');assert.equal(first.scanned,1);
+ const second=await scalar('select helm_airbnb_messages_tick(1) data');assert.equal(second.scanned,1);
+ assert.equal(await scalar("select count(*)::int data from helm_airbnb_bookings.bookings where message_checked_at<>'-infinity'"),2);
+ await assert.rejects(()=>scalar('select helm_airbnb_messages_tick(101) data'));
+ pass('bounded recovery advances fairly past rejected stays and rejects excessive limits');
  console.log(`PASS ${count} provider queue scenarios; no live sending`);
 }

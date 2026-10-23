@@ -211,4 +211,34 @@ end $$;
 revoke all on function public.helm_airbnb_message_times_refresh(uuid) from public,anon,authenticated;
 grant execute on function public.helm_airbnb_message_times_refresh(uuid) to service_role;
 
+-- Fair durable sweep is independent of the provider ACK/feed. A crash after ACK
+-- leaves canonical rows available to the next sweep, including rejected stays.
+alter table helm_airbnb_bookings.bookings add column message_checked_at timestamptz not null default '-infinity';
+create function public.helm_airbnb_messages_tick(p_limit integer default 25)
+returns jsonb language plpgsql security definer set search_path='' as $$
+declare item record; scanned integer:=0; prepared integer:=0; refreshed integer:=0; blocked integer:=0;
+begin
+ if p_limit is null or p_limit<1 or p_limit>100 then raise exception 'Invalid message batch limit'; end if;
+ perform 1 from helm_airbnb_bookings.scope where singleton for update;
+ for item in select canonical_id from helm_airbnb_bookings.bookings
+   order by message_checked_at,canonical_id limit p_limit for update
+ loop
+  scanned:=scanned+1;
+  update helm_airbnb_bookings.bookings set message_checked_at=clock_timestamp() where canonical_id=item.canonical_id;
+  begin
+   if exists(select 1 from helm_airbnb_bookings.message_queues where booking_id=item.canonical_id) then
+    if public.helm_airbnb_message_times_refresh(item.canonical_id) then refreshed:=refreshed+1; end if;
+   elsif public.helm_airbnb_message_queue_prepare(item.canonical_id) then prepared:=prepared+1;
+   else blocked:=blocked+1;
+   end if;
+  exception when raise_exception or check_violation then
+   -- Only expected per-stay rejection is isolated. System/permission failures
+   -- roll back the tick. Cursor remains outside this subtransaction for fairness.
+   blocked:=blocked+1;
+  end;
+ end loop;
+ return jsonb_build_object('scanned',scanned,'prepared',prepared,'refreshed',refreshed,'blocked',blocked,'canSend',false);
+end $$;
+revoke all on function public.helm_airbnb_messages_tick(integer) from public,anon,authenticated;
+grant execute on function public.helm_airbnb_messages_tick(integer) to service_role;
 commit;
