@@ -44,6 +44,8 @@ import {
   type RevenueBasis,
   type ReconciledStays,
 } from './revenue-nights-basis';
+import { byProperty as addOnsByProperty, loadPaidAddOns } from './paid-addons';
+import { foldPaidAddOns, statementMonthWithAddOns } from './paid-addons-core';
 
 const ALLOWED_STATUSES = new Set([
   'confirmed',
@@ -141,6 +143,18 @@ function mergeMix(
   }
 }
 
+/** a less b, channel by channel: a month's booking split once its paid
+ *  add-ons are taken back out (they are re-added at the statement's figure). */
+function subtractMix(a: ChannelMix, b: ChannelMix): ChannelMix {
+  const out = emptyChannelMix();
+  for (const ch of CHANNELS) {
+    out[ch].revenue = Math.max(0, a[ch].revenue - b[ch].revenue);
+    out[ch].nights = Math.max(0, a[ch].nights - b[ch].nights);
+    out[ch].stays = Math.max(0, a[ch].stays - b[ch].stays);
+  }
+  return out;
+}
+
 function roundMix(mix: ChannelMix): ChannelMix {
   for (const ch of CHANNELS) {
     mix[ch].revenue = round2(mix[ch].revenue);
@@ -167,6 +181,15 @@ export type PropertyRevenueMetrics = {
   managementFee: number | null;
   cleaningCost: number | null;
   projectedOwnerPayout: number | null;
+  /**
+   * Paid payment links (extensions, pet fees, docking) inside totalRevenue:
+   * the links' pre-tax figure on an open month, the statement's attributed
+   * add-ons on a closed one. Null when nothing was paid. Guesty never sees
+   * this money (paid-addons-core.ts).
+   */
+  addOnRevenue?: number | null;
+  /** The part of totalRevenue with no nights under it (fees), kept out of ADR. */
+  extrasRevenue?: number;
 };
 
 /**
@@ -486,6 +509,15 @@ type PropertyMonthBuckets = {
    * home commands that season.
    */
   bookedDatesByMonth: Map<string, string[]>;
+  /**
+   * Paid payment links by the month their money is recognized in: revenue,
+   * paid extension nights, the fee-only part, and the channel split. A closed
+   * month swaps these for the statement's attributed add-ons.
+   */
+  addOnRevenueByMonth: Map<string, number>;
+  addOnNightsByMonth: Map<string, number>;
+  extrasByMonth: Map<string, number>;
+  addOnMixByMonth: Map<string, ChannelMix>;
   /** Per-stay cleaning estimate, so projected stays can carry a cleaning cost. */
   cleaningPerStay: number;
   /** First day this property counts in range (activation-clipped). */
@@ -726,6 +758,11 @@ export async function computeRevenueSnapshot(
           selectAllPaged,
         )
       : { byCode: new Map(), orphansByProperty: new Map(), degraded: false };
+
+  // Paid payment links: extensions, pet fees, docking. Guesty never sees this
+  // money, so until 2026-10-22 it reached no estimate before the month's
+  // statement closed (paid-addons-core.ts).
+  const paidAddOnsByProperty = addOnsByProperty(await loadPaidAddOns(supabase));
 
   // 3. Forward reservations: today through +30d, count turnovers per property.
   const today = new Date().toISOString().split('T')[0];
@@ -1112,6 +1149,70 @@ export async function computeRevenueSnapshot(
       }
     }
 
+    // Paid payment links. Their money joins the month the statement will file
+    // it in. A paid extension's nights join the nights sold and, where the
+    // calendar holds them, the nights slept in: Brian Nugent's two paid nights
+    // at 17 Beach read as a calendar block until this (2026-10-22). Fees stay
+    // out of ADR.
+    const addOnRevenueByMonth = new Map<string, number>();
+    const addOnNightsByMonth = new Map<string, number>();
+    const extrasByMonth = new Map<string, number>();
+    const addOnMixByMonth = new Map<string, ChannelMix>();
+    let addOnRevenue = 0;
+    let extrasRevenue = 0;
+    const propAddOns = paidAddOnsByProperty.get(prop.id) ?? [];
+    if (propAddOns.length > 0) {
+      const bookedDates = new Set<string>();
+      for (const arr of bookedDatesByMonth.values()) for (const d of arr) bookedDates.add(d);
+      const fold = foldPaidAddOns({
+        addOns: propAddOns,
+        basis,
+        rangeStart,
+        periodEndExclusive,
+        propStart,
+        activatedAt: prop.activated_at,
+        bookedDates,
+        heldDates: calendarBlockDatesByProperty.get(prop.id) ?? new Set<string>(),
+        heldFrom: rangeStart,
+        heldTo: rangeEnd,
+      });
+      totalRevenue += fold.revenue;
+      nightsSold += fold.nights;
+      addOnRevenue += fold.revenue;
+      extrasRevenue += fold.extras;
+      for (const [m, e] of fold.byMonth) {
+        revenueByMonth.set(m, (revenueByMonth.get(m) ?? 0) + e.revenue);
+        nightsByMonth.set(m, (nightsByMonth.get(m) ?? 0) + e.nights);
+        addOnRevenueByMonth.set(m, (addOnRevenueByMonth.get(m) ?? 0) + e.revenue);
+        addOnNightsByMonth.set(m, (addOnNightsByMonth.get(m) ?? 0) + e.nights);
+        extrasByMonth.set(m, (extrasByMonth.get(m) ?? 0) + e.extras);
+        let addOnMix = addOnMixByMonth.get(m);
+        if (!addOnMix) {
+          addOnMix = emptyChannelMix();
+          addOnMixByMonth.set(m, addOnMix);
+        }
+        for (const x of e.mix) {
+          // An add-on follows the booking it was sold on; no stay of its own.
+          const ch = normalizeChannel(x.channel);
+          addToMix(channelBucket(m), ch, x.revenue, x.nights, 0);
+          addToMix(addOnMix, ch, x.revenue, x.nights, 0);
+        }
+      }
+      for (const d of fold.sleptNights) {
+        // Held for the guest who paid for it: occupied, not blocked.
+        blockedDates.delete(d);
+        const k = d.slice(0, 7);
+        calendarNightsByMonth.set(k, (calendarNightsByMonth.get(k) ?? 0) + 1);
+        if (d < periodEndExclusive) {
+          calendarNightsInRange += 1;
+          occupiedDates.add(d);
+          const arr = bookedDatesByMonth.get(k);
+          if (arr) arr.push(d);
+          else bookedDatesByMonth.set(k, [d]);
+        }
+      }
+    }
+
     // Roll the deduped block dates up per month. Built here, after the
     // reservation loop has contributed its owner holds, so a night present in
     // both sources is counted exactly once.
@@ -1144,13 +1245,19 @@ export async function computeRevenueSnapshot(
       channelByMonth,
       occupiedDates,
       bookedDatesByMonth,
+      addOnRevenueByMonth,
+      addOnNightsByMonth,
+      extrasByMonth,
+      addOnMixByMonth,
       cleaningPerStay,
       propStart,
     });
 
     const managementFee = totalRevenue * mgmtFeeFraction;
     const ownerPayout = totalRevenue - cleaningCost - managementFee;
-    const ADR = nightsSold > 0 && totalRevenue > 0 ? totalRevenue / nightsSold : null;
+    // A fee with no nights under it is revenue, not rate.
+    const roomRevenue = totalRevenue - extrasRevenue;
+    const ADR = nightsSold > 0 && roomRevenue > 0 ? roomRevenue / nightsSold : null;
     // Physical calendar occupancy (nights occupied in range), NOT the
     // checkout-attributed nightsSold — a stay straddling month-end counts
     // its in-range nights here while its money belongs to the checkout
@@ -1175,6 +1282,8 @@ export async function computeRevenueSnapshot(
         managementFee: managementFee > 0 ? round2(managementFee) : (totalRevenue > 0 ? 0 : null),
         cleaningCost: cleaningCost > 0 ? round2(cleaningCost) : null,
         projectedOwnerPayout: ownerPayout > 0 ? round2(ownerPayout) : null,
+        addOnRevenue: addOnRevenue > 0 ? round2(addOnRevenue) : null,
+        extrasRevenue: round2(extrasRevenue),
       },
       turnoversNext30: forwardCountByProperty.get(prop.id) ?? 0,
       source: 'computed',
@@ -1217,12 +1326,14 @@ export async function computeRevenueSnapshot(
   let totalPayout = 0;
   let totalMgmtFee = 0;
   let totalPortfolioRevenue = 0;
+  let totalExtras = 0;
 
   for (const s of snapshots) {
     if (s.metrics.totalRevenue == null) continue;
     totalStays += s.metrics.staysCount;
     totalNights += s.metrics.nightsSold;
     totalRevenueP += s.metrics.totalRevenue;
+    totalExtras += s.metrics.extrasRevenue ?? 0;
     if (s.metrics.projectedOwnerPayout) totalPayout += s.metrics.projectedOwnerPayout;
     if (s.isRisingTideOwned) {
       if (s.metrics.projectedOwnerPayout) totalPortfolioRevenue += s.metrics.projectedOwnerPayout;
@@ -1231,7 +1342,7 @@ export async function computeRevenueSnapshot(
     }
   }
 
-  const avgADR = totalNights > 0 ? totalRevenueP / totalNights : null;
+  const avgADR = totalNights > 0 && totalRevenueP - totalExtras > 0 ? (totalRevenueP - totalExtras) / totalNights : null;
 
   // Portfolio channel mix: straight sum of the (already post-passed)
   // per-property mixes.
@@ -1404,7 +1515,7 @@ async function applyStatementsAndPacing(
   if (monthByPeriod.size > 0) {
     const { data: stmtData, error: stmtErr } = await supabase
       .from('property_statements')
-      .select('id, period_id, property_id, num_stays, nights_booked, rental_revenue, management_fee, cleaning_total, repairs_total, tax_remittance, owner_payout')
+      .select('id, period_id, property_id, num_stays, nights_booked, rental_revenue, add_ons_revenue, management_fee, cleaning_total, repairs_total, tax_remittance, owner_payout')
       .in('period_id', Array.from(monthByPeriod.keys()));
     if (stmtErr) {
       throw new Error(`Failed to load property statements: ${stmtErr.message}`);
@@ -1672,6 +1783,9 @@ async function applyStatementsAndPacing(
     let nightsDelta = 0;
     let staysDelta = 0;
     let cleaningDelta = 0;
+    // Paid add-ons swapped from the links' estimate to the statement's.
+    let addOnDelta = 0;
+    let extrasDelta = 0;
     // Physical nights the pacing projection adds. Tracked apart from
     // nightsDelta because occupancy is a calendar question and nightsSold is
     // checkout-attributed; the two disagree for any stay crossing month-end.
@@ -1724,9 +1838,22 @@ async function applyStatementsAndPacing(
           // checkout numbers, which is the one thing the nights tab must not
           // do. The nights basis already carries reconciled dollars, because
           // it resolved them per stay in the base pass.
+          // The statement's attributed add-ons replace the links' estimate,
+          // and its paid extension nights stay sold (paid-addons-core.ts).
+          const stmtAddOns = Number(stmt.add_ons_revenue) || 0;
+          const withAddOns = statementMonthWithAddOns({
+            rentalRevenue: Number(stmt.rental_revenue) || 0,
+            nightsBooked: Number(stmt.nights_booked) || 0,
+            addOnsRevenue: stmtAddOns,
+            linkRevenue: buckets.addOnRevenueByMonth.get(seg.monthKey) ?? 0,
+            linkNights: buckets.addOnNightsByMonth.get(seg.monthKey) ?? 0,
+            linkExtras: buckets.extrasByMonth.get(seg.monthKey) ?? 0,
+          });
           if (basis === 'checkout') {
-            revenueDelta += (Number(stmt.rental_revenue) || 0) - (buckets.revenueByMonth.get(seg.monthKey) ?? 0);
-            nightsDelta += (Number(stmt.nights_booked) || 0) - (buckets.nightsByMonth.get(seg.monthKey) ?? 0);
+            revenueDelta += withAddOns.revenue - (buckets.revenueByMonth.get(seg.monthKey) ?? 0);
+            nightsDelta += withAddOns.nights - (buckets.nightsByMonth.get(seg.monthKey) ?? 0);
+            addOnDelta += stmtAddOns - (buckets.addOnRevenueByMonth.get(seg.monthKey) ?? 0);
+            extrasDelta += withAddOns.extras - (buckets.extrasByMonth.get(seg.monthKey) ?? 0);
           }
           // Stays and cleaning are checkout-anchored in BOTH bases, so the
           // statement's own figures are right either way.
@@ -1741,7 +1868,9 @@ async function applyStatementsAndPacing(
           if (basis === 'checkout') {
             statementMonths.push(seg.monthKey);
             statementFeeTotal += Number(stmt.management_fee) || 0;
-            statementFeeRevenue += Number(stmt.rental_revenue) || 0;
+            // The fee billed the add-ons too, so the revenue it is reconciled
+            // against carries them, or they would be charged a second time.
+            statementFeeRevenue += withAddOns.feeRevenue;
           } else {
             bookedMonths.push(seg.monthKey);
           }
@@ -1752,6 +1881,7 @@ async function applyStatementsAndPacing(
             continue;
           }
           const stmtMix = stmt.id ? stmtMixByStatementId.get(stmt.id) : undefined;
+          const addOnMix = buckets.addOnMixByMonth.get(seg.monthKey);
           if (stmtMix) {
             mergeMix(channelMix, stmtMix);
           } else if (monthMix) {
@@ -1759,11 +1889,21 @@ async function applyStatementsAndPacing(
             // derived split, scaled so the month's mix revenue matches the
             // statement revenue that replaced it. With nothing meaningful
             // to scale (either side zero), skip entirely rather than merge
-            // ghost stays/nights at factor 0.
-            const monthRev = buckets.revenueByMonth.get(seg.monthKey) ?? 0;
+            // ghost stays/nights at factor 0. The links come out first: they
+            // are re-added below at the statement's own figure.
+            const linkRev = buckets.addOnRevenueByMonth.get(seg.monthKey) ?? 0;
+            const monthRev = (buckets.revenueByMonth.get(seg.monthKey) ?? 0) - linkRev;
             const stmtRev = Number(stmt.rental_revenue) || 0;
             if (monthRev > 0 && stmtRev > 0) {
-              mergeMix(channelMix, monthMix, stmtRev / monthRev);
+              mergeMix(channelMix, addOnMix ? subtractMix(monthMix, addOnMix) : monthMix, stmtRev / monthRev);
+            }
+          }
+          // The statement's add-ons, split by channel the way the links were.
+          if (stmtAddOns > 0) {
+            if (addOnMix && withAddOns.addOnScale > 0) {
+              mergeMix(channelMix, addOnMix, withAddOns.addOnScale, withAddOns.countNights ? 1 : 0, 0);
+            } else {
+              addToMix(channelMix, 'sca', stmtAddOns, 0, 0);
             }
           }
           continue;
@@ -1823,9 +1963,15 @@ async function applyStatementsAndPacing(
         // lead when it has them (the season's own evidence), the trailing
         // year fills in, and the fleet stands in for a home with neither.
         const bookedMarket = meanMarketRate(buckets.bookedDatesByMonth.get(seg.monthKey) ?? []);
+        // Fees are revenue but not rate: the month's own ADR, and the booked
+        // ADR the lift falls back to, read room revenue only.
+        const roomBooked = {
+          ...booked,
+          revenue: Math.max(0, booked.revenue - (buckets.extrasByMonth.get(seg.monthKey) ?? 0)),
+        };
         const index = blendRateIndex({
           yearIndex: rateIndex.byProperty.get(s.propertyId) ?? rateIndex.fleet,
-          monthAdr: booked.nights > 0 && booked.revenue > 0 ? booked.revenue / booked.nights : null,
+          monthAdr: roomBooked.nights > 0 && roomBooked.revenue > 0 ? roomBooked.revenue / roomBooked.nights : null,
           monthMarketRate: bookedMarket.rate,
           monthNights: bookedMarket.covered,
         });
@@ -1844,7 +1990,7 @@ async function applyStatementsAndPacing(
           acc.n += market.covered;
           openRateByMonth.set(seg.monthKey, acc);
         }
-        const lift = pacedMonthLift(booked, { targetNights }, pricing);
+        const lift = pacedMonthLift(roomBooked, { targetNights }, pricing);
         revenueDelta += lift.revenue;
         nightsDelta += lift.nights;
         staysDelta += lift.stays;
@@ -1946,7 +2092,10 @@ async function applyStatementsAndPacing(
     const newMgmtFee = feeResolution ? feeResolution.fee : null;
     const newPayout =
       newRevenue != null ? newRevenue - (newMgmtFee ?? 0) - (newCleaning ?? 0) - repairsTaxDelta : null;
-    const newADR = newNights > 0 && newRevenue && newRevenue > 0 ? newRevenue / newNights : null;
+    const newExtras = Math.max(0, (baseM.extrasRevenue ?? 0) + extrasDelta);
+    const newAddOns = Math.max(0, (baseM.addOnRevenue ?? 0) + addOnDelta);
+    const newRoomRevenue = newRevenue != null ? newRevenue - newExtras : null;
+    const newADR = newNights > 0 && newRoomRevenue && newRoomRevenue > 0 ? newRoomRevenue / newNights : null;
 
     const source: SnapshotSource =
       // Multi-month with at least one Statement-overridden month: prefer the
@@ -1977,6 +2126,8 @@ async function applyStatementsAndPacing(
         managementFee: newMgmtFee && newMgmtFee > 0 ? round2(newMgmtFee) : (newRevenue ? 0 : null),
         cleaningCost: newCleaning && newCleaning > 0 ? round2(newCleaning) : null,
         projectedOwnerPayout: newPayout && newPayout > 0 ? round2(newPayout) : null,
+        addOnRevenue: newAddOns > 0 ? round2(newAddOns) : null,
+        extrasRevenue: round2(newExtras),
       },
     };
   });
@@ -2207,6 +2358,8 @@ type StatementRow = {
   num_stays: number | null;
   nights_booked: number | null;
   rental_revenue: number | null;
+  /** Attributed paid add-ons, net of the Stripe fee, tax carved out. */
+  add_ons_revenue: number | null;
   management_fee: number | null;
   cleaning_total: number | null;
   repairs_total: number | null;
