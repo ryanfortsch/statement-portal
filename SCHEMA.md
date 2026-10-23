@@ -1009,3 +1009,11 @@ rejections roll back that stay only; unexpected database failures abort the tick
 `src/lib/channex-bookings/cycle.ts` sweeps before and after provider ingestion,
 so acknowledged bookings remain recoverable even after feed removal. It uses
 explicit server adapters and neither schedules itself nor activates senders.
+
+`helm_airbnb_thread_register` accepts fresh identity proof from the explicit
+server reader in `src/lib/channex-bookings/thread.ts`. It independently checks
+scope, canonical mapping and route generation before inserting an immutable
+conversation binding. This is separate from timing, removing the queue/binding
+bootstrap dependency. It neither classifies booking origin nor grants send authority.
+The reader follows booking→thread→booking/property/channel and rechecks the forward
+link; SQL trusts the server adapter's remote verification, not a browser assertion.

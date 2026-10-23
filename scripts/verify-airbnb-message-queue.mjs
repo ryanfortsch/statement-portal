@@ -98,5 +98,18 @@ export async function verifyAirbnbMessageQueue({db,scalar}) {
  assert.equal(await scalar("select count(*)::int data from helm_airbnb_bookings.bookings where message_checked_at<>'-infinity'"),2);
  await assert.rejects(()=>scalar('select helm_airbnb_messages_tick(101) data'));
  pass('bounded recovery advances fairly past rejected stays and rejects excessive limits');
+ const linked=await fixture();await db.query('delete from automation_message_thread_bindings where booking_id=$1',[linked.booking]);
+ const proof={environment:route.environment,propertyId:route.channex_property_id,channelId:route.channel_id,routeGeneration:route.generation,bookingId:linked.remote,canonicalBookingId:linked.booking,mappingGeneration:1,threadId:randomUUID(),verifiedAt:new Date().toISOString()};
+ const bind=p=>scalar('select helm_airbnb_thread_register($1) data',[p]);
+ await db.query('set role service_role');try{assert.equal(await bind(proof),true);}finally{await db.query('reset role');}
+ assert.equal(await scalar('select count(*)::int data from automation_message_observations where booking_id=$1',[linked.booking]),0);
+ assert.equal(await rows(linked),0);assert.equal(await bind(proof),true);
+ assert.equal(await prepare(linked),true);
+ pass('verified thread registers before timing, replays safely and unblocks queue preparation');
+ for(const changed of [{threadId:randomUUID()},{channelId:randomUUID()},{mappingGeneration:2},{verifiedAt:'2020-01-01T00:00:00Z'},{environment:'wrong'}]) await assert.rejects(()=>bind({...proof,...changed}));
+ assert.equal(await scalar('select thread_id::text data from automation_message_thread_bindings where booking_id=$1',[linked.booking]),proof.threadId);
+ pass('conflicting or stale thread evidence cannot remap a stay');
+ await db.query('set role authenticated');try{await assert.rejects(()=>bind(proof));}finally{await db.query('reset role');}
+ pass('browser role cannot manufacture provider thread evidence');
  console.log(`PASS ${count} provider queue scenarios; no live sending`);
 }

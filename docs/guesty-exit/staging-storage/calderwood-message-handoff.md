@@ -2554,3 +2554,29 @@ live delivery acceptance remain outstanding; no claim of unattended live readine
 Validation: 233 shared local database scenarios, 2,297 application tests,
 TypeScript (`tsc --noEmit --incremental false`) and `git diff --check` passed.
 No hosted schema or live messages were changed.
+
+
+### Provider conversation binding — 2026-10-23
+
+Continuation from `5765124c` on `codex/channex-staging-pilot`; original base
+`a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`, main reference refreshed without merge.
+Changed queue SQL, new provider thread reader and tests, shared SQL harness,
+SCHEMA.md and this handoff. Read-only GETs verify exact booking/property/channel
+and reciprocal conversation ownership, rechecking the forward link before saving
+an identity-only proof. SQL registration no longer depends on the timing observation
+that queue preparation creates. Route generation, scope and freshness are checked;
+conflicting remaps and browser calls fail. No message bodies or guest names persist.
+
+Contract references checked: https://docs.channex.io/api-v.1-documentation/messages-collection
+and https://docs.channex.io/api-v.1-documentation/channel-iframe . The booking
+relationship supplies message_thread ID; thread relationships supply booking,
+property and channel. Inquiry threads without a booking cannot qualify.
+These are synthetic tests; actual account messaging access remains unverified.
+No origin classifier was invented: imported status=new is insufficient evidence.
+Automatic discovery scheduling, trustworthy origin evidence, migration history and
+live acceptance remain outstanding. No hosted install, send or paid change.
+
+Validation passed: 236 shared database scenarios, 2,300 application tests,
+TypeScript and diff whitespace checks. The existing cleaner test's 30-minute ETA
+move now advances the fixture date across midnight rather than wrapping time alone;
+this repairs time-of-day-dependent validation without changing production logic.

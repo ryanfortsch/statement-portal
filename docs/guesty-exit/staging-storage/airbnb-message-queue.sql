@@ -241,4 +241,48 @@ begin
 end $$;
 revoke all on function public.helm_airbnb_messages_tick(integer) from public,anon,authenticated;
 grant execute on function public.helm_airbnb_messages_tick(integer) to service_role;
+-- Trusted server adapter attests to fresh read-only provider verification.
+-- SQL independently binds proof to the existing canonical mapping and route.
+-- This does NOT infer origin, create an observation, prepare jobs or enable sends.
+create function public.helm_airbnb_thread_register(p_proof jsonb)
+returns boolean language plpgsql security definer set search_path='' as $$
+declare sc helm_airbnb_bookings.scope; route public.automation_channex_routes;
+ b public.bookings; m helm_airbnb_bookings.bookings; old public.automation_message_thread_bindings;
+ stamp timestamptz; thread uuid;
+begin
+ if jsonb_typeof(p_proof) is distinct from 'object' or not(p_proof ?& array['environment','propertyId','channelId','routeGeneration','bookingId','canonicalBookingId','mappingGeneration','threadId','verifiedAt'])
+  or (select count(*) from jsonb_object_keys(p_proof))<>9 then raise exception 'Invalid thread proof'; end if;
+ select * into sc from helm_airbnb_bookings.scope where singleton for update;
+ select * into route from public.automation_channex_routes where property_id=sc.property_id for share;
+ select * into b from public.bookings where id=(p_proof->>'canonicalBookingId')::uuid for update;
+ select * into m from helm_airbnb_bookings.bookings where canonical_id=b.id;
+ stamp:=(p_proof->>'verifiedAt')::timestamptz;thread:=(p_proof->>'threadId')::uuid;
+ if not coalesce(sc.enabled,false) or b.id is null or m.remote_id is null or route.property_id is null
+  or b.property_id is distinct from sc.property_id or b.status::text is distinct from 'confirmed'
+  or b.channel::text is distinct from 'airbnb' or b.source is distinct from 'manual' or b.duplicate_of is not null
+  or b.source_ref is distinct from 'channex-airbnb:'||sc.environment||':'||sc.remote_property||':'||m.remote_id
+  or (m.environment,m.remote_property,m.generation) is distinct from (sc.environment,sc.remote_property,sc.generation)
+  or route.provider is distinct from 'Airbnb' or route.environment is distinct from sc.environment
+  or route.channex_property_id is distinct from sc.remote_property
+  or p_proof->>'environment' is distinct from sc.environment
+  or p_proof->>'propertyId' is distinct from sc.remote_property::text
+  or p_proof->>'channelId' is distinct from route.channel_id::text
+  or p_proof->>'routeGeneration' is distinct from route.generation::text
+  or p_proof->>'bookingId' is distinct from m.remote_id::text
+  or p_proof->>'mappingGeneration' is distinct from sc.generation::text
+  or coalesce(p_proof->>'verifiedAt','') !~ 'T.*(Z|[+-][0-9]{2}:[0-9]{2})$'
+  or stamp is null or not isfinite(stamp) or stamp>clock_timestamp() or stamp<clock_timestamp()-interval '5 minutes' or thread is null
+ then raise exception 'Thread proof scope or freshness mismatch'; end if;
+ select * into old from public.automation_message_thread_bindings where booking_id=b.id;
+ if found then
+  if (old.property_id,old.route_generation,old.environment,old.channel_id,old.channex_booking_id,old.thread_id)
+    is distinct from (b.property_id,route.generation,route.environment,route.channel_id,m.remote_id,thread)
+   then raise exception 'Thread binding identity conflict'; end if;
+  return true;
+ end if;
+ insert into public.automation_message_thread_bindings values(b.id,b.property_id,route.generation,route.environment,route.channel_id,m.remote_id,thread,'provider-thread:'||thread,stamp);
+ return true;
+end $$;
+revoke all on function public.helm_airbnb_thread_register(jsonb) from public,anon,authenticated;
+grant execute on function public.helm_airbnb_thread_register(jsonb) to service_role;
 commit;
