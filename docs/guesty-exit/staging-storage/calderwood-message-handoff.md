@@ -2205,3 +2205,37 @@ base `a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`; verified remote main
 `8eca0f27af4dfe1201ea00c33b8347e1557ba29e`. Changed files: this handoff,
 SCHEMA.md, message-new-stay-timing.sql and verify-message-new-stay-timing.mjs.
 Unrelated contract-readiness edits remain excluded. No deployment or paid change.
+
+
+### October 23 — atomic new-stay six-job preparation candidate
+
+Implemented automatic preparation after committed receipt timing, behind the
+unset `CHANNEX_CANONICAL_MESSAGE_QUEUE_ENABLED` worker/webhook flag and a disabled
+private database policy. Eligible stays get four guest jobs and two cleaner
+batches, all held/disabled, with stable IDs and reserved native-sender rails.
+Exact rule digests, route generation, stop/drain, current timing, mapped receipt,
+thread and enabled cleaner membership must agree. The queue cannot extend timing
+policy expiry. Existing queues are never adopted; retries preserve holds and IDs.
+A final journal failure rolls back all six sends and both provider queues.
+No source-history review is fabricated for these genuinely new receipt-based stays.
+
+Validation: 2,280 application tests / 242 suites, nonincremental TypeScript and
+203 disposable PostgreSQL scenarios. Nine new queue cases cover disabled policy,
+atomic six-job success/replay, missing thread/recipient/template rejection,
+late rollback/recovery, short-notice blocking, expiry, existing holds, changed
+route/cancellation, and permissions. Worker tests verify ordering, empty-cycle
+recovery and unconfirmed responses. Real SQL runs against fictional local receipts;
+no live provider delivery or hosted migration occurred.
+
+Remaining: short-notice cleaner behavior (asked the user: immediate or skip to
+arrival-day reminder), other past-due/DST cases, hosted candidate acceptance,
+verified real thread/destination binding and automated delivery/release acceptance.
+Held preparation is not live sending. Production access, PriceLabs parity,
+channel pauses and contract-timed cutover remain separate launch gates.
+
+Review: branch `codex/channex-staging-pilot`, starting commit `a02bca4f`, original
+base `a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`, refreshed origin/main
+`87038127dcacf372bc736a374920cf9d14979719`. Files: new queue SQL and its harness,
+new-stay timing harness entrypoint, mapped importer, canonical scheduler, staging
+webhook, canonical-message-date-feed tests, CLAUDE.md, SCHEMA.md and this handoff.
+Unrelated contract-readiness edits remain excluded. No live setting or spend change.

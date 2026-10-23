@@ -6,6 +6,7 @@ import { CanonicalRevisionConflict } from './canonical-conflicts.ts';
 type Environment = Record<string, string | undefined>;
 type Page = Awaited<ReturnType<typeof runMappedCanonicalRevisions>>;
 type CycleLog = { event: 'canonical-revision-cycle'; at: string; outcome: 'success' | 'failure'; failures: number;
+  queue?: { scanned: number; prepared: number; blocked: number; inactive: number; canSend: false };
   conflict?: CanonicalRevisionConflict['reason']; received?: number; applied?: number; stale?: number; acknowledged?: number; timing?: { scanned: number; refreshed: number; unchanged: number; blocked: number; inactive: number; canSend: false } };
 export function canonicalPollingEnabled(env: Environment) {
   return env.CHANNEX_CANONICAL_POLLING_ENABLED === 'true' && env.CHANNEX_WORKER_MODE === 'isolated-staging'
@@ -26,6 +27,7 @@ export function createCanonicalRevisionPageRunner(env: Environment, fetcher: typ
     };
     return runMappedCanonicalRevisions({ url: env.CHANNEX_STAGING_DB_URL!,
       storageKey: env.CHANNEX_STAGING_DB_SERVICE_KEY!, providerKey: env.CHANNEX_STAGING_API_KEY!,
+      prepareMessageQueue: env.CHANNEX_CANONICAL_MESSAGE_QUEUE_ENABLED === 'true',
       refreshMessageDates: env.CHANNEX_CANONICAL_MESSAGE_TIMING_ENABLED === 'true' }, boundedFetch);
   };
 }
@@ -44,7 +46,7 @@ export async function runCanonicalRevisionScheduler(input: {
       const page = await input.drainPage(AbortSignal.any([input.signal, AbortSignal.timeout(120000)]));
       received = page.received; failures = 0;
       entry = { event: 'canonical-revision-cycle', at: new Date((input.now ?? Date.now)()).toISOString(),
-        outcome: 'success', failures, received, applied: page.applied, stale: page.stale, acknowledged: page.acknowledged, ...('timing' in page ? { timing: page.timing } : {}) };
+        outcome: 'success', failures, received, applied: page.applied, stale: page.stale, acknowledged: page.acknowledged, ...('timing' in page ? { timing: page.timing } : {}), ...('queue' in page ? { queue: page.queue } : {}) };
     } catch (error) {
       if (input.signal.aborted) break;
       failures++;

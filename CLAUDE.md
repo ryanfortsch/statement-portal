@@ -643,7 +643,13 @@ the reviewed Guesty confirmation/history. The disabled-by-default candidate
 it is not installed. Candidate `message-new-stay-timing.sql` now connects receipt
 anchors to automatic approved-clock registration and date refresh through the
 existing service RPC. It keeps actual confirmation null for new stays, retaining
-the separate receipt basis. It does not create or authorize the six send jobs. The
+the separate receipt basis. The following `message-new-stay-queue.sql` candidate prepares six held jobs
+from an explicit private rule/route/cleaner policy. It reserves both provider rails
+atomically without inventing Guesty source history or enabling delivery. The worker
+and webhook can opt into this second transaction with
+`CHANNEX_CANONICAL_MESSAGE_QUEUE_ENABLED=true`; that flag remains unset live.
+Short-notice/past-due and ambiguous DST schedules remain blocked pending policy.
+The
 bootstrap is installed in isolated staging with an atomic import/move/cancel
 rehearsal and unchanged prior rows. It remains unapplied in production; details
 and checks are in the message handoff and `SCHEMA.md`.

@@ -11,6 +11,9 @@ const count = z.number().int().min(0).max(100);
 export const messageDateRefreshSchema = z.object({ scanned: count, refreshed: count, unchanged: count,
   blocked: count, inactive: count, canSend: z.literal(false) }).strict().refine(r =>
   r.scanned === r.refreshed + r.unchanged + r.blocked + r.inactive);
+export const messageQueuePreparationSchema = z.object({ scanned: count, prepared: count,
+  blocked: count, inactive: count, canSend: z.literal(false) }).strict().refine(r =>
+  r.scanned === r.prepared + r.blocked + r.inactive);
 export function parseCanonicalPilotRoute(raw: unknown): Readonly<StagingInventoryRoute> {
   const route = stagingInventoryRouteSchema.parse(raw);
   if (route.helmProperty !== CANONICAL_PILOT_PROPERTY ||
@@ -38,6 +41,14 @@ export function createMappedCanonicalRevisionAccess(url: string, key: string, fe
         }));
       } catch { throw Error('Message date refresh unconfirmed; canonical receipts retained'); }
     },
+    async prepareMessageQueue(raw: StagingInventoryRoute) {
+      const route = parseCanonicalPilotRoute(raw);
+      try {
+        return messageQueuePreparationSchema.parse(await rpc('helm_pilot_message_queue_prepare', {
+          p_connection: route.connection, p_generation: route.generation, p_limit: 100,
+        }));
+      } catch { throw Error('Message queue preparation unconfirmed; canonical receipts retained'); }
+    },
     store(raw: StagingInventoryRoute): CanonicalRevisionStore {
       const route = parseCanonicalPilotRoute(raw);
       const binding = { p_connection: route.connection, p_generation: route.generation };
@@ -58,14 +69,21 @@ export function createMappedCanonicalRevisionAccess(url: string, key: string, fe
 }
 /** Both entry points resolve the route before any provider request. No legacy fallback. */
 export async function runMappedCanonicalRevisions(input: {
-  url: string; storageKey: string; providerKey: string; refreshMessageDates?: boolean; revisionId?: string; bookingId?: string;
+  url: string; storageKey: string; providerKey: string; refreshMessageDates?: boolean; prepareMessageQueue?: boolean; revisionId?: string; bookingId?: string;
 }, fetcher: typeof fetch = fetch) {
+  if (input.prepareMessageQueue && !input.refreshMessageDates) throw Error('Message queue preparation requires automatic timing');
   const access = createMappedCanonicalRevisionAccess(input.url, input.storageKey, fetcher);
   const client = createCanonicalRevisionClient(input.providerKey, fetcher);
   const route = await access.route();
   const result = await ingestCanonicalRevisions(client, access.store(route), input.revisionId, input.bookingId);
   // ACKed revisions remain durable. Empty polling cycles recover a lost refresh
   // response or a restart between the ACK and this independently idempotent step.
-  if (input.refreshMessageDates === true) return { ...result, timing: await access.refreshMessageDates(route) };
+  if (input.refreshMessageDates === true) {
+    const timing = await access.refreshMessageDates(route);
+    // Separate transaction: newly committed observations must be visible to
+    // schedule resolution. Empty cycles recover an interrupted preparation.
+    if (input.prepareMessageQueue === true) return { ...result, timing, queue: await access.prepareMessageQueue(route) };
+    return { ...result, timing };
+  }
   return result;
 }

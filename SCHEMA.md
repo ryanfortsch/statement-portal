@@ -936,6 +936,25 @@ Existing observations/jobs are never adopted or overwritten.
 Registration uses wall-clock freshness under the booking lock so an observation
 created earlier in that same transaction can be registered. Date refresh retains
 the receipt identity, clocks and expiry; disabled receipt authority/cancellation
-withholds receipt timing. Six-job creation and delivery authorization remain
-separate unfinished integration work. No live table, channel, sender or deployment
+withholds receipt timing. Six-job preparation is implemented by the following candidate; delivery authorization remains separate. No live table, channel, sender or deployment
 was changed by this candidate.
+
+
+New-stay queue (**candidate, not installed**):
+`docs/guesty-exit/staging-storage/message-new-stay-queue.sql` follows the new-stay
+timing candidate. Private `message_new_stay_queue_policy` binds exact rule IDs and
+row digests, source stop/drain, message-route generation, sender/cleaner recipients
+and expiry; it defaults disabled. Private `message_new_stay_queues` journals the
+six stable send IDs per stay. Receipt anchors gain a fair queue retry cursor.
+`helm_pilot_message_queue_prepare` is a bounded service RPC that cannot choose
+rules or destinations. It checks receipt-basis provenance and latest mapped dates,
+current observation, reviewed thread, enabled cleaner membership and unchanged
+rules. It creates six **held** sends plus four Channex jobs and two disabled cleaner
+batches in one per-stay transaction. Registration triggers reserve delivery rails;
+no Guesty handoff/history evidence is fabricated. Replays do not release, retime or
+recreate jobs; unrelated existing queues block. Queue expiry cannot exceed timing
+policy expiry. The RPC returns only aggregate counts with canSend=false.
+Worker/webhook preparation is separately opt-in and follows timing refresh in a
+separate committed transaction, including empty recovery cycles. No runtime flag
+was activated. Missing/past or DST-ambiguous schedules block the entire stay;
+short-notice reminder policy and automated delivery acceptance remain outstanding.

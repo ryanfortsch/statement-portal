@@ -1,6 +1,7 @@
 // Local disposable database only. Canonical receipts are fictional fixtures;
 // the actual service refresh, observation, policy and scheduler functions run.
 import assert from 'node:assert/strict';
+import { verifyNewStayQueue } from './verify-message-new-stay-queue.mjs';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { CALDERWOOD_STAGING as mapping } from '../src/lib/calderwood-readonly/channex.ts';
@@ -114,4 +115,5 @@ export async function verifyNewStayTiming({db,scalar,connection,generation}) {
  assert.equal(await scalar('select count(*)::int data from automation_sends where booking_id=$1',[blocked.booking]),0);
  pass('worker cannot choose clocks or enable policy; onboarding creates no messages or sender activation');
  console.log(`PASS ${count} additional new-stay timing PostgreSQL scenarios; no live sends`);
+ await verifyNewStayQueue({db,scalar,connection,generation,fixture,refresh,receipt});
 }

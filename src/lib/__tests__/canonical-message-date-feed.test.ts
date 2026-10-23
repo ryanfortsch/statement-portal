@@ -11,7 +11,7 @@ const revision=parseCanonicalRevision({...mapping,id:'11111111-1111-4111-8111-11
   code:'HELMTEST-dates',status:'modified',checkIn:'2027-02-01',checkOut:'2027-02-04',receivedAt:'2026-10-22T14:00:00Z'});
 const result={scanned:1,refreshed:1,unchanged:0,blocked:0,inactive:0,canSend:false};
 const input={url,storageKey:'fixture',providerKey:'fixture'};
-function fixture(options:{rows?:boolean;timing?:unknown;failReceipt?:boolean;failTiming?:boolean}={}) {
+function fixture(options:{rows?:boolean;timing?:unknown;failReceipt?:boolean;failTiming?:boolean;queue?:unknown}={}) {
   const calls:string[]=[];
   const raw={id:revision.id,attributes:{booking_id:revision.bookingId,property_id:mapping.propertyId,ota_name:'Offline',ota_reservation_code:revision.code,
     status:revision.status,arrival_date:revision.checkIn,departure_date:revision.checkOut,inserted_at:revision.receivedAt,
@@ -23,6 +23,10 @@ function fixture(options:{rows?:boolean;timing?:unknown;failReceipt?:boolean;fai
       const name=u.pathname.split('/').at(-1);
       if(name==='helm_pilot_revision_route')return Response.json(route);
       const args=JSON.parse(String(init?.body));assert.equal(args.p_connection,route.connection);assert.equal(args.p_generation,route.generation);
+      if(name==='helm_pilot_message_queue_prepare') {
+        assert.deepEqual(args,{p_connection:route.connection,p_generation:route.generation,p_limit:100});
+        return Response.json(options.queue ?? {scanned:1,prepared:1,blocked:0,inactive:0,canSend:false});
+      }
       if(name==='helm_pilot_message_times_refresh'){
         assert.deepEqual(args,{p_connection:route.connection,p_generation:route.generation,p_limit:100});
         if(options.failTiming)throw Error('HELMTEST private transport details');
@@ -59,9 +63,9 @@ test('automatic date refresh follows the durable receipt and ACK, including sign
 test('empty backup polling refreshes durable timing after an event was already ACKed',async()=>{
   const f=fixture();const run=createCanonicalRevisionPageRunner({CHANNEX_CANONICAL_POLLING_ENABLED:'true',CHANNEX_WORKER_MODE:'isolated-staging',
     CHANNEX_STAGING_DB_PROJECT_REF:'jgkblfozftcvymvwhhii',CHANNEX_STAGING_DB_URL:url,CHANNEX_STAGING_API_KEY:'fixture',CHANNEX_STAGING_DB_SERVICE_KEY:'fixture',
-    CHANNEX_CANONICAL_MESSAGE_TIMING_ENABLED:'true'},f.fetcher);
+    CHANNEX_CANONICAL_MESSAGE_TIMING_ENABLED:'true',CHANNEX_CANONICAL_MESSAGE_QUEUE_ENABLED:'true'},f.fetcher);
   const page=await run(new AbortController().signal);assert.equal(page.received,0);assert.deepEqual('timing' in page&&page.timing,result);
-  assert.equal(f.calls.some(p=>p.endsWith('/ack')),false);
+  assert.equal(f.calls.some(p=>p.endsWith('/ack')),false);assert.equal('queue' in page&&page.queue?.prepared,1);
 });
 test('unverified canonical receipt prevents both ACK and timing refresh',async()=>{
   const f=fixture({rows:true,failReceipt:true});await assert.rejects(runMappedCanonicalRevisions({...input,refreshMessageDates:true},f.fetcher));
@@ -81,4 +85,24 @@ test('scheduler emits only aggregate date-feed outcomes and uses the existing re
   await runCanonicalRevisionScheduler({once:true,signal:new AbortController().signal,now:()=>0,log:e=>logs.push(e),
     drainPage:async()=>({received:0,applied:0,stale:0,acknowledged:0,completeCoverage:false,canSend:false,timing:{...result,refreshed:0,blocked:1}})});
   assert.deepEqual((logs[0] as {timing:unknown}).timing,{...result,refreshed:0,blocked:1});
+});
+
+test('six-job preparation runs after committed timing and recovers on empty polling cycles',async()=>{
+ for(const rows of [true,false]){
+  const f=fixture({rows});const page=await runMappedCanonicalRevisions({...input,refreshMessageDates:true,prepareMessageQueue:true},f.fetcher);
+  assert.deepEqual('queue' in page&&page.queue,{scanned:1,prepared:1,blocked:0,inactive:0,canSend:false});
+  assert.ok(f.calls.findIndex(p=>p.endsWith('/helm_pilot_message_queue_prepare'))>f.calls.findIndex(p=>p.endsWith('/helm_pilot_message_times_refresh')));
+ }
+});
+test('queue preparation fails closed without timing or with unconfirmed timing',async()=>{
+ const f=fixture();await assert.rejects(runMappedCanonicalRevisions({...input,prepareMessageQueue:true},f.fetcher),/requires automatic timing/);assert.equal(f.calls.length,0);
+ const failed=fixture({failTiming:true});await assert.rejects(runMappedCanonicalRevisions({...input,prepareMessageQueue:true,refreshMessageDates:true},failed.fetcher));
+ assert.equal(failed.calls.some(p=>p.includes('queue_prepare')),false);
+});
+test('malformed queue receipts never claim success or retry an acknowledged booking',async()=>{
+ for(const queue of [{scanned:1,prepared:0,blocked:0,inactive:0,canSend:false},{scanned:1,prepared:1,blocked:0,inactive:0,canSend:true},
+  {scanned:1,prepared:1,blocked:0,inactive:0,canSend:false,private:'HELMTEST'}]){
+  const f=fixture({rows:true,queue});await assert.rejects(runMappedCanonicalRevisions({...input,refreshMessageDates:true,prepareMessageQueue:true},f.fetcher),/queue preparation unconfirmed/);
+  assert.equal(f.calls.filter(p=>p.endsWith('/ack')).length,1);assert.equal(f.calls.filter(p=>p.includes('queue_prepare')).length,1);
+ }
 });
