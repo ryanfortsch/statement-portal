@@ -2580,3 +2580,20 @@ Validation passed: 236 shared database scenarios, 2,300 application tests,
 TypeScript and diff whitespace checks. The existing cleaner test's 30-minute ETA
 move now advances the fixture date across midnight rather than wrapping time alone;
 this repairs time-of-day-dependent validation without changing production logic.
+
+### Automatic conversation discovery candidate — 2026-10-23
+
+Continuation from `2abe5968` on `codex/channex-staging-pilot`; original base
+`a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`. Main reference refreshed without merge.
+Changed queue SQL, provider cycle/thread modules, their tests, shared queue harness,
+SCHEMA.md and this handoff. A separate durable discovery cursor selects unlinked
+confirmed stays fairly. The configured cycle discovers before each message sweep,
+validates the whole candidate batch against its mapping before provider reads,
+and isolates individual verification failures for retry. Existing thread binding
+and sender checks remain intact. Unknown origins still cannot prepare messages.
+
+Validation passed: 238 shared database scenarios, 2,303 application tests,
+TypeScript and diff checks. No hosted install, sender activation or paid changes.
+The existing Guesty reservation adapter exposes creation timestamp and confirmation
+code, but missing Guesty matches are not evidence of new origin; reliable origin
+reconciliation remains outstanding alongside production access and live acceptance.

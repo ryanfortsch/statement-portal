@@ -1017,3 +1017,10 @@ conversation binding. This is separate from timing, removing the queue/binding
 bootstrap dependency. It neither classifies booking origin nor grants send authority.
 The reader follows booking→thread→booking/property/channel and rechecks the forward
 link; SQL trusts the server adapter's remote verification, not a browser assertion.
+
+The inactive `helm_airbnb_thread_candidates` uses a separate `thread_checked_at`
+retry cursor to return bounded, exact-scope unlinked confirmed bookings. It does
+not require origin classification or create timing observations. The processing
+cycle optionally accepts an explicit thread reader and performs discovery before
+each queue sweep; missing or rejected conversations retry without starving peers.
+No ambient reader, credential or recurring schedule is enabled by this wiring.

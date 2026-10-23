@@ -285,4 +285,33 @@ begin
 end $$;
 revoke all on function public.helm_airbnb_thread_register(jsonb) from public,anon,authenticated;
 grant execute on function public.helm_airbnb_thread_register(jsonb) to service_role;
+-- Separate cursor from queue preparation: a missing conversation cannot starve
+-- another booking, and discovery continues even before origin is established.
+alter table helm_airbnb_bookings.bookings add column thread_checked_at timestamptz not null default '-infinity';
+create function public.helm_airbnb_thread_candidates(p_limit integer default 25)
+returns jsonb language plpgsql security definer set search_path='' as $$
+declare sc helm_airbnb_bookings.scope; r public.automation_channex_routes; item record; rows jsonb:='[]';
+begin
+ if p_limit is null or p_limit<1 or p_limit>100 then raise exception 'Invalid discovery limit'; end if;
+ select * into sc from helm_airbnb_bookings.scope where singleton for update;
+ select * into r from public.automation_channex_routes where property_id=sc.property_id for share;
+ if not coalesce(sc.enabled,false) or r.property_id is null or r.provider is distinct from 'Airbnb'
+  or (r.environment,r.channex_property_id) is distinct from (sc.environment,sc.remote_property) then return rows; end if;
+ for item in select m.* from helm_airbnb_bookings.bookings m join public.bookings b on b.id=m.canonical_id
+  where b.property_id=sc.property_id and b.status::text='confirmed' and b.channel::text='airbnb'
+   and b.source='manual' and b.duplicate_of is null
+   and b.source_ref='channex-airbnb:'||sc.environment||':'||sc.remote_property||':'||m.remote_id
+   and (m.environment,m.remote_property,m.generation)=(sc.environment,sc.remote_property,sc.generation)
+   and not exists(select 1 from public.automation_message_thread_bindings t where t.booking_id=b.id)
+  order by m.thread_checked_at,m.canonical_id limit p_limit for update of m
+ loop
+  update helm_airbnb_bookings.bookings set thread_checked_at=clock_timestamp() where remote_id=item.remote_id;
+  rows:=rows||jsonb_build_array(jsonb_build_object('environment',sc.environment,'propertyId',sc.remote_property,
+   'channelId',r.channel_id,'routeGeneration',r.generation,'bookingId',item.remote_id,
+   'canonicalBookingId',item.canonical_id,'mappingGeneration',sc.generation));
+ end loop;
+ return rows;
+end $$;
+revoke all on function public.helm_airbnb_thread_candidates(integer) from public,anon,authenticated;
+grant execute on function public.helm_airbnb_thread_candidates(integer) to service_role;
 commit;

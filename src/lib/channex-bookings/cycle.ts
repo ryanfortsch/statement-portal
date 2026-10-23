@@ -1,6 +1,7 @@
+import { discoverAirbnbThreads, type createAirbnbThreadReader } from './thread.ts';
 import { z } from 'zod';
 import { ingestAirbnbBookingRevisions, type AirbnbBookingStore, type AirbnbRevisionReader } from './ingestion.ts';
-import type { AirbnbBookingMapping } from './revision.ts';
+import {airbnbMappingSchema, type AirbnbBookingMapping } from './revision.ts';
 const summary = z.object({ scanned: z.number().int().min(0).max(100), prepared: z.number().int().min(0),
   refreshed: z.number().int().min(0), blocked: z.number().int().min(0), canSend: z.literal(false) }).strict();
 /** Explicit server adapters only. No timer, environment credentials or send action.
@@ -10,9 +11,10 @@ const summary = z.object({ scanned: z.number().int().min(0).max(100), prepared: 
  */
 export async function processAirbnbBookingCycle(client: AirbnbRevisionReader, store: AirbnbBookingStore,
   mapping: AirbnbBookingMapping,
-  rpc: (name: string, args: Record<string, unknown>) => Promise<{data: unknown; error: unknown}>, limit = 25) {
+  rpc: (name: string, args: Record<string, unknown>) => Promise<{data: unknown; error: unknown}>, limit = 25, threadReader?: ReturnType<typeof createAirbnbThreadReader>) {
   if (typeof window !== 'undefined' || !Number.isInteger(limit) || limit < 1 || limit > 100)
     throw Error('Invalid server processing cycle');
+  const scope=Object.freeze(airbnbMappingSchema.parse(mapping));
   const sweep = async () => {
     try {
       const response = await rpc('helm_airbnb_messages_tick', {p_limit: limit});
@@ -22,8 +24,10 @@ export async function processAirbnbBookingCycle(client: AirbnbRevisionReader, st
       return result;
     } catch { throw Error('Airbnb message recovery incomplete'); }
   };
+  const recoveredThreads = threadReader ? await discoverAirbnbThreads(scope,threadReader,rpc,limit) : null;
   const recovered = await sweep();
-  const ingestion = await ingestAirbnbBookingRevisions(client, store, mapping);
+  const ingestion = await ingestAirbnbBookingRevisions(client, store, scope);
+  const newThreads = threadReader ? await discoverAirbnbThreads(scope,threadReader,rpc,limit) : null;
   const queued = await sweep();
-  return {recovered, ingestion, queued, canSend: false as const};
+  return {recoveredThreads, recovered, ingestion, newThreads, queued, canSend: false as const};
 }

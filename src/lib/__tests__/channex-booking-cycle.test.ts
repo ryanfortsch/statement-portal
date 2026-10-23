@@ -27,3 +27,12 @@ test('invalid recovery responses and limits fail before provider calls without e
  await assert.rejects(()=>processAirbnbBookingCycle(client,store,mapping,async()=>({data:empty,error:null}),101),/Invalid/);
  assert.equal(calls,0);
 });
+
+test('configured cycle discovers conversations before each queue sweep',async()=>{
+ const events:string[]=[];
+ const client={inspect:async()=>{events.push('inspect');},feed:async()=>[],revision:async()=>null,acknowledge:async()=>{}};
+ const rpc=async(name:string)=>{events.push(name);return {data:name==='helm_airbnb_thread_candidates'?[]:empty,error:null};};
+ const read=async()=>{throw Error('no candidates');};
+ await processAirbnbBookingCycle(client,store,mapping,rpc,25,read);
+ assert.deepEqual(events,['helm_airbnb_thread_candidates','helm_airbnb_messages_tick','inspect','helm_airbnb_thread_candidates','helm_airbnb_messages_tick']);
+});

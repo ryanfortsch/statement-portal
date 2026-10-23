@@ -111,5 +111,17 @@ export async function verifyAirbnbMessageQueue({db,scalar}) {
  pass('conflicting or stale thread evidence cannot remap a stay');
  await db.query('set role authenticated');try{await assert.rejects(()=>bind(proof));}finally{await db.query('reset role');}
  pass('browser role cannot manufacture provider thread evidence');
+ const waiting=await fixture();await db.query('delete from automation_message_thread_bindings where booking_id=$1',[waiting.booking]);
+ const list=()=>scalar('select helm_airbnb_thread_candidates(100) data');
+ await db.query('set role service_role');let candidates;try{candidates=await list();}finally{await db.query('reset role');}
+ assert.ok(candidates.some(x=>x.canonicalBookingId===waiting.booking));assert.ok(!candidates.some(x=>x.canonicalBookingId===linked.booking));
+ assert.equal(candidates.find(x=>x.canonicalBookingId===waiting.booking).bookingId,waiting.remote);
+ pass('discovery returns exact unlinked booking scope without requiring origin or timing');
+ await db.query("update helm_airbnb_bookings.bookings set thread_checked_at='-infinity'");
+ const one=await scalar('select helm_airbnb_thread_candidates(1) data');const two=await scalar('select helm_airbnb_thread_candidates(1) data');
+ assert.equal(one.length,1);assert.equal(two.length,1);assert.notEqual(one[0].canonicalBookingId,two[0].canonicalBookingId);
+ await db.query('update helm_airbnb_bookings.scope set enabled=false');assert.deepEqual(await list(),[]);await db.query('update helm_airbnb_bookings.scope set enabled=true');
+ await assert.rejects(()=>scalar('select helm_airbnb_thread_candidates(101) data'));
+ pass('discovery cursor is fair, bounded and disabled with its scope');
  console.log(`PASS ${count} provider queue scenarios; no live sending`);
 }

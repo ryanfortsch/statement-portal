@@ -46,3 +46,25 @@ export async function registerAirbnbThread(scope:ThreadScope,read:ReturnType<typ
   return true;
  } catch {throw Error('Airbnb conversation registration incomplete');}
 }
+
+/** Fair bounded discovery. Failed reads remain eligible for a later cycle.
+ * Validate the entire candidate batch before requesting any provider data.
+ */
+export async function discoverAirbnbThreads(mapping: {environment:string;propertyId:string;generation:number},
+ read:ReturnType<typeof createAirbnbThreadReader>,
+ rpc:(name:string,args:Record<string,unknown>)=>Promise<{data:unknown;error:unknown}>,limit=25) {
+ if(typeof window!=='undefined'||!Number.isInteger(limit)||limit<1||limit>100) throw Error('Invalid discovery batch');
+ let candidates:ThreadScope[];
+ try {
+  const result=await rpc('helm_airbnb_thread_candidates',{p_limit:limit});
+  if(result.error) throw Error();
+  candidates=z.array(threadScopeSchema).max(limit).parse(result.data);
+  if(new Set(candidates.map(x=>x.canonicalBookingId)).size!==candidates.length||new Set(candidates.map(x=>x.bookingId)).size!==candidates.length||
+    candidates.some(x=>x.environment!==mapping.environment||x.propertyId!==mapping.propertyId||x.mappingGeneration!==mapping.generation)) throw Error();
+ } catch {throw Error('Airbnb conversation discovery incomplete');}
+ let linked=0,blocked=0;
+ for(const candidate of candidates){
+  try {await registerAirbnbThread(candidate,read,rpc);linked++;} catch {blocked++;}
+ }
+ return {scanned:candidates.length,linked,blocked,canSend:false as const};
+}

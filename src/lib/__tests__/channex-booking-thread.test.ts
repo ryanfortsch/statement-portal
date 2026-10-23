@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {createAirbnbThreadReader,registerAirbnbThread} from '../channex-bookings/thread.ts';
+import {createAirbnbThreadReader,registerAirbnbThread,discoverAirbnbThreads,type ThreadScope} from '../channex-bookings/thread.ts';
 const id=(n:number)=>`10000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 const scope={environment:'staging' as const,propertyId:id(1),channelId:id(2),routeGeneration:id(3),bookingId:id(4),canonicalBookingId:id(5),mappingGeneration:1};
 const rel=(id:string)=>({data:{id}});
@@ -28,4 +28,23 @@ test('changed forward link, HTTP failure and warnings fail closed',async()=>{
    return Response.json({data:calls===2?thread():b,...(mode==='warning'?{meta:{warnings:['PRIVATE']}}:{})});
   });await assert.rejects(()=>read(scope),/^Error: Airbnb conversation ownership could not be verified$/);
  }
+});
+
+test('discovery isolates a failed conversation and retries it on a later batch',async()=>{
+ const other={...scope,bookingId:id(7),canonicalBookingId:id(8)};let reads=0,fail=true;const saved:string[]=[];
+ const read=async(s:ThreadScope)=>{reads++;if(s.bookingId===scope.bookingId&&fail)throw Error('unavailable');return {...s,threadId:id(6),verifiedAt:new Date().toISOString()};};
+ const rpc=async(name:string,args:Record<string,unknown>)=>{
+  if(name==='helm_airbnb_thread_candidates')return {data:[scope,other].filter(s=>!saved.includes(s.bookingId)),error:null};
+  saved.push((args.p_proof as typeof scope).bookingId);return {data:true,error:null};
+ };
+ const mapping={environment:'staging',propertyId:id(1),generation:1};
+ assert.deepEqual(await discoverAirbnbThreads(mapping,read,rpc),{scanned:2,linked:1,blocked:1,canSend:false});
+ fail=false;assert.deepEqual(await discoverAirbnbThreads(mapping,read,rpc),{scanned:1,linked:1,blocked:0,canSend:false});
+ assert.equal(reads,3);assert.equal(new Set(saved).size,2);
+});
+test('out-of-scope or duplicate discovery batch makes no provider reads',async()=>{
+ let reads=0;const read=async(s:ThreadScope)=>{reads++;return {...s,threadId:id(6),verifiedAt:new Date().toISOString()};};
+ for(const data of [[scope,scope],[scope,{...scope,propertyId:id(9)}],null])
+  await assert.rejects(()=>discoverAirbnbThreads({environment:'staging',propertyId:id(1),generation:1},read,async()=>({data,error:null})),/discovery incomplete/);
+ assert.equal(reads,0);
 });
