@@ -5,6 +5,7 @@ import { join, isAbsolute } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { installBookingInventoryFixture } from './booking-inventory-fixture.mjs';
+import { createAirbnbRevisionReader } from '../src/lib/channex-bookings/client.ts';
 import { createAirbnbBookingStore } from '../src/lib/channex-bookings/store.ts';
 import { ingestAirbnbBookingRevisions } from '../src/lib/channex-bookings/ingestion.ts';
 import { normalizeAirbnbBookingRevision } from '../src/lib/channex-bookings/revision.ts';
@@ -16,7 +17,7 @@ let running=false,count=0;const connections=[];
 async function connect(){const c=new pg.Client({host:root,port:55485,user:'helmtest',database:'postgres'});await c.connect();connections.push(c);return c;}
 const id=n=>`30000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 const mapping={environment:'staging',propertyId:id(1),roomTypeId:id(2),ratePlanId:id(3),generation:1};
-const raw=(n,status='new',extra={})=>({id:id(n),attributes:{booking_id:id(5),property_id:id(1),ota_name:'Airbnb',ota_reservation_code:'SYNTHETIC123',status,
+const raw=(n,status='new',extra={})=>({type:'booking_revision',id:id(n),attributes:{booking_id:id(5),property_id:id(1),ota_name:'Airbnb',ota_reservation_code:'SYNTHETIC123',status,
  arrival_date:'2027-02-01',departure_date:'2027-02-04',inserted_at:`2026-10-23T12:00:00.${String(n).padStart(6,'0')}Z`,
  rooms:[{room_type_id:id(2),rate_plan_id:id(3),checkin_date:'2027-02-01',checkout_date:'2027-02-04'}],...extra}});
 try{
@@ -31,7 +32,22 @@ try{
  await db.query("insert into helm_airbnb_bookings.scope(property_id,environment,remote_property,room_type,rate_plan,generation) values('HELMTEST-provider','staging',$1,$2,$3,1)",[id(1),id(2),id(3)]);
  const storeFor=c=>createAirbnbBookingStore(async(name,args)=>({data:(await c.query(name==='helm_airbnb_revision_commit'?'select helm_airbnb_revision_commit($1) v':'select helm_airbnb_revision_receipt($1) v',[args.p_revision??args.p_id])).rows[0].v,error:null}));
  const store=storeFor(db);let acks=0;
- const run=async(r,storage=store)=>ingestAirbnbBookingRevisions({inspect:async()=>{},feed:async()=>[r],revision:async()=>r,acknowledge:async()=>{acks++;}},storage,mapping);
+ const run=async(r,storage=store)=>{
+  const rel=n=>({data:{id:id(n)}});
+  const reader=createAirbnbRevisionReader({mapping,apiKey:'SYNTHETIC',acknowledgeEnabled:true},async(input,init)=>{
+   const path=new URL(String(input)).pathname;
+   if(init.method==='POST'){
+    assert.equal(path,'/api/v1/booking_revisions/'+r.id+'/ack');
+    assert.ok(await storage.receipt(r.id),'ACK requires an actual database receipt');acks++;return Response.json({meta:{message:'Success'}});
+   }
+   if(path.endsWith('/properties/'+id(1)))return Response.json({data:{id:id(1)}});
+   if(path.endsWith('/room_types/'+id(2)))return Response.json({data:{id:id(2),relationships:{property:rel(1)}}});
+   if(path.endsWith('/rate_plans/'+id(3)))return Response.json({data:{id:id(3),relationships:{property:rel(1),room_type:rel(2)}}});
+   if(path.endsWith('/feed'))return Response.json({data:[r],meta:{page:1,limit:100,total:1}});
+   assert.equal(path,'/api/v1/booking_revisions/'+r.id);return Response.json({data:r});
+  });
+  return ingestAirbnbBookingRevisions(reader,storage,mapping);
+ };
  const pass=s=>{count++;console.log('PASS '+s);};
  const state=async()=>({bookings:await scalar("select count(*)::int v from bookings where property_id='HELMTEST-provider'"),receipts:await scalar('select count(*)::int v from helm_airbnb_bookings.receipts'),events:await scalar('select count(*)::int v from booking_events')});
  await assert.rejects(()=>run(raw(10)));assert.equal(acks,0);pass('disabled scope refuses booking and ACK');

@@ -2406,3 +2406,34 @@ acceptance. In particular, existing message-receipt SQL remains restricted to
 Offline rehearsal provenance; this candidate does not bypass that gate. It does
 not claim imported older bookings are newly confirmed or restart confirmation
 messages for them. Production access and actual message delivery remain unverified.
+
+### Provider HTTP reader and storage integration — October 23, 2026
+
+Branch `codex/channex-staging-pilot`; base `a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`.
+Added `src/lib/channex-bookings/client.ts` and its test file; updated
+`scripts/verify-airbnb-booking-storage.mjs` to exercise this actual HTTP adapter
+through the ingestion coordinator and database RPC adapter, with injected HTTP.
+
+The reader has fixed staging/production hosts, explicit server credentials,
+redirect refusal, no cache, bounded request time, and sanitized request errors.
+It checks exact property/room/rate relationships, validates first-page feed
+completeness and rejects mixed/duplicate revisions. It drains page one because
+ACK removes feed rows. ACK requires explicit opt-in, a fresh mapping inspection,
+and a re-fetch matching the complete normalized revision. Resource mapping does
+not prove Airbnb channel authorization, thread binding or message-send permission.
+No runtime entry point or environment flag activates this reader.
+
+API contract reference: https://docs.channex.io/api-v.1-documentation/bookings-collection
+(revision feed, fetch-by-ID, and ACK response). The first verification run caught
+valid resource responses lacking optional meta; corrected the parser and repeated
+the checks. Final: 2,293 application tests, TypeScript, diff checks, and all 12
+disposable PostgreSQL storage scenarios passed. The storage scenarios now traverse
+the actual HTTP adapter with synthetic responses and assert a database receipt
+exists at each simulated ACK. No external request, live credential use, deployment,
+channel mutation, or message send occurred. These are local integration checks,
+not live account/provider acceptance.
+
+Next: add a provider-specific timing/queue path using this journal's receipts;
+current Offline timing/queue provenance stays unchanged. Production account access,
+reviewed mapping, existing-booking reconciliation, and live delivery acceptance
+remain outstanding.
