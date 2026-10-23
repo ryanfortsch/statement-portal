@@ -371,3 +371,23 @@ export function rawReply(args: { from: string; to: string; subject: string; body
   const mime = `${headers.join('\r\n')}\r\n\r\n${args.body.replace(/\r?\n/g, '\r\n')}\r\n`;
   return Buffer.from(mime, 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
+
+// ---------------------------------------------------------------------------
+// The text to the operator when a lead turns serious (Dotti, 2026-10-23).
+
+export const LEASE_ALERT_MAX_ATTEMPTS = 3;
+
+/**
+ * One short text: who, which home, why serious, where to act. No income
+ * figure and no sign-off; the Leases page has the rest.
+ */
+export function seriousLeadText(lead: { renter_name: string | null; label: string | null; has_application: boolean; facts: Pick<LeadFacts, 'moveIn' | 'moveOut' | 'exitReason'> }, link: string): string {
+  const who = lead.renter_name?.trim() || 'A renter';
+  const home = lead.label ?? 'a winter lease listing';
+  const why = lead.has_application
+    ? 'applied on Zillow'
+    : [lead.facts.moveIn && lead.facts.moveOut ? `${lead.facts.moveIn} to ${lead.facts.moveOut}` : null, lead.facts.exitReason ? `leaving because: ${lead.facts.exitReason}` : null]
+        .filter(Boolean)
+        .join(', ');
+  return `Serious lease lead: ${who} for ${home}${why ? ` (${why})` : ''}. Reply in Zillow from ${link}`;
+}
