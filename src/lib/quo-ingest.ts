@@ -225,9 +225,7 @@ async function handleInboundMessage(msg: WebhookMessage): Promise<void> {
     // plain chatter ("OK I will") is a no-op. This used to throw into
     // quo_events.process_error, which no page reads, and the turnover never
     // got its completion.
-    if (worthFiling({ issue: looksLikeIssue(body), completion: looksLikeCompletion(body) })) {
-      await fileUnplacedCleanerText(cleanerHit, msg, body);
-    }
+    await fileUnplacedCleanerText({ messageId: msg.id, from: fromPhone, at: msg.createdAt, body, cleaner: cleanerHit });
     return;
   }
 
@@ -739,28 +737,47 @@ export async function recordCleanerText(args: {
 }
 
 /**
- * File a known cleaner's completion or issue text that matched no house, for
- * the home feed to ask about. One row per Quo message: a replay, or the
- * ingest running again after someone attached it, changes nothing.
+ * File a known cleaner's text that matched no house, for the home feed to
+ * ask about, when it is a completion or a reported problem; chatter ("OK I
+ * will") is not filed. One row per Quo message: a replay, the six-hourly
+ * sweep seeing it again, or the ingest running after someone attached it,
+ * changes nothing.
  *
- * When even this write fails the ingest throws, so the event's
- * process_error still holds it, with the message id and no words or phone.
+ * Exported because /api/sync-quo files into the same queue: the sweep is
+ * the net for a missed webhook delivery, and an unplaced text it caught was
+ * otherwise dropped a second time. Returns true when this call filed a new
+ * row.
+ *
+ * When even this write fails it throws, so the webhook event's
+ * process_error (or the sweep's errors) still holds it, with the message id
+ * and no words or phone.
  */
-async function fileUnplacedCleanerText(cleaner: CleanerRow, msg: WebhookMessage, body: string): Promise<void> {
-  const { error } = await supabase
+export async function fileUnplacedCleanerText(args: {
+  messageId: string;
+  from: string;
+  /** When the cleaner sent it: the completion time an Attach records. */
+  at: string;
+  body: string;
+  cleaner: { display_name: string | null; property_ids: string[] | null };
+}): Promise<boolean> {
+  const { messageId, from, at, body, cleaner } = args;
+  if (!worthFiling({ issue: looksLikeIssue(body), completion: looksLikeCompletion(body) })) return false;
+  const { data, error } = await supabase
     .from('cleaner_unplaced_texts')
     .upsert(
       {
-        quo_message_id: msg.id,
-        cleaner_phone: msg.from ?? '',
+        quo_message_id: messageId,
+        cleaner_phone: from,
         cleaner_name: cleaner.display_name || null,
         cleaner_property_ids: cleaner.property_ids ?? [],
         message_body: body,
-        message_at: msg.createdAt,
+        message_at: at,
       },
       { onConflict: 'quo_message_id', ignoreDuplicates: true },
-    );
-  if (error) throw new Error(unfiledTextError(msg.id, error.message));
+    )
+    .select('id');
+  if (error) throw new Error(unfiledTextError(messageId, error.message));
+  return (data ?? []).length > 0;
 }
 
 // Auto-open a maintenance slip from a cleaner's issue text. Idempotent on
