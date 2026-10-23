@@ -2310,3 +2310,27 @@ Review: branch codex/channex-staging-pilot, starting 2c23a331, original base
  a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8; fresh origin/main
  bdd050d6a87de2f363866153f0edbec8b7a188e1. Changed files: new worker integration
 harness, release harness entrypoint and this handoff. Contract edits excluded.
+
+### Provider booking normalization boundary — October 23, 2026
+
+Branch `codex/channex-staging-pilot`; base `a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`;
+current `origin/main` verified as `bdd050d6a87de2f363866153f0edbec8b7a188e1`.
+Added `src/lib/channex-bookings/revision.ts` and its pure synthetic test file
+`src/lib/__tests__/channex-booking-revision.test.ts`. This separate boundary accepts
+Airbnb new/modified/cancelled revisions only for an explicitly supplied exact
+property/room/rate mapping and generation. It rejects Offline rehearsal records,
+HELMTEST codes, mismatched room dates, multiple rooms, invalid IDs/dates/timestamps,
+and excludes guest/payment payloads. Errors are sanitized. Provider timestamps
+retain microsecond precision and are explicitly NOT Helm durable receipt times.
+
+Wire fields checked against https://docs.channex.io/api-v.1-documentation/bookings-collection.
+The OTA name proves origin only, not channel authorization or conversation binding.
+The helper is not wired to a worker, writes no booking, ACKs nothing, and grants no
+sending authority. Existing staging importer and SQL are unchanged. Remaining work:
+provider-specific durable storage/replay/order handling, verified route/channel and
+thread binding, receipt-based timing/queue integration, and production acceptance.
+No production account or successful live delivery has been verified.
+
+Validation: all 2,283 application tests passed. TypeScript and diff checks are
+recorded in the accompanying commit handoff; no SQL changed, so the disposable
+Postgres suite was not repeated for this pure normalization change.
