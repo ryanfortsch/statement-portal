@@ -912,6 +912,25 @@ putting receipt time in `confirmed_at`. Receipt retries and later modifications
 do not change the anchor. The scheduler retains actual confirmation for migrated
 stays and otherwise uses the separate receipt anchor; its other five calculations
 are unchanged. It creates no jobs or sender controls, grants no new worker/browser
-authority, and does not backfill existing reservations. The reviewed date-feed
-registration still requires actual confirmation; automatic new-stay clock/date
-onboarding requires a separate integration before this can be enabled.
+authority, and does not backfill existing reservations. The following
+candidate extends date-feed registration to preserve a separate receipt basis.
+
+
+Automatic new-stay clocks (**candidate, not installed in hosted staging or production**):
+`docs/guesty-exit/staging-storage/message-new-stay-timing.sql` follows the receipt
+timing candidate. It adds private `message_new_stay_clocks` with owner-reviewed
+arrival/departure clocks, route generation, expiry and disabled default. Date
+policies gain `confirmation_basis` and an exact receipt revision FK; the database
+constraint requires either an actual non-null confirmation or a separate receipt
+reference with null confirmation. Existing policies retain original-confirmation
+basis. The private `bootstrap_new_stay_times` step runs through the existing
+`helm_pilot_message_times_refresh` service RPC, with no new service/browser grant.
+It atomically observes verified mapped dates plus reviewed clocks and registers
+the date policy. Repeat passes skip registered stays, and blocked candidates rotate
+by last-check time. Existing observations/jobs are never adopted or overwritten.
+Registration uses wall-clock freshness under the booking lock so an observation
+created earlier in that same transaction can be registered. Date refresh retains
+the receipt identity, clocks and expiry; disabled receipt authority/cancellation
+withholds receipt timing. Six-job creation and delivery authorization remain
+separate unfinished integration work. No live table, channel, sender or deployment
+was changed by this candidate.

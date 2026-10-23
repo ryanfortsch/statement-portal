@@ -2148,3 +2148,36 @@ new local receipt timing harness, its bootstrap harness entry point, CLAUDE.md,
 SCHEMA.md and this handoff. The unrelated contract-readiness edits are excluded.
 Next: integrate this receipt basis with automatic new-stay clock/date policy and
 six-workflow registration, then run hosted acceptance before enabling any sender.
+
+
+## October 23: automatic new-stay clock/date onboarding candidate
+
+The existing service refresh RPC can now automatically bootstrap approved local
+clocks for a first-receipt stay, retaining null actual confirmation and a separate
+receipt basis. A disabled-by-default owner configuration supplies explicit clocks,
+route generation and expiry. The service cannot choose these values. Canonical
+identity/latest durable dates are checked under route/booking locks; observation
+and date-policy registration commit together. Prior observations or message jobs
+are not adopted. Retries skip registered stays; blocked candidates rotate.
+
+The local acceptance flow covers first receipt, service bootstrap, all six schedule
+calculations, date move, unchanged countdown, held code, cancellation, late rollback
+and retry, expiry/generation fences and compatibility with actual Guesty
+confirmation. The first run exposed same-transaction observation visibility in the
+old registration check; the candidate now checks identical provenance against
+wall-clock time under the booking lock. The final full suite passes.
+
+Current validation: **2,277 application tests / 242 suites**, nonincremental
+TypeScript, syntax checks and diff checks; **192 disposable PostgreSQL scenarios**,
+including nine new clock/date-onboarding cases. Fictional receipts were inserted
+as fixtures; the real service/observation/registration/scheduler SQL ran. No live
+provider traffic or messages occurred. Both new receipt candidates remain
+uninstalled on hosted staging and production; no paid resource or sender setting
+changed. Automatic creation/authorization of the six send jobs is still next.
+
+Review handoff: branch `codex/channex-staging-pilot`, starting commit `5b940480`,
+original base `a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`; fresh remote main
+`686806d9385aa7a11d1a99120ad3f0f6dc658f66`. Files: new
+`message-new-stay-timing.sql`, new `verify-message-new-stay-timing.mjs`, receipt
+harness entry point, CLAUDE.md, SCHEMA.md and this handoff. The unrelated
+contract-readiness edits remain excluded; no main merge or deployment.

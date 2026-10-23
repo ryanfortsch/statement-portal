@@ -640,7 +640,10 @@ first durable Helm receipt on October 23, 2026. Preserve this separate receipt
 basis; never relabel it as the original booking confirmation. Migrated stays keep
 the reviewed Guesty confirmation/history. The disabled-by-default candidate
 `message-receipt-timing.sql` implements this countdown in isolated staging SQL;
-it is not installed and does not yet onboard the other five workflows. The
+it is not installed. Candidate `message-new-stay-timing.sql` now connects receipt
+anchors to automatic approved-clock registration and date refresh through the
+existing service RPC. It keeps actual confirmation null for new stays, retaining
+the separate receipt basis. It does not create or authorize the six send jobs. The
 bootstrap is installed in isolated staging with an atomic import/move/cancel
 rehearsal and unchanged prior rows. It remains unapplied in production; details
 and checks are in the message handoff and `SCHEMA.md`.

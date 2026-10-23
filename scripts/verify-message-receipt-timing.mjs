@@ -1,5 +1,6 @@
 // Disposable PostgreSQL fixture only; no live providers or sender activation.
 import assert from 'node:assert/strict';
+import { verifyNewStayTiming } from './verify-message-new-stay-timing.mjs';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 export async function verifyReceiptTiming({db,scalar,connection,generation}) {
@@ -65,4 +66,5 @@ export async function verifyReceiptTiming({db,scalar,connection,generation}) {
  }
  pass('browser and worker roles cannot manufacture receipt anchors or enable policy');
  console.log(`PASS ${count} additional receipt timing PostgreSQL scenarios; no live sends`);
+ await verifyNewStayTiming({db,scalar,connection,generation});
 }
