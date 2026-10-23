@@ -53,5 +53,37 @@ export async function verifyAirbnbMessageQueue({db,scalar}) {
  assert.equal(await scalar('select automations_enabled data from properties where id=$1',[property]),false);
  assert.equal(await scalar('select count(*)::int data from automation_message_handoffs h join automation_sends s on s.id=h.send_id where s.booking_id=$1',[f.booking]),0);
  pass('sender activation and fabricated Guesty history remain absent');
+ const refresh=f=>scalar('select helm_airbnb_message_times_refresh($1) data',[f.booking]);
+ assert.equal(await refresh(f),false);pass('unchanged provider observation is idempotent');
+ const confirmation=await scalar('select automation_message_confirmation_anchor($1) data',[f.booking]);
+ const next=randomUUID();
+ await db.query("update bookings set check_in='2027-02-08',check_out='2027-02-11' where id=$1",[f.booking]);
+ assert.equal(await refresh(f),false);pass('unproven local date edit cannot refresh provenance');
+ await db.query("insert into helm_airbnb_bookings.receipts(revision_id,canonical_id,revision,outcome,first_received_at) select $1,canonical_id,revision || jsonb_build_object('revisionId',($1::uuid)::text,'status','modified','checkIn','2027-02-08','checkOut','2027-02-11'),'applied',first_received_at from helm_airbnb_bookings.receipts where revision_id=$2",[next,f.revision]);
+ await db.query("update helm_airbnb_bookings.bookings set latest_revision=$1,latest_at=clock_timestamp(),check_in='2027-02-08',check_out='2027-02-11' where canonical_id=$2",[next,f.booking]);
+ await db.query('set role service_role');try{assert.equal(await refresh(f),true);}finally{await db.query('reset role');}
+ assert.equal(await scalar('select automation_message_observation_current($1) data',[f.booking]),true);
+ assert.deepEqual(await scalar('select automation_message_confirmation_anchor($1) data',[f.booking]),confirmation);
+ assert.deepEqual(await scalar('select jsonb_agg(to_jsonb(s) order by id) data from automation_sends s where booking_id=$1',[f.booking]),snapshot);
+ pass('applied date receipt renews observation without changing held jobs or confirmation anchor');
+ const job=(await db.query("select * from automation_channex_jobs where booking_id=$1 and workflow='pre_arrival'",[f.booking])).rows[0];
+ assert.equal(await scalar("select automation_channex_refresh($1,automation_channex_schedule_context($1),repeat('a',64),automation_channex_schedule($1)) data",[job.send_id]),true);
+ assert.equal(await scalar("select status data from automation_sends where id=$1",[job.send_id]),'held');
+ assert.equal(await scalar("select planned_check_in::text data from automation_sends where id=$1",[job.send_id]),'2027-02-08');
+ pass('existing guest refresh retimes held work under its original job identity');
+ const cleaners=(await db.query('select j.id from automation_cleaner_jobs j join automation_cleaner_batches c on c.send_id=j.send_id where c.booking_id=$1',[f.booking])).rows;
+ assert.ok(cleaners.length>0);
+ for(const {id} of cleaners) assert.equal(await scalar('select automation_cleaner_refresh($1,automation_cleaner_context($1),automation_cleaner_schedule((select send_id from automation_cleaner_jobs where id=$1))) data',[id]),true);
+ assert.equal(await scalar("select count(*)::int data from automation_sends where booking_id=$1 and delivery_used='quo_cleaner' and status='held' and planned_check_in='2027-02-08'",[f.booking]),2);
+ pass('existing cleaner refresh retimes both held reminders');
+ await db.query("update automation_channex_jobs set state='unknown',attempted_at=clock_timestamp(),attempt_id=$2 where send_id=$1",[job.send_id,randomUUID()]);
+ assert.equal(await scalar("select automation_channex_refresh($1,automation_channex_schedule_context($1),repeat('b',64),automation_channex_schedule($1)) data",[job.send_id]),false);
+ pass('attempted guest job cannot be reset by date refresh');
+ assert.equal(await refresh(f),false);
+ await db.query('update helm_airbnb_bookings.message_origins set enabled=false where booking_id=$1',[f.booking]);
+ assert.equal(await refresh(f),false);pass('withdrawn evidence cannot be revived by refresh');
+ await db.query('update helm_airbnb_bookings.message_origins set enabled=true where booking_id=$1',[f.booking]);
+ await db.query("update bookings set status='cancelled' where id=$1",[f.booking]);
+ assert.equal(await refresh(f),false);pass('cancellation cannot renew message timing');
  console.log(`PASS ${count} provider queue scenarios; no live sending`);
 }

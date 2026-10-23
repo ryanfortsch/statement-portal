@@ -990,12 +990,15 @@ The additional inactive `airbnb-message-timing.sql` candidate adds private
 reviewed clocks and explicit new/migrated provenance to provider receipts.
 `helm_airbnb_message_schedule` projects six workflow times but creates no sends;
 unknown origin yields no plan and migrated history must be reconciled before use.
-There is no runtime origin classifier or queue wiring yet.
+There is no runtime origin classifier yet; the separate candidate queue below consumes the projection.
 
 `airbnb-message-queue.sql` (also inactive) adds private provider
 `message_queue_policy` and `message_queues`. Its service RPC atomically prepares
 six held sends using existing Channex jobs and disabled cleaner batches. It accepts
 only explicitly evidenced new stays, preserves prior queues, and enables no
 sender. Shared observation validation rejects withdrawn provider evidence. Provider
-date-refresh, runtime processing, migrated history and release remain separate
-outstanding integration work.
+runtime processing, migrated history and release remain separate outstanding integration work.
+`helm_airbnb_message_times_refresh` renews observations only for a new applied
+provider receipt, with queue observation/revision cursors guarding local overrides.
+Existing guest/cleaner refresh functions then retime eligible jobs without releasing
+holds or resetting delivery attempts. The candidate is not scheduled or installed.

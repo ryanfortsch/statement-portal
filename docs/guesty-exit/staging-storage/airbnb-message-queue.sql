@@ -18,6 +18,7 @@ create table helm_airbnb_bookings.message_queues (
  booking_id uuid primary key references public.bookings(id),
  policy_id uuid not null, receipt_revision uuid not null,
  send_ids uuid[] not null check(cardinality(send_ids)=6),
+ latest_observation uuid not null, latest_provider_revision uuid not null,
  prepared_at timestamptz not null default clock_timestamp()
 );
 alter table helm_airbnb_bookings.message_queue_policy enable row level security;
@@ -115,8 +116,9 @@ begin
   end if;
   ids:=array_append(ids,sid);
  end loop;
- insert into helm_airbnb_bookings.message_queues(booking_id,policy_id,receipt_revision,send_ids)
-  values(b.id,cfg.policy_id,origin.first_revision,ids);
+ insert into helm_airbnb_bookings.message_queues(booking_id,policy_id,receipt_revision,send_ids,latest_observation,latest_provider_revision)
+  values(b.id,cfg.policy_id,origin.first_revision,ids,
+   (select revision from public.automation_message_observations where booking_id=b.id),m.latest_revision);
  return true;
 end $$;
 revoke all on function public.helm_airbnb_message_queue_prepare(uuid) from public,anon,authenticated;
@@ -162,5 +164,51 @@ language sql stable security definer set search_path='' as $$
 $$;
 revoke all on function public.automation_message_confirmation_anchor(uuid) from public,anon,authenticated,service_role;
 
+
+-- Refresh provenance only. Existing workers render and retime unattempted jobs
+-- through their own compare-and-swap controls; holds/history are never rewritten.
+create function public.helm_airbnb_message_times_refresh(p_booking uuid)
+returns boolean language plpgsql security definer set search_path='' as $$
+declare sc helm_airbnb_bookings.scope; cfg helm_airbnb_bookings.message_queue_policy;
+ clocks helm_airbnb_bookings.message_clock_policy; q helm_airbnb_bookings.message_queues;
+ b public.bookings; m helm_airbnb_bookings.bookings; o public.automation_message_observations;
+ t public.automation_channex_stay_times; projection jsonb; observation uuid;
+begin
+ select * into sc from helm_airbnb_bookings.scope where singleton for update;
+ select * into cfg from helm_airbnb_bookings.message_queue_policy where singleton for share;
+ select * into clocks from helm_airbnb_bookings.message_clock_policy where singleton for share;
+ perform 1 from public.automation_channex_routes where property_id=sc.property_id for share;
+ select * into b from public.bookings where id=p_booking for update;
+ select * into q from helm_airbnb_bookings.message_queues where booking_id=p_booking for update;
+ select * into m from helm_airbnb_bookings.bookings where canonical_id=p_booking;
+ select * into o from public.automation_message_observations where booking_id=p_booking;
+ select * into t from public.automation_channex_stay_times where booking_id=p_booking;
+ projection:=public.helm_airbnb_message_schedule(p_booking);
+ if not coalesce(sc.enabled and cfg.enabled,false) or cfg.generation is distinct from sc.generation
+  or cfg.expires_at<=clock_timestamp() or q.policy_id is distinct from cfg.policy_id
+  or q.booking_id is null or projection->>'origin' is distinct from 'new'
+  or o.revision is distinct from q.latest_observation
+  or o.timing_digest is distinct from public.automation_message_timing_digest(t)
+  or (t.arrival_time,t.departure_time,t.confirmed_at) is distinct from (clocks.arrival_time,clocks.departure_time,null::timestamptz)
+  or exists(select 1 from public.checkout_adjustments where property_id=b.property_id and stay_check_in=b.check_in)
+ then return false; end if;
+ if public.automation_message_observation_current(b.id) then
+  update helm_airbnb_bookings.message_queues set latest_provider_revision=m.latest_revision where booking_id=b.id;
+  return false;
+ end if;
+ -- A local edit/revert cannot renew provenance without a fresh applied receipt.
+ if m.latest_revision=q.latest_provider_revision then return false; end if;
+ observation:=public.automation_message_observe_times(b.id,public.automation_message_stay_revision(b.id),o.revision,
+  jsonb_build_object('check_in',b.check_in,'check_out',b.check_out,'arrival_time',clocks.arrival_time,
+   'departure_time',clocks.departure_time,'confirmed_at',null,
+   'observed_at',to_char(statement_timestamp() at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
+   'source_revision','airbnb:'||m.latest_revision,'evidence_id',projection->>'evidenceId'));
+ if not public.automation_message_observation_current(b.id) then
+  raise exception 'Provider observation authority changed'; end if;
+ update helm_airbnb_bookings.message_queues set latest_observation=observation,latest_provider_revision=m.latest_revision where booking_id=b.id;
+ return true;
+end $$;
+revoke all on function public.helm_airbnb_message_times_refresh(uuid) from public,anon,authenticated;
+grant execute on function public.helm_airbnb_message_times_refresh(uuid) to service_role;
 
 commit;

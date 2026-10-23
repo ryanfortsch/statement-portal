@@ -2516,3 +2516,23 @@ controlled delivery acceptance and provider queue release, followed by hosted
 installation/account verification. This candidate alone does not make automated
 messaging operational and does not replace the user's requested automatic flow
 with a daily manual-release process.
+
+
+### Provider date refresh candidate — 2026-10-23
+
+Branch `codex/channex-staging-pilot`, continuation from `553b93d4`; original base
+`a148b0e6d9e9dbc7c6276c79f9000b85788dc0c8`. Refreshed origin/main without merging.
+Changed `airbnb-message-queue.sql`, `scripts/verify-airbnb-message-queue.mjs`, this
+handoff and SCHEMA.md. The inactive queue journal now retains observation and
+provider revision cursors. A service-only refresh renews timing provenance after
+an applied provider date change; it rejects local drift, withdrawn evidence,
+clock overrides, cancelled bookings and competing observation changes. Existing
+shared guest/cleaner refresh functions perform the subsequent job retiming while
+preserving holds and attempt history. No queue release or sender enablement.
+
+Synthetic validation covers both held delivery rails, stable confirmation anchor,
+replay, unsupported local edits, withdrawn origin, cancellation and unknown guest
+attempt preservation. Validation passed: 230 shared database scenarios, 2,293 application tests,
+TypeScript (`tsc --noEmit --incremental false`) and `git diff --check`.
+This is local candidate validation, not live delivery acceptance. Runtime polling,
+origin/history reconciliation, production access and cutover remain outstanding.
