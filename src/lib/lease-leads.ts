@@ -10,14 +10,19 @@
  *      code (decideVerdict). Only 'serious' reaches the home feed;
  *   4. send the screening message (screeningMessage, one fixed text) once to
  *      each lead that needs answers, through Zillow's relay address, from the
- *      mailbox the lead was addressed to (shouldSendScreening). ?dry=1 on the
- *      cron reports what would go out and sends nothing.
+ *      mailbox the lead was addressed to (shouldSendScreening);
+ *   5. text the operator once when a lead turns serious (seriousLeadText),
+ *      from the 24/7 line. ?dry=1 on the cron reports what would go out and
+ *      sends nothing.
  */
 
 import 'server-only';
 import { generateObject } from 'ai';
 import { z } from 'zod';
 import { supabaseAdmin, isServiceConfigured } from './supabase-admin';
+import { helmBaseUrl } from './daily-brief';
+import { parseRecipientList } from './meetings-core';
+import { normalizePhone, quoFromNumber, sendMessage } from './quo';
 import {
   decideVerdict,
   EMPTY_FACTS,
@@ -25,9 +30,11 @@ import {
   leadKey,
   listingFor,
   parseZillowMail,
+  LEASE_ALERT_MAX_ATTEMPTS,
   rawReply,
   scamSigns,
   screeningMessage,
+  seriousLeadText,
   shouldSendScreening,
   type LeadFacts,
   type LeaseListing,
@@ -212,11 +219,12 @@ export type LeaseLeadRun = {
   vetted: number;
   senders: Array<{ name: string; address: string | null; sendAs: string[]; canSend: boolean }>;
   screening: { sent: string[]; wouldSend: string[]; skippedNoSender: string[] };
+  alerts: { sent: string[]; wouldSend: string[] };
   errors: string[];
 };
 
 export async function runLeaseLeads(opts: { dry?: boolean; now?: Date } = {}): Promise<LeaseLeadRun> {
-  const run: LeaseLeadRun = { mailboxes: [], read: 0, filed: 0, vetted: 0, senders: [], screening: { sent: [], wouldSend: [], skippedNoSender: [] }, errors: [] };
+  const run: LeaseLeadRun = { mailboxes: [], read: 0, filed: 0, vetted: 0, senders: [], screening: { sent: [], wouldSend: [], skippedNoSender: [] }, alerts: { sent: [], wouldSend: [] }, errors: [] };
   const now = opts.now ?? new Date();
   if (!isServiceConfigured) return run;
 
@@ -373,6 +381,52 @@ export async function runLeaseLeads(opts: { dry?: boolean; now?: Date } = {}): P
       await supabaseAdmin.from('lease_leads').update({ screening_error: message }).eq('id', c.id);
       run.errors.push(`screening ${c.id}: ${message}`);
     }
+  }
+  // 5. Text the operator once per serious lead, from the 24/7 line.
+  const recipients = parseRecipientList(process.env.LEASE_ALERT_PHONES || process.env.DOTTI_PHONE);
+  const { data: serious } = await supabaseAdmin
+    .from('lease_leads')
+    .select('id, renter_name, zillow_address, has_application, facts, alert_attempts')
+    .eq('verdict', 'serious')
+    .is('dismissed_at', null)
+    .is('alerted_at', null)
+    .lt('alert_attempts', LEASE_ALERT_MAX_ATTEMPTS)
+    .limit(10);
+  for (const lead of (serious ?? []) as Array<{ id: string; renter_name: string | null; zillow_address: string | null; has_application: boolean; facts: LeadFacts; alert_attempts: number }>) {
+    const listing = listingFor(lead.zillow_address, listings);
+    const body = seriousLeadText({ renter_name: lead.renter_name, label: listing?.label ?? null, has_application: lead.has_application, facts: { ...EMPTY_FACTS, ...(lead.facts ?? {}) } }, `${helmBaseUrl()}/properties/leases`);
+    if (opts.dry) {
+      run.alerts.wouldSend.push(lead.id);
+      continue;
+    }
+    if (recipients.length === 0) {
+      await supabaseAdmin.from('lease_leads').update({ alert_error: 'no recipient: set DOTTI_PHONE or LEASE_ALERT_PHONES' }).eq('id', lead.id);
+      continue;
+    }
+    const { data: claimed } = await supabaseAdmin
+      .from('lease_leads')
+      .update({ alert_attempts: lead.alert_attempts + 1 })
+      .eq('id', lead.id)
+      .eq('alert_attempts', lead.alert_attempts)
+      .is('alerted_at', null)
+      .select('id');
+    if (!claimed || claimed.length === 0) continue;
+    const ids: string[] = [];
+    const errs: string[] = [];
+    for (const to of recipients) {
+      try {
+        const sent = await sendMessage({ from: quoFromNumber('ops'), to: `+1${normalizePhone(to)}`, content: body });
+        ids.push(sent.id);
+      } catch (err) {
+        errs.push(err instanceof Error ? err.message : String(err));
+      }
+    }
+    await supabaseAdmin
+      .from('lease_leads')
+      .update(ids.length > 0 ? { alerted_at: new Date().toISOString(), alert_message_id: ids[0], alert_error: errs.length ? errs.join(' | ') : null } : { alert_error: errs.join(' | ') || 'send failed' })
+      .eq('id', lead.id);
+    if (ids.length > 0) run.alerts.sent.push(lead.id);
+    else run.errors.push(`alert ${lead.id}: ${errs.join(' | ')}`);
   }
   return run;
 }

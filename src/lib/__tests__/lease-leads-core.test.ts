@@ -13,6 +13,7 @@ import {
   rawReply,
   scamSigns,
   screeningMessage,
+  seriousLeadText,
   seriousQueueText,
   shouldSendScreening,
   type LeadFacts,
@@ -221,4 +222,22 @@ describe('the screening message', () => {
     assert.match(text, /^From: ryan@risingtidestr\.com\r\nTo: abc123@convo\.zillow\.com\r\nSubject: Re: x\r\nIn-Reply-To: <m1@zillow\.com>\r\nReferences: <m1@zillow\.com>/);
     assert.match(text, /\r\n\r\nHi,\r\nThanks\r\n$/);
   });
+});
+
+test('the serious-lead text names who, which home and why, with no income figure or sign-off', () => {
+  const t = seriousLeadText(
+    { renter_name: 'Pat Example', label: 'the guest house at 17 Beach Road', has_application: false, facts: { moveIn: '2027-01-05', moveOut: '2027-04-25', exitReason: 'travel nurse contract ends April 24' } },
+    'https://helm.example/properties/leases',
+  );
+  assert.equal(t, 'Serious lease lead: Pat Example for the guest house at 17 Beach Road (2027-01-05 to 2027-04-25, leaving because: travel nurse contract ends April 24). Reply in Zillow from https://helm.example/properties/leases');
+  assert.ok(!/\$|income|thanks|rising tide$/i.test(t));
+  assert.match(seriousLeadText({ renter_name: null, label: null, has_application: true, facts: { moveIn: null, moveOut: null, exitReason: null } }, 'x'), /^Serious lease lead: A renter for a winter lease listing \(applied on Zillow\)/);
+});
+
+test('the serious-lead text goes out once, from the 24/7 line, claimed before sending', () => {
+  const io = readFileSync(new URL('../lease-leads.ts', import.meta.url), 'utf8');
+  assert.match(io, /seriousLeadText\(/);
+  assert.match(io, /quoFromNumber\('ops'\)/, 'the back-office line, never GUESTS');
+  assert.match(io, /\.is\('alerted_at', null\)/);
+  assert.match(io, /\.eq\('alert_attempts', lead\.alert_attempts\)/, 'compare-and-set claim');
 });
