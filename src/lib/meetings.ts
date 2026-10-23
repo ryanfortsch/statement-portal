@@ -64,6 +64,7 @@ function toCard(r: MeetingJoinRow): MeetingCard {
     location: r.location,
     notes: r.notes,
     important: r.important,
+    kind: r.kind === 'appointment' ? 'appointment' : 'meeting',
   };
 }
 

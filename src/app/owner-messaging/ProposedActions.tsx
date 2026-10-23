@@ -2,7 +2,7 @@
 
 import type { OwnerProposedAction } from '@/lib/stay-concierge';
 import type { AlsoItem } from '@/components/messaging/card/types';
-import { fmtDay } from '@/lib/vendor-visit-dates';
+import { fmtClock, fmtDay } from '@/lib/vendor-visit-dates';
 
 /** One row's presentation, keyed by kind. A table rather than a ternary
  *  chain: the chain ended in "everything else is a cleaner note", so every
@@ -37,6 +37,10 @@ const ACTION_STYLE: Record<string, { label: string; color: string }> = {
     label: 'Calendar',
     color: 'var(--tide-deep)',
   },
+  appointment: {
+    label: 'Appointment',
+    color: 'var(--tide-deep)',
+  },
 };
 
 function styleFor(kind: string) {
@@ -55,6 +59,7 @@ function actionHeadline(action: OwnerProposedAction): string {
       : `Add ${who} to the statement emails`;
   }
   if (action.kind === 'calendar_hold') return calendarHoldHeadline(action);
+  if (action.kind === 'appointment') return appointmentHeadline(action);
   return action.why;
 }
 
@@ -66,6 +71,12 @@ export function calendarHoldHeadline(action: Extract<OwnerProposedAction, { kind
   const crew = (action.who || action.what || 'the work').trim();
   const named = /'s\b|^the\b/i.test(crew) ? crew : `the ${crew}`;
   return `Hold the open nights for ${named}, ${days}`;
+}
+
+/** "City of Gloucester safety inspection, Fri Nov 6 at 9:30 AM". */
+export function appointmentHeadline(action: Extract<OwnerProposedAction, { kind: 'appointment' }>): string {
+  const when = action.start_time ? `${fmtDay(action.date)} at ${fmtClock(action.start_time)}` : fmtDay(action.date);
+  return `${(action.what || 'Appointment').trim()}, ${when}`;
 }
 
 /** The words that will actually reach someone outside the office, shown in
@@ -102,12 +113,15 @@ export function proposedActionItems(
   const turnoverNotes = tally.get('turnover_note') ?? 0;
   const recipients = tally.get('statement_recipient') ?? 0;
   const holds = tally.get('calendar_hold') ?? 0;
+  const appointments = tally.get('appointment') ?? 0;
 
   const items: AlsoItem[] = actions.map((action, i) => {
     const key = keys[i];
     const on = !skipped.has(key);
     const { label, color } = styleFor(action.kind);
     const draft = outboundWording(action);
+    // What the evening-before text will say, read before approving.
+    const detail = action.kind === 'appointment' ? (action.instructions || '').trim() : '';
     const urgent = action.kind === 'work_slip' && action.priority === 'high';
     const entersUnit = action.kind === 'guest_notice' && action.enters_guest_space;
     return {
@@ -135,6 +149,8 @@ export function proposedActionItems(
           {action.kind === 'guest_notice' && action.visit_date ? `${action.visit_date}: ` : ''}
           &ldquo;{draft}&rdquo;
         </p>
+      ) : detail ? (
+        <p style={{ margin: 0, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5, opacity: on ? 1 : 0.55 }}>{detail}</p>
       ) : undefined,
     };
   });
@@ -143,6 +159,7 @@ export function proposedActionItems(
     notes > 0 && 'A cleaner heads-up lands in the Cleaners queue for approval. It is not sent to anyone yet.',
     turnoverNotes > 0 && 'A turnover note joins the cleaners\u2019 schedule message for the day the crew is next at that house. That message still needs approving before it sends.',
     recipients > 0 && 'A recipient change updates the statement send list and the owner contacts on every property this owner receives statements for, so replies from that address reach this queue too.',
+    appointments > 0 && 'An appointment goes on the owner\u2019s CRM contact, marked important: a text to the office phone at 5 PM the evening before, and the home feed\u2019s Meetings card that day. The work slip filed beside it takes the same date.',
     holds > 0 && 'A calendar hold lands in the Team inbox as a hold card. It shows which of those nights are open, booked or already blocked (a night the owner blocked herself is left alone), and nothing is blocked until you approve it there.',
     guestCards > 0 && 'Anything for a guest lands in the Guests queue for approval, addressed to whoever is actually in the house. Nothing is created if the house is empty.',
   ].filter(Boolean) as string[];
