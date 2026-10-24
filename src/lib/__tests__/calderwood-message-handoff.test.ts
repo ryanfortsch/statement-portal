@@ -82,3 +82,49 @@ test('guest-only evidence never presents the full handoff as ready', () => {
   delete input.evidence!.messages.cleaner_arrival;
   assert.ok(calderwoodMessageHandoff(input).every(r => r.disposition === 'review' && !r.canSend));
 });
+
+test('partial guest observations expose exact source timing without clearing cleaner or takeover review', () => {
+  const input = fixture();
+  input.evidence!.complete = false;
+  input.evidence!.senderStoppedAt = null;
+  input.evidence!.messages.confirmation!.sent = true;
+  input.evidence!.messages.key_code!.queued = true;
+  input.evidence!.messages.key_code!.scheduledAt = '2027-01-15T21:00:00Z';
+  delete input.evidence!.messages.cleaner_reminder;
+  const rows = calderwoodMessageHandoff(input);
+  assert.equal(rows.find(r => r.key === 'confirmation')!.sourceState, 'completed');
+  assert.equal(row(input).sourceFireAt, '2027-01-15T21:00:00Z');
+  assert.equal(row(input).scheduleMismatch, true);
+  assert.equal(rows.find(r => r.key === 'cleaner_reminder')!.sourceState, 'unknown');
+  assert.ok(rows.every(r => r.disposition === 'review' && !r.canSend));
+});
+test('stale, mismatched, uncertain and conflicting observations cannot supply source schedules', () => {
+  for (const change of ['stale', 'revision', 'uncertain', 'conflict', 'past', 'invalid']) {
+    const input = fixture();
+    const message = input.evidence!.messages.key_code!;
+    message.queued = true;
+    message.scheduledAt = '2027-01-15T21:00:00Z';
+    if (change === 'stale') input.evidence!.observedAt = '2026-01-01T00:00:00Z';
+    if (change === 'revision') input.evidence!.revision = 'old';
+    if (change === 'uncertain') message.uncertain = true;
+    if (change === 'conflict') message.sent = true;
+    if (change === 'past') message.scheduledAt = '2026-01-01T00:00:00Z';
+    if (change === 'invalid') message.scheduledAt = 'invalid';
+    assert.equal(row(input).sourceFireAt, null);
+    assert.equal(row(input).canSend, false);
+  }
+});
+
+test('impossible calendar dates and timezone-free source schedules stay unverified', () => {
+  for (const scheduledAt of ['2027-02-30T21:00:00Z', '2027-01-15T21:00:00', '2027-01-15T24:00:00Z']) {
+    const input = fixture();
+    input.evidence!.messages.key_code!.queued = true;
+    input.evidence!.messages.key_code!.scheduledAt = scheduledAt;
+    assert.equal(row(input).sourceFireAt, null);
+  }
+  const input = fixture();
+  input.schedule.now = new Date('2027-03-02T15:00:00Z');
+  input.evidence!.observedAt = '2027-02-30T15:00:00Z';
+  assert.equal(row(input).sourceState, 'unknown');
+  assert.equal(row(input).disposition, 'review');
+});
