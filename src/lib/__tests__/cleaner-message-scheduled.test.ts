@@ -25,3 +25,90 @@ test('malformed and cross-property snapshots fail closed without exposing raw va
   assert.equal(result.blocked,1);assert.equal(JSON.stringify(result).includes('HELMTEST-secret'),false);
  }
 });
+
+import { quoFromNumber } from '../quo-lines.ts';
+import { messageHash, type CleanerTransport } from '../cleaner-messaging/transport.ts';
+
+function deliveryFixture() {
+ const body = 'HELMTEST cleaner arrival reminder.';
+ const snap = { jobId:id,sendId:id,propertyId:config.propertyId,status:'scheduled',
+  state:'prepared',attemptId:null as string|null,providerMessageId:null as string|null,
+  from:quoFromNumber('ops'),to:'+12025550101',bodySha256:messageHash(body),
+  revision:'a'.repeat(32),fireAt:'2027-01-01T20:00:00Z',renderAt:'2027-01-01T20:00:01Z',body,
+  input:{booking:{guest_name:'HELMTEST',check_in:'2027-01-01',check_out:'2027-01-04'},
+   guest:{first_name:'HELMTEST',full_name:null},
+   property:{name:'HELMTEST-home',title:null,address:null,wifi_name:null,parking:null},
+   plan:{checkin_time:'16:00',checkout_time:'11:00'},
+   access:{smart_lock_code:null,key_code_location:null,wifi_password:null},
+   stayCode:null,lockMapped:false,trashDay:null,timeZone:'America/New_York'} };
+ const calls:string[]=[]; let posts=0,reads=0,finishFailures=0;
+ let outcome:'accepted'|'unknown'='accepted';
+ const rpc:Parameters<typeof runScheduledCleanerMessages>[0]['rpc']=async(name,args)=>{
+  calls.push(name);
+  if(name==='automation_cleaner_candidates')return {data:[id,id],error:null};
+  if(name==='automation_cleaner_snapshot')return {data:{...snap},error:null};
+  if(name==='automation_cleaner_refresh'||name==='automation_cleaner_checked')return {data:true,error:null};
+  if(name==='automation_cleaner_claim'){
+   const allowed=snap.state==='prepared';
+   if(allowed){snap.state='attempting';snap.attemptId=args.p_attempt_id as string;}
+   return {data:allowed,error:null};
+  }
+  if(name==='automation_cleaner_finish'){
+   if(finishFailures>0){finishFailures--;throw Error('HELMTEST lost save response');}
+   snap.state=args.p_state as string;snap.providerMessageId=args.p_provider_id as string|null;
+   return {data:true,error:null};
+  }
+  throw Error('Unexpected RPC');
+ };
+ const transport:CleanerTransport={
+  send:async(target,text,claim)=>{
+   assert.equal(target.bodySha256,messageHash(text));
+   if(!await claim())return {state:'blocked'};
+   posts++;
+   return outcome==='unknown'?{state:'unknown'}:{state:'accepted',providerMessageId:'HELMTEST-message'};
+  },
+  receipt:async(target,providerId)=>{
+   reads++;assert.equal(providerId,'HELMTEST-message');assert.equal(target.to,snap.to);
+   return 'delivered';
+  }
+ };
+ return {snap,calls,posts:()=>posts,reads:()=>reads,
+  failFinishes:(n:number)=>{finishFailures=n;},uncertain:()=>{outcome='unknown';},
+  run:()=>runScheduledCleanerMessages({config,rpc,transport})};
+}
+test('cleaner scheduled send runs once across duplicate scan IDs and reconciles receipt next run',async()=>{
+ const f=deliveryFixture();
+ assert.equal((await f.run()).accepted,1);
+ assert.equal(f.posts(),1);
+ assert.equal((await f.run()).delivered,1);
+ assert.equal(f.posts(),1);assert.equal(f.reads(),1);
+ await f.run();assert.equal(f.posts(),1);
+});
+test('receipt persistence retry never repeats the provider send',async()=>{
+ const f=deliveryFixture();f.failFinishes(1);
+ assert.equal((await f.run()).accepted,1);
+ assert.equal(f.calls.filter(n=>n==='automation_cleaner_finish').length,2);
+ assert.equal(f.posts(),1);
+});
+test('exhausted persistence retries leave an attempted job unresolved without automatic resend',async()=>{
+ const f=deliveryFixture();f.failFinishes(2);
+ assert.equal((await f.run()).attention,1);
+ assert.equal(f.snap.state,'attempting');
+ assert.equal((await f.run()).attention,1);
+ assert.equal(f.posts(),1);assert.equal(f.reads(),0);
+});
+test('unknown provider outcome stays unresolved on subsequent scheduler runs',async()=>{
+ const f=deliveryFixture();f.uncertain();
+ assert.equal((await f.run()).attention,1);
+ assert.equal(f.snap.state,'unknown');
+ await f.run();assert.equal(f.posts(),1);assert.equal(f.reads(),0);
+});
+test('held and future cleaner jobs never claim or send',async()=>{
+ for(const mode of ['held','future']){
+  const f=deliveryFixture();
+  if(mode==='held')f.snap.status='held';else f.snap.fireAt='2027-01-02T20:00:00Z';
+  await f.run();
+  assert.equal(f.posts(),0);
+  assert.ok(!f.calls.includes('automation_cleaner_claim'));
+ }
+});
