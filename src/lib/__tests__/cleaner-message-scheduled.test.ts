@@ -112,3 +112,28 @@ test('held and future cleaner jobs never claim or send',async()=>{
   assert.ok(!f.calls.includes('automation_cleaner_claim'));
  }
 });
+
+test('malformed timing never refreshes, claims or sends a prepared cleaner job',async()=>{
+ for(const field of ['fireAt','renderAt'] as const){
+  for(const invalid of ['invalid','2027-01-01T20:00:00','2027-02-30T20:00:00Z','2027-01-01T24:00:00Z']){
+   const f=deliveryFixture();f.snap[field]=invalid;
+   const result=await f.run();
+   assert.equal(result.blocked,1,field+': '+invalid);
+   assert.equal(f.posts(),0);
+   assert.ok(!f.calls.includes('automation_cleaner_refresh'));
+   assert.ok(!f.calls.includes('automation_cleaner_claim'));
+  }
+ }
+});
+test('explicit timezone offsets are compared as instants for cleaner dispatch',async()=>{
+ const f=deliveryFixture();
+ f.snap.fireAt='2027-01-01T15:00:00-05:00';
+ assert.equal((await f.run()).accepted,1);
+ assert.equal(f.posts(),1);
+});
+test('receipt reconciliation survives invalid current schedule fields',async()=>{
+ const f=deliveryFixture();await f.run();
+ f.snap.fireAt='invalid';f.snap.renderAt='invalid';
+ assert.equal((await f.run()).delivered,1);
+ assert.equal(f.posts(),1);assert.equal(f.reads(),1);
+});

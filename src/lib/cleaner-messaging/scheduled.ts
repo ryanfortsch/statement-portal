@@ -21,6 +21,13 @@ const snapshotSchema = z.object({
   revision: z.string().regex(/^[a-f0-9]{32}$/).nullable(), fireAt: z.string().nullable(), renderAt: z.string(),
   body: z.string().nullable(), input: z.unknown(),
 });
+/** Require an actual calendar date and explicit timezone; Date.parse normalizes some invalid dates. */
+function scheduleInstant(value: string | null): number {
+  if (!value || !/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{1,6})?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/.test(value)) return NaN;
+  const day = Date.parse(value.slice(0, 10) + 'T00:00:00Z');
+  return Number.isFinite(day) && new Date(day).toISOString().slice(0, 10) === value.slice(0, 10)
+    ? Date.parse(value) : NaN;
+}
 export async function runScheduledCleanerMessages(options: {
   config: CleanerConfig | null; rpc: Rpc; propertyId?: string | null; dry?: boolean; transport?: CleanerTransport;
 }) {
@@ -55,10 +62,12 @@ export async function runScheduledCleanerMessages(options: {
         continue;
       }
       if (job.state !== 'prepared' || job.attemptId) { summary.attention++; continue; }
+      const fireAt = scheduleInstant(job.fireAt), renderAt = scheduleInstant(job.renderAt);
+      if (!Number.isFinite(fireAt) || !Number.isFinite(renderAt)) { summary.blocked++; continue; }
       if (await call('automation_cleaner_refresh', { p_job_id: jobId, p_revision: job.revision, p_fire_at: job.fireAt }) !== true) { summary.blocked++; continue; }
       if (job.status === 'held') { summary.held++; continue; }
       if (!['scheduled','sending'].includes(job.status) || job.from !== quoFromNumber('ops')) { summary.blocked++; continue; }
-      if (Date.parse(job.fireAt!) > Date.parse(job.renderAt)) continue;
+      if (fireAt > renderAt) continue;
       const rendered = renderScheduledMessage(job);
       const attemptId = randomUUID(); let claimed = false, uncertain = false;
       const target = { from: job.from, to: job.to, bodySha256: rendered.bodySha256 };
