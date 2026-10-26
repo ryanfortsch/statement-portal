@@ -59,16 +59,18 @@ test('the dated set-out names the night before and keeps the curb return', () =>
   for (const s of [friday.outLine, friday.backLine]) assert.doesNotMatch(s, /—/);
 });
 
-test('a home where we roll the carts asks the guest only to fill them', () => {
-  // 16 Waterman. The guest still brings the trash down; the curb is ours.
+test('a home where we roll the carts out asks the guest to fill them and bring them back in', () => {
+  // 16 Waterman. The guest still brings the trash down; rolling out is ours.
   const ours = cartSetOutFor('Gloucester', 'Tuesday', { cartsHandledByUs: true })!;
   assert.equal(ours.outNight, 'Monday');
   assert.match(ours.outLine, /bring the trash down/i);
   assert.match(ours.outLine, /lids closed/);
   assert.match(ours.outLine, /We roll the carts to the curb/);
   assert.doesNotMatch(ours.outLine, /and roll/, 'the guest is never asked to roll them');
-  assert.match(ours.backLine, /We bring the carts back in/);
-  assert.equal(ours.backWhen, null);
+  // Bringing them back in stays the guest's, even where we roll them out
+  // (Dotti, 2026-10-26), so the second step is the same on every home.
+  assert.equal(ours.backLine, 'Bring the carts back in.');
+  assert.equal(ours.backWhen, 'once emptied');
 
   const r = trashNoticeFor(prop({ id: '16_waterman', name: '16 Waterman', address: '16 Waterman Road', carts_handled_by_us: true }));
   assert.ok(r.ok);
