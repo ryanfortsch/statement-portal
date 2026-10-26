@@ -11,6 +11,7 @@ COPY scripts/channex-shared-worker.mts ./scripts/channex-shared-worker.mts
 COPY scripts/channex-inventory-rehearsal.mts ./scripts/channex-inventory-rehearsal.mts
 COPY scripts/channex-inventory-archive.mts ./scripts/channex-inventory-archive.mts
 COPY scripts/verify-provider-worker-package.mjs ./scripts/verify-provider-worker-package.mjs
+COPY scripts/channex-provider-rehearsal.mts ./scripts/channex-provider-rehearsal.mts
 USER node
 RUN node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/verify-provider-worker-package.mjs
 ENV CHANNEX_WORKER_MODE=isolated-staging

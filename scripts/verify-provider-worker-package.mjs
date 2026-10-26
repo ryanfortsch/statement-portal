@@ -3,6 +3,8 @@ import { createAirbnbRevisionReader } from '../src/lib/channex-bookings/client.t
 import { processAirbnbBookingCycle } from '../src/lib/channex-bookings/cycle.ts';
 import { createAirbnbThreadReader } from '../src/lib/channex-bookings/thread.ts';
 import { createAirbnbBookingStore } from '../src/lib/channex-bookings/store.ts';
+import { createStagingProviderRunner } from '../src/lib/channex-bookings/staging-runner.ts';
+if (createStagingProviderRunner({}) !== null) throw new Error('Provider runner must default off');
 if (typeof createAirbnbRevisionReader !== 'function' || typeof processAirbnbBookingCycle !== 'function'
     || typeof createAirbnbThreadReader !== 'function' || typeof createAirbnbBookingStore !== 'function')
   throw new Error('Provider worker modules incomplete');
