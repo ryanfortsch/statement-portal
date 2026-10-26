@@ -78,8 +78,8 @@ export type CartSetOut = {
   outNight: string;
   /** What the household does that evening. */
   outLine: string;
-  /** When the carts come back, as a label fragment ("once emptied"), or null when that is our job. */
-  backWhen: string | null;
+  /** When the carts come back, as a label fragment ("once emptied"). */
+  backWhen: string;
   /** What it does once the truck has been. */
   backLine: string;
 };
@@ -99,7 +99,9 @@ export type CartSetOut = {
  * first line, and the holiday shift is the reminder texts' job.
  *
  * `cartsHandledByUs` (properties.carts_handled_by_us) is the one home where we
- * roll the carts ourselves, so the guest only fills them. The two lines say so.
+ * roll the carts out ourselves, so the first line says so. Bringing them back
+ * in is still the guest's, on every home (Dotti, 2026-10-26: "we don't bring
+ * them back in, they do").
  */
 export function cartSetOutFor(
   city: string,
@@ -116,8 +118,8 @@ export function cartSetOutFor(
     outLine: ours
       ? 'Bring the trash down, lids closed. We roll the carts to the curb.'
       : 'Bring the trash down and roll the carts to the curb, lids closed.',
-    backWhen: ours ? null : 'once emptied',
-    backLine: ours ? 'We bring the carts back in.' : 'Bring the carts back in.',
+    backWhen: 'once emptied',
+    backLine: 'Bring the carts back in.',
   };
 }
 

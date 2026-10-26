@@ -23,14 +23,14 @@ export type TrashNotice = {
   /** The evening before, e.g. "Thursday". */
   outNight: string;
   outLine: string;
-  /** Label fragment for the second step ("once emptied"), null when the carts are our job. */
-  backWhen: string | null;
+  /** Label fragment for the second step ("once emptied"). */
+  backWhen: string;
   backLine: string;
   /** Where the carts live, from properties.trash_notes (location only, by contract). */
   location: string | null;
   /** 'row' when an operator set trash_day; 'street' when the DPW list answered. */
   daySource: 'row' | 'street';
-  /** We roll the carts for this home; the two steps say so. */
+  /** We roll the carts out for this home; the first step says so. */
   cartsHandledByUs: boolean;
 };
 

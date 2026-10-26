@@ -60,7 +60,7 @@ export function TrashNoticeCard({ notice }: { notice: TrashNotice }) {
               <dd>{notice.outLine}</dd>
             </div>
             <div className="rt-step">
-              <dt>{notice.backWhen ? `${notice.day}, ${notice.backWhen}` : notice.day}</dt>
+              <dt>{`${notice.day}, ${notice.backWhen}`}</dt>
               <dd>{notice.backLine}</dd>
             </div>
           </dl>

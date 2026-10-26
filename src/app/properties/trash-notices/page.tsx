@@ -80,7 +80,7 @@ export default async function TrashNoticesPage() {
                     <td>{n.day}</td>
                     <td>
                       {n.daySource === 'row' ? 'Set on the property' : 'DPW street list'}
-                      {n.cartsHandledByUs ? <span className="rt-review-flag">We move the carts</span> : null}
+                      {n.cartsHandledByUs ? <span className="rt-review-flag">We roll the carts out</span> : null}
                     </td>
                     <td className="rt-review-muted">{n.location ?? 'Nothing on file'}</td>
                   </tr>
