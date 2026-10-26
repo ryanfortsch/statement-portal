@@ -18,8 +18,6 @@ export type TrashNotice = {
   propertyId: string;
   /** Internal name: the operator index and the PDF filename. */
   propertyName: string;
-  /** What the card prints: the guest-facing title, else the internal name. */
-  displayName: string;
   /** Resolved collection weekday, e.g. "Friday". */
   day: string;
   /** The evening before, e.g. "Thursday". */
@@ -50,7 +48,7 @@ export const DPW_PHONE = '978-325-5600';
 
 /** The columns a notice needs. civicForProperty reads the civic four; the rest is the card. */
 export const TRASH_NOTICE_COLUMNS =
-  'id, name, title, address, city, trash_day, recycling_day, trash_notes, carts_handled_by_us, parking_regulations, is_active, kind';
+  'id, name, address, city, trash_day, recycling_day, trash_notes, carts_handled_by_us, parking_regulations, is_active, kind';
 
 /** The Gloucester homes the fleet-wide print page covers. */
 export function isTrashNoticeHome(p: Pick<HelmPropertyRow, 'is_active' | 'kind' | 'city'>): boolean {
@@ -81,7 +79,6 @@ export function trashNoticeFor(p: HelmPropertyRow): TrashNoticeResult {
     notice: {
       propertyId: p.id,
       propertyName: p.name,
-      displayName: (p.title ?? '').trim() || p.name,
       day: setOut.day,
       outNight: setOut.outNight,
       outLine: setOut.outLine,
