@@ -93,7 +93,6 @@ test('a Gloucester home on a single-day street gets a card from the street list'
   assert.ok(r.ok);
   assert.equal(r.notice.daySource, 'street');
   assert.equal(r.notice.outNight, dayBefore(r.notice.day));
-  assert.equal(r.notice.displayName, 'Stay at Horton');
   assert.equal(r.notice.location, null);
 });
 
@@ -105,8 +104,6 @@ test('an operator-set day wins and is labelled as the row', () => {
   assert.equal(r.notice.day, 'Friday');
   assert.equal(r.notice.outNight, 'Thursday');
   assert.equal(r.notice.daySource, 'row');
-  // Falls back to the internal name when there is no guest-facing title.
-  assert.equal(r.notice.displayName, '84 Thatcher');
 });
 
 test('a split street with no row day gets no card, and says to phone DPW', () => {
@@ -143,7 +140,7 @@ test('where the carts live rides through in the operator\'s words, trimmed', () 
 });
 
 test('the columns the pages select cover everything the notice reads', () => {
-  for (const col of ['id', 'name', 'title', 'address', 'city', 'trash_day', 'recycling_day', 'trash_notes', 'carts_handled_by_us', 'parking_regulations', 'is_active', 'kind']) {
+  for (const col of ['id', 'name', 'address', 'city', 'trash_day', 'recycling_day', 'trash_notes', 'carts_handled_by_us', 'parking_regulations', 'is_active', 'kind']) {
     assert.ok(TRASH_NOTICE_COLUMNS.split(',').map((c) => c.trim()).includes(col), col);
   }
 });

@@ -8,10 +8,14 @@ import { ScaMark } from './ScaMark';
  * before, back in once emptied), and where the carts live. Nothing else:
  * it is for guests (Dotti, 2026-10-09), so no small print and no filler.
  *
- * Same brand language as the WiFi placard, Welcome Card and bespoke
- * notices (navy frame, cream panel, Fraunces display, Inter body) so the
- * 4 x 6 set reads as one family. Every sentence comes from civic.ts or the
- * property row; nothing here words a rule of its own.
+ * One of the Stay Cape Ann 4 x 6 set with the Wi-Fi placard, Welcome card
+ * and bespoke notices, and it takes their measurements rather than its own
+ * (Dotti, 2026-10-26: "way off compared to our other guest wayfinding"):
+ * the same panel padding, the Wi-Fi card's 28px headline, the notice's
+ * 10px label caps, hairline rows, the Welcome card's light display face
+ * and italic voice, and the one-line staycapeann.com footer, so the cream
+ * panel ends at the same height on every card. Every sentence comes from
+ * civic.ts or the property row; nothing here words a rule of its own.
  *
  * Server-renderable. The per-property page, the fleet-wide print page and
  * the Puppeteer PDF all render this one component.
@@ -20,16 +24,18 @@ import { ScaMark } from './ScaMark';
  * The day is the headline and should fill the cream, but Fraunces widths
  * differ by almost two to one between "Friday" and "Wednesday", so one size
  * either cramps the long days or wastes the short ones. Sized per weekday
- * instead, each measured in the preview harness to sit just inside the
- * cream (about 290px of the 312px panel). Collection runs Monday to Friday;
- * anything else falls back to the smallest.
+ * instead, each measured in REAL Fraunces at weight 300 to sit about 236px
+ * wide inside the 256px the panel padding leaves. The first cut was measured
+ * against the Georgia fallback, which is narrower, and "Friday" at 118px ran
+ * off both sides of the cream. Collection runs Monday to Friday; anything
+ * else falls back to the smallest.
  */
 const DAY_SIZE: Record<string, number> = {
-  Monday: 92,
-  Tuesday: 86,
-  Wednesday: 60,
-  Thursday: 72,
-  Friday: 118,
+  Monday: 66,
+  Tuesday: 64,
+  Wednesday: 47,
+  Thursday: 56,
+  Friday: 84,
 };
 
 export function TrashNoticeCard({ notice }: { notice: TrashNotice }) {
@@ -41,7 +47,7 @@ export function TrashNoticeCard({ notice }: { notice: TrashNotice }) {
         <h1 className="rt-title">
           Trash <span className="rt-amp">&amp;</span> Recycling
         </h1>
-        <div className="rt-day" style={{ fontSize: DAY_SIZE[notice.day] ?? 60 }}>
+        <div className="rt-day" style={{ fontSize: DAY_SIZE[notice.day] ?? 47 }}>
           {notice.day}
         </div>
 
@@ -65,12 +71,8 @@ export function TrashNoticeCard({ notice }: { notice: TrashNotice }) {
         </div>
       </div>
 
-      {/* The home's name rides in the footer so a stack printed for the
-          whole fleet can be sorted by hand. Guest-facing title first. */}
-      <div className="rt-footer">
-        <div className="rt-footer-site">staycapeann.com</div>
-        <div className="rt-footer-home">{notice.displayName}</div>
-      </div>
+      {/* Navy footer band, one line like the rest of the set. */}
+      <div className="rt-footer">staycapeann.com</div>
     </article>
   );
 }
@@ -84,7 +86,6 @@ export const trashNoticeCss = `
   :root {
     --sca-navy: #0F2A44;
     --sca-cream: #F4ECD8;
-    --sca-sand: #C8B89A;
   }
 
   .rt-doc {
@@ -125,13 +126,13 @@ export const trashNoticeCss = `
     .rt-screen { display: none !important; }
   }
 
-  /* Cream inner panel. Mark, title and day sit at the top; the steps
-     centre in what is left. */
+  /* Cream inner panel, padded like the Wi-Fi placard. Mark, title and day
+     sit at the top; the steps centre in what is left. */
   .rt-panel {
     flex: 1;
     min-height: 0;
     background: var(--sca-cream);
-    padding: 24px 24px 22px;
+    padding: 28px 28px 30px;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -140,12 +141,14 @@ export const trashNoticeCss = `
     overflow: hidden;
   }
 
-  /* The subject. Clearly second to the day, but readable from the table. */
+  .rt-mark { line-height: 0; margin-top: 4px; }
+
+  /* The subject, set exactly like "Wi-Fi" on the placard. */
   .rt-title {
-    margin: 12px 0 0;
+    margin: 14px 0 0;
     font-family: var(--font-fraunces), Georgia, "Times New Roman", serif;
-    font-size: 25px;
-    line-height: 1.1;
+    font-size: 28px;
+    line-height: 1;
     font-weight: 400;
     letter-spacing: -0.01em;
     color: var(--sca-navy);
@@ -157,14 +160,14 @@ export const trashNoticeCss = `
     margin: 0 0.22em;
   }
 
-  /* The headline. Font size is set inline per weekday (DAY_SIZE) so every
-     day name fills the cream. */
+  /* The headline, in the Welcome card's light display face. Font size is
+     set inline per weekday (DAY_SIZE) so every day name fills the cream. */
   .rt-day {
-    margin: 4px 0 0;
+    margin: 12px 0 0;
     font-family: var(--font-fraunces), Georgia, "Times New Roman", serif;
     line-height: 1;
-    font-weight: 400;
-    letter-spacing: -0.03em;
+    font-weight: 300;
+    letter-spacing: -0.025em;
     color: var(--sca-navy);
     white-space: nowrap;
   }
@@ -172,14 +175,15 @@ export const trashNoticeCss = `
   /* Steps and location, centred in the height the day leaves. */
   .rt-body {
     margin: auto 0;
-    padding-top: 22px;
+    padding-top: 20px;
     width: 100%;
     display: flex;
     flex-direction: column;
     align-items: center;
   }
 
-  /* The two steps, as dated rows divided by hairlines. */
+  /* The two steps, as hairline rows like the placard's network and
+     password. */
   .rt-steps {
     margin: 0;
     padding: 0;
@@ -187,50 +191,50 @@ export const trashNoticeCss = `
     border-top: 1px solid var(--sca-navy);
   }
   .rt-step {
-    padding: 16px 0 15px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 12px 0;
     border-bottom: 1px solid var(--sca-navy);
   }
+  /* Label caps as on the notice eyebrow and the placard's rows. */
   .rt-step dt {
     margin: 0;
-    font-size: 11.5px;
-    letter-spacing: 0.26em;
+    font-size: 10px;
+    letter-spacing: 0.28em;
     text-transform: uppercase;
-    font-weight: 700;
+    font-weight: 600;
+    opacity: 0.7;
   }
   .rt-step dd {
-    margin: 7px 0 0;
-    font-size: 16px;
-    line-height: 1.4;
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.45;
+    text-wrap: balance;
   }
 
-  /* Where the carts live: the house's own voice, in italic Fraunces. */
+  /* Where the carts live: the house's own voice, in the Welcome card's
+     italic Fraunces. */
   .rt-location {
     margin: 16px 0 0;
     font-family: var(--font-fraunces), Georgia, serif;
     font-style: italic;
-    font-size: 14.5px;
-    line-height: 1.45;
-    max-width: 264px;
+    font-size: 13px;
+    line-height: 1.55;
+    max-width: 250px;
+    text-wrap: balance;
   }
 
-  /* Navy footer band. Bottom padding generous so the wordmark sits inside
-     the bleed-safe zone on a printed card. */
+  /* Navy footer band, the same line and padding as the rest of the set so
+     the cream ends at the same height on every card. */
   .rt-footer {
     color: var(--sca-cream);
     text-align: center;
-    padding: 12px 0 16px;
-  }
-  .rt-footer-site {
     font-family: var(--font-fraunces), Georgia, serif;
     font-style: italic;
     font-size: 13px;
     letter-spacing: 0.04em;
-  }
-  .rt-footer-home {
-    margin-top: 4px;
-    font-size: 8.5px;
-    letter-spacing: 0.24em;
-    text-transform: uppercase;
-    opacity: 0.6;
+    padding: 18px 0 22px;
   }
 `;
