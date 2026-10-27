@@ -580,3 +580,23 @@ test('full sync refuses an unreviewed intent or a shorter window before provider
   }
   assert.equal(f.calls.length, 0);
 });
+
+
+test('full-sync worker cycles reconcile and survive restart without another post or new intent', async () => {
+  const f = await fixture();
+  f.state.configuration.end = '2028-05-16';
+  f.state.configuration.coverage[0].end = f.state.configuration.end;
+  f.state.configurationVersion++;
+  await consumeBookingInventory(f.store, f.clock);
+  const job = f.job(), review = { id: job.id, digest: job.digest };
+  for (const day of job.days) f.counts[day.date] = day.available;
+  assert.equal((await runBookingInventoryCycle(f.store, f.client, f.clock, review)).status, 'submitted');
+  const post = f.calls.find(c => c.method === 'POST')!;
+  f.replies.task.data.attributes.payload = post.body as typeof f.replies.task.data.attributes.payload;
+  assert.equal((await runBookingInventoryCycle(f.store, f.client, f.clock, review)).status, 'verified');
+  const version = f.state.planVersion;
+  assert.equal((await runBookingInventoryCycle(f.store, f.client, f.clock, review)).status, 'verified');
+  assert.equal(f.state.planVersion, version);
+  assert.equal(f.calls.filter(c => c.method === 'POST').length, 1);
+  await assert.rejects(() => runBookingInventoryCycle(f.store, f.client, f.clock, { ...review, id: 'absent' }), /intent unavailable/);
+});

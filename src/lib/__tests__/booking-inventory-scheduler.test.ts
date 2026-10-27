@@ -145,3 +145,16 @@ test('worker certifies a complete source while paused without publishing invento
     if(saved) {calls.length=0;await runner(new AbortController().signal);assert.deepEqual(calls.map(c=>c.path),['/rest/v1/rpc/helm_booking_inventory_read']);}
   }
 });
+
+
+test('full-sync runner requires both exact pins and a configured window', () => {
+  const pins = { CHANNEX_INVENTORY_FULL_SYNC_ID: 'projection-' + 'a'.repeat(64), CHANNEX_INVENTORY_FULL_SYNC_DIGEST: 'b'.repeat(64) };
+  assert.throws(() => createInventoryCycleRunner({ ...env, ...pins }), /configured-window/);
+  const configured = { ...env, CHANNEX_CALDERWOOD_INVENTORY_WINDOW: 'configured-window' };
+  assert.doesNotThrow(() => createInventoryCycleRunner({ ...configured, ...pins }));
+  for (const value of [{ CHANNEX_INVENTORY_FULL_SYNC_ID: pins.CHANNEX_INVENTORY_FULL_SYNC_ID },
+    { CHANNEX_INVENTORY_FULL_SYNC_DIGEST: pins.CHANNEX_INVENTORY_FULL_SYNC_DIGEST },
+    { ...pins, CHANNEX_INVENTORY_FULL_SYNC_ID: '' }, { ...pins, CHANNEX_INVENTORY_FULL_SYNC_DIGEST: 'wrong' }]) {
+    assert.throws(() => createInventoryCycleRunner({ ...configured, ...value }), /configured-window/);
+  }
+});

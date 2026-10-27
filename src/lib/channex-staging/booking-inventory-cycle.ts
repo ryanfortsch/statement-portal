@@ -25,11 +25,26 @@ export async function reconcileBookingInventoryOnce(store: InventoryJournalStore
   return { status: !saved.saved ? 'superseded' as const : saved.result ? 'verified' as const : 'needs-review' as const };
 }
 
-export async function runBookingInventoryCycle(store: BookingInventoryConsumerStore, client: ChannexAvailabilityClient, clock = Date.now) {
+export async function runBookingInventoryCycle(store: BookingInventoryConsumerStore, client: ChannexAvailabilityClient, clock = Date.now, fullSync?: { id: string; digest: string }) {
   await recordInventoryCommand(store.journal, { kind: 'expire', now: clock() });
   const state = parseBookingInventoryState(await store.read(), store.property), c = state.configuration, r = client.route;
   if (r.helmProperty !== store.property || r.connection !== c.connection || r.generation !== c.generation || r.roomTypeId !== c.listing) {
     throw Error('Inventory cycle route mismatch');
+  }
+  // Explicit certification mode pins an existing intent. It never creates a new
+  // job on restart or falls back to ordinary delta planning while armed.
+  if (fullSync !== undefined) {
+    const job = replayInventoryJournal(state.journal).queue.list().find(j => j.id === fullSync?.id);
+    if (!job || job.digest !== fullSync?.digest || job.days.length !== 500) throw Error('Reviewed full-sync intent unavailable');
+    if (['submitted', 'uncertain', 'verified'].includes(job.status) &&
+        (!job.request || JSON.parse(job.request.body).values.length !== 500)) {
+      throw Error('Existing attempt is not a 500-day full sync');
+    }
+    if (job.status === 'verified') return { phase: 'reconcile' as const, status: 'verified' as const };
+    if (['submitted', 'uncertain'].includes(job.status)) {
+      return { phase: 'reconcile' as const, ...await reconcileBookingInventoryOnce(store.journal, client, job.id) };
+    }
+    return { phase: 'deliver' as const, ...await deliverBookingInventoryOnce(store, client, job.id, clock, fullSync) };
   }
   const unresolved = replayInventoryJournal(state.journal).queue.list().find(j => !['pending', 'verified', 'superseded'].includes(j.status));
   if (unresolved) {

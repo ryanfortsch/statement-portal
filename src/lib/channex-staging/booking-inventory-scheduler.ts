@@ -33,6 +33,12 @@ export function createInventoryCycleRunner(env: Environment, fetcher: typeof fet
   if (automaticSource && !canonicalPollingEnabled(env)) throw Error('Canonical polling required for automatic source coverage');
   const mode = env.CHANNEX_CALDERWOOD_INVENTORY_WINDOW ?? 'fixed-pilot';
   if (!['fixed-pilot', 'configured-window', 'rolling-year'].includes(mode)) throw Error('Unknown inventory window mode');
+  const fullSyncId = env.CHANNEX_INVENTORY_FULL_SYNC_ID;
+  const fullSyncDigest = env.CHANNEX_INVENTORY_FULL_SYNC_DIGEST;
+  const fullSync = fullSyncId !== undefined || fullSyncDigest !== undefined
+    ? { id: fullSyncId ?? '', digest: fullSyncDigest ?? '' } : undefined;
+  if (fullSync && (mode !== 'configured-window' || !/^projection-[a-f0-9]{64}$/.test(fullSync.id) ||
+      !/^[a-f0-9]{64}$/.test(fullSync.digest))) throw Error('Explicit configured-window full-sync binding required');
   const property = env.CHANNEX_INVENTORY_HELM_PROPERTY ?? CALDERWOOD_INVENTORY_PILOT.property;
   if (!/^HELMTEST-[a-z0-9-]{1,100}$/.test(property)) throw Error('Explicit fictional staging property required');
   // Import and midnight-window SQL are still limited to the original rehearsal.
@@ -96,7 +102,7 @@ export function createInventoryCycleRunner(env: Environment, fetcher: typeof fet
     if (isolated.days.some(d => d.stopSell !== true || Object.values(d).some(v => v === null))) {
       throw Error('Complete stopped staging calendar required');
     }
-    return runBookingInventoryCycle(store, client);
+    return runBookingInventoryCycle(store, client, Date.now, fullSync);
   };
 }
 export async function runInventoryScheduler(input: {
