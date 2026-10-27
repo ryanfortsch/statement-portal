@@ -3,7 +3,7 @@
 // single failing dimension doesn't sink the whole sync. Used by both
 // the daily cron route and the 90-day backfill script.
 
-import { createClient } from '@supabase/supabase-js';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import {
   fetchTraffic,
   fetchTopPages,
@@ -18,13 +18,6 @@ type Site = {
   ga4_property_id: string;
   vercel_project_id: string | null;
 };
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey =
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-  '';
-const supabase = createClient(supabaseUrl, supabaseKey);
 
 export type SyncResult = {
   site_id: string;

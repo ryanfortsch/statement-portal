@@ -7,7 +7,7 @@ import { RetryRefresh } from '@/components/RetryRefresh';
 import { MessagingTabs } from '@/components/MessagingTabs';
 import { QueueSkeleton } from '@/components/QueueSkeleton';
 import { isStayConciergeConfigured, listBlurbs, explainError } from '@/lib/stay-concierge';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { BlurbsLibrary } from './BlurbsLibrary';
 
 /**

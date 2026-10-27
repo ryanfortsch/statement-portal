@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 
 /**
  * Bespoke per-property guest notices. Each one is a 4×6 Stay Cape Ann

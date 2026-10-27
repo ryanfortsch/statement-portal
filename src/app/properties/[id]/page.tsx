@@ -31,7 +31,7 @@ import { PropertyTabs, TabSection } from './PropertyTabs';
 import { DocumentsPanel } from './DocumentsPanel';
 import { GuestCodesPanel } from './GuestCodesPanel';
 import { QuickCapture } from './QuickCapture';
-import { getPropertyDocuments } from '@/lib/property-documents';
+import { getPropertyDocuments } from '@/lib/property-documents-server';
 import { startContractRenewal } from '@/app/projections/actions';
 import {
   getPropertyContracts,

@@ -1,4 +1,4 @@
-import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
+import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
 import type { CompetitorId, AddressMatch } from './types';
 
 /**

@@ -7,13 +7,13 @@
  *      (sync-guesty maps each listing to a property).
  *   2. sca_launches.guesty_listing_id — what the operator typed when
  *      launching the property onto staycapeann.com.
- * Both tables are anon-readable, so the shared anon client is fine here.
+ * Both tables are read through the server-only service client.
  * First non-empty wins; returns '' when nothing maps.
  *
  * Mirrors the private resolver in caption-photos/actions.ts, lifted to a lib
  * so the Guesty field-sync tool shares the exact same resolution order.
  */
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 
 export async function resolveGuestyListingId(
   propertyId: string,

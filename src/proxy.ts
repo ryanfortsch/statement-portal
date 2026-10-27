@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { hasHelmSession } from "@/lib/helm-session";
 import { NextResponse } from "next/server";
 import { apiRequiresOwner, effectiveRole, pathRequiresOwner, NOT_AVAILABLE_PATH, VIEW_AS_COOKIE } from "@/lib/helm-access";
 
@@ -7,7 +8,7 @@ import { apiRequiresOwner, effectiveRole, pathRequiresOwner, NOT_AVAILABLE_PATH,
  *   /auth/...               sign-in flow
  *   /api/auth/...           NextAuth callback handlers
  *   /statements/render      print page (called by puppeteer with the Vercel
- *                           protection bypass token; no human session)
+ *                           scoped statement render token; self-guards)
  *   /onboarding/<token>     owner intake form sent to prospects after the
  *                           contract is signed; gated by knowledge of a
  *                           per-prospect random token
@@ -258,7 +259,7 @@ export default auth((req) => {
     // Exact match on purpose: a prefix would also open /api/upload-platform-csv.
     if (pathname === "/api/upload") return;
     if (PUBLIC_API_PREFIXES.some((p) => pathname.startsWith(p))) return;
-    if (req.auth) {
+    if (hasHelmSession(req.auth)) {
       // Owner-only endpoints (the statement pipeline, bank and receipt
       // writes, Stripe, the books, contracts). A staff session gets a 403,
       // never a redirect: these are fetch callers. The role is the
@@ -271,7 +272,7 @@ export default auth((req) => {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  if (!req.auth) {
+  if (!hasHelmSession(req.auth)) {
     const url = req.nextUrl.clone();
     url.pathname = "/auth/signin";
     url.searchParams.set("callbackUrl", req.nextUrl.pathname + req.nextUrl.search);

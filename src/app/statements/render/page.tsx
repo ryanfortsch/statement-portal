@@ -1,3 +1,4 @@
+import { requireStatementRenderAccess } from '@/lib/statement-render-auth';
 import { DownloadPdfChip } from '@/components/DownloadPdfChip';
 import { PROPERTIES, getActivePropertyForStatements } from '@/lib/properties';
 
@@ -10,8 +11,8 @@ export const dynamic = 'force-dynamic';
 
 // Service role, not the anon key: this is a server component (never
 // bundled to the browser), and the statements-cluster tables no longer
-// carry anon policies. Public access to this print page stays gated by
-// the statement UUID in the URL, same as the projections deliverables.
+// carry anon policies. An owner session or a short-lived renderer token
+// authorizes this page before any data access.
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { statementSumsToPayout, FINALITY_FROM_MONTH } from '@/lib/statement-finality';
 
@@ -252,6 +253,8 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
   if (!id || !month) {
     return <div style={{ padding: 40, fontFamily: 'system-ui' }}>Missing ?id=...&amp;month=YYYY-MM</div>;
   }
+
+  await requireStatementRenderAccess(id, month);
 
   const { data: prop } = await supabase.from('property_statements').select('*').eq('id', id).single();
   if (!prop) return <div style={{ padding: 40 }}>Not found</div>;
@@ -758,7 +761,7 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
         {/* Floating download chip -- screen only, hidden when printing. */}
         <DownloadPdfChip id={id} month={month} />
         <div className="canvas">
-          <main className="sheet">
+          <main data-statement-document="statement" className="sheet">
             {integrityBroken && (
               <div style={{
                 background: '#c85a3a', color: '#faf7f1', padding: '14px 18px',
