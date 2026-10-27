@@ -9,7 +9,7 @@ const read = (repoPath: string): string =>
 describe('the home feed reads as the signed-in person\'s day', () => {
   test('staff: my work, then replies, then the clock-bound team items, then the queues, then payments', () => {
     const order = homeFeedOrder('staff');
-    assert.deepEqual(order, ['work', 'walks', 'meetings', 'replies', 'holds', 'cleanings', 'unassigned', 'queues', 'payments']);
+    assert.deepEqual(order, ['work', 'walks', 'meetings', 'replies', 'holds', 'cleanings', 'unassigned', 'queues', 'payments', 'updates']);
   });
 
   test('owners keep the clean-after card first and the rest of the day after it', () => {

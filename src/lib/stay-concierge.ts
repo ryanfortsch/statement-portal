@@ -1,3 +1,4 @@
+import { parseReceipt, type ApprovalReceipt } from './approval-receipt.ts';
 /**
  * Typed client for the Stay Concierge HTTP JSON API.
  *
@@ -225,7 +226,7 @@ export type StayConciergeError =
   // the Cloudflare Tunnel answers a bare 502 when the concierge is down. The
   // tunnel's body is not JSON, so `detail` then falls back to the HTTP status
   // text ("Bad Gateway"), which is non-empty, so "has a detail" cannot be the test.
-  | { kind: 'http'; status: number; detail: string; fromService?: boolean }
+  | { kind: 'http'; status: number; detail: string; fromService?: boolean; receipt?: ApprovalReceipt }
   | { kind: 'network'; message: string };
 
 // A hung Cloudflare tunnel (sleepy Mac Mini) used to stall a render for the
@@ -275,8 +276,10 @@ async function request<T>(
     if (!res.ok) {
       let detail = '';
       let fromService = false;
+      let receipt: ApprovalReceipt | undefined;
       try {
-        const j = (await res.json()) as { detail?: string };
+        const j = (await res.json()) as { detail?: string; receipt?: unknown };
+        receipt = parseReceipt(j?.receipt);
         detail = j?.detail || '';
         fromService = j !== null && typeof j === 'object' && 'detail' in j;
       } catch {
@@ -284,7 +287,7 @@ async function request<T>(
       }
       return {
         ok: false,
-        error: { kind: 'http', status: res.status, detail: detail || res.statusText, fromService },
+        error: { kind: 'http', status: res.status, detail: detail || res.statusText, fromService, ...(receipt ? { receipt } : {}) },
       };
     }
     const data = (await res.json()) as T;
@@ -974,7 +977,7 @@ export async function approveOwnerApproval(
   // (absent) files whatever the card proposed.
   if (opts?.fileActions === false) body.file_actions = false;
   if (opts?.skipActions?.length) body.skip_actions = opts.skipActions;
-  return request<{ status: string; id: string; filed?: { slips: string[]; notes: string[] } }>(
+  return request<{ status: string; id: string; receipt?: ApprovalReceipt; filed?: { slips: string[]; notes: string[] } }>(
     `/api/owner-approvals/${id}/approve`,
     // Owner-use approval checks, writes, and verifies the calendar before
     // sending. Keep waiting through those round trips instead of reporting

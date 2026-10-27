@@ -1,5 +1,6 @@
 'use server';
 
+import { sentReceipt, type ApprovalReceipt } from '@/lib/approval-receipt';
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
 import {
@@ -27,8 +28,8 @@ import {
 // red error. This is the fix for an approve landing on a card that a just-
 // submitted coaching pass had already replaced.
 export type ActionResult =
-  | { ok: true; warning?: string }
-  | { ok: false; error: string; stale?: boolean };
+  | { ok: true; warning?: string; receipt?: ApprovalReceipt }
+  | { ok: false; error: string; stale?: boolean; receipt?: ApprovalReceipt };
 
 type ClientResult = { ok: true } | { ok: false; error: StayConciergeError };
 
@@ -56,7 +57,7 @@ export async function approveDraft(
   if (!sess.ok) return sess;
   const result = await approveApproval(approvalId, { ...(opts ?? {}), actor: sess.email });
   const mapped = mapResult(result);
-  return mapped.ok && result.ok ? { ...mapped, warning: result.data.followup_warning } : mapped;
+  return mapped.ok && result.ok ? { ...mapped, warning: result.data.followup_warning, receipt: sentReceipt(result.data) } : mapped;
 }
 
 /** Re-run the draft against current data. Nothing is sent; the card is

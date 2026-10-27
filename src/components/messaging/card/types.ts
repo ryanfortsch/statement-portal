@@ -1,3 +1,4 @@
+import type { ApprovalReceipt } from '@/lib/approval-receipt';
 import type { ReactNode } from 'react';
 
 /**
@@ -12,7 +13,7 @@ import type { ReactNode } from 'react';
 /** What every card action returns. `stale` means the card moved on under the
  *  operator (a coached rewrite replaced it, someone else decided it): the
  *  queue refreshes instead of showing a red error. */
-export type CardResult = { ok: true; warning?: string } | { ok: false; error: string; stale?: boolean };
+export type CardResult = { ok: true; warning?: string; receipt?: ApprovalReceipt } | { ok: false; error: string; stale?: boolean; receipt?: ApprovalReceipt };
 
 /** What the operator did instead of sending the draft. */
 export type HandledCapture = { reason?: string; sent_text?: string };
