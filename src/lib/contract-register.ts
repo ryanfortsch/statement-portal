@@ -102,6 +102,40 @@ export function driveFileIdFromUrl(url: string | null | undefined): string | nul
   return query ? query[1] : null;
 }
 
+/**
+ * The register row for an agreement executed in Helm, written without the
+ * form. Two moments write it: countersign of a renewal (the projection is
+ * born with property_id), and promote of a new owner who countersigned
+ * before the home existed. Without the second, every new home opened on
+ * "Operating with no live contract" until someone found the register form
+ * (47 Atlantic, 10/2026). Null when the contract states no term end, which
+ * the register cannot hold; the form is the way through then.
+ */
+export function executedRegisterRow(
+  p: RegisterSource,
+  opts: { propertyId: string; executedOn: string; driveUrl: string | null; docTitle: string | null; note: string },
+) {
+  const terms = registerTermsFromProjection(p);
+  if (!terms.term_end) return null;
+  return {
+    property_id: opts.propertyId,
+    ...terms,
+    term_end: terms.term_end,
+    executed_on: opts.executedOn,
+    // The base template auto-renews with 120-day notice; overrides can
+    // reword that clause, so flag edited contracts for a read-through.
+    ...TEMPLATE_RENEWAL,
+    signed_via: 'helm' as SignedVia,
+    status: 'active' as const,
+    drive_file_id: driveFileIdFromUrl(opts.driveUrl),
+    drive_url: opts.driveUrl,
+    doc_title: opts.docTitle,
+    notes: contractHasEdits(p)
+      ? `${opts.note} Clause overrides are on file - verify renewal/notice mechanics against the contract page.`
+      : opts.note,
+  };
+}
+
 /* ---------- the renewal words ---------- */
 
 export type RenewalWord =

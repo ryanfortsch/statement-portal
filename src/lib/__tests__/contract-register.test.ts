@@ -8,8 +8,10 @@
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   driveFileIdFromUrl,
+  executedRegisterRow,
   lastKnownName,
   parseRegisterForm,
   registerTermsFromProjection,
@@ -124,4 +126,50 @@ test('every renewal word has one plain line and no em dash', () => {
     assert.ok(word && meaning);
     assert.doesNotMatch(`${word} ${meaning}`, /\u2014/);
   }
+});
+
+describe('an agreement executed in Helm registers itself', () => {
+  const opts = {
+    propertyId: '47_atlantic',
+    executedOn: '2026-10-15',
+    driveUrl: 'https://drive.google.com/file/d/1AbCdEfGhIjKlMnOp/view',
+    docTitle: null,
+    note: 'Registered automatically.',
+  };
+
+  test('the row is active, signed in Helm, and carries the signed terms', () => {
+    const row = executedRegisterRow(SIGNED, opts);
+    assert.ok(row);
+    assert.equal(row.property_id, '47_atlantic');
+    assert.equal(row.status, 'active');
+    assert.equal(row.signed_via, 'helm');
+    assert.equal(row.fee_pct, 22);
+    assert.equal(row.term_end, '2027-12-31');
+    assert.equal(row.executed_on, '2026-10-15');
+    assert.equal(row.drive_file_id, '1AbCdEfGhIjKlMnOp');
+    assert.equal(row.notes, 'Registered automatically.');
+  });
+
+  test('a redlined contract is flagged for a read-through', () => {
+    const row = executedRegisterRow({ ...SIGNED, custom_clauses: [{ title: 'Rider', body: 'Extra terms.' }] }, opts);
+    assert.match(row?.notes ?? '', /Clause overrides are on file/);
+  });
+
+  test('no term end, no row: the register cannot hold one', () => {
+    assert.equal(executedRegisterRow({ ...SIGNED, term_end: null }, opts), null);
+  });
+
+  // A new owner countersigns before the home exists, so countersign has
+  // nothing to register against. Promote is the moment; without it every
+  // new home opened on "Operating with no live contract".
+  test('promote and countersign both write the register from the builder', () => {
+    const src = readFileSync(new URL('../../app/projections/actions.ts', import.meta.url), 'utf8');
+    const promote = src.slice(src.indexOf('export async function promoteToProperty'));
+    const promoteBody = promote.slice(0, promote.indexOf('\nasync function pickPropertyId'));
+    assert.match(promoteBody, /contract_countersigned_at && !projRow\.contract_marked_done_at/);
+    assert.match(promoteBody, /executedRegisterRow\(/);
+    assert.match(promoteBody, /from\('property_contracts'\)\.insert\(row\)/);
+    const countersign = src.slice(src.indexOf('export async function countersignContract'));
+    assert.match(countersign, /executedRegisterRow\(/);
+  });
 });

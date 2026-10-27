@@ -214,8 +214,11 @@ describe('every writer of contract terms honours the lock', () => {
     );
     // A correction of a Helm row keeps the terms it was registered with.
     assert.match(body, /if \(active\.signed_via === 'helm'\) locked = registerTermsFromRow\(active\)/);
-    // Countersign writes the register from the same builder.
-    assert.match(fnBody(actions, 'countersignContract'), /registerTermsFromProjection\(projectionRow\)/);
+    // Countersign and promote write the register through executedRegisterRow,
+    // which takes its terms from the same builder.
+    assert.match(fnBody(actions, 'countersignContract'), /executedRegisterRow\(projectionRow,/);
+    assert.match(fnBody(actions, 'promoteToProperty'), /executedRegisterRow\(projRow as ProjectionRow,/);
+    assert.match(read('src/lib/contract-register.ts'), /const terms = registerTermsFromProjection\(p\);/);
   });
 
   test('withdrawing a signature is owners-only, before countersign, and keeps the record', () => {

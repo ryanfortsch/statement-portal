@@ -52,7 +52,7 @@ import {
   parseOwnerEmail,
 } from '@/lib/contract-copy-email';
 import { requireOwnerEmail } from '@/lib/helm-access-server';
-import { contractHasEdits, driveFileIdFromUrl, registerTermsFromProjection, TEMPLATE_RENEWAL } from '@/lib/contract-register';
+import { executedRegisterRow } from '@/lib/contract-register';
 import { newProspectFields } from '@/lib/prospect-create';
 import { renderProjectionPdf } from '@/lib/projection-pdf';
 import { sendOnboardingSubmittedEmail } from '@/lib/onboarding-email';
@@ -1039,6 +1039,31 @@ export async function promoteToProperty(projectionId: string) {
     .eq('id', projectionId);
   if (linkErr) throw new Error(linkErr.message);
 
+  // A new owner usually countersigns before the home exists, when
+  // countersign has no property to register against. So the register row
+  // is written here, from the same builder, or the property page opens on
+  // "Operating with no live contract". An agreement marked done outside
+  // Helm (Docusign, paper) is not one Helm can read terms from; the
+  // register form covers it. Best-effort, like the steps below: the weekly
+  // contracts sweep lists any home left uncovered.
+  if (projRow.contract_countersigned_at && !projRow.contract_marked_done_at) {
+    try {
+      const row = executedRegisterRow(projRow as ProjectionRow, {
+        propertyId,
+        executedOn: String(projRow.contract_countersigned_at).slice(0, 10),
+        driveUrl: (projRow.contract_drive_url as string | null) ?? null,
+        docTitle: null,
+        note: 'Registered automatically when the prospect became a property (countersigned in Helm).',
+      });
+      if (row) {
+        const { error: registerErr } = await sb.from('property_contracts').insert(row);
+        if (registerErr) console.error('[promoteToProperty] register write failed:', registerErr.message);
+      }
+    } catch (err) {
+      console.error('[promoteToProperty] register write threw:', err);
+    }
+  }
+
   // Seed the post-promotion launch checklist. One row per canonical step in
   // lib/launch-checklist.ts; the property_created step is pre-completed since
   // the row above just landed. Best-effort: if the seed fails (e.g. the
@@ -1433,32 +1458,23 @@ export async function countersignContract(formData: FormData): Promise<void> {
     //    countersign; the weekly sweep's radar catches stragglers.
     if (projectionRow.property_id && projectionRow.term_end) {
       try {
-        const hasEdits = contractHasEdits(projectionRow);
-        const driveFileId = driveFileIdFromUrl(executedDriveUrl);
         await supabase
           .from('property_contracts')
           .update({ status: 'superseded', updated_at: new Date().toISOString() })
           .eq('property_id', projectionRow.property_id)
           .eq('status', 'active');
-        // The register form on /properties/contracts writes the same row
-        // from the same builder (src/lib/contract-register.ts).
-        const terms = registerTermsFromProjection(projectionRow);
-        const { error: registerErr } = await supabase.from('property_contracts').insert({
-          property_id: projectionRow.property_id,
-          ...terms,
-          executed_on: new Date().toISOString().slice(0, 10),
-          // The base template auto-renews with 120-day notice; overrides can
-          // reword that clause, so flag edited contracts for a read-through.
-          ...TEMPLATE_RENEWAL,
-          signed_via: 'helm',
-          status: 'active',
-          drive_file_id: driveFileId,
-          drive_url: executedDriveUrl,
-          doc_title: executedDocTitle,
-          notes: hasEdits
-            ? 'Registered automatically at countersign (Helm renewal flow). Clause overrides are on file - verify renewal/notice mechanics against the contract page.'
-            : 'Registered automatically at countersign (Helm renewal flow).',
+        // The register form on /properties/contracts and promoteToProperty
+        // write the same row from the same builder (src/lib/contract-register.ts).
+        const row = executedRegisterRow(projectionRow, {
+          propertyId: projectionRow.property_id,
+          executedOn: new Date().toISOString().slice(0, 10),
+          driveUrl: executedDriveUrl,
+          docTitle: executedDocTitle,
+          note: 'Registered automatically at countersign (Helm renewal flow).',
         });
+        const { error: registerErr } = row
+          ? await supabase.from('property_contracts').insert(row)
+          : { error: null };
         if (registerErr) {
           console.error('[countersignContract] register write failed:', registerErr.message);
         }

@@ -166,11 +166,14 @@ in the private `contract-records` bucket (`src/lib/contract-seal.ts`); the execu
 prints the owner-signed copy's fingerprint. Countersigning takes an owner login and records it
 in `contract_countersigned_by`. A new writer of contract terms must check the lock;
 `contract-terms.test.ts` reads the source for each one. The contracts register
-(`property_contracts`) has two writers: countersign of a Helm renewal, and the register's own
-"Register this agreement" form (`src/app/properties/contracts/actions.ts`, owners only). For an
-agreement signed in Helm both take every stated term from the projection through
-`registerTermsFromProjection` in `src/lib/contract-register.ts`, and the form never writes the
-projection; it fills only what the contract leaves unstated (renewal summary, Drive copy, notes).
+(`property_contracts`) has three writers: countersign of a Helm renewal, promote of a new owner
+who countersigned before the home existed (so a new home never opens on "Operating with no live
+contract"), and the register's own "Register this agreement" form
+(`src/app/properties/contracts/actions.ts`, owners only). The first two write the row through
+`executedRegisterRow`; for an agreement signed in Helm all three take every stated term from the
+projection through `registerTermsFromProjection` in `src/lib/contract-register.ts`, and the form
+never writes the projection; it fills only what the contract leaves unstated (renewal summary,
+Drive copy, notes).
 
 **Every messaging queue renders one approval card** (`src/components/messaging/card/`, since
 2026-10-18): who wrote and what they said, the proposed reply, then the same verbs on every tab
