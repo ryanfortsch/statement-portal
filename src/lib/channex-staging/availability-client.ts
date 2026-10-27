@@ -122,13 +122,16 @@ export class ChannexAvailabilityClient {
   /** Read checks precede the durable submitting barrier. The permit can be used
    * only once, within thirty seconds, for the identical claimed intent.
    */
-  async prepare(job: InventoryJob) {
+  async prepare(job: InventoryJob, fullSync?: { id: string; digest: string }) {
+    if (fullSync !== undefined && (!fullSync || fullSync.id !== job.id || fullSync.digest !== job.digest || job.days.length !== 500)) {
+      throw new Error('Full sync requires the reviewed 500-day intent');
+    }
     this.#validate(job);
     const bound = structuredClone(job);
     await this.#inspect();
     const observed = await this.#counts(bound);
     if (!observed.complete) throw new Error('Incomplete staging availability; reviewed initialization required');
-    const values = bound.days.filter(day => observed.days[day.date] !== day.available).map(day => ({
+    const values = bound.days.filter(day => fullSync !== undefined || observed.days[day.date] !== day.available).map(day => ({
       property_id: this.route.propertyId, room_type_id: this.route.roomTypeId, date: day.date, availability: day.available,
     }));
     const request = values.length ? createAvailabilityRequest(values, stamp(this.#clock)) : null;

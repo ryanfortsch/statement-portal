@@ -5,7 +5,7 @@ import { inventoryResumeAfter, recordInventoryCommand, replayInventoryJournal } 
 import { prepareInventoryDispatch } from './inventory-worker.ts';
 
 export async function deliverBookingInventoryOnce(store: BookingInventoryConsumerStore, client: ChannexAvailabilityClient,
-  id: string, clock = Date.now) {
+  id: string, clock = Date.now, fullSync?: { id: string; digest: string }) {
   // Expired leases that never submitted are safe to reclaim; expired submissions
   // become uncertain and remain blocked. This also works after process restart.
   await recordInventoryCommand(store.journal, { kind: 'expire', now: clock() });
@@ -23,7 +23,7 @@ export async function deliverBookingInventoryOnce(store: BookingInventoryConsume
   if (!context.enabled || !context.complete || context.authority !== 'helm' || now >= context.freshUntil) return { status: 'blocked' as const };
   // Conservative property pacing survives process restarts through the journal.
   if (now < inventoryResumeAfter(journal)) return { status: 'blocked' as const };
-  const permit = await client.prepare(job);
+  const permit = await client.prepare(job, fullSync);
   if (!permit.request) return { status: 'already-matches' as const }; // Observation, not task settlement.
   let freshUntil = 0;
   const prepared = await prepareInventoryDispatch(store.journal, id, clock, 60_000, async claimed => {

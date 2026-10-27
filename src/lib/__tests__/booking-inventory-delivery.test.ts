@@ -548,3 +548,35 @@ test('preflight at the thirty-second expiry never crosses the submitting barrier
   assert.equal(f.calls.filter(c => c.method === 'POST').length, 0);
   assert.equal(replayInventoryJournal(f.state.journal).journal.commands.some(c => c.kind === 'dispatch'), false);
 });
+
+
+test('reviewed 500-day full sync sends matching dates once and preserves exact receipt binding', async () => {
+  const f = await fixture();
+  f.state.configuration.end = '2028-05-16'; // 500 nights from January 2, 2027.
+  f.state.configuration.coverage[0].end = f.state.configuration.end;
+  f.state.configurationVersion++;
+  await consumeBookingInventory(f.store, f.clock);
+  const job = f.job();
+  assert.equal(job.days.length, 500);
+  for (const day of job.days) f.counts[day.date] = day.available;
+  const review = { id: job.id, digest: job.digest };
+  assert.equal((await deliverBookingInventoryOnce(f.store, f.client, job.id, f.clock, review)).status, 'submitted');
+  const posts = f.calls.filter(c => c.method === 'POST');
+  assert.equal(posts.length, 1);
+  const values = (posts[0].body as { values: { date: string; availability: number }[] }).values;
+  assert.equal(values.length, 500);
+  assert.deepEqual(values.map(v => [v.date, v.availability]), job.days.map(d => [d.date, d.available]));
+  f.replies.task.data.attributes.payload = posts[0].body as typeof f.replies.task.data.attributes.payload;
+  assert.equal((await reconcileBookingInventoryOnce(f.store.journal, f.client, job.id)).status, 'verified');
+  assert.equal((await deliverBookingInventoryOnce(f.store, f.client, job.id, f.clock, review)).status, 'blocked');
+  assert.equal(f.calls.filter(c => c.method === 'POST').length, 1);
+});
+
+test('full sync refuses an unreviewed intent or a shorter window before provider IO', async () => {
+  const f = await fixture();
+  for (const review of [{ id: 'other', digest: f.job().digest }, { id: f.job().id, digest: 'wrong' },
+    { id: f.job().id, digest: f.job().digest }]) {
+    await assert.rejects(() => f.client.prepare(f.job(), review), /reviewed 500-day intent/);
+  }
+  assert.equal(f.calls.length, 0);
+});
