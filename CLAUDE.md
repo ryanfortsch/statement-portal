@@ -688,8 +688,9 @@ engine (the reminders and the schedule added to reply prompts) admits Gloucester
 missing city reads as not Gloucester (stay-concierge #102, 2026-10-22). A Rockport or Beverly
 `trash_day` reaches the guest only as the plain "Trash day" KB line.
 
-**Guest messages** (stay-concierge `src/trash_reminders.py`, approval-gated): any stay of **3+
-nights** that spans a pickup, so the city hauls the trash instead of the cleaner. A pickup the
+**Guest messages** (stay-concierge `src/trash_reminders.py`, approval-gated): any stay of **5+
+nights** that spans a pickup, so the city hauls the trash instead of the cleaner (3 nights from
+2026-10-02 to 2026-10-27; Dotti dismissed 9 of the 15 cards that produced, so it went back to 5). A pickup the
 morning after check-in is skipped (the turnover just emptied the house). A pickup on checkout
 morning counts: the guest rolls the carts out on their last night and the turnover cleaner brings
 them back in, which Rosa's schedule (`/c/<token>`) flags with a "bring the carts in" tag. Day-2 evening check-in naming the next pickup (or "tomorrow morning, carts out
