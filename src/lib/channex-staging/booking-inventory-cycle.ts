@@ -44,6 +44,10 @@ export async function runBookingInventoryCycle(store: BookingInventoryConsumerSt
     if (['submitted', 'uncertain'].includes(job.status)) {
       return { phase: 'reconcile' as const, ...await reconcileBookingInventoryOnce(store.journal, client, job.id) };
     }
+    const planned = await consumeBookingInventory(store, clock, { reviewedIntent: fullSync });
+    if (!['unchanged', 'refreshed'].includes(planned.status)) {
+      return { phase: 'plan' as const, status: planned.status };
+    }
     return { phase: 'deliver' as const, ...await deliverBookingInventoryOnce(store, client, job.id, clock, fullSync) };
   }
   const unresolved = replayInventoryJournal(state.journal).queue.list().find(j => !['pending', 'verified', 'superseded'].includes(j.status));

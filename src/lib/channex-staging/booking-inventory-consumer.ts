@@ -143,7 +143,7 @@ export function bookingInventorySnapshot(state: BookingInventoryState, now: numb
 
 /** One bounded pass. A lost response is not retried blindly; reread durable state. */
 export async function consumeBookingInventory(store: BookingInventoryConsumerStore, clock: () => number,
-  options: { forceEnqueue?: boolean } = {}) {
+  options: { forceEnqueue?: boolean; reviewedIntent?: { id: string; digest: string } } = {}) {
   const state = parseBookingInventoryState(await store.read(), store.property);
   const snapshot = bookingInventorySnapshot(state, clock());
   if (!snapshot) return { status: 'blocked' as const };
@@ -152,6 +152,14 @@ export async function consumeBookingInventory(store: BookingInventoryConsumerSto
   if (!projection.complete) return { status: 'blocked' as const };
   const identical = state.plannedCaptureVersion === state.captureVersion && state.plannedConfigurationVersion === state.configurationVersion &&
     state.inputsMatchPlan && state.lastDigest === projection.digest;
+  // A reviewed certification intent may refresh its freshness only. Never
+  // replace it when inputs, checkpoints or the latest pending job have changed.
+  if (options.reviewedIntent) {
+    const current = replayInventoryJournal(state.journal).queue.list().at(-1);
+    if (options.forceEnqueue || !identical || !current || current.status !== 'pending' ||
+        current.id !== options.reviewedIntent.id || current.digest !== options.reviewedIntent.digest ||
+        current.version !== state.planVersion) return { status: 'blocked' as const };
+  }
   if (!options.forceEnqueue && identical) {
     if (state.plannedFreshUntil > clock()) return { status: 'unchanged' as const };
     const jobs = replayInventoryJournal(state.journal).queue.list(), current = jobs.at(-1);
@@ -165,6 +173,7 @@ export async function consumeBookingInventory(store: BookingInventoryConsumerSto
       return { status: saved ? 'refreshed' as const : 'superseded' as const };
     }
   }
+  if (options.reviewedIntent) return { status: 'blocked' as const };
   return planInventory({
     read: async () => ({ snapshot, configurationVersion: state.configurationVersion, journalVersion: state.journalVersion,
       journal: state.journal, connection: c.connection, property: state.property, listing: c.listing, generation: c.generation }),

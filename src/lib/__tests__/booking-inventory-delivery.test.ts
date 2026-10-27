@@ -600,3 +600,32 @@ test('full-sync worker cycles reconcile and survive restart without another post
   assert.equal(f.calls.filter(c => c.method === 'POST').length, 1);
   await assert.rejects(() => runBookingInventoryCycle(f.store, f.client, f.clock, { ...review, id: 'absent' }), /intent unavailable/);
 });
+
+
+test('full-sync intent refresh survives restart delay but never replaces changed inputs', async () => {
+  for (const changed of [false, true]) {
+    const f = await fixture();
+    f.state.configuration.end = '2028-05-16';
+    f.state.configuration.coverage[0].end = f.state.configuration.end;
+    f.state.configurationVersion++;
+    await consumeBookingInventory(f.store, f.clock);
+    const job = f.job(), review = { id: job.id, digest: job.digest }, version = f.state.planVersion;
+    for (const day of job.days) f.counts[day.date] = day.available;
+    let refreshed = 0;
+    f.store.refreshPlan = async (expected, freshUntil, digest) => {
+      assert.equal(expected.journalVersion, f.state.journalVersion);
+      assert.equal(digest, review.digest);
+      f.state.plannedFreshUntil = freshUntil;
+      refreshed++;
+      return true;
+    };
+    f.advance(61000);
+    if (changed) f.state.captureVersion++;
+    const result = await runBookingInventoryCycle(f.store, f.client, f.clock, review);
+    assert.equal(result.status, changed ? 'blocked' : 'submitted');
+    assert.equal(refreshed, changed ? 0 : 1);
+    assert.equal(f.state.planVersion, version);
+    assert.equal(f.job().id, review.id);
+    assert.equal(f.calls.filter(c => c.method === 'POST').length, changed ? 0 : 1);
+  }
+});
