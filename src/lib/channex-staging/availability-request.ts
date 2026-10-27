@@ -1,3 +1,4 @@
+import { MAX_INVENTORY_DAYS } from './inventory-limits.ts';
 /** Exact, credential-free availability request persisted before provider IO. */
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
@@ -7,7 +8,7 @@ const stamp = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const valueSchema = z.object({ property_id: z.string().uuid(), room_type_id: z.string().uuid(),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), availability: z.union([z.literal(0), z.literal(1)]) }).strict();
-const bodySchema = z.object({ values: z.array(valueSchema).min(1).max(366) }).strict();
+const bodySchema = z.object({ values: z.array(valueSchema).min(1).max(MAX_INVENTORY_DAYS) }).strict();
 export const availabilityRequestSchema = z.object({ format: z.literal(1), method: z.literal('POST'),
   url: z.literal(AVAILABILITY_ENDPOINT), body: z.string().min(1).max(100_000), digest,
   preparedAt: stamp, expiresAt: stamp }).strict();

@@ -1,3 +1,4 @@
+import { MAX_INVENTORY_DAYS } from './inventory-limits.ts';
 /** Server-only, unconnected staging inventory edge. No env fallback or scheduler.
  * API contract: https://docs.channex.io/api-v.1-documentation/ari
  */
@@ -64,7 +65,7 @@ export class ChannexAvailabilityClient {
     const r = this.route, now = stamp(this.#clock);
     if (job.environment !== 'staging' || job.property !== r.helmProperty || job.connection !== r.connection ||
         job.generation !== r.generation || !job.id || !Number.isSafeInteger(job.version) || job.version < 1 ||
-        !Array.isArray(job.days) || job.days.length < 1 || job.days.length > 366 || inventoryDigest(job.days) !== job.digest) {
+        !Array.isArray(job.days) || job.days.length < 1 || job.days.length > MAX_INVENTORY_DAYS || inventoryDigest(job.days) !== job.digest) {
       throw new Error('Inventory route or digest mismatch');
     }
     let previous = '';

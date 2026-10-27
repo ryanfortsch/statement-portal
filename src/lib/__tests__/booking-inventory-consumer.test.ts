@@ -230,3 +230,25 @@ test('restricted refresh adapter passes all CAS fields and redacts uncertain RPC
   response = { message: 'private-provider-error' };
   await assert.rejects(() => store.refreshPlan!(expected, NOW + 120000, f.state.lastDigest!), /^Error: Plan refresh uncertain; reread before continuing$/);
 });
+
+
+test('500-day sync closes dates beyond the existing booking window and queues one full plan', async () => {
+  const f = fixture(), start = '2027-01-01';
+  const end = new Date(Date.parse(start) + 500 * 86400000).toISOString().slice(0,10);
+  Object.assign(f.state.configuration,{start,end,publishEnabled:true});
+  f.state.inputs.authority='helm';
+  f.state.inputs.bookings=[row('stay')];
+  for (const c of f.state.configuration.coverage) Object.assign(c,{start,end});
+  const projected=days(f);
+  assert.equal(projected.length,500);
+  assert.equal(projected[2].available,0);
+  assert.equal(projected[4].available,1);
+  assert.equal(projected[365].available,1);
+  assert.ok(projected.slice(366).every(d => d.available===0 && d.stopSell));
+  assert.equal(f.state.inputs.plan!.booking_window_days,365);
+  assert.equal((await consumeBookingInventory(f.store,f.clock)).status,'queued');
+  const queued=replayInventoryJournal(f.state.journal).queue.list();
+  assert.equal(queued.length,1); assert.equal(queued[0].days.length,500);
+  f.state.configuration.end=new Date(Date.parse(end)+86400000).toISOString().slice(0,10);
+  assert.throws(() => parseBookingInventoryState(f.state,'home'));
+});

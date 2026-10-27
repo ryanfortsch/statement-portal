@@ -1,3 +1,4 @@
+import { MAX_INVENTORY_DAYS } from './inventory-limits.ts';
 /** Canonical booking capture -> existing inventory planner. No provider IO.
  * Completeness is explicit, never inferred from an empty bookings query.
  */
@@ -29,7 +30,7 @@ const inputsSchema = z.object({
     check_in: date, check_out: date, duplicate_of: id.nullable(), hold_kind: z.string().nullable(),
     source: z.string(), channel: z.string(),
   }).strict()).max(5000),
-  rateDays: z.array(z.object({ date, closed: z.boolean() }).strict()).max(366),
+  rateDays: z.array(z.object({ date, closed: z.boolean() }).strict()).max(MAX_INVENTORY_DAYS),
   periods: z.array(z.object({ startMonth: int.min(1).max(12), startDay: int.min(1).max(31),
     endMonth: int.min(1).max(12), endDay: int.min(1).max(31) }).strict()).max(1000),
 }).strict();
@@ -99,7 +100,7 @@ export function bookingInventoryCoverage(state: BookingInventoryState, start: st
   }
   if (c.coverage.some(v => !c.requiredSources.includes(v.source))) throw new Error('Unexpected coverage source');
   for (const v of c.coverage) {
-    if (v.start >= v.end || Date.parse(v.end) - Date.parse(v.start) > 426 * 86400000) throw new Error('Invalid coverage window');
+    if (v.start >= v.end || Date.parse(v.end) - Date.parse(v.start) > (MAX_INVENTORY_DAYS + 60) * 86400000) throw new Error('Invalid coverage window');
     if (v.observedAt > now || v.freshUntil <= v.observedAt || v.freshUntil - v.observedAt > 3600000) {
       throw new Error('Invalid coverage freshness');
     }

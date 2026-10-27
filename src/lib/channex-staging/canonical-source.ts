@@ -1,3 +1,4 @@
+import { MAX_INVENTORY_DAYS } from './inventory-limits.ts';
 /** Complete synthetic source reconciliation. No import, ACK, inventory or message writes. */
 import { z } from 'zod';
 import { CALDERWOOD_STAGING as mapping } from '../calderwood-readonly/channex.ts';
@@ -92,7 +93,7 @@ export async function renewCanonicalSourceCoverage(client: CanonicalSourceClient
   if (!/^\d{4}-\d{2}-\d{2}$/.test(window.start) || !/^\d{4}-\d{2}-\d{2}$/.test(window.end) ||
       !Number.isFinite(Date.parse(window.start)) || !Number.isFinite(Date.parse(window.end)) ||
       new Date(window.start).toISOString().slice(0, 10) !== window.start || new Date(window.end).toISOString().slice(0, 10) !== window.end ||
-      window.end <= window.start || Date.parse(window.end) - Date.parse(window.start) > 426 * 86400000) throw Error('Invalid source coverage window');
+      window.end <= window.start || Date.parse(window.end) - Date.parse(window.start) > (MAX_INVENTORY_DAYS + 60) * 86400000) throw Error('Invalid source coverage window');
   const proof = await verifyCanonicalSource(client, store, now);
   if (!proof.complete) return { status: proof.status, complete: false, ...('counts' in proof ? { counts: proof.counts } : {}) };
   if (!equal(proof.snapshot.requiredSources, [CANONICAL_BOOKING_SOURCE])) return { status: 'source-not-configured', complete: false, counts: proof.counts };

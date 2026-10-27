@@ -1,3 +1,4 @@
+import { MAX_INVENTORY_DAYS } from './inventory-limits.ts';
 /** Read-only staging task evidence. API shape observed against the completed
  * isolated Calderwood task on 2026-10-20; not a documented production contract.
  * Account metadata from the task response is intentionally discarded.
@@ -34,7 +35,7 @@ export function availabilityTaskCompletion(raw: unknown, job: InventoryJob, now:
   const data = schema.parse(raw).data, a = data.attributes;
   if (data.id !== job.task || a.id !== job.task) throw Error('Task identity mismatch');
   // Rebuild the canonical body to compare every field, regardless of JSON key order.
-  const payload = z.object({ values: z.array(z.unknown()).min(1).max(366) }).strict().parse(a.payload);
+  const payload = z.object({ values: z.array(z.unknown()).min(1).max(MAX_INVENTORY_DAYS) }).strict().parse(a.payload);
   const actual = createAvailabilityRequest(payload.values as Parameters<typeof createAvailabilityRequest>[0], request.preparedAt);
   if (actual.digest !== request.digest || actual.body !== request.body) throw Error('Task payload mismatch');
   const receivedAt = utc(a.received_at), executedAt = a.executed_at === null ? null : utc(a.executed_at);

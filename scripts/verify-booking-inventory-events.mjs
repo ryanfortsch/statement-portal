@@ -1,3 +1,5 @@
+import { shiftIsoDay, todayInEastern } from '../src/lib/sca-quotes-types.ts';
+import { consumeBookingInventory } from '../src/lib/channex-staging/booking-inventory-consumer.ts';
 import { verifyBookingInventoryArchive } from './verify-booking-inventory-archive.mjs';
 import { verifyBookingInventoryCapacity } from './verify-booking-inventory-capacity.mjs';
 import { verifyCanonicalSourceDatabase } from './verify-canonical-source.mjs';
@@ -249,6 +251,29 @@ try {
   await verifyBookingInventoryCapacity(db, check);
   await canonical.verifyConflicts();
   const archived=await verifyBookingInventoryArchive(db, check);
+  await check('500-day planner upgrade preserves grants and queues the complete availability span', async()=>{
+    const signature='public.helm_booking_inventory_plan_commit(text,bigint,bigint,bigint,bigint,jsonb,jsonb,bigint,text)';
+    const acl=async()=>(await db.query('select proacl::text acl from pg_proc where oid=$1::regprocedure',[signature])).rows[0].acl;
+    const beforeAcl=await acl();
+    await db.exec(readFileSync(new URL('../docs/guesty-exit/staging-storage/booking-inventory-500-day.sql',import.meta.url),'utf8'));
+    assert.equal(await acl(),beforeAcl);
+    const state=await archived.read(),cfg=state.configuration;
+    cfg.start=shiftIsoDay(todayInEastern(new Date()),2);cfg.end=shiftIsoDay(cfg.start,500);cfg.publishEnabled=true;
+    for(const c of cfg.coverage) Object.assign(c,{start:cfg.start,end:cfg.end,complete:true,observedAt:Date.now(),freshUntil:Date.now()+1800000});
+    await db.query('update helm_booking_inventory_consumers set configuration=$2,configuration_version=configuration_version+1 where property_id=$1',[archived.property,cfg]);
+    assert.equal((await consumeBookingInventory(archived.store,Date.now)).status,'queued');
+    const updated=await archived.read(),intent=updated.journal.commands.at(-1).intent;
+    assert.equal(intent.days.length,500);
+    assert.ok(intent.days.slice(366).every(d=>d.available===0));
+    assert.equal(updated.inputs.plan.booking_window_days,365);
+    cfg.end=shiftIsoDay(cfg.end,1);
+    await db.query('update helm_booking_inventory_consumers set configuration=$2,configuration_version=configuration_version+1 where property_id=$1',[archived.property,cfg]);
+    const over=await archived.read(),next=structuredClone(over.journal);
+    const extra=structuredClone(next.commands.at(-1));extra.intent.version=over.planVersion+1;
+    extra.intent.days.push({date:shiftIsoDay(cfg.end,-1),available:0,stopSell:true});next.commands.push(extra);
+    await assert.rejects(()=>archived.store.commit({captureVersion:over.captureVersion,configurationVersion:over.configurationVersion,
+      planVersion:over.planVersion,journalVersion:over.journalVersion,inputs:over.inputs},next,Date.now()+30000,'0'.repeat(64)),/Incomplete inventory window/);
+  });
   await check('archive: immutable evidence and active checkpoint survive a database restart',async()=>{
     const state=await archived.read(),id=state.journal.archiveId,receipt=await archived.store.readArchive(id);
     await db.close();db=new PGlite(dataDir);

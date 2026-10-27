@@ -1,3 +1,4 @@
+import { MAX_INVENTORY_DAYS } from '../channex-staging/inventory-limits.ts';
 import { stagingPropertyMappingSchema, type StagingPropertyMapping } from '../channex-staging/inventory-route.ts';
 import { calendarDates } from './calendar-window.ts';
 import type { normalizeCalendar } from './calendar.ts';
@@ -15,7 +16,7 @@ export async function readCalderwoodChannex(key: string, window: { from: string;
 /** Same isolation checks for an explicitly reviewed property; GET-only and staging-only. */
 export async function readIsolatedChannex(key: string, window: { from: string; to: string }, mapping: StagingPropertyMapping,
   fetcher: (url: string, init: RequestInit) => Promise<Response> = fetch) {
-  const dates = calendarDates(window), m = stagingPropertyMappingSchema.parse(mapping);
+  const dates = calendarDates(window, MAX_INVENTORY_DAYS), m = stagingPropertyMappingSchema.parse(mapping);
   if (typeof globalThis.window !== 'undefined' || !key.trim() || /[\r\n]/.test(key)) throw Error('Server staging key required');
   const request = async (path: string) => {
     try {

@@ -499,3 +499,26 @@ test('a changed window replans without requiring read-back of the retired window
   assert.deepEqual(f.job().days.map(d => d.date), ['2027-01-03', '2027-01-04']);
   assert.equal(f.job().task, TASK2); assert.equal(f.calls.filter(c => c.method === 'POST').length, 2);
 });
+
+
+test('500-day availability travels through durable delivery and task reconciliation in one request', async () => {
+  const f = await fixture();
+  const start = '2027-01-01', end = new Date(Date.parse(start)+500*86400000).toISOString().slice(0,10);
+  Object.assign(f.state.configuration,{start,end}); f.state.configurationVersion++;
+  for (const c of f.state.configuration.coverage) Object.assign(c,{start,end});
+  assert.equal((await consumeBookingInventory(f.store,f.clock)).status,'queued');
+  const desired=f.job().days;
+  assert.equal(desired.length,500);
+  for (const d of desired) f.counts[d.date]=d.available ? 0 : 1;
+  assert.equal((await f.run()).status,'submitted');
+  const posts=f.calls.filter(c=>c.method==='POST');
+  assert.equal(posts.length,1);
+  const payload=JSON.parse(posts[0].rawBody!) as typeof f.replies.task.data.attributes.payload;
+  assert.equal(payload.values.length,500);
+  assert.doesNotMatch(posts[0].rawBody!,/rate|min_stay|stop_sell/);
+  f.replies.task.data.attributes.payload=payload;
+  for (const d of desired) f.counts[d.date]=d.available;
+  const result=await reconcileBookingInventoryOnce(f.store.journal,f.client,f.job().id);
+  assert.equal(result.status,'verified');
+  assert.equal(f.job().status,'verified');
+});

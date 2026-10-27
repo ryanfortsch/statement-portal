@@ -1,3 +1,4 @@
+import { MAX_INVENTORY_DAYS } from './inventory-limits.ts';
 /** Isolated 17 Beach sandbox rules. No production booking/calendar imports. */
 export const PILOTS = {
   front: { propertyId: '0767ca11-cdab-4405-8450-9216643fa97e', roomTypeId: '296b90c7-4f73-4207-881f-36bdde8e2e06', capacity: 12 },
@@ -24,7 +25,7 @@ function dateMs(date: string): number {
 }
 export function nights(start: string, end: string): string[] {
   const from = dateMs(start), to = dateMs(end);
-  if (to <= from || to - from > 366 * 86400000) throw new Error('Invalid or oversized date range');
+  if (to <= from || to - from > MAX_INVENTORY_DAYS * 86400000) throw new Error('Invalid or oversized date range');
   return Array.from({ length: (to - from) / 86400000 }, (_, i) => new Date(from + i * 86400000).toISOString().slice(0, 10));
 }
 function member(value: unknown): asserts value is Member {

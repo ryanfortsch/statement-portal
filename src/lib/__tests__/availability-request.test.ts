@@ -67,3 +67,17 @@ test('legacy dispatches remain readable and visibly lack request evidence', asyn
   assert.equal(audit.request, null); assert.deepEqual(audit.receipt, { task: 'legacy-task', binding: null });
   assert.equal(audit.canVerify, false);
 });
+
+
+test('500-day full availability request retains every date and rejects day 501', () => {
+  const start = Date.parse('2026-11-01T00:00:00Z');
+  const data = Array.from({length: 501}, (_, i) => ({ property_id, room_type_id,
+    date: new Date(start + i * 86400000).toISOString().slice(0,10), availability: (i % 3 ? 1 : 0) as 0 | 1 }));
+  const fullDays = data.slice(0,500).map(v => ({date:v.date, available:v.availability, stopSell:v.availability === 0}));
+  const fullJob = {...job, days:fullDays, digest:inventoryDigest(fullDays)};
+  const request = createAvailabilityRequest(data.slice(0,500),100);
+  assert.equal(JSON.parse(validateAvailabilityRequest(request,fullJob,101).body).values.length,500);
+  assert.throws(() => createAvailabilityRequest(data,100));
+  const changed = structuredClone(fullJob); changed.days[499].available = changed.days[499].available ? 0 : 1;
+  assert.throws(() => validateAvailabilityRequest(request,changed,101));
+});
