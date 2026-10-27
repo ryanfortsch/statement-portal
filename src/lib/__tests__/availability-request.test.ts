@@ -48,7 +48,7 @@ test('endpoint, digest, fields and request lifetime are validated on replay', ()
     { ...request, expiresAt: 5200 }, { ...request, headers: { 'user-api-key': 'fictional' } }]) {
     assert.throws(() => validateAvailabilityRequest(changed as typeof request, job, 101));
   }
-  for (const at of [99, 5100, NaN, Infinity]) assert.throws(() => validateAvailabilityRequest(request, job, at));
+  for (const at of [99, 30100, NaN, Infinity]) assert.throws(() => validateAvailabilityRequest(request, job, at));
 });
 
 test('legacy dispatches remain readable and visibly lack request evidence', async () => {
@@ -80,4 +80,14 @@ test('500-day full availability request retains every date and rejects day 501',
   assert.throws(() => createAvailabilityRequest(data,100));
   const changed = structuredClone(fullJob); changed.days[499].available = changed.days[499].available ? 0 : 1;
   assert.throws(() => validateAvailabilityRequest(request,changed,101));
+});
+
+
+test('historical five-second requests replay only within their original lifetime', () => {
+  const request = { ...createAvailabilityRequest(values, 100), expiresAt: 5100 };
+  assert.deepEqual(validateAvailabilityRequest(request, job, 5099), request);
+  assert.throws(() => validateAvailabilityRequest(request, job, 5100));
+  for (const lifetime of [4999, 5001, 29999, 30001, 60000]) {
+    assert.throws(() => validateAvailabilityRequest({...request, expiresAt:100+lifetime}, job,101));
+  }
 });

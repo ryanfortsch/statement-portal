@@ -4,6 +4,8 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import type { InventoryJob } from './inventory-outbox.ts';
 export const AVAILABILITY_ENDPOINT = 'https://staging.channex.io/api/v1/availability';
+// Covers durable preflight RPCs while remaining below the 60-second claim lease.
+export const AVAILABILITY_REQUEST_TTL_MS = 30_000;
 const stamp = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const valueSchema = z.object({ property_id: z.string().uuid(), room_type_id: z.string().uuid(),
@@ -21,14 +23,15 @@ export function availabilityRequestDigest(body: string) {
 export function createAvailabilityRequest(values: z.infer<typeof valueSchema>[], preparedAt: number): AvailabilityRequest {
   const body = JSON.stringify(bodySchema.parse({ values }));
   return availabilityRequestSchema.parse({ format: 1, method: 'POST', url: AVAILABILITY_ENDPOINT,
-    body, digest: availabilityRequestDigest(body), preparedAt, expiresAt: preparedAt + 5000 });
+    body, digest: availabilityRequestDigest(body), preparedAt, expiresAt: preparedAt + AVAILABILITY_REQUEST_TTL_MS });
 }
 /** Also run during journal replay. No current-time dependency: use dispatch time. */
 export function validateAvailabilityRequest(input: AvailabilityRequest, job: InventoryJob, dispatchedAt: number) {
   const request = availabilityRequestSchema.parse(input);
   const body = bodySchema.parse(JSON.parse(request.body));
+  // Five-second requests remain valid for replay of historical dispatches.
   if (JSON.stringify(body) !== request.body || availabilityRequestDigest(request.body) !== request.digest ||
-      request.expiresAt - request.preparedAt !== 5000 || !Number.isSafeInteger(dispatchedAt) ||
+      ![5000, AVAILABILITY_REQUEST_TTL_MS].includes(request.expiresAt - request.preparedAt) || !Number.isSafeInteger(dispatchedAt) ||
       dispatchedAt < request.preparedAt || dispatchedAt >= request.expiresAt) {
     throw new Error('Invalid availability request binding');
   }

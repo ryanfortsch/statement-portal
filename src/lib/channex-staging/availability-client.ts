@@ -120,7 +120,7 @@ export class ChannexAvailabilityClient {
     return { days, complete };
   }
   /** Read checks precede the durable submitting barrier. The permit can be used
-   * only once, within five seconds, for the identical claimed intent.
+   * only once, within thirty seconds, for the identical claimed intent.
    */
   async prepare(job: InventoryJob) {
     this.#validate(job);

@@ -174,7 +174,7 @@ test('failed or lost accepted-response save never replays the provider call afte
   }
 });
 test('single-use permit rejects an expired or changed prepared intent', async () => {
-  const f = await fixture(), permit = await f.client.prepare(f.job()); f.advance(5000);
+  const f = await fixture(), permit = await f.client.prepare(f.job()); f.advance(30000);
   const prepared = { ...f.job(), status: 'submitting', token: 'token', leaseUntil: NOW + 60000 } as InventoryJob;
   await assert.rejects(() => permit.submit(prepared), /permit/);
   const g = await fixture(), next = await g.client.prepare(g.job());
@@ -521,4 +521,30 @@ test('500-day availability travels through durable delivery and task reconciliat
   const result=await reconcileBookingInventoryOnce(f.store.journal,f.client,f.job().id);
   assert.equal(result.status,'verified');
   assert.equal(f.job().status,'verified');
+});
+
+
+test('durable preflight can take six seconds without expiring the exact request', async () => {
+  const f = await fixture(), append = f.store.journal.append;
+  f.store.journal.append = async (version, journal) => {
+    const result = await append(version, journal);
+    if (journal.commands.at(-1)?.kind === 'claim') f.advance(6000);
+    return result;
+  };
+  assert.equal((await f.run()).status, 'submitted');
+  assert.equal(f.calls.filter(c => c.method === 'POST').length, 1);
+  assert.equal((await f.run()).status, 'blocked');
+});
+
+
+test('preflight at the thirty-second expiry never crosses the submitting barrier', async () => {
+  const f = await fixture(), append = f.store.journal.append;
+  f.store.journal.append = async (version, journal) => {
+    const result = await append(version, journal);
+    if (journal.commands.at(-1)?.kind === 'claim') f.advance(30000);
+    return result;
+  };
+  await assert.rejects(f.run(), /Invalid availability request binding/);
+  assert.equal(f.calls.filter(c => c.method === 'POST').length, 0);
+  assert.equal(replayInventoryJournal(f.state.journal).journal.commands.some(c => c.kind === 'dispatch'), false);
 });
