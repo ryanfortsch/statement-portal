@@ -6,7 +6,7 @@ import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { lookupPayments } from '@/lib/stripe-payments-lookup';
 import { BUSINESS_TZ } from '@/lib/payments-lookup-core';
-import { getActivePropertiesForStatements } from '@/lib/properties';
+import { getActivePropertiesForStatements } from '@/lib/properties-server';
 import { PaymentsSearchForm } from './PaymentsSearchForm';
 import { SearchingNotice } from './SearchingNotice';
 import { isOwnerSession } from '@/lib/helm-access-server';

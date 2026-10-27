@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { gmailMailbox } from '@/lib/gmail-draft';
 import { gmailUrl } from '@/lib/gmail-links';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { ALWAYS_CC, SEND_FROM, getActivePropertyForStatements } from '@/lib/properties';
+import { ALWAYS_CC, SEND_FROM } from '@/lib/properties';
+import { getActivePropertyForStatements } from '@/lib/properties-server';
 import {
   renderEmail,
   resolveOwnerRequests,

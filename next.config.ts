@@ -31,6 +31,20 @@ const deploymentId =
   '';
 
 const nextConfig: NextConfig = {
+  poweredByHeader: false,
+  async headers() {
+    return [{
+      source: '/:path*',
+      headers: [
+        { key: 'X-Content-Type-Options', value: 'nosniff' },
+        { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+        { key: 'Content-Security-Policy', value: "frame-ancestors 'self'" },
+        // Preserve origin-based integrations without sending token-bearing paths.
+        { key: 'Referrer-Policy', value: 'strict-origin' },
+      ],
+    }];
+  },
+
   // Native skew handling: Next stamps RSC and server-action requests with
   // x-deployment-id and compares the id echoed on navigation responses, so
   // a stale client hard-navigates instead of applying a payload its bundle

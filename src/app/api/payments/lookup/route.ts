@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { lookupPayments } from '@/lib/stripe-payments-lookup';
-import { getActivePropertiesForStatements } from '@/lib/properties';
+import { getActivePropertiesForStatements } from '@/lib/properties-server';
 
 /**
  * GET /api/payments/lookup - what has actually been paid, from Stripe.

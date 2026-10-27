@@ -1,6 +1,7 @@
 import { requireStatementRenderAccess } from '@/lib/statement-render-auth';
 import { DownloadPdfChip } from '@/components/DownloadPdfChip';
-import { PROPERTIES, getActivePropertyForStatements } from '@/lib/properties';
+import { PROPERTIES } from '@/lib/properties';
+import { getActivePropertyForStatements } from '@/lib/properties-server';
 
 // Render fresh on every request -- the page reflects mutable review-queue
 // state (bank_deposit_attributions, period_notes, gap resolutions). Without
