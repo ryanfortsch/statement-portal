@@ -3,7 +3,6 @@ import { HelmFooter } from '@/components/HelmFooter';
 import { HelmHero } from '@/components/HelmHero';
 import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
 import type { ContactRow, ContactType } from '@/lib/crm';
-import { CONTACT_TYPE_LABELS } from '@/lib/crm';
 import { selectAllPaged } from '@/lib/paged-select';
 import { CrmListClient } from './CrmListClient';
 
@@ -118,5 +117,3 @@ export default async function CrmPage() {
 
 export type CrmPageCounts = Record<ContactType | 'all', number>;
 export type { ContactRow };
-
-export const VIEW_LABELS = CONTACT_TYPE_LABELS;

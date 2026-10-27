@@ -1,12 +1,14 @@
+import 'server-only';
+
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 /**
  * Server-only Supabase client using the SERVICE ROLE key.
  *
  * It BYPASSES row-level security, so it must never be imported into a client
- * component (the service key is not in the browser bundle, so it would be a
- * non-functional placeholder there anyway). Use it for every read or write of a
- * table that is locked down at the RLS layer -- contacts, contact_touches,
+ * component. The server-only marker makes such an import fail the build.
+ * Use it for every read or write of a table locked down at the RLS layer:
+ * contacts, contact_touches,
  * audience_*, booking_finance, bookings, imported_inquiries, property_access,
  * and so on -- now that those tables no longer carry a permissive anon policy.
  *

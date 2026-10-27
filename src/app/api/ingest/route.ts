@@ -17,7 +17,7 @@ import { applyOffStripeRulings, OFF_STRIPE_STATUS } from '@/lib/off-stripe-rulin
 import { netVendorCredits, vendorChargeNet, unappliedRefundGap, type VendorCharge } from '@/lib/vendor-credit-netting';
 import { classifyInternalTransfers, remittanceMonthFor, type SweepExpectations, type SweepVerdict, type TransferCandidate } from '@/lib/internal-transfers';
 import { buildRemittanceSheet } from '@/lib/remittance';
-import { getActivePropertyForStatements } from '@/lib/properties';
+import { getActivePropertyForStatements } from '@/lib/properties-server';
 import { loadInstallmentsForMonth, loadInstallmentsForCode, loadInstallmentsForCodes, type Installment } from '@/lib/installments';
 import { isCancelledStatus } from '@/lib/cancel-check';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
