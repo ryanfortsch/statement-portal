@@ -521,6 +521,7 @@ export function Stepper({
     setIsCompleting(true);
     try {
       await completeInspection(inspectionId, {
+        packetId,
         suppliesLow: Array.from(suppliesLow),
         // Every listed slip gets a verdict: done on this trip, already
         // handled, or (untouched) still open, which the walk confirms.
@@ -528,7 +529,7 @@ export function Stepper({
         slipsHandled: verifySlips.filter((w) => slipVerdicts.get(w.id) === 'handled').map((w) => w.id),
         slipsStillOpen: verifySlips.filter((w) => !slipVerdicts.has(w.id)).map((w) => w.id),
       });
-      router.push(`/inspections/${inspectionId}/summary`);
+      router.push(packetId ? `/field/packet/${packetId}` : `/inspections/${inspectionId}/summary`);
     } catch (e) {
       setIsCompleting(false);
       setError(e instanceof Error ? e.message : 'Failed to complete');

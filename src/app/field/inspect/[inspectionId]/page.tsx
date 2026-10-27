@@ -40,11 +40,11 @@ export default async function FieldInspectPage({
   // contractor.
   const { data: stopRow } = await fieldDb()
     .from('packet_stops')
-    .select('id, packet_id, inspection_packets!inner(awarded_contractor_id)')
+    .select('id, packet_id, status, inspection_packets!inner(awarded_contractor_id)')
     .eq('inspection_id', inspectionId)
     .maybeSingle();
   const stop = stopRow as
-    | { id: string; packet_id: string; inspection_packets: { awarded_contractor_id: string | null } }
+    | { id: string; packet_id: string; status: string; inspection_packets: { awarded_contractor_id: string | null } }
     | null;
   if (!stop || stop.inspection_packets?.awarded_contractor_id !== contractor.id) {
     redirect('/field');
@@ -57,7 +57,7 @@ export default async function FieldInspectPage({
     .maybeSingle();
   if (!inspection) notFound();
   const insp = inspection as InspectionRow;
-  if (insp.completed_at) redirect(`/field/packet/${stop.packet_id}`);
+  if (insp.completed_at && stop.status === 'complete') redirect(`/field/packet/${stop.packet_id}`);
 
   let cards: OrderedCard[] = [];
   if (Array.isArray(insp.ordered_cards) && insp.ordered_cards.length > 0) {
