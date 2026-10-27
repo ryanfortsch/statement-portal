@@ -1,3 +1,4 @@
+import { splitReplyUpdates } from '@/lib/home-reply-triage';
 import Link from 'next/link';
 import { auth } from '@/auth';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
@@ -160,12 +161,16 @@ export async function ForMeFeed() {
   const myWork = pickForFeed(workFiltered, workMode, WORK_WINDOW);
 
   const emailsFiltered = needsReply.filter((e) => !dismissed.has(`email:${e.id}`));
-  const inboundFiltered = inboundWaiting.filter((t) => !dismissed.has(`inbound:${inboundId(t)}`));
+  const visibleInbound = inboundWaiting.filter((t) => !dismissed.has(`inbound:${inboundId(t)}`));
+  const { replies: inboundFiltered, updates: inboundUpdates } = splitReplyUpdates(visibleInbound);
   const replyTotal = emailsFiltered.length + inboundFiltered.length;
   const replyEmails = emailsFiltered.slice(0, REPLY_WINDOW);
   const replyInbound = inboundFiltered.slice(0, Math.max(0, REPLY_WINDOW - replyEmails.length));
 
-  const glance = fyi.filter((e) => !dismissed.has(`email:${e.id}`)).slice(0, GLANCE_WINDOW);
+  const glance = fyi.filter((e) => !dismissed.has(`email:${e.id}`));
+  const updates = [...glance.map((email) => ({ kind: 'email' as const, at: email.receivedAt, email })),
+    ...inboundUpdates.map((touch) => ({ kind: 'inbound' as const, at: touch.touchedAt, touch }))]
+    .sort((a, b) => b.at.localeCompare(a.at)).slice(0, GLANCE_WINDOW);
 
   // Each section, or null when it has nothing to show. The page renders them
   // in the order of the signed-in person's day (lib/home-feed-order.ts).
@@ -221,7 +226,7 @@ export async function ForMeFeed() {
     // emails from a contact still waiting on us; then, with no heading, the
     // mail worth a glance.
     replies:
-      replyTotal > 0 || glance.length > 0 ? (
+      replyTotal > 0 ? (
         <>
           {replyTotal > 0 && (
             <>
@@ -238,15 +243,18 @@ export async function ForMeFeed() {
               </div>
             </>
           )}
-          {glance.length > 0 && (
-            <div style={{ marginTop: replyTotal > 0 ? 28 : 0, borderTop: '1px solid var(--rule)' }}>
-              {glance.map((e) => (
-                <EmailItem key={e.id} email={e} mail={mail} dim />
-              ))}
-            </div>
-          )}
+
         </>
       ) : null,
+
+    updates: updates.length ? <>
+      <SectionHeader title="Updates" eyebrow="For your information" />
+      <div style={{ borderTop: '1px solid var(--rule)' }}>
+        {updates.map((item) => item.kind === 'email'
+          ? <EmailItem key={`email-${item.email.id}`} email={item.email} mail={mail} dim />
+          : <InboundItem key={`inbound-${inboundId(item.touch)}`} touch={item.touch} update />)}
+      </div>
+    </> : null,
 
     // OWNER BLOCKS TO ANSWER: Guesty holds for the owner with no "clean
     // after?" answer yet. The stay is on the cleaner schedule meanwhile;
@@ -763,7 +771,7 @@ function EmailItem({ email: e, mail, dim = false }: { email: BriefEmail; mail: M
   );
 }
 
-function InboundItem({ touch: t }: { touch: BriefInboundTouch }) {
+function InboundItem({ touch: t, update = false }: { touch: BriefInboundTouch; update?: boolean }) {
   const href = t.contactId ? `/crm/${t.contactId}` : '/crm';
   return (
     <div style={feedRowStyle}>
@@ -776,8 +784,8 @@ function InboundItem({ touch: t }: { touch: BriefInboundTouch }) {
               {t.channel}
             </span>
           </span>
-          <span style={{ flexShrink: 0, fontSize: 11, color: t.daysWaiting >= 2 ? 'var(--negative)' : 'var(--ink-4)' }}>
-            {t.daysWaiting === 0 ? 'today' : `${t.daysWaiting}d waiting`}
+          <span style={{ flexShrink: 0, fontSize: 11, color: !update && t.daysWaiting >= 2 ? 'var(--negative)' : 'var(--ink-4)' }}>
+            {update ? 'Acknowledgment' : t.daysWaiting === 0 ? 'today' : `${t.daysWaiting}d waiting`}
           </span>
         </div>
         <div style={{ marginTop: 3, fontSize: 14, color: 'var(--ink)', lineHeight: 1.4 }}>{t.summary}</div>

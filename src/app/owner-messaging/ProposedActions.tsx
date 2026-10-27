@@ -2,6 +2,7 @@
 
 import type { OwnerProposedAction } from '@/lib/stay-concierge';
 import type { AlsoItem } from '@/components/messaging/card/types';
+import { ownerStayLabel } from '@/lib/owner-approval-plan';
 import { fmtClock, fmtDay } from '@/lib/vendor-visit-dates';
 
 /** One row's presentation, keyed by kind. A table rather than a ternary
@@ -62,10 +63,7 @@ function actionHeadline(action: OwnerProposedAction): string {
       ? `Stop sending statements to ${who}`
       : `Add ${who} to the statement emails`;
   }
-  if (action.kind === 'owner_stay') {
-    const days = action.start === action.end ? action.start : `${action.start} through ${action.end}`;
-    return `Block owner-use nights: ${days} (inclusive)`;
-  }
+  if (action.kind === 'owner_stay') return ownerStayLabel(action);
   if (action.kind === 'calendar_hold') return calendarHoldHeadline(action);
   if (action.kind === 'appointment') return appointmentHeadline(action);
   return action.why;
@@ -179,8 +177,10 @@ export function proposedActionItems(
     line: (
       <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
         {kept.length === 0
-          ? 'Nothing will be created. Tick a line to keep it.'
-          : 'Ticked lines are created when you approve or mark handled.'}
+          ? 'No follow-up actions selected. Edit any reply that promises these actions before sending.'
+          : ownerStays > 0
+            ? 'Owner-stay blocks run only with Approve & send. Mark handled does not block dates.'
+            : 'Ticked lines are created when you approve or mark handled.'}
       </span>
     ),
     body: explain.length ? (
