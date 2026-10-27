@@ -1,3 +1,4 @@
+import InventoryRecovery from './InventoryRecovery';
 import { CanonicalBookingImport } from './CanonicalBookingImport';
 import Link from 'next/link';
 import MessageTimingReview from './MessageTimingReview';
@@ -37,6 +38,7 @@ export default async function CalderwoodPage({ searchParams }: { searchParams: P
       <p className="mt-2">Airbnb is the planned channel for new pilot bookings. Booking.com’s pause is authorized but awaiting confirmation in its extranet; Vrbo is deferred. Every existing stay still needs calendar protection and automated service.</p>
       <p className="mt-2">Automated guest and cleaner messages are required for launch. Keep the existing Guesty timing, including the 3 PM key-code message and the rare delay hold. PriceLabs continues to own dynamic minimum stays and pricing.</p>
     </section>
+    <InventoryRecovery enabled={process.env.CHANNEX_INVENTORY_RECOVERY_ENABLED === 'true'} />
     <CanonicalBookingImport enabled={process.env.CHANNEX_CANONICAL_REHEARSAL_ENABLED === 'true'} />
     <form method="get" className="flex flex-wrap items-end gap-4 rounded-lg border p-4">
       <label className="grid gap-1 text-sm">From<input className="rounded border p-2" type="date" name="from" required defaultValue={from} /></label>
