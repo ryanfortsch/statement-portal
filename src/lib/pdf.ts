@@ -1,3 +1,4 @@
+import { createStatementRenderToken, STATEMENT_RENDER_HEADER } from './statement-render-token.ts';
 import chromium from '@sparticuz/chromium';
 import puppeteer, { Browser, Page } from 'puppeteer-core';
 import {
@@ -6,7 +7,7 @@ import {
   PAGE_WIDTH_PX,
   nextFitScale,
   tooTallMessage,
-} from './pdf-fit';
+} from './pdf-fit.ts';
 
 /**
  * Shrink the statement until it fits on one page, and report what it took.
@@ -130,17 +131,28 @@ export async function renderStatementPdf(args: {
     // If Vercel Deployment Protection is enabled, Puppeteer would get
     // redirected to Vercel's login page before the statement can render.
     // The bypass token skips that gate for this request only (still
-    // requires our own app-level access code to view the dashboard,
-    // which the statement route doesn't gate).
+    // requires the scoped statement authorization token below).
     const bypass = process.env.VERCEL_PROTECTION_BYPASS;
-    if (bypass) {
-      await page.setExtraHTTPHeaders({
-        'x-vercel-protection-bypass': bypass,
-        'x-vercel-set-bypass-cookie': 'true',
-      });
+    const token = createStatementRenderToken(statementId, month, process.env.AUTH_SECRET);
+    await page.setRequestInterception(true);
+    page.on('request', (request) => {
+      const headers = { ...request.headers() };
+      delete headers[STATEMENT_RENDER_HEADER];
+      delete headers['x-vercel-protection-bypass'];
+      delete headers['x-vercel-set-bypass-cookie'];
+      if (request.isNavigationRequest() && request.frame() === page.mainFrame() && request.url() === url) {
+        headers[STATEMENT_RENDER_HEADER] = token;
+        if (bypass) {
+          headers['x-vercel-protection-bypass'] = bypass;
+          headers['x-vercel-set-bypass-cookie'] = 'true';
+        }
+      }
+      void request.continue({ headers }).catch(() => {});
+    });
+    const response = await page.goto(url, { waitUntil: 'networkidle0', timeout: 30_000 });
+    if (!response?.ok() || !(await page.$('[data-statement-document="statement"]'))) {
+      throw new Error('Statement authorization or rendering failed; PDF download cancelled');
     }
-
-    await page.goto(url, { waitUntil: 'networkidle0', timeout: 30_000 });
 
     // Wait for Google Fonts + any late-loading assets. document.fonts.ready
     // resolves once all @font-face rules have loaded (or timed out).

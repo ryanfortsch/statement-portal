@@ -1,3 +1,4 @@
+import { getPlaybookEntryBySlug, getEntryRevisions } from '@/lib/playbook-server';
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { auth } from '@/auth';
@@ -5,8 +6,6 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
 import { Markdown } from '@/components/Markdown';
 import {
-  getPlaybookEntryBySlug,
-  getEntryRevisions,
   categoryLabel,
   STATUS_LABELS,
 } from '@/lib/playbook';

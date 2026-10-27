@@ -26,7 +26,7 @@ import {
   type PropertySnapshot,
   type PortfolioTotals,
 } from '@/lib/revenue-snapshot';
-import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
+import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
 import { pacingFactsLine, pacingToggleState } from '@/lib/revenue-pacing-line';
 import {
   loadProjectionBaselines,

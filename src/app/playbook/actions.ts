@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { slugify, type PlaybookStatus, type PlaybookEntryRow } from '@/lib/playbook';
 
 type Ok<T = unknown> = { ok: true } & T;

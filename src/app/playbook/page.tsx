@@ -4,7 +4,7 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { Stat } from '@/components/Stat';
-import { getPlaybookEntries } from '@/lib/playbook';
+import { getPlaybookEntries } from '@/lib/playbook-server';
 import { getPropertyOptions } from '@/lib/playbook-properties';
 import { PlaybookClient } from './PlaybookClient';
 
