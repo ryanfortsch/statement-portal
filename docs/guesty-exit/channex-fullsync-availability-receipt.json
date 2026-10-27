@@ -1,0 +1,80 @@
+{
+  "observedOn": "2026-10-27",
+  "environment": "isolated staging",
+  "property": "HELMTEST-calderwood",
+  "workerCommit": "dfc0508060a7b813d04e7025e6ecd806a8cba15f",
+  "scope": "Case 1 availability-only full sync; vendor certification approval pending. Exact 500-value body retained in the isolated database journal.",
+  "commands": [
+    {
+      "id": "projection-6e7d7e865e99e64ea577c0ff90e4c7d6db083c4e8d983e50d9bc99c617464d94",
+      "kind": "dispatch",
+      "last": {
+        "date": "2028-03-09",
+        "property_id": "30584a9a-8784-4eb1-a387-e26bd43aec1c",
+        "availability": 0,
+        "room_type_id": "f795ae2c-f47d-4751-86ff-e883b6d30800"
+      },
+      "task": null,
+      "first": {
+        "date": "2026-10-27",
+        "property_id": "30584a9a-8784-4eb1-a387-e26bd43aec1c",
+        "availability": 0,
+        "room_type_id": "f795ae2c-f47d-4751-86ff-e883b6d30800"
+      },
+      "request": {
+        "url": "https://staging.channex.io/api/v1/availability",
+        "digest": "b2d15294e90fb5ca7184c8b30a01e6b8ae5c05934466590104ed884773c8967e",
+        "format": 1,
+        "method": "POST",
+        "expiresAt": 1793110376115,
+        "preparedAt": 1793110346115
+      },
+      "evidence": null,
+      "valueCount": 500
+    },
+    {
+      "id": "projection-6e7d7e865e99e64ea577c0ff90e4c7d6db083c4e8d983e50d9bc99c617464d94",
+      "kind": "accepted",
+      "last": null,
+      "task": "731d0260-15d1-429e-aea0-32c0532a72f6",
+      "first": null,
+      "request": null,
+      "evidence": null,
+      "valueCount": null
+    },
+    {
+      "id": "projection-6e7d7e865e99e64ea577c0ff90e4c7d6db083c4e8d983e50d9bc99c617464d94",
+      "kind": "reconcile",
+      "last": null,
+      "task": null,
+      "first": null,
+      "request": null,
+      "evidence": {
+        "task": "731d0260-15d1-429e-aea0-32c0532a72f6",
+        "digest": "ed3518b4c662e388a84bbce18eb637e3d934bb964a4ccf75c3d54fffb85d3746",
+        "settled": true,
+        "complete": true,
+        "completion": {
+          "executedAt": 1793110354755,
+          "finishedAt": 1793110354765,
+          "observedAt": 1793110387777,
+          "receivedAt": 1793110354600
+        },
+        "generation": 1,
+        "requestDigest": "b2d15294e90fb5ca7184c8b30a01e6b8ae5c05934466590104ed884773c8967e"
+      },
+      "valueCount": null
+    }
+  ],
+  "restoredState": {
+    "windowStart": "2026-10-27",
+    "windowEndExclusive": "2027-10-28",
+    "mode": "rolling-year",
+    "schedulerEnabled": true,
+    "publishEnabled": true,
+    "completeSourceCoverage": true,
+    "configurationVersion": 848,
+    "fullSyncJobStatus": "verified",
+    "deploy": "dep-dbgb41142hec73e49p5g"
+  }
+}
