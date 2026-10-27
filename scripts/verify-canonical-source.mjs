@@ -86,5 +86,22 @@ export async function verifyCanonicalSourceDatabase(db,check) {
   await check('source: reinstall preserves coverage, receipts and all queue history',async()=>{
     const before=await state(),snapshot=await read();await db.exec(sql);assert.deepEqual(await state(),before);assert.deepEqual(await read(),snapshot);
   });
+  const upgrade=readFileSync(new URL('../docs/guesty-exit/staging-storage/canonical-source-500-day.sql',import.meta.url),'utf8');
+  await check('source: 500-day upgrade preserves state and permissions and is repeatable',async()=>{
+    const before=await state(),snapshot=await read();
+    const permissions=async()=>query("select proacl::text,proowner from pg_proc where oid='helm_pilot_source_certify(jsonb,jsonb,bigint,date,date)'::regprocedure");
+    const acl=await permissions();await db.exec(upgrade);await db.exec(upgrade);
+    assert.deepEqual(await state(),before);assert.deepEqual(await read(),snapshot);assert.deepEqual(await permissions(),acl);
+  });
+  await check('source: upgraded SQL accepts 500 and 560 days but refuses 561',async()=>{
+    for(const days of [500,560,561]) await transaction(async()=>{
+      await query("update helm_booking_inventory_consumers set configuration=jsonb_set(configuration,'{coverage}','[]') where property_id=$1",[property]);
+      const expected=await read(),before=await state();
+      const edge=new Date(Date.parse(start)+days*86400000).toISOString().slice(0,10);
+      assert.equal(await certify(expected,bookings,Date.now(),start,edge),days<=560);
+      if(days>560) assert.deepEqual(await state(),before);
+      else {const after=await state();assert.equal(after.configuration.publishEnabled,false);assert.deepEqual(after.journal,before.journal);}
+    });
+  });
   return {read,certify,state,bookings,start,end};
 }
