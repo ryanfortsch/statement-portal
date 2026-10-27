@@ -917,6 +917,17 @@ export type OwnerProposedAction = { key?: string } & (
       why: string;
     }
   | {
+      /** Personal-use nights blocked and verified in Guesty before the approved
+       * reply sends. Mark handled never executes this action. */
+      kind: 'owner_stay';
+      /** First and last nights, inclusive, YYYY-MM-DD. */
+      start: string;
+      end: string;
+      who: string;
+      what: string;
+      why: string;
+    }
+  | {
       /** Something the owner booked at the house on a named day that we must
        *  be there for or act on at a time: an inspection window, their
        *  electrician, a delivery with a call-ahead. Approving files it on the
@@ -965,7 +976,10 @@ export async function approveOwnerApproval(
   if (opts?.skipActions?.length) body.skip_actions = opts.skipActions;
   return request<{ status: string; id: string; filed?: { slips: string[]; notes: string[] } }>(
     `/api/owner-approvals/${id}/approve`,
-    { method: 'POST', ...(Object.keys(body).length ? { body } : {}) },
+    // Owner-use approval checks, writes, and verifies the calendar before
+    // sending. Keep waiting through those round trips instead of reporting
+    // the ordinary 13-second read timeout while approval is still running.
+    { method: 'POST', timeoutMs: 120_000, ...(Object.keys(body).length ? { body } : {}) },
   );
 }
 
