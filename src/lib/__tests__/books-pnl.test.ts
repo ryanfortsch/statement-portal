@@ -402,7 +402,10 @@ const MIGRATION = 'supabase/migrations/20261019190000_books_ledger_for_pnl.sql';
 /** The balance sheet's migration adds the asset and loan accounts on top; the two together seed the chart. */
 const BALANCE_SHEET_MIGRATION = 'supabase/migrations/20261019200000_books_balance_sheet.sql';
 /** Accounts added after the seed, one migration each; the test reads them all so the picker and the table never drift. */
-const LATER_ACCOUNT_MIGRATIONS = ['supabase/migrations/20261029120000_books_x6250_card.sql'];
+const LATER_ACCOUNT_MIGRATIONS = [
+  'supabase/migrations/20261029120000_books_x6250_card.sql',
+  'supabase/migrations/20261029140000_books_trust_accounts.sql',
+];
 
 /** The value tuples of one `insert into public.<table> (...) values ... on conflict` block. */
 function seedTuples(sql: string, table: string): (string | number | boolean | null)[][] {

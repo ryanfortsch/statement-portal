@@ -117,6 +117,20 @@ export const LLC_ACCOUNTS: LlcAccountSeed[] = [
   { entity_id: 'rising_tide', kind: 'bank', institution: 'Chase', last4: '3227', label: '73 Rocky Neck (Moynahan)', property_id: '73_rocky_neck' },
   { entity_id: 'rising_tide', kind: 'bank', institution: 'Chase', last4: '9969', label: '20 Hammond (Ramsey)', property_id: '20_hammond' },
   { entity_id: 'rising_tide', kind: 'bank', institution: 'Chase', last4: '1307', label: '20 Enon (Snyder)', property_id: '20_enon' },
+  // The homes signed since the seed. The last4-to-home map was proven in the
+  // 10/21 books review: each account's fee sweep into 5130 equals the home's
+  // statement fee to the cent (4 Middle's by its property row).
+  { entity_id: 'rising_tide', kind: 'bank', institution: 'Chase', last4: '0626', label: '36 Granite', property_id: '36_granite' },
+  { entity_id: 'rising_tide', kind: 'bank', institution: 'Chase', last4: '0627', label: '16 Waterman', property_id: '16_waterman' },
+  { entity_id: 'rising_tide', kind: 'bank', institution: 'Chase', last4: '0628', label: '19 Rackliffe (Silverman)', property_id: '19_rackliffe' },
+  { entity_id: 'rising_tide', kind: 'bank', institution: 'Chase', last4: '0629', label: '84 Thatcher (Lopes)', property_id: '84_thatcher' },
+  { entity_id: 'rising_tide', kind: 'bank', institution: 'Chase', last4: '0631', label: '79 Main (Lambert-Vorais)', property_id: '79_main' },
+  { entity_id: 'rising_tide', kind: 'bank', institution: 'Chase', last4: '1226', label: '4 Middle (Rosenstein)', property_id: '4_middle' },
+  { entity_id: 'rising_tide', kind: 'bank', institution: 'Chase', last4: '1227', label: '7 Sumac (Montagnino)', property_id: '7_sumac' },
+  { entity_id: 'rising_tide', kind: 'bank', institution: 'Chase', last4: '1228', label: '53 Rocky Neck, Downstairs (Prudenzi)', property_id: '53_rocky_neck_2' },
+  { entity_id: 'rising_tide', kind: 'bank', institution: 'Chase', last4: '1229', label: '225 Washington (Babson)', property_id: '225_washington' },
+  { entity_id: 'rising_tide', kind: 'bank', institution: 'Chase', last4: '1232', label: '3 Windward (Moynahan)', property_id: '3_windward' },
+  { entity_id: 'rising_tide', kind: 'bank', institution: 'Chase', last4: '1233', label: '47 Atlantic (Erickson)', property_id: '47_atlantic' },
   // Operating, business, and tax accounts.
   { entity_id: 'rising_tide', kind: 'bank', institution: 'Chase', last4: '5130', label: 'Rising Tide Main (operating)' },
   { entity_id: 'rising_tide', kind: 'bank', institution: 'Chase', last4: '5623', label: 'Business Complete CHK' },
