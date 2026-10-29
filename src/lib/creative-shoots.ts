@@ -82,9 +82,10 @@ export type ShootRow = {
   paid_at: string | null;
   paid_method: string | null;
   paid_reference: string | null;
-  // Drive delivery watcher (20260803): the shoot's Drive subfolder, the dated
-  // "Finals" deliver-to folder Helm creates inside it (the package gate), the
-  // DRONE box inside finals where raw masters park uncounted, when the
+  // Drive delivery watcher (20260803): the home's Drive subfolder (shared by
+  // every shoot there), this shoot's dated "Finals" deliver-to folder in it
+  // (the package gate), the home's DRONE box beside the finals folders (inside
+  // finals on shoots before 2026-10-23) where raw masters park uncounted, when the
   // completed package last landed, and when the folder was last scanned.
   drive_folder_id: string | null;
   drive_finals_folder_id: string | null;

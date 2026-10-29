@@ -2,9 +2,11 @@
  * Drive delivery watcher for the Creative module.
  *
  * A contributor delivers by dropping files into their Drive folder:
- * "Creative Assets - <first name>" at the top, one subfolder per shoot (named
- * like the property: "4 Brier Neck"). Inside each shoot folder Helm CREATES a
- * dated finals folder ("Finals - Jul 27") — the deliver-to box.
+ * "Creative Assets - <first name>" at the top, one subfolder per HOME (named
+ * like the property: "4 Brier Neck"), shared by every shoot there. Inside it
+ * Helm CREATES a dated finals folder per shoot ("Finals - Jul 27", the
+ * deliver-to box) and one DRONE box beside them. The layout rules live in
+ * creative-drive-layout.ts.
  *
  * The pay gate: a shoot is worth $0 until the FULL package per its rate card
  * (maxPerShoot qualifying reels + maxCarouselsPerShoot carousels) is in the
@@ -19,8 +21,10 @@
  * Reels group like carousels do: videos inside one subfolder of finals — or
  * loose ones whose names differ only by version wording ("no music") — are
  * VERSIONS of one reel, one asset, one base. Folders named like raw/b-roll
- * are skipped everywhere, as is the DRONE box Helm creates inside finals: the
- * DJI masters park there and never read as a delivered reel.
+ * are skipped everywhere, as is the DRONE box Helm creates in the home folder
+ * (older shoots have theirs inside finals): the DJI masters park there and
+ * never read as a delivered reel. Another shoot's finals folder in the same
+ * home is skipped too, so a second shoot never reads the first one's files.
  *
  * Money safety: this file never pays anything, and never deletes or edits a
  * paid, posted, viewed, or view-locked asset. The only assets it removes are
@@ -37,6 +41,16 @@ import { getGoogleAccessToken } from './marketing/auth';
 import { loadRateCards, isQualifyingDuration, qualifyingSeconds, type RateCard } from './creative-rates';
 import { cardFromSnapshot } from './creative-pay';
 import type { ShootRow } from './creative-shoots';
+import {
+  DRONE_BOX_NAME,
+  finalsFolderName,
+  homeFolderFromEarlierShoot,
+  isDumpFolder,
+  isOtherShootsFinals,
+  norm,
+  pickFinalsFolder,
+  type ShootFolderPin,
+} from './creative-drive-layout';
 
 const SCOPE = 'https://www.googleapis.com/auth/drive';
 const API = 'https://www.googleapis.com/drive/v3';
@@ -141,11 +155,6 @@ async function createFolder(token: string, name: string, parentId: string): Prom
   return ((await res.json()) as { id: string }).id;
 }
 
-/** Lowercase, alphanumerics + single spaces — the matching alphabet. */
-function norm(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
-}
-
 /** Find the talent's root folder by convention: "Creative Assets - <name>". */
 async function findTalentFolder(token: string, fullName: string): Promise<string | null> {
   const first = fullName.split(' ')[0];
@@ -181,16 +190,6 @@ function matchShootFolder(
   if (hits.length === 1) return { id: hits[0].id, note: null };
   if (hits.length > 1) return { id: null, note: `${hits.length} Drive folders match; paste the right one on the shoot page` };
   return { id: null, note: null };
-}
-
-/** "Finals - Jul 27" from the shoot date — the deliver-to folder's name. */
-function finalsFolderName(shootDate: string): string {
-  try {
-    const label = new Date(`${shootDate}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    return `Finals - ${label}`;
-  } catch {
-    return `Finals - ${shootDate}`;
-  }
 }
 
 // ── Loaders + shared math for the board and shoot page ──────────────────
@@ -324,35 +323,24 @@ function fileDuration(f: DriveFile): number | null {
 
 type FoundFile = DriveFile & { parentFolderId: string; parentFolderName: string; inFinals: boolean };
 
-/** The name Helm gives the raw-footage box it creates inside finals. */
-export const DRONE_BOX_NAME = 'DRONE';
-
-/** True for a folder that holds raw footage, never deliverables. Raw and
- *  b-roll dumps are skipped anywhere. A drone box is a dump anywhere too,
- *  finals included — that is where the DJI masters get parked, and a dump of
- *  clips sharing one folder would otherwise read as one delivered reel. A
- *  folder whose name says it IS a deliverable ("Drone reel") is not a dump. */
-function isDumpFolder(name: string): boolean {
-  const n = norm(name);
-  if (n.includes('raw') || n.includes('b roll') || n.includes('broll')) return true;
-  return n.includes('drone') && !n.includes('reel') && !n.includes('carousel');
-}
-
 type CollectResult = {
   files: FoundFile[];
-  /** Files sitting in a skipped dump folder inside finals. Helm may still hold
-   *  rows for them from before they were parked; they are not deliveries and
-   *  not deletions, so those rows get dropped rather than read as removed. */
+  /** Files sitting in a skipped dump folder (in finals or the home folder).
+   *  Helm may still hold rows for them from before they were parked; they are
+   *  not deliveries and not deletions, so those rows get dropped rather than
+   *  read as removed. */
   parkedFileIds: Set<string>;
-  /** The drone box inside finals, if one is already there. */
+  /** The drone box in the home folder (or, on older shoots, inside finals),
+   *  if one is already there. */
   droneBoxId: string | null;
 };
 
-/** Every non-folder file under rootId, up to 3 folder levels deep, tagged with
- *  whether it sits inside the finals subtree. Folders named like raw footage
- *  dumps are skipped so they can't spawn phantom reels; a dump inside finals
- *  is shallow-listed anyway so what's parked in it can be told from what's
- *  been deleted. */
+/** Every non-folder file under rootId (the home folder), up to 3 folder levels
+ *  deep, tagged with whether it sits inside this shoot's finals subtree.
+ *  Another shoot's finals folder is not walked. Folders named like raw footage
+ *  dumps are skipped so they can't spawn phantom reels; a dump in finals or
+ *  the home folder is listed anyway so what's parked in it can be told from
+ *  what's been deleted. */
 async function collectFiles(
   token: string,
   rootId: string,
@@ -371,11 +359,15 @@ async function collectFiles(
       for (const c of children) {
         if (c.mimeType === FOLDER_MIME) {
           const insideFinals = folder.inFinals || c.id === finalsId;
+          if (isOtherShootsFinals(c, folder.id === rootId, finalsId)) continue;
           if (c.id === pinnedDroneId || isDumpFolder(c.name)) {
-            if (droneBoxId == null && (c.id === pinnedDroneId || (folder.id === finalsId && norm(c.name).includes('drone')))) {
+            // The home folder's box is listed first (breadth first), so it wins
+            // over an older shoot's box inside finals.
+            const boxParent = folder.id === rootId || folder.id === finalsId;
+            if (droneBoxId == null && (c.id === pinnedDroneId || (boxParent && norm(c.name).includes('drone')))) {
               droneBoxId = c.id;
             }
-            if (insideFinals) {
+            if (insideFinals || folder.id === rootId) {
               // Walk the dump for ids only (never for deliverables), so a file
               // moved into it — at any depth Helm could have captured it from —
               // reads as parked rather than deleted.
@@ -441,9 +433,13 @@ export async function syncCreativeDrive(): Promise<DriveSyncReport> {
     propertyIds.length
       ? db.from('properties').select('id, name').in('id', propertyIds)
       : Promise.resolve({ data: [] as { id: string; name: string }[] }),
-    // Folders already pinned to ANY shoot (incl. settled/cancelled), so a new
-    // shoot at the same property can't silently claim an old shoot's folder.
-    db.from('creative_shoots').select('id, drive_folder_id').not('drive_folder_id', 'is', null),
+    // Folders already pinned to ANY shoot (incl. settled/cancelled): a new
+    // shoot moves into the home folder its contributor already uses there,
+    // never into another home's, and never claims another shoot's finals.
+    db
+      .from('creative_shoots')
+      .select('id, contractor_id, property_id, shoot_date, drive_folder_id, drive_finals_folder_id')
+      .not('drive_folder_id', 'is', null),
     loadRateCards(),
   ]);
 
@@ -461,10 +457,12 @@ export async function syncCreativeDrive(): Promise<DriveSyncReport> {
   }
   const contractors = new Map(((cData ?? []) as { id: string; full_name: string; drive_folder_id: string | null }[]).map((c) => [c.id, c]));
   const propNames = new Map(((pData ?? []) as { id: string; name: string }[]).map((p) => [p.id, p.name]));
+  const pins = (takenData ?? []) as (ShootFolderPin & { drive_finals_folder_id: string | null })[];
   const taken = new Set(
-    ((takenData ?? []) as { id: string; drive_folder_id: string }[])
+    pins
       .filter((r) => !shootIds.includes(r.id) || shoots.find((s) => s.id === r.id)?.drive_folder_id)
-      .map((r) => r.drive_folder_id),
+      .map((r) => r.drive_folder_id)
+      .filter((v): v is string => !!v),
   );
 
   let token: string;
@@ -509,7 +507,14 @@ export async function syncCreativeDrive(): Promise<DriveSyncReport> {
       const live = cards.byContractor.get(shoot.contractor_id) ?? cards.def;
       const card = shoot.card_snapshot ? cardFromSnapshot(shoot.card_snapshot, live) : live;
 
-      // 1. Resolve the shoot's folder (pinned > auto-match > create by name).
+      // 1. Resolve the home folder (pinned > an earlier shoot's at this home >
+      // auto-match > create by name).
+      if (!sr.folderId) {
+        sr.folderId = homeFolderFromEarlierShoot(shoot, pins);
+        if (sr.folderId) {
+          await db.from('creative_shoots').update({ drive_folder_id: sr.folderId, updated_at: new Date().toISOString() }).eq('id', shoot.id);
+        }
+      }
       if (!sr.folderId) {
         if (!contractor) {
           addNote('contributor not found');
@@ -546,15 +551,28 @@ export async function syncCreativeDrive(): Promise<DriveSyncReport> {
         await db.from('creative_shoots').update({ drive_folder_id: sr.folderId, updated_at: new Date().toISOString() }).eq('id', shoot.id);
       }
 
-      // 2. Ensure the dated finals folder — the deliver-to box — exists inside.
+      // 2. Ensure this shoot's dated finals folder (the deliver-to box) exists
+      // in the home folder, beside any earlier shoot's.
       if (!sr.finalsFolderId) {
         const kids = (await listChildren(token, sr.folderId)).filter((f) => f.mimeType === FOLDER_MIME);
-        const existing = kids.find((f) => norm(f.name).startsWith('finals'));
-        sr.finalsFolderId = existing?.id ?? (await createFolder(token, finalsFolderName(shoot.shoot_date), sr.folderId));
+        const claimed = new Set(
+          pins.filter((p) => p.id !== shoot.id && p.drive_finals_folder_id).map((p) => p.drive_finals_folder_id!),
+        );
+        sr.finalsFolderId =
+          pickFinalsFolder(kids, shoot.shoot_date, claimed) ??
+          (await createFolder(token, finalsFolderName(shoot.shoot_date), sr.folderId));
         await db
           .from('creative_shoots')
           .update({ drive_finals_folder_id: sr.finalsFolderId, updated_at: new Date().toISOString() })
           .eq('id', shoot.id);
+      }
+      // Later shoots in this same run see this one's folders as taken.
+      const pin = pins.find((p) => p.id === shoot.id);
+      if (pin) {
+        pin.drive_folder_id = sr.folderId;
+        pin.drive_finals_folder_id = sr.finalsFolderId;
+      } else {
+        pins.push({ ...shoot, drive_folder_id: sr.folderId, drive_finals_folder_id: sr.finalsFolderId });
       }
 
       // 3. What's in the folder right now?
@@ -566,16 +584,17 @@ export async function syncCreativeDrive(): Promise<DriveSyncReport> {
       const now = new Date().toISOString();
       const seenIds = new Set<string>();
 
-      // 3b. The DRONE box — raw masters get a home inside finals that never
-      // counts, so dumping a card of DJI clips can't read as a delivered reel.
+      // 3b. The DRONE box: raw masters get one place per home, beside the
+      // finals folders, that never counts, so dumping a card of DJI clips
+      // can't read as a delivered reel. Every shoot at the home shares it.
       sr.droneFolderId = scan.droneBoxId;
-      if (sr.finalsFolderId && !sr.droneFolderId) {
+      if (!sr.droneFolderId) {
         // Never fatal: the box is a convenience, and a delivery must still be
         // read and paid on a folder Helm can only see into.
         try {
-          sr.droneFolderId = await createFolder(token, DRONE_BOX_NAME, sr.finalsFolderId);
+          sr.droneFolderId = await createFolder(token, DRONE_BOX_NAME, sr.folderId);
         } catch {
-          addNote('could not create the DRONE box in the Finals folder');
+          addNote('could not create the DRONE box in the home folder');
         }
       }
       if (sr.droneFolderId && sr.droneFolderId !== shoot.drive_drone_folder_id) {
@@ -894,7 +913,7 @@ export async function syncCreativeDrive(): Promise<DriveSyncReport> {
       }
 
       // Files no longer in the delivery tree. One parked in the DRONE box (or
-      // another raw dump inside finals) was never a deliverable, so its row is
+      // another raw dump in finals or the home folder) was never a deliverable, so its row is
       // dropped outright — it isn't a deletion and shouldn't read as one.
       // Everything else: mark, and keep the asset + pay records.
       for (const [driveId, row] of known) {

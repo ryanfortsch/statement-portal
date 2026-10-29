@@ -810,10 +810,15 @@ export async function setShootDriveFolder(formData: FormData): Promise<void> {
     }
     folderId = m![1];
   }
-  await fieldDb()
-    .from('creative_shoots')
-    .update({ drive_folder_id: folderId, updated_at: new Date().toISOString() })
-    .eq('id', shootId);
+  const { data: current } = await fieldDb().from('creative_shoots').select('drive_folder_id').eq('id', shootId).maybeSingle();
+  const patch: Record<string, unknown> = { drive_folder_id: folderId, updated_at: new Date().toISOString() };
+  if ((current?.drive_folder_id ?? null) !== folderId) {
+    // A new home folder: the next sync finds (or makes) this shoot's finals
+    // folder and the DRONE box in it, not the old folder's.
+    patch.drive_finals_folder_id = null;
+    patch.drive_drone_folder_id = null;
+  }
+  await fieldDb().from('creative_shoots').update(patch).eq('id', shootId);
   revalidatePath(`/fieldwork/shoots/${shootId}`);
   redirect(`/fieldwork/shoots/${shootId}?drive=${encodeURIComponent(folderId ? 'ok:folder linked - sync to pull its files' : 'ok:folder cleared')}`);
 }
