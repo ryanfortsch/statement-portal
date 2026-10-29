@@ -22,6 +22,7 @@ import {
   looksLikeIssue,
   stampOwnerContact,
   captureUnknownInbound,
+  fileUnplacedCleanerText,
 } from '@/lib/quo-ingest';
 import { quoLineFor } from '@/lib/quo-lines';
 import { mirrorQuoFinish } from '@/lib/cleaning-sessions';
@@ -38,8 +39,9 @@ import { mirrorQuoFinish } from '@/lib/cleaning-sessions';
 // to claim. `ingestInboundMessage` below is its own implementation, and it
 // is a second implementation of what the webhook does per inbound message:
 // contact touches, cleaning completions, cleaner-issue work slips, owner
-// last-contacted, unknown inbound numbers in group threads, and the
-// cleaning-session mirror. All four of the gaps this route was documented
+// last-contacted, unknown inbound numbers in group threads, the
+// cleaning-session mirror, and a cleaner text that names no house (filed
+// for the home feed through the webhook's own filer). All four of the gaps this route was documented
 // as having are closed; what remains is two implementations of one job, so
 // changing either still means reading both.
 //
@@ -64,6 +66,8 @@ type SyncSummary = {
   messages_seen: number;
   messages_inserted: number;
   cleaning_completions_inserted: number;
+  /** Cleaner texts that named no house, newly filed for the home feed. */
+  cleaner_texts_unplaced: number;
   calls_seen: number;
   calls_inserted: number;
   errors: string[];
@@ -80,6 +84,7 @@ export async function POST(request: NextRequest) {
       messages_seen: 0,
       messages_inserted: 0,
       cleaning_completions_inserted: 0,
+      cleaner_texts_unplaced: 0,
       calls_seen: 0,
       calls_inserted: 0,
       errors: [],
@@ -215,6 +220,7 @@ async function pullMessages(
         const inserted = await ingestInboundMessage(msg, target);
         if (inserted.touch) summary.messages_inserted++;
         if (inserted.cleaning) summary.cleaning_completions_inserted++;
+        if (inserted.unplaced) summary.cleaner_texts_unplaced++;
       } else {
         const inserted = await ingestOutboundMessage(msg, target);
         if (inserted) summary.messages_inserted++;
@@ -315,6 +321,7 @@ async function pullGroupConversations(
             const inserted = await ingestInboundMessage(msg, t);
             if (inserted.touch) summary.messages_inserted++;
             if (inserted.cleaning) summary.cleaning_completions_inserted++;
+            if (inserted.unplaced) summary.cleaner_texts_unplaced++;
           } else {
             const inserted = await ingestOutboundMessage(msg, canonical);
             if (inserted) summary.messages_inserted++;
@@ -332,7 +339,8 @@ async function pullGroupConversations(
 async function ingestInboundMessage(
   msg: QuoMessage,
   target: Target,
-): Promise<{ touch: boolean; cleaning: boolean }> {
+): Promise<{ touch: boolean; cleaning: boolean; unplaced?: boolean }> {
+  let unplaced = false;
   if (target.cleaner) {
     const propertyId = await attributeCleaningProperty(msg.text ?? '', target.cleaner.property_ids);
     if (propertyId) {
@@ -369,6 +377,19 @@ async function ingestInboundMessage(
       await mirrorQuoFinish(supabase, { propertyId, completedAt: msg.createdAt });
       return { touch: false, cleaning: !r.error };
     }
+    // No house. The same queue the webhook files into (the home feed's
+    // "Cleanings to check"), so a "done" whose webhook delivery was missed
+    // still reaches a person instead of being dropped a second time by the
+    // net meant to catch it. Completions and problems only; one row per
+    // message, so a text the webhook already filed, or someone already
+    // attached or set aside, is left as it is.
+    unplaced = await fileUnplacedCleanerText({
+      messageId: msg.id,
+      from: msg.from,
+      at: msg.createdAt,
+      body: msg.text ?? '',
+      cleaner: target.cleaner,
+    });
   }
   if (target.contact) {
     const r = await supabase
@@ -392,9 +413,9 @@ async function ingestInboundMessage(
     if (target.contact.type === 'owner' && (target.contact.linked_property_ids?.length ?? 0) > 0) {
       await stampOwnerContact(target.contact.linked_property_ids ?? [], msg.createdAt, 'sms');
     }
-    return { touch: !r.error, cleaning: false };
+    return { touch: !r.error, cleaning: false, unplaced };
   }
-  return { touch: false, cleaning: false };
+  return { touch: false, cleaning: false, unplaced };
 }
 
 async function ingestOutboundMessage(msg: QuoMessage, target: Target): Promise<boolean> {

@@ -132,11 +132,27 @@ describe('the wiring', () => {
   test('an unplaced completion or issue is filed, never thrown with what the cleaner said', () => {
     const inbound = fnBody(ingest, 'async function handleInboundMessage');
     const cleaner = inbound.slice(inbound.indexOf('const cleanerHit'), inbound.indexOf('// 2. Contact-touch path.'));
-    assert.ok(cleaner.includes('await fileUnplacedCleanerText(cleanerHit, msg, body)'), 'the unplaced text is not filed');
+    assert.match(cleaner, /await fileUnplacedCleanerText\(\{ messageId: msg\.id, from: fromPhone, at: msg\.createdAt, body, cleaner: cleanerHit \}\)/, 'the unplaced text is not filed');
     assert.ok(!/^\s*throw\b/m.test(cleaner), 'the cleaner path throws again');
-    const file = fnBody(ingest, 'async function fileUnplacedCleanerText');
-    assert.ok(file.includes("from('cleaner_unplaced_texts')"));
+    const file = fnBody(ingest, 'export async function fileUnplacedCleanerText');
+    assert.ok(file.includes('worthFiling('), 'the filer files chatter too');
+    assert.ok(file.indexOf('worthFiling(') < file.indexOf("from('cleaner_unplaced_texts')"), 'the filer writes before it asks');
     assert.ok(file.includes("onConflict: 'quo_message_id', ignoreDuplicates: true"), 'a replay could reopen a placed text');
+  });
+
+  test('the six-hourly sweep files an unplaced text into the same queue, through the same filer', () => {
+    // The sweep is the net for a missed webhook delivery. Without this, a
+    // "done" whose delivery was missed was dropped twice.
+    const sweep = read('src/app/api/sync-quo/route.ts');
+    assert.match(sweep, /import\s*\{[^}]*\bfileUnplacedCleanerText\b[^}]*\}\s*from\s*'@\/lib\/quo-ingest'/, 'the sweep does not use the ingest filer');
+    assert.ok(!sweep.includes("from('cleaner_unplaced_texts')"), 'the sweep writes the queue itself, a second copy of the filer');
+    const inbound = fnBody(sweep, 'async function ingestInboundMessage');
+    const cleaner = inbound.slice(inbound.indexOf('if (target.cleaner)'), inbound.indexOf('if (target.contact)'));
+    const placed = cleaner.indexOf('if (propertyId)');
+    const filed = cleaner.indexOf('await fileUnplacedCleanerText({');
+    assert.notEqual(filed, -1, 'the sweep drops a cleaner text that names no house');
+    assert.ok(filed > placed, 'the sweep files before it tries to place the text');
+    assert.match(cleaner.slice(filed), /at: msg\.createdAt/, 'the sweep no longer files the text\'s own time');
   });
 
   test('the home feed shows it under Cleanings to check', () => {
