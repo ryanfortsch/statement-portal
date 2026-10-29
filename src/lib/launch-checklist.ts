@@ -40,9 +40,9 @@ export type LaunchStepStatus = 'todo' | 'in_progress' | 'done' | 'skipped' | 'n_
  * not apply. "In progress" and "Skipped" were never explained and nobody
  * could tell Skipped from N/A, so they go: migration
  * 20261018220000_launch_status_three.sql maps the rows and
- * normalizeLaunchStatus maps anything a previous deployment still writes
- * during the skew window. The column's check constraint keeps all five for
- * that window.
+ * normalizeLaunchStatus maps anything an old row still says. The column's
+ * check constraint kept all five for the skew window and allows the three
+ * since 2026-10-29 (20261029130000_drop_retired_house_policy_and_walkthrough_stores.sql).
  */
 export const LAUNCH_STATUS_CHOICES: ReadonlyArray<{ value: LaunchStepStatus; label: string }> = [
   { value: 'done', label: 'Done' },

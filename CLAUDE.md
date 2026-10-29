@@ -765,7 +765,8 @@ because fee numbers are payout math, and `is_rising_tide_owned` is what zeroes t
 policy columns on `properties` are the only home for guest checkout, pets, quiet hours, max
 occupancy, cancellation and house rules. The rate plan and the listing record read them (every
 loader overlays them) and their forms no longer edit those fields; the retired copies on
-`property_rate_plans` and `property_listing_content` stay one release and are not read. Check-in
+`property_rate_plans` and `property_listing_content` were dropped on 2026-10-29, one release later
+(`20261029130000_drop_retired_house_policy_and_walkthrough_stores.sql`). Check-in
 is two values with two names: **Guest check-in** is the rate plan's `checkin_time`, **Cleaner
 deadline** is `properties.default_checkin_time`. The climate automation runs from the same guest
 times. `house-policy.test.ts` reads the forms and readers so a second writer cannot come back.

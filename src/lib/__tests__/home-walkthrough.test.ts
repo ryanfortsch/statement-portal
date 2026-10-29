@@ -9,28 +9,18 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { haveCounts, mergeLegacyStates, normalizeWalkthroughState, withHave, withNote } from '../home-walkthrough.ts';
+import { haveCounts, normalizeWalkthroughState, withHave, withNote } from '../home-walkthrough.ts';
 
 const root = new URL('../../../', import.meta.url).pathname;
 const read = (p: string) => readFileSync(join(root, p), 'utf8');
+/** Code only: a comment may name a dropped store to explain it. */
+const code = (src: string): string => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
 
 const groups = [{ items: [{ label: 'Cups', count: 4 }, { label: 'Plates', count: 6 }, { label: 'Bath towels (large)', count: 10 }] }];
 
 test('saved counts show, and a legacy checked label reads as all of it', () => {
   const state = normalizeWalkthroughState({ have: { Cups: 1 }, checked: ['Plates', 'Cups'], notes: { wifi: 'x' } });
   assert.deepEqual(haveCounts(state, groups), { Cups: 1, Plates: 6 });
-});
-
-test('the two retired stores fold the way the migration folds them: the property wins per key', () => {
-  const merged = mergeLegacyStates(
-    { have: { Cups: 2, Plates: 3 }, checked: ['Bath towels (large)'], notes: { supply_closet: 'Hall', wifi: 'Net' }, updated_at: '2026-09-01T00:00:00Z' },
-    { have: { Plates: 6 }, notes: { supply_closet: 'Basement', order_notes: 'PO 12' }, updated_at: '2026-10-01T00:00:00Z' },
-  );
-  assert.deepEqual(merged.have, { Cups: 2, Plates: 6 });
-  assert.deepEqual(merged.notes, { supply_closet: 'Basement', wifi: 'Net', order_notes: 'PO 12' });
-  assert.deepEqual(merged.checked, ['Bath towels (large)']);
-  assert.equal(merged.updated_at, '2026-10-01T00:00:00Z');
-  assert.deepEqual(mergeLegacyStates(null, undefined), { have: {}, notes: {} });
 });
 
 test('a write sets one count (dropping its legacy tick) or one note', () => {
@@ -51,14 +41,12 @@ function walk(dir: string, out: string[] = []): string[] {
   return out;
 }
 
-test('nothing writes the retired stores; one page, one client, one table', () => {
+test('nothing names the dropped stores; one page, one client, one table', () => {
+  // Both old stores were dropped on 2026-10-29, so no code may read or write them.
   for (const file of walk('src')) {
-    const src = read(file);
-    assert.ok(!/update\(\{\s*readiness_state/.test(src), `${file} writes projections.readiness_state`);
-    if (src.includes("from('property_order_checklist')")) {
-      assert.equal(file, 'src/lib/home-walkthrough-db.ts', `${file} touches the retired property_order_checklist`);
-      assert.ok(!/property_order_checklist'\)\s*\.(insert|update|upsert|delete)/.test(src));
-    }
+    const src = code(read(file));
+    assert.ok(!src.includes('readiness_state'), `${file} still names projections.readiness_state`);
+    assert.ok(!src.includes('property_order_checklist'), `${file} still names property_order_checklist`);
   }
   assert.ok(!existsSync(join(root, 'src/components/projections/ReadinessChecklistClient.tsx')));
   assert.ok(!existsSync(join(root, 'src/app/properties/[id]/order-checklist/OrderChecklistClient.tsx')));

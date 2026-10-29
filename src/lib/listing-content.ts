@@ -22,7 +22,13 @@ import { supabaseAdmin, isServiceConfigured } from './supabase-admin.ts';
 import type { PropertyRoom, RoomBed } from './property-rooms-shared.ts';
 import type { RatePlanRow } from './rate-plan.ts';
 import { CAPE_ANN_REGION } from './property-scope.ts';
-import { applyHousePolicyToListing, HOUSE_POLICY_COLS, type HousePolicy } from './house-policy.ts';
+import {
+  applyHousePolicyToListing,
+  HOUSE_POLICY_COLS,
+  LISTING_POLICY_FIELDS,
+  type HousePolicy,
+  type ListingPolicyField,
+} from './house-policy.ts';
 import { descriptionBlocksFrom, splitSummary, type ScaDescriptionBlock } from './listing-copy-shape.ts';
 
 // ── Row shapes ──────────────────────────────────────────────────────────────
@@ -99,7 +105,7 @@ export type ListingRecord = {
 };
 
 export const LISTING_CONTENT_COLS =
-  'property_id, title, summary, space, access, interaction, neighborhood, house_rules, notes, property_type, room_type, accommodates, bedrooms, bathrooms, beds, amenities, amenities_not_included, hero_photo_id, source, source_ref, updated_by, created_at, updated_at';
+  'property_id, title, summary, space, access, interaction, neighborhood, notes, property_type, room_type, bedrooms, bathrooms, beds, amenities, amenities_not_included, hero_photo_id, source, source_ref, updated_by, created_at, updated_at';
 
 export const LISTING_PHOTO_COLS =
   'id, property_id, url, source_url, thumbnail_url, caption, room_hint, sort_order, is_hero, source, external_id, width, height, created_at, updated_at';
@@ -132,6 +138,7 @@ export const FIELD_CONSUMERS: Record<string, ListingConsumer[]> = {
   // output changes with the field (round 13, pinned by a test). House rules
   // and accommodates are read from the House policy columns on properties
   // (src/lib/house-policy.ts); the editor shows them, it does not edit them.
+  // This table has had no columns of those names since 2026-10-29.
   house_rules: [OTA],
   notes: [OTA],
   property_type: [OTA],
@@ -401,6 +408,7 @@ export function shapeListingContent(raw: Record<string, unknown>): ListingConten
     access: strOrNull(raw.access),
     interaction: strOrNull(raw.interaction),
     neighborhood: strOrNull(raw.neighborhood),
+    // Filled from properties by the loader; not columns here since 2026-10-29.
     house_rules: strOrNull(raw.house_rules),
     notes: strOrNull(raw.notes),
     property_type: strOrNull(raw.property_type),
@@ -523,7 +531,9 @@ async function readHousePolicy(propertyId: string): Promise<HousePolicy | null> 
 
 // ── Writes ──────────────────────────────────────────────────────────────────
 
-export type ListingContentPatch = Partial<Omit<ListingContentRow, 'property_id' | 'created_at' | 'updated_at' | 'updated_by'>> & {
+export type ListingContentPatch = Partial<
+  Omit<ListingContentRow, 'property_id' | 'created_at' | 'updated_at' | 'updated_by' | ListingPolicyField>
+> & {
   property_id: string;
 };
 
@@ -531,6 +541,8 @@ export type ListingContentPatch = Partial<Omit<ListingContentRow, 'property_id' 
 export async function upsertListingContent(patch: ListingContentPatch, by: string): Promise<ListingContentRow> {
   if (!patch.property_id) throw new Error('upsertListingContent: property_id is required');
   const row: Record<string, unknown> = { ...patch, updated_by: by, updated_at: new Date().toISOString() };
+  // properties holds house rules and occupancy; this table has no such columns.
+  for (const field of LISTING_POLICY_FIELDS) delete row[field];
   const { data, error } = await supabaseAdmin
     .from('property_listing_content')
     .upsert(row, { onConflict: 'property_id' })

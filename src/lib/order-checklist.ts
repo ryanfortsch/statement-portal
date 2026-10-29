@@ -32,9 +32,8 @@ import {
  * Everything else a home needs (kitchen, smart home, misc) is reused
  * verbatim from READINESS_GROUPS so the two checklists can never drift on
  * the shared items. Item labels double as the persistence keys in
- * property_order_checklist.state.have (same label-keyed jsonb shape as
- * projections.readiness_state), so treat a label rename like a DB key
- * rename: the old entry silently drops.
+ * home_walkthroughs.state.have (label-keyed jsonb), so treat a label rename
+ * like a DB key rename: the old entry silently drops.
  *
  * No server imports in this file - the interactive client renders from it.
  * Room types come from property-rooms-shared, never property-rooms (that
@@ -291,9 +290,9 @@ export function computeOrderChecklist(ctx: OrderContext): OrderGroup[] {
 // ─── Persisted state ───────────────────────────────────────────────────────
 
 /**
- * property_order_checklist.state - same label-keyed shape as the
- * projection's ReadinessState. `have` is how many are already on site or
- * ordered; the gap to the computed need is the order list.
+ * The walkthrough's label-keyed state (home_walkthroughs.state). `have` is
+ * how many are already on site or ordered; the gap to the computed need is
+ * the order list.
  */
 export type OrderChecklistState = {
   have?: Record<string, number>;

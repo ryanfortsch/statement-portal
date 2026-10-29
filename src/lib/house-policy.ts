@@ -10,9 +10,12 @@
  *
  * So the rate plan and the listing record READ these columns: every loader
  * overlays them here, and the forms that edited the duplicates no longer
- * show those fields. The old columns stay in the database for one release
- * (migration 20261018160000_house_policy_one_store.sql backfilled properties
- * from them where properties was blank) and nothing reads them.
+ * show those fields. The old columns were kept one release (migration
+ * 20261018160000_house_policy_one_store.sql backfilled properties from them
+ * where properties was blank) and dropped on 2026-10-29
+ * (20261029130000_drop_retired_house_policy_and_walkthrough_stores.sql). HOUSE_POLICY_PLAN_FIELDS and
+ * LISTING_POLICY_FIELDS below name what every loader fills from properties
+ * and no writer sends to those tables.
  *
  * Check-in is the exception, and it is two values, not one: the GUEST's
  * check-in is the rate plan's `checkin_time` (what a guest is told), and
@@ -35,6 +38,26 @@ export type HousePolicy = {
   cancellation_policy: string | null;
   house_rules: string | null;
 };
+
+/**
+ * The policy fields a rate plan carries in memory, filled by applyHousePolicy.
+ * property_rate_plans has had no columns of these names since 2026-10-29, so
+ * upsertRatePlan strips them before writing.
+ */
+export const HOUSE_POLICY_PLAN_FIELDS = [
+  'checkout_time',
+  'max_occupancy',
+  'pets_allowed',
+  'quiet_hours',
+  'cancellation_policy_key',
+  'cancellation_terms',
+  'house_rules',
+] as const;
+export type HousePolicyPlanField = (typeof HOUSE_POLICY_PLAN_FIELDS)[number];
+
+/** The same for the listing record: filled by applyHousePolicyToListing, never written. */
+export const LISTING_POLICY_FIELDS = ['house_rules', 'accommodates'] as const;
+export type ListingPolicyField = (typeof LISTING_POLICY_FIELDS)[number];
 
 /** The defaults a reader falls back to when a home has no value, as before. */
 export const DEFAULT_GUEST_CHECKIN = '16:00';

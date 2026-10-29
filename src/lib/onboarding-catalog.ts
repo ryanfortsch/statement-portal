@@ -175,8 +175,8 @@ export type OnboardingDeriveContext = {
    */
   forwardDistinctPrices: number;
   /**
-   * A property_order_checklist row exists: someone has started counting
-   * against the outfitting order checklist at
+   * The home's walkthrough (home_walkthroughs) holds a count: someone has
+   * started counting against the outfitting order checklist at
    * /properties/<id>/order-checklist.
    */
   orderChecklistTouched: boolean;

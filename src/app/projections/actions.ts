@@ -861,8 +861,8 @@ export async function reactivateProspect(id: string): Promise<void> {
 // ─── Readiness walkthrough ──────────────────────────────────────────────────
 // Counts and notes are written by src/app/walkthrough-actions.ts into
 // home_walkthroughs (one row per home, prospect to property) since
-// 2026-10-18; projections.readiness_state is retired and read only as a
-// fallback for one release (src/lib/home-walkthrough-db.ts).
+// 2026-10-18; projections.readiness_state, the old store, was dropped on
+// 2026-10-29 (src/lib/home-walkthrough-db.ts).
 
 /**
  * Email the current readiness state to the Rising Tide team (Allie + Ryan

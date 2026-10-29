@@ -176,8 +176,9 @@ export function computeDesiredClimate(
  * The hours a stay starts and ends, from the guest's own times: the rate
  * plan's guest check-in and the House policy checkout on properties
  * (src/lib/house-policy.ts). The profile's checkin_hour / checkout_hour
- * columns were a third copy of the same two facts and are no longer read.
- * A home with neither value keeps the defaults the profile always had.
+ * columns were a third copy of the same two facts; they were dropped on
+ * 2026-10-29 and the two fields here are computed. A home with neither
+ * value keeps the defaults the profile always had.
  */
 async function withGuestHours(profiles: ClimateProfile[]): Promise<ClimateProfile[]> {
   if (profiles.length === 0) return profiles;

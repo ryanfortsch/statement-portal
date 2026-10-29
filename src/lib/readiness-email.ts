@@ -49,7 +49,8 @@ export async function sendReadinessReviewEmail(args: {
   // reflects the same quantities the analyst saw on screen.
   const { groups } = computeReadiness(projection);
   // The walkthrough lives on home_walkthroughs since 2026-10-18 (one row
-  // per home, prospect to property), not on projections.readiness_state.
+  // per home, prospect to property); the old column on projections was
+  // dropped on 2026-10-29.
   const state = await loadWalkthrough({ projectionId: projection.id, propertyId: projection.property_id ?? null });
   const have = state.have ?? {};
   const checked = state.checked ?? [];

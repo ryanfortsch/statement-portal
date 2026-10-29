@@ -152,7 +152,7 @@ export const READINESS_GROUPS: ReadinessGroup[] = [
 // ─── Walkthrough notes ────────────────────────────────────────────────────
 // Free-text fields the analyst fills in during the property visit. Keys are
 // stable identifiers used both as React keys and as map keys in the
-// persisted ReadinessState.notes dict.
+// persisted walkthrough notes dict (home_walkthroughs.state.notes).
 export type ReadinessNoteField = {
   key: string;
   label: string;

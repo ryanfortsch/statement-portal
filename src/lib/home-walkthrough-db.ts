@@ -1,11 +1,7 @@
 import 'server-only';
 
 import { getServiceClient, isServiceConfigured } from '@/lib/supabase-admin';
-import {
-  mergeLegacyStates,
-  normalizeWalkthroughState,
-  type WalkthroughState,
-} from '@/lib/home-walkthrough';
+import { normalizeWalkthroughState, type WalkthroughState } from '@/lib/home-walkthrough';
 
 /**
  * Persistence for the outfitting walkthrough: one public.home_walkthroughs
@@ -13,11 +9,12 @@ import {
  * (property_id), or both once the prospect is promoted. RLS-locked,
  * service role only.
  *
- * A home with no row yet reads the two retired stores
- * (projections.readiness_state, property_order_checklist) for one release,
- * so a count made before the carry-over, or on the previous deployment
- * during the skew window, still shows; the first write moves it here.
+ * A home with no row yet has nothing counted. The two stores this replaced
+ * (projections.readiness_state, property_order_checklist) were read as a
+ * fallback for one release and dropped on 2026-10-29.
  */
+
+const EMPTY: WalkthroughState = { have: {}, notes: {} };
 
 export type WalkthroughHome = { projectionId: string | null; propertyId: string | null };
 
@@ -59,33 +56,17 @@ async function findRow(home: WalkthroughHome): Promise<Row | null> {
   return rows.find((r) => home.propertyId && r.property_id === home.propertyId) ?? rows[0] ?? null;
 }
 
-async function readLegacy(home: WalkthroughHome): Promise<WalkthroughState> {
-  const sb = getServiceClient();
-  const [readiness, order] = await Promise.all([
-    home.projectionId
-      ? sb.from('projections').select('readiness_state').eq('id', home.projectionId).maybeSingle()
-      : Promise.resolve({ data: null }),
-    home.propertyId
-      ? sb.from('property_order_checklist').select('state').eq('property_id', home.propertyId).maybeSingle()
-      : Promise.resolve({ data: null }),
-  ]);
-  return mergeLegacyStates(
-    (readiness.data as { readiness_state?: unknown } | null)?.readiness_state ?? null,
-    (order.data as { state?: unknown } | null)?.state ?? null,
-  );
-}
-
 /** The home's walkthrough state (empty when nothing was ever counted). */
 export async function loadWalkthrough(home: WalkthroughHome): Promise<WalkthroughState> {
-  if (!isServiceConfigured || (!home.projectionId && !home.propertyId)) return { have: {}, notes: {} };
+  if (!isServiceConfigured || (!home.projectionId && !home.propertyId)) return { ...EMPTY };
   const row = await findRow(home);
-  return row ? normalizeWalkthroughState(row.state) : readLegacy(home);
+  return row ? normalizeWalkthroughState(row.state) : { ...EMPTY };
 }
 
 /**
  * Read, change and write the home's state. Creates the row on the first
- * write (from the legacy stores when they hold anything) and attaches the
- * missing link once it is known, so a prospect's row becomes the property's.
+ * write and attaches the missing link once it is known, so a prospect's row
+ * becomes the property's.
  */
 export async function updateWalkthrough(
   home: WalkthroughHome,
@@ -102,7 +83,7 @@ export async function updateWalkthrough(
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
-    const base = row ? normalizeWalkthroughState(row.state) : await readLegacy(home);
+    const base = row ? normalizeWalkthroughState(row.state) : { ...EMPTY };
     const now = new Date().toISOString();
     const state = { ...change(base), updated_at: now };
     if (row) {
