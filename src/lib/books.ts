@@ -123,6 +123,9 @@ export const LLC_ACCOUNTS: LlcAccountSeed[] = [
   { entity_id: 'rising_tide', kind: 'bank', institution: 'Chase', last4: '9928', label: 'Tax Account (MA occupancy remittance)' },
   // Operating credit card (heavy traffic — most SaaS, supplies, meals).
   { entity_id: 'rising_tide', kind: 'credit_card', institution: 'Chase', last4: '3878', label: 'A. OBrien Credit Card' },
+  // Second operating card. Ryan (2026-10-20): 5130, 3878 and 6250 are Rising Tide's
+  // statements. Its charges could not be uploaded until it was listed here.
+  { entity_id: 'rising_tide', kind: 'credit_card', institution: 'Chase', last4: '6250', label: 'Rising Tide Credit Card' },
 
   // ── Goose of Astoria LLC ──
   { entity_id: 'goose_astoria', kind: 'bank', institution: 'Chase', last4: '6966', label: 'Business Complete CHK' },
