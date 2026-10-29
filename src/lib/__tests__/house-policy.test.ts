@@ -19,6 +19,8 @@ import {
   applyHousePolicy,
   applyHousePolicyToListing,
   clockHHMM,
+  HOUSE_POLICY_PLAN_FIELDS,
+  LISTING_POLICY_FIELDS,
   petsAllowedBy,
   type HousePolicy,
 } from '../house-policy.ts';
@@ -152,5 +154,40 @@ describe('no second writer or reader of a retired copy', () => {
     const climate = code(read('src/lib/climate.ts'));
     assert.match(climate, /withGuestHours/);
     assert.doesNotMatch(code(read('src/app/properties/[id]/ClimatePanel.tsx')), /name="check(in|out)_hour"/);
+  });
+});
+
+describe('the retired columns are gone (2026-10-29)', () => {
+  const migration = read('supabase/migrations/20261029130000_drop_retired_house_policy_and_walkthrough_stores.sql');
+  const cols = (file: string, name: string): string[] => {
+    const m = new RegExp(`export const ${name} =\\s*'([^']*)'`).exec(read(file));
+    assert.ok(m, `${name} not found in ${file}`);
+    return m![1].split(/,\s*/);
+  };
+
+  test('the plan loader selects none of them, the writer sends none, and the migration drops each', () => {
+    const selected = cols('src/lib/property-rates.ts', 'RATE_PLAN_COLS');
+    for (const field of HOUSE_POLICY_PLAN_FIELDS) {
+      assert.ok(!selected.includes(field), `RATE_PLAN_COLS still selects ${field}`);
+      assert.match(migration, new RegExp(`drop column if exists ${field}`), `the migration keeps ${field}`);
+    }
+    assert.ok(selected.includes('checkin_time'), 'the guest check-in stays the plan own');
+    assert.match(code(read('src/lib/property-rates.ts')), /for \(const field of HOUSE_POLICY_PLAN_FIELDS\) delete row\[field\]/);
+  });
+
+  test('the listing loader selects neither, the writer sends neither, and the migration drops both', () => {
+    const selected = cols('src/lib/listing-content.ts', 'LISTING_CONTENT_COLS');
+    for (const field of LISTING_POLICY_FIELDS) {
+      assert.ok(!selected.includes(field), `LISTING_CONTENT_COLS still selects ${field}`);
+      assert.match(migration, new RegExp(`drop column if exists ${field}`), `the migration keeps ${field}`);
+    }
+    assert.match(code(read('src/lib/listing-content.ts')), /for \(const field of LISTING_POLICY_FIELDS\) delete row\[field\]/);
+  });
+
+  test('the climate copy, the walkthrough stores and the five-way launch status go too', () => {
+    assert.match(migration, /property_climate_profiles\s+drop column if exists checkin_hour,\s+drop column if exists checkout_hour/);
+    assert.match(migration, /alter table public\.projections drop column if exists readiness_state/);
+    assert.match(migration, /drop table if exists public\.property_order_checklist/);
+    assert.match(migration, /check \(status in \('todo', 'done', 'n_a'\)\)/);
   });
 });

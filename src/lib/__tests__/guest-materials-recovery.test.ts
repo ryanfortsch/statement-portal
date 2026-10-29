@@ -133,15 +133,19 @@ for (const [kind, table, create, update] of [['note','property_notes','createPro
 
 describe('outfitting walkthrough persistence (home_walkthroughs)', () => {
   const walkRows = (f: ReturnType<typeof fixture>) => [...f.rows.entries()].filter(([k]) => k.startsWith('home_walkthroughs:')).map(([, v]) => plain(v));
-  test('the first write carries the retired prospect state across, migrating only the edited legacy checkbox', async () => {
+  test('the first write on a home with no row starts from nothing; the dropped stores are never asked', async () => {
+    // Until 2026-10-29 the first write folded projections.readiness_state in;
+    // that column and property_order_checklist are gone, so the fixture's old
+    // prospect state (cups: 2, checked: other) must not appear.
     const f = fixture();
     assert.equal((await f.walk.setWalkthroughHaveAction({ projectionId: PROSPECT }, 'cups', 4)).ok, true);
     assert.equal((await f.walk.setWalkthroughNoteAction({ projectionId: PROSPECT }, 'closet', 'New note')).ok, true);
     const rows = walkRows(f); assert.equal(rows.length, 1);
-    assert.deepEqual(rows[0].state.have, { cups: 4 }); assert.deepEqual(rows[0].state.checked, ['other']); assert.equal(rows[0].state.notes.closet, 'New note');
+    assert.deepEqual(rows[0].state.have, { cups: 4 }); assert.equal(rows[0].state.checked, undefined); assert.deepEqual(rows[0].state.notes, { closet: 'New note' });
     assert.equal(rows[0].projection_id, PROSPECT);
-    // The retired column is read, never written.
     assert.equal(f.requests.some(r => r.table === 'projections' && r.method !== 'GET'), false);
+    assert.equal(f.requests.some(r => r.table === 'property_order_checklist'), false);
+    assert.equal(f.requests.some(r => r.table === 'projections' && /readiness_state/.test(r.params.get('select') ?? '')), false);
   });
   test('a failed read never replaces existing data with an empty state', async () => {
     const f = fixture({ fail: r => r.method === 'GET' });

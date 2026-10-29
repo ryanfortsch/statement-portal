@@ -22,11 +22,16 @@ import {
   applyHousePolicy,
   clockHHMM,
   HOUSE_POLICY_COLS,
+  HOUSE_POLICY_PLAN_FIELDS,
   type HousePolicy,
+  type HousePolicyPlanField,
 } from './house-policy.ts';
 
+/** The plan's own columns. Checkout, occupancy, pets, quiet hours, cancellation and
+ *  house rules are not among them since 2026-10-29: applyHousePolicy fills those
+ *  fields from properties (HOUSE_POLICY_PLAN_FIELDS). */
 export const RATE_PLAN_COLS =
-  'property_id, currency, base_nightly_cents, weekend_nightly_cents, weekend_days, guests_included, extra_guest_cents_per_night, cleaning_fee_cents, pet_fee_cents, security_deposit_cents, weekly_discount_pct, monthly_discount_pct, direct_markup_pct, min_nights_default, max_nights, advance_notice_hours, booking_window_days, turnover_buffer_days, checkin_time, checkout_time, max_occupancy, pets_allowed, quiet_hours, cancellation_policy_key, cancellation_terms, house_rules, updated_by, created_at, updated_at';
+  'property_id, currency, base_nightly_cents, weekend_nightly_cents, weekend_days, guests_included, extra_guest_cents_per_night, cleaning_fee_cents, pet_fee_cents, security_deposit_cents, weekly_discount_pct, monthly_discount_pct, direct_markup_pct, min_nights_default, max_nights, advance_notice_hours, booking_window_days, turnover_buffer_days, checkin_time, updated_by, created_at, updated_at';
 
 export const RATE_DAY_COLS =
   'property_id, date, nightly_cents, min_nights, cta, ctd, closed, note, source, updated_by, updated_at';
@@ -59,6 +64,7 @@ export function shapeRatePlan(raw: Record<string, unknown>): RatePlanRow {
     booking_window_days: num(raw.booking_window_days, 365),
     turnover_buffer_days: num(raw.turnover_buffer_days),
     checkin_time: String(raw.checkin_time ?? '16:00'),
+    // Not columns on the table: the defaults hold until applyHousePolicy overlays properties.
     checkout_time: String(raw.checkout_time ?? '11:00'),
     max_occupancy: numOrNull(raw.max_occupancy),
     pets_allowed: !!raw.pets_allowed,
@@ -105,8 +111,8 @@ export async function getHousePolicy(propertyId: string): Promise<HousePolicy | 
  * The one plan a property has, with its checkout, occupancy, pets, quiet
  * hours, cancellation and house rules read from the House policy columns on
  * properties. Every reader (quotes, availability, the calendar mirror, the
- * /api/pms bridge, the property page) goes through here, so none of them can
- * read the retired copies on the plan row.
+ * /api/pms bridge, the property page) goes through here; the plan row has
+ * carried no copy of its own since 2026-10-29.
  */
 export async function getRatePlan(propertyId: string): Promise<RatePlanRow | null> {
   if (!isServiceConfigured || !propertyId) return null;
@@ -156,7 +162,9 @@ export async function loadGuestTimes(propertyIds: string[]): Promise<Map<string,
   return out;
 }
 
-export type RatePlanPatch = Partial<Omit<RatePlanRow, 'property_id' | 'created_at' | 'updated_at' | 'updated_by'>> & {
+export type RatePlanPatch = Partial<
+  Omit<RatePlanRow, 'property_id' | 'created_at' | 'updated_at' | 'updated_by' | HousePolicyPlanField>
+> & {
   property_id: string;
 };
 
@@ -172,6 +180,8 @@ export async function upsertRatePlan(patch: RatePlanPatch, by: string): Promise<
     throw new Error(`upsertRatePlan: ${patch.property_id} has no plan yet; base_nightly_cents is required`);
   }
   const row: Record<string, unknown> = { ...patch, updated_by: by, updated_at: new Date().toISOString() };
+  // properties holds the house policy; the plan table has no such columns.
+  for (const field of HOUSE_POLICY_PLAN_FIELDS) delete row[field];
   const { data, error } = await supabaseAdmin
     .from('property_rate_plans')
     .upsert(row, { onConflict: 'property_id' })

@@ -4,8 +4,8 @@
  * the page, the review email and the tests share one rule.
  *
  * Persisted in public.home_walkthroughs (src/lib/home-walkthrough-db.ts).
- * Until 2026-10-18 the same shape lived twice: projections.readiness_state
- * and property_order_checklist.state. Item labels are the keys, so a label
+ * Until 2026-10-18 the same shape lived twice (projections.readiness_state
+ * and property_order_checklist.state, both dropped 2026-10-29). Item labels are the keys, so a label
  * rename in the catalogs is a key rename: the old entry silently drops.
  */
 
@@ -53,24 +53,6 @@ export function haveCounts(state: WalkthroughState, groups: Items): Record<strin
       }
     }
   }
-  return out;
-}
-
-/**
- * Fold the two retired stores into one state, the way the carry-over
- * migration did (20261018210000_home_walkthroughs.sql): the property's
- * counts and notes win per key. Used only when a home has no row yet.
- */
-export function mergeLegacyStates(readiness: unknown, order: unknown): WalkthroughState {
-  const a = normalizeWalkthroughState(readiness);
-  const b = normalizeWalkthroughState(order);
-  const out: WalkthroughState = {
-    have: { ...(a.have ?? {}), ...(b.have ?? {}) },
-    notes: { ...(a.notes ?? {}), ...(b.notes ?? {}) },
-  };
-  if (a.checked?.length) out.checked = a.checked;
-  const updated = b.updated_at ?? a.updated_at;
-  if (updated) out.updated_at = updated;
   return out;
 }
 

@@ -48,6 +48,7 @@ import {
   type GuestySeedListing,
   type HelmSeed,
 } from '../src/lib/pricing-seed.ts';
+import { HOUSE_POLICY_PLAN_FIELDS, LISTING_POLICY_FIELDS } from '../src/lib/house-policy.ts';
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -293,7 +294,9 @@ async function upsertContent(sb: SupabaseClient, seed: HelmSeed, dry: boolean, f
     log.push({ table: 'property_listing_content', action: 'left alone', detail: `updated_by ${existing.updated_by}; pass --force-content to overwrite` });
     return;
   }
-  const row = { ...seed.content, updated_by: SEED_BY, updated_at: new Date().toISOString() };
+  const row: Row = { ...seed.content, updated_by: SEED_BY, updated_at: new Date().toISOString() };
+  // House rules and occupancy live on properties (step 6); these columns were dropped 2026-10-29.
+  for (const field of LISTING_POLICY_FIELDS) delete row[field];
   if (dry) {
     log.push({ table: 'property_listing_content', action: 'would upsert', detail: `${seed.amenities.length} amenities` });
     return;
@@ -459,7 +462,10 @@ async function confirmSeedRow(
     log.push({ table, action: existing ? 'would upsert (confirm)' : 'would insert', detail: 'from the Guesty export' });
     return;
   }
-  const { error } = await sb.from(table).upsert({ ...row, updated_by: SEED_BY, updated_at: new Date().toISOString() }, { onConflict: 'property_id' });
+  const payload: Row = { ...row, updated_by: SEED_BY, updated_at: new Date().toISOString() };
+  // The plan's policy fields live on properties (step 6); the columns were dropped 2026-10-29.
+  if (table === 'property_rate_plans') for (const field of HOUSE_POLICY_PLAN_FIELDS) delete payload[field];
+  const { error } = await sb.from(table).upsert(payload, { onConflict: 'property_id' });
   if (error) fail(`${table} upsert: ${error.message}`);
   log.push({ table, action: existing ? 'upserted (confirmed)' : 'inserted' });
 }

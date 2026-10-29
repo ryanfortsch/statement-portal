@@ -233,9 +233,9 @@ All service role only. Money is integer cents.
   advance notice, booking window, turnover buffer, and the GUEST check-in
   (`checkin_time`; `properties.default_checkin_time` is the cleaner
   deadline, a different value). Its checkout, occupancy, pets, quiet hours,
-  cancellation and house rules columns are retired (2026-10-18) and not
-  read: every loader overlays the House policy columns on `properties`
-  (`src/lib/house-policy.ts`), which are the one store.
+  cancellation and house rules are not columns here (retired 2026-10-18,
+  dropped 2026-10-29): every loader overlays the House policy columns on
+  `properties` (`src/lib/house-policy.ts`), which are the one store.
 - **`property_rate_days`**: per-night overrides keyed `(property_id, date)`:
   `nightly_cents` (null = plan default), `min_nights`, `cta`, `ctd`,
   `closed`, `note`, `source` (`operator` | `seed` | `pricelabs` | `rule`).
@@ -249,8 +249,9 @@ All service role only. Money is integer cents.
 - **`property_listing_content`**: the guest-facing listing record (title,
   summary, space, access, neighborhood, type, rooms and beds, amenities,
   `hero_photo_id`, `source` = `helm` | `guesty_seed` | `ai_draft`). Its
-  `house_rules` and `accommodates` are retired (2026-10-18); the loader
-  reads `properties.house_rules` and `properties.max_occupancy`. This is
+  `house_rules` and `accommodates` columns are gone (retired 2026-10-18,
+  dropped 2026-10-29); the loader reads `properties.house_rules` and
+  `properties.max_occupancy`. This is
   what Helm feeds staycapeann.com and, later, an OTA
   push layer. `properties.title` stays the external title; this table
   holds the long-form copy.
@@ -286,8 +287,8 @@ prices its own quotes; Helm's plan is a draft until cutover.
   outfitting walkthrough per home, keyed by its prospect (`projection_id`),
   its property, or both once the prospect is promoted; `state` holds the
   label-keyed have-counts. It replaced `property_order_checklist` and
-  `projections.readiness_state`, which are read only as a fallback for a
-  home with no row yet and are written by nothing. Access through
+  `projections.readiness_state`, both dropped on 2026-10-29
+  (`20261029130000_drop_retired_house_policy_and_walkthrough_stores.sql`). Access through
   `src/lib/home-walkthrough-db.ts`; catalog and quantity math stay in
   `src/lib/order-checklist.ts` (Fix Linens 2.5x rules). Service role only.
 - `property_marketing`: "How we sell it", the selling points the campaign AI
@@ -326,7 +327,8 @@ phone, filed by the Quo ingest (`captureUnknownInbound` in
 `src/lib/quo-ingest.ts`, forward-only on `last_message_at`) with the line it
 came in on (`quo_line`). A number becomes a contact only when someone
 attaches it, adds it or sets it aside on the New numbers card (Messaging
-inbox). Its RLS policy is still open (`using (true)`).
+inbox). Service-role only since the 10/27 operations lockdown
+(`20261027010000_operations_rls_lockdown.sql`, applied 2026-10-29).
 
 `contractor_sessions` + `contractors`: the Field external contractor
 portal (`/field`). Token-gated, NOT Helm-SSO gated. Service-role only.
