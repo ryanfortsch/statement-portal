@@ -1,5 +1,6 @@
 'use server';
 
+import { sentReceipt, type ApprovalReceipt } from '@/lib/approval-receipt';
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
 import {
@@ -22,7 +23,7 @@ import {
 /** `stale` means the card moved on under the operator (a coached rewrite
  *  replaced it, someone else decided it): the card refreshes instead of
  *  showing a red error. */
-export type ActionResult = { ok: true } | { ok: false; error: string; stale?: boolean };
+export type ActionResult = { ok: true; receipt?: ApprovalReceipt } | { ok: false; error: string; stale?: boolean; receipt?: ApprovalReceipt };
 
 type ClientResult = { ok: true } | { ok: false; error: StayConciergeError };
 
@@ -31,7 +32,7 @@ function mapResult(res: ClientResult): ActionResult {
     revalidatePath('/messaging/team');
     return { ok: true };
   }
-  return { ok: false, error: explainError(res.error), stale: isStaleConflict(res.error) };
+  return { ok: false, error: explainError(res.error), stale: isStaleConflict(res.error), receipt: res.error.kind === 'http' ? res.error.receipt : undefined };
 }
 
 async function requireSession(): Promise<{ ok: true; email: string } | { ok: false; error: string }> {
@@ -49,7 +50,9 @@ export async function approveCleanerDraft(
 ): Promise<ActionResult> {
   const sess = await requireSession();
   if (!sess.ok) return sess;
-  return mapResult(await approveCleanerApproval(id, opts));
+  const result = await approveCleanerApproval(id, opts);
+  const mapped = mapResult(result);
+  return mapped.ok && result.ok ? { ...mapped, receipt: sentReceipt(result.data) } : mapped;
 }
 
 /** Clear the card without sending. `capture` is why (a reason) and, when the

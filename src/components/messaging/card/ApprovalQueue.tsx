@@ -1,6 +1,8 @@
 'use client';
 
-import { Fragment, useCallback, useState, type ReactNode } from 'react';
+import { ActionReceipt } from './ActionReceipt';
+import type { ApprovalReceipt } from '@/lib/approval-receipt';
+import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Section } from '@/components/Section';
 import { QueueRefreshControl } from '@/components/QueueRefreshControl';
 import { UndoToast } from './UndoToast';
@@ -15,7 +17,7 @@ import type { CardResult, Decision } from './types';
  * toast after a Mark handled.
  */
 export type QueueCardHelpers = {
-  onResolved: (warning?: string) => void;
+  onResolved: (warning?: string, receipt?: ApprovalReceipt) => void;
   onDecided: (decision: Decision) => void;
 };
 
@@ -46,12 +48,18 @@ export function ApprovalQueue<T extends { id: string; status?: string; send_at?:
   after?: ReactNode;
   renderCard: (approval: T, helpers: QueueCardHelpers) => ReactNode;
 }) {
+  const receiptRef = useRef<HTMLDivElement>(null);
+  const [receipt, setReceipt] = useState<ApprovalReceipt | null>(null);
+  useEffect(() => {
+    if (receipt) receiptRef.current?.scrollIntoView({ block: 'nearest', behavior: 'instant' });
+  }, [receipt]);
   const [notice, setNotice] = useState<string | null>(null);
   const [lastDecision, setLastDecision] = useState<Decision | null>(null);
   const closeToast = useCallback(() => setLastDecision(null), []);
   const onResolved = useCallback(
-    (warning?: string) => {
-      if (warning) setNotice(warning);
+    (warning?: string, result?: ApprovalReceipt) => {
+      if (result) setReceipt(result);
+      setNotice(warning && !result?.items.some(item => item.label === warning) ? warning : null);
       onRefresh();
     },
     [onRefresh],
@@ -71,6 +79,7 @@ export function ApprovalQueue<T extends { id: string; status?: string; send_at?:
 
   return (
     <>
+      {receipt && <div ref={receiptRef} className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', marginTop: 18 }}><ActionReceipt receipt={receipt} onDismiss={() => setReceipt(null)} /></div>}
       {notice && (
         <p
           role="status"

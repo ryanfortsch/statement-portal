@@ -14,6 +14,7 @@
  *                  unassigned work when nothing is assigned to me
  *   4. office    - the office queues
  *   5. payments  - guest payment links, capped
+ *   6. updates   - information and acknowledgments; never counted as replies
  *
  * Owners keep the "clean after?" card first: it is a question the operator
  * asked to be served loudly (2026-10-08), and it is owner-run today.
@@ -32,7 +33,8 @@ export type FeedSection =
   | 'cleanings'
   | 'unassigned'
   | 'queues'
-  | 'payments';
+  | 'payments'
+  | 'updates';
 
 const DAY: readonly FeedSection[] = [
   'work',
@@ -44,6 +46,7 @@ const DAY: readonly FeedSection[] = [
   'unassigned',
   'queues',
   'payments',
+  'updates',
 ];
 
 export function homeFeedOrder(role: HelmRole): FeedSection[] {

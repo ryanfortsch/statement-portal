@@ -1,5 +1,8 @@
 'use client';
 
+import { ActionReceipt } from './ActionReceipt';
+import type { ApprovalReceipt } from '@/lib/approval-receipt';
+
 import { useEffect, useRef, useState, useTransition, type ReactNode } from 'react';
 import { MobileInboxReview } from '@/components/MobileInboxReview';
 import { MessageOutcomes } from '@/components/MessageOutcomes';
@@ -123,6 +126,8 @@ export type ApprovalCardProps = {
   handledReasons: readonly string[];
   pastePlaceholder?: string;
   approveLabel?: string;
+  approveSummary?: string;
+  approvePendingLabel?: string;
   /** Why Approve is disabled (a slip with no property). */
   approveBlocked?: string;
   /** Why Send later is disabled. */
@@ -142,7 +147,7 @@ export type ApprovalCardProps = {
    *  its Send a price there). */
   queuedLead?: ReactNode;
   outcomes?: Outcomes;
-  onResolved: (warning?: string) => void;
+  onResolved: (warning?: string, receipt?: ApprovalReceipt) => void;
   onDecided: (decision: Decision) => void;
   onRegenerating: (id: string) => void;
   regenStalled: boolean;
@@ -152,13 +157,14 @@ export function ApprovalCard(props: ApprovalCardProps) {
   const {
     id, status, sendAt, name, property, channel, preview, reviewLabel, chips, queuedChips, accent, ageMinutes, createdAt, shortId,
     wait, layout = 'columns', said, between, reply, afterColumns, also, verbs, handledReasons,
-    pastePlaceholder = 'Paste the reply you sent, by text or by email', approveLabel, approveBlocked,
+    pastePlaceholder = 'Paste the reply you sent, by text or by email', approveLabel, approveSummary, approvePendingLabel, approveBlocked,
     scheduleBlocked, coachHint, externalBusy, redraftOutcome, footer, queuedLead, outcomes, onResolved, onDecided,
     onRegenerating, regenStalled,
   } = props;
   const draft = reply?.text ?? '';
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [receipt, setReceipt] = useState<ApprovalReceipt | null>(null);
   const [pending, setPending] = useState<PendingAction>(null);
   // Coach and Redraft outlive their request: the service answers 202 and
   // rewrites in the background. Keep the card locked until the replacement
@@ -269,6 +275,7 @@ export function ApprovalCard(props: ApprovalCardProps) {
     on?: { ok?: (res: CardResult & { ok: true }) => boolean | void; err?: () => void; stale?: () => void },
   ) => {
     setError(null);
+    setReceipt(null);
     setPending(action);
     startTransition(async () => {
       let res: CardResult;
@@ -284,13 +291,14 @@ export function ApprovalCard(props: ApprovalCardProps) {
           return;
         }
         setError(res.error);
+        if (res.receipt) setReceipt(res.receipt);
         setPending(null);
         on?.err?.();
         return;
       }
       // A handler that keeps the card (a saved edit) returns true.
       if (on?.ok?.(res)) return;
-      onResolved(res.warning);
+      onResolved(res.warning, res.receipt ? { ...res.receipt, title: name } : undefined);
     });
   };
 
@@ -444,7 +452,7 @@ export function ApprovalCard(props: ApprovalCardProps) {
           onClick={sendNow}
           disabled={busy}
           loading={pending === 'send-now'}
-          loadingLabel="Sending"
+          loadingLabel={approvePendingLabel || "Sending"}
           title="Send this reply right now instead of waiting."
         >
           Send now
@@ -617,6 +625,7 @@ export function ApprovalCard(props: ApprovalCardProps) {
       toggleTitle={scheduleBlocked}
       title={approveBlocked}
       loading={pending === 'approve'}
+      loadingLabel={approvePendingLabel || 'Sending'}
       open={showSchedule}
     />
   ) : null;
@@ -767,12 +776,15 @@ export function ApprovalCard(props: ApprovalCardProps) {
           </p>
         )}
 
+        {receipt && <ActionReceipt receipt={receipt} />}
+
         {pending === 'coach' && (
           <p style={{ marginTop: 14, fontSize: 13, color: 'var(--ink-3)', fontStyle: 'italic' }} role="status" aria-live="polite">
             Coaching the AI with your note. The rewritten draft replaces this one in a few seconds.
           </p>
         )}
 
+        {approveSummary && !isScheduled && <p style={{ marginTop: 16, fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.5 }}>{approveSummary}</p>}
         <footer
           className="rt-message-actions"
           style={{ marginTop: 18, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}

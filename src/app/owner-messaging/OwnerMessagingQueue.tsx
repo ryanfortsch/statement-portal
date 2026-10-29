@@ -23,6 +23,7 @@ import {
 import { splitOwnerText, parseTapback } from './conversation';
 import { Envelope, InboundSubject } from './Envelope';
 import { proposedActionItems } from './ProposedActions';
+import { ownerApprovalPlan } from '@/lib/owner-approval-plan';
 import { actionKeys, initialSkipped, skipPlan } from '@/lib/owner-action-skip';
 
 // How often the REST of the page re-renders. The cards poll their own feed
@@ -108,6 +109,7 @@ function OwnerCard({
       return next;
     });
   const { fileActions, skipActions } = skipPlan(keys, skipped);
+  const plan = ownerApprovalPlan(proposedActions.filter((_, index) => !skipped.has(keys[index])), channel);
   const checking =
     approval.followup_status?.enabled !== 0 &&
     approval.followup_status &&
@@ -190,6 +192,9 @@ function OwnerCard({
       // Where the reply goes, read before approving, not after.
       between={<Envelope envelope={approval.envelope} />}
       reply={{ text: approval.draft }}
+      approveLabel={plan?.label}
+      approveSummary={plan?.summary}
+      approvePendingLabel={plan?.pending}
       afterColumns={
         checking && (
           <p role="status" style={{ marginTop: 12, fontSize: 13, color: checking.error ? 'var(--signal)' : 'var(--ink-3)' }}>

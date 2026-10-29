@@ -2,6 +2,7 @@
 
 import type { OwnerProposedAction } from '@/lib/stay-concierge';
 import type { AlsoItem } from '@/components/messaging/card/types';
+import { ownerStayLabel } from '@/lib/owner-approval-plan';
 import { fmtClock, fmtDay } from '@/lib/vendor-visit-dates';
 
 /** One row's presentation, keyed by kind. A table rather than a ternary
@@ -33,6 +34,10 @@ const ACTION_STYLE: Record<string, { label: string; color: string }> = {
     label: 'Statements',
     color: 'var(--ink-2)',
   },
+  owner_stay: {
+    label: 'Owner stay',
+    color: 'var(--tide-deep)',
+  },
   calendar_hold: {
     label: 'Calendar',
     color: 'var(--tide-deep)',
@@ -58,6 +63,7 @@ function actionHeadline(action: OwnerProposedAction): string {
       ? `Stop sending statements to ${who}`
       : `Add ${who} to the statement emails`;
   }
+  if (action.kind === 'owner_stay') return ownerStayLabel(action);
   if (action.kind === 'calendar_hold') return calendarHoldHeadline(action);
   if (action.kind === 'appointment') return appointmentHeadline(action);
   return action.why;
@@ -113,6 +119,7 @@ export function proposedActionItems(
   const turnoverNotes = tally.get('turnover_note') ?? 0;
   const recipients = tally.get('statement_recipient') ?? 0;
   const holds = tally.get('calendar_hold') ?? 0;
+  const ownerStays = tally.get('owner_stay') ?? 0;
   const appointments = tally.get('appointment') ?? 0;
 
   const items: AlsoItem[] = actions.map((action, i) => {
@@ -142,7 +149,7 @@ export function proposedActionItems(
           </span>
         </label>
       ),
-      status: on ? 'Create when approved or handled' : 'Skip',
+      status: on ? (action.kind === 'owner_stay' ? 'Block before the approved reply sends' : 'Create when approved or handled') : 'Skip',
       attention: on && (urgent || entersUnit),
       body: draft ? (
         <p style={{ margin: 0, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5, opacity: on ? 1 : 0.55 }}>
@@ -156,6 +163,7 @@ export function proposedActionItems(
   });
 
   const explain = [
+    ownerStays > 0 && 'Approving checks availability, blocks these owner-use nights in Guesty, and verifies them before sending the reply. A conflict or failed calendar check stops the send. Mark handled does not place a block.',
     notes > 0 && 'A cleaner heads-up lands in the Cleaners queue for approval. It is not sent to anyone yet.',
     turnoverNotes > 0 && 'A turnover note joins the cleaners\u2019 schedule message for the day the crew is next at that house. That message still needs approving before it sends.',
     recipients > 0 && 'A recipient change updates the statement send list and the owner contacts on every property this owner receives statements for, so replies from that address reach this queue too.',
@@ -169,8 +177,10 @@ export function proposedActionItems(
     line: (
       <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
         {kept.length === 0
-          ? 'Nothing will be created. Tick a line to keep it.'
-          : 'Ticked lines are created when you approve or mark handled.'}
+          ? 'No follow-up actions selected. Edit any reply that promises these actions before sending.'
+          : ownerStays > 0
+            ? 'Owner-stay blocks run only with Approve & send. Mark handled does not block dates.'
+            : 'Ticked lines are created when you approve or mark handled.'}
       </span>
     ),
     body: explain.length ? (
