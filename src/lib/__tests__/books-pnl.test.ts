@@ -401,6 +401,8 @@ describe('the rules that keep each LLC\'s P&L honest', () => {
 const MIGRATION = 'supabase/migrations/20261019190000_books_ledger_for_pnl.sql';
 /** The balance sheet's migration adds the asset and loan accounts on top; the two together seed the chart. */
 const BALANCE_SHEET_MIGRATION = 'supabase/migrations/20261019200000_books_balance_sheet.sql';
+/** Accounts added after the seed, one migration each; the test reads them all so the picker and the table never drift. */
+const LATER_ACCOUNT_MIGRATIONS = ['supabase/migrations/20261029120000_books_x6250_card.sql'];
 
 /** The value tuples of one `insert into public.<table> (...) values ... on conflict` block. */
 function seedTuples(sql: string, table: string): (string | number | boolean | null)[][] {
@@ -448,7 +450,9 @@ describe('the books migration', () => {
   });
 
   test('seeds every bank and card account and every entity in books.ts', () => {
-    const accts = seedTuples(sql, 'llc_accounts').map((r) => JSON.stringify(r));
+    const accts = [sql, ...LATER_ACCOUNT_MIGRATIONS.map(read)]
+      .flatMap((file) => seedTuples(file, 'llc_accounts'))
+      .map((r) => JSON.stringify(r));
     const lib = LLC_ACCOUNTS.map((a) => JSON.stringify([a.entity_id, a.kind, a.institution, a.last4, a.label, a.property_id ?? null]));
     assert.deepEqual([...accts].sort(), [...lib].sort());
     assert.deepEqual(seedTuples(sql, 'llc_entities').map((r) => r[0]).sort(), Object.keys(LLC_ENTITIES).sort());
