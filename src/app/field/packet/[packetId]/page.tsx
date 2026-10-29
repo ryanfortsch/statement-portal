@@ -613,7 +613,7 @@ export default async function PacketPage({
   searchParams,
 }: {
   params: Promise<{ packetId: string }>;
-  searchParams: Promise<{ taken?: string; incomplete?: string; stale?: string; blocked?: string; office?: string; resetblocked?: string; expired?: string }>;
+  searchParams: Promise<{ taken?: string; incomplete?: string; submiterror?: string; stale?: string; blocked?: string; office?: string; resetblocked?: string; expired?: string }>;
 }) {
   const { packetId } = await params;
   const sp = await searchParams;
@@ -960,6 +960,11 @@ export default async function PacketPage({
         <Alert tone="warn">
           That inspection already has work in it, so it can&apos;t be reset. Finish it, or call the office and we&apos;ll sort it.
         </Alert>
+      )}
+      {sp.submiterror && (
+        <p role="alert" style={{ color: 'var(--signal)' }}>
+          Could not confirm submission. Refresh to check the packet, then retry if it still needs submitting. Your saved work is kept.
+        </p>
       )}
       {sp.incomplete && (
         <Alert tone="warn">
@@ -1327,7 +1332,7 @@ export default async function PacketPage({
       {(claimable ||
         (!isMine && packet.status === 'published' && !visitPassed && !canClaim(contractor)) ||
         (isMine && (packet.status === 'submitted' || packet.status === 'approved')) ||
-        (isMine && packet.status !== 'submitted' && packet.status !== 'approved' && allComplete)) && (
+        (isMine && working && allComplete)) && (
         <div
           className="rt-cta-bar"
           style={{
@@ -1380,7 +1385,7 @@ export default async function PacketPage({
               </Link>
             )
           )}
-          {isMine && packet.status !== 'submitted' && packet.status !== 'approved' && allComplete && (
+          {isMine && working && allComplete && (
             <form action={submitPacket}>
               <input type="hidden" name="packet_id" value={packet.id} />
               <PendingButton

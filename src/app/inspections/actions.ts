@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
-import { resolveInspectionActor } from '@/lib/field-auth';
+import { resolveInspectionActor, resolveContractorFromCookie } from '@/lib/field-auth';
 import { fieldDb } from '@/lib/field-db';
 import {
   HELM_CORE_TEMPLATE_ID,
@@ -146,6 +146,8 @@ export async function saveResult(args: {
 export async function completeInspection(
   inspectionId: string,
   opts: {
+    /** Field route context: a staff login must not override the awarded Field session. */
+    packetId?: string;
     suppliesLow?: string[];
     /** End-of-walk slip verification, in the packet page's words: ids the
      *  inspector did on this trip, ids already handled when they got there,
@@ -156,8 +158,47 @@ export async function completeInspection(
     slipsDone?: string[];
   } = {},
 ) {
-  const actor = await resolveInspectionActor();
+  let actor = await resolveInspectionActor();
+  if (opts.packetId) {
+    const contractor = await resolveContractorFromCookie();
+    if (!contractor) throw new Error('Reopen your Field link before completing this walk.');
+    actor = { kind: 'contractor', email: contractor.email, name: contractor.full_name, contractorId: contractor.id };
+  }
   if (!actor) throw new Error('Not signed in');
+
+  // Validate the Field ownership and lifecycle BEFORE any inspection or slip
+  // writes. The route context is a hint, never authority to act as staff.
+  let fieldStop: { id: string; packet_id: string; status: string } | null = null;
+  if (actor.kind === 'contractor') {
+    const { data: stop, error: stopError } = await fieldDb().from('packet_stops')
+      .select('id, packet_id, status').eq('inspection_id', inspectionId).maybeSingle();
+    if (stopError) throw new Error('Could not check this stop. Please retry.');
+    fieldStop = stop;
+    if (!fieldStop || (opts.packetId && fieldStop.packet_id !== opts.packetId)) throw new Error('Not your inspection.');
+    const { data: packet, error: packetError } = await fieldDb().from('inspection_packets')
+      .select('awarded_contractor_id, status').eq('id', fieldStop.packet_id).maybeSingle();
+    if (packetError) throw new Error('Could not check this packet. Please retry.');
+    if (!packet || packet.awarded_contractor_id !== actor.contractorId) throw new Error('Not your inspection.');
+    if (!['claimed', 'in_progress'].includes(packet.status)) {
+      redirect(`/field/packet/${fieldStop.packet_id}`);
+    }
+  }
+
+  async function finishFieldStop() {
+    if (!fieldStop) return;
+    const { data: saved, error } = await fieldDb().from('packet_stops')
+      .update({ status: 'complete', completed_at: new Date().toISOString() })
+      .eq('id', fieldStop.id).eq('packet_id', fieldStop.packet_id).neq('status', 'complete')
+      .select('id').maybeSingle();
+    if (error) throw new Error('Your inspection is saved, but the stop could not be confirmed. Please retry.');
+    if (!saved) {
+      const { data: confirmed, error: confirmError } = await fieldDb().from('packet_stops')
+        .select('id').eq('id', fieldStop.id).eq('packet_id', fieldStop.packet_id).eq('status', 'complete').maybeSingle();
+      if (confirmError || !confirmed) throw new Error('Could not confirm this stop. Please retry.');
+    }
+    revalidatePath(`/field/packet/${fieldStop.packet_id}`);
+    redirect(`/field/packet/${fieldStop.packet_id}`);
+  }
   // Pin to a local so TS keeps the narrowing past the async fanouts below.
   const sessionEmail: string = actor.email;
 
@@ -175,17 +216,19 @@ export async function completeInspection(
     open: opts.slipsStillOpen,
   });
 
-  const [{ data: results }, { data: insp }] = await Promise.all([
+  const [{ data: results, error: resultsError }, { data: insp, error: inspectionError }] = await Promise.all([
     supabase
       .from('inspection_results')
       .select('item_id, property_zone_id, status, photo_urls')
       .eq('inspection_id', inspectionId),
     supabase
       .from('inspections')
-      .select('property_id, template_id, ordered_cards, inspector_name')
+      .select('property_id, template_id, ordered_cards, inspector_name, completed_at')
       .eq('id', inspectionId)
       .maybeSingle(),
   ]);
+
+  if (resultsError || inspectionError || !insp) throw new Error('Could not load the saved inspection. Please retry.');
 
   const allResults = (results ?? []) as {
     item_id: string;
@@ -209,6 +252,10 @@ export async function completeInspection(
       throw new Error('Add a photo to each Issue before submitting.');
     }
   }
+
+  // A saved inspection whose stop write/response failed can safely finish the
+  // handoff without re-opening slips, incrementing history, or sending reports.
+  if (fieldStop && insp?.completed_at) return finishFieldStop();
 
   const passCount = allResults.filter((r) => r.status === 'pass').length;
   const issueCount = allResults.filter((r) => r.status === 'issue').length;
@@ -392,29 +439,7 @@ export async function completeInspection(
   revalidatePath('/inspections');
   revalidatePath(`/inspections/${inspectionId}`);
 
-  // A contractor finishing a packet stop returns to their packet hub (the
-  // internal summary page is auth-gated). Mark the stop complete on the way.
-  if (actor.kind === 'contractor') {
-    // Bind completion to the contractor who was AWARDED the packet — the
-    // inspectionId is client-supplied, so don't trust it on its own (IDOR).
-    const { data: stopRow } = await fieldDb()
-      .from('packet_stops')
-      .select('packet_id')
-      .eq('inspection_id', inspectionId)
-      .maybeSingle();
-    const packetId = (stopRow as { packet_id: string } | null)?.packet_id;
-    if (!packetId) redirect('/field');
-    const { data: pk } = await fieldDb()
-      .from('inspection_packets')
-      .select('awarded_contractor_id')
-      .eq('id', packetId)
-      .maybeSingle();
-    if ((pk as { awarded_contractor_id: string | null } | null)?.awarded_contractor_id !== actor.contractorId) {
-      redirect('/field');
-    }
-    await fieldDb().from('packet_stops').update({ status: 'complete', completed_at: new Date().toISOString() }).eq('inspection_id', inspectionId);
-    redirect(`/field/packet/${packetId}`);
-  }
+  if (fieldStop) return finishFieldStop();
 
   redirect(`/inspections/${inspectionId}/summary`);
 }

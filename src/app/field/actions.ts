@@ -1363,57 +1363,86 @@ export async function submitPacket(formData: FormData) {
   const contractor = await resolveContractorFromCookie();
   if (!contractor) redirect('/field');
 
-  const { data: pData } = await fieldDb()
+  const failed = `/field/packet/${packetId}?submiterror=1`;
+  const { data: pData, error: packetError } = await fieldDb()
     .from('inspection_packets')
     .select('*')
     .eq('id', packetId)
     .maybeSingle();
+  if (packetError) redirect(failed);
   const packet = (pData as PacketRow | null) ?? null;
   if (!packet || packet.awarded_contractor_id !== contractor.id) redirect('/field');
 
-  const { data: stops } = await fieldDb()
+  // These existing operations are idempotent. A response lost after the
+  // status write must not cost a streak award or leave the stop clock/codes
+  // open; retries repair the handoff without sending another submit notice.
+  async function finishSubmittedPacket(nowIso: string, contractor: ContractorRow, packet: PacketRow) {
+    // Close out the last still-open stop's clock (the one the inspector was on when
+    // they submitted, which never got a next-door-opening departure).
+    await fieldDb()
+      .from('packet_stops')
+      .update({ departed_at: nowIso })
+      .eq('packet_id', packetId)
+      .is('departed_at', null)
+      .not('arrived_verified_at', 'is', null);
+    // Streak check: if this submit lands on day 5/10 of a consecutive-days run,
+    // the bonus stamps onto THIS packet and the office gets a heads-up. Guarded
+    // so a streak hiccup can never block a submit.
+    try {
+      const award = await maybeAwardStreakBonus(packetId);
+      if (award) {
+        await sendStreakBonusOfficeEmail(contractor, { id: packetId, title: packet.title }, award).catch(() => {});
+      }
+    } catch {
+      // best-effort only
+    }
+    // Work is in for review — pull the inspector's door codes back off the locks.
+    await revokePacketCodes(packetId).catch(() => {});
+  }
+
+  if (packet.status === 'submitted' && !packet.paid_at) {
+    await finishSubmittedPacket(packet.submitted_at ?? new Date().toISOString(), contractor, packet);
+    revalidatePath(`/field/packet/${packetId}`);
+    redirect(`/field/packet/${packetId}`);
+  }
+
+  // A stale tab or repeat click cannot reopen approved/cancelled work or
+  // resend review notices. Only a working, unpaid packet may move forward.
+  if (packet.paid_at || !isWorkingStatus(packet.status)) redirect(`/field/packet/${packetId}`);
+
+  const { data: stops, error: stopsError } = await fieldDb()
     .from('packet_stops')
     .select('status')
     .eq('packet_id', packetId);
+  if (stopsError) redirect(failed);
   const allComplete =
     (stops ?? []).length > 0 &&
     (stops as { status: string }[]).every((s) => s.status === 'complete' || s.status === 'skipped');
   if (!allComplete) redirect(`/field/packet/${packetId}?incomplete=1`);
 
   const nowIso = new Date().toISOString();
-  await fieldDb()
+  const { data: submitted, error: submitError } = await fieldDb()
     .from('inspection_packets')
     .update({ status: 'submitted', submitted_at: nowIso })
-    .eq('id', packetId);
-  // Close out the last still-open stop's clock (the one the inspector was on when
-  // they submitted, which never got a next-door-opening departure).
-  await fieldDb()
-    .from('packet_stops')
-    .update({ departed_at: nowIso })
-    .eq('packet_id', packetId)
-    .is('departed_at', null)
-    .not('arrived_verified_at', 'is', null);
+    .eq('id', packetId)
+    .eq('awarded_contractor_id', contractor.id)
+    .in('status', ['claimed', 'in_progress'])
+    .is('paid_at', null)
+    .select('id')
+    .maybeSingle();
+  if (submitError) redirect(failed);
+  if (!submitted) redirect(`/field/packet/${packetId}`);
   await logEvent({
     packetId,
     contractorId: contractor.id,
     actorEmail: contractor.email,
     eventType: 'submitted',
   });
-  // Streak check: if this submit lands on day 5/10 of a consecutive-days run,
-  // the bonus stamps onto THIS packet and the office gets a heads-up. Guarded
-  // so a streak hiccup can never block a submit.
-  try {
-    const award = await maybeAwardStreakBonus(packetId);
-    if (award) {
-      await sendStreakBonusOfficeEmail(contractor, { id: packetId, title: packet.title }, award).catch(() => {});
-    }
-  } catch {
-    // best-effort only
-  }
+  await finishSubmittedPacket(nowIso, contractor, packet);
   await sendPacketSubmittedEmail(contractor, packet).catch(() => {});
-  // Work is in for review — pull the inspector's door codes back off the locks.
-  await revokePacketCodes(packetId).catch(() => {});
 
+  revalidatePath('/fieldwork/packets');
+  revalidatePath(`/fieldwork/packets/${packetId}`);
   revalidatePath(`/field/packet/${packetId}`);
   redirect(`/field/packet/${packetId}`);
 }
