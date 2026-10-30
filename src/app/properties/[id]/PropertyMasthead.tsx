@@ -7,35 +7,10 @@ import { headerGuestCode } from '@/lib/masthead-guest-code';
 import type { PropertyCleaner } from '@/lib/property-crew';
 import type { TrashDayFact } from '@/lib/civic';
 
-/**
- * The band above the tab strip.
- *
- * Every link into this record from outside the /properties route group is
- * bare, so all of that traffic lands on the default tab, and the two things
- * it most often arrives to find were not on that tab at all: what is
- * happening at the house right now, and one operational fact to read out
- * loud. The next 25 confirmed bookings were already being loaded on every
- * render and shown only inside a closed accordion on a different tab; the
- * door code and the Wi-Fi password sat three interactions deep.
- *
- * So this sits above the tabs, identical on all of them, and answers both at
- * zero clicks. It replaces the four stat tiles, which were config rather than
- * state: two of the four rendered as a hand-written dash on a live property,
- * and nothing in Helm could even write one of them.
- *
- * Every value here comes from a loader the page already awaited. This costs
- * one new query (the cleaner roster), which is the fact the record could not
- * answer at all before.
- *
- * A missing fact NEVER renders a dash. It renders the name of the thing that
- * is missing, as a link to the one control that fills it, so an empty cell is
- * an errand rather than a shrug.
- *
- * The rail answers the driveway: how to get in (guest code, gate or garage,
- * key), Wi-Fi, trash day, parking, who cleans and who owns it. Eight cells in
- * one row on a desktop, four on a tablet, two columns on a phone, in the order
- * a person standing at the house asks them.
- */
+/** Current occupancy and open work stay visible above the tabs. Access,
+ * contacts and reference facts are one disclosure away in readable columns.
+ * Alerts remain outside the disclosure. Existing credential and role gates
+ * apply equally to expanded and collapsed states. */
 
 type Alert = {
   key: string;
@@ -239,7 +214,7 @@ export function PropertyMasthead({
           borderBottom: '1px solid var(--rule)',
           padding: '16px 0',
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
           gap: 20,
         }}
       >
@@ -268,6 +243,38 @@ export function PropertyMasthead({
           )}
         </State>
 
+        <State label="Open work">
+          {openSlipCount > 0 ? (
+            <Link
+              href={`/properties/${propertyId}?tab=now#open-work`}
+              style={{ color: 'var(--signal)', textDecoration: 'none' }}
+            >
+              {openSlipCount} {openSlipCount === 1 ? 'slip' : 'slips'} →
+            </Link>
+          ) : (
+            <span style={{ color: 'var(--ink-3)' }}>Clear</span>
+          )}
+        </State>
+
+
+      </div>
+
+      {/* HOT FACTS: the answers that have to leave the screen in one gesture,
+          in the order the driveway asks them. */}
+      <style>{`
+        .rt-band-rail { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+        @media (max-width: 1024px) { .rt-band-rail { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 18px; } }
+        @media (max-width: 640px) { .rt-band-rail { grid-template-columns: minmax(0, 1fr); } }
+      `}</style>
+      <details style={{ borderBottom: '1px solid var(--rule)' }}>
+      <summary style={{ padding: '14px 0', cursor: 'pointer', fontSize: 14 }}>Visit details <span style={{ color: 'var(--ink-3)' }}>· Access, Wi-Fi, parking & contacts</span></summary>
+      <div
+        className="rt-masthead-band rt-band-rail"
+        style={{
+          borderBottom: alerts.length > 0 ? '1px solid var(--rule)' : '1px solid var(--ink)',
+          padding: '14px 0',
+        }}
+      >
         <State label="Next checkout">
           {nextCheckout ? (
             <>
@@ -299,36 +306,7 @@ export function PropertyMasthead({
           )}
         </State>
 
-        <State label="Open work">
-          {openSlipCount > 0 ? (
-            <Link
-              href={`/properties/${propertyId}?tab=now#open-work`}
-              style={{ color: 'var(--signal)', textDecoration: 'none' }}
-            >
-              {openSlipCount} {openSlipCount === 1 ? 'slip' : 'slips'} →
-            </Link>
-          ) : (
-            <span style={{ color: 'var(--ink-3)' }}>Clear</span>
-          )}
-        </State>
-
         {seasonNote && <State label="Season">{seasonNote}</State>}
-      </div>
-
-      {/* HOT FACTS: the answers that have to leave the screen in one gesture,
-          in the order the driveway asks them. */}
-      <style>{`
-        .rt-band-rail { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 16px; }
-        @media (max-width: 1024px) { .rt-band-rail { grid-template-columns: repeat(4, minmax(0, 1fr)); row-gap: 18px; } }
-        @media (max-width: 640px) { .rt-band-rail { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-      `}</style>
-      <div
-        className="rt-masthead-band rt-band-rail"
-        style={{
-          borderBottom: alerts.length > 0 ? '1px solid var(--rule)' : '1px solid var(--ink)',
-          padding: '14px 0',
-        }}
-      >
         <Fact
           label="Guest code"
           value={showCreds ? guestPin : null}
@@ -390,6 +368,8 @@ export function PropertyMasthead({
           fixHref={`/properties/${propertyId}?tab=owner`}
         />
       </div>
+
+      </details>
 
       {/* ALERTS — only rendered when something has actually fired. These are
           the expensive, quiet failures the page used to bury inside a fold:

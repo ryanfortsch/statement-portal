@@ -120,8 +120,8 @@ describe('the slip page asks one question', () => {
   const editor = read('src/app/work/[id]/SlipLaneEditor.tsx');
   const actions = read('src/app/work/actions.ts');
 
-  test('one Whose hands section, fed by laneChoicesFor; no Lane or Who does this', () => {
-    assert.ok(page.includes('title="Whose hands"'));
+  test('one work type section, separate from coordination and fed by laneChoicesFor', () => {
+    assert.ok(page.includes('title="Work type"'));
     assert.ok(page.includes('choices={laneChoicesFor(slip)}'));
     assert.ok(!page.includes('title="Lane"'), 'a second Lane section is back');
     assert.ok(!page.includes('title="Who does this"'), 'a second Who does this section is back');

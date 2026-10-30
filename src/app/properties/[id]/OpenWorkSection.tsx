@@ -243,6 +243,8 @@ function LaneRows({ slips, lane, property }: { slips: WorkSlipRow[]; lane: WorkL
         if (s.status === 'in_progress') chips.push({ text: 'started', color: 'var(--ink-3)' });
         if (s.status === 'scheduled') chips.push({ text: 'scheduled', color: 'var(--ink-3)' });
         if (s.status === 'blocked') chips.push({ text: 'blocked', color: 'var(--signal)' });
+        if (s.coordinator_email) chips.push({ text: `Coordinator: ${displayNameForEmail(s.coordinator_email)}`, color: 'var(--ink-3)' });
+        if (s.follow_up_date) chips.push({ text: `follow up ${shortDate(s.follow_up_date)}`, color: 'var(--tide-deep)' });
         if (s.scheduled_date) chips.push({ text: `for ${shortDate(s.scheduled_date)}`, color: 'var(--ink-3)' });
         if (s.assigned_to_label || s.assigned_to_email) {
           chips.push({ text: s.assigned_to_label || displayNameForEmail(s.assigned_to_email!), color: 'var(--ink-3)' });

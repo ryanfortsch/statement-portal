@@ -135,10 +135,16 @@ object. It never writes title or description. `organized_at` is the once-only st
 `organized_at IS NULL`, and every operator lane edit (category, scope, owner flag) stamps it, so a
 human decision is never re-filed. Concierge-keyed, supplies-check, prep-rule and packet-backing
 slips are skipped; they have their own lanes and lifecycles. On the slip page a person answers one
-question, **Whose hands**, with the six lane words; `laneChoicePatch` in `work-slip-lanes.ts` is
+question, **Work type**, with the six lane words; `laneChoicePatch` in `work-slip-lanes.ts` is
 what each answer writes (category, `run_scope`, owner flag), checked against `slipLane` so it
 always reads back as the lane picked (`work-slip-whose-hands.test.ts`), and `updateWorkSlipLane`
 is the one server writer. There is no separate category or scope picker on a slip.
+
+A slip also has an office coordinator and next follow-up date, independent of the worker,
+lane and scheduled visit. The detail shows linked active Field jobs (including bundled
+attachments); a draft job is labelled proposed. My work includes slips a person coordinates
+or performs. The board can filter for missing coordinators and assign selected slips to the
+signed-in coordinator without changing their workers.
 
 **Every home also carries a brief** (`property_work_briefs`, `src/lib/work-briefs.ts`): a one-line
 headline for the Work board's home header and three to seven bullets (`items`, each a lead naming
@@ -188,6 +194,12 @@ queue. The team verbs (edit, redraft, undo, handled reasons) are stay-concierge'
 The queues share the card and the proactive panel (`src/components/ProactiveRemindersPanel.tsx`)
 but keep separate server-action files by audience. That split is deliberate: Next server actions
 are per-route.
+
+Team replies have a calendar-day send guard (`draft-validity.ts`): relative English/Portuguese
+day words are anchored to the draft's Eastern date, and elapsed ISO dates require review.
+Helm re-reads the draft before approving or scheduling it. Evergreen work stays open. This
+is a Helm boundary; already scheduled sends and direct service callers still belong to
+stay-concierge's dispatcher.
 
 **A guest reply can draft a note to a teammate.** When the AI sees that a reply COMMITS something
 a teammate must act on (an 11 AM late checkout Rosa has to plan the turnover around, a repair for

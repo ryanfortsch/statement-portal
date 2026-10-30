@@ -3,7 +3,7 @@
  * dates, requests and negations continue to need review. */
 export function isAcknowledgment(text: string): boolean {
   const normalized = text.toLowerCase().normalize('NFKC').replace(/[.!?,;:…👍🙏😊]+/gu, ' ').replace(/\s+/g, ' ').trim();
-  return /^(?:(?:thank you(?: so much)?|thanks(?: so much)?|perfect|great|ok(?:ay)?|got it|sounds good|appreciate it|you're welcome|you’re welcome)(?:\s+|$))+$/.test(normalized);
+  return /^(?:(?:thank you(?: so much)?|thanks(?: so much)?|of course|no problem|you bet|perfect|great|ok(?:ay)?|got it|sounds good|appreciate it|you're welcome|you’re welcome)(?:\s+|$))+$/.test(normalized);
 }
 
 export function splitReplyUpdates<T extends { summary: string }>(touches: T[]): { replies: T[]; updates: T[] } {

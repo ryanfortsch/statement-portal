@@ -76,6 +76,7 @@ export function CleanerCard({
       queuedChips={audienceChip}
       ageMinutes={approval.age_minutes}
       createdAt={approval.created_at}
+      draftTiming={{ createdAt: approval.created_at, translation: approval.draft_translating ? undefined : approval.draft_english }}
       shortId={approval.short_id}
       wait={waitReason({
         status: approval.status,

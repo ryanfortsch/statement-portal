@@ -61,7 +61,7 @@ describe('the one approval card', () => {
     assert.ok(read('src/components/ScheduleSend.tsx').includes('aria-label="Send later"'));
     assert.ok(card.includes("{editing ? 'Cancel edit' : 'Edit'}"), 'Edit toggles like Coach');
     assert.ok(card.includes("{showCoach ? 'Cancel coaching' : 'Coach the AI'}"));
-    assert.ok(/>\s*Redraft\s*</.test(card), 'Redraft');
+    assert.ok(card.includes("draftTiming ? 'Refresh draft' : 'Redraft'"), 'Refresh draft on time-sensitive team cards, Redraft elsewhere');
     assert.ok(card.includes("{showHandled ? 'Cancel' : 'Mark handled'}"), 'Mark handled opens the reasons');
   });
 

@@ -1,5 +1,6 @@
 'use client';
 
+import { suggestedContact } from '@/lib/matching-suggestions';
 import { useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -83,6 +84,8 @@ export function NumberTriage({ unknownNumbers, olderUnknownNumbers = [], suggest
   const [suggestionErr, setSuggestionErr] = useState<Record<string, string>>({});
   const [showOlder, setShowOlder] = useState(false);
   const [showAll, setShowAll] = useState(false);
+  const [search, setSearch] = useState('');
+  const contactSuggestions = useMemo(() => Object.fromEntries([...unknownNumbers, ...olderUnknownNumbers].map(u => [u.phone, guestByPhone[u.phone] || knownByPhone[u.phone]?.contactId ? null : suggestedContact(u.last_body ?? '', knownByPhone[u.phone]?.name, contacts)])), [unknownNumbers, olderUnknownNumbers, guestByPhone, knownByPhone, contacts]);
 
   // Contacts for the attach picker: phone-less ones first (the likely
   // targets, e.g. an owner missing their number), each sorted by name.
@@ -119,7 +122,7 @@ export function NumberTriage({ unknownNumbers, olderUnknownNumbers = [], suggest
   }
 
   /** The contact a row will attach to: the operator's pick, else the household Helm named. */
-  const attachTarget = (phone: string): string => attachSel[phone] ?? knownByPhone[phone]?.contactId ?? '';
+  const attachTarget = (phone: string): string => attachSel[phone] ?? knownByPhone[phone]?.contactId ?? contactSuggestions[phone]?.contact.id ?? '';
 
   async function onAttach(phone: string) {
     const contactId = attachTarget(phone);
@@ -225,6 +228,7 @@ export function NumberTriage({ unknownNumbers, olderUnknownNumbers = [], suggest
     const busy = busyPhones.has(u.phone);
     const known = knownByPhone[u.phone];
     const target = attachTarget(u.phone);
+    const suggestion = contactSuggestions[u.phone];
     return (
       <div key={u.phone} data-triage="phone" style={rowStyle}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, flexWrap: 'wrap' }}>
@@ -260,12 +264,12 @@ export function NumberTriage({ unknownNumbers, olderUnknownNumbers = [], suggest
             style={{ ...selectStyle, maxWidth: 200 }}
           >
             <option value="">Attach to…</option>
-            {attachOptions.map((c) => (
+            {attachOptions.filter(c => c.id === target || !search || `${c.name} ${c.phone ?? ''}`.toLowerCase().includes(search.toLowerCase())).map((c) => (
               <option key={c.id} value={c.id}>{c.name}{c.phone ? '' : ' · no #'}</option>
             ))}
           </select>
           <button type="button" disabled={busy || !target} onClick={() => onAttach(u.phone)} style={smallBtn(!!target)}>
-            {busy ? '…' : 'Attach'}
+            {busy ? '…' : suggestion?.contact.id === target || known?.contactId === target ? 'Confirm match' : 'Attach'}
           </button>
           <button type="button" disabled={busy} onClick={() => { if (!phoneLocks.current.has(u.phone)) setPromote(u); }} style={smallBtn(false)}>
             New contact
@@ -274,6 +278,7 @@ export function NumberTriage({ unknownNumbers, olderUnknownNumbers = [], suggest
             {busy ? '…' : 'Not ours'}
           </button>
         </div>
+        {(suggestion || known?.contactId) && <p style={{ fontSize: 12, color: 'var(--tide-deep)', margin: '6px 0' }}>Suggested match: {suggestion?.contact.name ?? known?.name}. {suggestion?.evidence ?? `Number found in ${known?.label.toLowerCase()} records`}. Confirm or choose another contact.</p>}
         {attachMsg[u.phone] && <div role="status" style={{ fontSize: 11, color: 'var(--ink-3)', paddingLeft: 2 }}>{attachMsg[u.phone]}</div>}
       </div>
     );
@@ -285,6 +290,7 @@ export function NumberTriage({ unknownNumbers, olderUnknownNumbers = [], suggest
     <section id="new-numbers" className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 8, paddingBottom: 24, width: '100%' }}>
       <div style={{ border: '1px solid var(--signal)', padding: '16px 18px' }}>
         <div className="eyebrow" style={{ color: 'var(--signal)', marginBottom: 12 }}>New numbers · {recentCount}</div>
+        <input type="search" aria-label="Search contacts for matching" placeholder="Find a contact by name or phone" value={search} onChange={e => setSearch(e.target.value)} style={{ width: '100%', maxWidth: 360, fontSize: 14, padding: 10, marginBottom: 12, border: '1px solid var(--rule)', background: 'var(--paper)' }} />
         {Object.entries(acceptedSuggestions).map(([id, result]) => (
           <div key={id} role="status" style={{ paddingBottom: 10, fontSize: 12 }}>
             Updated {result.name}.{' '}

@@ -29,6 +29,7 @@
  */
 
 import { useMemo, useState, useTransition } from 'react';
+import { ProposedPropertyUpdatesCard } from '@/app/owner-messaging/ProposedPropertyUpdatesCard';
 import { Section } from '@/components/Section';
 import type { ProposedPropertyUpdate } from '@/lib/stay-concierge';
 import {
@@ -56,6 +57,7 @@ type Group = {
   statement: string;
   section: string;
   evidence: string;
+  quotes: string[];
   reason: string;
   verdict: string;
   confidence: string;
@@ -78,6 +80,8 @@ function toGroups(updates: ProposedPropertyUpdate[]): { groups: Group[]; untriag
     if (existing) {
       if (!existing.candidateIds.includes(u.id)) existing.candidateIds.push(u.id);
       existing.mined = existing.candidateIds.length;
+      existing.needsRuling ||= t.needs_ruling || t.verdict === 'conflict' || t.confidence !== 'high';
+      if (u.raw_quote && !existing.quotes.includes(u.raw_quote)) existing.quotes.push(u.raw_quote);
       continue;
     }
     byGroup.set(t.group_id, {
@@ -88,10 +92,11 @@ function toGroups(updates: ProposedPropertyUpdate[]): { groups: Group[]; untriag
       statement: t.statement,
       section: t.kb_section,
       evidence: t.evidence,
+      quotes: u.raw_quote ? [u.raw_quote] : [],
       reason: t.reason,
       verdict: t.verdict,
       confidence: t.confidence,
-      needsRuling: t.needs_ruling || t.verdict === 'conflict',
+      needsRuling: t.needs_ruling || t.verdict === 'conflict' || t.confidence !== 'high',
       category: u.category,
       mined: 1,
     });
@@ -171,10 +176,7 @@ export function TriagedPropertyUpdates({ initial, initialError, properties, sour
           />
         ))}
         {untriaged.length > 0 && (
-          <div style={{ padding: '14px 0 0', fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.6 }}>
-            {untriaged.length} newer {untriaged.length === 1 ? 'fact has' : 'facts have'} not been
-            checked against a knowledge base yet. {source === 'guest' ? 'The sweep runs every six hours.' : ''}
-          </div>
+          <ProposedPropertyUpdatesCard initial={untriaged} initialError={null} properties={properties ?? []} source={source} />
         )}
       </div>
     </Section>
@@ -203,7 +205,7 @@ function PropertyBlock({
   );
   const [error, setError] = useState<string | null>(null);
   const [filed, setFiled] = useState(0);
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(groups.some(g => g.needsRuling));
 
   const live = groups.filter((g) => !done.has(g.groupId));
   const rulings = live.filter((g) => g.needsRuling);
@@ -371,6 +373,7 @@ function PropertyBlock({
                   />
                   <span style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--ink-2)', minWidth: 0 }}>
                     {g.statement}
+                    <FactComparison g={g} />
                     <Meta g={g} />
                   </span>
                 </li>
@@ -410,13 +413,8 @@ function Ruling({
         {isConflict ? 'The KB says something else' : g.verdict === 'fill' ? 'Fills an empty slot' : 'Worth a look'}
         {g.section ? <span style={{ color: 'var(--ink-4)', fontWeight: 500 }}> · {g.section}</span> : null}
       </div>
-      <div style={{ fontSize: 14, lineHeight: 1.55, color: 'var(--ink)' }}>{g.statement}</div>
-      {g.evidence && (
-        <div style={{ marginTop: 8, fontSize: 12, lineHeight: 1.5, color: 'var(--ink-3)' }}>
-          <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>KB today</span>{' '}
-          <span style={{ fontStyle: 'italic' }}>{g.evidence}</span>
-        </div>
-      )}
+      <div style={{ fontSize: 14, lineHeight: 1.55, color: 'var(--ink)' }}>Proposed: {g.statement}</div>
+      <FactComparison g={g} />
       {g.reason && (
         <div style={{ marginTop: 6, fontSize: 12, lineHeight: 1.5, color: 'var(--ink-4)' }}>{g.reason}</div>
       )}
@@ -456,4 +454,11 @@ function Meta({ g }: { g: Group }) {
       merged from {g.mined} replies
     </span>
   );
+}
+
+function FactComparison({ g }: { g: Group }) {
+  return <span style={{ display: 'block', fontSize: 12, lineHeight: 1.6, color: 'var(--ink-3)', marginTop: 6 }}>
+    <span style={{ display: 'block' }}>Current evidence: {g.evidence || 'No existing wording supplied. Review before filing.'}</span>
+    {g.quotes.map((quote, i) => <span key={i} style={{ display: 'block' }}>Source: “{quote}”</span>)}
+  </span>;
 }

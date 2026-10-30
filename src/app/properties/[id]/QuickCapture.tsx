@@ -27,7 +27,7 @@ type EditItem = CaptureItem & { include: boolean; _id: number };
 
 type Phase = 'input' | 'review' | 'done';
 
-export function QuickCapture({ propertyId, propertyName }: { propertyId: string; propertyName: string }) {
+export function QuickCapture({ propertyId, propertyName, embedded = false }: { propertyId: string; propertyName: string; embedded?: boolean }) {
   const softRefresh = useSoftRefresh();
   const { ask } = useConfirm();
   const [phase, setPhase] = useState<Phase>('input');
@@ -393,7 +393,7 @@ export function QuickCapture({ propertyId, propertyName }: { propertyId: string;
   // reads as this box changing its mind, not a different box appearing.
   if (handOff) {
     return (
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 22, paddingBottom: 32, width: '100%' }}>
+      <section className={embedded ? undefined : "max-w-[1100px] mx-auto px-10"} style={{ paddingTop: 22, paddingBottom: 32, width: '100%' }}>
         <WalkthroughCapture
           propertyId={propertyId}
           propertyName={propertyName}
@@ -406,7 +406,7 @@ export function QuickCapture({ propertyId, propertyName }: { propertyId: string;
   }
 
   return (
-    <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 22, paddingBottom: 32, width: '100%' }}>
+    <section className={embedded ? undefined : "max-w-[1100px] mx-auto px-10"} style={{ paddingTop: 22, paddingBottom: 32, width: '100%' }}>
       {/* Left tide accent instead of a full boxed plate: the capture bar
           should read as the tab's first affordance, not a billboard that
           pushes the day's actual work below the fold. */}

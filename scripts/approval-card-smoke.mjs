@@ -110,6 +110,11 @@ const vendorCards=[
  {...vbase,id:'warn-card',vendorName:'Wes Synthetic Electric',tradeLabel:'Electrical',lineLabel:'24/7 line',messageBody:'Wednesday 10/28 at 10 works',start:'2026-10-28',end:'2026-10-28',startTime:'10:00',timeLabel:'at 10 AM',dateBasis:'named in the text',
   plan:{...vplan,holdNights:[],guestNights:['2026-10-28'],warnings:['A guest arrives Wed Oct 28 at 4 PM: Wes Synthetic Electric has to be done before then.']},slips:[]},
 ];
+if (new URLSearchParams(location.search).has('expired')) {
+ cards[1].created_at=new Date(Date.now()-3*86400e3).toISOString();
+ cards[1].draft='Please finish today.';
+ cards[2].created_at=cards[1].created_at; cards[2].draft='We will come tomorrow.';
+}
 const teamAudience=new URLSearchParams(location.search).get('audience')||(mode==='cleaner'?'cleaners':mode==='contractor'?'contractors':'all');
 createRoot(document.getElementById('root')).render(<main id={mode}>{mode==='owner'?<OwnerMessagingQueue initialPending={ownerCards}/>:mode==='guest'?<MessagingQueue initialPending={guestCards} initialQuotes={guestQuotes} held={held}/>:<TeamInboxQueue initialCleaners={mode==='contractor'||mode==='vendor'?[]:cleanerCards} initialContractors={mode==='cleaner'||mode==='vendor'?[]:cards} contractorContext={{}} properties={homes} audience={teamAudience} vendorVisits={mode==='vendor'?vendorCards:[]}/>}</main>);
 `);
@@ -143,7 +148,7 @@ try{
  const type=(sel,value)=>page.$eval(sel,(e,value)=>{Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(e,value);e.dispatchEvent(new Event('input',{bubbles:true}));},value);
 
  assert.match(await text('#needs-review h2'),/Needs review \(2\)/);
- for(const verb of ['Approve & send','Edit','Coach the AI','Redraft','Mark handled'])assert.ok((await text(card('plain-card'))).includes(verb),verb);
+ for(const verb of ['Approve & send','Edit','Coach the AI','Refresh draft','Mark handled'])assert.ok((await text(card('plain-card'))).includes(verb),verb);
  pass('every verb on the card: Approve & send, Edit, Coach the AI, Redraft, Mark handled');
 
  const slipText=await text(card('slip-card'));
@@ -340,5 +345,16 @@ try{
  await page.$$eval('.rt-inbox-review-toggle',bs=>bs[0].click());
  await page.screenshot({path:join(process.env.SMOKE_SHOTS||tmpdir(),'approval-card-mobile.png'),fullPage:true});
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);pass('fits a phone with no sideways scroll');
+ await page.setViewport({width:1280,height:1000});
+ await page.goto(origin+'/?expired=1');await page.waitForSelector('#approval-plain-card');
+ assert.equal(await enabled(card('plain-card'),'Approve & send'),false);
+ assert.match(await text(card('plain-card')),/relative date is out of date/);
+ assert.match(await text(card('plain-card')),/Eastern time/);
+ assert.ok(await enabled(card('plain-card'),'Refresh draft'));
+ assert.equal(await enabled(card('queued-card'),'Send now'),false);
+ assert.ok(await enabled(card('queued-card'),'Cancel send'));
+ await click(card('plain-card'),'Refresh draft');await waitCalls(1);
+ assert.equal((await calls())[0].kind,'redraft');
+ pass('expired relative drafts show their date, block approve and send-now, retain refresh and cancel');
  assert.deepEqual(errors,[]);console.log(checks+' checks passed');
 }finally{await browser?.close();server.close();await rm(scratch,{recursive:true,force:true});}

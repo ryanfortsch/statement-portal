@@ -20,6 +20,7 @@ type Props = {
   myEmail?: string | null;
   /** Optional placeholder text for the trigger when nothing is selected. */
   placeholder?: string;
+  allowCustom?: boolean;
 };
 
 /**
@@ -31,7 +32,7 @@ type Props = {
  * Stays out of HTML form submission — the parent reads `value` from
  * its own state.
  */
-export function TeamPicker({ value, onChange, disabled, myEmail, placeholder = 'Unassigned' }: Props) {
+export function TeamPicker({ value, onChange, disabled, myEmail, placeholder = 'Unassigned', allowCustom = true }: Props) {
   const [open, setOpen] = useState(false);
   const [customMode, setCustomMode] = useState(false);
   const [customEmail, setCustomEmail] = useState('');
@@ -178,7 +179,7 @@ export function TeamPicker({ value, onChange, disabled, myEmail, placeholder = '
             </form>
           ) : (
             <>
-              {myEmail && !TEAM_MEMBERS.some((m) => m.email === myEmail) && (
+              {allowCustom && myEmail && !TEAM_MEMBERS.some((m) => m.email === myEmail) && (
                 <PickerRow
                   initials={initialsForEmail(myEmail)}
                   primary="Assign to me"
@@ -218,12 +219,12 @@ export function TeamPicker({ value, onChange, disabled, myEmail, placeholder = '
                     onClick={() => {}}
                   />
                 )}
-                <PickerRow
+                {allowCustom && <PickerRow
                   initials="+"
                   primary="Custom email…"
                   secondary="One-off contractor"
                   onClick={() => setCustomMode(true)}
-                />
+                />}
                 {value && (
                   <PickerRow
                     initials="·"

@@ -4,13 +4,14 @@ import { useRef, useState, useTransition } from 'react';
 import { TeamPicker } from '@/components/TeamPicker';
 import { displayNameForEmail } from '@/lib/team';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
-import { updateWorkSlipAssignment } from '../actions';
+import { updateWorkSlipAssignment, updateWorkSlipCoordination } from '../actions';
 import { Button } from '@/components/Button';
 
 type Props = {
   slipId: string;
   initialAssignedToEmail: string | null;
   myEmail: string;
+  coordinator?: boolean;
 };
 
 /**
@@ -19,7 +20,7 @@ type Props = {
  * the server action. The trigger keeps the last confirmed assignment
  * until a save succeeds; failed choices remain available for retry.
  */
-export function SlipAssignEditor({ slipId, initialAssignedToEmail, myEmail }: Props) {
+export function SlipAssignEditor({ slipId, initialAssignedToEmail, myEmail, coordinator = false }: Props) {
   const [value, setValue] = useState<string | null>(initialAssignedToEmail);
   const [pending, startTransition] = useTransition();
   const [err, setErr] = useState<string | null>(null);
@@ -35,7 +36,9 @@ export function SlipAssignEditor({ slipId, initialAssignedToEmail, myEmail }: Pr
     setErr(null);
     startTransition(async () => {
       try {
-        const res = await updateWorkSlipAssignment({ id: slipId, assigned_to_email: email });
+        const res = coordinator
+          ? await updateWorkSlipCoordination({ id: slipId, coordinator_email: email })
+          : await updateWorkSlipAssignment({ id: slipId, assigned_to_email: email });
         if (!res.ok) {
           setErr(res.error);
           return;
@@ -56,9 +59,10 @@ export function SlipAssignEditor({ slipId, initialAssignedToEmail, myEmail }: Pr
     <div>
       <TeamPicker
         value={value}
+        allowCustom={!coordinator}
         onChange={handleChange}
         myEmail={myEmail}
-        placeholder="Unassigned"
+        placeholder={coordinator ? 'Choose coordinator' : 'Unassigned'}
         disabled={pending}
       />
       {((pending && attempt) || err) && (
