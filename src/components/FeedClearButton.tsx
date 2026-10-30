@@ -29,9 +29,9 @@ export function FeedClearButton({ itemType, itemId }: { itemType: string; itemId
         }, 'Could not confirm the hide. Try again.')
       }
       style={{
-        width: 44,
+        minWidth: 44,
         height: 44,
-        margin: '-9px -11px -11px 0',
+        margin: '-9px 0 -11px 0',
         padding: 0,
         border: 'none',
         background: 'transparent',
@@ -42,24 +42,9 @@ export function FeedClearButton({ itemType, itemId }: { itemType: string; itemId
         justifyContent: 'center',
       }}
     >
-      <span
-        aria-hidden
-        style={{
-          width: 22,
-          height: 22,
-          borderRadius: 999,
-          border: '1px solid var(--rule)',
-          background: 'var(--paper)',
-          color: 'var(--ink-4)',
-          fontSize: 14,
-          lineHeight: '20px',
-          textAlign: 'center',
-        }}
-      >
-        ×
-      </span>
+      <span style={{ fontSize: 11, color: 'var(--ink-3)', textDecoration: 'underline', textUnderlineOffset: 3 }}>Hide from my feed</span>
     </button>
-    {action.error && <span role="alert" style={{ color: 'var(--signal)', fontSize: 12, maxWidth: 180 }}>{action.error} Click × to retry.</span>}
+    {action.error && <span role="alert" style={{ color: 'var(--signal)', fontSize: 12, maxWidth: 180 }}>{action.error} Click Hide from my feed to retry.</span>}
     </span>
   );
 }

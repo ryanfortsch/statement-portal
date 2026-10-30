@@ -831,10 +831,12 @@ export default async function PropertyDetailPage({
       >
         {/* ════════════ NOW ════════════ */}
         <TabSection tab="now">
-          {/* Dictate/type a note; Helm routes it to the right field or
-              note after operator review. Top of the tab — capture comes
-              before scanning open work. */}
-          <QuickCapture propertyId={p.id} propertyName={p.name} />
+          {/* Open work leads the default tab. Capture stays one tap away. */}
+          <OpenWorkSection property={{ id: p.id, name: p.name }} slips={openSlips} brief={workBrief} myEmail={myEmail} myMailbox={myMailbox} />
+          <details className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 24 }}>
+            <summary style={{ cursor: 'pointer', fontSize: 14, padding: '12px 0' }}>Add a note or update a fact</summary>
+            <QuickCapture propertyId={p.id} propertyName={p.name} embedded />
+          </details>
           {showLaunchChecklist && (
             <TabActions>
               <Link
@@ -969,9 +971,6 @@ export default async function PropertyDetailPage({
           </div>
         </section>
       )}
-
-      {/* OPEN WORK SLIPS: the brief, then the ledger by lane */}
-      <OpenWorkSection property={{ id: p.id, name: p.name }} slips={openSlips} brief={workBrief} myEmail={myEmail} myMailbox={myMailbox} />
 
       {/* ACTIVITY FEED */}
       <CollapsibleSection title="Activity" summary="recent">

@@ -1,26 +1,5 @@
-/**
- * The order of the home page's For Me feed: the signed-in person's day.
- *
- * Until 2026-10-18 the feed opened on owner blocks, cleaning flags, office
- * queues, guest payments, meetings and walks, and a staff member's own work
- * ("On your plate") was the seventh section down. The operations manager who
- * starts 2026-11-01 opens this page first every morning, so it now reads in
- * the order a day is worked:
- *
- *   1. mine      - work assigned to me, my planned walks, my meetings
- *   2. replies   - what is waiting on my answer
- *   3. team      - the clock-bound items anyone can take (an owner block's
- *                  "clean after?", a cleaning to check), then the team's
- *                  unassigned work when nothing is assigned to me
- *   4. office    - the office queues
- *   5. payments  - guest payment links, capped
- *   6. updates   - information and acknowledgments; never counted as replies
- *
- * Owners keep the "clean after?" card first: it is a question the operator
- * asked to be served loudly (2026-10-08), and it is owner-run today.
- *
- * Pure, no imports beyond the role type, so `npm test` pins the order.
- */
+/** Time-sensitive team items, then personal next actions, then updates.
+ * Owners always keep clean-after decisions first. */
 
 import type { HelmRole } from './helm-access.ts';
 
@@ -37,12 +16,12 @@ export type FeedSection =
   | 'updates';
 
 const DAY: readonly FeedSection[] = [
-  'work',
   'walks',
   'meetings',
-  'replies',
   'holds',
   'cleanings',
+  'work',
+  'replies',
   'unassigned',
   'queues',
   'payments',

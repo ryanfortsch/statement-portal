@@ -7,9 +7,9 @@ const read = (repoPath: string): string =>
   readFileSync(new URL(`../../../${repoPath}`, import.meta.url), 'utf8');
 
 describe('the home feed reads as the signed-in person\'s day', () => {
-  test('staff: my work, then replies, then the clock-bound team items, then the queues, then payments', () => {
+  test('staff: time-sensitive items lead, then my actions, then updates', () => {
     const order = homeFeedOrder('staff');
-    assert.deepEqual(order, ['work', 'walks', 'meetings', 'replies', 'holds', 'cleanings', 'unassigned', 'queues', 'payments', 'updates']);
+    assert.deepEqual(order, ['walks', 'meetings', 'holds', 'cleanings', 'work', 'replies', 'unassigned', 'queues', 'payments', 'updates']);
   });
 
   test('owners keep the clean-after card first and the rest of the day after it', () => {

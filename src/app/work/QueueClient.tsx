@@ -38,7 +38,7 @@ import { useOwnerEmailDraft } from '@/lib/use-owner-email-draft';
 import { CopiedEmailNotice } from '@/components/CopiedEmailNotice';
 import { operatingDate } from '@/lib/operating-date';
 import { houseDay } from '@/lib/house-date';
-import { compareWork, workMyWeek, workOverdue, workSignals, workThisWeek, workUnassigned } from '@/lib/work-board-view';
+import { compareWork, workDate, workMyWeek, workOverdue, workSignals, workThisWeek, workUnassigned } from '@/lib/work-board-view';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { groupSlipsByLane, LANE_LABELS, slipDetailLine, slipDisplayTitle, type WorkLane } from '@/lib/work-slip-lanes';
 import type { WorkBriefHeadline } from '@/lib/work-briefs';
@@ -76,7 +76,7 @@ type Props = {
   myMailbox?: string | null;
 };
 
-type FilterId = 'all' | 'my-week' | 'week' | 'overdue' | 'blocked' | 'mine' | 'high' | 'due-today' | 'unclaimed' | 'owner-action' | 'snoozed';
+type FilterId = 'all' | 'my-week' | 'week' | 'overdue' | 'blocked' | 'mine' | 'high' | 'due-today' | 'unclaimed' | 'no-coordinator' | 'owner-action' | 'snoozed';
 
 // The board has two faces: property work, where you land, and the office
 // to-dos one tab over. A slip belongs to a house; an office to-do does not.
@@ -85,12 +85,12 @@ type FilterId = 'all' | 'my-week' | 'week' | 'overdue' | 'blocked' | 'mine' | 'h
 // a time. The URL keeps ?tab=tasks (the table's name) so old links land.
 type TabId = 'slips' | 'tasks';
 
-const FILTER_IDS: FilterId[] = ['all', 'my-week', 'week', 'overdue', 'blocked', 'mine', 'high', 'due-today', 'unclaimed', 'owner-action', 'snoozed'];
+const FILTER_IDS: FilterId[] = ['all', 'my-week', 'week', 'overdue', 'blocked', 'mine', 'high', 'due-today', 'unclaimed', 'no-coordinator', 'owner-action', 'snoozed'];
 
 /** Filters that only mean anything to a work slip. On the Tasks tab they
  *  neither render nor apply, but they stay in the URL so tabbing back to
  *  Property Work restores the view you left. */
-const SLIP_ONLY_FILTERS: FilterId[] = ['owner-action', 'snoozed'];
+const SLIP_ONLY_FILTERS: FilterId[] = ['no-coordinator', 'owner-action', 'snoozed'];
 
 /** Blocked is a task status only. The board loads open, in-progress and
  *  scheduled slips and nothing sets a slip to blocked, so on Property Work
@@ -266,6 +266,7 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
     status?: 'done';
     priority?: WorkSlipPriority;
     assigned_to_email?: string | null;
+    coordinator_email?: string | null;
   }) {
     if (bulkLock.current) return;
     const slipIds = Array.from(selectedSlipIds);
@@ -321,10 +322,11 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
       if (activeFilter === 'my-week' && !workMyWeek(w, myEmail, todayIso)) return false;
       if (activeFilter === 'week' && !workThisWeek(w, todayIso)) return false;
       if (activeFilter === 'overdue' && !workOverdue(w, todayIso)) return false;
-      if (activeFilter === 'mine' && w.assigned_to_email !== myEmail) return false;
+      if (activeFilter === 'mine' && w.assigned_to_email !== myEmail && w.coordinator_email !== myEmail) return false;
       if (activeFilter === 'high' && w.priority !== 'high') return false;
-      if (activeFilter === 'due-today' && w.scheduled_date !== todayIso) return false;
+      if (activeFilter === 'due-today' && workDate(w) !== todayIso) return false;
       if (activeFilter === 'unclaimed' && !workUnassigned(w)) return false;
+      if (activeFilter === 'no-coordinator' && w.coordinator_email) return false;
       if (activeFilter === 'owner-action' && !w.owner_action_required) return false;
       return true;
     });
@@ -434,7 +436,7 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
       all: workSlips.length,
       myWeek: workSlips.filter((w) => workMyWeek(w, myEmail, todayIso)).length,
       week: workSlips.filter((w) => workThisWeek(w, todayIso)).length,
-      mine: workSlips.filter((w) => w.assigned_to_email === myEmail).length,
+      mine: workSlips.filter((w) => w.assigned_to_email === myEmail || w.coordinator_email === myEmail).length,
       high: workSlips.filter((w) => w.priority === 'high').length,
       ownerAction: workSlips.filter((w) => w.owner_action_required).length,
       snoozed: snoozedSlips.length,
@@ -493,6 +495,7 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
           {(counts.overdue > 0 || activeFilter === 'overdue') && <Pill active={activeFilter === 'overdue'} onClick={() => setFilter('overdue')} label="Overdue" count={counts.overdue} accent="var(--negative)" />}
           {(counts.dueToday > 0 || activeFilter === 'due-today') && <Pill active={activeFilter === 'due-today'} onClick={() => setFilter('due-today')} label="Due today" count={counts.dueToday} />}
           {!onSlips && (counts.blocked > 0 || activeFilter === 'blocked') && <Pill active={activeFilter === 'blocked'} onClick={() => setFilter('blocked')} label="Blocked" count={counts.blocked} accent="var(--signal)" />}
+          {onSlips && <Pill active={activeFilter === 'no-coordinator'} onClick={() => setFilter('no-coordinator')} label="Needs coordinator" count={workSlips.filter(w => !w.coordinator_email).length} />}
           {(counts.unclaimed > 0 || activeFilter === 'unclaimed') && <Pill active={activeFilter === 'unclaimed'} onClick={() => setFilter('unclaimed')} label="Unassigned" count={counts.unclaimed} />}
           {/* The first option is the way out: once a More filter is on, the
               select's own list offers All, so clearing it is one gesture
@@ -617,6 +620,7 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
           myEmail={myEmail}
           onClear={clearSelection}
           onMarkDone={() => runBulk({ status: 'done' })}
+          onCoordinate={onSlips ? () => runBulk({ coordinator_email: myEmail }) : undefined}
           onAssignToMe={() => runBulk({ assigned_to_email: myEmail })}
           onUnassign={() => runBulk({ assigned_to_email: null })}
           onSetPriority={(p) => runBulk({ priority: p })}
@@ -1165,6 +1169,9 @@ function WorkSlipRowItem({
           )}
           <div style={{ marginTop: 3, fontSize: 11, color: isOverdue ? 'var(--negative)' : 'var(--ink-4)', letterSpacing: '.06em' }}>
             {isOverdue && <span style={{ fontWeight: 700 }}>OVERDUE · </span>}
+            {slip.coordinator_email ? `Coordinator: ${displayNameForEmail(slip.coordinator_email)}` : 'Needs coordinator'}
+            {slip.follow_up_date ? ` · Follow up ${houseDay(slip.follow_up_date)}` : ' · No follow-up date'}
+            {' · Worker: '}
             {slip.assigned_to_label || (slip.assigned_to_email ? displayNameForEmail(slip.assigned_to_email) : slip.assigned_to_type === 'owner' ? 'Owner' : 'Unassigned')}
             {slip.scheduled_date ? ` · ${slip.scheduled_date === operatingDate() ? 'Due today' : `Scheduled ${houseDay(slip.scheduled_date)}`}` : ''}
             {slip.location ? ` · ${slip.location}` : ''}
@@ -2255,6 +2262,7 @@ function BulkActionBar({
   onMarkDone,
   onAssignToMe,
   onUnassign,
+  onCoordinate,
   onSetPriority,
 }: {
   slipCount: number;
@@ -2266,6 +2274,7 @@ function BulkActionBar({
   onMarkDone: () => void;
   onAssignToMe: () => void;
   onUnassign: () => void;
+  onCoordinate?: () => void;
   onSetPriority: (priority: WorkSlipPriority) => void;
 }) {
   const total = slipCount + taskCount;
@@ -2316,6 +2325,7 @@ function BulkActionBar({
           onClick={onAssignToMe}
           disabled={off || !myEmail}
         />
+        {onCoordinate && <BulkBtn label="I’ll coordinate" onClick={onCoordinate} disabled={off || !myEmail} />}
         <BulkBtn label="Unassign" onClick={onUnassign} disabled={off} />
         <BulkBtn label="High" onClick={() => onSetPriority('high')} disabled={off} accent="var(--negative)" />
         <BulkBtn label="Normal" onClick={() => onSetPriority('normal')} disabled={off} />

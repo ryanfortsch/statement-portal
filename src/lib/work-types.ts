@@ -40,6 +40,8 @@ export type WorkSlipRow = {
   assigned_to_email: string | null;
   assigned_to_label: string | null;
   scheduled_date: string | null;
+  coordinator_email?: string | null;
+  follow_up_date?: string | null;
   claimed_at: string | null;
   completed_at: string | null;
   closed_at: string | null;

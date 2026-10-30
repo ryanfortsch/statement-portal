@@ -57,7 +57,10 @@ export default async function HelmHome({
 
       {/* ASK HELM: the page's one input, directly under the title. */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 28 }}>
-        <AskHelm showSuggestions={false} />
+        <details>
+          <summary style={{ cursor: 'pointer', fontSize: 14, color: 'var(--tide-deep)' }}>Ask Helm</summary>
+          <div style={{ paddingTop: 12 }}><AskHelm showSuggestions={false} /></div>
+        </details>
       </section>
 
       {/* The signed-in person's day leads; activity is one tab away and

@@ -166,7 +166,7 @@ describe('the three places that ask', () => {
     assert.ok(triage.includes('return !known?.settled && !known?.contact;'), 'an address-book row for a known household folds');
     assert.ok(triage.includes('knownByPhone,'), 'the names reach the card');
     const card = read('src/components/messaging/NumberTriage.tsx');
-    assert.ok(card.includes("attachSel[phone] ?? knownByPhone[phone]?.contactId ?? ''"), 'the household is picked');
+    assert.ok(card.includes("attachSel[phone] ?? knownByPhone[phone]?.contactId ?? contactSuggestions[phone]?.contact.id ?? ''"), 'the household is picked');
     assert.ok(card.includes('initialName={knownByPhone[promote.phone]?.name}'), 'New contact opens named');
   });
 

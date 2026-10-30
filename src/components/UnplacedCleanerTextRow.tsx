@@ -1,5 +1,6 @@
 'use client';
 
+import { suggestedHouses } from '@/lib/matching-suggestions';
 import { useState, useTransition } from 'react';
 import { Button } from '@/components/Button';
 import {
@@ -31,7 +32,8 @@ export function UnplacedCleanerTextRow({
   body: string;
   choices: AttachChoices;
 }) {
-  const [house, setHouse] = useState('');
+  const suggestions = suggestedHouses(body, [...choices.likely, ...choices.rest]);
+  const [house, setHouse] = useState(() => suggestions.length === 1 ? suggestions[0].id : '');
   const [busy, setBusy] = useState<'attach' | 'aside' | null>(null);
   const [error, setError] = useState('');
   const [pending, start] = useTransition();
@@ -77,6 +79,10 @@ export function UnplacedCleanerTextRow({
         <span style={{ fontWeight: 600 }}>{cleanerName}</span>
         <span style={{ color: 'var(--ink-3)' }}> · &ldquo;{line}&rdquo;</span>
       </span>
+      {suggestions.length > 0 && <span style={{ flexBasis: '100%', fontSize: 12, color: 'var(--tide-deep)' }}>
+        {suggestions.length === 1 ? `Suggested: ${suggestions[0].name}. The text names this house. Confirm below or choose another.` : `The text names ${suggestions.map(p => p.name).join(', ')}. Review which house this update belongs to.`}
+      </span>}
+      <details style={{ flexBasis: '100%', fontSize: 12 }}><summary style={{ cursor: 'pointer' }}>Read full text</summary><p style={{ whiteSpace: 'pre-wrap' }}>{body}</p></details>
       <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <select
           aria-label="Which house"
@@ -106,7 +112,7 @@ export function UnplacedCleanerTextRow({
         <Button
           variant="primary"
           size="sm"
-          disabled={!house}
+          disabled={!house || pending}
           pending={busy === 'attach'}
           pendingLabel="Attaching"
           confirm={{
@@ -116,7 +122,7 @@ export function UnplacedCleanerTextRow({
           }}
           onClick={() => run('attach')}
         >
-          Attach
+          {suggestions.length === 1 && house === suggestions[0].id ? 'Confirm house' : 'Attach'}
         </Button>
         <Button variant="quiet" size="sm" disabled={pending} pending={busy === 'aside'} pendingLabel="Saving" onClick={() => run('aside')}>
           Set aside

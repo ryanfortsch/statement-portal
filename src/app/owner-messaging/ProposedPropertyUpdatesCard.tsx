@@ -34,7 +34,13 @@ type Props = {
 };
 
 export function ProposedPropertyUpdatesCard({ initial, initialError, properties, source = 'owner' }: Props) {
+  const [houseFilter, setHouseFilter] = useState('');
   const items = initial ?? [];
+  const grouped = new Map<string, ProposedPropertyUpdate[]>();
+  for (const item of items) {
+    const key = item.property_id || '(unknown)';
+    grouped.set(key, [...(grouped.get(key) ?? []), item]);
+  }
   const right =
     items.length > 0 ? (
       <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
@@ -86,8 +92,12 @@ export function ProposedPropertyUpdatesCard({ initial, initialError, properties,
               Property list unavailable, so filing is disabled. Reload the page or check access; you can still dismiss.
             </div>
           )}
-          {items.map((u) => (
-            <CandidateCard key={u.id} candidate={u} properties={properties} source={source} />
+          <input type="search" aria-label="Find a home in property facts" placeholder="Find a home" value={houseFilter} onChange={e => setHouseFilter(e.target.value)} style={{ padding: 10, border: '1px solid var(--rule)', fontSize: 14, background: 'var(--paper)' }} />
+          {[...grouped].filter(([, rows]) => !houseFilter || (rows[0].property_name || rows[0].property_id).toLowerCase().includes(houseFilter.toLowerCase())).map(([pid, rows]) => (
+            <details key={pid} style={{ borderBottom: '1px solid var(--rule)', paddingBottom: 12 }}>
+              <summary style={{ cursor: 'pointer', padding: '12px 0', fontSize: 16 }}>{rows[0].property_name || pid} <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>· {rows.length} to review</span></summary>
+              <div style={{ display: 'grid', gap: 12 }}>{rows.map(u => <CandidateCard key={u.id} candidate={u} properties={properties} source={source} />)}</div>
+            </details>
           ))}
         </div>
       )}
@@ -414,12 +424,13 @@ function ItemRow({
 
         {item.target === 'column' ? (
           <>
-            <input value={item.value ?? ''} onChange={(e) => onPatch({ value: e.target.value })} style={fieldInput} />
-            {currentValue && (
-              <div style={{ marginTop: 5, fontSize: 11, color: 'var(--signal)' }}>
-                Replaces current value: <span className="font-mono">{currentValue}</span>
-              </div>
-            )}
+            <div style={{ marginBottom: 6, fontSize: 12, color: 'var(--ink-3)' }}>
+              Current: <span className="font-mono">{currentValue ?? 'Not set'}</span>
+            </div>
+            <label style={{ display: 'block', fontSize: 12 }}>
+              Proposed
+              <input value={item.value ?? ''} onChange={(e) => onPatch({ value: e.target.value })} style={fieldInput} />
+            </label>
           </>
         ) : (
           <>

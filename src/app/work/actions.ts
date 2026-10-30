@@ -3,6 +3,8 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
+import { coordinationPatch } from '@/lib/work-coordination';
+import { TEAM_MEMBERS } from '@/lib/team';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import type {
   WorkSlipCategory,
@@ -471,6 +473,7 @@ export async function bulkUpdateWorkSlips(args: {
     status?: WorkSlipStatus;
     priority?: WorkSlipPriority;
     assigned_to_email?: string | null;
+    coordinator_email?: string | null;
   };
 }): Promise<{ ok: true; updated: number } | { ok: false; error: string }> {
   const session = await auth();
@@ -496,11 +499,18 @@ export async function bulkUpdateWorkSlips(args: {
     // markRunScheduled so it can't mask the new assignee (or unassigned).
     patch.assigned_to_label = null;
   }
+  if (args.patch.coordinator_email !== undefined) {
+    const coordination = coordinationPatch({ coordinator_email: args.patch.coordinator_email }, TEAM_MEMBERS.filter(m => m.active).map(m => m.email));
+    if (!coordination.ok) return coordination;
+    Object.assign(patch, coordination.patch);
+  }
   if (Object.keys(patch).length === 0) return { ok: false, error: 'Nothing to update' };
 
   const { error } = await supabase.from('work_slips').update(patch).in('id', args.ids);
   if (error) return { ok: false, error: error.message };
 
+  revalidatePath('/');
+  revalidatePath('/properties', 'layout');
   revalidatePath('/work');
   for (const id of args.ids) revalidatePath(`/work/${id}`);
   return { ok: true, updated: args.ids.length };
@@ -726,5 +736,26 @@ export async function deleteWorkSlipComment(args: {
   if (error) return { ok: false, error: error.message };
 
   revalidatePath(`/work/${args.work_slip_id}`);
+  return { ok: true };
+}
+
+/** Saves accountability without changing who performs the work or the visit. */
+export async function updateWorkSlipCoordination(args: {
+  id: string;
+  coordinator_email?: string | null;
+  follow_up_date?: string | null;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+  const result = coordinationPatch(args, TEAM_MEMBERS.filter(m => m.active).map(m => m.email));
+  if (!result.ok) return result;
+  if (!Object.keys(result.patch).length) return { ok: false, error: 'Nothing to save.' };
+  const { data, error } = await supabase.from('work_slips').update(result.patch).eq('id', args.id).select('property_id').maybeSingle();
+  if (error) return { ok: false, error: 'Could not save coordination. Refresh and try again.' };
+  if (!data) return { ok: false, error: 'This work item is no longer available.' };
+  revalidatePath('/');
+  revalidatePath('/work');
+  revalidatePath(`/work/${args.id}`);
+  revalidatePath(`/properties/${data.property_id}`);
   return { ok: true };
 }

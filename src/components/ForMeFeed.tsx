@@ -1,3 +1,4 @@
+import { selectAllPaged } from '@/lib/paged-select';
 import { splitReplyUpdates } from '@/lib/home-reply-triage';
 import Link from 'next/link';
 import { auth } from '@/auth';
@@ -73,6 +74,7 @@ type PlannedWalk = {
 const WORK_WINDOW = 4;
 const REPLY_WINDOW = 6;
 const GLANCE_WINDOW = 6;
+const TIME_SENSITIVE: readonly FeedSection[] = ['holds', 'cleanings', 'walks', 'meetings'];
 
 /**
  * The "For Me" home feed: the signed-in person's day, in the order it is
@@ -159,6 +161,8 @@ export async function ForMeFeed() {
   // across properties) so clearing one reveals the next.
   const workFiltered = allWork.filter((w) => !dismissed.has(`${w.kind}:${w.id}`));
   const myWork = pickForFeed(workFiltered, workMode, WORK_WINDOW);
+  const myTaskCount = allWork.filter(w => w.kind === 'task').length;
+  const mySlipCount = allWork.length - myTaskCount;
 
   const emailsFiltered = needsReply.filter((e) => !dismissed.has(`email:${e.id}`));
   const visibleInbound = inboundWaiting.filter((t) => !dismissed.has(`inbound:${inboundId(t)}`));
@@ -180,11 +184,15 @@ export async function ForMeFeed() {
     work:
       workMode === 'assigned' && myWork.length > 0 ? (
         <>
-          <SectionHeaderLink href="/work?filter=mine" title="On your plate" eyebrow={`${workFiltered.length} assigned`} />
+          <SectionHeaderLink href={mySlipCount ? "/work?filter=mine" : "/work?filter=mine&tab=tasks"} title="On your plate" eyebrow={`${allWork.length} for me`} />
           <div style={{ borderTop: '1px solid var(--ink)' }}>
             {myWork.map((w) => (
               <MyWorkRow key={`${w.kind}-${w.id}`} item={w} />
             ))}
+            {workFiltered.length > myWork.length && <>
+              {mySlipCount > 0 && <MoreRow href="/work?filter=mine" text={`View all ${mySlipCount} property work items`} />}
+              {myTaskCount > 0 && <MoreRow href="/work?filter=mine&tab=tasks" text={`View all ${myTaskCount} office to-dos`} />}
+            </>}
           </div>
         </>
       ) : null,
@@ -384,7 +392,12 @@ export async function ForMeFeed() {
       ) : (
         shown.map((key) => (
           <div key={key} data-feed-section={key} style={{ marginBottom: 36 }}>
-            {sections[key]}
+            {(key === shown[0] || TIME_SENSITIVE.includes(key) !== TIME_SENSITIVE.includes(shown[shown.indexOf(key) - 1])) && key !== 'updates' && (
+              <div className="eyebrow" style={{ color: 'var(--tide-deep)', marginBottom: 18 }}>
+                {TIME_SENSITIVE.includes(key) ? 'Time-sensitive & upcoming' : 'My next actions'}
+              </div>
+            )}
+            {key === 'updates' ? <details><summary style={{ cursor: 'pointer', fontSize: 16 }}>Updates · {updates.length}</summary><div style={{ paddingTop: 16 }}>{sections[key]}</div></details> : sections[key]}
           </div>
         ))
       )}
@@ -439,39 +452,41 @@ async function fetchWork(filter: WorkFilter, propertyNames: Map<string, string>)
 
   let slipQ = supabase
     .from('work_slips')
-    .select('id, property_id, title, priority, status')
+    .select('id, property_id, title, priority, status, scheduled_date, follow_up_date')
     .in('status', ACTIVE_WORK_SLIP_STATUSES)
     .or(`snoozed_until.is.null,snoozed_until.lte.${today}`)
-    .order('priority', { ascending: false })
-    .limit(20);
+    .order('id');
   let taskQ = supabase
     .from('tasks')
     .select('id, title, priority, status, scope, description, action_summary, due_date, property_ids')
     .in('status', ACTIVE_TASK_STATUSES)
-    .order('priority', { ascending: false })
-    .limit(20);
+    .order('id');
 
   if (filter.kind === 'assigned') {
-    slipQ = slipQ.eq('assigned_to_email', filter.email);
+    slipQ = slipQ.or(`assigned_to_email.eq.${filter.email},coordinator_email.eq.${filter.email}`);
     taskQ = taskQ.eq('assigned_to_email', filter.email);
   } else {
-    slipQ = slipQ.is('assigned_to_email', null);
+    slipQ = slipQ.is('coordinator_email', null).is('assigned_to_email', null);
     taskQ = taskQ.is('assigned_to_email', null);
   }
 
-  const [slipRes, taskRes] = await Promise.all([slipQ, taskQ]);
+  const [slipRows, taskRows] = await Promise.all([
+    selectAllPaged((from, to) => slipQ.range(from, to)),
+    selectAllPaged((from, to) => taskQ.range(from, to)),
+  ]);
   const slips: MyWork[] = (
-    (slipRes.data ?? []) as Array<{ id: string; property_id: string | null; title: string; priority: string | null }>
+    slipRows as Array<{ id: string; property_id: string | null; title: string; priority: string | null; scheduled_date: string | null; follow_up_date: string | null }>
   ).map((s) => ({
     id: s.id,
     kind: 'slip',
     title: s.title,
     priority: s.priority,
     propertyId: s.property_id,
+    dueDate: [s.scheduled_date, s.follow_up_date].filter((d): d is string => !!d).sort()[0] ?? null,
     propertyName: s.property_id ? propertyNames.get(s.property_id) ?? null : null,
   }));
   const tasks: MyWork[] = (
-    (taskRes.data ?? []) as Array<{
+    taskRows as Array<{
       id: string;
       title: string;
       priority: string | null;
@@ -499,8 +514,9 @@ async function fetchWork(filter: WorkFilter, propertyNames: Map<string, string>)
       .map((pid) => propertyNames.get(pid))
       .filter((n): n is string => !!n),
   }));
-  // Tasks before slips.
-  return [...tasks, ...slips];
+  // The earliest follow-up or due date leads, regardless of work type.
+  const rank = (item: MyWork) => item.dueDate && item.dueDate <= today ? 0 : item.priority === 'high' ? 1 : 2;
+  return [...tasks, ...slips].sort((a, b) => rank(a) - rank(b) || (a.dueDate ?? '9999').localeCompare(b.dueDate ?? '9999') || a.id.localeCompare(b.id));
 }
 
 function firstNonEmptyLine(s: string | null | undefined): string | null {
@@ -516,16 +532,12 @@ function firstNonEmptyLine(s: string | null | undefined): string | null {
  * second from any) so the list isn't several items from a single house.
  */
 function pickForFeed(items: MyWork[], mode: WorkMode, limit: number): MyWork[] {
+  if (mode === 'assigned') return items.slice(0, limit);
   const tasks = items.filter((i) => i.kind === 'task');
   const slips = items.filter((i) => i.kind === 'slip');
 
   const out: MyWork[] = tasks.slice(0, limit);
   if (out.length >= limit) return out.slice(0, limit);
-
-  if (mode === 'assigned') {
-    out.push(...slips.slice(0, limit - out.length));
-    return out.slice(0, limit);
-  }
 
   // Unassigned: round-robin slips by property so no one house dominates.
   const byProperty = new Map<string, MyWork[]>();
@@ -590,10 +602,11 @@ function MyWorkRow({ item }: { item: MyWork }) {
     // to-do filed against homes before 2026-10-18 prints their names.
     const propLabel = formatPropertyList(item.propertyNames);
     if (propLabel) sublineBits.push(<span style={{ color: 'var(--ink-3)' }}>{propLabel}</span>);
-    if (item.dueDate) sublineBits.push(<span style={{ color: 'var(--ink-3)' }}>Due {formatDueDate(item.dueDate)}</span>);
+
   } else if (item.propertyName) {
     sublineBits.push(<span style={{ color: 'var(--ink-3)' }}>{item.propertyName}</span>);
   }
+  if (item.dueDate) sublineBits.push(<span style={{ color: item.dueDate <= operatingDate() ? 'var(--signal)' : 'var(--ink-3)' }}>Due {formatDueDate(item.dueDate)}</span>);
   if (isHigh) sublineBits.push(<span style={{ color: 'var(--signal)' }}>High priority</span>);
 
   return (

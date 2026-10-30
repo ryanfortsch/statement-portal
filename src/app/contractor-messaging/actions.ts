@@ -3,6 +3,7 @@
 import { sentReceipt, type ApprovalReceipt } from '@/lib/approval-receipt';
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
+import { checkTeamDraftTiming } from '@/lib/team-draft-validity';
 import {
   approveContractorApproval,
   markHandledContractorApproval,
@@ -50,6 +51,8 @@ export async function approveContractorDraft(
 ): Promise<ActionResult> {
   const sess = await requireSession();
   if (!sess.ok) return sess;
+  const timingError = await checkTeamDraftTiming('contractor', id);
+  if (timingError) return { ok: false, error: timingError };
   const result = await approveContractorApproval(id, opts);
   const mapped = mapResult(result);
   return mapped.ok && result.ok ? { ...mapped, receipt: sentReceipt(result.data) } : mapped;
@@ -99,6 +102,8 @@ export async function scheduleContractorDraft(id: string, sendAt: string): Promi
   const sess = await requireSession();
   if (!sess.ok) return sess;
   if (!sendAt) return { ok: false, error: 'Pick a time to schedule' };
+  const timingError = await checkTeamDraftTiming('contractor', id, sendAt);
+  if (timingError) return { ok: false, error: timingError };
   return mapResult(await scheduleContractorApproval(id, sendAt));
 }
 

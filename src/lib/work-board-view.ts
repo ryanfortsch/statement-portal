@@ -3,9 +3,10 @@ import { dueThisWeek } from './work-week.ts'; // relative + .ts: node:test loads
 
 type BoardItem = Pick<WorkSlipRow | TaskRow, 'status' | 'priority' | 'created_at' | 'assigned_to_email'> & {
   scheduled_date?: string | null; due_date?: string | null;
+  coordinator_email?: string | null; follow_up_date?: string | null;
   assigned_to_type?: WorkSlipRow['assigned_to_type']; assigned_to_label?: string | null;
 };
-export function workDate(item: BoardItem): string | null { return item.scheduled_date ?? item.due_date ?? null; }
+export function workDate(item: BoardItem): string | null { return [item.follow_up_date, item.scheduled_date, item.due_date].filter((d): d is string => !!d).sort()[0] ?? null; }
 export function workUnassigned(item: BoardItem): boolean {
   return !item.assigned_to_email && !item.assigned_to_label && (!item.assigned_to_type || item.assigned_to_type === 'unassigned');
 }
@@ -45,7 +46,7 @@ export function workThisWeek(item: BoardItem, today: string): boolean {
 
 /** My week: assigned to me and due this week. */
 export function workMyWeek(item: BoardItem, me: string, today: string): boolean {
-  return !!me && item.assigned_to_email === me && workThisWeek(item, today);
+  return !!me && (item.assigned_to_email === me || item.coordinator_email === me) && workThisWeek(item, today);
 }
 
 /** The view the board opens on with no ?filter=. A staff login opens on its

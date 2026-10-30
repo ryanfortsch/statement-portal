@@ -6,6 +6,8 @@ import type { WorkSlipRow, WorkSlipCommentRow } from '@/lib/work-types';
 import { BackToBoardLink } from './BackToBoardLink';
 import { SlipPhotoEditor } from './SlipPhotoEditor';
 import { SlipAssignEditor } from './SlipAssignEditor';
+import { SlipFollowUpEditor } from './SlipFollowUpEditor';
+import { WorkVisitLinks } from './WorkVisitLinks';
 import { SlipComments } from './SlipComments';
 import { SlipTitleEditor } from './SlipTitleEditor';
 import { SlipBringListEditor } from './SlipBringListEditor';
@@ -185,16 +187,31 @@ export default async function WorkSlipDetailPage({
                     : undefined
               }
             />
-            <StatCell label="Assigned" last>
+            <StatCell label="Coordinator">
+              <SlipAssignEditor slipId={slip.id} initialAssignedToEmail={slip.coordinator_email ?? null} myEmail={myEmail} coordinator />
+            </StatCell>
+            <StatCell label="Next follow-up" last>
+              <SlipFollowUpEditor slipId={slip.id} initialDate={slip.follow_up_date ?? null} />
+            </StatCell>
+          </div>
+        </div>
+      </section>
+
+      <Section title="Who does the work" eyebrow="Worker & visit">
+        <p style={{ fontSize: 13, color: 'var(--ink-3)', marginBottom: 12 }}>The coordinator follows through. The worker and work type below describe how it gets done.</p>
+        <div>
+          <div>
+            <StatCell label={slip.assigned_to_label ? `Worker: ${slip.assigned_to_label}` : "Worker"} last>
               <SlipAssignEditor
                 slipId={slip.id}
                 initialAssignedToEmail={slip.assigned_to_email}
                 myEmail={myEmail}
               />
             </StatCell>
+            <WorkVisitLinks slipId={slip.id} scheduledDate={slip.scheduled_date} />
           </div>
         </div>
-      </section>
+      </Section>
 
       {/* DESCRIPTION */}
       {(slip.description || slip.action_summary) && (
@@ -284,7 +301,7 @@ export default async function WorkSlipDetailPage({
           organize pass files new slips here once and never touches a slip
           a person has moved. */}
       <Section
-        title="Whose hands"
+        title="Work type"
         eyebrow={
           slip.organized_at
             ? `${LANE_LABELS[lane]} · ${slip.organize_note?.startsWith('Set by') ? slip.organize_note : `organized by Helm ${formatDate(slip.organized_at)}`}`

@@ -77,6 +77,7 @@ export function ContractorCard({
       queuedChips={audienceChip}
       ageMinutes={approval.age_minutes}
       createdAt={approval.created_at}
+      draftTiming={{ createdAt: approval.created_at }}
       shortId={approval.short_id}
       wait={waitReason({
         status: approval.status,

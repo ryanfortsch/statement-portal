@@ -1,5 +1,6 @@
 'use client';
 
+import { draftValidity } from '@/lib/draft-validity';
 import { ActionReceipt } from './ActionReceipt';
 import type { ApprovalReceipt } from '@/lib/approval-receipt';
 
@@ -130,6 +131,7 @@ export type ApprovalCardProps = {
   approvePendingLabel?: string;
   /** Why Approve is disabled (a slip with no property). */
   approveBlocked?: string;
+  draftTiming?: { createdAt: string | null; translation?: string };
   /** Why Send later is disabled. */
   scheduleBlocked?: string;
   /** One line under the coaching contract (the cleaner card: write in English). */
@@ -157,8 +159,8 @@ export function ApprovalCard(props: ApprovalCardProps) {
   const {
     id, status, sendAt, name, property, channel, preview, reviewLabel, chips, queuedChips, accent, ageMinutes, createdAt, shortId,
     wait, layout = 'columns', said, between, reply, afterColumns, also, verbs, handledReasons,
-    pastePlaceholder = 'Paste the reply you sent, by text or by email', approveLabel, approveSummary, approvePendingLabel, approveBlocked,
-    scheduleBlocked, coachHint, externalBusy, redraftOutcome, footer, queuedLead, outcomes, onResolved, onDecided,
+    pastePlaceholder = 'Paste the reply you sent, by text or by email', approveLabel, approveSummary, approvePendingLabel, approveBlocked: otherBlocked, draftTiming,
+    scheduleBlocked: otherScheduleBlocked, coachHint, externalBusy, redraftOutcome, footer, queuedLead, outcomes, onResolved, onDecided,
     onRegenerating, regenStalled,
   } = props;
   const draft = reply?.text ?? '';
@@ -190,6 +192,19 @@ export function ApprovalCard(props: ApprovalCardProps) {
   const [editBase, setEditBase] = useState(draft);
   const isScheduled = status === 'scheduled';
   const shownDraft = savedDraft ?? draft;
+  const [clock, setClock] = useState(() => new Date());
+  const timingEnabled = !!draftTiming;
+  useEffect(() => {
+    if (!timingEnabled) return;
+    const timer = setInterval(() => setClock(new Date()), 30_000);
+    return () => clearInterval(timer);
+  }, [timingEnabled]);
+  const timing = draftTiming ? draftValidity({
+    createdAt: draftTiming.createdAt,
+    text: shownDraft + (shownDraft === draft && draftTiming.translation ? `\n${draftTiming.translation}` : ''),
+  }, clock) : {};
+  const approveBlocked = otherBlocked || timing.blocked;
+  const scheduleBlocked = otherScheduleBlocked || timing.blocked;
   const editDirty = editing && draftText.trim() !== '' && draftText !== editBase;
   // The draft changed under an open editor (a coach landed, another operator
   // edited) and the operator has not typed the same: warn, never overwrite.
@@ -324,7 +339,7 @@ export function ApprovalCard(props: ApprovalCardProps) {
   };
 
   const approve = () => {
-    if (!verbs.approve) return;
+    if (!verbs.approve || approveBlocked) return;
     const send = verbs.approve;
     if (editDirty) {
       const text = draftText;
@@ -434,7 +449,7 @@ export function ApprovalCard(props: ApprovalCardProps) {
     });
   };
 
-  const sendNow = () => verbs.sendNow && run('send-now', verbs.sendNow);
+  const sendNow = () => !approveBlocked && verbs.sendNow && run('send-now', verbs.sendNow);
   const cancelSchedule = () => verbs.cancelSchedule && run('cancel-schedule', verbs.cancelSchedule);
 
   const ageLabel =
@@ -447,10 +462,11 @@ export function ApprovalCard(props: ApprovalCardProps) {
 
   const queuedActions = (
     <>
+      {timing.blocked && <p role="status" style={{ color: 'var(--signal)', fontSize: 13 }}>{timing.blocked} Cancel the scheduled send to review it.</p>}
       {verbs.sendNow && (
         <SecondaryButton
           onClick={sendNow}
-          disabled={busy}
+          disabled={busy || !!approveBlocked}
           loading={pending === 'send-now'}
           loadingLabel={approvePendingLabel || "Sending"}
           title="Send this reply right now instead of waiting."
@@ -654,7 +670,7 @@ export function ApprovalCard(props: ApprovalCardProps) {
       loadingLabel="Redrafting"
       title="Re-run this draft against today's data. Use when the draft is stale rather than wrong. Nothing is sent."
     >
-      Redraft
+      {draftTiming ? 'Refresh draft' : 'Redraft'}
     </QuietButton>
   ) : null;
 
@@ -816,6 +832,7 @@ export function ApprovalCard(props: ApprovalCardProps) {
           )}
         </footer>
 
+        {timing.context && <p style={{ fontSize: 12, color: 'var(--ink-3)' }}>{timing.context}</p>}
         {approveBlocked && !isScheduled && (
           <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--signal)' }}>{approveBlocked}</p>
         )}
