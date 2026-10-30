@@ -77,6 +77,8 @@ const HOMES: GridHome[] = [
   home('17_beach', '17 Beach', []),
   home('84_thatcher', '84 Thatcher', [{ id: 'long', in: '2026-10-10', out: '2026-11-05' }]),
   home('73_rocky_neck', '73 Rocky Neck', [{ id: 'H', in: '2026-10-15', out: '2026-10-19' }]),
+  home('4_middle', '4 Middle Road', [{ id: 'M', in: '2026-11-02', out: '2026-11-06' }]),
+  home('47_atlantic', '47 Atlantic', [{ id: 'N', in: '2026-11-10', out: '2026-11-14' }]),
 ];
 
 const STAYS: GridStay[] = [
@@ -90,6 +92,8 @@ const STAYS: GridStay[] = [
   stay({ reservationId: 'J', propertyId: '16_waterman', checkIn: '2026-10-18', checkOut: '2026-10-20', walk: 'done', walkedOn: '2026-10-18', walkedBy: ME }),
   stay({ reservationId: 'K', propertyId: '16_waterman', checkIn: '2026-10-21', checkOut: '2026-10-24', plan: { id: 'p4', date: '2026-10-16', assignee: DOTTI, plannedBy: DOTTI, hasNotes: true } }),
   stay({ reservationId: 'L', propertyId: '36_granite', checkIn: '2026-10-20', checkOut: '2026-10-23', field: { status: 'published', contractor: null, visitDate: '2026-10-19' } }),
+  stay({ reservationId: 'M', propertyId: '4_middle', checkIn: '2026-11-02', checkOut: '2026-11-06' }),
+  stay({ reservationId: 'N', propertyId: '47_atlantic', checkIn: '2026-11-10', checkOut: '2026-11-14' }),
 ];
 
 function gridFor(myEmail: string, stays: GridStay[] = STAYS) {
@@ -245,15 +249,18 @@ describe('who is going, and what a tap does', () => {
 });
 
 describe('which homes are on the grid, and in what order', () => {
-  test('a home with nothing happening in the window is left out', () => {
+  test('a home is on the grid only when someone could go there', () => {
     const ids = gridFor(ME).rows.map((r) => r.propertyId);
     assert.ok(!ids.includes('17_beach'), 'vacant all window');
     assert.ok(!ids.includes('84_thatcher'), 'one guest all window');
-    assert.ok(ids.includes('73_rocky_neck'), 'a checkout with nobody behind it still turns');
+    assert.ok(!ids.includes('73_rocky_neck'), "a checkout with nobody behind it is the cleaner's day, not a walk");
+    assert.ok(ids.includes('4_middle'), 'an arrival just past the window: its prep days fall inside');
+    assert.equal(cell(ME, '4_middle', '2026-10-31').needs, true);
+    assert.ok(!ids.includes('47_atlantic'), 'an arrival well past the window');
   });
-  test('rows run in the order the week happens: next arrival first, a home with none last', () => {
+  test('rows run in the order the week happens: next arrival first', () => {
     const ids = gridFor(ME).rows.map((r) => r.propertyId);
-    assert.deepEqual(ids, ['16_waterman', '20_enon', '30_woodward', '19_rackliffe', '3_south', '36_granite', '21_horton', '3_locust', '7_sumac', '73_rocky_neck']);
+    assert.deepEqual(ids, ['16_waterman', '20_enon', '30_woodward', '19_rackliffe', '3_south', '36_granite', '21_horton', '3_locust', '7_sumac', '4_middle']);
   });
 });
 

@@ -92,7 +92,7 @@ assert.equal(await page.$$eval('.rt-vg-head',es=>es.length),14,'fourteen day col
 // innerText, not textContent: the today column carries both words and the CSS shows one.
 assert.equal(await page.$eval('.rt-vg-head .rt-vg-dow',e=>e.innerText),'TODAY','the wide column says Today');
 const names=await page.$$eval('.rt-vg-name .rt-vg-nm',es=>es.map(e=>e.textContent));
-assert.deepEqual(names,['53 Rocky Neck, Downstairs','20 Enon','30 Woodward','19 Rackliffe','3 South','21 Horton','73 Rocky Neck'],'the week in the order it happens; 17 Beach has nothing on');
+assert.deepEqual(names,['53 Rocky Neck, Downstairs','20 Enon','30 Woodward','19 Rackliffe','3 South','21 Horton'],'the week in the order it happens; 17 Beach has nothing on, 73 Rocky Neck only a checkout');
 assert.deepEqual(await marks('21 Horton','Tue, Oct 20'),['DJ:plan:mine'],'my planned walk wears my initials');
 assert.deepEqual(await marks('20 Enon','Sun, Oct 18'),['JL:field'],'a Field packet wears the contractor');
 assert.deepEqual(await marks('30 Woodward','Sun, Oct 18'),['DM:walked'],'a walked house wears the walker');

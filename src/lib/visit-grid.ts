@@ -216,7 +216,8 @@ export function composeVisitGrid(input: VisitGridInput): VisitGrid {
   for (const home of homes) {
     const stays = staysByHome.get(home.id) ?? [];
     const cellByDate = new Map(home.cells.map((c) => [c.date, c]));
-    let seenEvent = false;
+    let seenArrival = false;
+    let seenNeed = false;
     let seenBadge = false;
 
     const cells: GridCell[] = days.map((date, i) => {
@@ -231,7 +232,7 @@ export function composeVisitGrid(input: VisitGridInput): VisitGrid {
       const arriving = !!pm && pm.kind === 'guest' && !sameStay;
       const continues = !!am && !!prev?.pm && prev.pm.stayId === am.stayId;
       const state: GridCellState = sameStay ? (am!.kind === 'block' ? 'blocked' : 'occupied') : 'open';
-      if (leaving || arriving) seenEvent = true;
+      if (arriving) seenArrival = true;
 
       const next = stays.find((s) => s.checkIn >= date) ?? null;
       const ws = next ? walkState(next) : null;
@@ -241,6 +242,7 @@ export function composeVisitGrid(input: VisitGridInput): VisitGrid {
       const inPrep = !!next && daysBetween(date, next.checkIn) <= PREP_DAYS;
       const fieldOpen = !!next && ws === 'field' && next.field!.status === 'published';
       const needs = (claimable && inPrep && (ws === 'open' || late)) || (fieldOpen && workable && inPrep);
+      if (needs) seenNeed = true;
 
       // Who is going there that day, from every record Helm keeps.
       const badges: GridBadge[] = [];
@@ -312,8 +314,13 @@ export function composeVisitGrid(input: VisitGridInput): VisitGrid {
       };
     });
 
+    // A home is on the grid only when someone could go there: an arrival
+    // in the window, a day that needs someone (the prep days of an arrival
+    // just past it), or a mark. A checkout with nothing behind it is the
+    // cleaner's day, not a walk: nine such rows of beige sat under the
+    // live grid on its first day.
     const inWindow = stays.some((s) => s.checkIn >= days[0] && s.checkIn <= days[days.length - 1]);
-    if (!seenEvent && !seenBadge && !inWindow) continue;
+    if (!seenArrival && !seenNeed && !seenBadge && !inWindow) continue;
 
     const nextNeed =
       stays

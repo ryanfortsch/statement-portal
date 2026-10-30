@@ -229,15 +229,13 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
       <HelmMasthead />
       <TurnoverTabs current="pipeline" />
 
-      {/* Compact ops header — replaces the editorial hero + separate
-          range-tabs + summary stack. Single bordered row carries the
-          page summary on the left and the range tabs on the right;
-          sync indicator drops underneath as small dim text. ~120px of
-          chrome saved before any turnover row renders. */}
-      <section
-        className="max-w-[1100px] mx-auto px-10"
-        style={{ width: '100%', paddingTop: 28, paddingBottom: 24 }}
-      >
+      {/* WHO'S GOING WHERE: the week grid, one row per home, one column per
+          day, a mark for whoever is going. The Field packet board's grid,
+          brought here and made tappable: a tap plans the walk for the person
+          tapping (lib/visit-grid.ts), and the list below, the home feed and
+          the Field board all read that same plan. It leads the page; the
+          property filter's banner above it reads for the grid and the list both. */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingTop: 28, paddingBottom: 40 }}>
         {propertyFilter && (
           <div
             style={{
@@ -273,6 +271,19 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
           </div>
         )}
 
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 10 }}>
+          <div className="eyebrow">Who&rsquo;s going where</div>
+          <span style={{ fontSize: 10, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>Next two weeks</span>
+        </div>
+        <VisitGrid today={today} days={gridDays(today, GRID_DAYS)} homes={gridHomes} stays={gridStays} myEmail={myEmail} />
+      </section>
+
+      {/* THE BOARD. One bordered row carries the summary on the left and
+          the range tabs and property filter on the right, so each control
+          sits on the list it filters; the state counts and the sync line
+          drop underneath as small dim text. Below the grid since 2026-10-30:
+          the first thing on the page is who is going where. */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 56, width: '100%' }}>
         <div
           style={{
             borderTop: '1px solid var(--ink)',
@@ -392,23 +403,7 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
               the list, and Field has its own masthead tab. */}
           <AutoRefresh shouldRefresh={isStale} initialLabel={initialFooter} />
         </div>
-      </section>
 
-      {/* WHO'S GOING WHERE: the week grid, one row per home, one column per
-          day, a mark for whoever is going. The Field packet board's grid,
-          brought here and made tappable: a tap plans the walk for the person
-          tapping (lib/visit-grid.ts), and the list below, the home feed and
-          the Field board all read that same plan. */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 40, width: '100%' }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 10 }}>
-          <div className="eyebrow">Who&rsquo;s going where</div>
-          <span style={{ fontSize: 10, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>Next two weeks</span>
-        </div>
-        <VisitGrid today={today} days={gridDays(today, GRID_DAYS)} homes={gridHomes} stays={gridStays} myEmail={myEmail} />
-      </section>
-
-      {/* TURNOVER LIST */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 56, width: '100%' }}>
         {board.total === 0 ? (
           <div style={{ borderTop: '1px solid var(--ink)', padding: '24px 0', fontSize: 13, color: 'var(--ink-4)' }}>
             Pick a wider range to see what is coming.
