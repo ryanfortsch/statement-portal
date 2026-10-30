@@ -159,7 +159,7 @@ export function VisitGrid({ today, days, homes, stays, myEmail }: Props) {
   if (grid.rows.length === 0) {
     return (
       <p style={{ color: 'var(--ink-3)', fontSize: 14, margin: 0 }}>
-        No house turns in the next two weeks.
+        No arrivals to walk in the next two weeks.
       </p>
     );
   }
