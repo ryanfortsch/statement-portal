@@ -38,6 +38,9 @@ export type TeamMember = {
   name: string;         // first + last
   short: string;        // first name, used in pills/badges
   initials: string;     // 1-2 chars for the avatar
+  /** The person's colour on the week grid's marks, so two sets of
+   *  initials never read as one hand. Presentation only. */
+  hue?: string;
   role: TeamMemberRole;
   access: TeamAccess;
   active: boolean;      // false = hidden from picker but old assignments still resolve
@@ -63,6 +66,7 @@ export const TEAM_MEMBERS: TeamMember[] = [
     name: 'Ryan Fortsch',
     short: 'Ryan',
     initials: 'RF',
+    hue: '#0b2545',
     role: 'principal',
     access: 'owner',
     active: true,
@@ -73,6 +77,7 @@ export const TEAM_MEMBERS: TeamMember[] = [
     name: 'Allie O\'Brien',
     short: 'Allie',
     initials: 'AO',
+    hue: '#2f6f6a',
     role: 'operations',
     access: 'owner',
     active: true,
@@ -83,6 +88,7 @@ export const TEAM_MEMBERS: TeamMember[] = [
     name: 'Dotti Maguire',
     short: 'Dotti',
     initials: 'DM',
+    hue: '#6b3a6b',
     role: 'principal',
     access: 'owner',
     active: true,
@@ -98,6 +104,7 @@ export const TEAM_MEMBERS: TeamMember[] = [
     name: 'Delaney Jordan',
     short: 'Delaney',
     initials: 'DJ',
+    hue: '#1c4a6b',
     role: 'operations',
     access: 'staff',
     active: true,
@@ -139,6 +146,12 @@ export function teamBylineForEmail(email: string | null | undefined): string {
   const m = getTeamMember(email);
   if (!email || m?.access === 'owner') return 'Rising Tide';
   return displayNameForEmail(email);
+}
+
+/** The person's mark colour on the week grid; a teammate not on the roster
+ *  (a one-off address) reads in the quiet ink. */
+export function hueForEmail(email: string | null | undefined): string {
+  return getTeamMember(email)?.hue ?? '#51677d';
 }
 
 /** 1-2 char initials for the avatar — same fallback rules as displayName. */

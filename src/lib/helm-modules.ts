@@ -170,7 +170,7 @@ export const HELM_MODULES: HelmModule[] = [
     href: '/turnovers',
     number: '02',
     title: 'Turnovers',
-    description: 'Turnover pipeline. Upcoming check-ins, prep status, and same-day turnaround flags. Live from Guesty. Start a walk from here.',
+    description: 'Who is going where: the week grid, tap a day to take a walk. Then the turnover board: upcoming check-ins, prep status, same-day flags. Live from Guesty. Start a walk from here.',
     status: 'active',
     primary: true,
     group: 'operations',
