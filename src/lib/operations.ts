@@ -195,6 +195,9 @@ export type InspectionRow = {
   property_id: string;
   started_at: string | null;
   completed_at: string | null;
+  /** Who is walking (or walked) it, so the week grid can print their
+   *  initials on the day. Absent on rows read before this column joined. */
+  inspector_email?: string | null;
 };
 
 export type PropertyMini = {
@@ -613,7 +616,7 @@ export async function loadOperationsData(
   // Pull inspections in the same window for matching.
   const { data: inspData, error: inspErr } = await supabase
     .from('inspections')
-    .select('id, property_id, started_at, completed_at')
+    .select('id, property_id, started_at, completed_at, inspector_email')
     .gte('started_at', `${fetchStart}T00:00:00Z`)
     .order('started_at', { ascending: false });
 

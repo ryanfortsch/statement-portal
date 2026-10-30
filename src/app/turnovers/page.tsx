@@ -18,6 +18,8 @@ import type { CleaningDay } from '@/lib/cleaning-days';
 import { displayNameForEmail } from '@/lib/team';
 import { VENDOR_LABEL } from '@/lib/vendor-schedule';
 import { composeBoard, type Board, type BoardCount, type BoardRow, type BoardStateKey } from '@/lib/turnover-board';
+import { GRID_DAYS, gridDays, homesFromCalendar, toGridStay } from '@/lib/visit-grid';
+import { VisitGrid } from './VisitGrid';
 import {
   loadOperationsData,
   RANGE_DAYS,
@@ -106,17 +108,25 @@ async function readCleaningDays(days: number, propertyId: string | undefined): P
 }
 
 /** The board, from one clock read: every row and the strip see the same
- *  Eastern today and the same now. */
-function buildBoard(data: OperationsData, cleaningDays: CleaningDay[] | null): Board {
+ *  Eastern today and the same now. `rangeEnd` is the list's own window:
+ *  the loader reads two weeks for the grid, and the board keeps only the
+ *  rows that fall inside the range the person picked. */
+function buildBoard(data: OperationsData, cleaningDays: CleaningDay[] | null, rangeEnd: string): Board {
   return composeBoard({
     turnovers: data.turnovers,
     cleaningDays,
     departureSignals: data.departureSignals,
     today: operatingDate(),
-    rangeEnd: data.rangeEnd,
+    rangeEnd,
     nowMs: Date.now(),
     nameFor: displayNameForEmail,
   });
+}
+
+function addDays(date: string, n: number): string {
+  const d = new Date(`${date}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
 }
 
 /** "today", "today or tomorrow", "in the next 7 days". */
@@ -142,6 +152,11 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
       : '2d';
 
   const propertyFilter = params?.property?.trim() || undefined;
+  const today = operatingDate();
+  // One read serves both views: the week grid always looks two weeks out,
+  // so the loader reads at least that far and the list keeps its own range.
+  const gridRange: Range = RANGE_DAYS[range] >= GRID_DAYS ? range : '14d';
+  const listRangeEnd = addDays(today, RANGE_DAYS[range]);
 
   // Canonical URL for this page's own links: every control preserves the
   // other control's state (list range, property filter) instead of
@@ -175,7 +190,7 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
 
   const [{ lastSyncedAt, isStale }, data, session, filterPropertyName, propertyOptions, cleaningDays] = await Promise.all([
     readSyncStatus(),
-    loadOperationsData(range, '7d', propertyFilter, 0, undefined, { departures: true }),
+    loadOperationsData(gridRange, '14d', propertyFilter, 0, undefined, { departures: true }),
     auth(),
     propertyFilter ? readPropertyName(propertyFilter) : Promise.resolve<string | null>(null),
     readPropertyOptions(),
@@ -201,7 +216,9 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
     ? `Synced ${formatRelative(lastSyncedAt)}`
     : 'Not synced yet';
 
-  const board = buildBoard(data, cleaningDays);
+  const board = buildBoard(data, cleaningDays, listRangeEnd);
+  const gridHomes = homesFromCalendar(data.calendar);
+  const gridStays = data.turnovers.map(toGridStay);
   const strayVisits = (cleaningDays ?? []).reduce((n, d) => n + d.items.filter((i) => i.status === 'no_checkout').length, 0);
   const pending = board.days.reduce((n, d) => n + d.rows.length, 0);
   // The headline jumps to the first open row: the one at the top of the list.
@@ -375,6 +392,19 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
               the list, and Field has its own masthead tab. */}
           <AutoRefresh shouldRefresh={isStale} initialLabel={initialFooter} />
         </div>
+      </section>
+
+      {/* WHO'S GOING WHERE: the week grid, one row per home, one column per
+          day, a mark for whoever is going. The Field packet board's grid,
+          brought here and made tappable: a tap plans the walk for the person
+          tapping (lib/visit-grid.ts), and the list below, the home feed and
+          the Field board all read that same plan. */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 40, width: '100%' }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 10 }}>
+          <div className="eyebrow">Who&rsquo;s going where</div>
+          <span style={{ fontSize: 10, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>Next two weeks</span>
+        </div>
+        <VisitGrid today={today} days={gridDays(today, GRID_DAYS)} homes={gridHomes} stays={gridStays} myEmail={myEmail} />
       </section>
 
       {/* TURNOVER LIST */}

@@ -1421,3 +1421,162 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
   .rt-comp-index-row > :first-child { display: none; }
   .rt-comp-cells { grid-template-columns: repeat(2, max-content) !important; column-gap: 28px !important; row-gap: 10px !important; }
 }
+
+/* ─── The week grid on Turnovers (VisitGrid): who is going where ───────
+   One row per home, one column per day. The cell's background is its
+   state (green = open and needs someone), the bars are the stays (grey
+   guest, striped hold; a bar starts mid-cell on the arrival day, with the
+   signal edge as the deadline, and ends mid-cell on the checkout day), and
+   the round mark is who is going. Phone: a week fits without scrolling,
+   the second week is a swipe away, the home names stay put. */
+.rt-vg { --vg-name: 160px; --vg-day: 44px; --vg-row: 44px; }
+.rt-vg-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--paper-2);
+  -webkit-overflow-scrolling: touch;
+}
+.rt-vg-grid { display: grid; width: 100%; }
+.rt-vg-corner,
+.rt-vg-name {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--paper-2);
+  box-shadow: 1px 0 0 var(--rule);
+}
+.rt-vg-corner { border-bottom: 1px solid var(--rule); }
+.rt-vg-head {
+  text-align: center;
+  padding: 8px 2px 6px;
+  border-bottom: 1px solid var(--rule);
+  border-left: 1px solid var(--rule-soft);
+  border-top: 2px solid transparent;
+  line-height: 1.2;
+  min-width: 0;
+}
+.rt-vg-head[data-today] { border-top-color: var(--tide-deep); background: rgba(11, 37, 69, 0.06); }
+.rt-vg-dow { font-size: 10px; color: var(--ink-4); text-transform: uppercase; letter-spacing: 0.04em; }
+/* "Today" where the column is wide enough; the weekday, in the same
+   accent, where it is not (a phone's 34px column). */
+.rt-vg-head[data-today] .rt-vg-dow-day { display: none; }
+.rt-vg-dn { font-size: 13px; color: var(--ink-3); }
+.rt-vg-head[data-today] .rt-vg-dow,
+.rt-vg-head[data-today] .rt-vg-dn { color: var(--tide-deep); font-weight: 700; }
+.rt-vg-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  min-height: var(--vg-row);
+  font-size: 13px;
+  line-height: 1.15;
+  color: var(--ink);
+  border-bottom: 1px solid var(--rule);
+  min-width: 0;
+}
+/* A long name ("53 Rocky Neck, Downstairs") takes a second line rather
+   than an ellipsis: two rows reading the same was the worse failure. */
+.rt-vg-nm {
+  min-width: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.rt-vg-chip { font-size: 10px; font-weight: 600; color: var(--signal); flex: 0 0 auto; }
+.rt-vg-cell {
+  position: relative;
+  min-height: var(--vg-row);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid var(--rule);
+  border-left: 1px solid var(--rule-soft);
+  background: transparent;
+  font: inherit;
+  cursor: default;
+  -webkit-tap-highlight-color: transparent;
+}
+.rt-vg-cell[data-cont] { border-left-color: transparent; }
+.rt-vg-cell[data-today]:not([data-needs]) { background: rgba(11, 37, 69, 0.04); }
+.rt-vg-cell[data-needs] { background: rgba(63, 153, 34, 0.22); }
+.rt-vg-cell[data-tap] { cursor: pointer; }
+.rt-vg-cell[data-tap]:hover { box-shadow: inset 0 0 0 2px rgba(11, 37, 69, 0.18); }
+.rt-vg-cell[data-tap][data-needs]:hover { background: rgba(63, 153, 34, 0.34); }
+.rt-vg-cell:focus-visible { outline: 2px solid var(--signal); outline-offset: -2px; z-index: 1; }
+.rt-vg-bar {
+  position: absolute;
+  top: 9px;
+  bottom: 9px;
+  background: rgba(30, 46, 52, 0.14);
+  pointer-events: none;
+}
+.rt-vg-bar[data-half="am"] { left: 0; width: 50%; }
+.rt-vg-bar[data-half="pm"] { right: 0; width: 50%; }
+.rt-vg-bar[data-half="full"] { left: 0; right: 0; }
+/* A stay running on from last night covers the day line, so a week-long
+   guest is one bar, not seven. */
+.rt-vg-cell[data-cont] .rt-vg-bar[data-half="full"],
+.rt-vg-cell[data-cont] .rt-vg-bar[data-half="am"] { left: -1px; }
+.rt-vg-bar[data-end] { border-radius: 0 7px 7px 0; }
+.rt-vg-bar[data-start] { border-radius: 7px 0 0 7px; }
+.rt-vg-bar[data-start]:not([data-block]) { box-shadow: inset 3px 0 0 var(--signal); }
+.rt-vg-bar[data-block] {
+  background: repeating-linear-gradient(45deg, rgba(30, 46, 52, 0.16) 0 4px, rgba(30, 46, 52, 0.05) 4px 8px);
+}
+.rt-vg-marks {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  pointer-events: none;
+}
+.rt-vg-mark {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--paper);
+  background: var(--vg-hue, var(--ink-3));
+  box-shadow: 0 0 0 2px var(--paper-2);
+}
+.rt-vg-marks[data-n="2"] .rt-vg-mark { width: 18px; height: 18px; font-size: 9px; }
+.rt-vg-mark[data-mine] { box-shadow: 0 0 0 2px var(--paper-2), 0 0 0 4px var(--vg-hue, var(--ink-3)); }
+.rt-vg-mark[data-kind="field"] { background: var(--paper-2); color: var(--tide-deep); box-shadow: 0 0 0 2px var(--paper-2), inset 0 0 0 2px var(--tide-deep); }
+.rt-vg-mark[data-kind="unassigned"] { background: var(--paper-2); color: var(--ink-3); border: 2px dashed var(--ink-4); box-shadow: none; }
+.rt-vg-mark[data-kind="walked"] { background: var(--positive); }
+.rt-vg-mark[data-kind="walking"] { background: var(--signal); animation: rt-vg-pulse 1.6s ease-in-out infinite; }
+.rt-vg-mark[data-late] { box-shadow: 0 0 0 2px var(--paper-2), 0 0 0 4px var(--signal); }
+.rt-vg-cell[data-pending] .rt-vg-marks { opacity: 0.5; }
+@keyframes rt-vg-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.12); } }
+@media (prefers-reduced-motion: reduce) { .rt-vg-mark[data-kind="walking"] { animation: none; } }
+.rt-vg-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.rt-vg-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.rt-vg-sw { width: 14px; height: 14px; border-radius: 3px; flex: 0 0 auto; }
+@media (max-width: 640px) {
+  .rt-vg { --vg-name: 104px; --vg-day: 34px; }
+  .rt-vg-name { font-size: 12px; padding: 0 8px; gap: 4px; }
+  .rt-vg-head[data-today] .rt-vg-dow-today { display: none; }
+  .rt-vg-head[data-today] .rt-vg-dow-day { display: inline; }
+  .rt-vg-mark { width: 20px; height: 20px; font-size: 9px; }
+  .rt-vg-marks[data-n="2"] .rt-vg-mark { width: 16px; height: 16px; font-size: 8px; }
+  .rt-vg-bar { top: 10px; bottom: 10px; }
+}
