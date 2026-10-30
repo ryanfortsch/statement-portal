@@ -1,3 +1,4 @@
+import { InventoryDeliveryError } from './inventory-diagnostics.ts';
 /** Expiring publisher on the existing isolated worker; fixed pilot by default. */
 import { setTimeout as sleep } from 'node:timers/promises';
 import { CALDERWOOD_STAGING, readIsolatedChannex } from '../calderwood-readonly/channex.ts';
@@ -120,7 +121,8 @@ export async function runInventoryScheduler(input: {
     } catch (error) {
       if (input.signal.aborted) break;
       failures++; result = error instanceof InventoryHistoryCapacityError
-        ? { phase: 'history', status: 'needs-review' } : { phase: 'cycle', status: 'failed' };
+        ? { phase: 'history', status: 'needs-review' } : error instanceof InventoryDeliveryError
+          ? { phase: `delivery-${error.phase}`, status: 'failed' } : { phase: 'cycle', status: 'failed' };
     }
     cycles++;
     try { input.log({ event: 'canonical-inventory-cycle', at: new Date((input.now ?? Date.now)()).toISOString(), failures, ...result }); }

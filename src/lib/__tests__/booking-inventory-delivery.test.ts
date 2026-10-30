@@ -176,7 +176,7 @@ test('failed or lost accepted-response save never replays the provider call afte
 test('single-use permit rejects an expired or changed prepared intent', async () => {
   const f = await fixture(), permit = await f.client.prepare(f.job()); f.advance(30000);
   const prepared = { ...f.job(), status: 'submitting', token: 'token', leaseUntil: NOW + 60000 } as InventoryJob;
-  await assert.rejects(() => permit.submit(prepared), /permit/);
+  await assert.rejects(() => permit.submit(prepared), /before-send/);
   const g = await fixture(), next = await g.client.prepare(g.job());
   await assert.rejects(() => next.submit({ ...prepared, digest: 'bad' }), /digest/);
   assert.equal(f.calls.filter(c => c.method === 'POST').length, 0);
@@ -193,12 +193,12 @@ test('a consumed transport permit cannot be invoked twice', async () => {
   const prepared = await prepareInventoryDispatch(f.store.journal, f.job().id, f.clock, 60000,
     j => bookingInventoryDispatchContext(f.store, j, f.clock), permit.request!);
   assert.ok(prepared); assert.equal((await permit.submit(prepared)).status, 'accepted');
-  await assert.rejects(() => permit.submit(prepared), /permit/); assert.equal(f.calls.filter(c => c.method === 'POST').length, 1);
+  await assert.rejects(() => permit.submit(prepared), /before-send/); assert.equal(f.calls.filter(c => c.method === 'POST').length, 1);
 });
 test('expiry during the submitting save cannot lead to a stale provider POST', async () => {
   const f = await fixture(), append = f.store.journal.append;
   f.store.journal.append = async (v, j) => { const ok = await append(v, j); if (j.commands.at(-1)?.kind === 'dispatch') f.advance(60000); return ok; };
-  await assert.rejects(f.run, /expired/); assert.equal(f.job().status, 'submitting'); assert.equal(f.calls.filter(c => c.method === 'POST').length, 0);
+  await assert.rejects(f.run, /before-send/); assert.equal(f.job().status, 'submitting'); assert.equal(f.calls.filter(c => c.method === 'POST').length, 0);
 });
 test('invalid payloads and nonconsecutive windows fail before provider IO even with a matching digest', async () => {
   const f = await fixture();
@@ -320,7 +320,7 @@ test('an accepted task cannot be attached to a newer attempt even after restart'
   await recordInventoryCommand(f.store.journal, { kind: 'reconcile', id: old.id, token: old.token!, evidence: {
     settled: true, complete: true, digest: old.digest, generation: old.generation, task: old.task, requestDigest: old.request!.digest } });
   f.advance(6000); f.state.captureVersion++; f.state.inputs.rateDays = []; await consumeBookingInventory(f.store, f.clock);
-  await assert.rejects(f.run, /already bound/); assert.equal(f.job().status, 'submitting');
+  await assert.rejects(f.run, /receipt-save/); assert.equal(f.job().status, 'submitting');
   assert.equal(inventoryAttemptAudit(f.state.journal).filter(a => a.receipt).length, 1);
   assert.equal((await f.run()).status, 'blocked');
 });
@@ -544,7 +544,7 @@ test('preflight at the thirty-second expiry never crosses the submitting barrier
     if (journal.commands.at(-1)?.kind === 'claim') f.advance(30000);
     return result;
   };
-  await assert.rejects(f.run(), /Invalid availability request binding/);
+  await assert.rejects(f.run(), /dispatch-save/);
   assert.equal(f.calls.filter(c => c.method === 'POST').length, 0);
   assert.equal(replayInventoryJournal(f.state.journal).journal.commands.some(c => c.kind === 'dispatch'), false);
 });

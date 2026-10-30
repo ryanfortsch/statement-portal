@@ -1,3 +1,4 @@
+import { InventoryDeliveryError } from './inventory-diagnostics.ts';
 import { MAX_INVENTORY_DAYS } from './inventory-limits.ts';
 /** Server-only, unconnected staging inventory edge. No env fallback or scheduler.
  * API contract: https://docs.channex.io/api-v.1-documentation/ari
@@ -144,9 +145,9 @@ export class ChannexAvailabilityClient {
         this.#validate(prepared);
         if (used || !request || now >= request.expiresAt || prepared.id !== bound.id || prepared.version !== bound.version ||
             prepared.digest !== bound.digest || prepared.status !== 'submitting' || !prepared.token ||
-            !Number.isSafeInteger(prepared.leaseUntil) || now >= prepared.leaseUntil!) throw new Error('Submission permit unavailable');
+            !Number.isSafeInteger(prepared.leaseUntil) || now >= prepared.leaseUntil!) throw new InventoryDeliveryError('before-send');
         if (!prepared.request || JSON.stringify(validateAvailabilityRequest(prepared.request, prepared, now)) !== JSON.stringify(request)) {
-          throw new Error('Submission permit requires the saved exact request');
+          throw new InventoryDeliveryError('before-send');
         }
         used = true; // Consumed before any IO, including timeouts or malformed responses.
         try {

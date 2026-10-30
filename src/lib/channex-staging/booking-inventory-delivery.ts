@@ -1,3 +1,4 @@
+import { inventoryStage, InventoryDeliveryError } from './inventory-diagnostics.ts';
 /** One explicit attempt. No loop, env credentials, scheduler or production URL. */
 import { ChannexAvailabilityClient } from './availability-client.ts';
 import { bookingInventoryDispatchContext, parseBookingInventoryState, type BookingInventoryConsumerStore } from './booking-inventory-consumer.ts';
@@ -23,25 +24,26 @@ export async function deliverBookingInventoryOnce(store: BookingInventoryConsume
   if (!context.enabled || !context.complete || context.authority !== 'helm' || now >= context.freshUntil) return { status: 'blocked' as const };
   // Conservative property pacing survives process restarts through the journal.
   if (now < inventoryResumeAfter(journal)) return { status: 'blocked' as const };
-  const permit = await client.prepare(job, fullSync);
+  const permit = await inventoryStage('prepare', () => client.prepare(job, fullSync));
   if (!permit.request) return { status: 'already-matches' as const }; // Observation, not task settlement.
+  const request = permit.request;
   let freshUntil = 0;
-  const prepared = await prepareInventoryDispatch(store.journal, id, clock, 60_000, async claimed => {
+  const prepared = await inventoryStage('dispatch-save', () => prepareInventoryDispatch(store.journal, id, clock, 60_000, async claimed => {
     const latest = await bookingInventoryDispatchContext(store, claimed, clock);
     freshUntil = latest.freshUntil; return latest;
-  }, permit.request);
+  }, request));
   if (!prepared) return { status: 'blocked' as const };
   // Any exception after this point leaves the durable barrier intact. Never infer
   // non-acceptance or automatically retry a response/save whose outcome is unknown.
-  if (clock() >= freshUntil) throw new Error('Inventory expired after submitting save; review without sending');
-  const outcome = await permit.submit(prepared);
+  if (clock() >= freshUntil) throw new InventoryDeliveryError('before-send');
+  const outcome = await inventoryStage('submit', () => permit.submit(prepared));
   const base = { id, token: prepared.token! };
   const command = outcome.status === 'accepted' ? { kind: 'accepted' as const, ...base, task: outcome.task,
     receipt: { requestDigest: permit.request.digest, receivedAt: clock() } }
     : outcome.status === 'ambiguous' ? { kind: 'ambiguous' as const, ...base }
     : { kind: 'rejected' as const, ...base, failure: outcome.failure, now: clock(), retryAfterMs: outcome.retryAfterMs, jitter: 0 };
-  const saved = await recordInventoryCommand(store.journal, command);
-  if (!saved.saved) throw new Error('Inventory response save uncertain; reread without resending');
+  const saved = await inventoryStage('receipt-save', () => recordInventoryCommand(store.journal, command));
+  if (!saved.saved) throw new InventoryDeliveryError('receipt-save');
   return { status: outcome.status === 'accepted' ? 'submitted' as const : outcome.status === 'ambiguous' ? 'uncertain' as const
     : outcome.failure === 'retryable' && prepared.attempts < 5 ? 'retry-pending' as const : 'needs-review' as const };
 }
