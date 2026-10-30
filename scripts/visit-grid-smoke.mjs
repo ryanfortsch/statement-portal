@@ -33,11 +33,11 @@ const homes=[
  home('17_beach','17 Beach',[]),
 ];
 const stays=[
- stay({reservationId:'B',propertyId:'21_horton',checkIn:'2026-10-21',checkOut:'2026-10-24',plan:{id:'p1',date:'2026-10-20',assignee:ME,plannedBy:DOTTI}}),
+ stay({reservationId:'B',propertyId:'21_horton',checkIn:'2026-10-21',checkOut:'2026-10-24',plan:{id:'p1',date:'2026-10-20',assignee:ME,plannedBy:DOTTI,hasNotes:false}}),
  stay({reservationId:'C',propertyId:'3_south',checkIn:'2026-10-20',checkOut:'2026-10-23'}),
  stay({reservationId:'D',propertyId:'20_enon',checkIn:'2026-10-19',checkOut:'2026-10-22',field:{status:'claimed',contractor:'James Liddell',visitDate:'2026-10-18'}}),
  stay({reservationId:'E',propertyId:'30_woodward',checkIn:'2026-10-19',checkOut:'2026-10-25',walk:'done',walkedOn:'2026-10-18',walkedBy:DOTTI}),
- stay({reservationId:'F',propertyId:'19_rackliffe',checkIn:'2026-10-20',checkOut:'2026-10-27',plan:{id:'p2',date:'2026-10-16',assignee:DOTTI,plannedBy:DOTTI}}),
+ stay({reservationId:'F',propertyId:'19_rackliffe',checkIn:'2026-10-20',checkOut:'2026-10-27',plan:{id:'p2',date:'2026-10-16',assignee:DOTTI,plannedBy:DOTTI,hasNotes:false}}),
  stay({reservationId:'G2',propertyId:'53_rocky_neck_2',checkIn:'2026-10-18',checkOut:'2026-10-21'}),
 ];
 
@@ -48,9 +48,10 @@ for(const [name,path] of [
 ])await writeFile(join(scratch,name+'.js'),compile(await readFile(join(root,path),'utf8')));
 await writeFile(join(scratch,'actions.js'),`
 export const save=(kind,args)=>new Promise((resolve,reject)=>window.calls.push({kind,args,resolve,reject}));
-export const claimWalk=a=>save('claim',a),releaseWalk=id=>save('release',id);
+export const claimWalk=a=>save('claim',a),releaseWalk=(id,opts)=>save('release',{id,opts});
 `);
 await writeFile(join(scratch,'refresh.js'),'export const useSoftRefresh=()=>()=>{window.refreshes++;};');
+// GridPlan carries hasNotes; the fixture's plans have none.
 await writeFile(join(scratch,'data.js'),'export const homes='+JSON.stringify(homes)+';export const stays='+JSON.stringify(stays)+';export const today='+JSON.stringify(TODAY)+';export const days='+JSON.stringify(DAYS)+';');
 await writeFile(join(scratch,'entry.js'),compile(`
 import React from 'react';import {createRoot} from 'react-dom/client';
@@ -111,15 +112,14 @@ assert.equal(await has('3 South','Mon, Oct 19','data-pending'),true,'and reads a
 assert.equal(await has('3 South','Sun, Oct 18','data-needs'),false,'the other open days stop asking');
 await finish(0,{ok:true,id:'new-1'});
 await page.waitForFunction(s=>!document.querySelector(s).hasAttribute('data-pending'),{},cellSel('3 South','Mon, Oct 19'));
-assert.equal(await page.evaluate(()=>window.refreshes),1,'a confirmed tap refreshes the page quietly');
+assert.equal(await page.evaluate(()=>window.refreshes),0,'the action\'s own revalidation is the refresh; no second render');
 pass('a tap on an open day plans the walk for me, at once');
 
 // A second tap on my mark lets it go.
 await page.click(cellSel('3 South','Mon, Oct 19'));await waitCalls(2);
-assert.deepEqual((await calls())[1],{kind:'release',args:'new-1'});
-assert.deepEqual(await marks('3 South','Mon, Oct 19'),[],'the mark is gone at once');
-await finish(1,{ok:true});
-await page.waitForFunction(()=>window.refreshes===2);
+assert.deepEqual((await calls())[1],{kind:'release',args:{id:'new-1'}});
+assert.deepEqual(await marks('3 South','Mon, Oct 19'),[],'my own tap undone: the mark is gone at once');
+await finish(1,{ok:true,kept:false});
 pass('a tap on my own mark releases the walk');
 
 // A tap on another day moves my plan there.

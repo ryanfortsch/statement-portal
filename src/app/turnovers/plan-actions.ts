@@ -84,11 +84,14 @@ export async function claimWalk(args: {
   if (!DAY_RE.test(args.date)) return { ok: false, error: 'Pick a day' };
   if (!args.reservationId || !args.propertyId) return { ok: false, error: 'Nothing to walk' };
 
-  const { data: existing } = await supabase
+  const { data: existing, error: readErr } = await supabase
     .from('inspection_plans')
     .select('id, notes, planned_by_email')
     .eq('guesty_reservation_id', args.reservationId)
     .maybeSingle();
+  // A failed read must not become a blank write: the note and the planner
+  // would be overwritten with nothing.
+  if (readErr) return { ok: false, error: `Could not read the plan, so nothing changed (${readErr.message})` };
   const prior = (existing ?? null) as { id: string; notes: string | null; planned_by_email: string | null } | null;
 
   const { data, error } = await supabase
@@ -116,16 +119,39 @@ export async function claimWalk(args: {
   return { ok: true, id: (data as { id: string }).id };
 }
 
-/** The tap on your own mark: the walk goes back to needing someone. */
-export async function releaseWalk(planId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+/**
+ * The tap on your own mark: the walk goes back to needing someone. A plan
+ * you made yourself with a tap (yours, no note) is removed. One somebody
+ * else planned, or one carrying a note, keeps its day and its note and
+ * loses only your name, so it reads "nobody named" and the day asks again.
+ * `remove` (the dialog's Remove plan) deletes either way.
+ */
+export async function releaseWalk(
+  planId: string,
+  opts: { remove?: boolean } = {},
+): Promise<{ ok: true; kept: boolean } | { ok: false; error: string }> {
   const session = await auth();
-  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+  const email = session?.user?.email;
+  if (!email) return { ok: false, error: 'Not signed in' };
   if (!planId) return { ok: false, error: 'Nothing to release' };
 
-  const { error } = await supabase.from('inspection_plans').delete().eq('id', planId);
+  const { data: row, error: readErr } = await supabase
+    .from('inspection_plans')
+    .select('id, notes, planned_by_email')
+    .eq('id', planId)
+    .maybeSingle();
+  if (readErr) return { ok: false, error: `Could not read the plan, so nothing changed (${readErr.message})` };
+  const plan = (row ?? null) as { id: string; notes: string | null; planned_by_email: string | null } | null;
+  if (!plan) return { ok: true, kept: false };
+
+  const mine = (plan.planned_by_email ?? '').trim().toLowerCase() === email.trim().toLowerCase();
+  const keep = !opts.remove && !(mine && !plan.notes?.trim());
+  const { error } = keep
+    ? await supabase.from('inspection_plans').update({ assigned_to_email: null }).eq('id', planId)
+    : await supabase.from('inspection_plans').delete().eq('id', planId);
   if (error) return { ok: false, error: error.message };
 
   revalidatePath('/turnovers');
   revalidatePath('/');
-  return { ok: true };
+  return { ok: true, kept: keep };
 }

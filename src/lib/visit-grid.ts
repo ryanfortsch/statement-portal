@@ -35,6 +35,8 @@ export type GridPlan = {
   date: string | null;
   assignee: string | null;
   plannedBy: string;
+  /** Someone wrote a note on it: a release keeps the plan and drops the name. */
+  hasNotes: boolean;
 };
 
 /** A guest arrival the house must be prepped for, as the grid needs it. */
@@ -75,7 +77,9 @@ export type GridTap =
   | { kind: 'none' }
   | { kind: 'claim'; stay: GridStay }
   | { kind: 'move'; stay: GridStay }
-  | { kind: 'release'; stay: GridStay; planId: string }
+  /** keep: the plan stays (someone else's, or it carries a note) and only
+   *  the name comes off; otherwise your own tap is undone and it goes. */
+  | { kind: 'release'; stay: GridStay; planId: string; keep: boolean }
   | { kind: 'take'; stay: GridStay; planId: string; holder: string; holderDay: string | null };
 
 export type GridCell = {
@@ -91,6 +95,9 @@ export type GridCell = {
   continues: boolean;
   /** Workable, and the arrival after it still needs someone. */
   needs: boolean;
+  /** The arrival is out to the Field roster and nobody has claimed it:
+   *  the day asks for someone, but a tap here would walk the house twice. */
+  fieldOpen: boolean;
   tap: GridTap;
   badges: GridBadge[];
 };
@@ -120,7 +127,16 @@ export type VisitGridInput = {
   myEmail: string;
   nameFor: (email: string) => string;
   initialsFor: (email: string) => string;
+  /** The one person behind an address: a teammate's Field contractor
+   *  address and her Workspace email are the same hands. Default: the
+   *  address itself. */
+  identityFor?: (email: string) => string;
 };
+
+/** How many days before an arrival a walk is worth making: the arrival
+ *  day and the three before it read green ("needs someone"). An earlier
+ *  open day can still be tapped, but the board does not ask for it. */
+export const PREP_DAYS = 3;
 
 // ── small words ───────────────────────────────────────────────────────
 
@@ -151,8 +167,7 @@ function daysBetween(from: string, to: string): number {
   return Math.round((Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86_400_000);
 }
 
-const same = (a: string | null | undefined, b: string | null | undefined): boolean =>
-  !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase();
+const lower = (e: string): string => e.trim().toLowerCase();
 
 /** A Field packet that still covers the walk (a draft is nobody's yet). */
 const LIVE_FIELD = new Set(['published', 'claimed', 'in_progress', 'submitted', 'approved']);
@@ -163,8 +178,14 @@ function walkState(s: GridStay): WalkState {
   if (s.walk === 'done') return 'done';
   if (s.walk === 'walking') return 'walking';
   if (s.field && LIVE_FIELD.has(s.field.status)) return 'field';
-  if (s.plan?.date) return 'planned';
+  // A plan with a day but nobody named is still a house needing someone.
+  if (s.plan?.date && s.plan.assignee?.trim()) return 'planned';
   return 'open';
+}
+
+/** A plan whose day passed with the walk still open. */
+function isLate(s: GridStay, today: string): boolean {
+  return s.walk === 'open' && !!s.plan?.date && s.plan.date < today;
 }
 
 /** The day a plan's mark sits on: its own day, or today once that day has
@@ -178,7 +199,9 @@ function markDay(plan: GridPlan, today: string): string | null {
 
 export function composeVisitGrid(input: VisitGridInput): VisitGrid {
   const { today, days, homes, myEmail, nameFor, initialsFor } = input;
-  const me = myEmail.trim().toLowerCase();
+  const identity = (e: string): string => lower(input.identityFor ? input.identityFor(e) : e);
+  const me = myEmail.trim() ? identity(myEmail) : '';
+  const same = (a: string | null | undefined, b: string): boolean => !!a && !!b && identity(a) === b;
   const staysByHome = new Map<string, GridStay[]>();
   for (const s of input.stays) {
     const list = staysByHome.get(s.propertyId) ?? [];
@@ -212,10 +235,12 @@ export function composeVisitGrid(input: VisitGridInput): VisitGrid {
 
       const next = stays.find((s) => s.checkIn >= date) ?? null;
       const ws = next ? walkState(next) : null;
-      const late = !!next?.plan?.date && next.plan.date < today && next.walk === 'open';
+      const late = !!next && isLate(next, today);
       const workable = state === 'open' && date >= today;
       const claimable = workable && !!next && (ws === 'open' || ws === 'planned');
-      const needs = claimable && (ws === 'open' || late);
+      const inPrep = !!next && daysBetween(date, next.checkIn) <= PREP_DAYS;
+      const fieldOpen = !!next && ws === 'field' && next.field!.status === 'published';
+      const needs = (claimable && inPrep && (ws === 'open' || late)) || (fieldOpen && workable && inPrep);
 
       // Who is going there that day, from every record Helm keeps.
       const badges: GridBadge[] = [];
@@ -228,7 +253,9 @@ export function composeVisitGrid(input: VisitGridInput): VisitGrid {
               : { kind: 'unassigned', initials: '?', name: `Planned by ${nameFor(s.plan.plannedBy)}, nobody named`, email: null, mine: false, late: s.plan.date! < today, stayId: s.reservationId },
           );
         }
-        if (s.field && LIVE_FIELD.has(s.field.status) && s.field.visitDate === date) {
+        // A packet whose walk already happened is history: the walker's mark
+        // says it, and the contractor is usually the same person.
+        if (s.walk === 'open' && s.field && LIVE_FIELD.has(s.field.status) && s.field.visitDate === date) {
           badges.push({
             kind: 'field',
             initials: initialsOfName(s.field.contractor) ?? 'F',
@@ -255,16 +282,20 @@ export function composeVisitGrid(input: VisitGridInput): VisitGrid {
       if (badges.length) seenBadge = true;
       for (const b of badges) if (b.mine && b.kind === 'plan') mine += 1;
 
-      let tap: GridTap = { kind: 'none' };
-      if (claimable && next) {
-        const plan = next.plan;
+      const tapFor = (stay: GridStay): GridTap => {
+        const plan = stay.plan;
         const holder = plan?.assignee?.trim() || null;
-        if (!plan || !plan.date) tap = { kind: 'claim', stay: next };
-        else if (holder && same(holder, me)) {
-          tap = markDay(plan, today) === date ? { kind: 'release', stay: next, planId: plan.id } : { kind: 'move', stay: next };
-        } else if (holder) tap = { kind: 'take', stay: next, planId: plan.id, holder, holderDay: plan.date };
-        else tap = { kind: 'claim', stay: next };
-      }
+        if (!plan || !plan.date || !holder) return { kind: 'claim', stay };
+        if (!same(holder, me)) return { kind: 'take', stay, planId: plan.id, holder, holderDay: plan.date };
+        if (markDay(plan, today) !== date) return { kind: 'move', stay };
+        return { kind: 'release', stay, planId: plan.id, keep: plan.hasNotes || !same(plan.plannedBy, me) };
+      };
+      let tap: GridTap = { kind: 'none' };
+      if (claimable && next) tap = tapFor(next);
+      // A late mark carried to today belongs to a later stay than today's
+      // own arrival: the tap acts on the mark, whatever the day's state.
+      const carried = date === today ? stays.find((s) => s !== next && isLate(s, today)) ?? null : null;
+      if (carried && (tap.kind === 'none' || tap.kind === 'claim')) tap = tapFor(carried);
 
       return {
         date,
@@ -275,6 +306,7 @@ export function composeVisitGrid(input: VisitGridInput): VisitGrid {
         arriving,
         continues,
         needs,
+        fieldOpen,
         tap,
         badges,
       };
@@ -284,7 +316,10 @@ export function composeVisitGrid(input: VisitGridInput): VisitGrid {
     if (!seenEvent && !seenBadge && !inWindow) continue;
 
     const nextNeed =
-      stays.filter((s) => s.checkIn >= today && walkState(s) === 'open').map((s) => s.checkIn).sort()[0] ?? null;
+      stays
+        .filter((s) => s.checkIn >= today && (walkState(s) === 'open' || isLate(s, today)))
+        .map((s) => s.checkIn)
+        .sort()[0] ?? null;
     rows.push({ propertyId: home.id, propertyName: home.name, cells, nextNeed });
   }
 
@@ -343,7 +378,13 @@ export function toGridStay(t: Turnover): GridStay {
     checkOut: t.checkOut.slice(0, 10),
     guest: t.guestName,
     plan: t.plan
-      ? { id: t.plan.id, date: t.plan.planned_for_date, assignee: t.plan.assigned_to_email, plannedBy: t.plan.planned_by_email }
+      ? {
+          id: t.plan.id,
+          date: t.plan.planned_for_date,
+          assignee: t.plan.assigned_to_email,
+          plannedBy: t.plan.planned_by_email,
+          hasNotes: !!t.plan.notes?.trim(),
+        }
       : null,
     walk: done ? 'done' : walking ? 'walking' : 'open',
     walkedOn: done

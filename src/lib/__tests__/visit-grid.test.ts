@@ -16,6 +16,7 @@ import {
   initialsOfName,
   toGridStay,
   GRID_DAYS,
+  PREP_DAYS,
   type GridHome,
   type GridStay,
   type GridCell,
@@ -25,11 +26,13 @@ import type { Turnover } from '../operations.ts';
 const TODAY = '2026-10-18';
 const DAYS = gridDays(TODAY, GRID_DAYS);
 const ME = 'delaney@risingtidestr.com';
+const ME_FIELD = 'delaneyjordan@outlook.com';
 const DOTTI = 'dotti@risingtidestr.com';
-const NAMES: Record<string, string> = { [ME]: 'Delaney', [DOTTI]: 'Dotti' };
-const INITIALS: Record<string, string> = { [ME]: 'DJ', [DOTTI]: 'DM' };
+const NAMES: Record<string, string> = { [ME]: 'Delaney', [ME_FIELD]: 'Delaney', [DOTTI]: 'Dotti' };
+const INITIALS: Record<string, string> = { [ME]: 'DJ', [ME_FIELD]: 'DJ', [DOTTI]: 'DM' };
 const nameFor = (e: string) => NAMES[e] ?? e;
 const initialsFor = (e: string) => INITIALS[e] ?? '??';
+const identityFor = (e: string) => (e === ME_FIELD ? ME : e);
 
 type Occ = { id: string; in: string; out: string; kind?: 'guest' | 'block' };
 
@@ -68,22 +71,29 @@ const HOMES: GridHome[] = [
   home('30_woodward', '30 Woodward', [{ id: 'E', in: '2026-10-19', out: '2026-10-25' }]),
   home('19_rackliffe', '19 Rackliffe', [{ id: 'F', in: '2026-10-20', out: '2026-10-27' }]),
   home('3_locust', '3 Locust', [{ id: 'G', in: '2026-10-22', out: '2026-10-25' }]),
+  home('7_sumac', '7 Sumac', [{ id: 'I', in: '2026-10-30', out: '2026-11-03' }]),
+  home('16_waterman', '16 Waterman', [{ id: 'J', in: '2026-10-18', out: '2026-10-20' }, { id: 'K', in: '2026-10-21', out: '2026-10-24' }]),
+  home('36_granite', '36 Granite', [{ id: 'L', in: '2026-10-20', out: '2026-10-23' }]),
   home('17_beach', '17 Beach', []),
   home('84_thatcher', '84 Thatcher', [{ id: 'long', in: '2026-10-10', out: '2026-11-05' }]),
   home('73_rocky_neck', '73 Rocky Neck', [{ id: 'H', in: '2026-10-15', out: '2026-10-19' }]),
 ];
 
 const STAYS: GridStay[] = [
-  stay({ reservationId: 'B', propertyId: '21_horton', checkIn: '2026-10-21', checkOut: '2026-10-24', plan: { id: 'p1', date: '2026-10-20', assignee: ME, plannedBy: DOTTI } }),
+  stay({ reservationId: 'B', propertyId: '21_horton', checkIn: '2026-10-21', checkOut: '2026-10-24', plan: { id: 'p1', date: '2026-10-20', assignee: ME, plannedBy: DOTTI, hasNotes: false } }),
   stay({ reservationId: 'C', propertyId: '3_south', checkIn: '2026-10-20', checkOut: '2026-10-23' }),
   stay({ reservationId: 'D', propertyId: '20_enon', checkIn: '2026-10-19', checkOut: '2026-10-22', field: { status: 'claimed', contractor: 'James Liddell', visitDate: '2026-10-18' } }),
-  stay({ reservationId: 'E', propertyId: '30_woodward', checkIn: '2026-10-19', checkOut: '2026-10-25', walk: 'done', walkedOn: '2026-10-18', walkedBy: DOTTI }),
-  stay({ reservationId: 'F', propertyId: '19_rackliffe', checkIn: '2026-10-20', checkOut: '2026-10-27', plan: { id: 'p2', date: '2026-10-16', assignee: DOTTI, plannedBy: DOTTI } }),
-  stay({ reservationId: 'G', propertyId: '3_locust', checkIn: '2026-10-22', checkOut: '2026-10-25', plan: { id: 'p3', date: '2026-10-21', assignee: null, plannedBy: DOTTI } }),
+  stay({ reservationId: 'E', propertyId: '30_woodward', checkIn: '2026-10-19', checkOut: '2026-10-25', walk: 'done', walkedOn: '2026-10-18', walkedBy: DOTTI, field: { status: 'approved', contractor: 'Dotti Maguire', visitDate: '2026-10-18' } }),
+  stay({ reservationId: 'F', propertyId: '19_rackliffe', checkIn: '2026-10-20', checkOut: '2026-10-27', plan: { id: 'p2', date: '2026-10-16', assignee: DOTTI, plannedBy: DOTTI, hasNotes: false } }),
+  stay({ reservationId: 'G', propertyId: '3_locust', checkIn: '2026-10-22', checkOut: '2026-10-25', plan: { id: 'p3', date: '2026-10-21', assignee: null, plannedBy: DOTTI, hasNotes: false } }),
+  stay({ reservationId: 'I', propertyId: '7_sumac', checkIn: '2026-10-30', checkOut: '2026-11-03' }),
+  stay({ reservationId: 'J', propertyId: '16_waterman', checkIn: '2026-10-18', checkOut: '2026-10-20', walk: 'done', walkedOn: '2026-10-18', walkedBy: ME }),
+  stay({ reservationId: 'K', propertyId: '16_waterman', checkIn: '2026-10-21', checkOut: '2026-10-24', plan: { id: 'p4', date: '2026-10-16', assignee: DOTTI, plannedBy: DOTTI, hasNotes: true } }),
+  stay({ reservationId: 'L', propertyId: '36_granite', checkIn: '2026-10-20', checkOut: '2026-10-23', field: { status: 'published', contractor: null, visitDate: '2026-10-19' } }),
 ];
 
-function gridFor(myEmail: string) {
-  return composeVisitGrid({ today: TODAY, days: DAYS, homes: HOMES, stays: STAYS, myEmail, nameFor, initialsFor });
+function gridFor(myEmail: string, stays: GridStay[] = STAYS) {
+  return composeVisitGrid({ today: TODAY, days: DAYS, homes: HOMES, stays, myEmail, nameFor, initialsFor, identityFor });
 }
 function cell(myEmail: string, pid: string, date: string): GridCell {
   const row = gridFor(myEmail).rows.find((r) => r.propertyId === pid);
@@ -139,6 +149,13 @@ describe('who is going, and what a tap does', () => {
     const mark = cell(ME, '21_horton', '2026-10-20');
     assert.deepEqual(mark.badges.map((b) => [b.kind, b.initials, b.mine]), [['plan', 'DJ', true]]);
     assert.equal(mark.tap.kind, 'release');
+    if (mark.tap.kind === 'release') assert.equal(mark.tap.keep, true, 'Dotti planned it: letting go keeps her plan, nobody named');
+    const own = STAYS.map((s) => (s.reservationId === 'B' ? { ...s, plan: { ...s.plan!, plannedBy: ME } } : s));
+    const ownTap = gridFor(ME, own).rows.find((r) => r.propertyId === '21_horton')!.cells.find((c) => c.date === '2026-10-20')!.tap;
+    assert.equal(ownTap.kind === 'release' && ownTap.keep, false, 'my own tap with no note is simply undone');
+    const noted = own.map((s) => (s.reservationId === 'B' ? { ...s, plan: { ...s.plan!, hasNotes: true } } : s));
+    const notedTap = gridFor(ME, noted).rows.find((r) => r.propertyId === '21_horton')!.cells.find((c) => c.date === '2026-10-20')!.tap;
+    assert.equal(notedTap.kind === 'release' && notedTap.keep, true, 'a note keeps the plan');
     assert.equal(mark.needs, false, 'a planned walk is covered');
     assert.equal(cell(ME, '21_horton', '2026-10-19').tap.kind, 'move');
     assert.equal(cell(ME, '21_horton', '2026-10-21').tap.kind, 'move');
@@ -154,7 +171,7 @@ describe('who is going, and what a tap does', () => {
     }
     assert.equal(cell(DOTTI, '21_horton', '2026-10-19').tap.kind, 'take');
     assert.equal(cell(DOTTI, '21_horton', '2026-10-20').badges[0].mine, false);
-    assert.equal(gridFor(DOTTI).mine, 1, 'her one walk is the late one at 19 Rackliffe');
+    assert.equal(gridFor(DOTTI).mine, 2, 'her two walks are the late ones at 19 Rackliffe and 16 Waterman');
   });
   test('after the last checkout with nobody arriving there is nothing to tap', () => {
     const c = cell(ME, '21_horton', '2026-10-24');
@@ -168,11 +185,28 @@ describe('who is going, and what a tap does', () => {
     assert.equal(c.tap.kind, 'none');
     assert.equal(c.needs, false);
   });
-  test('a walked house marks the day it was walked and asks nothing more', () => {
+  test('a walked house marks the day it was walked and asks nothing more; its packet is history', () => {
     const c = cell(ME, '30_woodward', '2026-10-18');
-    assert.deepEqual(c.badges.map((b) => [b.kind, b.initials]), [['walked', 'DM']]);
+    assert.deepEqual(c.badges.map((b) => [b.kind, b.initials]), [['walked', 'DM']], 'one mark, not the packet beside the walk');
     assert.equal(c.tap.kind, 'none');
     assert.equal(cell(ME, '30_woodward', '2026-10-19').needs, false);
+  });
+  test('a walk made under a Field address is still mine, in my initials', () => {
+    const stays = STAYS.map((s) => (s.reservationId === 'E' ? { ...s, walkedBy: ME_FIELD } : s));
+    const row = gridFor(ME, stays).rows.find((r) => r.propertyId === '30_woodward')!;
+    const c = row.cells.find((x) => x.date === '2026-10-18')!;
+    assert.deepEqual(c.badges.map((b) => [b.kind, b.initials, b.mine]), [['walked', 'DJ', true]]);
+  });
+  test('green is the prep window: the arrival day and the three before it', () => {
+    assert.equal(PREP_DAYS, 3);
+    for (const d of ['2026-10-18', '2026-10-22', '2026-10-26']) {
+      const c = cell(ME, '7_sumac', d);
+      assert.equal(c.tap.kind, 'claim', `${d} can still be tapped`);
+      assert.equal(c.needs, false, `${d} is too early to ask for`);
+    }
+    for (const d of ['2026-10-27', '2026-10-28', '2026-10-29', '2026-10-30']) {
+      assert.equal(cell(ME, '7_sumac', d).needs, true, d);
+    }
   });
   test('a planned day that passed carries its mark to today, late, and the day needs someone again', () => {
     const c = cell(ME, '19_rackliffe', TODAY);
@@ -181,12 +215,32 @@ describe('who is going, and what a tap does', () => {
     assert.equal(c.tap.kind, 'take');
     const hers = cell(DOTTI, '19_rackliffe', TODAY);
     assert.equal(hers.tap.kind, 'release', 'the holder lets a late plan go from today');
+    const row = gridFor(ME).rows.find((r) => r.propertyId === '19_rackliffe')!;
+    assert.equal(row.nextNeed, '2026-10-20', 'the deadline chip counts a slipped plan');
   });
-  test('a plan with nobody named is a dashed question mark, and a tap takes it without asking', () => {
+  test('a plan with nobody named is a dashed question mark on a day that still needs someone; a tap takes it', () => {
     const c = cell(ME, '3_locust', '2026-10-21');
     assert.deepEqual(c.badges.map((b) => [b.kind, b.initials]), [['unassigned', '?']]);
+    assert.equal(c.needs, true, 'nobody named = still needs someone');
     assert.equal(c.tap.kind, 'claim');
     assert.equal(cell(ME, '3_locust', '2026-10-20').tap.kind, 'claim');
+  });
+  test('a late mark carried onto a day whose own arrival is walked still answers the tap', () => {
+    const c = cell(DOTTI, '16_waterman', TODAY);
+    assert.deepEqual(c.badges.map((b) => [b.kind, b.initials, b.late]), [['walked', 'DJ', false], ['plan', 'DM', true]], 'today\'s own walk first, then the carried mark');
+    assert.equal(c.tap.kind, 'release', 'the holder lets her late plan go from today');
+    if (c.tap.kind === 'release') assert.equal(c.tap.keep, true, 'it carries a note, so the plan stays, nobody named');
+    const other = cell(ME, '16_waterman', TODAY);
+    assert.equal(other.tap.kind, 'take');
+    if (other.tap.kind === 'take') assert.equal(other.tap.holderDay, '2026-10-16');
+  });
+  test('a packet out to the Field roster with no taker: the day asks, but a tap would walk it twice', () => {
+    const c = cell(ME, '36_granite', '2026-10-19');
+    assert.equal(c.fieldOpen, true);
+    assert.equal(c.needs, true);
+    assert.equal(c.tap.kind, 'none');
+    assert.deepEqual(c.badges.map((b) => [b.kind, b.initials]), [['field', 'F']]);
+    assert.equal(cell(ME, '36_granite', '2026-10-18').needs, true);
   });
 });
 
@@ -199,7 +253,7 @@ describe('which homes are on the grid, and in what order', () => {
   });
   test('rows run in the order the week happens: next arrival first, a home with none last', () => {
     const ids = gridFor(ME).rows.map((r) => r.propertyId);
-    assert.deepEqual(ids, ['20_enon', '30_woodward', '19_rackliffe', '3_south', '21_horton', '3_locust', '73_rocky_neck']);
+    assert.deepEqual(ids, ['16_waterman', '20_enon', '30_woodward', '19_rackliffe', '3_south', '36_granite', '21_horton', '3_locust', '7_sumac', '73_rocky_neck']);
   });
 });
 
@@ -260,6 +314,8 @@ describe('from the page\'s facts', () => {
   test('a turnover becomes a grid stay with its plan, walk and packet', () => {
     const s = toGridStay({ ...base, fieldPacket: { packetId: 'pk', status: 'claimed', contractorName: 'James Liddell', visitDate: '2026-10-20' } });
     assert.equal(s.plan?.assignee, ME);
+    assert.equal(s.plan?.hasNotes, false);
+    assert.equal(toGridStay({ ...base, plan: { ...base.plan!, notes: 'key under the mat' } }).plan?.hasNotes, true);
     assert.equal(s.walk, 'open');
     assert.deepEqual(s.field, { status: 'claimed', contractor: 'James Liddell', visitDate: '2026-10-20' });
     const draft = toGridStay({ ...base, fieldPacket: { packetId: 'pk', status: 'draft', contractorName: null } });
@@ -291,10 +347,17 @@ describe('one record behind every tap', () => {
     const tables = [...actions.matchAll(/\.from\('([a-z_]+)'\)/g)].map((m) => m[1]);
     assert.deepEqual([...new Set(tables)], ['inspection_plans']);
   });
+  test('a release keeps a plan that is not the tapper\'s own note-less tap; Remove deletes', () => {
+    const release = actions.slice(actions.indexOf('export async function releaseWalk'));
+    assert.match(release, /const keep = !opts\.remove && !\(mine && !plan\.notes\?\.trim\(\)\)/);
+    assert.match(release, /update\(\{ assigned_to_email: null \}\)/);
+    assert.match(release, /if \(readErr\) return \{ ok: false/);
+  });
   test('a claim keeps the note and the first planner, and names the tapper as the walker', () => {
     const claim = actions.slice(actions.indexOf('export async function claimWalk'), actions.indexOf('export async function releaseWalk'));
     assert.match(claim, /notes: prior\?\.notes \?\? null/);
     assert.match(claim, /planned_by_email: prior\?\.planned_by_email \|\| email/);
     assert.match(claim, /assigned_to_email: email/);
+    assert.match(claim, /if \(readErr\) return \{ ok: false/, 'a failed read never becomes a blank write');
   });
 });

@@ -409,7 +409,10 @@ export function walkSlot(
   // window (Ryan, 10/15: a self-assigned walk should say whose it is).
   if (t.plan?.planned_for_date) {
     const who = t.plan.assigned_to_email?.trim() ? nameFor(t.plan.assigned_to_email.trim()) : null;
-    return { label: `Walk ${relativeDay(t.plan.planned_for_date, today)}${who ? ` · ${who}` : ''}`, tone: 'ok', key: null };
+    // The planned day has passed and nobody walked it: still the plan's
+    // words, in the tone of something slipping.
+    const slipped = t.plan.planned_for_date < today;
+    return { label: `Walk ${relativeDay(t.plan.planned_for_date, today)}${who ? ` · ${who}` : ''}`, tone: slipped ? 'warn' : 'ok', key: null };
   }
   if (lc.active === 'inspected') {
     return { label: BOARD_STATE_LABEL.needs_walk, tone: lc.overdue ? 'bad' : 'warn', key: 'needs_walk' };
