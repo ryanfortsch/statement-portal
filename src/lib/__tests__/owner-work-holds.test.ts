@@ -109,7 +109,7 @@ describe('filing a report can never hold the calendar', () => {
 
   test('the Team inbox shows an owner\'s report as theirs, with no slips to schedule', () => {
     const cards = code('src/lib/vendor-visit-cards.ts');
-    assert.ok(cards.includes(".filter((v): v is string => !!v)"), 'an owner row has no vendor id to look up');
+    assert.ok(code('src/lib/vendor-visit-queue.ts').includes('r.trade_vendor_id ? [r.trade_vendor_id] : []'), 'an owner row has no vendor id to look up');
     assert.ok(/slips: home && !fromOwner \?/.test(cards));
     const card = code('src/app/messaging/team/VendorVisitCard.tsx');
     assert.ok(card.includes('label: `${card.writer || vendor} wrote`'));

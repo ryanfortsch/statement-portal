@@ -24,9 +24,10 @@ plumber was coming for still read Unassigned.
    the CRM touch and the unknown-number capture behave exactly as before.
 2. **The card (Team inbox, Contractors filter).** Each pending proposal is a
    `vendor_visit` card on `/messaging/team`, rendered by the one `ApprovalCard`.
-   It shows what the vendor wrote, then "Also on approve": the hold, the slips,
-   and anything on the calendar the operator should know first. Its verbs are
-   Approve hold and Mark handled (with Undo). There is no reply draft: answering
+   It shows the home, visit time, and the next decision. Calendar changes and
+   selected work are summarized; job checkboxes and the original request stay
+   behind Details. A warning opens only its own detail. Its verbs are
+   Approve hold/visit, Already done, Change visit, and Mark handled (with Undo). There is no reply draft: answering
    the vendor stays in Quo.
 3. **Approve (operator, server action).** Only the approve action writes, and
    only after an atomic claim of a pending row:
@@ -99,7 +100,7 @@ offered" or "outside what you offered".
 For a visit on day D (through E for a multi-day visit), the hold covers the
 nights D..E that are open. The night before D is added only when the operator
 ticks it, offered when the vendor arrives before the home's checkout time (or
-gave no time) and that night is open.
+gave no time), that night is open, and it has not passed in Eastern time.
 
 A guest night is never in the plan. At approve time the calendar is read again
 (and Guesty's own calendar live, per night, on a Guesty-run home): a night that
@@ -114,12 +115,46 @@ the home that night; the day is outside what we offered.
 
 ## Slips the visit covers
 
-Open slips at that home in the pro lane (`slipLane = 'pro'`), plus any other
-open slip whose words match the vendor's trade (toilet, shower valve, spigot,
-shutoff for a plumber). Pro-lane slips that match the trade are ticked; the rest
-are listed unticked; a slip already scheduled with someone else is listed
-unticked with who has it. The operator's ticks are what approve stamps, and the
-server checks each id is still active and at that home.
+Only active work whose title or action summary matches the vendor's trade,
+plus work already assigned to that vendor, is offered. Unrelated professional
+jobs and words buried in a pasted source description do not count. Owner,
+office, and supply tasks stay out. Matching pro jobs are selected initially;
+other relevant jobs are available in Details, with existing assignments shown.
+The operator's selection is explicit and checked again by the server.
+
+## Completed work and passed windows (2026-10-30)
+
+A proposal is a scheduling decision, not a permanent reminder of an old text.
+`vendor-visit-follow-through.ts` and `vendor-visit-queue.ts` give cards and badges
+the same view of the recorded work. A pending proposal leaves the queue when
+all explicitly linked jobs are complete. Older proposals without links require
+completed work with the same home, vendor label and scheduled day, completed
+after the confirming message, with no remaining relevant active work. Missing
+data, other vendors, earlier repairs, partial saves and reopened work cannot
+silently clear a proposal. The underlying record is retained. A read failure
+is an error, not an empty work list.
+
+A visit past its last day, explicit finish time, unambiguous single-day offered
+deadline, or final-day guest arrival time offers **Already done** and **Change
+visit**, not approval. The client clock and server action both check the window.
+A vague time never proves completion. A single-day offer's deadline can be
+inherited by a bare confirmation, but a multi-day offer's time cannot.
+
+**Already done** opens a short selection of relevant jobs. **Mark complete**
+closes only those jobs and the visit; **Close visit** with an empty selection
+leaves work items alone. This is an explicit operator action, authenticated like
+scheduling. `vendor-visit-complete.ts` claims the proposal, records selected jobs
+as `done`, and then handles the proposal with reason `Work completed` and the
+selected IDs in `scheduled_slip_ids`. Existing completion timestamps are kept.
+A partial failure keeps the card visible with a retry explanation. It never
+places or releases calendar holds or sends messages. Completion has no reminder
+Undo that would misleadingly imply undoing the jobs; work can be reopened from
+the Work page. A partially placed hold requires review before closing.
+
+Approval rechecks work after claiming the proposal, before any calendar write,
+so an old tab cannot schedule jobs that someone already closed. A late bare
+acknowledgement of the same offer cannot recreate the reminder. New offers and
+explicit new dates remain eligible for their own visits.
 
 ## One card per conversation
 

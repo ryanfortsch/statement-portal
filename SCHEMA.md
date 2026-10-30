@@ -356,8 +356,10 @@ question the card asks. Nothing is held or scheduled until the operator
 approves: `src/lib/vendor-visit-approve.ts` then writes the calendar hold
 (Guesty for a guesty-run home, a `bookings` block with `hold_kind
 'maintenance'` for a helm-run one) and stamps the ticked `work_slips`, and
-records what it did in `hold_result` / `scheduled_slip_ids`. Service role
-only. See `docs/vendor-visit-holds.md`.
+records what it did in `hold_result` / `scheduled_slip_ids`. Explicit operator
+completion uses `handled` with `handled_reason = 'Work completed'`; the selected
+completed work IDs are retained in `scheduled_slip_ids`. Cards and counts also
+reconcile recorded completion through `vendor-visit-queue.ts`. Service role only. See `docs/vendor-visit-holds.md`.
 
 `staff_documents` is an offer letter or staff agreement signed online: the
 body is snapshotted when sent (`body_digest`), the signer types their name at

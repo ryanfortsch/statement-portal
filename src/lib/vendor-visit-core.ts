@@ -145,6 +145,8 @@ export type VisitSlipInput = {
   scheduled_date?: string | null;
   assigned_to_label?: string | null;
   assigned_to_email?: string | null;
+  property_id?: string;
+  completed_at?: string | null;
 };
 
 export type VisitSlipChoice = {
@@ -167,11 +169,8 @@ export function vendorSlipLabel(vendorName: string): string {
 }
 
 /**
- * The slips a visit could cover, for the card's tick list: every active
- * pro-lane slip at the home, plus any active slip in the visit, handyman or
- * owner lane whose words are this trade's. Restocks and desk work never
- * list. Ticked by default only when it is a pro-lane slip about this trade
- * that nobody else has yet.
+ * Relevant work only. A pasted review in description can mention several
+ * unrelated repairs, so match the task's title/summary, not its source text.
  */
 export function chooseVisitSlips(
   slips: readonly VisitSlipInput[],
@@ -191,8 +190,9 @@ export function chooseVisitSlips(
       from_guest_request_key: s.from_guest_request_key ?? null,
     });
     if (lane === 'supply' || lane === 'office') continue;
-    const matchesTrade = !!words && words.test(`${s.title} ${s.action_summary ?? ''} ${s.description ?? ''}`);
-    if (lane !== 'pro' && !matchesTrade) continue;
+    if (lane === 'owner') continue;
+    const matchesTrade = !!words && words.test(`${s.title} ${s.action_summary ?? ''}`);
+    if (!matchesTrade && s.assigned_to_label !== ours) continue;
     const who = s.assigned_to_label || s.assigned_to_email || null;
     const elsewhere = !!who && who !== ours;
     const note = elsewhere ? `with ${who}${s.scheduled_date ? ` for ${fmtDay(s.scheduled_date)}` : ''}` : null;
@@ -275,6 +275,8 @@ export function nightFactsFrom(
 }
 
 export type HoldPlanInput = {
+  /** Live callers pass today's Eastern date; past nights cannot be held. */
+  today?: Ymd;
   start: Ymd;
   end: Ymd;
   time: { start: string | null; end: string | null };
@@ -327,13 +329,14 @@ export function planVisitHold(input: HoldPlanInput): HoldPlan {
   // The night before, when an arrival before checkout could meet a guest
   // who books it.
   const before = nights.get(plan.nightBefore.date);
-  if (before && !before.guest && !before.held && (!time.start || time.start < checkoutTime)) {
+  if ((!input.today || plan.nightBefore.date >= input.today) && before && !before.guest && !before.held && (!time.start || time.start < checkoutTime)) {
     plan.nightBefore.offered = true;
     plan.nightBefore.suggested = !!time.start;
     if (input.holdNightBefore) plan.holdNights.push(plan.nightBefore.date);
   }
 
   for (let d = start; d <= end && daysBetween(start, d) < MAX_VISIT_DAYS; d = addDays(d, 1)) {
+    if (input.today && d < input.today) continue;
     const n = nights.get(d);
     if (!n) {
       plan.warnings.push(`The calendar for ${fmtDay(d)} could not be read; that night is not held.`);

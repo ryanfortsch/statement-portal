@@ -124,6 +124,7 @@ export async function updateWorkSlipStatus(args: {
 
   revalidatePath('/work');
   revalidatePath(`/work/${args.id}`);
+  revalidatePath('/messaging/team');
   // Marking a slip done anywhere feeds through every read path: the work
   // board (above), the property's Open Work list, and the /properties
   // slip-count badges. All filter by status, so a revalidate is enough.

@@ -22,6 +22,9 @@ import {
   type VendorVisitRow,
 } from '@/lib/vendor-visit-core';
 import { loadNightFacts, STUCK_CLAIM_MS } from '@/lib/vendor-visit-cards';
+import { offeredVisitDeadline, visitTiming, visitWorkIsComplete, visitSelectionIsClosed } from '@/lib/vendor-visit-follow-through';
+import { loadVisitQueue } from '@/lib/vendor-visit-queue';
+import { VISIT_COMPLETED_REASON } from '@/lib/vendor-visit-complete';
 
 /**
  * Vendor visit holds, the ONE writer (2026-10-18). Only the Team inbox's
@@ -187,7 +190,16 @@ export async function approveVendorVisit(id: string, input: ApproveInput, actor:
 
   let holdResult: Record<string, unknown> | null = null;
   let heldNights: string[] = [];
+  let calendarWriteStarted = false;
   try {
+    // Completion in another tab takes precedence over an old Approve
+    // button. Check after claiming and before any calendar write.
+    const work = await loadVisitQueue(supabaseAdmin, id);
+    if (visitWorkIsComplete({ ...row, status: 'pending' }, work.slips, row.trade_vendor_id ? work.categories.get(row.trade_vendor_id) ?? null : null)
+      || visitSelectionIsClosed(input.slipIds, property.id, work.slips)) {
+      await release(id, '');
+      return { ok: false, error: 'This work has already been closed. Refresh to see the current visit.', stale: true };
+    }
     // The plan again, on the calendar as it is now.
     const [nights, times] = await Promise.all([
       loadNightFacts(property.id, addDays(input.start, -1), input.end),
@@ -195,7 +207,13 @@ export async function approveVendorVisit(id: string, input: ApproveInput, actor:
     ]);
     const t = times.get(property.id);
     const windows = row.offer_text && row.offer_at ? readOfferWindows(row.offer_text, etDateOf(row.offer_at)) : [];
+    const sameVisit = input.propertyId === row.property_id && input.start === row.visit_date && input.end === (row.visit_end_date ?? row.visit_date);
+    const deadline = sameVisit ? offeredVisitDeadline(row) : null;
+    if (visitTiming(input.start, input.end, [input.endTime, deadline, nights.get(input.end)?.arrival ? t?.checkin ?? DEFAULT_GUEST_CHECKIN : null], new Date()).elapsed) {
+      throw new NothingWritten('This visit window has passed. Mark the work complete if it happened, or change the visit date.');
+    }
     const plan = planVisitHold({
+      today,
       start: input.start,
       end: input.end,
       time: { start: input.startTime, end: input.endTime },
@@ -210,6 +228,7 @@ export async function approveVendorVisit(id: string, input: ApproveInput, actor:
     heldNights = plan.holdNights;
     const note = vendorVisitNote(row.id, row.vendor_name);
     const base = { nights: plan.holdNights, already_held: plan.alreadyHeld, guest_nights: plan.guestNights };
+    calendarWriteStarted = plan.holdNights.length > 0;
     if (plan.holdNights.length === 0) holdResult = { ...base, authority: property.calendar_authority, placed: [] };
     else if (property.calendar_authority === 'helm') holdResult = { ...base, ...(await holdInHelm(property.id, plan.holdNights, note, actor)) };
     else holdResult = { ...base, ...(await holdInGuesty(property.id, plan.holdNights, note)) };
@@ -218,6 +237,10 @@ export async function approveVendorVisit(id: string, input: ApproveInput, actor:
     if (e instanceof NothingWritten) {
       await release(id, message);
       return { ok: false, error: message };
+    }
+    if (!calendarWriteStarted) {
+      await release(id, message);
+      return { ok: false, error: `The visit could not be checked. Nothing was held. ${message}` };
     }
     // An unknown failure part-way through a hold: say so plainly, keep the
     // card, and let the operator look at the calendar before trying again.
@@ -334,6 +357,7 @@ export async function undoVendorVisitHandled(id: string): Promise<VisitActionRes
     .update({ status: 'pending', handled_reason: null, decided_by: null, decided_at: null })
     .eq('id', id)
     .eq('status', 'handled')
+    .or(`handled_reason.is.null,handled_reason.neq.${VISIT_COMPLETED_REASON}`)
     .gte('decided_at', since)
     .select('id');
   if (error) return { ok: false, error: error.message };

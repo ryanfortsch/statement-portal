@@ -109,7 +109,7 @@ describe('the one approval card', () => {
 
   test('a line of Also on approve that needs an answer opens by itself', () => {
     const also = read('src/components/messaging/card/AlsoOnApprove.tsx');
-    assert.ok(also.includes('const showBodies = open || needsAnswer;'));
+    assert.ok(also.includes('(open || item.attention) && item.body'));
   });
 
   for (const q of MIGRATED) {

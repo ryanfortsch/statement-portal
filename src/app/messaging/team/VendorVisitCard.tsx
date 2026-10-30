@@ -1,21 +1,21 @@
 'use client';
 
-import { useState, useTransition, type ReactNode } from 'react';
+import { useEffect, useState, useTransition, type ReactNode } from 'react';
 import { ApprovalCard, BodyText, sentAgoLabel } from '@/components/messaging/card/ApprovalCard';
 import type { QueueCardHelpers } from '@/components/messaging/card/ApprovalQueue';
-import { OutlineChip, PrimaryButton, SecondaryButton } from '@/components/messaging/card/buttons';
+import { PrimaryButton, SecondaryButton } from '@/components/messaging/card/buttons';
 import type { AlsoItem, WaitReason } from '@/components/messaging/card/types';
 import type { VendorVisitCardData } from '@/lib/vendor-visit-cards';
 import { describeHold } from '@/lib/vendor-visit-core';
 import { fmtClock, fmtDay } from '@/lib/vendor-visit-dates';
-import { approveVendorVisitAction, editVendorVisitAction, markVendorVisitHandledAction } from './vendor-visit-actions';
+import { visitTiming } from '@/lib/vendor-visit-follow-through';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
+import { completeVendorVisitAction, approveVendorVisitAction, editVendorVisitAction, markVendorVisitHandledAction } from './vendor-visit-actions';
 
 type PropertyOption = { id: string; name: string };
 
 /** Mark handled's reasons for a vendor visit: what the operator did instead. */
-export const VENDOR_VISIT_HANDLED_REASONS = ['Not a visit', 'Held it myself', 'Wrong home or day'] as const;
-
-const LANE_WORDS: Record<string, string> = { pro: 'pro', handyman: 'handyman', visit: 'visit', owner: 'owner' };
+export const VENDOR_VISIT_HANDLED_REASONS = ['Not a visit', 'Already arranged', 'Wrong home or day'] as const;
 
 const field = { fontSize: 13, padding: '6px 8px', background: 'var(--paper)', color: 'var(--ink)', border: '1px solid var(--rule)', outline: 'none' } as const;
 
@@ -55,223 +55,105 @@ export function VendorVisitCard({
 }) {
   const plan = card.plan;
   const [nightBefore, setNightBefore] = useState(!!plan?.nightBefore.suggested);
-  const [ticked, setTicked] = useState(() => new Set(card.slips.filter((s) => s.ticked).map((s) => s.id)));
+  const [ticked, setTicked] = useState(() => new Set(card.slips.filter(s => s.ticked).map(s => s.id)));
+  const [completing, setCompleting] = useState(false);
+  const [editingVisit, setEditingVisit] = useState(false);
+  const [saving, startSaving] = useTransition();
+  const [completionError, setCompletionError] = useState<string | null>(null);
+  const [timing, setTiming] = useState(card.timing ?? { elapsed: false, deadline: null });
+  useUnsavedWorkGuard(completing || card.slips.some(s => ticked.has(s.id) !== s.ticked) || nightBefore !== !!plan?.nightBefore.suggested);
+  useEffect(() => {
+    const refresh = () => setTiming(visitTiming(card.start, card.end, [card.timing?.deadline, card.endTime], new Date()));
+    // The server's answer is authoritative on first render. The clock still
+    // advances when a card stays open across its deadline.
+    setTiming(card.timing ?? { elapsed: false, deadline: null });
+    const timer = setInterval(refresh, 30_000);
+    return () => clearInterval(timer);
+  }, [card.start, card.end, card.endTime, card.timing]);
+  const selectedIds = card.slips.filter(s => ticked.has(s.id)).map(s => s.id);
   const home = card.property?.name ?? null;
   const vendor = card.vendorName;
-
   const nights = plan ? [...(nightBefore && plan.nightBefore.offered ? [plan.nightBefore.date] : []), ...plan.holdNights] : [];
-  const where = card.property?.authority === 'helm' ? 'in Helm' : 'in Guesty, so Airbnb, VRBO and Booking.com stop selling it';
-  const approveBlocked = !card.property
-    ? 'Pick the home first.'
-    : !card.start
-      ? 'Pick the day first.'
-      : card.status === 'approving' && !card.stuck
-        ? 'Someone is approving this card right now.'
-        : undefined;
-
-  const editor = <ChangeVisit card={card} properties={properties} onSaved={() => helpers.onResolved()} />;
+  const approveBlocked = !card.property ? 'Pick the home first.' : !card.start ? 'Pick the day first.'
+    : timing.elapsed ? 'This visit window has passed.'
+    : card.status === 'approving' && !card.stuck ? 'Someone is updating this visit.' : undefined;
+  const needsDetails = !card.property || !card.start;
+  const reading = card.start ? `${fmtDay(card.start)}${card.end && card.end !== card.start ? ` to ${fmtDay(card.end)}` : ''}${card.timeLabel ? `, ${card.timeLabel}` : timing.deadline ? `, before ${fmtClock(timing.deadline)}` : ''}` : 'Date needed';
+  const workPicker = <ul aria-label="Work for this visit" style={{ listStyle: 'none', padding: 0, margin: '8px 0', display: 'grid', gap: 10 }}>
+    {card.slips.map(s => <li key={s.id}>
+      <label style={{ display: 'flex', alignItems: 'baseline', gap: 8, cursor: 'pointer', fontSize: 14 }}>
+        <input type="checkbox" checked={ticked.has(s.id)} disabled={saving} onChange={e => {
+          const next = new Set(ticked); if (e.target.checked) next.add(s.id); else next.delete(s.id); setTicked(next);
+        }} />
+        <span>{s.title}{s.note && <small style={{ display: 'block', color: 'var(--ink-3)' }}>{s.note}</small>}</span>
+      </label>
+    </li>)}
+  </ul>;
   const also: AlsoItem[] = [];
-
-  // 1. The hold, or the question that stands in front of it.
-  if (!card.property || !card.start) {
-    also.push({
-      key: 'hold',
-      line: !card.property
-        ? <>Which home? {vendor} did not say, and nothing we sent names one.</>
-        : <>Which day? {sentence(card.askReason ?? `${vendor} did not name one`)}</>,
-      status: !card.property ? 'Pick the home' : 'Pick the day',
-      attention: true,
-      body: (
-        <>
-          {card.property && card.candidates.length > 0 && <PickDay card={card} onSaved={() => helpers.onResolved()} />}
-          {editor}
-        </>
-      ),
-    });
-  } else if (card.planError || !plan) {
-    also.push({
-      key: 'hold',
-      line: <>The calendar for {home} could not be read just now. Approve reads it again before holding anything.</>,
-      status: 'Unread',
-      attention: true,
-      body: editor,
-    });
-  } else {
-    also.push({
-      key: 'hold',
-      line: nights.length > 0
-        ? <>Holds {home} {describeHold(nights)} {where}</>
-        : <>Nothing to hold at {home}: {plan.alreadyHeld.length > 0 ? 'the nights are already closed' : 'a guest has the nights'}</>,
-      status: nights.length > 0 ? 'On approve' : 'No hold',
-      body: (
-        <>
-          {plan.nightBefore.offered && (
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--ink-2)', marginBottom: 10, cursor: 'pointer' }}>
-              <input type="checkbox" checked={nightBefore} onChange={(e) => setNightBefore(e.target.checked)} style={{ width: 14, height: 14 }} />
-              Also hold the night before ({fmtDay(plan.nightBefore.date)}):{' '}
-              {card.startTime ? `${vendor} comes at ${fmtClock(card.startTime)}, before the ${fmtClock(card.checkoutTime)} checkout` : `${vendor} gave no time`}
-            </label>
-          )}
-          {plan.alreadyHeld.length > 0 && (
-            <p style={{ margin: '0 0 10px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5 }}>
-              Already closed, left as it is: {plan.alreadyHeld.map((h) => `${fmtDay(h.date)} (${h.reason})`).join('; ')}.
-            </p>
-          )}
-          {editor}
-        </>
-      ),
-    });
+  if (!completing && !timing.elapsed) {
+    if (nights.length) also.push({ key: 'hold', line: <>Blocks {describeHold(nights)} for this visit</>, body: plan?.nightBefore.offered ?
+      <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input type="checkbox" checked={nightBefore} onChange={e => setNightBefore(e.target.checked)} />Also block {fmtDay(plan.nightBefore.date)}</label> : undefined });
+    else if (plan?.nightBefore.offered) also.push({ key: 'hold', line: <>No calendar block needed</>, body:
+      <label><input type="checkbox" checked={nightBefore} onChange={e => setNightBefore(e.target.checked)} /> Also block {fmtDay(plan.nightBefore.date)}</label> });
+    if (card.slips.length) also.push({ key: 'slips', line: <>{selectedIds.length} job{selectedIds.length === 1 ? '' : 's'} selected</>, body: workPicker });
+    if (plan?.warnings.length) also.push({ key: 'calendar', line: plan.warnings[0], attention: true,
+      body: plan.warnings.length > 1 ? <ul>{plan.warnings.slice(1).map(w => <li key={w}>{w}</li>)}</ul> : undefined });
   }
-
-  // 2. The slips the visit covers. An owner's own crew covers none of ours.
-  if (card.property && card.source !== 'owner') {
-    const total = card.slips.length;
-    also.push({
-      key: 'slips',
-      line: total === 0
-        ? <>No open slip at {home} for {card.tradeLabel?.toLowerCase() ?? 'this trade'} or a licensed pro</>
-        : ticked.size > 0
-          ? <>Schedules {ticked.size} slip{ticked.size === 1 ? '' : 's'} for {vendor}{card.start ? ` on ${fmtDay(card.start)}` : ''}</>
-          : <>Schedules no slip</>,
-      status: total > 0 ? `${ticked.size} of ${total}` : undefined,
-      body: total > 0 ? (
-        <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {card.slips.map((s) => (
-            <li key={s.id}>
-              <label style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: 13, color: 'var(--ink-2)', cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={ticked.has(s.id)}
-                  onChange={(e) => {
-                    const next = new Set(ticked);
-                    if (e.target.checked) next.add(s.id);
-                    else next.delete(s.id);
-                    setTicked(next);
-                  }}
-                  style={{ width: 14, height: 14 }}
-                />
-                <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
-                  {s.title}{' '}
-                  <OutlineChip>{LANE_WORDS[s.lane] ?? s.lane}</OutlineChip>
-                  {s.note && <span style={{ color: 'var(--signal)', fontSize: 12 }}> {s.note}</span>}
-                </span>
-              </label>
-            </li>
-          ))}
-        </ul>
-      ) : undefined,
-    });
-  }
-
-  // 3. What the calendar says first.
-  if (plan && plan.warnings.length > 0) {
-    also.push({
-      key: 'calendar',
-      line: <>{plan.warnings[0]}{plan.warnings.length > 1 ? ` And ${plan.warnings.length - 1} more.` : ''}</>,
-      status: 'Read first',
-      attention: true,
-      body: plan.warnings.length > 1 ? (
-        <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.6 }}>
-          {plan.warnings.map((w) => <li key={w}>{w}</li>)}
-        </ul>
-      ) : undefined,
-    });
-  }
-
-  const wait: WaitReason | null = card.stuck
-    ? { tone: 'stale', text: 'An approve started and did not finish. Check the calendar, then approve again.' }
-    : card.status === 'approving'
-      ? { tone: 'held', text: 'Being approved right now.' }
-      : card.lastError
-        ? { tone: 'failed', text: card.lastError }
-        : null;
-
-  const reading = card.start
-    ? `${card.end && card.end !== card.start ? `${fmtDay(card.start)} to ${fmtDay(card.end)}` : fmtDay(card.start)}${card.timeLabel ? `, ${card.timeLabel}` : ''}`
-    : null;
-
-  return (
-    <ApprovalCard
-      id={card.id}
-      status="pending"
-      name={vendor}
-      property={home ?? undefined}
-      channel="SMS"
-      preview={card.messageBody}
-      reviewLabel="Review hold"
-      chips={
-        <>
-          {audienceChip}
-          {card.source === 'owner' && <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>Owner&rsquo;s work</span>}
-          {card.tradeLabel && <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>{card.tradeLabel}</span>}
-          {card.lineLabel && <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>{card.lineLabel}</span>}
-        </>
-      }
-      ageMinutes={card.ageMinutes}
-      createdAt={card.createdAt}
-      shortId={card.id.slice(0, 8)}
-      wait={wait}
-      layout="stacked"
-      said={{
-        label: `${card.writer || vendor} wrote`,
-        sub: sentAgoLabel(card.messageAt),
-        subTitle: card.messageAt,
-        body: <BodyText>{card.messageBody}</BodyText>,
-      }}
-      between={
-        <div style={{ fontSize: 13, lineHeight: 1.6, color: 'var(--ink-2)' }}>
-          <div>
-            <span className="eyebrow" style={{ color: 'var(--ink-4)', marginRight: 8 }}>Reads as</span>
-            {reading ? <strong style={{ color: 'var(--ink)' }}>{reading}</strong> : <em>no day yet</em>}
-            {home ? <> at <strong style={{ color: 'var(--ink)' }}>{home}</strong></> : <> at <em>no home yet</em></>}
-            {card.dateBasis && <span style={{ color: 'var(--ink-4)' }}> · {card.dateBasis}</span>}
-            {plan?.outsideOffer === false && <span style={{ color: 'var(--ink-4)' }}> · inside the window you offered</span>}
-          </div>
-          {card.offer && (
-            <div style={{ marginTop: 4, color: 'var(--ink-3)', fontSize: 12 }} title={card.offer.text}>
-              Answers what you sent {sentAgoLabel(card.offer.at).replace(/^sent /, '') || 'recently'}: “{card.offer.text.length > 160 ? `${card.offer.text.slice(0, 159)}…` : card.offer.text}”
-            </div>
-          )}
-        </div>
-      }
-      reply={null}
-      also={also}
-      verbs={{
-        approve: () =>
-          approveVendorVisitAction(card.id, {
-            propertyId: card.property?.id ?? '',
-            start: card.start ?? '',
-            end: card.end ?? card.start ?? '',
-            startTime: card.startTime,
-            endTime: card.endTime,
-            slipIds: [...ticked],
-            holdNightBefore: nightBefore && !!plan?.nightBefore.offered,
-          }),
-        markHandled: (capture) => markVendorVisitHandledAction(card.id, capture?.reason),
-      }}
-      handledReasons={VENDOR_VISIT_HANDLED_REASONS}
-      pastePlaceholder={card.source === 'owner' ? 'Paste what you told the owner, if anything' : 'Paste what you told the vendor, if anything'}
-      approveBlocked={approveBlocked}
-      footer={(ctl) => (
-        <>
-          <PrimaryButton
-            onClick={ctl.approve}
-            disabled={ctl.busy || !!approveBlocked}
-            loading={ctl.pending === 'approve'}
-            loadingLabel="Holding"
-            title={approveBlocked ?? 'Hold the nights and schedule the ticked slips. Nothing is sent to the vendor.'}
-          >
-            {nights.length > 0 ? 'Approve hold' : 'Approve visit'}
-          </PrimaryButton>
-          <div className="rt-message-quiet">{ctl.parts.handled}</div>
-        </>
-      )}
-      onResolved={helpers.onResolved}
-      onDecided={helpers.onDecided}
-      onRegenerating={() => {}}
-      regenStalled={false}
-    />
-  );
+  const wait: WaitReason | null = card.stuck ? { tone: 'stale', text: 'Saving did not finish. Check the calendar before trying again.' }
+    : card.status === 'approving' ? { tone: 'held', text: 'Someone is updating this visit.' }
+    : card.lastError ? { tone: 'failed', text: card.lastError }
+    : card.planError ? { tone: 'failed', text: 'The calendar could not be checked. Try refreshing before scheduling.' } : null;
+  const complete = () => startSaving(async () => {
+    setCompletionError(null);
+    try {
+      const result = await completeVendorVisitAction(card.id, selectedIds);
+      if (result.ok) { setCompleting(false); helpers.onResolved(result.warning); }
+      else if (result.stale) helpers.onResolved();
+      else setCompletionError(result.error);
+    } catch { setCompletionError('Saving did not finish. Refresh to check the work before retrying.'); }
+  });
+  return <ApprovalCard
+    id={card.id} status="pending" name={vendor} property={home ?? undefined} channel="SMS"
+    preview={`${home ?? 'Home needed'} · ${reading}`} reviewLabel={timing.elapsed ? 'Review visit' : 'Review hold'}
+    chips={audienceChip} ageMinutes={card.ageMinutes} createdAt={card.createdAt} shortId={card.id.slice(0, 8)}
+    wait={wait} layout="stacked" externalBusy={saving}
+    said={{ label: `${card.writer || vendor} wrote`, sub: sentAgoLabel(card.messageAt), subTitle: card.messageAt, body: <BodyText>{card.messageBody}</BodyText> }}
+    between={<div style={{ fontSize: 14, lineHeight: 1.6 }}>
+      <strong>{home ?? 'Home needed'} · {reading}</strong>
+      {timing.elapsed && !completing && <p style={{ margin: '8px 0' }}>This visit window has passed. Was the work completed?</p>}
+      {completing ? <div style={{ marginTop: 12 }}>
+        <strong>{card.slips.length ? 'Which work was finished?' : 'Close this completed visit?'}</strong>
+        {card.slips.length > 0 && workPicker}
+        <p style={{ color: 'var(--ink-3)', margin: '8px 0' }}>{selectedIds.length ? `Marks ${selectedIds.length} selected job${selectedIds.length === 1 ? '' : 's'} complete and closes this visit.` : 'Closes the visit without changing any work items.'}</p>
+        {completionError && <p role="alert">{completionError}</p>}
+      </div> : <>
+        {(needsDetails || editingVisit) && <div style={{ marginTop: 12 }}>
+          {!card.property ? <p>Which home is this visit for?</p> : !card.start ? <p>Which day? {sentence(card.askReason ?? 'The date is not clear')}</p> : null}
+          {card.property && !card.start && card.candidates.length > 0 && <PickDay card={card} onSaved={() => helpers.onResolved()} />}
+          <ChangeVisit card={card} properties={properties} initiallyOpen onSaved={() => helpers.onResolved()} />
+        </div>}
+        {card.offer && <details style={{ marginTop: 8, color: 'var(--ink-3)', fontSize: 13 }}><summary style={{ cursor: 'pointer' }}>Original request</summary><p>{card.offer.text}</p></details>}
+      </>}
+    </div>}
+    reply={null} also={also}
+    verbs={{
+      approve: timing.elapsed || completing ? undefined : () =>
+        approveVendorVisitAction(card.id, { propertyId: card.property?.id ?? '', start: card.start ?? '', end: card.end ?? card.start ?? '', startTime: card.startTime, endTime: card.endTime, slipIds: selectedIds, holdNightBefore: nightBefore && !!plan?.nightBefore.offered }),
+      markHandled: capture => markVendorVisitHandledAction(card.id, capture?.reason),
+    }}
+    handledReasons={VENDOR_VISIT_HANDLED_REASONS} approveBlocked={timing.elapsed || completing ? undefined : approveBlocked}
+    footer={ctl => completing ? <>
+      <PrimaryButton onClick={complete} disabled={ctl.busy} loading={saving} loadingLabel="Saving">{selectedIds.length ? 'Mark complete' : 'Close visit'}</PrimaryButton>
+      <SecondaryButton onClick={() => setCompleting(false)} disabled={ctl.busy}>Cancel</SecondaryButton>
+    </> : <>
+      {timing.elapsed ? <PrimaryButton onClick={() => setCompleting(true)} disabled={ctl.busy || card.status === 'approving'}>Already done</PrimaryButton>
+        : <PrimaryButton onClick={ctl.approve} disabled={ctl.busy || !!approveBlocked} loading={ctl.pending === 'approve'} loadingLabel="Saving">{nights.length ? 'Approve hold' : 'Approve visit'}</PrimaryButton>}
+      <SecondaryButton onClick={() => setEditingVisit(v => !v)} disabled={ctl.busy}>Change visit</SecondaryButton>
+      {!timing.elapsed && <SecondaryButton onClick={() => setCompleting(true)} disabled={ctl.busy || card.status === 'approving'}>Already done</SecondaryButton>}
+      <div className="rt-message-quiet">{ctl.parts.handled}</div>
+    </>}
+    onResolved={helpers.onResolved} onDecided={helpers.onDecided} onRegenerating={() => {}} regenStalled={false}
+  />;
 }
 
 /** One tap per day the reader could not choose between. */
@@ -302,8 +184,8 @@ function PickDay({ card, onSaved }: { card: VendorVisitCardData; onSaved: () => 
 }
 
 /** Correct what the reader made of the text: the home, the days, the time. */
-function ChangeVisit({ card, properties, onSaved }: { card: VendorVisitCardData; properties: PropertyOption[]; onSaved: () => void }) {
-  const [open, setOpen] = useState(!card.property || !card.start);
+function ChangeVisit({ card, properties, onSaved, initiallyOpen = false }: { card: VendorVisitCardData; properties: PropertyOption[]; onSaved: () => void; initiallyOpen?: boolean }) {
+  const [open, setOpen] = useState(initiallyOpen || !card.property || !card.start);
   const [propertyId, setPropertyId] = useState(card.property?.id ?? '');
   const [startDay, setStartDay] = useState(card.start ?? '');
   const [endDay, setEndDay] = useState(card.end && card.end !== card.start ? card.end : '');

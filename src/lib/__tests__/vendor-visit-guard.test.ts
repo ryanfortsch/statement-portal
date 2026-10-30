@@ -97,6 +97,13 @@ describe('a vendor text files a proposal and nothing else', () => {
     assert.equal(filed.visit_date, '2026-10-27');
   });
 
+  test('a late acknowledgement of the same offer cannot resurrect a completed visit', async () => {
+    const offer = { ...OFFER_EVENT, payload: { data: { object: { ...OFFER_EVENT.payload.data.object, body: '73 Rocky Neck today before 4 PM' } } } };
+    const { db, writes } = fakeDb({ trade_vendors: [TOM], properties: ROSTER, quo_events: [offer], vendor_visit_proposals: [{ id: 'completed', status: 'handled', handled_reason: 'Work completed' }] });
+    assert.equal(await proposeVendorVisit(db, { messageId: 'late-yes', from: TOM.phone, body: 'Yup', at: '2026-10-18T19:30:00Z', line: 'ops' }, NOW), null);
+    assert.deepEqual(writes, []);
+  });
+
   test('an unclear day files a question, with no day on it', async () => {
     const { db, writes } = fakeDb({ trade_vendors: [TOM], properties: ROSTER, quo_events: [OFFER_EVENT], vendor_visit_proposals: [] });
     await proposeVendorVisit(db, { messageId: 'msg-3', from: '+19787675409', body: 'Tuesday works', at: '2026-10-18T19:00:00Z', line: 'ops' }, NOW);
@@ -174,10 +181,10 @@ describe('only a signed-in approve reaches the writer', () => {
     const actions = code('src/app/messaging/team/vendor-visit-actions.ts');
     assert.ok(actions.startsWith("\n'use server'") || actions.trimStart().startsWith("'use server'"));
     const fns = [...actions.matchAll(/export async function (\w+)\([^)]*\)[^{]*\{([\s\S]*?)\n\}/g)];
-    assert.equal(fns.length, 4);
+    assert.equal(fns.length, 5);
     for (const [, name, body] of fns) {
       const who = body.indexOf('await operator()');
-      const call = body.search(/await (approveVendorVisit|editVendorVisit|markVendorVisitHandled|undoVendorVisitHandled)\(/);
+      const call = body.search(/await (approveVendorVisit|editVendorVisit|markVendorVisitHandled|undoVendorVisitHandled|completeVendorVisit)\(/);
       assert.ok(who >= 0 && call > who, `${name} checks the session first`);
       assert.ok(body.includes("if (!who) return { ok: false, error: 'Not signed in' };"), `${name} refuses a missing session`);
     }
@@ -192,6 +199,7 @@ describe('only a signed-in approve reaches the writer', () => {
       ...['holdInGuesty(', 'holdInHelm(', ".from('work_slips')"].map((s) => body.indexOf(s)).filter((i) => i >= 0),
     );
     assert.ok(claim > 0 && reread > claim && firstWrite > reread, 'claim, then re-read, then write');
+    assert.ok(body.indexOf('visitSelectionIsClosed(') > claim && body.indexOf('visitSelectionIsClosed(') < firstWrite, 'closed work is checked before the calendar can change');
     assert.ok(/\.eq\('status', 'approving'\)/.test(body), 'the finish only lands on the row this approve claimed');
   });
 
@@ -216,7 +224,7 @@ describe('only a signed-in approve reaches the writer', () => {
   test('the card wires approve to the action, and nothing else on it writes', () => {
     const card = code('src/app/messaging/team/VendorVisitCard.tsx');
     assert.equal((card.match(/approveVendorVisitAction\(/g) ?? []).length, 1);
-    assert.ok(/approve: \(\) =>\s*approveVendorVisitAction\(/.test(card));
+    assert.ok(/approve: timing\.elapsed \|\| completing \? undefined : \(\) =>\s*approveVendorVisitAction\(/.test(card));
     assert.ok(card.includes('<ApprovalCard'), 'the one card');
   });
 
