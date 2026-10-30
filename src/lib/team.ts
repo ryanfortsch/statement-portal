@@ -119,6 +119,22 @@ export function getTeamMember(email: string | null | undefined): TeamMember | nu
   return TEAM_MEMBERS.find((m) => m.email.toLowerCase() === e) ?? null;
 }
 
+/**
+ * The teammate behind ANY address they have worked under: their Workspace
+ * email, or a Field contractor address listed in `fieldEmails`. For names,
+ * initials and colours only. Roles still resolve through getTeamMember,
+ * which reads the Workspace email alone.
+ */
+export function teamMemberForAnyEmail(email: string | null | undefined): TeamMember | null {
+  if (!email) return null;
+  const e = email.toLowerCase().trim();
+  return (
+    TEAM_MEMBERS.find((m) => m.email.toLowerCase() === e) ??
+    TEAM_MEMBERS.find((m) => (m.fieldEmails ?? []).some((f) => f.toLowerCase() === e)) ??
+    null
+  );
+}
+
 /** Active members suitable for an assign-to picker (filters role if needed). */
 export function assignableTeam(): TeamMember[] {
   return TEAM_MEMBERS.filter((m) => m.active);

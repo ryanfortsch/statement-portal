@@ -1492,6 +1492,8 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
   min-width: 0;
   margin: 0;
   padding: 0;
+  appearance: none;
+  -webkit-appearance: none;
   border: 0;
   border-bottom: 1px solid var(--rule);
   border-left: 1px solid var(--rule-soft);
@@ -1504,8 +1506,12 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
 .rt-vg-cell[data-today]:not([data-needs]) { background: rgba(11, 37, 69, 0.04); }
 .rt-vg-cell[data-needs] { background: rgba(63, 153, 34, 0.22); }
 .rt-vg-cell[data-tap] { cursor: pointer; }
-.rt-vg-cell[data-tap]:hover { box-shadow: inset 0 0 0 2px rgba(11, 37, 69, 0.18); }
-.rt-vg-cell[data-tap][data-needs]:hover { background: rgba(63, 153, 34, 0.34); }
+/* Hover only where there is a pointer: on a phone the ring would stick to
+   the last tapped cell. */
+@media (hover: hover) {
+  .rt-vg-cell[data-tap]:hover { box-shadow: inset 0 0 0 2px rgba(11, 37, 69, 0.18); }
+  .rt-vg-cell[data-tap][data-needs]:hover { background: rgba(63, 153, 34, 0.34); }
+}
 .rt-vg-cell:focus-visible { outline: 2px solid var(--signal); outline-offset: -2px; z-index: 1; }
 .rt-vg-bar {
   position: absolute;

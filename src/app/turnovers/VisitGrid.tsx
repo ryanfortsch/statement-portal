@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useConfirm } from '@/components/ConfirmDialog';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
-import { displayNameForEmail, hueForEmail, initialsForEmail } from '@/lib/team';
+import { displayNameForEmail, hueForEmail, initialsForEmail, teamMemberForAnyEmail } from '@/lib/team';
 import {
   composeVisitGrid,
   deadlineChip,
@@ -33,6 +33,13 @@ type Props = {
 
 type Outcome = { ok: true; id?: string } | { ok: false; error: string };
 
+/** A teammate reads the same whichever address she worked under: her
+ *  Field contractor address before 11/1 and her Workspace email after. */
+const nameFor = (e: string): string => teamMemberForAnyEmail(e)?.short ?? displayNameForEmail(e);
+const initialsFor = (e: string): string => teamMemberForAnyEmail(e)?.initials ?? initialsForEmail(e);
+const hueFor = (e: string): string => teamMemberForAnyEmail(e)?.hue ?? hueForEmail(e);
+const identityFor = (e: string): string => teamMemberForAnyEmail(e)?.email ?? e;
+
 export function VisitGrid({ today, days, homes, stays, myEmail }: Props) {
   const { choose } = useConfirm();
   const softRefresh = useSoftRefresh();
@@ -61,14 +68,21 @@ export function VisitGrid({ today, days, homes, stays, myEmail }: Props) {
         homes,
         stays: shown,
         myEmail,
-        nameFor: displayNameForEmail,
-        initialsFor: initialsForEmail,
+        nameFor,
+        initialsFor,
+        identityFor,
       }),
     [today, days, homes, shown, myEmail],
   );
 
   function minePlan(date: string, stay: GridStay): GridPlan {
-    return { id: stay.plan?.id ?? `pending-${stay.reservationId}`, date, assignee: myEmail, plannedBy: stay.plan?.plannedBy ?? myEmail };
+    return {
+      id: stay.plan?.id ?? `pending-${stay.reservationId}`,
+      date,
+      assignee: myEmail,
+      plannedBy: stay.plan?.plannedBy ?? myEmail,
+      hasNotes: stay.plan?.hasNotes ?? false,
+    };
   }
 
   async function run(rid: string, optimistic: GridPlan | null, act: () => Promise<Outcome>) {
@@ -84,14 +98,15 @@ export function VisitGrid({ today, days, homes, stays, myEmail }: Props) {
       const res = await act();
       if (!res.ok) {
         revert();
-        setError(res.error);
+        setError(`Could not save the walk (${res.error}).`);
         return;
       }
       if (optimistic && res.id) {
         const saved = { ...optimistic, id: res.id };
         setOver((o) => ({ ...o, plans: { ...o.plans, [rid]: saved } }));
       }
-      softRefresh();
+      // No refresh here: the action revalidated the page and its response
+      // already carries the fresh tree, which drops this override.
     } catch {
       revert();
       setError('Could not reach Helm. The grid shows what was saved before your tap; try again.');
@@ -114,12 +129,17 @@ export function VisitGrid({ today, days, homes, stays, myEmail }: Props) {
       run(rid, minePlan(cell.date, t.stay), () =>
         claimWalk({ reservationId: rid, propertyId: t.stay.propertyId, checkIn: t.stay.checkIn, checkOut: t.stay.checkOut, date: cell.date }),
       );
-    if (t.kind === 'release') return run(rid, null, () => releaseWalk(t.planId));
+    if (t.kind === 'release') {
+      // Someone else's plan, or one with a note, keeps its day: only the
+      // name comes off (plan-actions decides the same way on the server).
+      return run(rid, t.keep && t.stay.plan ? { ...t.stay.plan, assignee: null } : null, () => releaseWalk(t.planId));
+    }
     if (t.kind === 'take') {
-      const who = displayNameForEmail(t.holder);
+      const who = nameFor(t.holder);
       const sameDay = t.holderDay === cell.date;
+      const past = !!t.holderDay && t.holderDay < today;
       const choice = await choose<'take' | 'remove'>({
-        title: `${who} is walking ${home}${t.holderDay ? ` ${dayWord(t.holderDay, today)}` : ''}.`,
+        title: `${who} ${past ? 'was down to walk' : 'is walking'} ${home}${t.holderDay ? ` ${dayWord(t.holderDay, today)}` : ''}.`,
         body: sameDay
           ? 'Take it over, or remove the plan so the day needs someone again.'
           : `Take it and walk it ${dayWord(cell.date, today)} instead, or remove the plan.`,
@@ -130,7 +150,7 @@ export function VisitGrid({ today, days, homes, stays, myEmail }: Props) {
         cancelLabel: 'Leave it',
       });
       if (!choice) return;
-      if (choice === 'remove') return run(rid, null, () => releaseWalk(t.planId));
+      if (choice === 'remove') return run(rid, null, () => releaseWalk(t.planId, { remove: true }));
       return claim();
     }
     return claim();
@@ -150,12 +170,12 @@ export function VisitGrid({ today, days, homes, stays, myEmail }: Props) {
   return (
     <div className="rt-vg">
       <div className="rt-vg-scroll">
-        <div className="rt-vg-grid" style={{ gridTemplateColumns: columns, minWidth }} role="grid" aria-label="Who is going where, by home and day">
-          <div className="rt-vg-corner" role="columnheader" />
+        <div className="rt-vg-grid" style={{ gridTemplateColumns: columns, minWidth }}>
+          <div className="rt-vg-corner" />
           {days.map((d) => {
             const isToday = d === today;
             return (
-              <div key={d} className="rt-vg-head" data-today={isToday || undefined} role="columnheader">
+              <div key={d} className="rt-vg-head" data-today={isToday || undefined}>
                 <div className="rt-vg-dow">
                   {isToday ? (
                     <>
@@ -187,7 +207,7 @@ export function VisitGrid({ today, days, homes, stays, myEmail }: Props) {
         </span>
         <span><span style={{ width: 3, height: 14, background: 'var(--signal)', flexShrink: 0 }} /> guest arrives</span>
         <span>
-          <span className="rt-vg-mark" style={{ ['--vg-hue' as string]: hueForEmail(myEmail), width: 18, height: 18, fontSize: 9, boxShadow: 'none' }}>{initialsForEmail(myEmail)}</span>
+          <span className="rt-vg-mark" style={{ ['--vg-hue' as string]: hueFor(myEmail), width: 18, height: 18, fontSize: 9, boxShadow: 'none' }}>{initialsFor(myEmail)}</span>
           who&rsquo;s going
         </span>
         {grid.mine > 0 && (
@@ -239,7 +259,7 @@ function Row({
 }) {
   return (
     <>
-      <div className="rt-vg-name" role="rowheader">
+      <div className="rt-vg-name">
         <span className="rt-vg-nm">{name}</span>
         {chip && (
           <span className="rt-vg-chip" title={`Guest arrives ${chip === 'today' ? 'today' : `in ${chip.replace('d', '')} day${chip === '1d' ? '' : 's'}`} and nobody is down to walk it`}>
@@ -255,7 +275,6 @@ function Row({
           <button
             key={cell.date}
             type="button"
-            role="gridcell"
             className="rt-vg-cell"
             disabled={!tappable}
             data-today={cell.date === today || undefined}
@@ -284,7 +303,7 @@ function Row({
                     data-kind={b.kind}
                     data-mine={b.mine || undefined}
                     data-late={b.late || undefined}
-                    style={b.email ? ({ ['--vg-hue' as string]: hueForEmail(b.email) } as React.CSSProperties) : undefined}
+                    style={b.email ? ({ ['--vg-hue' as string]: hueFor(b.email) } as React.CSSProperties) : undefined}
                   >
                     {b.initials}
                   </span>
@@ -312,11 +331,14 @@ function cellText(home: string, cell: GridCell, today: string): string {
       return `${lead}: you're walking it ${dayWord(cell.date, today)}. Tap to let it go.`;
     case 'move':
       return `${lead}: tap to walk it ${dayWord(cell.date, today)} instead.`;
-    case 'take':
-      return `${lead}: ${displayNameForEmail(t.holder)} is walking it${t.holderDay ? ` ${dayWord(t.holderDay, today)}` : ''}. Tap to take it.`;
+    case 'take': {
+      const past = !!t.holderDay && t.holderDay < today;
+      return `${lead}: ${nameFor(t.holder)} ${past ? 'was down to walk it' : 'is walking it'}${t.holderDay ? ` ${dayWord(t.holderDay, today)}` : ''}. Tap to take it.`;
+    }
     case 'claim':
       return `${lead}: ${events ? `${events}, ` : ''}open. Tap to walk it ${dayWord(cell.date, today)}.`;
     default:
+      if (cell.fieldOpen) return `${lead}: ${events ? `${events}, ` : ''}out to Field, nobody has claimed it yet.`;
       return `${lead}: ${events || 'open'}${who.length ? ` · ${who.join(', ')}` : ', nothing to prep'}`;
   }
 }
