@@ -9,7 +9,7 @@ const read = (repoPath: string): string =>
 describe('the home feed reads as the signed-in person\'s day', () => {
   test('staff: time-sensitive items lead, then my actions, then updates', () => {
     const order = homeFeedOrder('staff');
-    assert.deepEqual(order, ['walks', 'meetings', 'holds', 'cleanings', 'work', 'replies', 'unassigned', 'queues', 'payments', 'updates']);
+    assert.deepEqual(order, ['week', 'holds', 'cleanings', 'work', 'replies', 'unassigned', 'queues', 'payments', 'updates']);
   });
 
   test('owners keep the clean-after card first and the rest of the day after it', () => {
@@ -45,7 +45,7 @@ describe('the home feed reads as the signed-in person\'s day', () => {
 
   test('a staff login sees its own meetings and none of an owner inbox', () => {
     const feed = read('src/components/ForMeFeed.tsx');
-    assert.ok(feed.includes("owner ? loadMeetingCards() : email ? loadMeetingCards(new Date(), { createdBy: email }) : Promise.resolve([])"));
+    assert.ok(feed.includes("owner ? loadMeetingCards(new Date(), { days: WEEK_DAYS }) : email ? loadMeetingCards(new Date(), { createdBy: email, days: WEEK_DAYS }) : Promise.resolve([])"));
     assert.ok(feed.includes('if (!owner && !mail.canOpen) {'), 'the triaged mail waits on its owners only');
     const meetings = read('src/lib/meetings.ts');
     assert.ok(meetings.includes("if (opts.createdBy) q = q.eq('created_by_email', opts.createdBy);"));

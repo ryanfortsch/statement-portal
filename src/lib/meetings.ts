@@ -9,6 +9,7 @@
 import 'server-only';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { helmBaseUrl } from '@/lib/daily-brief';
+import { shiftIsoDay } from '@/lib/sca-quotes-types';
 import { normalizePhone, quoFromNumber, sendMessage } from '@/lib/quo';
 import {
   REMINDER_MAX_ATTEMPTS,
@@ -100,31 +101,32 @@ export async function listContactMeetings(contactId: string): Promise<{
   };
 }
 
-/** Meetings for the home feed: today and tomorrow in Gloucester, with the
- *  contact and property names resolved. Empty on any read failure, so the
- *  home page never breaks over a calendar card.
+/** Meetings for the home feed: from today in Gloucester through `days`
+ *  calendar days (today and tomorrow when none is given; This week passes
+ *  seven), with the contact and property names resolved. Empty on any read
+ *  failure, so the home page never breaks over a calendar card.
  *
  *  `createdBy` narrows to the meetings one person logged: a staff login's
  *  feed shows the sit-downs it logged, not the owners' meetings with owners and
  *  prospects. Owners pass nothing and see every meeting. */
 export async function loadMeetingCards(
   now: Date = new Date(),
-  opts: { createdBy?: string } = {},
+  opts: { createdBy?: string; days?: number } = {},
 ): Promise<MeetingCard[]> {
   try {
     const today = todayET(now);
-    const tomorrow = reminderTargetDate(now);
+    const last = opts.days && opts.days > 1 ? shiftIsoDay(today, opts.days - 1) : reminderTargetDate(now);
     let q = supabase
       .from('contact_meetings')
       .select(JOIN_SELECT)
       .is('cancelled_at', null)
       .gte('meeting_date', today)
-      .lte('meeting_date', tomorrow);
+      .lte('meeting_date', last);
     if (opts.createdBy) q = q.eq('created_by_email', opts.createdBy);
     const { data, error } = await q
       .order('meeting_date', { ascending: true })
       .order('meeting_time', { ascending: true, nullsFirst: false })
-      .limit(12);
+      .limit(40);
     // Still empty on a failure, but never silently again: this read failing
     // is how the card sat blank for two weeks with nothing in the logs.
     if (error) {

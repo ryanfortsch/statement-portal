@@ -4,8 +4,8 @@
  * The loaders and the cron's claim-and-send live in `meetings.ts`.
  *
  * A meeting is a dated sit-down with a contact (an owner, a prospect, a
- * vendor), logged on the CRM contact page. Two surfaces read it: the
- * Meetings card on the home feed (today and tomorrow) and the day-before
+ * vendor), logged on the CRM contact page. Two surfaces read it: This week
+ * on the home feed (the next seven days, day by day) and the day-before
  * text, which only `important` meetings get. Owner and prospect meetings
  * default to important (Dotti, 2026-10-07).
  */
