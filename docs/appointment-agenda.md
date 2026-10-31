@@ -151,6 +151,15 @@ Calendar 401/403 does not stop Gmail or Quo: each records its own outcome. The
 home shows disconnected and partial sources even with source details collapsed.
 It never labels an unconnected calendar empty or claims complete coverage.
 
+The home preview shows the next three dated commitments as links, with a short
+date/time column and only actionable status. Notes, people and evidence stay on
+the appointment or full agenda. Arrival windows and tentative plans remain
+explicit; times are labeled Eastern once for the section. The source summary
+sits below the rows and names the actual issue (for example, "Automatic sync is
+off"). Deliberately excluded personal calendars and private records hidden in
+staff preview remain disclosed in source details without counting as failures.
+Failed and stale included sources still take priority over disconnected capture.
+
 Release approval covers the two migrations and application deployment. The
 reviewed import/CRM-correction proposals and account capture enablement remain
 separate pending actions. Do not import the audit or change shared reminders as

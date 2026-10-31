@@ -1,5 +1,5 @@
 import { Suspense } from 'react';
-import { HelmHero } from '@/components/HelmHero';
+import { HomeHeading } from '@/components/HomeHeading';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
 import { TeamActivity } from '@/components/TeamActivity';
@@ -53,15 +53,7 @@ export default async function HelmHome({
         <ConciergeAlertsLine />
       </Suspense>
 
-      <HelmHero eyebrow="HELM" title="Today" paddingTop={32} paddingBottom={20} />
-
-      {/* ASK HELM: the page's one input, directly under the title. */}
-      <section className="rt-home-ask max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 16 }}>
-        <details>
-          <summary style={{ cursor: 'pointer', fontSize: 14, color: 'var(--tide-deep)' }}>Ask Helm</summary>
-          <div style={{ paddingTop: 12 }}><AskHelm showSuggestions={false} /></div>
-        </details>
-      </section>
+      <HomeHeading><AskHelm showSuggestions={false} /></HomeHeading>
 
       {/* The signed-in person's day leads; activity is one tab away and
           loads only when opened. */}

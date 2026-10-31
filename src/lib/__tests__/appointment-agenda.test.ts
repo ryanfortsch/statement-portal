@@ -2,7 +2,7 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { appointmentAddressConflict } from '../appointment-evidence.ts';
 import { checkOwnerAppointment } from '../owner-appointments-core.ts';
-import { homeAgendaPreview, agendaGroups, agendaWindow, appointmentClock, meetingToAgenda, mergeAgenda, overlappingAppointments, safeSourceUrl, sourceKeyFromUrl, validateAppointment, validDay, type AgendaEntry, type AppointmentInput } from '../appointment-agenda.ts';
+import { homeAgendaPreview, agendaGroups, agendaWindow, appointmentClock, compactAppointmentClock, agendaSourceStatus, meetingToAgenda, mergeAgenda, overlappingAppointments, safeSourceUrl, sourceKeyFromUrl, validateAppointment, validDay, type AgendaEntry, type AppointmentInput, type SourceCoverage } from '../appointment-agenda.ts';
 
 const details: AppointmentInput = { title: 'Review with a business contact', date: '2026-11-02', time: '10:00', endTime: '10:30', timeKind: 'exact',
   status: 'confirmed', attendance: 'attending', propertyName: null, location: 'Video call', people: 'Alex Example', notes: null,
@@ -31,6 +31,33 @@ describe('appointment dates and clocks', () => {
     assert.equal(appointmentClock(entry()), '10 AM to 10:30 AM ET');
     assert.equal(appointmentClock(entry({ time: null, endTime: null })), 'Time to confirm');
     assert.equal(appointmentClock(entry({ time: null, endTime: null, timeKind: 'date_only' })), 'Date only');
+  });
+  test('brief clocks preserve arrival windows and morning/afternoon boundaries', () => {
+    assert.equal(compactAppointmentClock(entry()), '10–10:30 AM');
+    assert.equal(compactAppointmentClock(entry({ time: '09:30', endTime: '12:00', timeKind: 'arrival_window' })), 'Arrival 9:30 AM–noon');
+    assert.equal(compactAppointmentClock(entry({ time: '11:30', endTime: '13:30' })), '11:30 AM–1:30 PM');
+    assert.equal(compactAppointmentClock(entry({ time: '13:30', endTime: '15:00' })), '1:30–3 PM');
+    assert.equal(compactAppointmentClock(entry({ endTime: null })), '10 AM');
+    assert.equal(compactAppointmentClock(entry({ time: null, endTime: null })), 'Time TBD');
+    assert.equal(compactAppointmentClock(entry({ time: null, endTime: null, timeKind: 'date_only' })), 'Date only');
+  });
+});
+describe('source status without false completeness warnings', () => {
+  const source = (state: SourceCoverage['state'], extra: Partial<SourceCoverage> = {}): SourceCoverage => ({ name: 'Example', detail: 'Source detail', state, ...extra });
+  test('intentional private-calendar and staff-view exclusions do not signal a failure', () => {
+    assert.equal(agendaSourceStatus([source('available'), source('not_connected', { excluded: true }), source('unavailable', { excluded: true })]), 'Sources checked');
+  });
+  test('disabled capture is distinguished from a broken or stale source', () => {
+    const off = source('not_connected', { automatic: true });
+    assert.equal(agendaSourceStatus([source('available'), off]), 'Automatic sync is off');
+    assert.equal(agendaSourceStatus([source('partial'), off]), 'Source updates need review');
+    assert.equal(agendaSourceStatus([source('unavailable'), off]), 'Some sources unavailable');
+    assert.equal(agendaSourceStatus([source('available', { automatic: true }), off]), 'Some sources not connected');
+  });
+  test('no checked sources is not presented as healthy or complete', () => {
+    assert.equal(agendaSourceStatus([]), 'Sources not checked');
+    assert.equal(agendaSourceStatus([source('not_connected', { excluded: true })]), 'Sources not checked');
+    assert.equal(agendaSourceStatus([source('not_connected')]), 'Some sources not connected');
   });
 });
 describe('input and evidence', () => {

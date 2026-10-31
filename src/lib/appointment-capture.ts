@@ -8,9 +8,9 @@ export const CAPTURE_NAMES = { calendar: 'Work Google Calendar', gmail: 'Work Gm
 export const revisionOf = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 export const schedulingSignal = (s: string) => /\b(appointment|inspect(?:ion|or)|meet(?:ing)?|walk[ -]?through|tour|photo\s?shoot|photoshoot|schedule|reschedul\w*|zoom|video call|introductory call)\b/i.test(s);
 export function captureCoverage(kind: CaptureKind, state: CaptureState | undefined, now: Date): SourceCoverage {
-  if (!state) return { name: CAPTURE_NAMES[kind], state: 'not_connected', detail: 'Capture has not run for your account. No live coverage is claimed.' };
+  if (!state) return { name: CAPTURE_NAMES[kind], automatic: true, state: 'not_connected', detail: 'Automatic updates have not run for your account.' };
   const fresh = state.last_success_at && now.getTime() - Date.parse(state.last_success_at) < 2 * 3600000;
-  return { name: CAPTURE_NAMES[kind], state: state.state === 'available' && !fresh ? 'partial' : state.state,
+  return { name: CAPTURE_NAMES[kind], automatic: true, state: state.state === 'available' && !fresh ? 'partial' : state.state,
     detail: `${state.detail}${state.last_success_at ? ` Last complete check: ${new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).format(new Date(state.last_success_at))}.` : ' No complete check yet.'}${!fresh && state.last_success_at ? ' Stale: check the source directly.' : ''}` };
 }
 const blank = (key: string, title: string, label: string, url: string | null): AppointmentInput => ({

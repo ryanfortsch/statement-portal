@@ -43,7 +43,23 @@ export type SourceCoverage = {
   name: string;
   state: 'available' | 'partial' | 'unavailable' | 'not_connected';
   detail: string;
+  /** An intentional privacy/view boundary is information, not a broken source. */
+  excluded?: boolean;
+  automatic?: boolean;
 };
+
+export function agendaSourceStatus(sources: SourceCoverage[]): string {
+  const included = sources.filter(s => !s.excluded);
+  if (!included.length) return 'Sources not checked';
+  const gaps = included.filter(s => s.state !== 'available');
+  if (!gaps.length) return 'Sources checked';
+  if (gaps.some(s => s.state === 'unavailable')) return 'Some sources unavailable';
+  if (gaps.some(s => s.state === 'partial')) return 'Source updates need review';
+  const automatic = included.filter(s => s.automatic);
+  if (automatic.length && automatic.every(s => s.state === 'not_connected')) return 'Automatic sync is off';
+  if (gaps.some(s => s.state === 'not_connected')) return 'Some sources not connected';
+  return 'Source updates need review';
+}
 export type AgendaData = {
   entries: AgendaEntry[];
   sources: SourceCoverage[];
@@ -163,6 +179,14 @@ export const ATTENDANCE_LABEL: Record<Attendance, string> = { attending: 'You ar
 export function appointmentClock(e: Pick<AgendaEntry, 'time' | 'endTime' | 'timeKind'>): string {
   if (e.timeKind === 'date_only') return 'Date only';
   return e.time ? `${e.timeKind === 'arrival_window' ? 'Arrival ' : ''}${formatMeetingTime(e.time)}${e.endTime ? ` to ${formatMeetingTime(e.endTime)}` : ''} ET` : 'Time to confirm';
+}
+/** Same wall clocks as the full agenda, with the shared timezone printed once. */
+export function compactAppointmentClock(e: Pick<AgendaEntry, 'time' | 'endTime' | 'timeKind'>): string {
+  if (!e.time) return e.timeKind === 'date_only' ? 'Date only' : 'Time TBD';
+  let start = formatMeetingTime(e.time) ?? 'Time TBD';
+  const end = (formatMeetingTime(e.endTime) ?? '').replace('12 PM', 'noon');
+  if (end && / (AM|PM)$/.exec(start)?.[1] === / (AM|PM)$/.exec(end)?.[1]) start = start.replace(/ (AM|PM)$/, '');
+  return `${e.timeKind === 'arrival_window' ? 'Arrival ' : ''}${start}${end ? `–${end}` : ''}`;
 }
 /** Use local wall clocks on the SAME Eastern day. No fixed UTC offset, no
  * invented duration for meetings without an end. Adjacent windows don't clash. */

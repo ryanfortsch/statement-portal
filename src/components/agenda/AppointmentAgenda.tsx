@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { agendaGroups, homeAgendaPreview, appointmentClock, ATTENDANCE_LABEL, overlappingAppointments, safeSourceUrl, STATUS_LABEL, type AgendaData, type AgendaEntry } from '@/lib/appointment-agenda';
+import { agendaGroups, homeAgendaPreview, appointmentClock, compactAppointmentClock, agendaSourceStatus, ATTENDANCE_LABEL, overlappingAppointments, safeSourceUrl, STATUS_LABEL, type AgendaData, type AgendaEntry } from '@/lib/appointment-agenda';
 import { houseDay } from '@/lib/house-date';
 
 export function AppointmentAgenda({ data, full = false }: { data: AgendaData; full?: boolean }) {
@@ -7,36 +7,33 @@ export function AppointmentAgenda({ data, full = false }: { data: AgendaData; fu
   const overlaps = overlappingAppointments(groups.scheduled);
   const total = groups.scheduled.length + groups.review.length + groups.other.length;
   const preview = homeAgendaPreview(groups, data.today, data.through);
-  const gaps = data.sources.filter(s => s.state !== 'available' && !s.detail.includes('viewing as staff'));
-  const unavailable = gaps.some(s => s.state === 'unavailable');
   const render = (items: AgendaEntry[]) => items.map(e => <AppointmentRow key={e.id} entry={e} overlap={overlaps.has(e.id)} compact={!full} />);
-  return <section aria-label="Upcoming appointments" className="rt-agenda">
-    <div className="rt-agenda-heading">
-      <h2>{full ? 'Upcoming appointments' : 'Next appointments'}</h2>
-      <Link href="/appointments/new" className="rt-agenda-add">+ Add<span className="sr-only"> appointment</span></Link>
+  const sourceDetails = <details id={full ? 'sources' : undefined} className="rt-agenda-coverage">
+    <summary><span role="status">{agendaSourceStatus(data.sources)}</span></summary>
+    <div className="rt-agenda-details-body">
+      {data.sources.some(s => !s.excluded && s.state !== 'available') && <p>New or changed appointments from sources that are not syncing may be missing.</p>}
+      <ul>{data.sources.map(s => <li key={s.name}><strong>{s.name}{s.excluded ? ' (not included)' : s.state !== 'available' ? ` (${s.state.replaceAll('_', ' ')})` : ''}: </strong>{s.detail}</li>)}</ul>
+      <Link href="/turnovers">Walks and turnovers</Link> · <Link href="/turnovers/cleanings">Vendor cleanings</Link>
     </div>
-    <p className="rt-agenda-window">{full ? `Next 30 days · through ${houseDay(data.through)}` : 'Next 30 days'} · Eastern time</p>
-    <details className="rt-agenda-coverage">
-      <summary>
-        <span role="status">{gaps.length ? `${unavailable ? 'Sources unavailable' : 'Incomplete coverage'} · Appointments may be missing` : 'Source coverage · Review what is included'}</span>
-      </summary>
-      <div className="rt-agenda-details-body">
-        <p>Only the sources below are included. New conversations and changed invitations need review.</p>
-        <ul>{data.sources.map(s => <li key={s.name}><strong>{s.name}{s.state !== 'available' ? ` (${s.state.replaceAll('_', ' ')})` : ''}: </strong>{s.detail}</li>)}</ul>
-        <Link href="/turnovers">Walks and turnovers</Link> · <Link href="/turnovers/cleanings">Vendor cleanings</Link>
+  </details>;
+  return <section aria-label="Upcoming appointments" className={`rt-agenda${full ? '' : ' rt-agenda-home'}`}>
+    <div className="rt-agenda-heading">
+      <h2>{full ? 'Upcoming appointments' : 'Upcoming'}</h2>
+      <div className="rt-agenda-heading-actions">
+        {!full && <Link href="/appointments">All{total ? ` ${total}` : ''}<span className="sr-only"> appointments</span> →</Link>}
+        <Link href="/appointments/new" className="rt-agenda-add">+ Add<span className="sr-only"> appointment</span></Link>
       </div>
-    </details>
+    </div>
+    {full && <><p className="rt-agenda-window">Next 30 days · through {houseDay(data.through)} · Eastern time</p>{sourceDetails}</>}
     {!full && <>
-      {overlaps.size > 0 && <Link className="rt-agenda-warning" href="/appointments#scheduled">{overlaps.size} appointments overlap · Check coverage →</Link>}
       {render(preview)}
-      {preview.length === 0 && total > 0 && <p className="rt-agenda-empty">No dated personal appointments ready to show. Open the full agenda for visits and scheduling items.</p>}
-      <Link href="/appointments" className="rt-agenda-all">
-        <span>View all appointments{total ? ` (${total})` : ''} →</span>
-        {(groups.review.length > 0 || groups.other.length > 0) && <span>
-          {[groups.review.length > 0 ? `${groups.review.length} need review` : null,
-            groups.other.length > 0 ? `${groups.other.length} owner-handled / not attending` : null].filter(Boolean).join(' · ')}
-        </span>}
-      </Link>
+      {preview.length === 0 && <p className="rt-agenda-empty">{total > 0 ? 'Open the agenda for visits and plans awaiting a date.' : 'No upcoming appointments to show.'}</p>}
+      {overlaps.size > 0 && <Link className="rt-agenda-warning" href="/appointments#scheduled">{overlaps.size} appointments overlap →</Link>}
+      <div className="rt-agenda-home-footer">
+        {sourceDetails}
+        {groups.review.length > 0 && <Link href="/appointments#review">{groups.review.length} to review →</Link>}
+        <span>Eastern time</span>
+      </div>
     </>}
     {full && <>
       {groups.scheduled.length > 0 && <div id="scheduled" aria-label="Scheduled appointments">
@@ -52,28 +49,40 @@ export function AppointmentAgenda({ data, full = false }: { data: AgendaData; fu
         {render(groups.other)}
       </div>}
     </>}
-    {total === 0 && <p className="rt-agenda-empty">No appointments found in the sources listed here. Check unconnected sources before assuming you are free.</p>}
+    {full && total === 0 && <p className="rt-agenda-empty">No appointments found in the sources listed here. Check unconnected sources before assuming you are free.</p>}
   </section>;
 }
 
 function AppointmentRow({ entry: e, overlap, compact = false }: { entry: AgendaEntry; overlap: boolean; compact?: boolean }) {
   const review = !!e.reviewReason || !!e.sourceUpdates?.length;
+  if (compact) {
+    const attention = e.status === 'needs_scheduling' ? 'Not booked' : e.status === 'tentative' ? 'Tentative' : review ? 'Needs review' : e.attendance === 'coverage_needed' ? 'Coverage to confirm' : null;
+    const property = e.propertyName && !e.title.toLocaleLowerCase().includes(e.propertyName.toLocaleLowerCase()) ? e.propertyName : null;
+    return <Link href={e.href} className="rt-agenda-brief-row" data-appointment-id={e.id}>
+      <span className="rt-agenda-brief-date"><strong>{e.date ? houseDay(e.date) : 'Date to arrange'}</strong><span>{compactAppointmentClock(e)}</span></span>
+      <span className="rt-agenda-brief-main">
+        <span className="rt-agenda-title">{e.title}</span>
+        {(property || attention || overlap) && <span className="rt-agenda-brief-meta">
+          {property && <span>{property}</span>}
+          {attention && <span className="rt-agenda-attention">{attention}</span>}
+          {overlap && <span className="rt-agenda-attention">Overlaps another appointment</span>}
+        </span>}
+      </span>
+      <span className="rt-agenda-brief-arrow" aria-hidden="true">→</span>
+    </Link>;
+  }
   const heading = <>
     <span className="rt-agenda-when">
       <strong>{e.date ? houseDay(e.date) : 'Date to arrange'} · {appointmentClock(e)}</strong>
       <span>{review && e.status === 'confirmed' ? 'Needs confirmation' : STATUS_LABEL[e.status]}</span>
     </span>
-    {compact ? <span className="rt-agenda-title">{e.title}</span> : <Link href={e.href} className="rt-agenda-title">{e.title}</Link>}
+    <Link href={e.href} className="rt-agenda-title">{e.title}</Link>
     <span className="rt-agenda-context">
       {e.propertyName && <span>{e.propertyName} · </span>}
       <span className={e.attendance === 'coverage_needed' ? 'rt-agenda-attention' : undefined}>{e.id.startsWith('meeting:') ? 'Attendance to confirm' : ATTENDANCE_LABEL[e.attendance]}</span>
     </span>
     {overlap && <span className="rt-agenda-warning">Overlapping window · Separate coverage needed</span>}
   </>;
-  if (compact) return <details className="rt-agenda-row rt-agenda-compact-row" data-appointment-id={e.id}>
-    <summary>{heading}</summary>
-    <AppointmentDetails entry={e} />
-  </details>;
   return <article className="rt-agenda-row" data-appointment-id={e.id}>
     {heading}
     <details className="rt-agenda-row-details">

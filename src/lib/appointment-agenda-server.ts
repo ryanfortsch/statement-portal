@@ -28,7 +28,7 @@ export async function loadAppointmentAgenda(now = new Date()): Promise<AgendaDat
   const [meetings, saved, captured] = await Promise.all([
     loadMeetingCardsResult(now, { days: AGENDA_DAYS, ...(owner ? {} : { createdBy: email }) }),
     !view.viewingAsStaff ? loadSaved(email) : Promise.resolve({ entries: [], source: {
-      name: 'Saved appointments', state: 'unavailable', detail: 'Hidden while viewing as staff.',
+      name: 'Saved appointments', state: 'unavailable', detail: 'Hidden while viewing as staff.', excluded: true,
     } as SourceCoverage, canSave: false }),
     !view.viewingAsStaff ? loadCaptures(email, now, owner) : Promise.resolve({ captures: [], sources: [] }),
   ]);
@@ -39,7 +39,7 @@ export async function loadAppointmentAgenda(now = new Date()): Promise<AgendaDat
     { name: 'Helm contact meetings', state: meetings.available ? 'available' : 'unavailable',
       detail: meetings.available ? `${owner ? 'Business contact records' : 'Records you created'} read for the next ${AGENDA_DAYS} days. Attendance still needs review.` : 'Could not read contact meetings. The schedule may be missing appointments.' },
     ...captured.sources,
-    { name: 'Personal calendars', state: 'not_connected', detail: 'Not included. Keep family and medical appointments in your private calendar.' },
+    { name: 'Personal calendars', state: 'not_connected', excluded: true, detail: 'Not included. Personal appointments stay in your private calendar.' },
   ];
   return result;
 }
