@@ -48,6 +48,7 @@ import {
   channelTone,
   proactiveKind,
   proactiveBadge,
+  isReviewLensKind,
   isManualSend,
 } from './format';
 
@@ -91,9 +92,13 @@ export function MessagingQueue({
     softRefresh();
   }, [refresh, softRefresh]);
 
+  // Our reviews of guests and replies to their reviews live on the Guest
+  // reviews lens (/messaging/reviews); the Inbox is for replying to guests.
+  const inbox = approvals.filter((a) => !isReviewLensKind(proactiveKind(a.guesty_message_id, a.topic)));
+
   return (
     <ApprovalQueue
-      approvals={approvals}
+      approvals={inbox}
       onRefresh={onRefresh}
       refreshStatus={refreshStatus}
       undo={undoDecision}

@@ -21,6 +21,7 @@ import { todayInEastern, shiftIsoDay } from '@/lib/sca-quotes-types';
 import {
   DEFAULT_ASK_SETTINGS,
   describeAsk,
+  describeHostReview,
   describeReview,
   firstName,
   realStays,
@@ -39,6 +40,8 @@ export type RecentStay = {
   checkOut: string;
   channel: string;
   ask: AskLine;
+  /** Our review OF them, when the stay went red; null on every other stay. */
+  ourReview: AskLine | null;
   review: ReviewLine;
   /** The review row to link to, when the Reviews list shows it. */
   reviewLink: { id: string; days: number } | null;
@@ -172,6 +175,7 @@ export async function loadRecentStays(opts: {
       checkOut: r.checkOut,
       channel: r.channel ?? '',
       ask: describeAsk(facts, ask, settings, today, review),
+      ourReview: describeHostReview(ask, today),
       review: describeReview(facts, review, today, ask !== 'unavailable' && !!ask?.guest_reported_review),
       reviewLink,
     });

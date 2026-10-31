@@ -51,17 +51,27 @@ export function QuietButton({ children, onClick, disabled, loading, loadingLabel
   );
 }
 
-type LinkProps = { href: string; children: ReactNode; disabled?: boolean; title?: string };
+type LinkProps = {
+  href: string;
+  children: ReactNode;
+  disabled?: boolean;
+  title?: string;
+  /** Opens in a new tab: a page outside Helm (Guesty, Airbnb) the operator
+   *  comes back from to tap the card's verb. */
+  external?: boolean;
+};
 
 /** Looks like PrimaryButton, but navigates (Send a price). Another action in
  *  flight greys it out: navigating away mid-send would abandon the send. */
-export function PrimaryLink({ href, children, disabled, title }: LinkProps) {
+export function PrimaryLink({ href, children, disabled, title, external }: LinkProps) {
   return (
     <a
       href={disabled ? undefined : href}
       aria-disabled={disabled || undefined}
       onClick={disabled ? (e) => e.preventDefault() : undefined}
       title={title}
+      target={external ? '_blank' : undefined}
+      rel={external ? 'noopener noreferrer' : undefined}
       style={{
         pointerEvents: disabled ? 'none' : undefined,
         opacity: disabled ? 0.5 : 1,
@@ -83,13 +93,15 @@ export function PrimaryLink({ href, children, disabled, title }: LinkProps) {
 }
 
 /** A secondary action that navigates, at SecondaryButton's weight. */
-export function SecondaryLink({ href, children, disabled, title }: LinkProps) {
+export function SecondaryLink({ href, children, disabled, title, external }: LinkProps) {
   return (
     <a
       href={disabled ? undefined : href}
       aria-disabled={disabled || undefined}
       onClick={disabled ? (e) => e.preventDefault() : undefined}
       title={title}
+      target={external ? '_blank' : undefined}
+      rel={external ? 'noopener noreferrer' : undefined}
       style={{
         pointerEvents: disabled ? 'none' : undefined,
         opacity: disabled ? 0.5 : 1,

@@ -26,7 +26,8 @@ export function prettifySlug(slug: string): string {
  * fallback. Mirrors the backend's stale-prune exemption for the same rows.
  */
 export type ProactiveKind =
-  | 'extension' | 'nudge' | 'reminder' | 'scheduled' | 'review' | 'trash' | 'payment' | null;
+  | 'extension' | 'nudge' | 'reminder' | 'scheduled' | 'review' | 'trash' | 'payment'
+  | 'hostreview' | 'reviewreply' | null;
 
 export function proactiveKind(
   guestyMessageId: string | null | undefined,
@@ -43,7 +44,19 @@ export function proactiveKind(
   if (id.startsWith('recurring:') || t === 'recurring_reminder') return 'reminder';
   if (id.startsWith('sched:')) return 'scheduled';
   if (id.startsWith('review:') || t === 'review_request') return 'review';
+  // Our review OF the guest (stop Guesty's auto review on a red stay, then
+  // post our own) and our public reply to THEIR review: the Guest reviews
+  // lens owns both (concierge host_reviews.py, review_replies.py).
+  if (id.startsWith('hostreview:') || t === 'host_review' || t === 'host_review_stop') return 'hostreview';
+  if (id.startsWith('reviewreply:') || t === 'review_reply') return 'reviewreply';
   return null;
+}
+
+/** The two kinds the Guest reviews lens shows (/messaging/reviews). The Inbox
+ *  and the guests count leave them out, so a badge count still matches the
+ *  page it points at. */
+export function isReviewLensKind(kind: ProactiveKind): boolean {
+  return kind === 'hostreview' || kind === 'reviewreply';
 }
 
 /** Label + tone for the proactive badge. Extension offers get the revenue
@@ -62,6 +75,10 @@ export function proactiveBadge(
       return { label: 'Scheduled', tone: '#7a6a3a' };
     case 'review':
       return { label: 'Review request', tone: '#8a5a2b' };
+    case 'hostreview':
+      return { label: 'Our review', tone: '#4a3f6b' };
+    case 'reviewreply':
+      return { label: 'Review reply', tone: '#6b4a2b' };
     case 'trash':
       return { label: 'Trash day', tone: '#4a6d6a' };
     case 'payment':
