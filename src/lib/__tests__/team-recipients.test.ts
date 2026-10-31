@@ -85,10 +85,10 @@ describe('the start date is written once and agrees everywhere', () => {
     assert.equal(`${SALARY_START_YEAR}-${String(SALARY_START_MONTH).padStart(2, '0')}-01`, DAY);
   });
 
-  test('exactly one person approves field pay, one runs the creative program, one dispatches', () => {
+  test('exactly one person approves field pay and one runs the creative program; Ryan and Dotti dispatch', () => {
     assert.deepEqual(TEAM_MEMBERS.filter((m) => m.duties?.includes('field_pay')).map((m) => m.email), [RYAN]);
     assert.deepEqual(TEAM_MEMBERS.filter((m) => m.duties?.includes('creative')).map((m) => m.email), [DOTTI]);
-    assert.deepEqual(TEAM_MEMBERS.filter((m) => m.duties?.includes('dispatch')).map((m) => m.email), [DOTTI]);
+    assert.deepEqual(TEAM_MEMBERS.filter((m) => m.duties?.includes('dispatch')).map((m) => m.email), [RYAN, DOTTI]);
   });
 });
 
