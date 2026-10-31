@@ -576,6 +576,22 @@ export const HELM_MODULES: HelmModule[] = [
     group: 'relationships',
     section: 'messaging',
   },
+  // The Guest reviews lens of the Guests tab (2026-10-30): our reviews OF
+  // guests (stop Guesty's automatic 5-star review on a red stay, post our own
+  // on day 13) and our public replies to their below-five reviews. Hidden
+  // from the nav lists like the other lenses; the lens row and search reach it.
+  {
+    id: 'messaging-reviews',
+    href: '/messaging/reviews',
+    number: '08i',
+    title: 'Guest Reviews',
+    description: "Reviews in both directions: stop Guesty's automatic 5-star review of a guest whose stay went red, post our own review of them before the window closes, and reply publicly to a review under five stars. The Guest reviews lens of the Messaging Guests tab.",
+    status: 'active',
+    primary: false,
+    hidden: true,
+    group: 'relationships',
+    section: 'messaging',
+  },
   // Owner Messaging is now a TAB inside Messaging (see MessagingTabs), same
   // pattern as Statements / Revenue / Forecast / Books sitting
   // under Financials. Hidden from the nav lists so it doesn't duplicate the

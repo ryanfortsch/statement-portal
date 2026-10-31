@@ -30,8 +30,8 @@ export type TeamAccess = 'owner' | 'staff';
  * copied on every staff document email (the signing link and the signed copy).
  * `dispatch`: plans who goes where: names someone else on a walk, takes
  * someone else off one, and creates, publishes or hands out a Field packet.
- * One person for now (Dotti, 2026-10-30); `hasDuty` is the gate, so moving
- * it is one line here.
+ * Ryan and Dotti (2026-10-30; Ryan runs the company, so he holds every
+ * duty's authority); `hasDuty` is the gate, so moving it is one line here.
  * Notices resolve through `src/lib/team-recipients.ts`; nothing in the app
  * should name a teammate's inbox directly.
  */
@@ -74,7 +74,7 @@ export const TEAM_MEMBERS: TeamMember[] = [
     role: 'principal',
     access: 'owner',
     active: true,
-    duties: ['field_pay', 'countersign'],
+    duties: ['field_pay', 'countersign', 'dispatch'],
   },
   {
     email: 'allie@risingtidestr.com',

@@ -60,10 +60,32 @@ export type ReviewAskStage = {
   card: ReviewAskCard | null;
 };
 
+/** One stage of our review OF the guest (concierge host_reviews): the stop
+ *  of Guesty's auto review, or our own review to post. */
+export type HostReviewStage = {
+  /** stop | post */
+  stage: string;
+  check_out: string;
+  /** '' while open; stopped | let_post | too_late | expired | no_auto_review
+   *  (stop), posted | skipped | expired | not_possible (post). */
+  outcome: string;
+  outcome_note: string;
+  outcome_at: string;
+  fires_at: string;
+  due_by: string;
+  window_closes: string;
+  conduct: string;
+  conduct_reason: string;
+  card_status: string;
+};
+
 export type ReservationReviewAsk = {
   reservation_id: string;
   first: ReviewAskStage | null;
   followup: ReviewAskStage | null;
+  /** Our review OF the guest, by stage. Only a red stay has one; absent on
+   *  an older concierge. */
+  host_review?: { stop: HostReviewStage | null; post: HostReviewStage | null } | null;
   /** The one ask the engine made before 2026-10-04. */
   legacy: { requested_at: string; card: ReviewAskCard | null } | null;
   /** The thread says the guest submitted a review. A report, not proof. */
@@ -80,6 +102,11 @@ export type ReviewAskSettings = {
   excluded_slugs: string[];
   /** YYYY-MM-DD of the ledger's first decision. */
   ledger_started: string;
+  /** Guesty's Auto reviews delay, as the concierge is told it (host_reviews). */
+  auto_review_delay_days?: number;
+  /** The day after checkout our own review of a red guest is due. */
+  host_review_post_day?: number;
+  host_review_cards?: boolean;
 };
 
 export type ReviewAsksPayload = ReviewAskSettings & {
@@ -354,6 +381,51 @@ export function describeAsk(
   // due outranks a finished first ask.
   const rank: Record<AskTone, number> = { waiting: 4, due: 3, unknown: 2, skipped: 1, done: 0 };
   return { text: `${head.text} · ${tail.text}`, tone: rank[tail.tone] > rank[head.tone] ? tail.tone : head.tone };
+}
+
+// ── Our review of them ─────────────────────────────────────────────────────
+
+/**
+ * Our review OF the guest, in one line, for the Recent stays view. Only a red
+ * stay has a record (the concierge files host-review cards for red first-stage
+ * decisions alone); on every other stay Guesty's auto review runs unseen, so
+ * the line is null and the row stays as it was.
+ */
+export function describeHostReview(ask: ReservationReviewAsk | null | 'unavailable', today: string): AskLine | null {
+  if (!ask || ask === 'unavailable') return null;
+  const stop = ask.host_review?.stop ?? null;
+  const post = ask.host_review?.post ?? null;
+  if (post) {
+    switch (post.outcome) {
+      case 'posted':
+        return { text: `Our review of them posted${post.outcome_at ? ` ${shortInstant(post.outcome_at)}` : ''}`, tone: 'done' };
+      case 'skipped':
+        return { text: 'No review of them, by choice', tone: 'skipped' };
+      case 'expired':
+        return { text: 'Our review of them: the window closed with the card open', tone: 'unknown' };
+      case 'not_possible':
+        return { text: "Guesty's 5-star auto review went up; a stay gets one host review", tone: 'skipped' };
+      default:
+        if (post.due_by && today > post.due_by) return { text: `Our review of them overdue since ${shortDay(post.due_by)}`, tone: 'due' };
+        return { text: `Our review of them waiting to post, due ${shortDay(post.due_by)}`, tone: 'waiting' };
+    }
+  }
+  if (!stop) return null;
+  switch (stop.outcome) {
+    case 'stopped':
+      return { text: "Guesty's auto review stopped · our review of them follows on day 13", tone: 'done' };
+    case 'let_post':
+      return { text: "Guesty's 5-star auto review allowed, by choice", tone: 'skipped' };
+    case 'too_late':
+      return { text: "Guesty's 5-star auto review went up before the stay read red", tone: 'skipped' };
+    case 'expired':
+      return { text: "Guesty's 5-star auto review went up: the stop card was not acted on", tone: 'unknown' };
+    case 'no_auto_review':
+      return null;
+    default:
+      if (stop.due_by && today > stop.due_by) return { text: "Stop Guesty's auto review: past due, check the reservation", tone: 'due' };
+      return { text: `Stop Guesty's auto review in Guesty by ${shortDay(stop.due_by)}`, tone: 'waiting' };
+  }
 }
 
 // ── The review line ────────────────────────────────────────────────────────

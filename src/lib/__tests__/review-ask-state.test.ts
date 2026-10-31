@@ -280,3 +280,27 @@ test('Recent stays is a page, not a queue: the home feed does not read it', () =
   assert.ok(tab.includes("params.view === 'stays'"), 'the Reviews tab carries the Recent stays view');
   assert.ok(tab.includes('#stay-') && tab.includes('#review-'), 'a review links to its stay and back');
 });
+
+test('our review of them: only a red stay has a line, and it follows the ledger', async () => {
+  const { describeHostReview } = await import('../review-ask-state.ts');
+  const base = { stage: 'stop', check_out: CO, outcome: '', outcome_note: '', outcome_at: '', fires_at: '2026-10-17T00:00:00-04:00', due_by: '2026-10-16', window_closes: '2026-10-28', conduct: '', conduct_reason: '', card_status: 'pending' };
+  const ask = (hr: ReservationReviewAsk['host_review']): ReservationReviewAsk => ({
+    reservation_id: 'r', first: stage('red', null), followup: null, legacy: null, guest_reported_review: false, host_acknowledged_review: false, host_review: hr,
+  });
+  assert.equal(describeHostReview(null, '2026-10-16'), null);
+  assert.equal(describeHostReview('unavailable', '2026-10-16'), null);
+  assert.equal(describeHostReview(ask(undefined), '2026-10-16'), null);
+  assert.equal(describeHostReview(ask({ stop: null, post: null }), '2026-10-16'), null);
+  assert.deepEqual(describeHostReview(ask({ stop: base, post: null }), '2026-10-15'), { text: "Stop Guesty's auto review in Guesty by Oct 16", tone: 'waiting' });
+  assert.equal(describeHostReview(ask({ stop: base, post: null }), '2026-10-17')?.tone, 'due');
+  assert.deepEqual(describeHostReview(ask({ stop: { ...base, outcome: 'stopped' }, post: null }), '2026-10-20'), { text: "Guesty's auto review stopped · our review of them follows on day 13", tone: 'done' });
+  assert.equal(describeHostReview(ask({ stop: { ...base, outcome: 'too_late' }, post: null }), '2026-10-20')?.tone, 'skipped');
+  assert.equal(describeHostReview(ask({ stop: { ...base, outcome: 'let_post' }, post: null }), '2026-10-20')?.text, "Guesty's 5-star auto review allowed, by choice");
+  assert.equal(describeHostReview(ask({ stop: { ...base, outcome: 'no_auto_review' }, post: null }), '2026-10-20'), null);
+  const post = { ...base, stage: 'post', due_by: '2026-10-27', fires_at: '' };
+  assert.deepEqual(describeHostReview(ask({ stop: { ...base, outcome: 'stopped' }, post }), '2026-10-26'), { text: 'Our review of them waiting to post, due Oct 27', tone: 'waiting' });
+  assert.equal(describeHostReview(ask({ stop: { ...base, outcome: 'stopped' }, post }), '2026-10-28')?.tone, 'due');
+  assert.match(describeHostReview(ask({ stop: null, post: { ...post, outcome: 'posted', outcome_at: '2026-10-27T15:00:00+00:00' } }), '2026-10-28')?.text ?? '', /^Our review of them posted /);
+  assert.equal(describeHostReview(ask({ stop: null, post: { ...post, outcome: 'skipped' } }), '2026-10-28')?.text, 'No review of them, by choice');
+  assert.equal(describeHostReview(ask({ stop: null, post: { ...post, outcome: 'not_possible' } }), '2026-10-28')?.tone, 'skipped');
+});

@@ -10,7 +10,7 @@ import { fetchPendingCounts, jitteredInterval, subscribePendingCounts } from '@/
  * schedule digest for Cleaners. Scheduled sends do not need approval.
  * Polling and confirmed queue changes reconcile through the shared fetcher.
  */
-export function MessagingTabCount({ category }: { category: 'guests' | 'owners' | 'cleaners' | 'contractors' | 'team' }) {
+export function MessagingTabCount({ category }: { category: 'guests' | 'owners' | 'cleaners' | 'contractors' | 'team' | 'reviews' }) {
   const [count, setCount] = useState<number | null>(null);
   const pathname = usePathname();
 
@@ -26,6 +26,7 @@ export function MessagingTabCount({ category }: { category: 'guests' | 'owners' 
         category === 'owners' ? data.owners :
         category === 'cleaners' ? data.cleaners :
         category === 'contractors' ? data.contractors :
+        category === 'reviews' ? data.reviews :
         // Team: the cleaners (texts, a pending schedule, "clean after?")
         // and the contractors in one number; the page's kinds row splits it.
         typeof data.cleaners === 'number' && typeof data.contractors === 'number' ? data.cleaners + data.contractors : null;
@@ -63,6 +64,7 @@ export function MessagingTabCount({ category }: { category: 'guests' | 'owners' 
     category === 'guests' ? 'var(--ink)' :              // navy — brand default
     category === 'owners' ? 'var(--signal)' :           // gold — established
     category === 'cleaners' || category === 'team' ? '#1f5e6b' : // teal: the crew
+    category === 'reviews' ? '#4a3f6b' :                 // plum: our reviews of guests
     '#7a5c3a';                                          // warm brown: contractors
 
   return (
