@@ -67,6 +67,17 @@ const nextConfig: NextConfig = {
     serverActions: {
       bodySizeLimit: '4mb',
     },
+    // No Turbopack filesystem cache for production builds. Vercel restores
+    // the previous deployment's build cache, and on 2026-10-31 (Next 16.4.3)
+    // the cached build reused globals.css's chunk unchanged: the deploy for
+    // #2090 compiled in 3.4s, its markup changes rendered, and not one of
+    // its new CSS rules reached the browser, because the stylesheet kept
+    // the old name (content-addressed under /_next/static/immutable/) and
+    // the old bytes. A full compile costs about a minute per deploy; a
+    // stylesheet that silently lags the markup costs more. Flip this back
+    // only after a build with the cache on is seen to pick up a CSS-only
+    // change.
+    turbopackFileSystemCacheForBuild: false,
   },
 
   // Next's output-file-tracing skips the Chromium binary under
