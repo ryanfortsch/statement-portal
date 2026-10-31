@@ -20,6 +20,7 @@ import { displayNameForEmail } from '@/lib/team';
 import { VENDOR_LABEL } from '@/lib/vendor-schedule';
 import { composeBoard, type Board, type BoardCount, type BoardRow, type BoardStateKey } from '@/lib/turnover-board';
 import { GRID_DAYS, gridDays, homesFromCalendar, toGridStay } from '@/lib/visit-grid';
+import { loadUnitParents } from '@/lib/unit-homes-server';
 import { VisitGrid } from './VisitGrid';
 import {
   loadOperationsData,
@@ -189,7 +190,7 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
     );
   }
 
-  const [{ lastSyncedAt, isStale }, data, session, filterPropertyName, propertyOptions, cleaningDays, dispatcher] = await Promise.all([
+  const [{ lastSyncedAt, isStale }, data, session, filterPropertyName, propertyOptions, cleaningDays, dispatcher, unitParents] = await Promise.all([
     readSyncStatus(),
     loadOperationsData(gridRange, '14d', propertyFilter, 0, undefined, { departures: true }),
     auth(),
@@ -199,6 +200,8 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
     // Whether this login plans walks for others (team.ts, `dispatch`): the
     // grid's Planning for row and the plan dialog's picker.
     sessionDispatches(),
+    // A split home's units ride under their house on the grid.
+    loadUnitParents(),
   ]);
   const myEmail = session?.user?.email ?? '';
 
@@ -279,7 +282,7 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
           <div className="eyebrow">Who&rsquo;s going where</div>
           <span style={{ fontSize: 10, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>Next two weeks</span>
         </div>
-        <VisitGrid today={today} days={gridDays(today, GRID_DAYS)} homes={gridHomes} stays={gridStays} myEmail={myEmail} dispatcher={dispatcher} />
+        <VisitGrid today={today} days={gridDays(today, GRID_DAYS)} homes={gridHomes} stays={gridStays} myEmail={myEmail} dispatcher={dispatcher} parentOf={Object.fromEntries(unitParents)} />
       </section>
 
       {/* THE BOARD. One bordered row carries the summary on the left and

@@ -17,24 +17,13 @@ import PropertiesMap from './PropertiesMap';
 import { PropertiesTabBar } from './PropertiesTabBar';
 import { isOwnerSession } from '@/lib/helm-access-server';
 import { operatingDate } from '@/lib/operating-date';
-import { nestUnits, parentOfUnits, type LinkRoleRow } from '@/lib/unit-homes';
+import { nestUnits } from '@/lib/unit-homes';
+import { loadUnitParents } from '@/lib/unit-homes-server';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 60;
 
 type WorkCounts = { total: number; ownerAction: number };
-
-/** Which homes are units of a split house (empty on any failure: flat list). */
-async function getUnitParents(): Promise<Map<string, string>> {
-  if (!isHelmConfigured) return new Map();
-  try {
-    const { data, error } = await supabase.from('listing_links').select('group_key, role, property_id');
-    if (error) throw error;
-    return parentOfUnits((data ?? []) as LinkRoleRow[]);
-  } catch {
-    return new Map();
-  }
-}
 
 async function getProperties(): Promise<{ properties: HelmPropertyRow[]; error: string | null }> {
   if (!isHelmConfigured) {
@@ -88,7 +77,7 @@ export default async function PropertiesPage() {
   const [{ properties, error }, workCounts, unitParents] = await Promise.all([
     getProperties(),
     getWorkCountsByProperty(),
-    getUnitParents(),
+    loadUnitParents(),
   ]);
   /**
    * Fleet readiness, one row per property, and the Coming online section

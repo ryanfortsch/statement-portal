@@ -145,6 +145,72 @@ describe('what the house is doing that day', () => {
     assert.equal(starts.state, 'open');
     assert.equal(starts.pm, 'block');
     assert.equal(starts.arriving, false, 'a hold is not a guest deadline');
+    assert.equal(starts.hold, 'edge');
+    assert.equal(cell(ME, '21_horton', '2026-10-27').hold, 'edge', 'the owner leaves inside the window: the hold keeps its weight');
+    assert.equal(cell(ME, '21_horton', '2026-10-25').hold, null);
+  });
+  test("a hold that runs past the last day shown is a whisper; one that ends in view is not", () => {
+    const homes = [
+      home('79_main', '79 Main', [{ id: 'own', in: '2026-10-01', out: '2026-12-01', kind: 'block' }]),
+      home('36_granite', '36 Granite', [{ id: 'L', in: '2026-10-20', out: '2026-10-23' }, { id: 'own2', in: '2026-10-23', out: '2026-12-01', kind: 'block' }]),
+      home('3_locust', '3 Locust', [{ id: 'G', in: '2026-10-19', out: '2026-10-21' }, { id: 'own3', in: '2026-10-21', out: '2026-10-24', kind: 'block' }]),
+    ];
+    const grid = composeVisitGrid({ today: TODAY, days: DAYS, homes, stays: [], myEmail: ME, nameFor, initialsFor });
+    const row = (id: string) => grid.rows.find((r) => r.propertyId === id)!;
+    assert.ok(row('79_main').cells.every((c) => c.state === 'blocked' && c.hold === 'long'), "the owner's for the foreseeable: every cell a whisper");
+    const granite = row('36_granite');
+    assert.equal(granite.cells.find((c) => c.date === '2026-10-23')!.hold, 'long', 'a hold that starts in the window but never ends in it is still a whisper');
+    assert.equal(granite.cells.find((c) => c.date === '2026-10-22')!.hold, null, 'the guest before it is a guest');
+    const locust = row('3_locust');
+    assert.ok(['2026-10-21', '2026-10-22', '2026-10-23', '2026-10-24'].every((d) => locust.cells.find((c) => c.date === d)!.hold === 'edge'), 'the owner leaves on the 24th: the clean after is in view, full weight');
+  });
+});
+
+describe("a split home's units ride under their house", () => {
+  // 17 Beach: the house has nothing on, the Guest House has a guest, the
+  // Front Unit nothing. 4 Middle: the house has a guest coming, the North
+  // Unit sits in its winter hand block, the Road Unit has a guest leaving.
+  const homes = [
+    home('21_horton', '21 Horton', [{ id: 'B', in: '2026-10-21', out: '2026-10-24' }]),
+    home('17_beach', '17 Beach', []),
+    home('17_beach_front', '17 Beach Front Unit', []),
+    home('17_beach_back', '17 Beach Guest House', [{ id: 'U', in: '2026-10-22', out: '2026-10-25' }]),
+    home('4_middle', '4 Middle Road', [{ id: 'M', in: '2026-11-02', out: '2026-11-06' }]),
+    home('4_middle_north', '4 Middle North Unit', [{ id: 'hold', in: '2026-10-01', out: '2027-01-05', kind: 'block' }]),
+    home('4_middle_unit', '4 Middle Road Unit', [{ id: 'V', in: '2026-10-16', out: '2026-10-19' }]),
+    home('x_unit', 'X Unit', []),
+  ];
+  const parentOf = { '17_beach_front': '17_beach', '17_beach_back': '17_beach', '4_middle_north': '4_middle', '4_middle_unit': '4_middle', x_unit: 'x_house' };
+  const stays = [
+    stay({ reservationId: 'B', propertyId: '21_horton', checkIn: '2026-10-21', checkOut: '2026-10-24' }),
+    stay({ reservationId: 'U', propertyId: '17_beach_back', checkIn: '2026-10-22', checkOut: '2026-10-25' }),
+    stay({ reservationId: 'M', propertyId: '4_middle', checkIn: '2026-11-02', checkOut: '2026-11-06' }),
+  ];
+  const grid = composeVisitGrid({ today: TODAY, days: DAYS, homes, stays, myEmail: ME, nameFor, initialsFor, parentOf });
+  const row = (id: string) => grid.rows.find((r) => r.propertyId === id);
+  test('a unit with a guest in the window is a row under its house, and pulls the house up to its arrival', () => {
+    assert.deepEqual(grid.rows.map((r) => r.propertyId), ['21_horton', '17_beach', '17_beach_back', '4_middle', '4_middle_unit', 'x_unit']);
+    assert.equal(row('17_beach_back')!.unitOf, '17_beach');
+    assert.equal(row('17_beach')!.unitOf, null);
+    assert.equal(row('17_beach')!.quiet, false, 'the house reads as working because its unit is');
+    assert.equal(row('17_beach_back')!.quiet, false);
+    assert.equal(row('4_middle_unit')!.unitOf, '4_middle', 'a guest leaving is still a guest in the window');
+  });
+  test('a unit with nothing booked folds into its house as a count; a hold alone never opens a unit row', () => {
+    assert.equal(row('17_beach_front'), undefined);
+    assert.deepEqual(row('17_beach')!.foldedUnits, ['17 Beach Front Unit']);
+    assert.equal(row('4_middle_north'), undefined, 'the winter hand block is not a booking');
+    assert.deepEqual(row('4_middle')!.foldedUnits, ['4 Middle North Unit']);
+    assert.deepEqual(row('21_horton')!.foldedUnits, []);
+  });
+  test('a unit whose house is not on the grid stays a row of its own', () => {
+    assert.equal(row('x_unit')!.unitOf, null);
+    assert.equal(row('x_unit')!.quiet, true);
+  });
+  test('the units still answer a tap: the Guest House asks for its prep days', () => {
+    const back = row('17_beach_back')!;
+    assert.deepEqual(back.cells.filter((c) => c.needs).map((c) => c.date), ['2026-10-19', '2026-10-20', '2026-10-21', '2026-10-22']);
+    assert.equal(back.cells.find((c) => c.date === '2026-10-20')!.tap.kind, 'claim');
   });
 });
 
@@ -268,6 +334,9 @@ describe('which homes are on the grid, and in what order', () => {
     const quiet = rows.find((r) => r.propertyId === '73_rocky_neck')!;
     assert.ok(quiet.cells.every((c) => !c.needs && c.tap.kind === 'none'), 'a quiet home asks for nothing and takes no tap');
     assert.equal(quiet.nextNeed, null);
+    assert.deepEqual(rows.filter((r) => r.quiet).map((r) => r.propertyId), ['17_beach', '73_rocky_neck', '84_thatcher'], 'quiet = no arrival in the window; the divider sits before the first');
+    assert.equal(rows.findIndex((r) => r.quiet), rows.length - 3, 'and every quiet row is below every working one');
+    assert.ok(rows.every((r) => r.unitOf === null && r.foldedUnits.length === 0), 'no split homes here: plain rows');
   });
   test('rows run in the order the week happens: next arrival first', () => {
     const ids = gridFor(ME).rows.map((r) => r.propertyId);
@@ -380,5 +449,31 @@ describe('one record behind every tap', () => {
     assert.match(claim, /assigned_to_email: assignee/);
     assert.match(claim, /if \(!\(await sessionDispatches\(\)\)\) return \{ ok: false, error: WALK_FOR_OTHERS \};/, 'a teammate only by the dispatcher');
     assert.match(claim, /if \(readErr\) return \{ ok: false/, 'a failed read never becomes a blank write');
+  });
+});
+
+describe('the renderer draws what the model says', () => {
+  const grid = readFileSync(new URL('../../app/turnovers/VisitGrid.tsx', import.meta.url), 'utf8');
+  const page = readFileSync(new URL('../../app/turnovers/page.tsx', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../../app/globals.css', import.meta.url), 'utf8');
+  test('the page hands the grid the one unit map the properties list reads', () => {
+    assert.match(page, /import \{ loadUnitParents \} from '@\/lib\/unit-homes-server'/);
+    assert.match(page, /parentOf=\{Object\.fromEntries\(unitParents\)\}/);
+    const props = readFileSync(new URL('../../app/properties/page.tsx', import.meta.url), 'utf8');
+    assert.match(props, /loadUnitParents\(\)/, 'the properties list reads the same loader');
+    assert.ok(!/from\('listing_links'\)/.test(props), 'and no longer its own copy');
+  });
+  test('the divider sits before the first quiet row, a unit row is marked, a folded count is a chip', () => {
+    assert.match(grid, /const divider = row\.quiet && i > 0 && !grid\.rows\[i - 1\]\.quiet;/);
+    assert.match(grid, /No arrivals in the next two weeks/);
+    assert.match(grid, /data-unit=\{unit \|\| undefined\}/);
+    assert.match(grid, /className="rt-vg-units"/);
+    assert.match(css, /\.rt-vg-name\[data-unit\]/);
+    assert.match(css, /\.rt-vg-divider \{\n  grid-column: 1 \/ -1;/);
+  });
+  test('a long hold is a whisper: the bar carries data-long and the stylesheet fades it', () => {
+    assert.match(grid, /data-long=\{cell\.hold === 'long' \|\| undefined\}/, 'the full-day bar');
+    assert.match(grid, /data-long=\{\(cell\.pm === 'block' && cell\.hold === 'long'\) \|\| undefined\}/, 'the half-day bar');
+    assert.match(css, /\.rt-vg-bar\[data-block\]\[data-long\] \{\n  background: repeating-linear-gradient\(45deg, rgba\(30, 46, 52, 0\.07\)/);
   });
 });

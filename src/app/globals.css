@@ -1624,6 +1624,40 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
 .rt-vg-bar[data-block] {
   background: repeating-linear-gradient(45deg, rgba(30, 46, 52, 0.16) 0 4px, rgba(30, 46, 52, 0.05) 4px 8px);
 }
+/* An owner's hold that runs past the last day shown is a whisper: nothing
+   happens there this fortnight. One that ends inside the window keeps its
+   weight, since the clean after it is in view. */
+.rt-vg-bar[data-block][data-long] {
+  background: repeating-linear-gradient(45deg, rgba(30, 46, 52, 0.07) 0 4px, rgba(30, 46, 52, 0.02) 4px 8px);
+}
+/* A split home's unit with a guest in the window rides under its house:
+   indented, lighter, with an elbow off the house's row. */
+.rt-vg-name[data-unit] { padding-left: 26px; color: var(--ink-3); font-size: 12px; }
+.rt-vg-name[data-unit]::before {
+  content: '';
+  position: absolute;
+  left: 11px;
+  top: 0;
+  height: 50%;
+  width: 8px;
+  border-left: 1px solid var(--ink-4);
+  border-bottom: 1px solid var(--ink-4);
+}
+/* The house's units with nothing booked, folded into its row as a count. */
+.rt-vg-units { font-size: 10px; color: var(--ink-4); letter-spacing: 0.02em; white-space: nowrap; flex: 0 0 auto; }
+/* The line between the homes with an arrival ahead and the quiet ones. The
+   words stay put while the days scroll. */
+.rt-vg-divider {
+  grid-column: 1 / -1;
+  padding: 8px 10px 5px;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+  background: var(--paper-2);
+  border-bottom: 1px solid var(--rule);
+}
+.rt-vg-divider > span { position: sticky; left: 10px; }
 /* The arriving stay's channel: one small dot at the far end of its first
    bar, in the color the turnover list and the calendar give that channel
    (lib/channel-style.ts). The bar itself stays neutral so the dot reads,
@@ -1687,6 +1721,9 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
 @media (max-width: 640px) {
   .rt-vg { --vg-name: 104px; --vg-day: 34px; }
   .rt-vg-name { font-size: 12px; padding: 0 8px; gap: 4px; }
+  .rt-vg-name[data-unit] { padding-left: 20px; font-size: 11px; }
+  .rt-vg-name[data-unit]::before { left: 8px; width: 7px; }
+  .rt-vg-divider > span { left: 8px; }
   .rt-vg-head[data-today] .rt-vg-dow-today { display: none; }
   .rt-vg-head[data-today] .rt-vg-dow-day { display: inline; }
   .rt-vg-mark { width: 20px; height: 20px; font-size: 9px; }

@@ -31,7 +31,12 @@ const homes=[
  home('53_rocky_neck_2','53 Rocky Neck, Downstairs',[{id:'G',in:'2026-10-18',out:'2026-10-18'},{id:'G2',in:'2026-10-18',out:'2026-10-21'}]),
  home('73_rocky_neck','73 Rocky Neck',[{id:'H',in:'2026-10-15',out:'2026-10-19'}]),
  home('17_beach','17 Beach',[]),
+ home('17_beach_front','17 Beach Front Unit',[]),
+ home('17_beach_back','17 Beach Guest House',[{id:'U',in:'2026-10-22',out:'2026-10-25'}]),
+ home('79_main','79 Main',[{id:'own',in:'2026-10-01',out:'2026-12-01',kind:'block'}]),
 ];
+// A split home's units ride under their house (lib/unit-homes.ts).
+const parentOf={'17_beach_front':'17_beach','17_beach_back':'17_beach'};
 const stays=[
  stay({reservationId:'B',propertyId:'21_horton',checkIn:'2026-10-21',checkOut:'2026-10-24',channel:'airbnb',plan:{id:'p1',date:'2026-10-20',assignee:ME,plannedBy:DOTTI,hasNotes:false}}),
  stay({reservationId:'C',propertyId:'3_south',checkIn:'2026-10-20',checkOut:'2026-10-23',channel:'vrbo'}),
@@ -39,6 +44,7 @@ const stays=[
  stay({reservationId:'E',propertyId:'30_woodward',checkIn:'2026-10-19',checkOut:'2026-10-25',channel:'airbnb',walk:'done',walkedOn:'2026-10-18',walkedBy:DOTTI}),
  stay({reservationId:'F',propertyId:'19_rackliffe',checkIn:'2026-10-20',checkOut:'2026-10-27',channel:'manual',plan:{id:'p2',date:'2026-10-16',assignee:DOTTI,plannedBy:DOTTI,hasNotes:false}}),
  stay({reservationId:'G2',propertyId:'53_rocky_neck_2',checkIn:'2026-10-18',checkOut:'2026-10-21',channel:'direct'}),
+ stay({reservationId:'U',propertyId:'17_beach_back',checkIn:'2026-10-22',checkOut:'2026-10-25',channel:'airbnb'}),
 ];
 
 // ── the fixture page ──
@@ -52,13 +58,13 @@ export const claimWalk=a=>save('claim',a),releaseWalk=(id,opts)=>save('release',
 `);
 await writeFile(join(scratch,'refresh.js'),'export const useSoftRefresh=()=>()=>{window.refreshes++;};');
 // GridPlan carries hasNotes; the fixture's plans have none.
-await writeFile(join(scratch,'data.js'),'export const homes='+JSON.stringify(homes)+';export const stays='+JSON.stringify(stays)+';export const today='+JSON.stringify(TODAY)+';export const days='+JSON.stringify(DAYS)+';');
+await writeFile(join(scratch,'data.js'),'export const homes='+JSON.stringify(homes)+';export const stays='+JSON.stringify(stays)+';export const today='+JSON.stringify(TODAY)+';export const days='+JSON.stringify(DAYS)+';export const parentOf='+JSON.stringify(parentOf)+';');
 await writeFile(join(scratch,'entry.js'),compile(`
 import React from 'react';import {createRoot} from 'react-dom/client';
-import {VisitGrid} from './grid.js';import {homes,stays,today,days} from './data.js';
+import {VisitGrid} from './grid.js';import {homes,stays,today,days,parentOf} from './data.js';
 window.calls=[];window.refreshes=0;window.confirm=()=>true;
 const as=new URLSearchParams(location.search).get('as')==='dotti';
-createRoot(document.getElementById('root')).render(<section id="board"><VisitGrid today={today} days={days} homes={homes} stays={stays} myEmail={as?${JSON.stringify(DOTTI)}:${JSON.stringify(ME)}} dispatcher={as}/></section>);
+createRoot(document.getElementById('root')).render(<section id="board"><VisitGrid today={today} days={days} homes={homes} stays={stays} myEmail={as?${JSON.stringify(DOTTI)}:${JSON.stringify(ME)}} dispatcher={as} parentOf={parentOf}/></section>);
 `));
 const alias={'./plan-actions':'actions','@/lib/use-soft-refresh':'refresh','@/lib/team':'team','@/lib/visit-grid':'model','@/lib/channel-style':'channel-style','@/components/ConfirmDialog':'confirm','@/lib/confirm-question':'confirmq','@/lib/button-class':'button-class'};
 await new Promise((resolve,reject)=>{const compiler=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.js'),output:{path:scratch,filename:'bundle.js'},resolve:{modules:[join(root,'node_modules')],alias:Object.fromEntries(Object.entries(alias).map(([k,v])=>[k,join(scratch,v+'.js')]))},performance:{hints:false}});compiler.run((err,stats)=>compiler.close(()=>err||stats?.hasErrors()?reject(err||Error(stats.toString({all:false,errors:true}))):resolve()));});
@@ -93,7 +99,13 @@ assert.equal(await page.$$eval('.rt-vg-head',es=>es.length),14,'fourteen day col
 // innerText, not textContent: the today column carries both words and the CSS shows one.
 assert.equal(await page.$eval('.rt-vg-head .rt-vg-dow',e=>e.innerText),'TODAY','the wide column says Today');
 const names=await page.$$eval('.rt-vg-name .rt-vg-nm',es=>es.map(e=>e.textContent));
-assert.deepEqual(names,['53 Rocky Neck, Downstairs','20 Enon','30 Woodward','19 Rackliffe','3 South','21 Horton','17 Beach','73 Rocky Neck'],'the week in the order it happens; 17 Beach (nothing on) and 73 Rocky Neck (only a checkout) last, by name');
+assert.deepEqual(names,['53 Rocky Neck, Downstairs','20 Enon','30 Woodward','19 Rackliffe','3 South','21 Horton','17 Beach','17 Beach Guest House','73 Rocky Neck','79 Main'],'the week in the order it happens; 17 Beach rides on its Guest House\'s arrival; 73 Rocky Neck (only a checkout) and 79 Main (the owner\'s) last, by name');
+assert.deepEqual(await page.$$eval('.rt-vg-name[data-unit] .rt-vg-nm',es=>es.map(e=>e.textContent)),['17 Beach Guest House'],'the booked unit is a row under its house');
+assert.deepEqual(await page.$$eval('.rt-vg-units',es=>es.map(e=>e.textContent+' | '+e.title)),['1 unit | 17 Beach Front Unit: nothing booked in the next two weeks'],'the unit with nothing booked folds into the house as a count');
+assert.deepEqual(await page.$$eval('.rt-vg-divider',es=>es.map(e=>e.textContent+' > '+e.nextElementSibling.textContent)),['No arrivals in the next two weeks > 73 Rocky Neck'],'one divider, before the first quiet home');
+assert.equal(await page.$$eval(cellSel('79 Main','')+' .rt-vg-bar[data-block][data-long]',es=>es.length),14,"the owner's for the foreseeable: fourteen whispers");
+assert.match(await page.$eval(cellSel('79 Main','Sun, Oct 18'),e=>e.getAttribute('aria-label')),/owner \/ hold, no end in view/);
+assert.equal(await page.$eval(cellSel('21 Horton','Tue, Oct 27')+' .rt-vg-bar[data-block]',e=>e.hasAttribute('data-long')),false,'a hold that ends inside the window keeps its weight');
 assert.deepEqual(await marks('21 Horton','Tue, Oct 20'),['DJ:plan:mine'],'my planned walk wears my initials');
 assert.deepEqual(await marks('20 Enon','Sun, Oct 18'),['JL:field'],'a Field packet wears the contractor');
 assert.deepEqual(await marks('30 Woodward','Sun, Oct 18'),['DM:walked'],'a walked house wears the walker');
@@ -101,8 +113,8 @@ assert.deepEqual(await marks('19 Rackliffe','Sun, Oct 18'),['DM:plan:late'],'a m
 assert.equal(await has('3 South','Mon, Oct 19','data-needs'),true,'an open day before an unplanned arrival is green');
 assert.equal(await has('21 Horton','Sun, Oct 18','disabled'),true,'a full house cannot be tapped');
 assert.equal(await has('21 Horton','Tue, Oct 27','disabled'),true,"an owner's hold cannot be tapped");
-assert.equal(await page.$$eval('.rt-vg-cell[data-needs]',es=>es.length),7,'seven open days need someone (3 South x3, 19 Rackliffe x3, the same-day flip at 53 Rocky Neck)');
-assert.deepEqual(await page.$$eval('.rt-vg-ch',es=>es.map(e=>e.dataset.channel).sort()),['airbnb','airbnb','booking_com','direct','manual','vrbo'],'one channel dot per arrival, on its arrival day');
+assert.equal(await page.$$eval('.rt-vg-cell[data-needs]',es=>es.length),11,'eleven open days need someone (3 South x3, 19 Rackliffe x3, the same-day flip at 53 Rocky Neck, the Guest House x4)');
+assert.deepEqual(await page.$$eval('.rt-vg-ch',es=>es.map(e=>e.dataset.channel).sort()),['airbnb','airbnb','airbnb','booking_com','direct','manual','vrbo'],'one channel dot per arrival, on its arrival day');
 assert.match(await page.$eval(cellSel('3 South','Tue, Oct 20'),e=>e.getAttribute('aria-label')),/VRBO guest arrives/,'the arrival day names the channel');
 await shot('desktop');
 pass('desktop: fourteen days, the right homes in the right order, every mark in the model\'s words');
