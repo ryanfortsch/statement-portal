@@ -50,6 +50,12 @@ export type TeamMember = {
   active: boolean;      // false = hidden from picker but old assignments still resolve
   duties?: TeamDuty[];
   /**
+   * false: never named on a walk. Off the grid's Planning for row and the
+   * plan dialog's Who walks it, and refused by claimWalk for a teammate.
+   * Office work (slips, to-dos) still assigns to them. Dotti, 2026-10-31.
+   */
+  walks?: boolean;
+  /**
    * First day on the team, YYYY-MM-DD. Before it the member is listed, so
    * an assignment made today resolves to their name, but receives no
    * notices: the ops digest and contractor threads reach them from this
@@ -97,6 +103,7 @@ export const TEAM_MEMBERS: TeamMember[] = [
     access: 'owner',
     active: true,
     duties: ['creative', 'dispatch'],
+    walks: false,
   },
   // Operations Manager from 2026-11-01. Staff access: operations, not
   // money (see helm-access.ts). Listed ahead of her Workspace seat so an
@@ -147,6 +154,17 @@ export function teamMemberForAnyEmail(email: string | null | undefined): TeamMem
 /** Active members suitable for an assign-to picker (filters role if needed). */
 export function assignableTeam(): TeamMember[] {
   return TEAM_MEMBERS.filter((m) => m.active);
+}
+
+/** The teammates a walk can be planned for: active, and not opted out of walks. */
+export function walkTeam(): TeamMember[] {
+  return assignableTeam().filter((m) => m.walks !== false);
+}
+
+/** Whether an address may be named on a walk (a roster member who walks). */
+export function walksHomes(email: string | null | undefined): boolean {
+  const m = getTeamMember(email);
+  return !!m && m.active && m.walks !== false;
 }
 
 /**

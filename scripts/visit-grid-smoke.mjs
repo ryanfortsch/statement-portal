@@ -93,7 +93,7 @@ assert.equal(await page.$$eval('.rt-vg-head',es=>es.length),14,'fourteen day col
 // innerText, not textContent: the today column carries both words and the CSS shows one.
 assert.equal(await page.$eval('.rt-vg-head .rt-vg-dow',e=>e.innerText),'TODAY','the wide column says Today');
 const names=await page.$$eval('.rt-vg-name .rt-vg-nm',es=>es.map(e=>e.textContent));
-assert.deepEqual(names,['53 Rocky Neck, Downstairs','20 Enon','30 Woodward','19 Rackliffe','3 South','21 Horton'],'the week in the order it happens; 17 Beach has nothing on, 73 Rocky Neck only a checkout');
+assert.deepEqual(names,['53 Rocky Neck, Downstairs','20 Enon','30 Woodward','19 Rackliffe','3 South','21 Horton','17 Beach','73 Rocky Neck'],'the week in the order it happens; 17 Beach (nothing on) and 73 Rocky Neck (only a checkout) last, by name');
 assert.deepEqual(await marks('21 Horton','Tue, Oct 20'),['DJ:plan:mine'],'my planned walk wears my initials');
 assert.deepEqual(await marks('20 Enon','Sun, Oct 18'),['JL:field'],'a Field packet wears the contractor');
 assert.deepEqual(await marks('30 Woodward','Sun, Oct 18'),['DM:walked'],'a walked house wears the walker');
@@ -151,9 +151,10 @@ pass('a refused tap withdraws the mark and shows the reason');
 // ── the dispatcher: a row above the grid says whom a tap plans for ──
 assert.equal(await page.$('.rt-vg-for'),null,'nobody else sees the Planning for row');
 await load(1250,900,'/?as=dotti');
-assert.deepEqual(await page.$$eval('.rt-vg-for-pick',es=>es.map(e=>e.textContent)),['DMMe','RFRyan','AOAllie','DJDelaney'],'me first, then the roster');
-assert.deepEqual(await marks('19 Rackliffe','Sun, Oct 18'),['DM:plan:mine:late'],'planning for myself, my late walk is mine');
-await (await page.$$('.rt-vg-for-pick'))[3].click();
+assert.deepEqual(await page.$$eval('.rt-vg-for-pick',es=>es.map(e=>e.textContent)),['RFRyan','AOAllie','DJDelaney'],'the walkers, in roster order: Dotti dispatches but does not walk');
+assert.equal(await page.$eval('.rt-vg-for-pick[data-on]',e=>e.textContent),'RFRyan','a dispatcher who does not walk starts on the first walker');
+assert.deepEqual(await marks('19 Rackliffe','Sun, Oct 18'),['DM:plan:late'],"my own late walk reads as someone else's while I plan for Ryan");
+await (await page.$$('.rt-vg-for-pick'))[2].click();
 assert.equal(await page.$eval('.rt-vg-for-pick[data-on]',e=>e.textContent),'DJDelaney');
 assert.deepEqual(await marks('21 Horton','Tue, Oct 20'),['DJ:plan:mine'],"planning for Delaney, her walk reads as the active one");
 await page.click(cellSel('3 South','Mon, Oct 19'));await waitCalls(1);
