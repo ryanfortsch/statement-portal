@@ -36,7 +36,7 @@ import {
   VIEW_AS_STAFF,
 } from '../helm-access.ts';
 import { HELM_MODULES, moduleVisibleTo, primaryModulesFor, getOverflowModulesFlat } from '../helm-modules.ts';
-import { TEAM_MEMBERS } from '../team.ts';
+import { TEAM_MEMBERS, walkTeam, walksHomes } from '../team.ts';
 
 const read = (repoPath: string): string =>
   readFileSync(new URL(`../../../${repoPath}`, import.meta.url), 'utf8');
@@ -787,6 +787,19 @@ describe('the dispatch duty: who goes where is Ryan and Dotti\'s call (2026-10-3
     assert.ok(detail.includes('const [owner, dispatcher] = await Promise.all([isOwnerSession(), sessionDispatches()]);'));
     assert.ok(/\) : dispatcher \? \(\n\s*<form action=\{publishPacket\}>/.test(detail), 'Publish renders for the dispatcher only');
     assert.ok(detail.includes('{dispatcher && (isAssignableStatus(packet.status)) && assignable.length > 0 && ('), 'so does Assign directly');
+  });
+
+  test('the walk list is the roster\'s walkers: Dotti dispatches, she does not walk (Dotti, 2026-10-31)', () => {
+    assert.deepEqual(walkTeam().map((m) => m.email), ['ryan@risingtidestr.com', 'allie@risingtidestr.com', 'delaney@risingtidestr.com']);
+    assert.equal(walksHomes(DOTTI), false);
+    assert.equal(walksHomes('delaney@risingtidestr.com'), true);
+    assert.equal(walksHomes('someone-new@risingtidestr.com'), false, 'off the roster is off the list');
+    const grid = read('src/app/turnovers/VisitGrid.tsx');
+    assert.ok(grid.includes('const all = walkTeam();'), 'the Planning for row lists walkers');
+    assert.ok(grid.includes("useState(walksHomes(myEmail) || !dispatcher ? myEmail : (team[0]?.email ?? myEmail))"), 'a dispatcher who does not walk starts on the first walker');
+    const plan = read('src/app/turnovers/PlanButton.tsx');
+    assert.ok(plan.includes('members={walkTeam()}'), 'so does Who walks it');
+    assert.ok(fn(read('src/app/turnovers/plan-actions.ts'), 'claimWalk').includes('if (!walksHomes(member.email))'), 'and the server refuses a walk for a non-walker');
   });
 
   test('a walk is planned for someone else, or taken away from them, by the dispatcher alone', () => {

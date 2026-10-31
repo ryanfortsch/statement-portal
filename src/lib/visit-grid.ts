@@ -321,13 +321,11 @@ export function composeVisitGrid(input: VisitGridInput): VisitGrid {
       };
     });
 
-    // A home is on the grid only when someone could go there: an arrival
-    // in the window, a day that needs someone (the prep days of an arrival
-    // just past it), or a mark. A checkout with nothing behind it is the
-    // cleaner's day, not a walk: nine such rows of beige sat under the
-    // live grid on its first day.
-    const inWindow = stays.some((s) => s.checkIn >= days[0] && s.checkIn <= days[days.length - 1]);
-    if (!seenArrival && !seenNeed && !seenBadge && !inWindow) continue;
+    // Every home is on the grid, so the whole fleet is accounted for at a
+    // glance (Dotti, 2026-10-31, after a quiet first week of November left
+    // nine rows and the rest looked lost). A home with nothing coming sorts
+    // to the bottom below, where it reads as quiet rather than missing.
+    void seenArrival; void seenNeed; void seenBadge;
 
     const nextNeed =
       stays
@@ -338,7 +336,8 @@ export function composeVisitGrid(input: VisitGridInput): VisitGrid {
   }
 
   // The order the week happens in: the home that turns next at the top,
-  // then by name. Stable as people claim, so a house never jumps.
+  // then by name; a home with no arrival ahead sorts last, by name. Stable
+  // as people claim, so a house never jumps.
   const nextArrival = (r: GridRow): string =>
     (staysByHome.get(r.propertyId) ?? []).map((s) => s.checkIn).filter((d) => d >= today).sort()[0] ?? '9999-99-99';
   rows.sort((a, b) => nextArrival(a).localeCompare(nextArrival(b)) || a.propertyName.localeCompare(b.propertyName));

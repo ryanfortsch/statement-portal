@@ -30,10 +30,13 @@ agenda, even after cancellation or moving beyond the visible window. This does
 not correct the shared CRM row or stop its existing reminder. That shared
 correction needs a separate reviewed action. Similar titles never auto-merge.
 
-## Rollout still required
+## Rollout
 
-1. Review and apply `20261031030000_appointment_agenda.sql`. Without it, the home
-   still reads contact records and visibly reports unavailable saved storage.
+1. `20261031030000_appointment_agenda.sql` and
+   `20261031040000_appointment_capture.sql` were applied on October 31, 2026,
+   after explicit release approval, in one guarded transaction. Their versions
+   are recorded in the production migration ledger. Existing appointments and
+   reminders were not changed; the new tables start empty.
 2. Review business snapshots against their latest source. The audit manifest
    lives outside Git. `node scripts/appointment-agenda-import.mjs <manifest>`
    validates offline. Only after separate data-write authorization, supply the
@@ -42,10 +45,11 @@ correction needs a separate reviewed action. Similar titles never auto-merge.
    and reports which deterministic ID needs checking. It never sends messages.
 3. Correct any erroneous shared CRM appointment/reminder separately using the
    verified source; a private agenda correction is not shared reconciliation.
-4. Obtain authorization for deployment. This draft branch has automatic Vercel
+4. Release approval covers marking PR #2084 ready, merging and deploying. This
+   branch has automatic Vercel
    deployments disabled in `vercel.json`, using the documented branch rule:
    https://vercel.com/docs/project-configuration/git-configuration
-5. Review/apply `20261031040000_appointment_capture.sql`, then explicitly enable
+5. Source storage is installed; separately enable
    only the approved accounts with `AGENDA_CAPTURE_EMAILS` (initial proposed
    scope: Ryan's work account). No accounts are enabled by default. The hourly
    cron at :20 reuses existing Google refresh credentials after Gmail verifies
@@ -147,11 +151,12 @@ Calendar 401/403 does not stop Gmail or Quo: each records its own outcome. The
 home shows disconnected and partial sources even with source details collapsed.
 It never labels an unconnected calendar empty or claims complete coverage.
 
-Keep the draft PR and the reviewed import/CRM-correction proposals ready. Do not
-apply migrations, enable accounts, import the audit, change shared reminders or
-merge/deploy as a side effect of postponing Calendar verification. Recheck the
-latest source evidence before applying the saved proposals, especially any
-appointment whose date has passed while setup was deferred.
+Release approval covers the two migrations and application deployment. The
+reviewed import/CRM-correction proposals and account capture enablement remain
+separate pending actions. Do not import the audit or change shared reminders as
+a side effect of postponing Calendar verification. Recheck the latest source
+evidence before applying the saved proposals, especially any appointment whose
+date has passed while setup was deferred.
 
 Provider contracts: [Calendar events list](https://developers.google.com/workspace/calendar/api/v3/reference/events/list),
 [Gmail threads list](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.threads/list).

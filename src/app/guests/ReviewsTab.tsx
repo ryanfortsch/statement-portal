@@ -10,6 +10,7 @@ import {
   type ReviewListFilters,
 } from '@/lib/reviews';
 import { loadRecentStays, stayWindowsForReviews, type RecentStay } from '@/lib/recent-stays';
+import { TestimonialsBlock } from './TestimonialsBlock';
 import { shortDay, type AskTone } from '@/lib/review-ask-state';
 
 /**
@@ -201,6 +202,9 @@ export async function ReviewsTab({ params }: { params: ReviewsTabParams }) {
           )}
         </form>
       </section>
+
+      {/* TESTIMONIALS from direct guests: nothing until the first one arrives. */}
+      <TestimonialsBlock propertyMap={propertyMap} />
 
       {/* LIST */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, flex: 1, width: '100%' }}>

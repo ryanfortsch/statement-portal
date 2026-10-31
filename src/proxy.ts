@@ -162,6 +162,11 @@ const PUBLIC_API_PREFIXES = [
   // accepted, balance paid). Self-guards via STAY_CONCIERGE_KEY (header
   // only); voided and never-sent quotes are 404 so the link reads as dead.
   "/api/sca-quotes/",
+  // Testimonials from direct guests: the concierge mints a form link per
+  // stellar stay (POST .../invite), staycapeann.com reads and submits the
+  // form by token and lists the approved ones per listing. Every handler
+  // calls authorizeStayConcierge; guest_testimonials is RLS-locked.
+  "/api/testimonials",
   // PMS bridge: staycapeann.com and stay-concierge read availability, price
   // a stay, create / cancel a reservation and read Helm-native guest threads
   // for a home whose calendar_authority is 'helm' (the Guesty replacement).

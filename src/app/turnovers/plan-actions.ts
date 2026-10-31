@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { sessionDispatches } from '@/lib/helm-access-server';
-import { getTeamMember } from '@/lib/team';
+import { getTeamMember, walksHomes } from '@/lib/team';
 import { changesSomeoneElse, isSomeoneElse, WALK_FOR_OTHERS, WALK_OFF_OTHERS } from '@/lib/walk-assignment';
 
 /**
@@ -116,6 +116,7 @@ export async function claimWalk(args: {
   if (isSomeoneElse(email, args.forEmail)) {
     const member = getTeamMember(args.forEmail);
     if (!member?.active) return { ok: false, error: 'Not on the team' };
+    if (!walksHomes(member.email)) return { ok: false, error: `${member.short} is not on the walk list` };
     if (!(await sessionDispatches())) return { ok: false, error: WALK_FOR_OTHERS };
     assignee = member.email;
   }

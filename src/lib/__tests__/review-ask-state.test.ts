@@ -174,7 +174,7 @@ test('a late first ask is the only ask', () => {
 });
 
 test('nothing recorded: the stay itself decides what can be said', () => {
-  assert.deepEqual(describeAsk({ checkOut: CO, channel: 'Direct' }, null, S, '2026-10-20'), { text: 'Not asked: the Google review link is not set yet', tone: 'skipped' });
+  assert.deepEqual(describeAsk({ checkOut: CO, channel: 'Direct' }, null, S, '2026-10-20'), { text: 'Not asked: direct asks are not switched on yet', tone: 'skipped' });
   assert.equal(describeAsk(airbnb, null, S, '2026-10-15').text, 'First ask due Oct 16');
   assert.equal(describeAsk(airbnb, null, S, '2026-10-17').text, 'First ask not sent yet');
   assert.equal(describeAsk(airbnb, null, S, '2026-10-19').text, 'First ask missed; a late ask is due Oct 21');
@@ -191,9 +191,9 @@ test('nothing recorded: the stay itself decides what can be said', () => {
 test('direct guests: one ask, stellar stays only, once the Google review link exists', () => {
   const direct = { checkOut: CO, channel: 'Direct' };
   const on = { ...S, direct_enabled: true, direct_since: '2026-10-01' };
-  // Off until the concierge holds the link; never "not asked" as if judged.
-  assert.deepEqual(describeAsk(direct, null, S, '2026-10-20'), { text: 'Not asked: the Google review link is not set yet', tone: 'skipped' });
-  assert.deepEqual(describeAsk(direct, null, { ...S, direct_enabled: undefined }, '2026-10-20').text, 'Not asked: the Google review link is not set yet');
+  // Off until the concierge's switch is on; never "not asked" as if judged.
+  assert.deepEqual(describeAsk(direct, null, S, '2026-10-20'), { text: 'Not asked: direct asks are not switched on yet', tone: 'skipped' });
+  assert.deepEqual(describeAsk(direct, null, { ...S, direct_enabled: undefined }, '2026-10-20').text, 'Not asked: direct asks are not switched on yet');
   // On: the same windows as every other stay, including the late first ask.
   assert.equal(describeAsk(direct, null, on, '2026-10-15').text, 'First ask due Oct 16');
   assert.equal(describeAsk(direct, null, on, '2026-10-17').text, 'First ask not sent yet');
@@ -215,9 +215,15 @@ test('direct guests: one ask, stellar stays only, once the Google review link ex
   const noContact = ask({ first: stage('held', null, { reason: 'no phone or email on the reservation' }) });
   assert.equal(describeAsk(direct, noContact, on, '2026-10-18').text, 'Not asked: no phone or email on the reservation');
   assert.equal(describeAsk(direct, ask({ first: stage('red', null, { reason: "guest said 'refund'" }) }), on, '2026-10-18').text, 'Not asked: the guest asked about a refund');
-  // The review itself lands on Google, which Helm does not read.
-  assert.deepEqual(describeReview(direct, null, '2026-10-20', false, true), { kind: 'no_platform', text: 'Google review, not tracked here' });
+  // A direct guest's review is their testimonial on staycapeann.com.
+  assert.deepEqual(describeReview(direct, null, '2026-10-20', false, true), { kind: 'no_platform', text: 'No testimonial yet' });
   assert.deepEqual(describeReview(direct, null, '2026-10-20'), { kind: 'no_platform', text: 'No review site' });
+  assert.deepEqual(describeReview(direct, null, '2026-10-20', false, true, { status: 'invited', rating: null }), { kind: 'none', text: 'Form link sent, no testimonial yet' });
+  assert.deepEqual(describeReview(direct, null, '2026-10-20', false, true, { status: 'submitted', rating: 5 }), { kind: 'reviewed', text: 'Testimonial ★★★★★ · waiting for your approval' });
+  assert.deepEqual(describeReview(direct, null, '2026-10-20', false, true, { status: 'approved', rating: 4 }), { kind: 'reviewed', text: 'Testimonial ★★★★☆ · on the site' });
+  assert.deepEqual(describeReview(direct, null, '2026-10-20', false, true, { status: 'hidden', rating: 3 }), { kind: 'none', text: 'Testimonial ★★★☆☆ · hidden' });
+  // An OTA stay never reads a testimonial.
+  assert.deepEqual(describeReview(airbnb, null, '2026-10-30', false, true, { status: 'approved', rating: 5 }), { kind: 'none', text: 'No review' });
   // An OTA stay is untouched by any of it.
   assert.equal(describeAsk(airbnb, sent, on, '2026-10-18').text, 'Asked Oct 16 · follow-up due Oct 21');
 });

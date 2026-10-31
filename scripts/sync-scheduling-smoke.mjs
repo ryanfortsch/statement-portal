@@ -36,7 +36,8 @@ export const markOwnerContacted=a=>save('contacted',a);
 await writeFile(join(scratch,'router.js'),`export {unstable_rethrow} from 'next/dist/client/components/unstable-rethrow.browser';`);
 await writeFile(join(scratch,'refresh.js'),'export const useSoftRefresh=()=>()=>window.refreshes++;');
 await writeFile(join(scratch,'link.js'),compile(`import React from 'react';export default function Link({href,children,prefetch,...props}){return <a {...props} href={href} onClick={e=>e.preventDefault()}>{children}</a>}`));
-await writeFile(join(scratch,'team.js'),`export const displayNameForEmail=e=>e,getTeamMember=()=>null;`);
+await writeFile(join(scratch,'team.js'),`export const displayNameForEmail=e=>e,getTeamMember=()=>null;
+export const walkTeam=()=>[];export const walksHomes=()=>false;`);
 // RunsRail reads the signed-in email to decide whether a Gmail draft link opens for this mailbox (#1811); the real module needs a provider and a server.
 await writeFile(join(scratch,'session.js'),`export const useSession=()=>({data:{user:{email:'staff@example.test'}},status:'authenticated'});`);
 // The picker is a separate tested control; exercise this editor's selected value.

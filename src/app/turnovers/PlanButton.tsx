@@ -4,7 +4,7 @@ import { useRef, useState } from 'react';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import { setInspectionPlan, deleteInspectionPlan } from './plan-actions';
 import { TeamPicker } from '@/components/TeamPicker';
-import { displayNameForEmail } from '@/lib/team';
+import { displayNameForEmail, walkTeam } from '@/lib/team';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { operatingDate } from '@/lib/operating-date';
 import { useConfirm } from '@/components/ConfirmDialog';
@@ -285,7 +285,8 @@ export function PlanButton({
             value={assignee}
             onChange={setAssignee}
             myEmail={myEmail}
-            placeholder="Anyone on the team"
+            members={walkTeam()}
+            placeholder="Anyone who walks"
           />
         ) : (
           <div style={{ fontSize: 14, color: 'var(--ink)' }}>

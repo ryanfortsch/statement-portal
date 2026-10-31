@@ -323,7 +323,7 @@ read `properties` separately (an embed failed every read from 10/07 until
 in `src/` (dead; `20260820_rls_lockdown_unused_tables.sql`).
 
 `agenda_appointments` and `agenda_source_links` hold each operator's reviewed
-business agenda (`20261031030000_appointment_agenda.sql`, not yet applied).
+business agenda (`20261031030000_appointment_agenda.sql`, applied 2026-10-31).
 `details` is the validated `AppointmentInput` JSON shape from
 `src/lib/appointment-agenda.ts`: local Eastern date/clock, time kind, status,
 attendance, property/place/people, brief notes and source links. No provider
@@ -340,7 +340,7 @@ shared `contact_meetings` row or its reminder ledger. Cancelled and later-dated
 rows are still read to suppress explicitly superseded CRM entries.
 
 `agenda_capture`, `agenda_capture_state` and `agenda_capture_lease`
-(`20261031040000_appointment_capture.sql`, not yet applied) hold private provider
+(`20261031040000_appointment_capture.sql`, applied 2026-10-31) hold private provider
 observations, per-account/source success and attempt times, and expiring worker
 leases. RLS and grants are service-only. `record_agenda_capture` atomically
 records a source batch and its state only under a valid account lease. Bodies
@@ -619,6 +619,22 @@ live in `property_access` and per-stay `guest_access_codes`.
   terms could change. See `src/lib/contract-seal.ts`.
 
 ---
+
+### Guest testimonials (direct guests)
+
+`guest_testimonials` is a direct (staycapeann.com) guest's review, since
+2026-10-31. One row per Guesty reservation (`reservation_id` unique), minted
+by stay-concierge's review ask through `POST /api/testimonials/invite` as
+`invited` with a 32-hex `token`; the guest fills the form at
+staycapeann.com/review/<token> (`GET`/`POST /api/testimonials/<token>`,
+status `submitted`); a person on the Reviews tab sets `approved` or `hidden`
+(`decided_by`, `decided_at`). Approved rows render on the home's listing page
+ahead of the live Guesty reviews (`GET /api/testimonials?listing=<guesty id>`,
+resolved through `guesty_listings` then `properties.guesty_listing_id` /
+`former_guesty_listing_id`). `show_name` false renders "A Stay Cape Ann
+guest". RLS on, service role only; the three routes carry
+`authorizeStayConcierge`. Helm's `reviews` table never sees these, and the
+Google review the form's thank-you page invites is tracked nowhere.
 
 ## Auditing this map
 
