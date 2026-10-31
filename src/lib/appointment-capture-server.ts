@@ -22,7 +22,7 @@ export async function loadCaptures(email: string, now: Date, canReadQuo = false)
     ]);
     const valid = records.filter(r => validateAppointment(r.details).ok && Array.isArray(r.aliases) && /^[a-f0-9]{64}$/.test(r.revision));
     return { available: valid.length === records.length, captures: valid.filter(c => c.kind !== 'quo' || canReadQuo), sources: kinds.map(kind => {
-      if (kind === 'quo' && !canReadQuo) return { name: 'Quo business texts', state: 'unavailable', detail: 'Business contact history capture is owner-only.' };
+      if (kind === 'quo' && !canReadQuo) return { name: 'Quo business texts', state: 'unavailable', excluded: true, detail: 'Business contact history capture is owner-only.' };
       const coverage = captureCoverage(kind, states.find(s => s.kind === kind), now);
       if (!enabledAgendaAccounts().includes(email)) return { ...coverage, state: 'not_connected', detail: `Ongoing capture is not enabled for your account. ${coverage.detail}` };
       if (valid.length !== records.length) return { ...coverage, state: 'partial', detail: `Some source records could not be read. ${coverage.detail}` };

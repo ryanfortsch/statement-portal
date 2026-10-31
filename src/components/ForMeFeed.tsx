@@ -18,7 +18,7 @@ import { ageLabel, LINK_LOOKBACK_DAYS, money, paymentLinkStatus, stripeKeyFixUrl
 import { PaymentLinkActions } from '@/app/messaging/send/PaymentLinkActions';
 import { AppointmentAgendaSection } from '@/components/agenda/AppointmentAgendaSection';
 import { todayET } from '@/lib/meetings-core';
-import { countLater, groupByDay, weekEyebrow, workDateLabel, workDay, type WeekDay, type WorkDateKind } from '@/lib/home-week';
+import { countLater, groupByDay, workDateLabel, workDay, type WeekDay, type WorkDateKind } from '@/lib/home-week';
 import { operatingDate } from '@/lib/operating-date';
 import { checkoutBoardHref } from '@/lib/turnover-board';
 import { roleMayOpen, type HelmRole } from '@/lib/helm-access';
@@ -82,7 +82,6 @@ type PlannedWalk = {
 const WORK_WINDOW = 4;
 const REPLY_WINDOW = 6;
 const GLANCE_WINDOW = 6;
-const TIME_SENSITIVE: readonly FeedSection[] = ['holds', 'cleanings', 'week'];
 
 /**
  * The "For Me" home feed: the signed-in person's day, in the order it is
@@ -226,7 +225,7 @@ export async function ForMeFeed() {
         <AppointmentAgendaSection />
         {weekDays.length > 0 ? (
           <>
-            <SectionHeader title="Walks & dated work" eyebrow={weekEyebrow(weekCount, weekToday)} />
+            <SectionHeader title="Scheduled work" eyebrow={`${weekCount} · Next 7 days`} />
             <div style={{ borderTop: '1px solid var(--ink)' }}>
               {weekDays.map((d) => (
                 <ThisWeekDay key={d.date} day={d} />
@@ -395,11 +394,6 @@ export async function ForMeFeed() {
       ) : (
         shown.map((key) => (
           <div key={key} data-feed-section={key} style={{ marginBottom: 24 }}>
-            {(key === shown[0] || TIME_SENSITIVE.includes(key) !== TIME_SENSITIVE.includes(shown[shown.indexOf(key) - 1])) && key !== 'updates' && (
-              <div className="eyebrow rt-home-feed-group" style={{ color: 'var(--tide-deep)', marginBottom: 12 }}>
-                {TIME_SENSITIVE.includes(key) ? 'Time-sensitive & upcoming' : 'My next actions'}
-              </div>
-            )}
             {key === 'updates' ? <details><summary style={{ cursor: 'pointer', fontSize: 16 }}>Updates · {updates.length}</summary><div style={{ paddingTop: 16 }}>{sections[key]}</div></details> : sections[key]}
           </div>
         ))

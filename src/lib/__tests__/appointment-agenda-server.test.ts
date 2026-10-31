@@ -47,6 +47,7 @@ test('an owner sees only their saved agenda; shared CRM retains its existing own
 test('staff contact records are scoped by creator, and an owner viewing as staff cannot read saved agenda', async () => {
   const s = setup({ role: 'staff', viewAs: true }); const data = await s.run();
   assert.equal(s.queries.length, 0); assert.equal(data.entries.length, 0); assert.equal(data.canSave, false);
+  assert.equal(data.sources[0].excluded, true);
   assert.deepEqual(s.meetingOptions, [{ days: 30, createdBy: 'ryan@risingtidestr.com' }]);
 });
 test('missing session causes no business-data read', async () => { const s = setup({ email: '' }); await s.run(); assert.equal(s.queries.length, 0); assert.equal(s.meetingOptions.length, 0); });
@@ -55,6 +56,7 @@ test('unavailable storage and unconnected calendars remain visible instead of cl
   assert.equal(data.canSave, false); assert.equal(data.sources[0].state, 'unavailable');
   assert.equal(data.sources.find((s: core.SourceCoverage) => s.name === 'Work Google Calendar').state, 'not_connected');
   assert.equal(data.sources.find((s: core.SourceCoverage) => s.name === 'Personal calendars').state, 'not_connected');
+  assert.equal(data.sources.find((s: core.SourceCoverage) => s.name === 'Personal calendars').excluded, true);
 });
 test('mutation derives its namespace from auth and passes the optimistic version', async () => {
   const calls: unknown[] = [];

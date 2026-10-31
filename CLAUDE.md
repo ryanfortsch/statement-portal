@@ -85,7 +85,7 @@ as modules land, so read it as where the weight sits today.
 
 | Route | What it is |
 |---|---|
-| `/` | The signed-in person's day. Ask Helm under the title; the For Me feed in the order a day is worked (`src/lib/home-feed-order.ts`: Upcoming appointments first (30 days, explicit confirmation/attendance and source coverage, `src/lib/appointment-agenda.ts`), then my planned walks and dated work for seven days (`src/lib/home-week.ts`), then the clock-bound team items, my work, replies, office queues, payments; owners keep the clean-after card first); Today at the houses; two signals (Open work · this week, Turnovers · next 7 days) plus payout for owners; the cleanings strip. Concierge alerts are one line linking to `/messaging#alerts`. The feed's × only ever hides a row from your own feed |
+| `/` | The signed-in person's day. Ask Helm beside the compact Today title; the For Me feed in the order a day is worked (`src/lib/home-feed-order.ts`: Upcoming appointments first (30 days, explicit confirmation/attendance and source coverage, `src/lib/appointment-agenda.ts`), then my planned walks and dated work for seven days (`src/lib/home-week.ts`), then the clock-bound team items, my work, replies, office queues, payments; owners keep the clean-after card first); Today at the houses; two signals (Open work · this week, Turnovers · next 7 days) plus payout for owners; the cleanings strip. Concierge alerts are one line linking to `/messaging#alerts`. The feed's × only ever hides a row from your own feed |
 | `/statements` | Monthly owner statements. Ingest, reconcile, close, send |
 | `/revenue` | Portfolio revenue snapshot: stays, ADR, occupancy, owner payout |
 | `/forecast` | The business plan as an interactive model; the scenario is a link (`?year=2027&new=3,2,0`). Its Actuals section (`#actuals`) holds the company card and operating upload and the "Where it goes" ledger (`overhead_expenses`) |
@@ -269,6 +269,10 @@ rescheduling and cancellation. Saved business appointments are private to the
 signed-in email, including between owners; View as staff hides them. Existing
 CRM visibility is unchanged. Confirmed times, arrival windows, tentative plans,
 team coverage, owner-handled visits and unscheduled requests stay distinct.
+Home uses a compact Today heading with Ask Helm alongside it. Its three upcoming
+rows link to appointment detail; the full agenda keeps notes and source evidence.
+Source status stays visible below the preview, but deliberate privacy exclusions
+do not count as broken connections. The seven-day work section is Scheduled work.
 Explicit source identities merge reviewed Calendar/email copies or a legacy CRM
 row. Similar titles never merge automatically. Reviewing a CRM row in your own
 agenda does not change the original shared record or its reminder texts.

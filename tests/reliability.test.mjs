@@ -165,7 +165,7 @@ async function homePage(searchParams = {}) {
   const mocks = { 'react': React, '@/lib/helm-access-server': { isOwnerSession: async () => true, sessionDispatches: async () => true } };
   for (const name of ['HelmMasthead', 'HelmFooter', 'CleaningsStrip', 'AiStatusBanner']) mocks[`@/components/${name}`] = { [name]: blank };
   mocks['@/components/ConciergeAlerts'] = { ConciergeAlertsLine: blank };
-  mocks['@/components/HelmHero'] = { HelmHero: ({ title }) => React.createElement('h1', null, title) };
+  mocks['@/components/HomeHeading'] = { HomeHeading: ({ children }) => React.createElement('header', null, React.createElement('h1', null, 'Today'), children) };
   mocks['@/components/HomeFeedTabs'] = { HomeFeedTabs: ({ active }) => React.createElement('nav', null, `tabs:${active}`) };
   mocks['@/components/ForMeFeed'] = { ForMeFeed: () => React.createElement('section', null, 'Personalized work feed'), RecentPayments: () => React.createElement('section', null, 'Payments received') };
   mocks['@/components/TeamActivity'] = { TeamActivity: () => React.createElement('section', null, 'Team activity') };
@@ -195,10 +195,10 @@ test('the signals are two numbers that say their window, plus payout for owners'
   assert.doesNotMatch(html, /Upcoming Inspections|Five-Star Reviews|Today&rsquo;s signals/);
 });
 
-test('homepage uses Today with Ask Helm directly under it, then the day', async () => {
+test('homepage keeps Today and Ask Helm together before the day', async () => {
   const html = await homePage();
   assert.match(html, /<h1>Today<\/h1>/);
-  assert.ok(html.indexOf('<h1>Today</h1>') < html.indexOf('Ask Helm'), 'Ask Helm sits under the title');
+  assert.ok(html.indexOf('<h1>Today</h1>') < html.indexOf('Ask Helm'), 'Ask Helm follows the title');
   assert.ok(html.indexOf('Ask Helm') < html.indexOf('Personalized work feed'), 'and above the feed, not three scrolls down');
   assert.doesNotMatch(html, /clear view/i);
   assert.ok(html.indexOf('Personalized work feed') < html.indexOf('Signals'), 'the day, then the signals');
