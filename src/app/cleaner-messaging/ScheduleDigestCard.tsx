@@ -438,13 +438,22 @@ export async function ScheduleDigestCard({
   const noteEnglish = noteStale ? '' : (digest.operator_note_en ?? '').trim();
   const englishReaders = enabledList.filter((r) => r.language === 'en').map((r) => r.display_name);
 
+  const needsAttention = pending || !day || !!notice?.err || !!notice?.failed || !!notice?.nocleanSent
+    || !!lastBatch?.results.some(r => !r.ok) || !!day?.rows.some(r => r.proposals.length > 0)
+    || turnoverNotes.some(n => n.status === 'proposed');
+
   return (
     <Section
+      paddingBottom={20}
       id="schedule-digest"
       title={`Cleaner schedule · ${fmtDay(digest.service_date)}`}
       eyebrow={pending ? 'Waiting on your approval' : digest.status === 'sent' ? 'Sent' : 'Skipped'}
     >
       <MessagingCountsRefresh revision={`${digest.id}:${digest.status}`} />
+      <details open={needsAttention}>
+        <summary style={{ cursor: 'pointer', minHeight: 44, fontSize: 14, color: 'var(--ink-3)' }}>
+          {needsAttention ? 'Review schedule' : 'View schedule and settings'}
+        </summary>
       <div style={{ borderTop: '1px solid var(--ink)', padding: '14px 0 6px' }}>
         {notice?.err && (
           <div style={{ marginBottom: 10, fontSize: 12, color: 'var(--signal)', fontWeight: 600 }}>
@@ -515,6 +524,9 @@ export async function ScheduleDigestCard({
             paragraph). Sits with the recipients because both answer the same
             question: who gets texted, and does it happen without me. A skipped
             day never sends; a day sent by hand never sends twice. */}
+        {pending && !anyEnabled && <p role="status" style={{ color: 'var(--signal)' }}>Choose a recipient in Schedule settings before sending.</p>}
+        <details open={!anyEnabled} style={{ marginTop: 14 }}>
+          <summary style={{ cursor: 'pointer', minHeight: 44, fontSize: 14 }}>Schedule settings</summary>
         <div style={{ marginTop: 14, display: 'flex', alignItems: 'baseline', gap: 14, flexWrap: 'wrap', fontSize: 12, color: 'var(--ink-3)' }}>
           <span>
             {settings.autosend_enabled
@@ -534,6 +546,7 @@ export async function ScheduleDigestCard({
         </div>
 
         <Recipients recipients={recipients} serviceDate={digest.service_date} />
+        </details>
 
         {pending ? (
           <form action={approveAndSendDigest} style={{ marginTop: 16 }}>
@@ -781,6 +794,7 @@ export async function ScheduleDigestCard({
           </div>
         )}
       </div>
+      </details>
     </Section>
   );
 }

@@ -18,7 +18,7 @@ import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
  * yanks scroll to the top (you stay on the slip you just closed and can
  * knock out the next one in place).
  */
-export function MarkSlipDoneButton({ slipId, propertyId }: { slipId: string; propertyId: string }) {
+export function MarkSlipDoneButton({ slipId, propertyId, reportCount = 1 }: { slipId: string; propertyId: string; reportCount?: number }) {
   const softRefresh = useSoftRefresh();
   const [pending, start] = useTransition();
   const [confirming, setConfirming] = useState(false);
@@ -62,22 +62,23 @@ export function MarkSlipDoneButton({ slipId, propertyId }: { slipId: string; pro
           }
         });
       }}
-      title="Mark this work slip done"
+      title={reportCount > 1 ? `Complete this issue and its ${reportCount} linked reports` : "Mark this work item done"}
       style={{
         flexShrink: 0,
         background: confirming ? 'var(--positive)' : 'transparent',
         color: confirming ? 'var(--paper)' : error ? 'var(--negative)' : 'var(--ink-3)',
         border: `1px solid ${confirming ? 'var(--positive)' : error ? 'var(--negative)' : 'var(--rule)'}`,
-        fontSize: 9,
+        fontSize: 12,
         letterSpacing: '.16em',
         textTransform: 'uppercase',
         fontWeight: 600,
-        padding: '3px 9px',
+        padding: '6px 10px',
+        minHeight: 44,
         cursor: pending ? 'wait' : 'pointer',
         whiteSpace: 'nowrap',
       }}
     >
-      {pending ? 'Saving…' : done ? 'Done ✓' : error ? 'Retry' : confirming ? 'Confirm ✓' : 'Done'}
+      {pending ? 'Saving…' : done ? 'Done ✓' : error ? 'Retry' : confirming ? (reportCount > 1 ? `Complete ${reportCount} reports` : 'Confirm ✓') : 'Done'}
     </button>
     {error && <span role="alert" style={{ fontSize: 11, color: 'var(--negative)', maxWidth: 240 }}>{error}</span>}
     </div>

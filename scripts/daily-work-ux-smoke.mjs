@@ -10,7 +10,7 @@ import chromium from '@sparticuz/chromium';
 const require=createRequire(import.meta.url),{webpack}=require('next/dist/compiled/webpack/webpack');
 const root=process.cwd(),scratch=await mkdtemp(join(tmpdir(),'helm-daily-work-'));
 await writeFile(join(scratch,'loader.cjs'),`const ts=require(${JSON.stringify(require.resolve('typescript'))});module.exports=function(src){return ts.transpileModule(src,{fileName:this.resourcePath,compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext,jsx:ts.JsxEmit.ReactJSX}}).outputText;};`);
-await writeFile(join(scratch,'actions.js'),`const rec=kind=>(...args)=>new Promise(resolve=>window.calls.push({kind,args,resolve}));export const updateWorkSlipCoordination=rec('coordinate'),updateWorkSlipAssignment=rec('assign'),attachUnplacedCleanerTextAction=rec('attach'),setAsideUnplacedCleanerTextAction=rec('aside'),parseProposedUpdate=rec('parse-fact'),applyProposedUpdate=rec('apply-fact'),dismissProposedUpdate=rec('dismiss-fact'),fileTriagedGroup=rec('file-group'),fileTriagedGroups=rec('file-groups'),dismissTriagedGroup=rec('dismiss-group');`);
+await writeFile(join(scratch,'actions.js'),`const rec=kind=>(...args)=>new Promise(resolve=>window.calls.push({kind,args,resolve}));export const updateWorkSlipCoordination=rec('coordinate'),updateWorkSlipAssignment=rec('assign'),attachUnplacedCleanerTextAction=rec('attach'),setAsideUnplacedCleanerTextAction=rec('aside'),parseProposedUpdate=rec('parse-fact'),applyProposedUpdate=rec('apply-fact'),dismissProposedUpdate=rec('dismiss-fact'),fileTriagedGroup=rec('file-group'),fileTriagedGroups=rec('file-groups'),dismissTriagedGroup=rec('dismiss-group'),linkWorkReports=rec('link-reports'),separateWorkReports=rec('separate-reports');`);
 await writeFile(join(scratch,'refresh.js'),'export const useSoftRefresh=()=>()=>window.refreshes++;');
 await writeFile(join(scratch,'skew.js'),'export const reloadedForNewDeployment=()=>Promise.resolve(false);');
 await writeFile(join(scratch,'link.js'),`import React from 'react';export default function Link({children,href,...props}){return React.createElement('a',{...props,href},children);}`);
@@ -23,11 +23,17 @@ import {UnplacedCleanerTextRow} from '@/components/UnplacedCleanerTextRow';
 import {ProposedPropertyUpdatesCard} from '@/app/owner-messaging/ProposedPropertyUpdatesCard';
 import {TriagedPropertyUpdates} from '@/app/messaging/TriagedPropertyUpdates';
 import {ConfirmProvider} from '@/components/ConfirmDialog';
-window.calls=[];window.refreshes=0;
+import {LinkedWorkReports} from '@/app/work/[id]/LinkedWorkReports';
+import {StatementSentReview} from '@/components/StatementSentReview';
+import {CommandPaletteTrigger} from '@/components/CommandPaletteTrigger';
+window.calls=[];window.refreshes=0;window.searches=0;window.reviews=0;window.addEventListener('helm:open-command-palette',()=>window.searches++);
+const repair={id:'repair-a',property_id:'home-a',title:'Upstairs toilet running',description:'Original inspection note',status:'open',location:'Upstairs bathroom',organize_group:null,organize_group_label:null,from_supply_key:null,from_prep_rule_key:null,from_guest_request_key:null,created_at:'2026-10-30'};
+const reports=[repair,{...repair,id:'repair-b',description:'Original guest report with its own photos and receipt'},{...repair,id:'repair-c',title:'Window screen',location:'Kitchen'}];
+const links=['repair-a','repair-b'].map(report_id=>({report_id,issue_id:'repair-a'}));
 const fact={id:'fact-a',property_id:'home-a',property_name:'4 Beach',owner_name:'Synthetic Owner',category:'parking',fact_text:'Two parking spaces',raw_quote:'You can park two cars behind the house.',confidence:'high',status:'pending',source:'cleaner',created_at:new Date().toISOString()};
 const choices={likely:[{id:'home-a',name:'4 Beach'}],rest:[{id:'home-b',name:'21 Harbor'}]};
 createRoot(document.getElementById('root')).render(<ConfirmProvider><main>
-<h1>4 Beach</h1>
+<h1>4 Beach</h1><CommandPaletteTrigger/>
 <PropertyMasthead propertyId="home-a" isActive={true} todayIso="2026-10-30" bookings={[]} lockCodes={[]} cleaners={[]} wifiName="Synthetic Guest WiFi" wifiPassword="synthetic-only" keyCodeLocation="Blue box by side entrance" gateCode={null} garageCode={null} parking="Two spaces behind the house" trashDay={{kind:'day',day:'Monday',source:'row'}} ownerName="Alex Example" ownerPhone="9785550100" ownerEmail="alex@example.test" ownerPreferredContact="email" openSlipCount={3} lastInspectionAt="2026-10-29T12:00:00Z" seasonNote="Year-round" alerts={[{key:'notice',tone:'signal',text:'Synthetic property notice',href:'#notice'}]} />
 <section id="coord"><h2>Coordinator</h2><SlipAssignEditor slipId="slip-a" initialAssignedToEmail={null} myEmail="ryan@risingtidestr.com" coordinator /></section>
 <section id="follow"><h2>Next follow-up</h2><SlipFollowUpEditor slipId="slip-a" initialDate={null} /></section>
@@ -35,9 +41,13 @@ createRoot(document.getElementById('root')).render(<ConfirmProvider><main>
 <section id="ambiguous"><UnplacedCleanerTextRow id="message-b" when="Today" cleanerName="Synthetic Cleaner" line="Both homes done" body="4 Beach and 21 Harbor are done" choices={choices} /></section>
 <section id="facts"><ProposedPropertyUpdatesCard initial={[fact]} initialError={null} properties={choices.likely} source="cleaner" /></section>
 <section id="uncertain"><TriagedPropertyUpdates initial={[{...fact,id:'fact-b',triage:{group_id:'g',property_id:'home-a',statement:'Two parking spaces',evidence:'One space',confidence:'medium',needs_ruling:false,verdict:'add',kb_section:'Parking',reason:'Review the difference'}}]} initialError={null} properties={choices.likely} /></section>
+<section id="repair"><LinkedWorkReports current={repair} reports={reports} links={[]} available /></section>
+<section id="linked"><LinkedWorkReports current={repair} reports={reports} links={links} available /></section>
+<section id="unavailable"><LinkedWorkReports current={repair} reports={[]} links={[]} available={false} /></section>
+<section id="statements"><StatementSentReview total={3} finalized checks={[{label:'Inputs on file',complete:true,details:[]},{label:'Synced',complete:true,details:[]},{label:'Reviewed',complete:false,details:[<span key="flags">2 current exceptions</span>],open:()=>window.reviews++}]} /></section>
 </main></ConfirmProvider>);
 `);
-const alias={'./proposed-updates-actions':join(scratch,'actions.js'),'../owner-messaging/proposed-updates-actions':join(scratch,'actions.js'),'@/lib/version-skew':join(scratch,'skew.js'),'../actions':join(scratch,'actions.js'),'@/app/turnovers/unplaced-cleaner-actions':join(scratch,'actions.js'),'@/lib/use-soft-refresh':join(scratch,'refresh.js'),'next/link':join(scratch,'link.js'),'@':join(root,'src')};
+const alias={'../issue-actions':join(scratch,'actions.js'),'./proposed-updates-actions':join(scratch,'actions.js'),'../owner-messaging/proposed-updates-actions':join(scratch,'actions.js'),'@/lib/version-skew':join(scratch,'skew.js'),'../actions':join(scratch,'actions.js'),'@/app/turnovers/unplaced-cleaner-actions':join(scratch,'actions.js'),'@/lib/use-soft-refresh':join(scratch,'refresh.js'),'next/link':join(scratch,'link.js'),'@':join(root,'src')};
 await new Promise((resolve,reject)=>{const c=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.tsx'),output:{path:scratch,filename:'bundle.js'},resolve:{extensions:['.tsx','.ts','.js'],modules:[join(root,'node_modules')],alias},module:{rules:[{test:/\.tsx?$/,use:join(scratch,'loader.cjs')}]},performance:{hints:false}});c.run((err,stats)=>c.close(()=>err||stats.hasErrors()?reject(err||Error(stats.toString({all:false,errors:true}))):resolve()));});
 if(process.argv.includes('--compile-only')){console.log('Daily work UX fixture compiled.');await rm(scratch,{recursive:true,force:true});process.exit(0);}
 const css=`*{box-sizing:border-box}body{margin:0;background:#f7f4eb;font:14px Arial;color:#203b43;--paper:#f7f4eb;--paper-2:#eee9db;--ink:#203b43;--ink-2:#344f57;--ink-3:#586b6f;--ink-4:#738386;--rule:#d1d0c5;--signal:#9b5136;--negative:#a04040;--tide-deep:#305e63}main{max-width:1050px;margin:24px auto;padding:0 24px}h1,h2{font-family:Georgia;font-weight:400}section{margin-bottom:22px}.eyebrow{font-size:11px;letter-spacing:.12em;text-transform:uppercase}button{cursor:pointer}summary{min-height:44px}`+(await readFile('src/app/globals.css','utf8'));
@@ -88,8 +98,39 @@ try {
  const uncertain=await page.$eval('#uncertain',e=>e.textContent);assert.match(uncertain,/1 to decide/);assert.match(uncertain,/Source:/);
  assert.equal(await page.$('#uncertain input[type="checkbox"]'),null);
  console.log('PASS facts group by home, show current/proposed/source before apply, and keep uncertain changes out of bulk filing');
+ // Linked reports are suggestions until an explicit selection and confirmation.
+ assert.equal((await calls()).filter(c=>c.kind==='link-reports').length,0);
+ assert.equal(await page.$eval('#repair input[type="checkbox"]',e=>e.checked),false);
+ await page.click('#repair > section > details > summary');
+ await page.click('#repair input[type="checkbox"]');await click('#repair','Link 1 selected reports');
+ await page.waitForSelector('[role="alertdialog"]');await click('[role="alertdialog"]','Cancel');
+ assert.equal((await calls()).length,7);
+ await click('#repair','Link 1 selected reports');await page.waitForSelector('[role="alertdialog"]');await click('[role="alertdialog"]','Link reports');await waitCalls(8);
+ assert.deepEqual((await calls())[7],{kind:'link-reports',args:[{primaryId:'repair-a',reportIds:['repair-b']}]});
+ await finish(7,{ok:false,error:'Synthetic stale selection'});await page.waitForSelector('#repair [role="alert"]');
+ assert.equal(await page.$eval('#repair input[type="checkbox"]',e=>e.checked),true);
+ await click('#repair','Link 1 selected reports');await page.waitForSelector('[role="alertdialog"]');await click('[role="alertdialog"]','Link reports');await waitCalls(9);await finish(8,{ok:true});
+ await page.waitForFunction(()=>!document.querySelector('#repair input[type="checkbox"]').checked);
+ assert.match(await page.$eval('#linked',e=>e.textContent),/One issue · 2 reports/);
+ await page.click('#linked details summary');assert.match(await page.$eval('#linked',e=>e.innerText),/Original inspection note/);
+ await click('#linked','Separate reports');await page.waitForSelector('[role="alertdialog"]');await click('[role="alertdialog"]','Separate reports');await waitCalls(10);
+ assert.deepEqual((await calls())[9],{kind:'separate-reports',args:[{issueId:'repair-a',reportIds:['repair-a','repair-b']}]});await finish(9,{ok:true});
+ assert.match(await page.$eval('#unavailable',e=>e.textContent),/could not be checked/);
+ assert.equal(await page.$('#unavailable button'),null);
+ console.log('PASS linked reports require selection and confirmation; cancel writes nothing, failure retains choices, retry and separation preserve original reports');
+ assert.match(await page.$eval('#statements',e=>e.innerText),/All 3 statements sent/);
+ assert.match(await page.$eval('#statements',e=>e.innerText),/Month finalized/);
+ assert.match(await page.$eval('#statements',e=>e.innerText),/2 current exceptions/);
+ assert.equal(await page.evaluate(()=>window.reviews),0);
+ await click('#statements','Review items');assert.equal(await page.evaluate(()=>window.reviews),1);
+ console.log('PASS sent and finalized remain facts beside current exceptions; reviewing checks requires a click');
  await page.setViewport({width:390,height:844});await new Promise(r=>setTimeout(r,100));
  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth));
+ assert.equal(await page.$eval('.rt-helm-search-trigger',e=>e.checkVisibility()),true);
+ assert.ok(await page.$eval('.rt-helm-search-trigger',e=>e.getBoundingClientRect().height>=44));
+ await page.click('.rt-helm-search-trigger');assert.equal(await page.evaluate(()=>window.searches),1);
+ await page.setViewport({width:360,height:800});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth));
+ assert.equal(await page.$eval('.rt-helm-search-trigger',e=>e.checkVisibility()),true);
  if(process.env.UX_SCREENSHOT) await page.screenshot({path:process.env.UX_SCREENSHOT,fullPage:true});
  assert.deepEqual(errors,[]);console.log('PASS phone layout has no horizontal overflow or browser errors');
 } finally {await browser?.close();await new Promise(resolve=>server.close(resolve));await rm(scratch,{recursive:true,force:true});}

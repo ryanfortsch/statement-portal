@@ -24,9 +24,9 @@ export function HelmModuleNav() {
 
   return (
     <nav className="flex items-baseline rt-helm-modulenav" style={{
-      gap: 18,
-      fontSize: 10,
-      letterSpacing: '0.16em',
+      gap: 14,
+      fontSize: 12,
+      letterSpacing: '0.06em',
       textTransform: 'uppercase',
       fontWeight: 500,
     }}>

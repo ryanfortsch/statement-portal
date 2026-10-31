@@ -1,5 +1,6 @@
 'use client';
 
+import { StatementSentReview } from '@/components/StatementSentReview';
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import { canOpenMailbox, gmailUrl, mailboxOwnerLabel } from '@/lib/gmail-links';
@@ -4574,6 +4575,11 @@ function DashboardContent() {
             open: ticksKnown && unsent.length > 0 ? () => send(draftedUnsent.length > 0 ? draftedUnsent : unsent) : undefined,
           },
         ];
+        // After delivery, show current exceptions separately from the historical
+        // sent record. Do not turn a fresh check into a claim about review at send.
+        if (ticksKnown && unsent.length === 0) {
+          return <StatementSentReview total={n} finalized={period?.status === 'final'} checks={steps.slice(0, 3).map(st => ({ ...st, details: st.details.filter(Boolean) }))} />;
+        }
         const nextStep = steps.findIndex(st => !st.complete);
         return (
           <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 20 }}>

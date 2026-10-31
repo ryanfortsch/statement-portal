@@ -1,3 +1,5 @@
+import { selectAllPaged } from '../src/lib/paged-select.ts';
+import { collapseWorkIssues } from '../src/lib/work-issues.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -149,6 +151,8 @@ async function dashboard({ dbError = null, opsError = false } = {}) {
     'next/link': { default: link, __esModule: true }, '@/lib/recovery': { availableCount },
     '@/lib/supabase-admin': { supabaseAdmin: { from: () => chain }, isServiceConfigured: true },
     '@/lib/operating-date': { operatingDate }, '@/lib/work-week': { workWeekEnd },
+    '@/lib/paged-select': { selectAllPaged }, '@/lib/work-issues': { collapseWorkIssues },
+    '@/lib/work-issues-server': { loadWorkIssueLinks: async () => [] },
     '@/components/Stat': { Stat }, '@/components/RetryDashboard': { RetryDashboard: () => React.createElement('button', null, 'Retry unavailable data') },
     '@/lib/revenue-date-range': { computeDateRange: () => ({ rangeStart: '', rangeEnd: '' }) },
     '@/lib/revenue-snapshot': { computeRevenueSnapshot: async () => ({ portfolio: { totalPayout: 0 } }) },

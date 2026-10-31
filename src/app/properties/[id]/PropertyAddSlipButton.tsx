@@ -20,7 +20,7 @@ type Props = {
 };
 
 /**
- * "+ New slip" button + inline modal scoped to a single property. Property
+ * "+ Work item" button + inline modal scoped to a single property. Property
  * is locked (we're already on its page). On success, refreshes the page so
  * the new slip appears in the Open Work section without a full reload.
  *
@@ -99,7 +99,7 @@ export function PropertyAddSlipButton({ propertyId, propertyName, myEmail }: Pro
           cursor: 'pointer',
         }}
       >
-        + New slip
+        + Work item
       </button>
 
       {open && (
@@ -133,7 +133,7 @@ export function PropertyAddSlipButton({ propertyId, propertyName, myEmail }: Pro
           >
             <div className="flex items-baseline justify-between" style={{ marginBottom: 6 }}>
               <h2 className="font-serif" style={{ fontSize: 24, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-                New Work Slip
+                New work item
               </h2>
               <button
                 type="button"
@@ -259,7 +259,7 @@ export function PropertyAddSlipButton({ propertyId, propertyName, myEmail }: Pro
                     cursor: submitting ? 'wait' : 'pointer',
                   }}
                 >
-                  {submitting ? 'Creating…' : 'Create Work Slip'}
+                  {submitting ? 'Creating…' : 'Create work item'}
                 </button>
               </div>
             </form>
