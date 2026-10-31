@@ -3,6 +3,9 @@
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
+import { sessionDispatches } from '@/lib/helm-access-server';
+import { getTeamMember } from '@/lib/team';
+import { changesSomeoneElse, isSomeoneElse, WALK_FOR_OTHERS, WALK_OFF_OTHERS } from '@/lib/walk-assignment';
 
 /**
  * Create or update an inspection plan for a stay. Post-Guesty-cutover the stay
@@ -25,6 +28,21 @@ export async function setInspectionPlan(args: {
 
   if (!args.plannedForDate) return { ok: false, error: 'Pick a date' };
 
+  // Who walks it is the dispatcher's call (team.ts, `dispatch`). Anyone may
+  // put themselves on a walk or take themselves off; naming someone else,
+  // or taking someone else off, needs the duty (lib/walk-assignment.ts).
+  const { data: current, error: curErr } = await supabase
+    .from('inspection_plans')
+    .select('assigned_to_email')
+    .eq('guesty_reservation_id', args.guestyReservationId)
+    .maybeSingle();
+  if (curErr) return { ok: false, error: `Could not read the plan, so nothing changed (${curErr.message})` };
+  const want = args.assignedToEmail?.trim() || null;
+  const have = (current as { assigned_to_email: string | null } | null)?.assigned_to_email?.trim() || null;
+  if (changesSomeoneElse(session.user.email, want, have) && !(await sessionDispatches())) {
+    return { ok: false, error: WALK_FOR_OTHERS };
+  }
+
   const { data, error } = await supabase
     .from('inspection_plans')
     .upsert(
@@ -37,7 +55,7 @@ export async function setInspectionPlan(args: {
         planned_for_date: args.plannedForDate,
         notes: args.notes?.trim() || null,
         planned_by_email: session.user.email,
-        assigned_to_email: args.assignedToEmail?.trim() || null,
+        assigned_to_email: want,
       },
       { onConflict: 'guesty_reservation_id' }
     )
@@ -54,6 +72,12 @@ export async function setInspectionPlan(args: {
 export async function deleteInspectionPlan(planId: string): Promise<{ ok: true } | { ok: false; error: string }> {
   const session = await auth();
   if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+
+  // Removing a walk someone else is down for is the dispatcher's call.
+  const { data: row, error: readErr } = await supabase.from('inspection_plans').select('assigned_to_email').eq('id', planId).maybeSingle();
+  if (readErr) return { ok: false, error: `Could not read the plan, so nothing changed (${readErr.message})` };
+  const holder = (row as { assigned_to_email: string | null } | null)?.assigned_to_email ?? null;
+  if (isSomeoneElse(session.user.email, holder) && !(await sessionDispatches())) return { ok: false, error: WALK_OFF_OTHERS };
 
   const { error } = await supabase.from('inspection_plans').delete().eq('id', planId);
   if (error) return { ok: false, error: error.message };
@@ -77,12 +101,24 @@ export async function claimWalk(args: {
   checkIn: string;
   checkOut: string;
   date: string;
+  /** The dispatcher planning for a teammate; everyone else plans for themselves. */
+  forEmail?: string | null;
 }): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return { ok: false, error: 'Not signed in' };
   if (!DAY_RE.test(args.date)) return { ok: false, error: 'Pick a day' };
   if (!args.reservationId || !args.propertyId) return { ok: false, error: 'Nothing to walk' };
+
+  // The mark is the tapper's unless the dispatcher is planning for a
+  // teammate (team.ts, `dispatch`); nobody else names anyone but themselves.
+  let assignee = email;
+  if (isSomeoneElse(email, args.forEmail)) {
+    const member = getTeamMember(args.forEmail);
+    if (!member?.active) return { ok: false, error: 'Not on the team' };
+    if (!(await sessionDispatches())) return { ok: false, error: WALK_FOR_OTHERS };
+    assignee = member.email;
+  }
 
   const { data: existing, error: readErr } = await supabase
     .from('inspection_plans')
@@ -106,7 +142,7 @@ export async function claimWalk(args: {
         planned_for_date: args.date,
         notes: prior?.notes ?? null,
         planned_by_email: prior?.planned_by_email || email,
-        assigned_to_email: email,
+        assigned_to_email: assignee,
       },
       { onConflict: 'guesty_reservation_id' },
     )
@@ -137,12 +173,15 @@ export async function releaseWalk(
 
   const { data: row, error: readErr } = await supabase
     .from('inspection_plans')
-    .select('id, notes, planned_by_email')
+    .select('id, notes, planned_by_email, assigned_to_email')
     .eq('id', planId)
     .maybeSingle();
   if (readErr) return { ok: false, error: `Could not read the plan, so nothing changed (${readErr.message})` };
-  const plan = (row ?? null) as { id: string; notes: string | null; planned_by_email: string | null } | null;
+  const plan = (row ?? null) as { id: string; notes: string | null; planned_by_email: string | null; assigned_to_email: string | null } | null;
   if (!plan) return { ok: true, kept: false };
+  // Taking someone else off a walk, plan kept or removed, is the
+  // dispatcher's call; your own mark is yours to let go.
+  if (isSomeoneElse(email, plan.assigned_to_email) && !(await sessionDispatches())) return { ok: false, error: WALK_OFF_OTHERS };
 
   const mine = (plan.planned_by_email ?? '').trim().toLowerCase() === email.trim().toLowerCase();
   const keep = !opts.remove && !(mine && !plan.notes?.trim());

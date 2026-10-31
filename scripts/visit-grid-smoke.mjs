@@ -57,7 +57,8 @@ await writeFile(join(scratch,'entry.js'),compile(`
 import React from 'react';import {createRoot} from 'react-dom/client';
 import {VisitGrid} from './grid.js';import {homes,stays,today,days} from './data.js';
 window.calls=[];window.refreshes=0;window.confirm=()=>true;
-createRoot(document.getElementById('root')).render(<section id="board"><VisitGrid today={today} days={days} homes={homes} stays={stays} myEmail=${JSON.stringify(ME)}/></section>);
+const as=new URLSearchParams(location.search).get('as')==='dotti';
+createRoot(document.getElementById('root')).render(<section id="board"><VisitGrid today={today} days={days} homes={homes} stays={stays} myEmail={as?${JSON.stringify(DOTTI)}:${JSON.stringify(ME)}} dispatcher={as}/></section>);
 `));
 const alias={'./plan-actions':'actions','@/lib/use-soft-refresh':'refresh','@/lib/team':'team','@/lib/visit-grid':'model','@/lib/channel-style':'channel-style','@/components/ConfirmDialog':'confirm','@/lib/confirm-question':'confirmq','@/lib/button-class':'button-class'};
 await new Promise((resolve,reject)=>{const compiler=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.js'),output:{path:scratch,filename:'bundle.js'},resolve:{modules:[join(root,'node_modules')],alias:Object.fromEntries(Object.entries(alias).map(([k,v])=>[k,join(scratch,v+'.js')]))},performance:{hints:false}});compiler.run((err,stats)=>compiler.close(()=>err||stats?.hasErrors()?reject(err||Error(stats.toString({all:false,errors:true}))):resolve()));});
@@ -75,7 +76,7 @@ try{
 browser=await puppeteer.launch({executablePath:process.env.CHROME_EXECUTABLE_PATH||(process.platform==='darwin'?'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome':await chromium.executablePath()),headless:true,args:process.platform==='darwin'?['--no-sandbox']:chromium.args});
 page=await browser.newPage();page.setDefaultTimeout(10000);
 page.on('pageerror',e=>errors.push(e.message));await page.setRequestInterception(true);page.on('request',r=>r.url().startsWith(origin+'/')?r.continue():r.abort());
-const load=async(width,height=900)=>{await page.setViewport({width,height,deviceScaleFactor:2});await page.goto(origin+'/');await page.waitForSelector('.rt-vg-cell');};
+const load=async(width,height=900,path='/')=>{await page.setViewport({width,height,deviceScaleFactor:2});await page.goto(origin+path);await page.waitForSelector('.rt-vg-cell');};
 const shot=async name=>{if(!shotsDir)return;await mkdir(shotsDir,{recursive:true});await page.screenshot({path:join(shotsDir,name+'.png'),fullPage:true});};
 const calls=()=>page.evaluate(()=>window.calls.map(({kind,args})=>({kind,args})));
 const waitCalls=n=>page.waitForFunction(n=>window.calls.length===n,{},n);
@@ -146,6 +147,21 @@ await page.waitForSelector('[role="alert"]');
 assert.ok((await page.$eval('[role="alert"]',e=>e.textContent)).includes('Synthetic refusal'));
 assert.deepEqual(await marks('3 South','Tue, Oct 20'),[],'the mark is withdrawn');
 pass('a refused tap withdraws the mark and shows the reason');
+
+// ── the dispatcher: a row above the grid says whom a tap plans for ──
+assert.equal(await page.$('.rt-vg-for'),null,'nobody else sees the Planning for row');
+await load(1250,900,'/?as=dotti');
+assert.deepEqual(await page.$$eval('.rt-vg-for-pick',es=>es.map(e=>e.textContent)),['DMMe','RFRyan','AOAllie','DJDelaney'],'me first, then the roster');
+assert.deepEqual(await marks('19 Rackliffe','Sun, Oct 18'),['DM:plan:mine:late'],'planning for myself, my late walk is mine');
+await (await page.$$('.rt-vg-for-pick'))[3].click();
+assert.equal(await page.$eval('.rt-vg-for-pick[data-on]',e=>e.textContent),'DJDelaney');
+assert.deepEqual(await marks('21 Horton','Tue, Oct 20'),['DJ:plan:mine'],"planning for Delaney, her walk reads as the active one");
+await page.click(cellSel('3 South','Mon, Oct 19'));await waitCalls(1);
+assert.deepEqual((await calls())[0],{kind:'claim',args:{reservationId:'C',propertyId:'3_south',checkIn:'2026-10-20',checkOut:'2026-10-23',date:'2026-10-19',forEmail:ME}},'the tap names Delaney');
+assert.deepEqual(await marks('3 South','Mon, Oct 19'),['DJ:plan:mine'],'and her mark shows at once');
+await finish(0,{ok:true,id:'new-2'});
+await shot('dispatcher');
+pass('the dispatcher picks a teammate and a tap plans the walk for her');
 
 // ── phone ──
 await load(390,844);

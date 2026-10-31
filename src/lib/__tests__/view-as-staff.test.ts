@@ -53,6 +53,7 @@ function body(src: string, name: string): string {
 }
 
 const OWNERS = TEAM_MEMBERS.filter((m) => m.access === 'owner').map((m) => m.email);
+const DISPATCHERS = TEAM_MEMBERS.filter((m) => m.duties?.includes('dispatch')).map((m) => m.email);
 const STAFF_LOGINS = [
   ...TEAM_MEMBERS.filter((m) => m.access !== 'owner').map((m) => m.email),
   'someone-new@risingtidestr.com',
@@ -77,10 +78,10 @@ describe('the resolver only ever takes an owner down', () => {
     assert.ok(OWNERS.length > 0);
     for (const email of OWNERS) {
       assert.equal(effectiveRole(email, VIEW_AS_STAFF), 'staff');
-      assert.deepEqual(helmView(email, VIEW_AS_STAFF), { role: 'staff', viewingAsStaff: true, mayViewAsStaff: false });
+      assert.deepEqual(helmView(email, VIEW_AS_STAFF), { role: 'staff', viewingAsStaff: true, mayViewAsStaff: false, dispatcher: false }, 'the switch drops the dispatch duty too');
       for (const c of COOKIES.filter((x) => x !== VIEW_AS_STAFF)) {
         assert.equal(effectiveRole(email, c), 'owner', `${email} with ${JSON.stringify(c)}`);
-        assert.deepEqual(helmView(email, c), { role: 'owner', viewingAsStaff: false, mayViewAsStaff: true });
+        assert.deepEqual(helmView(email, c), { role: 'owner', viewingAsStaff: false, mayViewAsStaff: true, dispatcher: DISPATCHERS.includes(email) });
       }
     }
   });

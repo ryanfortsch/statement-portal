@@ -28,10 +28,14 @@ export type TeamAccess = 'owner' | 'staff';
  * `countersign`: signs staff documents (offer letters) for Rising Tide STR,
  * LLC; their name prints on the employer's signature line. `staff_copy`:
  * copied on every staff document email (the signing link and the signed copy).
+ * `dispatch`: plans who goes where: names someone else on a walk, takes
+ * someone else off one, and creates, publishes or hands out a Field packet.
+ * One person for now (Dotti, 2026-10-30); `hasDuty` is the gate, so moving
+ * it is one line here.
  * Notices resolve through `src/lib/team-recipients.ts`; nothing in the app
  * should name a teammate's inbox directly.
  */
-export type TeamDuty = 'field_pay' | 'creative' | 'countersign' | 'staff_copy';
+export type TeamDuty = 'field_pay' | 'creative' | 'countersign' | 'staff_copy' | 'dispatch';
 
 export type TeamMember = {
   email: string;        // canonical id
@@ -92,7 +96,7 @@ export const TEAM_MEMBERS: TeamMember[] = [
     role: 'principal',
     access: 'owner',
     active: true,
-    duties: ['creative'],
+    duties: ['creative', 'dispatch'],
   },
   // Operations Manager from 2026-11-01. Staff access: operations, not
   // money (see helm-access.ts). Listed ahead of her Workspace seat so an
@@ -117,6 +121,11 @@ export function getTeamMember(email: string | null | undefined): TeamMember | nu
   if (!email) return null;
   const e = email.toLowerCase().trim();
   return TEAM_MEMBERS.find((m) => m.email.toLowerCase() === e) ?? null;
+}
+
+/** Whether a login holds a duty on the roster (its Workspace email only). */
+export function hasDuty(email: string | null | undefined, duty: TeamDuty): boolean {
+  return (getTeamMember(email)?.duties ?? []).includes(duty);
 }
 
 /**

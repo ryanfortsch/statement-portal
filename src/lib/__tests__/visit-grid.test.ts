@@ -371,11 +371,13 @@ describe('one record behind every tap', () => {
     assert.match(release, /update\(\{ assigned_to_email: null \}\)/);
     assert.match(release, /if \(readErr\) return \{ ok: false/);
   });
-  test('a claim keeps the note and the first planner, and names the tapper as the walker', () => {
+  test('a claim keeps the note and the first planner, and names the tapper as the walker unless the dispatcher names a teammate', () => {
     const claim = actions.slice(actions.indexOf('export async function claimWalk'), actions.indexOf('export async function releaseWalk'));
     assert.match(claim, /notes: prior\?\.notes \?\? null/);
     assert.match(claim, /planned_by_email: prior\?\.planned_by_email \|\| email/);
-    assert.match(claim, /assigned_to_email: email/);
+    assert.match(claim, /let assignee = email;/, 'the tapper by default');
+    assert.match(claim, /assigned_to_email: assignee/);
+    assert.match(claim, /if \(!\(await sessionDispatches\(\)\)\) return \{ ok: false, error: WALK_FOR_OTHERS \};/, 'a teammate only by the dispatcher');
     assert.match(claim, /if \(readErr\) return \{ ok: false/, 'a failed read never becomes a blank write');
   });
 });

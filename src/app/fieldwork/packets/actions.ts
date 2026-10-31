@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { after } from 'next/server';
 import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
-import { isOwnerSession, requireOwnerEmail } from '@/lib/helm-access-server';
+import { isOwnerSession, requireDispatchEmail, requireOwnerEmail } from '@/lib/helm-access-server';
 import { isOwnWork } from '@/lib/team';
 import { fieldDb } from '@/lib/field-db';
 import { loadVendorTimesForDay } from '@/lib/vendor-schedule';
@@ -34,6 +34,13 @@ async function staffEmail(): Promise<string> {
 // src/proxy.ts is not enough on its own (see src/lib/helm-access.ts).
 async function ownerEmail(): Promise<string> {
   return requireOwnerEmail();
+}
+
+// The dispatcher only: creating, publishing and handing out a packet. One
+// person plans who goes where (team.ts, `dispatch`, since 2026-10-30);
+// staff still edit the stops, close out a trip and approve submitted work.
+async function dispatchEmail(): Promise<string> {
+  return requireDispatchEmail();
 }
 
 // Fat-finger ceilings for operator-entered pay. A purely relative cap breaks
@@ -139,7 +146,7 @@ export async function revealW9(contractorId: string): Promise<string | null> {
  *  in progress). Pulls the prior contractor's codes on a reassign, programs the
  *  new one's, and confirms with the new contractor. */
 export async function assignPacket(formData: FormData): Promise<void> {
-  const email = await staffEmail();
+  const email = await dispatchEmail();
   const packetId = String(formData.get('packet_id') || '');
   const contractorId = String(formData.get('contractor_id') || '');
   if (!packetId || !contractorId) return;
@@ -261,7 +268,7 @@ export type SendJobState = { error: string };
  *  re-landed on the form, which is how the ad_hoc enum bug (#1205) went
  *  unnoticed for a month. */
 export async function sendJobAction(_prev: SendJobState, formData: FormData): Promise<SendJobState> {
-  const email = await staffEmail();
+  const email = await dispatchEmail();
   const trade = jobTrade(String(formData.get('trade') || ''));
   const raw = String(formData.get('kind') || '');
   // A full inspection aimed at the handymen is refused, never quietly turned
@@ -551,7 +558,7 @@ function bundleFailure(visitDate: string, res: Extract<PacketCreateResult, { ok:
 /** Work-first board: bundle the operator's hand-picked inspections for a day
  *  into one packet and publish it to contractors in a single step. */
 export async function bundleAndSend(formData: FormData): Promise<BundleFailure> {
-  const email = await staffEmail();
+  const email = await dispatchEmail();
   const visitDate = String(formData.get('visit_date') || '');
   const ids = String(formData.get('property_ids') || '')
     .split(',')
@@ -616,7 +623,7 @@ export async function bundleAndSend(formData: FormData): Promise<BundleFailure> 
  *  sending. Same clustering + pricing as bundleAndSend; publishing happens
  *  later from the packet page. */
 export async function bundleAsDraft(formData: FormData): Promise<BundleFailure> {
-  const email = await staffEmail();
+  const email = await dispatchEmail();
   const visitDate = String(formData.get('visit_date') || '');
   const ids = String(formData.get('property_ids') || '')
     .split(',')
@@ -643,7 +650,7 @@ export async function bundleAsDraft(formData: FormData): Promise<BundleFailure> 
  *  inline with the pick still on screen, and success lands on the Handymen
  *  board, where the new packet actually is. */
 export async function bundleMaintenance(formData: FormData): Promise<BundleFailure> {
-  const email = await staffEmail();
+  const email = await dispatchEmail();
   const draft = formData.get('mode') === 'draft';
   const visitDate = String(formData.get('visit_date') || '');
   const slipIds = String(formData.get('work_slip_ids') || '')
@@ -1237,7 +1244,7 @@ export async function markPacketPaid(formData: FormData): Promise<void> {
 }
 
 export async function publishPacket(formData: FormData): Promise<void> {
-  const email = await staffEmail();
+  const email = await dispatchEmail();
   const packetId = String(formData.get('packet_id') || '');
   // Same fat-finger guard as the setup form (#1265), and the backstop for the
   // nightly expiry loop: never (re)list a day that already happened. Without

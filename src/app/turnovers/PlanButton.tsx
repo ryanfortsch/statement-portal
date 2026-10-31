@@ -22,6 +22,9 @@ type Props = {
   plannedNotes?: string | null;
   assignedToEmail: string | null;
   myEmail: string;
+  /** Holds the dispatch duty (team.ts): may name anyone. Everyone else
+   *  walks it themselves, and a name already on it stays. */
+  dispatcher?: boolean;
   /** 'chip' (default): the dashed "Planned Jul 10 · Ryan" line used in the
    *  opened board row. 'verb': the row's one action while the walk is not
    *  due yet, a plain "Plan walk" button (the row's walk column already says
@@ -40,6 +43,7 @@ export function PlanButton({
   plannedNotes = null,
   assignedToEmail,
   myEmail,
+  dispatcher = false,
   variant = 'chip',
 }: Props) {
   const softRefresh = useSoftRefresh();
@@ -81,7 +85,8 @@ export function PlanButton({
     if (lock.current) return;
     lock.current = true;
     setErr(null); setUncertain(false); setSubmitting(true);
-    const snapshot = { date: picked, notes, assignee };
+    // Without the duty the name is whoever is on it, else the person saving.
+    const snapshot = { date: picked, notes, assignee: dispatcher ? assignee : (assignee ?? myEmail) };
     try {
       const res = await setInspectionPlan({
         guestyReservationId, propertyId, checkinDate: checkInDate, checkoutDate: checkOutDate,
@@ -275,12 +280,18 @@ export function PlanButton({
         />
 
         <div className="eyebrow" style={{ marginTop: 14, marginBottom: 6 }}>Who walks it</div>
-        <TeamPicker
-          value={assignee}
-          onChange={setAssignee}
-          myEmail={myEmail}
-          placeholder="Anyone on the team"
-        />
+        {dispatcher ? (
+          <TeamPicker
+            value={assignee}
+            onChange={setAssignee}
+            myEmail={myEmail}
+            placeholder="Anyone on the team"
+          />
+        ) : (
+          <div style={{ fontSize: 14, color: 'var(--ink)' }}>
+            {assignee && assignee.toLowerCase() !== myEmail.toLowerCase() ? displayNameForEmail(assignee) : 'You'}
+          </div>
+        )}
 
         <div className="eyebrow" style={{ marginTop: 14, marginBottom: 6 }}>Notes (optional)</div>
         <textarea

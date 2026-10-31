@@ -23,7 +23,7 @@ import { isLiveStatus, isAttachableStatus, isAssignableStatus, isWorkingStatus, 
 import { PacketStatusStrip } from '../PacketStatusStrip';
 import { loadPaymentSummaries } from '@/lib/field-pay';
 import { loadOpenReceipts, loadPacketReceipts } from '@/lib/field-receipts';
-import { isOwnerSession } from '@/lib/helm-access-server';
+import { isOwnerSession, sessionDispatches } from '@/lib/helm-access-server';
 import { suggestFinalCents, isRushVisit } from '@/lib/field-pricing';
 import { FinalPayoutField } from './FinalPayoutField';
 import { loadTextWindow, fmtSpan } from '@/lib/field-text-window';
@@ -113,7 +113,8 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
   // Pricing, approval, final pay, bonus, mark paid and receipt homing are
   // owner controls. The actions refuse a staff session anyway; hiding the
   // forms keeps the page honest about who can press them.
-  const owner = await isOwnerSession();
+  // Publishing and handing the trip to a contractor are the dispatcher's.
+  const [owner, dispatcher] = await Promise.all([isOwnerSession(), sessionDispatches()]);
   // Attaching work slips + instructions is allowed any time the packet is still
   // live (incl. after a contractor claims it); locked once submitted/closed.
   const attachEditable = isAttachableStatus(packet.status);
@@ -730,12 +731,12 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                     <span style={{ fontSize: 12, color: '#7a5512', fontWeight: 600 }}>
                       Visit day has passed. Set a new day under When, then publish.
                     </span>
-                  ) : (
+                  ) : dispatcher ? (
                     <form action={publishPacket}>
                       <input type="hidden" name="packet_id" value={packet.id} />
                       <PendingButton label="Publish to contractors" busyLabel="Publishing + texting inspectors…" className={buttonClass('primary')} />
                     </form>
-                  )}
+                  ) : null}
                 </>
               )}
               {(readyToClose || canWrapUp) && (
@@ -773,7 +774,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
           {/* Quiet utilities — rarely used, so they whisper. */}
           {isLive && (
             <div style={{ display: 'flex', gap: 18, alignItems: 'baseline', flexWrap: 'wrap', marginTop: 14 }}>
-              {(isAssignableStatus(packet.status)) && assignable.length > 0 && (
+              {dispatcher && (isAssignableStatus(packet.status)) && assignable.length > 0 && (
                 <details style={{ position: 'relative' }}>
                   <summary style={quietSummary}>{packet.status === 'claimed' ? 'Reassign' : 'Assign directly'} ▾</summary>
                   <div style={menuCard}>

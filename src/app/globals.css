@@ -1541,6 +1541,14 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
 .rt-vg-ch { position: absolute; right: 4px; top: 50%; width: 5px; height: 5px; margin-top: -2.5px; border-radius: 50%; pointer-events: none; }
 .rt-vg-ch-sw { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; }
 .rt-vg-ch-sw:not(:first-child) { margin-left: 4px; }
+/* The dispatcher's row above the grid: whom a tap plans for. Only the
+   person holding the dispatch duty sees it (team.ts); everyone else taps
+   for themselves. */
+.rt-vg-for { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-bottom: 10px; font-size: 12px; color: var(--ink-3); }
+.rt-vg-for-label { font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); margin-right: 4px; }
+.rt-vg-for-pick { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 4px; border: 1px solid var(--rule); border-radius: 999px; background: transparent; color: var(--ink-3); font: inherit; font-size: 12px; line-height: 1.2; cursor: pointer; }
+.rt-vg-for-pick[data-on] { border-color: var(--ink); color: var(--ink); font-weight: 600; background: var(--paper-2); }
+.rt-vg-for-pick:focus-visible { outline: 2px solid var(--signal); outline-offset: 1px; }
 .rt-vg-marks {
   position: absolute;
   inset: 0;

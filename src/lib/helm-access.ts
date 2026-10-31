@@ -32,7 +32,7 @@
 // Relative with the extension on purpose: Node's test runner resolves
 // neither the `@/` alias nor an extensionless sibling, and this module is
 // under test (the repo convention, see sca-quotes-types.ts imports).
-import { getTeamMember } from './team.ts';
+import { getTeamMember, hasDuty } from './team.ts';
 
 export type HelmRole = 'owner' | 'staff';
 
@@ -84,15 +84,27 @@ export type HelmView = {
   viewingAsStaff: boolean;
   /** An owner login in owner view (the menu offers View as staff). */
   mayViewAsStaff: boolean;
+  /** Holds the dispatch duty, in their own view (`canDispatch`). */
+  dispatcher: boolean;
 };
 
 /** No session, or before the layout hands one in: staff, no switch. */
-export const STAFF_VIEW: HelmView = { role: 'staff', viewingAsStaff: false, mayViewAsStaff: false };
+export const STAFF_VIEW: HelmView = { role: 'staff', viewingAsStaff: false, mayViewAsStaff: false, dispatcher: false };
 
 export function helmView(email: string | null | undefined, viewAs: string | null | undefined): HelmView {
   const ownerLogin = roleForEmail(email) === 'owner';
   const role = effectiveRole(email, viewAs);
-  return { role, viewingAsStaff: ownerLogin && role === 'staff', mayViewAsStaff: ownerLogin && role === 'owner' };
+  return { role, viewingAsStaff: ownerLogin && role === 'staff', mayViewAsStaff: ownerLogin && role === 'owner', dispatcher: canDispatch(email, viewAs) };
+}
+
+/**
+ * The dispatch duty as the session acts on it: held on the roster
+ * (`team.ts`), and not while an owner is in View as staff, since the switch
+ * drops every privilege the login has, duties included. It gates naming
+ * someone else on a walk and creating or sending a Field packet.
+ */
+export function canDispatch(email: string | null | undefined, viewAs: string | null | undefined): boolean {
+  return hasDuty(email, 'dispatch') && effectiveRole(email, viewAs) === roleForEmail(email);
 }
 
 /**

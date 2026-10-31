@@ -1,6 +1,6 @@
 import { cookies } from 'next/headers';
 import { auth } from '@/auth';
-import { effectiveRole, helmView, VIEW_AS_COOKIE, type HelmRole, type HelmView } from '@/lib/helm-access';
+import { canDispatch, effectiveRole, helmView, VIEW_AS_COOKIE, type HelmRole, type HelmView } from '@/lib/helm-access';
 
 /**
  * The session-side half of `helm-access.ts`: what role is signed in right
@@ -48,5 +48,25 @@ export async function requireOwnerEmail(): Promise<string> {
   const email = session?.user?.email;
   if (!email) throw new Error('Not signed in');
   if (effectiveRole(email, await viewAsCookie()) !== 'owner') throw new Error('Owners only');
+  return email;
+}
+
+/** True when the signed-in person holds the dispatch duty, in their own view. */
+export async function sessionDispatches(): Promise<boolean> {
+  const session = await auth();
+  return canDispatch(session?.user?.email, await viewAsCookie());
+}
+
+/**
+ * The email of the signed-in DISPATCHER, or a throw: the guard on a server
+ * action that creates, publishes or hands out a Field packet. The walk
+ * actions ask `sessionDispatches()` and answer in words instead, since the
+ * grid shows the reason on the cell.
+ */
+export async function requireDispatchEmail(): Promise<string> {
+  const session = await auth();
+  const email = session?.user?.email;
+  if (!email) throw new Error('Not signed in');
+  if (!canDispatch(email, await viewAsCookie())) throw new Error('Dispatch only');
   return email;
 }

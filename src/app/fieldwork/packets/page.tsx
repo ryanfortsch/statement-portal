@@ -20,7 +20,7 @@ import { InspectionCalendar } from './InspectionCalendar';
 import { MaintenanceBundler } from './MaintenanceBundler';
 import { SentFlash } from './SentFlash';
 import { approvePacket, markPacketPaid, releasePacket, publishPacket, cancelPacket } from './actions';
-import { isOwnerSession } from '@/lib/helm-access-server';
+import { isOwnerSession, sessionDispatches } from '@/lib/helm-access-server';
 
 export const dynamic = 'force-dynamic';
 
@@ -120,7 +120,8 @@ export default async function PacketsBoard({
 
   const sp = await searchParams;
   // Approve and Mark paid on the rows are owner controls (see LiveRow).
-  const owner = await isOwnerSession();
+  // Sending a job and the two planners are the dispatcher's (team.ts).
+  const [owner, dispatcher] = await Promise.all([isOwnerSession(), sessionDispatches()]);
   const from = sp.from || todayStr();
   const to = sp.to || plusDays(14);
   // A trade with no tab (cleaning) is clamped to Inspectors, the way the
@@ -225,8 +226,11 @@ export default async function PacketsBoard({
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {/* One create door: the Send a job form, keyed by kind, sent to
-                this board's trade. */}
-            <Link href={`/fieldwork/packets/new?trade=${trade}`} style={{ ...btnGhost, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>+ Send a job</Link>
+                this board's trade. The dispatcher's; the page behind it
+                says so to anyone else. */}
+            {dispatcher && (
+              <Link href={`/fieldwork/packets/new?trade=${trade}`} style={{ ...btnGhost, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>+ Send a job</Link>
+            )}
           </div>
         </div>
 
@@ -279,14 +283,15 @@ export default async function PacketsBoard({
         </section>}
 
         {/* The planner slot: the inspectors bundle from the calendar, the
-            handymen from their open slips, with the same bundle bar. */}
-        {trade === 'maintenance' && focus === 'all' && openMaintenance && (
+            handymen from their open slips, with the same bundle bar. Both
+            send work, so both are the dispatcher's. */}
+        {dispatcher && trade === 'maintenance' && focus === 'all' && openMaintenance && (
           <div style={{ marginTop: 28 }}>
             <MaintenanceBundler slips={openMaintenance} assignable={assignable} />
           </div>
         )}
 
-        {trade === 'inspection' && focus === 'all' && (
+        {dispatcher && trade === 'inspection' && focus === 'all' && (
         <div style={{ marginTop: 28 }}>
           <InspectionCalendar days={calendar.days} rows={calendar.rows} assignable={assignable} />
           {calendar.missingProps.length > 0 && (
