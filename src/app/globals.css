@@ -1153,6 +1153,68 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
   }
 }
 
+/* Home agenda: the next few commitments first, with source and review detail
+   available on demand. The complete 30-day list remains on /appointments. */
+.rt-agenda { margin-bottom: 20px; min-width: 0; }
+.rt-agenda-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.rt-agenda-heading h2 { font-family: var(--font-fraunces); font-size: 22px; font-weight: 400; margin: 0; }
+.rt-agenda-add { display: inline-flex; align-items: center; min-height: 44px; flex-shrink: 0; font-size: 13px; }
+.rt-agenda-window { font-size: 12px; color: var(--ink-3); margin: 0 0 8px; }
+.rt-agenda-coverage { font-size: 12px; line-height: 1.5; border-bottom: 1px solid var(--rule); margin-bottom: 4px; }
+.rt-agenda-coverage > summary { cursor: pointer; min-height: 44px; padding: 8px 0; color: var(--ink-3); }
+.rt-agenda-details-body { font-size: 13px; line-height: 1.55; color: var(--ink-3); overflow-wrap: anywhere; padding: 0 0 8px; }
+.rt-agenda-details-body p { margin: 5px 0 9px; }
+.rt-agenda-details-body ul { padding-left: 18px; margin: 8px 0; }
+.rt-agenda-details-body li { margin-bottom: 8px; }
+.rt-agenda-row { padding: 12px 0 6px; border-bottom: 1px solid var(--rule); overflow-wrap: anywhere; }
+.rt-agenda-compact-row { padding: 0; }
+.rt-agenda-compact-row > summary { display: block; list-style: none; position: relative; padding: 12px 22px 12px 0; cursor: pointer; min-height: 44px; }
+.rt-agenda-compact-row > summary::-webkit-details-marker { display: none; }
+.rt-agenda-compact-row > summary::after { content: '⌄'; position: absolute; right: 2px; top: 14px; color: var(--ink-3); }
+.rt-agenda-compact-row[open] > summary::after { content: '⌃'; }
+.rt-agenda-compact-row > .rt-agenda-details-body { padding-top: 4px; }
+.rt-agenda-when { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 3px 14px; font-size: 12px; line-height: 1.5; margin-bottom: 4px; }
+.rt-agenda-when > span { color: var(--ink-3); }
+.rt-agenda-title { display: block; font-size: 15px; font-weight: 500; color: var(--ink); text-decoration: none; line-height: 1.4; }
+.rt-agenda-context { display: block; font-size: 12px; line-height: 1.5; color: var(--ink-3); margin-top: 3px; }
+.rt-agenda-attention, .rt-agenda-warning { color: var(--signal); }
+.rt-agenda-warning { display: block; font-size: 12px; line-height: 1.5; margin: 6px 0; }
+.rt-agenda-row-details > summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font-size: 12px; color: var(--ink-3); }
+.rt-agenda-row-details > summary::before { content: '▸'; margin-right: 6px; }
+.rt-agenda-row-details[open] > summary::before { content: '▾'; }
+.rt-agenda-links { display: flex; flex-wrap: wrap; align-items: center; gap: 0 16px; font-size: 12px; color: var(--ink-3); padding-top: 4px; }
+.rt-agenda-links > a { display: inline-flex; align-items: center; min-height: 44px; }
+.rt-agenda-all { display: flex; flex-direction: column; justify-content: center; gap: 4px; min-height: 44px; padding: 10px 0 4px; font-size: 12px; color: var(--ink-3); }
+.rt-agenda-all > span:first-child { color: var(--tide-deep); }
+.rt-agenda > .rt-agenda-warning { display: flex; align-items: center; min-height: 44px; margin: 0; }
+.rt-agenda-group { margin: 20px 0 0; }
+.rt-agenda > div[id] { scroll-margin-top: 80px; }
+.rt-agenda-empty { font-size: 13px; margin: 12px 0; color: var(--ink-3); }
+.rt-feed-actions { position: relative; flex: 0 0 44px; align-self: flex-start; }
+.rt-feed-actions > summary { list-style: none; display: flex; justify-content: center; align-items: center; width: 44px; height: 44px; cursor: pointer; color: var(--ink-3); font-size: 20px; }
+.rt-feed-actions > summary::-webkit-details-marker { display: none; }
+.rt-feed-actions-panel { position: absolute; right: 0; top: 40px; z-index: 5; min-width: 180px; padding: 4px; background: var(--paper); border: 1px solid var(--rule); box-shadow: 0 4px 12px #0001; }
+.rt-feed-actions summary:focus-visible, .rt-agenda summary:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+@media (max-width: 640px) {
+  /* Home does not need a persistent toolbar covering the day while scrolling. */
+  .rt-home .rt-masthead { position: static; }
+  .rt-home .rt-masthead-top { padding: 6px 0 !important; row-gap: 6px !important; }
+  .rt-home .rt-masthead-brand { min-width: 0; }
+  .rt-home .rt-masthead-brand img { width: 28px !important; height: 28px !important; }
+  .rt-home .rt-masthead-divider, .rt-home .rt-search-label { display: none; }
+  .rt-home .rt-helm-hero { padding-top: 16px !important; padding-bottom: 4px !important; }
+  .rt-home .rt-helm-hero > .eyebrow { display: none; }
+  .rt-home-ask { padding-bottom: 6px !important; }
+  .rt-home-ask > details > summary { min-height: 44px; display: flex; align-items: center; }
+  .rt-home-feed { padding-top: 14px !important; padding-bottom: 12px !important; }
+  .rt-home-feed-group { margin-bottom: 8px !important; }
+  .rt-home-work-row { gap: 8px !important; }
+  .rt-agenda-heading h2 { font-size: 20px; }
+}
+@media (max-width: 380px) {
+  .rt-home .rt-mobile-menu-label { display: none; }
+}
+
 /* Secondary inbox context: one quiet row, with details on demand. */
 .rt-disclosure-section { width: 100%; padding-top: 4px; padding-bottom: 4px; }
 .rt-disclosure { border-bottom: 1px solid var(--rule); }

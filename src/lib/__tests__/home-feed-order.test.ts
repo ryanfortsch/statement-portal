@@ -37,10 +37,18 @@ describe('the home feed reads as the signed-in person\'s day', () => {
     const feed = read('src/components/ForMeFeed.tsx');
     assert.ok(feed.includes('const shown = homeFeedOrder(role).filter((key) => sections[key] != null);'), 'the feed must render through homeFeedOrder');
     assert.ok(feed.includes('shown.map((key) => ('), 'and in that order');
-    assert.ok(feed.includes('const payments = windowPayments(overdueLinks, keyProblems, paidLinks);'), 'payments are windowed');
+    assert.ok(feed.includes('const payments = windowPayments(overdueLinks, keyProblems, []);'), 'actionable payments are windowed without completed receipts');
     assert.ok(feed.includes('{payments.more > 0 && <MoreRow'), 'the rest fold into N more');
     assert.ok(!feed.includes("Showing the team's unclaimed backlog"), 'no explainer under Unassigned work');
     assert.ok(!feed.includes('lands on the statement through the extras queue'), 'no statement plumbing on a paid row');
+  });
+
+  test('completed payments are available in Recent Activity only', () => {
+    const feed = read('src/components/ForMeFeed.tsx');
+    const mainFeed = feed.slice(feed.indexOf('export async function ForMeFeed'), feed.indexOf("type WorkMode"));
+    assert.ok(!mainFeed.includes('payments.paid.map'));
+    assert.ok(feed.includes('export async function RecentPayments()'));
+    assert.ok(read('src/app/(home)/page.tsx').includes('activity ? <><RecentPayments /><TeamActivity'));
   });
 
   test('a staff login sees its own meetings and none of an owner inbox', () => {

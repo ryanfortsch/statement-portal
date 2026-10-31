@@ -149,6 +149,15 @@ export function agendaGroups(entries: AgendaEntry[], today: string, through: str
     other: ready.filter(e => e.attendance === 'owner_handled' || e.attendance === 'not_attending').sort(sort),
   };
 }
+/** Home is a short preview, not a second full agenda. Dated tentative plans
+ * remain in date order. Owner-handled and undated records stay in the full view. */
+export function homeAgendaPreview(groups: ReturnType<typeof agendaGroups>, today: string, through: string) {
+  return [...groups.scheduled, ...groups.review]
+    .filter(e => e.date && e.date >= today && e.date <= through &&
+      (e.attendance === 'attending' || e.attendance === 'coverage_needed'))
+    .sort((a, b) => a.date!.localeCompare(b.date!) || (a.time ?? '99').localeCompare(b.time ?? '99') || a.id.localeCompare(b.id))
+    .slice(0, 3);
+}
 export const STATUS_LABEL: Record<AppointmentStatus, string> = { confirmed: 'Confirmed', tentative: 'Tentative', needs_scheduling: 'Awaiting scheduling', cancelled: 'Cancelled' };
 export const ATTENDANCE_LABEL: Record<Attendance, string> = { attending: 'You are attending', coverage_needed: 'Assign team coverage', owner_handled: 'Owner is handling', not_attending: 'You are not attending' };
 export function appointmentClock(e: Pick<AgendaEntry, 'time' | 'endTime' | 'timeKind'>): string {

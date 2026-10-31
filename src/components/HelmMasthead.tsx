@@ -33,13 +33,13 @@ type Props = {
  */
 export function HelmMasthead({ rightContent }: Props) {
   return (
-    <header className="sticky top-0 z-50" style={{ background: 'var(--paper)', borderBottom: '1px solid var(--ink)' }}>
+    <header className="rt-masthead sticky top-0 z-50" style={{ background: 'var(--paper)', borderBottom: '1px solid var(--ink)' }}>
       <div className="max-w-[1100px] mx-auto px-10">
         <div
           className="rt-masthead-top flex flex-wrap items-center"
           style={{ padding: '16px 0 12px', columnGap: 10, rowGap: 10 }}
         >
-          <div className="flex items-center gap-4" style={{ flex: '1 0 auto' }}>
+          <div className="rt-masthead-brand flex items-center gap-4" style={{ flex: '1 0 auto' }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <Link
               href="/"
@@ -64,6 +64,7 @@ export function HelmMasthead({ rightContent }: Props) {
               </span>
             </Link>
             <span
+              className="rt-masthead-divider"
               style={{ width: 1, height: 14, background: 'var(--rule)', flexShrink: 0 }}
               aria-hidden="true"
             />

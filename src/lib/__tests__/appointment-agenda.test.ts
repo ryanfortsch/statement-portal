@@ -2,7 +2,7 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { appointmentAddressConflict } from '../appointment-evidence.ts';
 import { checkOwnerAppointment } from '../owner-appointments-core.ts';
-import { agendaGroups, agendaWindow, appointmentClock, meetingToAgenda, mergeAgenda, overlappingAppointments, safeSourceUrl, sourceKeyFromUrl, validateAppointment, validDay, type AgendaEntry, type AppointmentInput } from '../appointment-agenda.ts';
+import { homeAgendaPreview, agendaGroups, agendaWindow, appointmentClock, meetingToAgenda, mergeAgenda, overlappingAppointments, safeSourceUrl, sourceKeyFromUrl, validateAppointment, validDay, type AgendaEntry, type AppointmentInput } from '../appointment-agenda.ts';
 
 const details: AppointmentInput = { title: 'Review with a business contact', date: '2026-11-02', time: '10:00', endTime: '10:30', timeKind: 'exact',
   status: 'confirmed', attendance: 'attending', propertyName: null, location: 'Video call', people: 'Alex Example', notes: null,
@@ -96,4 +96,25 @@ test('owner appointment intake rejects a contradictory title before writing', ()
   assert.match(checkOwnerAppointment({ cardId: 'card', propertyId: '4_beach', date: '2026-11-02', what: 'Inspection at 21 Harbor', message: 'Business source' })!, /different street number/);
   assert.equal(appointmentAddressConflict('4 Beach', 'Meet at 2 PM'), false);
   assert.equal(appointmentAddressConflict('4 Beach', 'Inspection', '21 Harbor'), true);
+});
+
+
+describe('home appointment preview', () => {
+  test('shows the next three dated commitments, including clearly tentative items', () => {
+    const items = [entry({ id: 'later', date: '2026-11-08' }), entry({ id: 'early', date: '2026-11-01' }), entry({ id: 'pending', date: '2026-11-02', time: null, endTime: null, status: 'tentative', reviewReason: 'Time pending' }), entry({ id: 'third', date: '2026-11-03', attendance: 'coverage_needed' })];
+    const groups = agendaGroups(items, '2026-10-31', '2026-11-29');
+    const preview = homeAgendaPreview(groups, '2026-10-31', '2026-11-29');
+    assert.deepEqual(preview.map(e => e.id), ['early', 'pending', 'third']);
+    assert.equal(preview[1].status, 'tentative');
+    assert.equal(groups.scheduled.length + groups.review.length, 4, 'preview does not remove items from the full agenda');
+  });
+  test('excludes owner-handled, declined, undated, cancelled and outside-window items', () => {
+    const items = [entry(), entry({id:'owner',attendance:'owner_handled'}), entry({id:'declined',attendance:'not_attending'}), entry({id:'undated',date:null,time:null,endTime:null,status:'needs_scheduling'}), entry({id:'cancelled',status:'cancelled'}), entry({id:'old',date:'2026-10-01'}), entry({id:'future',date:'2026-12-01',reviewReason:'Check invitation'})];
+    assert.deepEqual(homeAgendaPreview(agendaGroups(items,'2026-10-31','2026-11-29'),'2026-10-31','2026-11-29').map(e=>e.id),['a']);
+  });
+  test('conflicts outside the three-row preview remain available for a coverage warning', () => {
+    const groups=agendaGroups([entry({id:'1',date:'2026-11-01'}),entry({id:'2',date:'2026-11-02'}),entry({id:'3',date:'2026-11-03'}),entry({id:'4',date:'2026-11-06',attendance:'coverage_needed'}),entry({id:'5',date:'2026-11-06',attendance:'coverage_needed'})],'2026-10-31','2026-11-29');
+    assert.equal(homeAgendaPreview(groups,'2026-10-31','2026-11-29').length,3);
+    assert.deepEqual(overlappingAppointments(groups.scheduled),new Set(['4','5']));
+  });
 });

@@ -4,7 +4,7 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
 import { TeamActivity } from '@/components/TeamActivity';
 import { HomeFeedTabs } from '@/components/HomeFeedTabs';
-import { ForMeFeed } from '@/components/ForMeFeed';
+import { ForMeFeed, RecentPayments } from '@/components/ForMeFeed';
 import { HomeSignals } from '@/components/HomeSignals';
 import { AskHelm } from '@/components/AskHelm';
 import { CleaningsStrip } from '@/components/CleaningsStrip';
@@ -39,7 +39,7 @@ export default async function HelmHome({
   const activity = tab === 'activity';
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
+    <div className="rt-home min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
 
       {/* CONCIERGE: drafts paused, and one line counting the guest
@@ -56,7 +56,7 @@ export default async function HelmHome({
       <HelmHero eyebrow="HELM" title="Today" paddingTop={32} paddingBottom={20} />
 
       {/* ASK HELM: the page's one input, directly under the title. */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 28 }}>
+      <section className="rt-home-ask max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 16 }}>
         <details>
           <summary style={{ cursor: 'pointer', fontSize: 14, color: 'var(--tide-deep)' }}>Ask Helm</summary>
           <div style={{ paddingTop: 12 }}><AskHelm showSuggestions={false} /></div>
@@ -67,7 +67,7 @@ export default async function HelmHome({
           loads only when opened. */}
       <HomeFeedTabs active={activity ? 'activity' : 'forme'} />
       <Suspense fallback={<FeedPlaceholder />}>
-        {activity ? <TeamActivity limit={20} hideHeading /> : <ForMeFeed />}
+        {activity ? <><RecentPayments /><TeamActivity limit={20} hideHeading /></> : <ForMeFeed />}
       </Suspense>
 
       {/* SIGNALS: the two numbers that change what you do today, each
@@ -101,7 +101,7 @@ function FeedPlaceholder() {
     <section
       aria-busy="true"
       className="max-w-[1100px] mx-auto px-10"
-      style={{ width: '100%', paddingTop: 24, paddingBottom: 80 }}
+      style={{ width: '100%', paddingTop: 20, paddingBottom: 24 }}
     >
       <div style={{ height: 22, width: 160, background: 'var(--paper-2)', marginBottom: 12 }} />
       <div style={{ borderTop: '1px solid var(--ink)' }}>
