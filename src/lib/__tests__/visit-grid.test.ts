@@ -334,13 +334,27 @@ describe('which homes are on the grid, and in what order', () => {
     const quiet = rows.find((r) => r.propertyId === '73_rocky_neck')!;
     assert.ok(quiet.cells.every((c) => !c.needs && c.tap.kind === 'none'), 'a quiet home asks for nothing and takes no tap');
     assert.equal(quiet.nextNeed, null);
-    assert.deepEqual(rows.filter((r) => r.quiet).map((r) => r.propertyId), ['17_beach', '73_rocky_neck', '84_thatcher'], 'quiet = no arrival in the window; the divider sits before the first');
-    assert.equal(rows.findIndex((r) => r.quiet), rows.length - 3, 'and every quiet row is below every working one');
+    assert.deepEqual(rows.filter((r) => r.quiet).map((r) => r.propertyId), ['47_atlantic', '17_beach', '73_rocky_neck', '84_thatcher'], 'quiet = nothing in the window: an arrival ten days past it with no prep day in view is quiet too, and sorts first among the quiet');
+    assert.equal(rows.findIndex((r) => r.quiet), rows.length - 4, 'and every quiet row is below every working one');
+    assert.equal(rows.find((r) => r.propertyId === '4_middle')!.quiet, false, 'an arrival two days past the window asks for its prep days, so it is working');
     assert.ok(rows.every((r) => r.unitOf === null && r.foldedUnits.length === 0), 'no split homes here: plain rows');
   });
   test('rows run in the order the week happens: next arrival first', () => {
     const ids = gridFor(ME).rows.map((r) => r.propertyId);
     assert.deepEqual(ids, ['16_waterman', '20_enon', '30_woodward', '19_rackliffe', '3_south', '36_granite', '21_horton', '3_locust', '7_sumac', '4_middle', '47_atlantic', '17_beach', '73_rocky_neck', '84_thatcher']);
+  });
+  test('a quiet home never sits above a working one, whatever its next arrival (one divider)', () => {
+    // 225 Washington's guest leaves tomorrow and the next arrives in three
+    // weeks: the page sends that stay, the window has nothing in it. It
+    // goes under the divider, ahead of homes with no arrival at all.
+    const homes = [
+      ...HOMES,
+      home('225_washington', '225 Washington', [{ id: 'W1', in: '2026-10-15', out: '2026-10-19' }, { id: 'W2', in: '2026-11-08', out: '2026-11-12' }]),
+    ];
+    const stays = [...STAYS, stay({ reservationId: 'W2', propertyId: '225_washington', checkIn: '2026-11-08', checkOut: '2026-11-12' })];
+    const rows = composeVisitGrid({ today: TODAY, days: DAYS, homes, stays, myEmail: ME, nameFor, initialsFor }).rows;
+    assert.deepEqual(rows.filter((r) => r.quiet).map((r) => r.propertyId), ['225_washington', '47_atlantic', '17_beach', '73_rocky_neck', '84_thatcher']);
+    assert.equal(rows.findIndex((r) => r.quiet), rows.length - 5);
   });
 });
 

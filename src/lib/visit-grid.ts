@@ -357,9 +357,13 @@ export function composeVisitGrid(input: VisitGridInput): VisitGrid {
   // Every home is on the grid, so the whole fleet is accounted for at a
   // glance (Dotti, 2026-10-31, after a quiet first week of November left
   // nine rows and the rest looked lost), in the order the week happens:
-  // the home that turns next at the top, then by name; a home with no
-  // arrival ahead is quiet and sorts last, by name, under the divider.
-  // Stable as people claim, so a house never jumps.
+  // the home that turns next at the top, then by name. A home with nothing
+  // in the window (no arrival, no day asking for someone, no mark) is quiet
+  // and sorts under the divider, by its next known arrival and then by
+  // name. The stays the page sends run past the window (a checkout in it
+  // carries its next arrival whenever that is), so the window itself, not
+  // the stay list, says what is quiet. Stable as people claim, so a house
+  // never jumps.
   //
   // A split home's units (lib/unit-homes.ts) ride under their house. A
   // unit with a guest in the window is a row of its own right under the
@@ -375,6 +379,7 @@ export function composeVisitGrid(input: VisitGridInput): VisitGrid {
     nextArrival(a).localeCompare(nextArrival(b)) || a.propertyName.localeCompare(b.propertyName);
   const hasGuest = (r: GridRow): boolean =>
     r.cells.some((c) => c.am === 'guest' || c.pm === 'guest') || (staysByHome.get(r.propertyId) ?? []).length > 0;
+  const active = (r: GridRow): boolean => r.cells.some((c) => c.arriving || c.needs || c.badges.length > 0);
   const houses: GridRow[] = [];
   const unitsOf = new Map<string, GridRow[]>();
   for (const r of rows) {
@@ -395,16 +400,19 @@ export function composeVisitGrid(input: VisitGridInput): VisitGrid {
     unitsOf.set(h.propertyId, units);
     h.foldedUnits.sort();
     groupKey.set(h.propertyId, [h, ...units].map(nextArrival).sort()[0]);
-  }
-  houses.sort((a, b) => groupKey.get(a.propertyId)!.localeCompare(groupKey.get(b.propertyId)!) || a.propertyName.localeCompare(b.propertyName));
-  const ordered: GridRow[] = [];
-  for (const h of houses) {
-    const units = unitsOf.get(h.propertyId) ?? [];
-    const quiet = groupKey.get(h.propertyId) === NO_ARRIVAL;
+    // The group's: a house whose unit has an arrival is working.
+    const quiet = ![h, ...units].some(active);
     h.quiet = quiet;
     for (const u of units) u.quiet = quiet;
-    ordered.push(h, ...units);
   }
+  houses.sort(
+    (a, b) =>
+      Number(a.quiet) - Number(b.quiet) ||
+      groupKey.get(a.propertyId)!.localeCompare(groupKey.get(b.propertyId)!) ||
+      a.propertyName.localeCompare(b.propertyName),
+  );
+  const ordered: GridRow[] = [];
+  for (const h of houses) ordered.push(h, ...(unitsOf.get(h.propertyId) ?? []));
 
   return { today, days, rows: ordered, mine };
 }
