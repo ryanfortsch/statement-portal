@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { inventoryRecoveryAllowed, prepareInventoryRecovery, executeInventoryRecovery, inventoryRecoveryView } from '../channex-staging/inventory-recovery.ts';
 import type { BookingInventoryState, BookingInventoryConsumerStore } from '../channex-staging/booking-inventory-consumer.ts';
-import { emptyInventoryJournal } from '../channex-staging/inventory-journal.ts';
+import { emptyInventoryJournal, replayInventoryJournal } from '../channex-staging/inventory-journal.ts';
 import { ChannexAvailabilityClient } from '../channex-staging/availability-client.ts';
 import { CALDERWOOD_STAGING as mapping } from '../calderwood-readonly/channex.ts';
 import { shiftIsoDay } from '../sca-quotes-types.ts';
@@ -96,4 +96,29 @@ test('archived history cannot be silently skipped when checking recovery cooldow
   f.state.journalVersion = archive.next.format === 2 ? archive.next.baseVersion : 0;
   f.state.configuration.publishEnabled = true;
   await assert.rejects(prepareInventoryRecovery(f.store, () => now), /history needs review/);
+});
+
+
+test('recovery status exposes paused publishing and unresolved deliveries outside the 500-day window', async () => {
+  const f = fixture();
+  await prepareInventoryRecovery(f.store, () => now);
+  const previous = replayInventoryJournal(f.state.journal).queue.list()[0];
+  const { journal } = replayInventoryJournal(f.state.journal);
+  journal.commands.push({ kind: 'enqueue', now: now + 1, intent: {
+    id: 'ordinary-window', environment: 'staging', connection: previous.connection,
+    property: previous.property, generation: previous.generation, version: previous.version + 1,
+    days: previous.days.slice(0, 366),
+  } }, { kind: 'claim', id: 'ordinary-window', now: now + 2, leaseMs: 60000 });
+  f.state.journal = journal;
+  f.state.configuration.publishEnabled = false;
+  const before = JSON.stringify(f.state.journal);
+  const view = inventoryRecoveryView(f.state);
+  assert.equal(view.publishEnabled, false);
+  assert.equal(view.job?.id, previous.id);
+  assert.equal(view.unresolvedDeliveries.length, 1);
+  assert.equal(view.unresolvedDeliveries[0].id, 'ordinary-window');
+  assert.equal(view.unresolvedDeliveries[0].task, null);
+  assert.equal(view.unresolvedDeliveries[0].lastDate, previous.days[365].date);
+  assert.equal(JSON.stringify(f.state.journal), before);
+  assert.doesNotMatch(JSON.stringify(view), /private-booking-id|coverage|inputs|bookings/);
 });

@@ -32,6 +32,9 @@ export function inventoryRecoveryView(state: BookingInventoryState) {
   return { start: state.configuration.start, end: state.configuration.end,
     days: (Date.parse(state.configuration.end) - Date.parse(state.configuration.start)) / 86400000,
     publishEnabled: state.configuration.publishEnabled,
+    unresolvedDeliveries: jobs.filter(j => !['pending', 'verified', 'superseded'].includes(j.status))
+      .map(j => ({ id: j.id, status: j.status, task: j.task ?? null,
+        firstDate: j.days[0].date, lastDate: j.days.at(-1)!.date })),
     job: job ? { id: job.id, digest: job.digest, status: job.status, task: job.task ?? null,
       firstDate: job.days[0].date, lastDate: job.days.at(-1)!.date,
       availableDays: job.days.filter(d => d.available === 1).length } : null };
