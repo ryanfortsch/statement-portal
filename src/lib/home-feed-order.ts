@@ -5,8 +5,7 @@ import type { HelmRole } from './helm-access.ts';
 
 export type FeedSection =
   | 'work'
-  | 'walks'
-  | 'meetings'
+  | 'week'
   | 'replies'
   | 'holds'
   | 'cleanings'
@@ -16,8 +15,7 @@ export type FeedSection =
   | 'updates';
 
 const DAY: readonly FeedSection[] = [
-  'walks',
-  'meetings',
+  'week',
   'holds',
   'cleanings',
   'work',

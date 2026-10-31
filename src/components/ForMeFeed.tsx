@@ -14,7 +14,8 @@ import { listRecentPaymentLinks, type PaymentLinkRow } from '@/lib/payment-links
 import { ageLabel, LINK_LOOKBACK_DAYS, money, paymentLinkStatus, stripeKeyFixUrl } from '@/lib/payment-links-text';
 import { PaymentLinkActions } from '@/app/messaging/send/PaymentLinkActions';
 import { loadMeetingCards } from '@/lib/meetings';
-import { meetingWhen, todayET, type MeetingCard } from '@/lib/meetings-core';
+import { formatMeetingTime, todayET, type MeetingCard } from '@/lib/meetings-core';
+import { countLater, groupByDay, weekEyebrow, workDateLabel, workDay, WEEK_DAYS, type WeekDay, type WorkDateKind } from '@/lib/home-week';
 import { operatingDate } from '@/lib/operating-date';
 import { checkoutBoardHref } from '@/lib/turnover-board';
 import { roleMayOpen, type HelmRole } from '@/lib/helm-access';
@@ -38,6 +39,10 @@ type MyWork = {
   // Slip-side: the single property the slip is filed under.
   propertyId: string | null;
   propertyName: string | null;
+  // Slip-side clocks: the visit it is scheduled for and the office
+  // follow-up. This week reads both; dueDate below is the earlier.
+  scheduledDate?: string | null;
+  followUpDate?: string | null;
   // Task-side context. Tasks can live across multiple properties (or none,
   // for "corporate" / team tasks like "Order supplies"), and the meat is
   // often in the description, not the title — so surface a one-line
@@ -74,16 +79,17 @@ type PlannedWalk = {
 const WORK_WINDOW = 4;
 const REPLY_WINDOW = 6;
 const GLANCE_WINDOW = 6;
-const TIME_SENSITIVE: readonly FeedSection[] = ['holds', 'cleanings', 'walks', 'meetings'];
+const TIME_SENSITIVE: readonly FeedSection[] = ['holds', 'cleanings', 'week'];
 
 /**
  * The "For Me" home feed: the signed-in person's day, in the order it is
- * worked (lib/home-feed-order.ts). My work, walks and meetings; then what is
- * waiting on my reply; then the clock-bound team items (an owner block's
- * "clean after?", a cleaning to check) and the team's unassigned work; then
- * the office queues; then guest payments. Owners keep the "clean after?"
- * card first. The mail is the daily-brief triage read from cache, with no
- * live classification on page load.
+ * worked (lib/home-feed-order.ts). This week (my walks, meetings and dated
+ * work, the next seven days day by day; lib/home-week.ts); then the
+ * clock-bound team items (an owner block's "clean after?", a cleaning to
+ * check); then my work and what is waiting on my reply, or the team's
+ * unassigned work; then the office queues; then guest payments. Owners keep
+ * the "clean after?" card first. The mail is the daily-brief triage read
+ * from cache, with no live classification on page load.
  *
  * One × with one meaning: it hides a row from your own feed and changes
  * nothing else (recorded per user in home_feed_dismissals), and the next
@@ -135,8 +141,9 @@ export async function ForMeFeed() {
     loadPlannedWalks(email),
     loadQueueCards(role),
     loadPaymentLinkCards(),
-    // Owners see every meeting on the calendar; staff see the ones they logged.
-    owner ? loadMeetingCards() : email ? loadMeetingCards(new Date(), { createdBy: email }) : Promise.resolve([]),
+    // Owners see every meeting on the calendar; staff see the ones they
+    // logged. Seven days: the window of This week.
+    owner ? loadMeetingCards(new Date(), { days: WEEK_DAYS }) : email ? loadMeetingCards(new Date(), { createdBy: email, days: WEEK_DAYS }) : Promise.resolve([]),
     // Owner blocks nobody has answered "clean after?" for. No clear
     // button: answering is the clear, on the buttons right here.
     loadOwnerHoldQuestions(supabase).catch(() => null),
@@ -163,6 +170,23 @@ export async function ForMeFeed() {
   const myWork = pickForFeed(workFiltered, workMode, WORK_WINDOW);
   const myTaskCount = allWork.filter(w => w.kind === 'task').length;
   const mySlipCount = allWork.length - myTaskCount;
+
+  // THIS WEEK: the next seven days as one list. The walks planned for me,
+  // the meetings, and my own dated work (only when I have work of my own:
+  // the unassigned backlog is nobody's week). Walks past the window are
+  // counted so the grid is one tap away.
+  const weekToday = operatingDate();
+  const weekEntries: ThisWeekItem[] = [
+    ...plannedWalks.flatMap((w): ThisWeekItem[] => (w.plannedFor ? [{ kind: 'walk', date: w.plannedFor, time: null, walk: w }] : [])),
+    ...meetingCards.map((m): ThisWeekItem => ({ kind: 'meeting', date: m.date, time: m.time, meeting: m })),
+    ...(workMode === 'assigned' ? workFiltered : []).flatMap((w): ThisWeekItem[] => {
+      const day = workDay(w.kind === 'slip' ? { scheduled: w.scheduledDate, followUp: w.followUpDate } : { due: w.dueDate }, weekToday);
+      return day ? [{ kind: w.kind, date: day.date, time: null, work: w, dateKind: day.kind }] : [];
+    }),
+  ];
+  const weekDays = groupByDay(weekEntries, weekToday);
+  const weekCount = weekDays.reduce((n, d) => n + d.items.length, 0);
+  const walksLater = countLater(plannedWalks.map((w) => ({ date: w.plannedFor })), weekToday);
 
   const emailsFiltered = needsReply.filter((e) => !dismissed.has(`email:${e.id}`));
   const visibleInbound = inboundWaiting.filter((t) => !dismissed.has(`inbound:${inboundId(t)}`));
@@ -197,35 +221,20 @@ export async function ForMeFeed() {
         </>
       ) : null,
 
-    // PLANNED WALKS: inspection plans assigned to you, today and the next
-    // few days. A walk has a fixed clock; the row lands on the walk's own
-    // pipeline row.
-    walks:
-      plannedWalks.length > 0 ? (
+    // THIS WEEK: the next seven days, day by day. A walk planned for me
+    // (the row lands on the walk's own pipeline row), a meeting logged on a
+    // contact page (every one for an owner, the ones I logged for staff),
+    // a slip or to-do of mine with a date this week. No header link: each
+    // row opens its own place. Days with nothing are left out.
+    week:
+      weekDays.length > 0 ? (
         <>
-          <SectionHeaderLink href="/turnovers" title="Planned walks" eyebrow={`${plannedWalks.length} upcoming`} />
+          <SectionHeader title="This week" eyebrow={weekEyebrow(weekCount, weekToday)} />
           <div style={{ borderTop: '1px solid var(--ink)' }}>
-            {plannedWalks.map((w) => (
-              <PlannedWalkRow key={w.id} walk={w} />
+            {weekDays.map((d) => (
+              <ThisWeekDay key={d.date} day={d} />
             ))}
-          </div>
-        </>
-      ) : null,
-
-    // MEETINGS: sit-downs logged on a CRM contact page, today and tomorrow
-    // in Gloucester. The card leaves on its own once the day passes.
-    meetings:
-      meetingCards.length > 0 ? (
-        <>
-          <SectionHeaderLink
-            href="/crm"
-            title="Meetings"
-            eyebrow={meetingCards.length === 1 ? '1 coming up' : `${meetingCards.length} coming up`}
-          />
-          <div style={{ borderTop: '1px solid var(--ink)' }}>
-            {meetingCards.map((m) => (
-              <MeetingFeedRow key={m.id} meeting={m} />
-            ))}
+            {walksLater > 0 && <MoreRow href="/turnovers" text={`${walksLater} more walk${walksLater === 1 ? '' : 's'} after this week, on the grid`} />}
           </div>
         </>
       ) : null,
@@ -482,6 +491,8 @@ async function fetchWork(filter: WorkFilter, propertyNames: Map<string, string>)
     title: s.title,
     priority: s.priority,
     propertyId: s.property_id,
+    scheduledDate: s.scheduled_date,
+    followUpDate: s.follow_up_date,
     dueDate: [s.scheduled_date, s.follow_up_date].filter((d): d is string => !!d).sort()[0] ?? null,
     propertyName: s.property_id ? propertyNames.get(s.property_id) ?? null : null,
   }));
@@ -583,7 +594,7 @@ function inboundId(t: BriefInboundTouch): string {
   return `${t.contactId}-${t.touchedAt}`;
 }
 
-function MyWorkRow({ item }: { item: MyWork }) {
+function MyWorkRow({ item, onDay }: { item: MyWork; onDay?: WorkDateKind }) {
   const isHigh = (item.priority ?? '').toLowerCase() === 'high';
   // Deep-link to the item's own page so clicking opens the slip/task itself
   // instead of dumping you on the generic board.
@@ -606,7 +617,10 @@ function MyWorkRow({ item }: { item: MyWork }) {
   } else if (item.propertyName) {
     sublineBits.push(<span style={{ color: 'var(--ink-3)' }}>{item.propertyName}</span>);
   }
-  if (item.dueDate) sublineBits.push(<span style={{ color: item.dueDate <= operatingDate() ? 'var(--signal)' : 'var(--ink-3)' }}>Due {formatDueDate(item.dueDate)}</span>);
+  // Under a day heading the day is already said; the row names which clock
+  // put it there (the scheduled visit, the office follow-up, the due date).
+  if (onDay) sublineBits.push(<span style={{ color: 'var(--ink-3)' }}>{workDateLabel(onDay)}</span>);
+  else if (item.dueDate) sublineBits.push(<span style={{ color: item.dueDate <= operatingDate() ? 'var(--signal)' : 'var(--ink-3)' }}>Due {formatDueDate(item.dueDate)}</span>);
   if (isHigh) sublineBits.push(<span style={{ color: 'var(--signal)' }}>High priority</span>);
 
   return (
@@ -809,10 +823,10 @@ function InboundItem({ touch: t, update = false }: { touch: BriefInboundTouch; u
 }
 
 /**
- * Inspection plans assigned to this user, from today forward. Pulls a small
- * window so the feed shows the upcoming few without burying the rest of the
- * page; the full schedule lives on /turnovers. The previous /me page surfaced
- * these too -- this is where they live now.
+ * Inspection plans assigned to this user, from today forward. This week
+ * shows the seven days and counts the rest, so the pool is deep enough to
+ * count; the full schedule lives on /turnovers. The previous /me page
+ * surfaced these too -- this is where they live now.
  */
 async function loadPlannedWalks(email: string): Promise<PlannedWalk[]> {
   if (!email) return [];
@@ -824,7 +838,7 @@ async function loadPlannedWalks(email: string): Promise<PlannedWalk[]> {
       .eq('assigned_to_email', email)
       .gte('planned_for_date', today)
       .order('planned_for_date', { ascending: true })
-      .limit(6);
+      .limit(40);
     return ((data ?? []) as Array<{
       id: string;
       property_id: string;
@@ -850,6 +864,36 @@ async function loadPlannedWalks(email: string): Promise<PlannedWalk[]> {
   }
 }
 
+type ThisWeekItem =
+  | { kind: 'walk'; date: string; time: null; walk: PlannedWalk }
+  | { kind: 'meeting'; date: string; time: string | null; meeting: MeetingCard }
+  | { kind: 'slip' | 'task'; date: string; time: null; work: MyWork; dateKind: WorkDateKind };
+
+/** One day of This week: its name and date on one line, its rows under it.
+ *  Each row says what it is and opens its own place; the day is said once. */
+function ThisWeekDay({ day }: { day: WeekDay<ThisWeekItem> }) {
+  return (
+    <div data-week-day={day.date}>
+      <div className="flex items-baseline justify-between" style={{ padding: '16px 0 2px' }}>
+        <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: '0.02em', color: day.isToday ? 'var(--signal)' : 'var(--ink)' }}>
+          {day.name}
+        </span>
+        <span className="eyebrow">{day.dateText}</span>
+      </div>
+      {day.items.map((it) =>
+        it.kind === 'walk' ? (
+          <PlannedWalkRow key={`walk-${it.walk.id}`} walk={it.walk} />
+        ) : it.kind === 'meeting' ? (
+          <MeetingFeedRow key={`meeting-${it.meeting.id}`} meeting={it.meeting} />
+        ) : (
+          <MyWorkRow key={`${it.kind}-${it.work.id}`} item={it.work} onDay={it.dateKind} />
+        ),
+      )}
+    </div>
+  );
+}
+
+/** A meeting under its day heading: who, what, the clock if one was agreed. */
 function MeetingFeedRow({ meeting: m }: { meeting: MeetingCard }) {
   const today = todayET();
   const isToday = m.date === today;
@@ -871,7 +915,7 @@ function MeetingFeedRow({ meeting: m }: { meeting: MeetingCard }) {
           ) : null}
         </div>
         <div style={{ marginTop: 3, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.06em' }}>
-          {meetingWhen(m, today)}
+          {formatMeetingTime(m.time) ?? 'No time set'}
           {appointment ? ` · booked by ${m.contactName}` : detail ? ` · ${detail}` : ''}
           {m.notes ? ` · ${m.notes}` : ''}
         </div>
@@ -880,12 +924,12 @@ function MeetingFeedRow({ meeting: m }: { meeting: MeetingCard }) {
   );
 }
 
+/** A walk under its day heading: the home, the check-in it preps for, the note. */
 function PlannedWalkRow({ walk }: { walk: PlannedWalk }) {
   const today = operatingDate();
   const isToday = walk.plannedFor === today;
   const isPast = !!walk.plannedFor && walk.plannedFor < today;
   const dotColor = isPast ? 'var(--negative)' : isToday ? 'var(--signal)' : 'var(--tide-deep)';
-  const label = isPast ? 'overdue' : isToday ? 'today' : walk.plannedFor ? plainDate(walk.plannedFor) : 'upcoming';
   // Land on the walk's own row, not the top of the board: the pipeline is
   // filtered to the home and widened to a range that holds the check-in,
   // and the row anchor scrolls to it. A plan with no stay behind it falls
@@ -903,7 +947,7 @@ function PlannedWalkRow({ walk }: { walk: PlannedWalk }) {
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 14, color: 'var(--ink)' }}>{walk.propertyName}</div>
         <div style={{ marginTop: 3, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.06em' }}>
-          Walk {label} · check-in {plainDate(walk.checkinDate)}
+          Walk · check-in {plainDate(walk.checkinDate)}
           {walk.notes ? ` · ${walk.notes}` : ''}
         </div>
       </div>
