@@ -306,7 +306,7 @@ Helm distinguishes four populations and they each have their own table:
 | Table | Who | Source | Sensitive? |
 |---|---|---|---|
 | `contacts` | Owners, vendors, leads | CRM module (`/crm`), the New numbers card, accepted reconcile suggestions, and the concierge's `/api/prospects` and `/api/backfill-owner-phones` bridges. No webhook creates one | RLS-locked (service role only) since 2026-06-21 |
-| `audience_contacts` | Guests who have booked, signed up, or unsubscribed | `/api/guests/subscribe`, Guesty guests sync, Resend webhook | RLS-locked since 2026-06-21 |
+| `audience_contacts` | Guests who have booked, signed up, or unsubscribed; carries the Do not host again flag (`do_not_host*`, since 2026-10-30; `src/lib/do-not-host.ts`) | `/api/guests/subscribe`, Guesty guests sync, Resend webhook, the guest record's flag control | RLS-locked since 2026-06-21 |
 | `guesty_guest_checks` | Memory for the guests sync: which Guesty guests were asked, when, and whether Guesty had an email. A "no email" answer is trusted for 14 days. Memory, not truth: unreadable means ask everyone again | Guesty guests sync only | RLS on, no policies (service role) |
 | `owners` | A legacy owners registry. `src/lib/known-numbers-server.ts` reads it to name an owner's phone | Nothing in Helm writes it and no migration here creates it. `/api/owners-sync` does not touch it: that is a read-only GET serving `properties.owners` to stay-concierge | anon revoked 2026-08-20 |
 | `trade_vendors` | Outside trade companies we hire by the job (plumber, electrician, appliance, pest) | Hand-maintained on `/fieldwork/trades`; seeded from `bank-charges.ts` + `books-vendor-hints.ts` | RLS-locked (service role only) |

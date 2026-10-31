@@ -5,6 +5,8 @@ import { displayName, formatTagLabel, GUEST_EVENT_LABEL, GUEST_SOURCE_LABEL, GUE
 import { listReviewsForContact, type ReviewRow } from '@/lib/reviews';
 import { unsubscribeContact, resubscribeContact } from '../actions';
 import { SubmitButton } from '@/components/SubmitButton';
+import { doNotHostNote } from '@/lib/do-not-host';
+import { DoNotHostControl } from './DoNotHostControl';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,6 +43,9 @@ export default async function ContactDetailPage({ params }: { params: Promise<{ 
         <p style={{ marginTop: 8, fontSize: 14, color: 'var(--ink-3)' }}>
           {contact.email}
         </p>
+        {/* Do not host again: the one red line, and the verb that sets or
+            undoes it. Owners and staff alike (src/lib/do-not-host.ts). */}
+        <DoNotHostControl contactId={contact.id} name={displayName(contact)} flag={doNotHostNote(contact)} />
       </section>
 
       {/* META STRIP */}

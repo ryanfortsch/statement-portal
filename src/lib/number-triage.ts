@@ -10,6 +10,8 @@ import { selectAllPaged } from '@/lib/paged-select';
 import { splitByAge, suggestionActivity, unknownNumberActivity } from '@/lib/triage-age';
 import { buildNumberIndex, knownSourceLabel, type KnownSource } from '@/lib/known-numbers';
 import { loadNumberDirectory } from '@/lib/known-numbers-server';
+import { loadDoNotHostIndex } from '@/lib/do-not-host-server';
+import { EMPTY_DO_NOT_HOST_INDEX, type DoNotHostNote } from '@/lib/do-not-host';
 
 /**
  * The number triage card on /messaging: who texted or called a Quo line
@@ -43,6 +45,10 @@ export type NumberTriage = {
   guestByPhone: Record<string, string>;
   /** phone -> "Owner" / "Dana Hale", with the contact to attach to. */
   knownByPhone: Record<string, KnownForRow>;
+  /** phone -> the do-not-host note, for a stranger who is a guest Helm will
+   *  not host again: by the stay's email first, then the number itself
+   *  (src/lib/do-not-host.ts). Absent for everyone else. */
+  doNotHostByPhone: Record<string, DoNotHostNote>;
   /** Who a number can be attached to, and the homes a new contact can link. */
   contacts: TriageContact[];
   properties: Array<{ id: string; name: string }>;
@@ -74,7 +80,7 @@ export async function loadNumberTriage(): Promise<NumberTriage | null> {
         .range(from, to),
     ).catch(() => [] as ContactReconcileSuggestionRow[]),
   ]);
-  const empty: NumberTriage = { unknownNumbers: [], olderUnknownNumbers: [], suggestions: [], olderSuggestions: [], guestByPhone: {}, knownByPhone: {}, contacts: [], properties: [] };
+  const empty: NumberTriage = { unknownNumbers: [], olderUnknownNumbers: [], suggestions: [], olderSuggestions: [], guestByPhone: {}, knownByPhone: {}, doNotHostByPhone: {}, contacts: [], properties: [] };
   if (unknowns.length === 0 && suggestions.length === 0) return empty;
 
   const directory = await loadNumberDirectory();
@@ -102,14 +108,21 @@ export async function loadNumberTriage(): Promise<NumberTriage | null> {
   const unknownSplit = splitByAge(strangers, unknownNumberActivity, today);
   const suggestionSplit = splitByAge(openSuggestions, suggestionActivity, today);
 
-  // Name the strangers who are actually our guests.
+  // Name the strangers who are actually our guests, and say which of them
+  // Helm will not host again.
   const guestByPhone: Record<string, string> = {};
+  const doNotHostByPhone: Record<string, DoNotHostNote> = {};
   if (strangers.length > 0) {
-    const stays = await loadGuestStaysByPhone(supabase, todayET()).catch(() => ({} as Awaited<ReturnType<typeof loadGuestStaysByPhone>>));
+    const [stays, doNotHost] = await Promise.all([
+      loadGuestStaysByPhone(supabase, todayET()).catch(() => ({} as Awaited<ReturnType<typeof loadGuestStaysByPhone>>)),
+      loadDoNotHostIndex().catch(() => EMPTY_DO_NOT_HOST_INDEX),
+    ]);
     const propName = new Map(properties.map((p) => [p.id, p.name]));
     for (const u of strangers) {
       const m = stays[normalizePhone(u.phone)];
       if (m) guestByPhone[u.phone] = guestStayLabel(m, m.propertyId ? propName.get(m.propertyId) ?? null : null);
+      const flagged = doNotHost.resolve({ email: m?.guestEmail ?? null, phone: u.phone });
+      if (flagged) doNotHostByPhone[u.phone] = { reason: flagged.reason, set_by: flagged.set_by, set_at: flagged.set_at };
     }
   }
 
@@ -120,6 +133,7 @@ export async function loadNumberTriage(): Promise<NumberTriage | null> {
     olderSuggestions: suggestionSplit.older,
     guestByPhone,
     knownByPhone,
+    doNotHostByPhone,
     contacts,
     properties,
   };

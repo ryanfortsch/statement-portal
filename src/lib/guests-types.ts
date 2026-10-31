@@ -54,6 +54,12 @@ export type GuestContact = {
   /** Guesty guest_id, when the contact is also a past or upcoming Guesty guest. */
   guesty_guest_id: string | null;
   tags: string[];
+  /** Do not host again (src/lib/do-not-host.ts): set by an owner or staff
+   *  on the record with a reason, read by every surface that names a guest. */
+  do_not_host: boolean;
+  do_not_host_reason: string | null;
+  do_not_host_set_by: string | null;
+  do_not_host_set_at: string | null;
   resend_contact_id: string | null;
   resend_synced_at: string | null;
   last_sent_at: string | null;
@@ -130,7 +136,9 @@ export type GuestEventType =
   | 'subscribed'
   | 'imported'
   | 'manually_added'
-  | 'resubscribed';
+  | 'resubscribed'
+  | 'do_not_host_set'
+  | 'do_not_host_cleared';
 
 /** A timeline event as a person reads it. */
 export const GUEST_EVENT_LABEL: Record<GuestEventType, string> = {
@@ -146,6 +154,8 @@ export const GUEST_EVENT_LABEL: Record<GuestEventType, string> = {
   imported: 'Imported',
   manually_added: 'Added by hand',
   resubscribed: 'Resubscribed',
+  do_not_host_set: 'Do not host again',
+  do_not_host_cleared: 'Flag removed',
 };
 
 export type GuestEvent = {

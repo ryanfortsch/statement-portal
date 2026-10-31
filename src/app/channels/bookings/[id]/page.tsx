@@ -27,6 +27,9 @@ import { cancelStayConfirm } from '@/lib/irreversible-confirms';
 import { DeleteBookingButton } from './DeleteBookingButton';
 import { houseRange } from '@/lib/house-date';
 import { stripeLookupHref } from '@/lib/stripe-lookup-link';
+import { loadDoNotHostIndex } from '@/lib/do-not-host-server';
+import { EMPTY_DO_NOT_HOST_INDEX } from '@/lib/do-not-host';
+import { DoNotHostLine } from '@/components/DoNotHostLine';
 
 export const dynamic = 'force-dynamic';
 
@@ -59,7 +62,7 @@ export default async function BookingDetailPage({ params, searchParams }: { para
   // patches a money column only when its input was posted, so a staff save
   // of the rest of the form leaves the money untouched.
   const owner = await isOwnerSession();
-  const [property, events, finance, sends, threads, guest, echoes, artifacts, parent, feedState, guestyGone] = await Promise.all([
+  const [property, events, finance, sends, threads, guest, echoes, artifacts, parent, feedState, guestyGone, doNotHost] = await Promise.all([
     getFleetProperty(booking.property_id),
     safe(() => listBookingEvents(id), [] as BookingEventRow[]),
     safe(() => getBookingFinance(id), null as BookingFinance | null),
@@ -73,8 +76,14 @@ export default async function BookingDetailPage({ params, searchParams }: { para
     // write the server would refuse anyway.
     safe(() => importFeedState(booking), 'unknown' as ImportFeedState),
     safe(() => guestyStoppedWriting(booking.property_id), null as boolean | null),
+    safe(() => loadDoNotHostIndex(), EMPTY_DO_NOT_HOST_INDEX),
   ]);
   const feedOwned = ownedByFeed(feedState, booking);
+  // A guest Helm will not host again: by the booking's email or phone, else
+  // the guest record's. A hold has no guest (src/lib/do-not-host.ts).
+  const flagged = booking.status !== 'block'
+    ? doNotHost.resolve({ email: booking.guest_email ?? guest?.email ?? null, phone: booking.guest_phone ?? guest?.phone ?? null })
+    : null;
   const feedUnread = feedState === 'unread';
 
   const isBlock = booking.status === 'block';
@@ -128,6 +137,7 @@ export default async function BookingDetailPage({ params, searchParams }: { para
               </span>
             )}
             {isCancelled && booking.cancel_reason && <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>reason: {booking.cancel_reason}{booking.cancelled_by ? ` (${booking.cancelled_by})` : ''}</span>}
+            {flagged && <DoNotHostLine reason={flagged.reason} set_by={flagged.set_by} set_at={flagged.set_at} style={{ flexBasis: '100%' }} />}
           </div>
         }
       />

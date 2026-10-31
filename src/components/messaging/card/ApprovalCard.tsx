@@ -99,6 +99,10 @@ export type ApprovalCardProps = {
   createdAt?: string | null;
   shortId?: string;
   wait?: WaitReason | null;
+  /** One red line under the header about the person this card is for: a
+   *  guest Helm will not host again (DoNotHostLine). Rendered before the
+   *  wait line, so it is read before the reply. */
+  flag?: ReactNode;
   /** columns: said | reply side by side. stacked: said, between, reply. */
   layout?: 'columns' | 'stacked';
   said: { label: string; sub?: string; subTitle?: string; body: ReactNode };
@@ -158,7 +162,7 @@ export type ApprovalCardProps = {
 export function ApprovalCard(props: ApprovalCardProps) {
   const {
     id, status, sendAt, name, property, channel, preview, reviewLabel, chips, queuedChips, accent, ageMinutes, createdAt, shortId,
-    wait, layout = 'columns', said, between, reply, afterColumns, also, verbs, handledReasons,
+    wait, flag, layout = 'columns', said, between, reply, afterColumns, also, verbs, handledReasons,
     pastePlaceholder = 'Paste the reply you sent, by text or by email', approveLabel, approveSummary, approvePendingLabel, approveBlocked: otherBlocked, draftTiming,
     scheduleBlocked: otherScheduleBlocked, coachHint, externalBusy, redraftOutcome, footer, queuedLead, outcomes, onResolved, onDecided,
     onRegenerating, regenStalled,
@@ -766,6 +770,8 @@ export function ApprovalCard(props: ApprovalCardProps) {
             </span>
           )}
         </header>
+
+        {flag && <div style={{ marginBottom: 14 }}>{flag}</div>}
 
         {wait && <div style={{ marginBottom: 14 }}><WaitLine wait={wait} /></div>}
 
