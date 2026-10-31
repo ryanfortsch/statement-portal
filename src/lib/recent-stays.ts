@@ -176,7 +176,13 @@ export async function loadRecentStays(opts: {
       channel: r.channel ?? '',
       ask: describeAsk(facts, ask, settings, today, review),
       ourReview: describeHostReview(ask, today),
-      review: describeReview(facts, review, today, ask !== 'unavailable' && !!ask?.guest_reported_review),
+      review: describeReview(
+        facts,
+        review,
+        today,
+        ask !== 'unavailable' && !!ask?.guest_reported_review,
+        !!settings.direct_enabled,
+      ),
       reviewLink,
     });
   }
