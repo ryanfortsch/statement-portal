@@ -21,7 +21,7 @@ const shotsDir=process.argv.includes('--shots')?process.argv[process.argv.indexO
 const TODAY='2026-10-18',DAYS=gridDays(TODAY,GRID_DAYS);
 const ME='delaney@risingtidestr.com',DOTTI='dotti@risingtidestr.com';
 const home=(id,name,occ)=>({id,name,cells:gridDays('2026-10-10',30).map(date=>{const pm=occ.find(o=>o.in<=date&&date<o.out)??null,am=occ.find(o=>o.in<date&&date<=o.out)??null,to=o=>o?{stayId:o.id,kind:o.kind??'guest'}:null;return {date,am:to(am),pm:to(pm)};})});
-const stay=o=>({checkOut:'2026-11-01',guest:'Synthetic Guest',plan:null,walk:'open',walkedOn:null,walkedBy:null,field:null,...o});
+const stay=o=>({checkOut:'2026-11-01',guest:'Synthetic Guest',channel:null,plan:null,walk:'open',walkedOn:null,walkedBy:null,field:null,...o});
 const homes=[
  home('21_horton','21 Horton',[{id:'A',in:'2026-10-16',out:'2026-10-19'},{id:'B',in:'2026-10-21',out:'2026-10-24'},{id:'blk',in:'2026-10-26',out:'2026-10-28',kind:'block'}]),
  home('3_south','3 South',[{id:'C',in:'2026-10-20',out:'2026-10-23'}]),
@@ -33,17 +33,17 @@ const homes=[
  home('17_beach','17 Beach',[]),
 ];
 const stays=[
- stay({reservationId:'B',propertyId:'21_horton',checkIn:'2026-10-21',checkOut:'2026-10-24',plan:{id:'p1',date:'2026-10-20',assignee:ME,plannedBy:DOTTI,hasNotes:false}}),
- stay({reservationId:'C',propertyId:'3_south',checkIn:'2026-10-20',checkOut:'2026-10-23'}),
- stay({reservationId:'D',propertyId:'20_enon',checkIn:'2026-10-19',checkOut:'2026-10-22',field:{status:'claimed',contractor:'James Liddell',visitDate:'2026-10-18'}}),
- stay({reservationId:'E',propertyId:'30_woodward',checkIn:'2026-10-19',checkOut:'2026-10-25',walk:'done',walkedOn:'2026-10-18',walkedBy:DOTTI}),
- stay({reservationId:'F',propertyId:'19_rackliffe',checkIn:'2026-10-20',checkOut:'2026-10-27',plan:{id:'p2',date:'2026-10-16',assignee:DOTTI,plannedBy:DOTTI,hasNotes:false}}),
- stay({reservationId:'G2',propertyId:'53_rocky_neck_2',checkIn:'2026-10-18',checkOut:'2026-10-21'}),
+ stay({reservationId:'B',propertyId:'21_horton',checkIn:'2026-10-21',checkOut:'2026-10-24',channel:'airbnb',plan:{id:'p1',date:'2026-10-20',assignee:ME,plannedBy:DOTTI,hasNotes:false}}),
+ stay({reservationId:'C',propertyId:'3_south',checkIn:'2026-10-20',checkOut:'2026-10-23',channel:'vrbo'}),
+ stay({reservationId:'D',propertyId:'20_enon',checkIn:'2026-10-19',checkOut:'2026-10-22',channel:'booking_com',field:{status:'claimed',contractor:'James Liddell',visitDate:'2026-10-18'}}),
+ stay({reservationId:'E',propertyId:'30_woodward',checkIn:'2026-10-19',checkOut:'2026-10-25',channel:'airbnb',walk:'done',walkedOn:'2026-10-18',walkedBy:DOTTI}),
+ stay({reservationId:'F',propertyId:'19_rackliffe',checkIn:'2026-10-20',checkOut:'2026-10-27',channel:'manual',plan:{id:'p2',date:'2026-10-16',assignee:DOTTI,plannedBy:DOTTI,hasNotes:false}}),
+ stay({reservationId:'G2',propertyId:'53_rocky_neck_2',checkIn:'2026-10-18',checkOut:'2026-10-21',channel:'direct'}),
 ];
 
 // ── the fixture page ──
 for(const [name,path] of [
- ['grid','src/app/turnovers/VisitGrid.tsx'],['model','src/lib/visit-grid.ts'],['team','src/lib/team.ts'],
+ ['grid','src/app/turnovers/VisitGrid.tsx'],['model','src/lib/visit-grid.ts'],['team','src/lib/team.ts'],['channel-style','src/lib/channel-style.ts'],
  ['confirm','src/components/ConfirmDialog.tsx'],['confirmq','src/lib/confirm-question.ts'],['button-class','src/lib/button-class.ts'],
 ])await writeFile(join(scratch,name+'.js'),compile(await readFile(join(root,path),'utf8')));
 await writeFile(join(scratch,'actions.js'),`
@@ -59,7 +59,7 @@ import {VisitGrid} from './grid.js';import {homes,stays,today,days} from './data
 window.calls=[];window.refreshes=0;window.confirm=()=>true;
 createRoot(document.getElementById('root')).render(<section id="board"><VisitGrid today={today} days={days} homes={homes} stays={stays} myEmail=${JSON.stringify(ME)}/></section>);
 `));
-const alias={'./plan-actions':'actions','@/lib/use-soft-refresh':'refresh','@/lib/team':'team','@/lib/visit-grid':'model','@/components/ConfirmDialog':'confirm','@/lib/confirm-question':'confirmq','@/lib/button-class':'button-class'};
+const alias={'./plan-actions':'actions','@/lib/use-soft-refresh':'refresh','@/lib/team':'team','@/lib/visit-grid':'model','@/lib/channel-style':'channel-style','@/components/ConfirmDialog':'confirm','@/lib/confirm-question':'confirmq','@/lib/button-class':'button-class'};
 await new Promise((resolve,reject)=>{const compiler=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.js'),output:{path:scratch,filename:'bundle.js'},resolve:{modules:[join(root,'node_modules')],alias:Object.fromEntries(Object.entries(alias).map(([k,v])=>[k,join(scratch,v+'.js')]))},performance:{hints:false}});compiler.run((err,stats)=>compiler.close(()=>err||stats?.hasErrors()?reject(err||Error(stats.toString({all:false,errors:true}))):resolve()));});
 if(process.argv.includes('--compile-only')){console.log('Week grid fixture compiled.');await rm(scratch,{recursive:true,force:true});process.exit(0);}
 
@@ -101,6 +101,8 @@ assert.equal(await has('3 South','Mon, Oct 19','data-needs'),true,'an open day b
 assert.equal(await has('21 Horton','Sun, Oct 18','disabled'),true,'a full house cannot be tapped');
 assert.equal(await has('21 Horton','Tue, Oct 27','disabled'),true,"an owner's hold cannot be tapped");
 assert.equal(await page.$$eval('.rt-vg-cell[data-needs]',es=>es.length),7,'seven open days need someone (3 South x3, 19 Rackliffe x3, the same-day flip at 53 Rocky Neck)');
+assert.deepEqual(await page.$$eval('.rt-vg-ch',es=>es.map(e=>e.dataset.channel).sort()),['airbnb','airbnb','booking_com','direct','manual','vrbo'],'one channel dot per arrival, on its arrival day');
+assert.match(await page.$eval(cellSel('3 South','Tue, Oct 20'),e=>e.getAttribute('aria-label')),/VRBO guest arrives/,'the arrival day names the channel');
 await shot('desktop');
 pass('desktop: fourteen days, the right homes in the right order, every mark in the model\'s words');
 

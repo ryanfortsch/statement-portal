@@ -1,7 +1,8 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { useConfirm } from '@/components/ConfirmDialog';
+import { channelAccent, channelLabel } from '@/lib/channel-style';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { displayNameForEmail, hueForEmail, initialsForEmail, teamMemberForAnyEmail } from '@/lib/team';
 import {
@@ -39,6 +40,10 @@ const nameFor = (e: string): string => teamMemberForAnyEmail(e)?.short ?? displa
 const initialsFor = (e: string): string => teamMemberForAnyEmail(e)?.initials ?? initialsForEmail(e);
 const hueFor = (e: string): string => teamMemberForAnyEmail(e)?.hue ?? hueForEmail(e);
 const identityFor = (e: string): string => teamMemberForAnyEmail(e)?.email ?? e;
+
+/** The legend's channel key, in the colors the turnover list and the
+ *  occupancy calendar already give each channel (lib/channel-style.ts). */
+const CHANNEL_KEY = ['airbnb', 'vrbo', 'booking_com', 'direct'];
 
 export function VisitGrid({ today, days, homes, stays, myEmail }: Props) {
   const { choose } = useConfirm();
@@ -207,6 +212,14 @@ export function VisitGrid({ today, days, homes, stays, myEmail }: Props) {
         </span>
         <span><span style={{ width: 3, height: 14, background: 'var(--signal)', flexShrink: 0 }} /> guest arrives</span>
         <span>
+          {CHANNEL_KEY.map((c) => (
+            <Fragment key={c}>
+              <span className="rt-vg-ch-sw" style={{ background: channelAccent(c) }} />
+              {channelLabel(c)}
+            </Fragment>
+          ))}
+        </span>
+        <span>
           <span className="rt-vg-mark" style={{ ['--vg-hue' as string]: hueFor(myEmail), width: 18, height: 18, fontSize: 9, boxShadow: 'none' }}>{initialsFor(myEmail)}</span>
           who&rsquo;s going
         </span>
@@ -292,6 +305,7 @@ function Row({
               <>
                 {cell.am && <span className="rt-vg-bar" data-half="am" data-end="" data-block={cell.am === 'block' || undefined} aria-hidden />}
                 {cell.pm && <span className="rt-vg-bar" data-half="pm" data-start="" data-block={cell.pm === 'block' || undefined} aria-hidden />}
+                {cell.channel && <span className="rt-vg-ch" data-channel={cell.channel} style={{ background: channelAccent(cell.channel) }} aria-hidden />}
               </>
             )}
             {cell.badges.length > 0 && (
@@ -324,7 +338,7 @@ function cellText(home: string, cell: GridCell, today: string): string {
   const lead = `${home} · ${when}`;
   if (cell.state === 'occupied') return `${lead}: guest in house${who.length ? ` · ${who.join(', ')}` : ''}`;
   if (cell.state === 'blocked') return `${lead}: owner / hold${who.length ? ` · ${who.join(', ')}` : ''}`;
-  const events = [cell.leaving ? 'guest leaves' : null, cell.arriving ? 'guest arrives' : null].filter(Boolean).join(', ');
+  const events = [cell.leaving ? 'guest leaves' : null, cell.arriving ? `${cell.channel ? `${channelLabel(cell.channel)} ` : ''}guest arrives` : null].filter(Boolean).join(', ');
   const t = cell.tap;
   switch (t.kind) {
     case 'release':
