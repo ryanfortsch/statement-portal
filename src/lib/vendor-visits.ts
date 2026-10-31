@@ -156,6 +156,23 @@ export async function proposeVendorVisit(db: SupabaseClient, msg: InboundVendorT
     : vendorHomes.length === 1 ? { id: vendorHomes[0], basis: 'vendor_home' }
     : null;
 
+  // Another acknowledgement of the same offer is not another visit. In
+  // particular, a completed visit must not reappear after a late "yup".
+  // A new offer or an explicit new date still makes a new proposal.
+  if (offer && /^(?:yes|yep|yup|sounds good|see you then|confirmed|works for me)[.!\s]*$/i.test(msg.body.trim())) {
+    let existing = db.from('vendor_visit_proposals').select('id')
+      .eq('trade_vendor_id', vendor.id).eq('offer_at', offer.at)
+      .in('status', ['pending', 'approving', 'approved', 'handled'])
+      .lte('message_at', msg.at).limit(1);
+    existing = property ? existing.eq('property_id', property.id) : existing.is('property_id', null);
+    const settled = await existing;
+    if (settled.error) {
+      if (NOT_MIGRATED.has(settled.error.code ?? '')) return null;
+      throw new Error(`vendor_visit_proposals: ${settled.error.message}`);
+    }
+    if (settled.data?.length) return null;
+  }
+
   // A newer card from this vendor for this home already exists (an old
   // event replayed after it): file this one already superseded, so the
   // newer card stays the one on the queue. Forward-only on the message time.

@@ -86,12 +86,11 @@ describe('which slips the visit covers', () => {
   test('the trade\'s work in another lane is listed, not ticked', () => {
     assert.equal(by.get('valve')?.ticked, false);
     assert.equal(by.get('spigot')?.ticked, false);
-    assert.equal(by.get('owner')?.ticked, false);
+    assert.equal(by.has('owner'), false);
   });
 
-  test('another trade\'s pro slip is listed, not ticked', () => {
-    assert.equal(by.get('window')?.matchesTrade, false);
-    assert.equal(by.get('window')?.ticked, false);
+  test('another trade\'s pro slip is not listed', () => {
+    assert.equal(by.has('window'), false);
   });
 
   test('a slip someone else already has says who, and is not ticked', () => {

@@ -16,15 +16,13 @@ import { Button } from '@/components/Button';
  * by themselves when a line needs an answer before the card can go.
  */
 export function AlsoOnApprove({ items }: { items: AlsoItem[] }) {
-  const needsAnswer = items.some((i) => i.attention);
   const hasBodies = items.some((i) => i.body);
   const [open, setOpen] = useState(false);
-  const showBodies = open || needsAnswer;
   return (
     <section className="rt-also" aria-label="Also on approve">
       <div className="rt-also-head">
         <span className="eyebrow" style={{ color: 'var(--ink-3)' }}>Also on approve</span>
-        {hasBodies && !needsAnswer && (
+        {hasBodies && (
           <Button variant="quiet" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
             {open ? 'Hide details' : 'Details'}
           </Button>
@@ -41,7 +39,7 @@ export function AlsoOnApprove({ items }: { items: AlsoItem[] }) {
                 </span>
               )}
             </div>
-            {showBodies && item.body && <div className="rt-also-body">{item.body}</div>}
+            {(open || item.attention) && item.body && <div className="rt-also-body">{item.body}</div>}
           </li>
         ))}
       </ul>

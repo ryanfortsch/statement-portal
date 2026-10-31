@@ -4,6 +4,8 @@ import { loadGuestTimes } from '@/lib/property-rates';
 import { DEFAULT_GUEST_CHECKIN, DEFAULT_GUEST_CHECKOUT } from '@/lib/house-policy';
 import { categoryLabel } from '@/lib/trades';
 import { QUO_LINES, type QuoLine } from '@/lib/quo-lines';
+import { loadVisitQueue } from '@/lib/vendor-visit-queue';
+import { offeredVisitDeadline, visitTiming, type VisitTiming } from '@/lib/vendor-visit-follow-through';
 import { addDays, etDateOf, readOfferWindows, type OfferWindow, type Ymd } from '@/lib/vendor-visit-dates';
 import {
   chooseVisitSlips,
@@ -13,7 +15,6 @@ import {
   type HoldPlan,
   type MirrorNight,
   type NightFact,
-  type VendorVisitRow,
   type VisitSlipChoice,
   type VisitSlipInput,
 } from '@/lib/vendor-visit-core';
@@ -62,11 +63,9 @@ export type VendorVisitCardData = {
   planError: string | null;
   slips: VisitSlipChoice[];
   lastError: string | null;
+  timing: VisitTiming;
 };
 
-const NOT_MIGRATED = new Set(['42P01', '42703', 'PGRST205']);
-const SLIP_COLS =
-  'id, property_id, title, description, action_summary, category, status, run_scope, owner_action_required, from_supply_key, from_guest_request_key, scheduled_date, assigned_to_label, assigned_to_email';
 export const STUCK_CLAIM_MS = 5 * 60_000;
 
 /**
@@ -102,12 +101,7 @@ export async function loadNightFacts(propertyId: string, from: Ymd, to: Ymd): Pr
  *  unreadable; 0 before the migration lands. */
 export async function countPendingVendorVisits(): Promise<number | null> {
   try {
-    const { count, error } = await supabaseAdmin
-      .from('vendor_visit_proposals')
-      .select('id', { count: 'exact', head: true })
-      .in('status', ['pending', 'approving']);
-    if (error) return NOT_MIGRATED.has(error.code ?? '') ? 0 : null;
-    return count ?? 0;
+    return (await loadVisitQueue(supabaseAdmin)).rows.length;
   } catch {
     return null;
   }
@@ -116,35 +110,18 @@ export async function countPendingVendorVisits(): Promise<number | null> {
 /** Every pending vendor visit, ready for the card. Empty before the
  *  migration lands. */
 export async function loadVendorVisitCards(now: Date = new Date()): Promise<VendorVisitCardData[]> {
-  const { data, error } = await supabaseAdmin
-    .from('vendor_visit_proposals')
-    .select('*')
-    .in('status', ['pending', 'approving'])
-    .order('message_at', { ascending: false })
-    .limit(50);
-  if (error) {
-    if (NOT_MIGRATED.has(error.code ?? '')) return [];
-    throw new Error(`vendor_visit_proposals: ${error.message}`);
-  }
-  const rows = (data ?? []) as VendorVisitRow[];
+  const { rows, slips, categories: category } = await loadVisitQueue(supabaseAdmin);
   if (rows.length === 0) return [];
 
   const today = etDateOf(now);
-  const vendorIds = [...new Set(rows.map((r) => r.trade_vendor_id).filter((v): v is string => !!v))];
   const propertyIds = [...new Set(rows.map((r) => r.property_id).filter(Boolean) as string[])];
-  const [vendors, props, slips, times] = await Promise.all([
-    vendorIds.length
-      ? supabaseAdmin.from('trade_vendors').select('id, category').in('id', vendorIds)
-      : Promise.resolve({ data: [], error: null }),
+  const [props, times] = await Promise.all([
     propertyIds.length
       ? supabaseAdmin.from('properties').select('id, name, calendar_authority').in('id', propertyIds)
       : Promise.resolve({ data: [], error: null }),
-    propertyIds.length
-      ? supabaseAdmin.from('work_slips').select(SLIP_COLS).in('property_id', propertyIds).in('status', ['open', 'in_progress', 'scheduled'])
-      : Promise.resolve({ data: [], error: null }),
     loadGuestTimes(propertyIds).catch(() => new Map<string, { checkin: string | null; checkout: string | null }>()),
   ]);
-  const category = new Map(((vendors.data ?? []) as Array<{ id: string; category: string }>).map((v) => [v.id, v.category]));
+  if (props.error) throw new Error('The homes for these visits could not be read. Try again.');
   const homes = new Map(
     ((props.data ?? []) as Array<{ id: string; name: string; calendar_authority: string | null }>).map((p) => [
       p.id,
@@ -152,7 +129,8 @@ export async function loadVendorVisitCards(now: Date = new Date()): Promise<Vend
     ]),
   );
   const slipsByHome = new Map<string, VisitSlipInput[]>();
-  for (const s of (slips.data ?? []) as Array<VisitSlipInput & { property_id: string }>) {
+  for (const s of slips) {
+    if (!s.property_id) continue;
     const list = slipsByHome.get(s.property_id) ?? [];
     list.push(s);
     slipsByHome.set(s.property_id, list);
@@ -172,10 +150,13 @@ export async function loadVendorVisitCards(now: Date = new Date()): Promise<Vend
 
     let plan: HoldPlan | null = null;
     let planError: string | null = null;
+    let arrivalDeadline: string | null = null;
     if (home && start && end) {
       try {
         const nights = await loadNightFacts(home.id, addDays(start, -1), end);
+        if (nights.get(end)?.arrival) arrivalDeadline = checkinTime;
         plan = planVisitHold({
+          today,
           start,
           end,
           time: { start: r.start_time, end: r.end_time },
@@ -225,6 +206,7 @@ export async function loadVendorVisitCards(now: Date = new Date()): Promise<Vend
       // The owner's own crew: none of our slips are theirs to schedule.
       slips: home && !fromOwner ? chooseVisitSlips(slipsByHome.get(home.id) ?? [], { category: trade ?? '', vendorName: r.vendor_name }) : [],
       lastError: r.last_error,
+      timing: visitTiming(start, end, [r.end_time, offeredVisitDeadline(r), arrivalDeadline], now),
     });
   }
   return cards;

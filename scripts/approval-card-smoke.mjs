@@ -38,7 +38,7 @@ scheduleOwnerDraft=rec('schedule'),cancelOwnerSchedule=rec('cancel');
 export const approveDraft=rec('approve'),markHandled=rec('handled'),undoDecision=rec('undo'),coachDraft=rec('coach'),
 editDraft=rec('edit'),redraftDraft=rec('redraft'),scheduleDraft=rec('schedule'),cancelSchedule=rec('cancel'),dismissMaintenanceSlip=rec('dismiss');
 export const releaseHeldPitch=rec('release');
-export const approveVendorVisitAction=rec('approve-vendor-visit'),editVendorVisitAction=rec('edit-vendor-visit'),
+export const completeVendorVisitAction=rec('complete-vendor-visit'),approveVendorVisitAction=rec('approve-vendor-visit'),editVendorVisitAction=rec('edit-vendor-visit'),
 markVendorVisitHandledAction=rec('handled'),undoVendorVisitAction=rec('undo-vendor-visit');`);
 await writeFile(join(scratch,'role.js'),`export const useHelmRole=()=>window.role||'owner';`);
 // version-skew reads process.env, which only Next defines; the card's Button watchdog imports it.
@@ -100,7 +100,7 @@ window.fetch=async url=>{const u=String(url);const aud=(u.match(/audience=(\\w+)
 const homes=[{id:'home-a',name:'Synthetic Cottage'},{id:'home-b',name:'Synthetic Barn'}];
 // Trade vendors' confirmed days (docs/vendor-visit-holds.md), Helm-native cards.
 const vplan={holdNights:['2026-10-27'],alreadyHeld:[],guestNights:[],nightBefore:{date:'2026-10-26',offered:false,suggested:false},warnings:[],outsideOffer:false};
-const vbase={status:'pending',stuck:false,vendorName:'Tom Synthetic Plumbing',tradeLabel:'Plumbing',tradeCategory:'plumbing',fromPhone:'+15550142',lineLabel:'Owners line',messageAt:now,createdAt:now,ageMinutes:4,
+const vbase={timing:{elapsed:false,deadline:null},source:'vendor',writer:'Example Plumbing',status:'pending',stuck:false,vendorName:'Tom Synthetic Plumbing',tradeLabel:'Plumbing',tradeCategory:'plumbing',fromPhone:'+15550142',lineLabel:'Owners line',messageAt:now,createdAt:now,ageMinutes:4,
  property:{id:'home-a',name:'Synthetic Cottage',authority:'guesty'},propertyBasis:'offer',endTime:null,askReason:null,candidates:[],checkoutTime:'11:00',checkinTime:'16:00',planError:null,lastError:null,
  offer:{text:'Synthetic Cottage is open Mon 10/26 to Thu 10/29. Which day works?',at:now,windows:[{start:'2026-10-26',end:'2026-10-29'}]}};
 const vendorCards=[
@@ -108,7 +108,8 @@ const vendorCards=[
   slips:[{id:'slip-1',title:'Upstairs toilets run',lane:'pro',matchesTrade:true,ticked:true,note:null},{id:'slip-2',title:'Shower valve drips',lane:'handyman',matchesTrade:true,ticked:false,note:null}]},
  {...vbase,id:'ask-card',messageBody:'Tuesday works',start:null,end:null,startTime:null,timeLabel:null,dateBasis:null,askReason:'"Tuesday" could be more than one Tuesday you offered',candidates:['2026-10-20','2026-10-27'],plan:null,slips:[]},
  {...vbase,id:'warn-card',vendorName:'Wes Synthetic Electric',tradeLabel:'Electrical',lineLabel:'24/7 line',messageBody:'Wednesday 10/28 at 10 works',start:'2026-10-28',end:'2026-10-28',startTime:'10:00',timeLabel:'at 10 AM',dateBasis:'named in the text',
-  plan:{...vplan,holdNights:[],guestNights:['2026-10-28'],warnings:['A guest arrives Wed Oct 28 at 4 PM: Wes Synthetic Electric has to be done before then.']},slips:[]},
+  plan:{...vplan,holdNights:[],guestNights:['2026-10-28'],warnings:['A guest arrives Wed Oct 28 at 4 PM: Wes Synthetic Electric has to be done before then.']},slips:[{id:'outlet',title:'Repair kitchen outlet',lane:'pro',matchesTrade:true,ticked:true,note:null}]},
+ {...vbase,id:'expired-visit',vendorName:'Example Plumbing',messageBody:'Yup',start:'2026-10-30',end:'2026-10-30',startTime:null,endTime:'16:00',timeLabel:null,timing:{elapsed:true,deadline:'16:00'},dateBasis:'the only day offered',plan:{...vplan,holdNights:[],warnings:[]},slips:[{id:'slip-1',title:'Repair upstairs toilet',lane:'pro',matchesTrade:true,ticked:true,note:null},{id:'slip-2',title:'Replace shower valve',lane:'handyman',matchesTrade:true,ticked:false,note:null}]},
 ];
 if (new URLSearchParams(location.search).has('expired')) {
  cards[1].created_at=new Date(Date.now()-3*86400e3).toISOString();
@@ -136,7 +137,7 @@ const pass=m=>{checks++;console.log('PASS '+m);};
 try{
  browser=await puppeteer.launch({executablePath:process.env.CHROME_EXECUTABLE_PATH||(process.platform==='darwin'?'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome':await chromium.executablePath()),headless:true,args:process.platform==='darwin'?['--no-sandbox']:chromium.args});
  const page=await browser.newPage();page.setDefaultTimeout(10000);await page.setViewport({width:1280,height:1000});
- const errors=[];page.on('pageerror',e=>errors.push(e.message));await page.setRequestInterception(true);page.on('request',r=>r.url().startsWith(origin+'/')?r.continue():r.abort());
+ const errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('dialog',async d=>{if(d.type()!=='beforeunload')errors.push('Unexpected dialog: '+d.type());await d.accept();});await page.setRequestInterception(true);page.on('request',r=>r.url().startsWith(origin+'/')?r.continue():r.abort());
  await page.goto(origin);await page.waitForSelector('#approval-slip-card');
  const card=id=>'#approval-'+id;
  const text=sel=>page.$eval(sel,e=>e.textContent.replace(/\s+/g,' '));
@@ -278,37 +279,60 @@ try{
  assert.equal(await page.$(card('pt-card')),null,'the Contractors filter hides cleaner cards');pass('team: the filter narrows the list');
  // Vendor visits: a trade vendor's confirmed day, on the one card, with no reply to send.
  await page.evaluate(()=>{window.calls=[];});await page.goto(origin+'/?mode=vendor&audience=contractors');await page.waitForSelector(card('visit-card'));
- assert.match(await text('nav[aria-label="Whose messages"]'),/Contractors · 3/);
+ assert.match(await text('nav[aria-label="Whose messages"]'),/Contractors · 4/);
  const visit=await text(card('visit-card'));
- assert.match(visit,/^Tom Synthetic Plumbing ?Vendor/);assert.match(visit,/Reads as ?Tue Oct 27, at 1 PM at Synthetic Cottage/);
- assert.match(visit,/Holds Synthetic Cottage the night of Tue Oct 27 in Guesty, so Airbnb, VRBO and Booking.com stop selling it/);
- assert.match(visit,/Schedules 1 slip for Tom Synthetic Plumbing on Tue Oct 27/);
+ assert.match(visit,/^Tom Synthetic Plumbing ?Vendor/);assert.match(visit,/Synthetic Cottage · Tue Oct 27, at 1 PM/);
+ assert.match(visit,/Blocks the night of Tue Oct 27 for this visit/);
+ assert.match(visit,/1 job selected/);
  for(const absent of ['Approve & send','Coach the AI','Redraft'])assert.ok(!visit.includes(absent),absent);
  pass('vendor visit: who wrote, what it reads as, the hold and the slips, and no reply to send');
  await click(card('visit-card'),'Details');await page.$$eval(card('visit-card')+' input[type=checkbox]',bs=>bs[1].click());
- assert.match(await text(card('visit-card')),/Schedules 2 slips/);
+ assert.match(await text(card('visit-card')),/2 jobs selected/);
  await click(card('visit-card'),'Approve hold');await waitCalls(1);
  assert.deepEqual((await calls())[0],{kind:'approve-vendor-visit',args:['visit-card',{propertyId:'home-a',start:'2026-10-27',end:'2026-10-27',startTime:'13:00',endTime:null,slipIds:['slip-1','slip-2'],holdNightBefore:false}]});
  await finish(0,{ok:true,warning:'Held Synthetic Cottage the night of Tue Oct 27. 2 slips scheduled.'});
  await page.waitForFunction(()=>document.body.innerText.includes('Held Synthetic Cottage the night of Tue Oct 27.'));
  pass('vendor visit: the ticks ride on approve, and what was held comes back in one line');
- const ask=await text(card('ask-card'));assert.match(ask,/Which day\? "Tuesday" could be more than one Tuesday you offered\./);assert.match(ask,/Pick the day/);
+ const ask=await text(card('ask-card'));assert.match(ask,/Which day\? "Tuesday" could be more than one Tuesday you offered\./);
  assert.equal(await enabled(card('ask-card'),'Approve visit'),false);
  await click(card('ask-card'),'Tue Oct 20');await waitCalls(2);
  assert.deepEqual((await calls())[1],{kind:'edit-vendor-visit',args:['ask-card',{propertyId:null,start:'2026-10-20',end:'2026-10-20',startTime:null,endTime:null}]});await finish(1);
  pass('vendor visit: an unclear day asks, blocks approve, and a day is one tap');
- const warn=await text(card('warn-card'));assert.match(warn,/A guest arrives Wed Oct 28 at 4 PM/);assert.match(warn,/Read first/);assert.match(warn,/Nothing to hold at Synthetic Cottage/);
+ const warn=await text(card('warn-card'));assert.match(warn,/A guest arrives Wed Oct 28 at 4 PM/);assert.equal(await page.$(card('warn-card')+' input[type=checkbox]'),null,'calendar warning must not expand the job list');
  await page.screenshot({path:join(process.env.SMOKE_SHOTS||tmpdir(),'approval-card-vendor.png'),fullPage:true});
  await click(card('warn-card'),'Mark handled');await click(card('warn-card'),'Not a visit');await waitCalls(3);
  assert.deepEqual((await calls())[2],{kind:'handled',args:['warn-card','Not a visit']});await finish(2);
  await page.waitForSelector('.rt-undo-toast');await page.$$eval('.rt-undo-toast button',bs=>bs.find(b=>b.textContent==='Undo').click());await waitCalls(4);
  assert.deepEqual((await calls())[3],{kind:'undo-vendor-visit',args:['warn-card']});await finish(3);
  pass('vendor visit: the calendar warning is read first; Mark handled has its own reasons and Undo');
+ await page.click('.rt-undo-toast button[aria-label="Dismiss"]');
+ const elapsed=await text(card('expired-visit'));
+ assert.match(elapsed,/This visit window has passed/);assert.match(elapsed,/before 4 PM/);
+ assert.equal(await enabled(card('expired-visit'),'Approve visit'),false);
+ assert.equal(await page.$(card('expired-visit')+' input[type=checkbox]'),null);
+ await page.$(card('expired-visit')).then(el=>el.screenshot({path:join(process.env.SMOKE_SHOTS||tmpdir(),'vendor-visit-simple.png')}));
+ await click(card('expired-visit'),'Already done');
+ assert.match(await text(card('expired-visit')),/Which work was finished/);
+ assert.equal(await page.$$eval(card('expired-visit')+' input[type=checkbox]',xs=>xs.filter(x=>x.checked).length),1);
+ await click(card('expired-visit'),'Mark complete');await waitCalls(5);
+ assert.deepEqual((await calls())[4],{kind:'complete-vendor-visit',args:['expired-visit',['slip-1']]});
+ await finish(4,{ok:false,error:'Synthetic save failed'});
+ await page.waitForFunction(()=>document.body.innerText.includes('Synthetic save failed'));
+ assert.equal(await page.$eval(card('expired-visit')+' input[type=checkbox]',e=>e.checked),true);
+ await click(card('expired-visit'),'Mark complete');await waitCalls(6);await finish(5,{ok:true,warning:'Visit closed. 1 job marked complete.'});
+ await page.waitForFunction(()=>document.body.innerText.includes('Visit closed. 1 job marked complete.'));
+ pass('passed visit: no approval, explicit selected-job completion, failure preserves selection and retry succeeds');
+
  await page.setViewport({width:390,height:844});await page.goto(origin+'/?mode=vendor&audience=contractors');await page.waitForSelector(card('ask-card'));
  assert.match(await text('#needs-review'),/Review hold/);
  await page.$$eval('.rt-inbox-review-toggle',bs=>bs[1].click());await page.waitForSelector(card('ask-card')+' input[type=date]',{visible:true});
  await page.screenshot({path:join(process.env.SMOKE_SHOTS||tmpdir(),'approval-card-vendor-mobile.png'),fullPage:true});
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);pass('vendor visit: the day editor fits a phone');
+ await page.$$eval('.rt-inbox-review-toggle',bs=>bs[3].click());
+ await click(card('expired-visit'),'Already done');
+ assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+ await page.$(card('expired-visit')).then(el=>el.screenshot({path:join(process.env.SMOKE_SHOTS||tmpdir(),'vendor-visit-complete-mobile.png')}));
+ pass('completed work selection and actions fit a phone');
  await page.setViewport({width:1280,height:1000});
  // The Refresh control: quiet while the feed is healthy, loud only when it is not.
  const head=()=>text('#needs-review .rt-section-actions');
