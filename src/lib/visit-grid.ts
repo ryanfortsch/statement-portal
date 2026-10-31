@@ -47,6 +47,8 @@ export type GridStay = {
   checkIn: string;
   checkOut: string;
   guest: string | null;
+  /** bookings.channel: airbnb, vrbo, booking_com, direct, manual. */
+  channel: string | null;
   plan: GridPlan | null;
   /** done = walked or marked ready; walking = a walk is underway. */
   walk: 'open' | 'walking' | 'done';
@@ -93,6 +95,9 @@ export type GridCell = {
   arriving: boolean;
   /** Tonight's occupant is yesterday's: the bar runs through, no break. */
   continues: boolean;
+  /** The arriving stay's channel on its arrival day (the dot on its bar);
+   *  null on every other day. */
+  channel: string | null;
   /** Workable, and the arrival after it still needs someone. */
   needs: boolean;
   /** The arrival is out to the Field roster and nobody has claimed it:
@@ -233,6 +238,7 @@ export function composeVisitGrid(input: VisitGridInput): VisitGrid {
       const continues = !!am && !!prev?.pm && prev.pm.stayId === am.stayId;
       const state: GridCellState = sameStay ? (am!.kind === 'block' ? 'blocked' : 'occupied') : 'open';
       if (arriving) seenArrival = true;
+      const arrival = arriving ? stays.find((s) => s.checkIn === date) ?? null : null;
 
       const next = stays.find((s) => s.checkIn >= date) ?? null;
       const ws = next ? walkState(next) : null;
@@ -307,6 +313,7 @@ export function composeVisitGrid(input: VisitGridInput): VisitGrid {
         leaving,
         arriving,
         continues,
+        channel: arrival?.channel ?? null,
         needs,
         fieldOpen,
         tap,
@@ -384,6 +391,7 @@ export function toGridStay(t: Turnover): GridStay {
     checkIn: t.checkIn.slice(0, 10),
     checkOut: t.checkOut.slice(0, 10),
     guest: t.guestName,
+    channel: t.channel,
     plan: t.plan
       ? {
           id: t.plan.id,

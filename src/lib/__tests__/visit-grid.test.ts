@@ -51,6 +51,7 @@ function stay(over: Partial<GridStay> & Pick<GridStay, 'reservationId' | 'proper
   return {
     checkOut: '2026-11-01',
     guest: 'Synthetic Guest',
+    channel: null,
     plan: null,
     walk: 'open',
     walkedOn: null,
@@ -83,7 +84,7 @@ const HOMES: GridHome[] = [
 
 const STAYS: GridStay[] = [
   stay({ reservationId: 'B', propertyId: '21_horton', checkIn: '2026-10-21', checkOut: '2026-10-24', plan: { id: 'p1', date: '2026-10-20', assignee: ME, plannedBy: DOTTI, hasNotes: false } }),
-  stay({ reservationId: 'C', propertyId: '3_south', checkIn: '2026-10-20', checkOut: '2026-10-23' }),
+  stay({ reservationId: 'C', propertyId: '3_south', checkIn: '2026-10-20', checkOut: '2026-10-23', channel: 'vrbo' }),
   stay({ reservationId: 'D', propertyId: '20_enon', checkIn: '2026-10-19', checkOut: '2026-10-22', field: { status: 'claimed', contractor: 'James Liddell', visitDate: '2026-10-18' } }),
   stay({ reservationId: 'E', propertyId: '30_woodward', checkIn: '2026-10-19', checkOut: '2026-10-25', walk: 'done', walkedOn: '2026-10-18', walkedBy: DOTTI, field: { status: 'approved', contractor: 'Dotti Maguire', visitDate: '2026-10-18' } }),
   stay({ reservationId: 'F', propertyId: '19_rackliffe', checkIn: '2026-10-20', checkOut: '2026-10-27', plan: { id: 'p2', date: '2026-10-16', assignee: DOTTI, plannedBy: DOTTI, hasNotes: false } }),
@@ -106,6 +107,15 @@ function cell(myEmail: string, pid: string, date: string): GridCell {
   assert.ok(c, `${pid} has ${date}`);
   return c;
 }
+
+describe('the channel rides the arrival day', () => {
+  test('the arriving stay\'s channel sits on its arrival cell and nowhere else', () => {
+    assert.equal(cell(ME, '3_south', '2026-10-20').channel, 'vrbo', 'the arrival day carries it');
+    assert.equal(cell(ME, '3_south', '2026-10-19').channel, null, 'not the prep day before');
+    assert.equal(cell(ME, '3_south', '2026-10-21').channel, null, 'not the nights in house');
+    assert.equal(cell(ME, '21_horton', '2026-10-21').channel, null, 'a stay with no channel on file shows no dot');
+  });
+});
 
 describe('what the house is doing that day', () => {
   test('a guest in the house all day is occupied, and nothing can be tapped', () => {
@@ -322,6 +332,7 @@ describe('from the page\'s facts', () => {
     const s = toGridStay({ ...base, fieldPacket: { packetId: 'pk', status: 'claimed', contractorName: 'James Liddell', visitDate: '2026-10-20' } });
     assert.equal(s.plan?.assignee, ME);
     assert.equal(s.plan?.hasNotes, false);
+    assert.equal(s.channel, 'airbnb', 'the channel comes along for the dot');
     assert.equal(toGridStay({ ...base, plan: { ...base.plan!, notes: 'key under the mat' } }).plan?.hasNotes, true);
     assert.equal(s.walk, 'open');
     assert.deepEqual(s.field, { status: 'claimed', contractor: 'James Liddell', visitDate: '2026-10-20' });

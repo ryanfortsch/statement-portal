@@ -1533,6 +1533,14 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
 .rt-vg-bar[data-block] {
   background: repeating-linear-gradient(45deg, rgba(30, 46, 52, 0.16) 0 4px, rgba(30, 46, 52, 0.05) 4px 8px);
 }
+/* The arriving stay's channel: one small dot at the far end of its first
+   bar, in the color the turnover list and the calendar give that channel
+   (lib/channel-style.ts). The bar itself stays neutral so the dot reads,
+   and a Direct stay never paints a green bar that looks like a day
+   needing someone. The far end keeps it clear of a mark on the same day. */
+.rt-vg-ch { position: absolute; right: 4px; top: 50%; width: 5px; height: 5px; margin-top: -2.5px; border-radius: 50%; pointer-events: none; }
+.rt-vg-ch-sw { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; }
+.rt-vg-ch-sw:not(:first-child) { margin-left: 4px; }
 .rt-vg-marks {
   position: absolute;
   inset: 0;
