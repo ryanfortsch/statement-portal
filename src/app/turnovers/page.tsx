@@ -3,6 +3,7 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
 import { TurnoverTabs } from '@/components/TurnoverTabs';
 import { auth } from '@/auth';
+import { sessionDispatches } from '@/lib/helm-access-server';
 import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
 import { isCapeAnnOps } from '@/lib/property-scope';
 import { AutoRefresh } from '../revenue/AutoRefresh';
@@ -188,13 +189,16 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
     );
   }
 
-  const [{ lastSyncedAt, isStale }, data, session, filterPropertyName, propertyOptions, cleaningDays] = await Promise.all([
+  const [{ lastSyncedAt, isStale }, data, session, filterPropertyName, propertyOptions, cleaningDays, dispatcher] = await Promise.all([
     readSyncStatus(),
     loadOperationsData(gridRange, '14d', propertyFilter, 0, undefined, { departures: true }),
     auth(),
     propertyFilter ? readPropertyName(propertyFilter) : Promise.resolve<string | null>(null),
     readPropertyOptions(),
     readCleaningDays(RANGE_DAYS[range] + 1, propertyFilter),
+    // Whether this login plans walks for others (team.ts, `dispatch`): the
+    // grid's Planning for row and the plan dialog's picker.
+    sessionDispatches(),
   ]);
   const myEmail = session?.user?.email ?? '';
 
@@ -275,7 +279,7 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
           <div className="eyebrow">Who&rsquo;s going where</div>
           <span style={{ fontSize: 10, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>Next two weeks</span>
         </div>
-        <VisitGrid today={today} days={gridDays(today, GRID_DAYS)} homes={gridHomes} stays={gridStays} myEmail={myEmail} />
+        <VisitGrid today={today} days={gridDays(today, GRID_DAYS)} homes={gridHomes} stays={gridStays} myEmail={myEmail} dispatcher={dispatcher} />
       </section>
 
       {/* THE BOARD. One bordered row carries the summary on the left and
@@ -409,7 +413,7 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
             Pick a wider range to see what is coming.
           </div>
         ) : (
-          <TurnoverList board={board} myEmail={myEmail} />
+          <TurnoverList board={board} myEmail={myEmail} dispatcher={dispatcher} />
         )}
         <WalkHomeNow properties={propertyOptions} />
       </section>
@@ -453,23 +457,23 @@ function dividerLabel(date: string, today: string): string {
  * happens; walked and ready rows folded under Done at the end, still
  * openable (Undo lives inside). One row component for all of them.
  */
-function TurnoverList({ board, myEmail }: { board: Board; myEmail: string }) {
+function TurnoverList({ board, myEmail, dispatcher }: { board: Board; myEmail: string; dispatcher: boolean }) {
   return (
     <div style={{ borderTop: '1px solid var(--ink)' }}>
       {board.days.map((d) => (
         <div key={d.date}>
           <DayDivider id={`day-${d.date}`} label={dividerLabel(d.date, board.today)} accent={d.date === board.today} />
           {d.rows.map((r) => (
-            <BoardLine key={r.id} row={r} today={board.today} myEmail={myEmail} />
+            <BoardLine key={r.id} row={r} today={board.today} myEmail={myEmail} dispatcher={dispatcher} />
           ))}
         </div>
       ))}
-      <ReadyTurnovers rows={board.done} today={board.today} myEmail={myEmail} />
+      <ReadyTurnovers rows={board.done} today={board.today} myEmail={myEmail} dispatcher={dispatcher} />
     </div>
   );
 }
 
-function ReadyTurnovers({ rows, today, myEmail }: { rows: BoardRow[]; today: string; myEmail: string }) {
+function ReadyTurnovers({ rows, today, myEmail, dispatcher }: { rows: BoardRow[]; today: string; myEmail: string; dispatcher: boolean }) {
   if (!rows.length) return null;
   // "Done" is the row's own word for this state, so the fold says the same.
   return (
@@ -478,7 +482,7 @@ function ReadyTurnovers({ rows, today, myEmail }: { rows: BoardRow[]; today: str
         Done · {rows.length}
       </summary>
       {rows.map((r) => (
-        <BoardLine key={r.id} row={r} today={today} myEmail={myEmail} />
+        <BoardLine key={r.id} row={r} today={today} myEmail={myEmail} dispatcher={dispatcher} />
       ))}
     </details>
   );

@@ -4,7 +4,7 @@ import { Fragment, useMemo, useState } from 'react';
 import { useConfirm } from '@/components/ConfirmDialog';
 import { channelAccent, channelLabel } from '@/lib/channel-style';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
-import { displayNameForEmail, hueForEmail, initialsForEmail, teamMemberForAnyEmail } from '@/lib/team';
+import { assignableTeam, displayNameForEmail, hueForEmail, initialsForEmail, teamMemberForAnyEmail } from '@/lib/team';
 import {
   composeVisitGrid,
   deadlineChip,
@@ -30,6 +30,9 @@ type Props = {
   homes: GridHome[];
   stays: GridStay[];
   myEmail: string;
+  /** Holds the dispatch duty (team.ts): a row above the grid picks whom a
+   *  tap plans for. Everyone else plans for themselves. */
+  dispatcher?: boolean;
 };
 
 type Outcome = { ok: true; id?: string } | { ok: false; error: string };
@@ -45,9 +48,18 @@ const identityFor = (e: string): string => teamMemberForAnyEmail(e)?.email ?? e;
  *  occupancy calendar already give each channel (lib/channel-style.ts). */
 const CHANNEL_KEY = ['airbnb', 'vrbo', 'booking_com', 'direct'];
 
-export function VisitGrid({ today, days, homes, stays, myEmail }: Props) {
-  const { choose } = useConfirm();
+export function VisitGrid({ today, days, homes, stays, myEmail, dispatcher = false }: Props) {
+  const { ask, choose } = useConfirm();
   const softRefresh = useSoftRefresh();
+  // Whom a tap plans for. Everyone plans for themselves; the dispatcher
+  // picks a teammate on the row above the grid and the grid then reads as
+  // that person's: their marks are the ones a tap releases or moves.
+  const [planFor, setPlanFor] = useState(myEmail);
+  const actor = dispatcher ? planFor : myEmail;
+  const team = useMemo(() => {
+    const all = assignableTeam();
+    return [...all.filter((m) => m.email === myEmail), ...all.filter((m) => m.email !== myEmail)];
+  }, [myEmail]);
   // Taps the server has not confirmed yet, layered over the stays the page
   // sent, so a mark shows the moment it is tapped. Dropped once fresh props
   // carry the saved plan, except for a tap still in flight.
@@ -72,19 +84,19 @@ export function VisitGrid({ today, days, homes, stays, myEmail }: Props) {
         days,
         homes,
         stays: shown,
-        myEmail,
+        myEmail: actor,
         nameFor,
         initialsFor,
         identityFor,
       }),
-    [today, days, homes, shown, myEmail],
+    [today, days, homes, shown, actor],
   );
 
   function minePlan(date: string, stay: GridStay): GridPlan {
     return {
       id: stay.plan?.id ?? `pending-${stay.reservationId}`,
       date,
-      assignee: myEmail,
+      assignee: actor,
       plannedBy: stay.plan?.plannedBy ?? myEmail,
       hasNotes: stay.plan?.hasNotes ?? false,
     };
@@ -132,7 +144,7 @@ export function VisitGrid({ today, days, homes, stays, myEmail }: Props) {
     setError(null);
     const claim = () =>
       run(rid, minePlan(cell.date, t.stay), () =>
-        claimWalk({ reservationId: rid, propertyId: t.stay.propertyId, checkIn: t.stay.checkIn, checkOut: t.stay.checkOut, date: cell.date }),
+        claimWalk({ reservationId: rid, propertyId: t.stay.propertyId, checkIn: t.stay.checkIn, checkOut: t.stay.checkOut, date: cell.date, ...(actor !== myEmail ? { forEmail: actor } : {}) }),
       );
     if (t.kind === 'release') {
       // Someone else's plan, or one with a note, keeps its day: only the
@@ -143,8 +155,15 @@ export function VisitGrid({ today, days, homes, stays, myEmail }: Props) {
       const who = nameFor(t.holder);
       const sameDay = t.holderDay === cell.date;
       const past = !!t.holderDay && t.holderDay < today;
+      const title = `${who} ${past ? 'was down to walk' : 'is walking'} ${home}${t.holderDay ? ` ${dayWord(t.holderDay, today)}` : ''}.`;
+      if (!dispatcher) {
+        // Taking a walk is putting yourself on it, which anyone may do;
+        // removing someone else's plan is the dispatcher's (plan-actions.ts).
+        const ok = await ask({ title, body: sameDay ? 'Take it over?' : `Take it and walk it ${dayWord(cell.date, today)} instead?`, confirmLabel: 'Take it', cancelLabel: 'Leave it' });
+        return ok ? claim() : undefined;
+      }
       const choice = await choose<'take' | 'remove'>({
-        title: `${who} ${past ? 'was down to walk' : 'is walking'} ${home}${t.holderDay ? ` ${dayWord(t.holderDay, today)}` : ''}.`,
+        title,
         body: sameDay
           ? 'Take it over, or remove the plan so the day needs someone again.'
           : `Take it and walk it ${dayWord(cell.date, today)} instead, or remove the plan.`,
@@ -174,6 +193,26 @@ export function VisitGrid({ today, days, homes, stays, myEmail }: Props) {
 
   return (
     <div className="rt-vg">
+      {dispatcher && (
+        <div className="rt-vg-for" role="radiogroup" aria-label="Planning for">
+          <span className="rt-vg-for-label">Planning for</span>
+          {team.map((m) => (
+            <button
+              key={m.email}
+              type="button"
+              role="radio"
+              aria-checked={m.email === planFor}
+              data-on={m.email === planFor || undefined}
+              className="rt-vg-for-pick"
+              onClick={() => setPlanFor(m.email)}
+              style={{ ['--vg-hue' as string]: m.hue ?? hueFor(m.email) } as React.CSSProperties}
+            >
+              <span className="rt-vg-mark" style={{ width: 18, height: 18, fontSize: 9, boxShadow: 'none' }}>{m.initials}</span>
+              {m.email === myEmail ? 'Me' : m.short}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="rt-vg-scroll">
         <div className="rt-vg-grid" style={{ gridTemplateColumns: columns, minWidth }}>
           <div className="rt-vg-corner" />
@@ -220,17 +259,19 @@ export function VisitGrid({ today, days, homes, stays, myEmail }: Props) {
           ))}
         </span>
         <span>
-          <span className="rt-vg-mark" style={{ ['--vg-hue' as string]: hueFor(myEmail), width: 18, height: 18, fontSize: 9, boxShadow: 'none' }}>{initialsFor(myEmail)}</span>
+          <span className="rt-vg-mark" style={{ ['--vg-hue' as string]: hueFor(actor), width: 18, height: 18, fontSize: 9, boxShadow: 'none' }}>{initialsFor(actor)}</span>
           who&rsquo;s going
         </span>
         {grid.mine > 0 && (
           <span style={{ marginLeft: 'auto', color: 'var(--ink)', fontWeight: 600 }}>
-            Yours · {grid.mine}
+            {actor === myEmail ? 'Yours' : nameFor(actor)} · {grid.mine}
           </span>
         )}
       </div>
       <p style={{ margin: '6px 0 0', fontSize: 12, color: 'var(--ink-3)' }}>
-        Tap an open day to walk it. Tap your mark to let it go.
+        {actor === myEmail
+          ? 'Tap an open day to walk it. Tap your mark to let it go.'
+          : `Tap an open day to send ${nameFor(actor)}. Tap the mark to take it back.`}
       </p>
 
       {error && (

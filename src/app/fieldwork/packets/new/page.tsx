@@ -2,6 +2,9 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { FieldTabs } from '@/components/FieldTabs';
 import { HelmFooter } from '@/components/HelmFooter';
 import { isFieldConfigured, fieldDb } from '@/lib/field-db';
+import { sessionDispatches } from '@/lib/helm-access-server';
+import { dutyEmails } from '@/lib/team-recipients';
+import { displayNameForEmail } from '@/lib/team';
 import { loadFieldProperties } from '@/lib/field-packets';
 import { setupPriceCents, setupMinutes } from '@/lib/field-pricing';
 import { canClaim, parseTrade, TRADE_META, type ContractorRow } from '@/lib/field-types';
@@ -29,6 +32,21 @@ export default async function SendJobPage({ searchParams }: { searchParams: Prom
         <HelmMasthead />
         <section className="max-w-[900px] mx-auto px-10" style={{ paddingTop: 56 }}>
           <p style={{ color: 'var(--ink-3)' }}>Ask Ryan: the Field module is not set up.</p>
+        </section>
+      </div>
+    );
+  }
+
+  // One desk sends Field work (team.ts, `dispatch`). Anyone else landing
+  // here from the onboarding hub or an old link reads whom to ask.
+  if (!(await sessionDispatches())) {
+    const who = dutyEmails('dispatch').map((e) => displayNameForEmail(e)).join(' or ') || 'an owner';
+    return (
+      <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
+        <HelmMasthead />
+        <FieldTabs current="packets" trade={trade} />
+        <section className="max-w-[720px] mx-auto px-10" style={{ width: '100%', paddingTop: 28, paddingBottom: 48 }}>
+          <p style={{ color: 'var(--ink-3)', margin: 0 }}>Field jobs go out from one desk. Ask {who} to send this one.</p>
         </section>
       </div>
     );

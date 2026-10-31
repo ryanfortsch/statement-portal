@@ -45,7 +45,7 @@ async function board(review, trade = 'inspection', focus, packets) {
     '@/components/RetryDashboard': { RetryDashboard: () => React.createElement('button', null, 'Retry unavailable data') },
     '@/lib/field-review': { loadFieldReview: async () => { if (review === null) throw Error('offline'); return review; } },
     '@/lib/field-db': { isFieldConfigured: true, fieldDb: () => ({ from: () => chain }) },
-    '@/lib/helm-access-server': { isOwnerSession: async () => true },
+    '@/lib/helm-access-server': { isOwnerSession: async () => true, sessionDispatches: async () => true },
     '@/lib/field-packets': { loadPackets: async () => packets ?? [...submitted, packet('working', 'inspection', 'published')], loadInspectionCalendar: async () => ({ days: [], rows: [], missingProps: [] }), loadOfficeAssignedPacketIds: async () => new Set(), loadOpenMaintenance: async () => [{ id: 'slip-a', property_id: 'home-a', property_name: 'Sample Home', title: 'Sample leak' }] },
     '@/lib/field-types': types, '@/lib/field-packet-status': statuses,
     '@/components/FieldAvatar': { FieldAvatar: blank }, '@/components/SubmitButton': { SubmitButton: blank },

@@ -31,6 +31,9 @@ import {
   OWNER_PATH_PREFIXES,
   OWNER_API_PREFIXES,
   OWNER_ONLY_ASK_TOOLS,
+  canDispatch,
+  helmView,
+  VIEW_AS_STAFF,
 } from '../helm-access.ts';
 import { HELM_MODULES, moduleVisibleTo, primaryModulesFor, getOverflowModulesFlat } from '../helm-modules.ts';
 import { TEAM_MEMBERS } from '../team.ts';
@@ -733,5 +736,70 @@ describe('the data behind the page gate refuses a staff session', () => {
       const m = src.match(new RegExp(`export async function ${name}\\b[\\s\\S]*?(?=\\nexport async function |$)`));
       assert.ok(m && m[0].includes('await requireOwnerEmail();'), `${name} must require an owner`);
     }
+  });
+});
+
+describe("the dispatch duty: who goes where is one person's call (Dotti, 2026-10-30)", () => {
+  const DOTTI = 'dotti@risingtidestr.com';
+  const holders = TEAM_MEMBERS.filter((m) => m.duties?.includes('dispatch')).map((m) => m.email);
+  const fn = (src: string, name: string): string => {
+    const m = src.match(new RegExp(`export async function ${name}\\b[\\s\\S]*?(?=\\nexport async function |$)`));
+    assert.ok(m, `${name} not found`);
+    return m![0];
+  };
+
+  test('one person holds it, and View as staff drops it like every other privilege', () => {
+    assert.deepEqual(holders, [DOTTI]);
+    assert.equal(canDispatch(DOTTI, undefined), true);
+    assert.equal(canDispatch(DOTTI, VIEW_AS_STAFF), false);
+    assert.equal(helmView(DOTTI, undefined).dispatcher, true);
+    assert.equal(helmView(DOTTI, VIEW_AS_STAFF).dispatcher, false);
+    for (const m of TEAM_MEMBERS.filter((m) => !holders.includes(m.email))) assert.equal(canDispatch(m.email, undefined), false, m.email);
+    assert.equal(canDispatch('someone-new@risingtidestr.com', undefined), false);
+    assert.equal(canDispatch(null, undefined), false);
+  });
+
+  test('creating, publishing and handing out a packet take the duty; the rest of the lifecycle stays with staff', () => {
+    const src = read('src/app/fieldwork/packets/actions.ts');
+    assert.ok(/async function dispatchEmail\(\)[\s\S]*?requireDispatchEmail\(\)/.test(src), 'dispatchEmail() must delegate to requireDispatchEmail()');
+    for (const name of ['sendJobAction', 'bundleAndSend', 'bundleAsDraft', 'bundleMaintenance', 'publishPacket', 'assignPacket']) {
+      assert.ok(fn(src, name).includes('await dispatchEmail()'), `${name} must require the dispatcher`);
+    }
+    for (const name of ['unpublishPacket', 'cancelPacket', 'releasePacket', 'addPacketStop', 'approvePacket', 'requestChanges', 'submitPacketForContractor']) {
+      const body = fn(src, name);
+      assert.ok(body.includes('staffEmail()') && !body.includes('dispatchEmail()'), `${name} stays with any signed-in login`);
+    }
+  });
+
+  test('the create doors render for the dispatcher only, and the page behind them says whom to ask', () => {
+    const board = read('src/app/fieldwork/packets/page.tsx');
+    assert.ok(board.includes('const [owner, dispatcher] = await Promise.all([isOwnerSession(), sessionDispatches()]);'));
+    assert.ok(/\{dispatcher && \(\n\s*<Link href=\{`\/fieldwork\/packets\/new\?trade=\$\{trade\}`\}/.test(board), "Send a job is the dispatcher's");
+    assert.ok(board.includes("{dispatcher && trade === 'maintenance' && focus === 'all' && openMaintenance && ("), 'so is the handymen bundler');
+    assert.ok(board.includes("{dispatcher && trade === 'inspection' && focus === 'all' && ("), "and the inspectors' calendar bundler");
+    const send = read('src/app/fieldwork/packets/new/page.tsx');
+    assert.ok(send.includes('if (!(await sessionDispatches())) {'), 'the Send a job page checks the duty itself');
+    assert.ok(send.includes("dutyEmails('dispatch')"), 'and names the holder from the roster, never in source');
+    const detail = read('src/app/fieldwork/packets/[id]/page.tsx');
+    assert.ok(detail.includes('const [owner, dispatcher] = await Promise.all([isOwnerSession(), sessionDispatches()]);'));
+    assert.ok(/\) : dispatcher \? \(\n\s*<form action=\{publishPacket\}>/.test(detail), 'Publish renders for the dispatcher only');
+    assert.ok(detail.includes('{dispatcher && (isAssignableStatus(packet.status)) && assignable.length > 0 && ('), 'so does Assign directly');
+  });
+
+  test('a walk is planned for someone else, or taken away from them, by the dispatcher alone', () => {
+    const src = read('src/app/turnovers/plan-actions.ts');
+    for (const name of ['setInspectionPlan', 'claimWalk', 'releaseWalk', 'deleteInspectionPlan']) {
+      assert.ok(fn(src, name).includes('await sessionDispatches()'), `${name} asks the duty before touching another name`);
+    }
+    assert.ok(fn(src, 'setInspectionPlan').includes('changesSomeoneElse(session.user.email, want, have)'));
+    assert.ok(fn(src, 'claimWalk').includes('isSomeoneElse(email, args.forEmail)'));
+    const grid = read('src/app/turnovers/VisitGrid.tsx');
+    assert.ok(grid.includes('aria-label="Planning for"') && grid.includes('{dispatcher && ('), "the Planning for row is the dispatcher's");
+    assert.ok(grid.includes('...(actor !== myEmail ? { forEmail: actor } : {})'), 'a tap for a teammate names them');
+    const plan = read('src/app/turnovers/PlanButton.tsx');
+    assert.ok(plan.includes('{dispatcher ? (') && plan.includes('<TeamPicker'), 'the plan dialog offers the picker to the dispatcher only');
+    assert.ok(plan.includes('assignee: dispatcher ? assignee : (assignee ?? myEmail)'), 'anyone else walks it themselves');
+    const page = read('src/app/turnovers/page.tsx');
+    assert.ok(page.includes('sessionDispatches(),') && page.includes('dispatcher={dispatcher}'), 'the page resolves the duty on the server');
   });
 });
