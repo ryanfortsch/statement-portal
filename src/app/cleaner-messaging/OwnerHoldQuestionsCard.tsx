@@ -65,7 +65,7 @@ export async function OwnerHoldQuestionsCard({ notice }: { notice?: string | nul
           <HoldRow key={`${c.propertyId}|${c.checkIn}`} card={c} today={data.today} />
         ))}
         {answered.length > 0 && (
-          <details style={{ marginTop: pending.length > 0 ? 10 : 0 }} open={pending.length === 0}>
+          <details style={{ marginTop: pending.length > 0 ? 10 : 0 }}>
             <summary style={{ cursor: 'pointer', fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.06em', textTransform: 'uppercase', fontWeight: 600, listStyle: 'none', padding: '6px 0' }}>
               Answered · {answered.length} upcoming
             </summary>

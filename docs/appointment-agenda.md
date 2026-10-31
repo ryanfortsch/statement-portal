@@ -102,17 +102,56 @@ be filed as shared business meetings.
 
 ## Authorization and setup boundary
 
-The local environment has no Ryan or shared Gmail refresh token; this does not
-establish whether deployment already holds one. Existing Google SSO is identity
-only. Check the deployed credential and its current scopes before requesting
-anything. The worker reports 401/403 or missing credentials without expanding
-access. If authorization is missing, the minimum Google scopes are
+Existing Google SSO is identity only. Check the deployed credential and its
+current scopes before requesting anything. Presence of an environment variable
+does not prove a valid token, matching client or successful source access. The
+worker reports 401/403 or missing credentials without expanding access. If
+authorization is missing, the minimum Google scopes are
 `https://www.googleapis.com/auth/gmail.readonly` and
 `https://www.googleapis.com/auth/calendar.events.readonly`, for the explicitly
 enabled person's own work account. Implementation reads only that primary
 calendar and that mailbox; it does not request send, write, contacts or access
 to teammates' accounts. No such authorization has been performed in this PR.
 The existing Quo ingest needs no new permission for owner-only business capture.
+
+### Deferred connection checkpoint — October 31, 2026
+
+The user deferred account verification until back in the office. Do not repeat
+passkey/recovery prompts or change authentication settings to work around this.
+The Vercel project UI showed `GMAIL_REFRESH_TOKEN_RYAN` linked as a shared secret
+for Production and Preview. No secret value was revealed. The Google account's
+existing Rising Tide Portal grant showed email read access, without Calendar.
+Its existing OAuth client in the `rising-tide-portal` project already has
+`https://developers.google.com/oauthplayground` as a registered redirect. The
+Vercel client-ID comparison and live credential validation remain unverified.
+No Google permission, credential, production setting or appointment was changed.
+
+When the user is ready, resume at Vercel project Settings → Environment Variables
+and complete verification there. Check that the configured Gmail client matches
+the existing Portal OAuth client before changing any token. Prepare the existing
+client's consent flow, preserving the Gmail grant and requesting only additional
+Calendar event read access. The user must approve the expanded access. Store any
+replacement credential only through the approved secret-management flow; never
+in chat, Git, screenshots or logs. Then verify the account identity and actual
+provider reads before claiming coverage. This is a deferred setup step, not a
+scheduled reminder or an authorization to deploy.
+
+### Building and rolling out without Calendar
+
+Calendar authorization is not needed to finish or locally test the agenda,
+manual capture/editing, status and attendance review, deduplication, Gmail/Quo
+adapters or coverage display. After separate deployment/migration approval,
+saved appointments and role-scoped CRM records can work with capture disabled.
+If existing credentials are validated and capture is explicitly enabled, a
+Calendar 401/403 does not stop Gmail or Quo: each records its own outcome. The
+home shows disconnected and partial sources even with source details collapsed.
+It never labels an unconnected calendar empty or claims complete coverage.
+
+Keep the draft PR and the reviewed import/CRM-correction proposals ready. Do not
+apply migrations, enable accounts, import the audit, change shared reminders or
+merge/deploy as a side effect of postponing Calendar verification. Recheck the
+latest source evidence before applying the saved proposals, especially any
+appointment whose date has passed while setup was deferred.
 
 Provider contracts: [Calendar events list](https://developers.google.com/workspace/calendar/api/v3/reference/events/list),
 [Gmail threads list](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.threads/list).
@@ -127,7 +166,9 @@ Provider contracts: [Calendar events list](https://developers.google.com/workspa
   fail-visible coverage and session-derived mutation identities.
 - Provider fixtures cover pagination, changed/cancelled tracked events, exact
   cross-source identities, RSVP, all-day/multi-day/DST clocks, stale reads and
-  provider failures. No live source or production record is modified by tests.
+  provider failures, including Calendar access refused while Gmail candidates
+  and Quo capture still complete. No live source or production record is modified
+  by tests.
 - Disposable PostgreSQL test (requires `pg`, optionally through PG_TEST_MODULES):
   `AGENDA_TEST_DATABASE_URL=postgres://postgres@127.0.0.1:PORT/helm_agenda_test node scripts/appointment-agenda-db-test.mjs`
   Only this local database name is accepted. Use a fresh disposable database.
@@ -136,4 +177,6 @@ Provider contracts: [Calendar events list](https://developers.google.com/workspa
 - `node scripts/appointment-agenda-preview.mjs` serves synthetic component data
   on localhost:4328 for browser checks. `--compile-only` skips serving. No live
   credentials or customer records are used in either fixture. The capture form
-  intentionally fails once so retry preservation is testable.
+  intentionally fails once so retry preservation is testable. Open
+  `http://127.0.0.1:4328/?calendar=disconnected` to verify the deferred-connection
+  state while the rest of the agenda remains usable.

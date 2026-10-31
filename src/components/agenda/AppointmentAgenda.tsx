@@ -7,6 +7,8 @@ export function AppointmentAgenda({ data, full = false }: { data: AgendaData; fu
   const groups = agendaGroups(data.entries, data.today, data.through);
   const overlaps = overlappingAppointments(groups.scheduled);
   const total = groups.scheduled.length + groups.review.length + groups.other.length;
+  const disconnected = data.sources.filter(s => s.state === 'not_connected').map(s => s.name);
+  const partial = data.sources.filter(s => s.state === 'partial').map(s => s.name);
   const reviewVisible = full ? groups.review : [...groups.review.filter(e => !e.id.startsWith('capture:')), ...groups.review.filter(e => e.id.startsWith('capture:')).slice(0, 5)];
   const render = (items: AgendaEntry[]) => items.map(e => <AppointmentRow key={e.id} entry={e} overlap={overlaps.has(e.id)} />);
   return <section aria-label="Upcoming appointments" style={{ marginBottom: 28 }}>
@@ -17,6 +19,8 @@ export function AppointmentAgenda({ data, full = false }: { data: AgendaData; fu
     <p style={{ fontSize: 12, color: 'var(--ink-3)', margin: '0 0 12px' }}>Next 30 days · through {houseDay(data.through)} · Eastern time</p>
     <div style={{ padding: '10px 12px', background: 'var(--paper-2)', fontSize: 12, lineHeight: 1.55, marginBottom: 10 }}>
       <strong>Check source coverage.</strong> New scheduling conversations and changed invitations need review. Only the sources below are included.
+      {disconnected.length > 0 && <p role="status" style={{ margin: '6px 0 0' }}><strong>Not connected:</strong> {disconnected.join(', ')}. Appointments from these sources may be missing.</p>}
+      {partial.length > 0 && <p role="status" style={{ margin: '6px 0 0' }}><strong>Partial coverage:</strong> {partial.join(', ')}. Check the source details below.</p>}
       <details style={{ marginTop: 5 }} open={full || undefined}>
         <summary style={{ cursor: 'pointer' }}>What is included</summary>
         <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>

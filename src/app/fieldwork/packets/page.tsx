@@ -111,7 +111,7 @@ export default async function PacketsBoard({
       <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
         <HelmMasthead />
         <section className="max-w-[1000px] mx-auto px-10" style={{ paddingTop: 56 }}>
-          <div className="eyebrow">Field packets</div>
+          <div className="eyebrow">Field jobs</div>
           <p style={{ marginTop: 14, color: 'var(--ink-3)' }}>Ask Ryan: the Field module is not set up.</p>
         </section>
       </div>
@@ -222,7 +222,7 @@ export default async function PacketsBoard({
             their own line instead of crowding the title. */}
         <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', borderBottom: '1px solid var(--ink)', paddingBottom: 16 }}>
           <div>
-            <div className="font-serif" style={{ fontSize: 26, fontWeight: 400 }}>Field packets</div>
+            <div className="font-serif" style={{ fontSize: 26, fontWeight: 400 }}>Field jobs</div>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {/* One create door: the Send a job form, keyed by kind, sent to
@@ -253,9 +253,9 @@ export default async function PacketsBoard({
           <h2 id="review-heading" style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', marginBottom: 8 }}>
             Needs review{visibleReviews ? ` · ${visibleReviews.length}` : ''}
           </h2>
-          <p style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 12 }}>Submitted packets awaiting {owner ? 'your' : "Ryan's"} approval</p>
+          <p style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 12 }}>Submitted jobs awaiting {owner ? 'your' : "Ryan's"} approval</p>
           {visibleReviews === null ? <div role="status">Couldn’t load packets awaiting review. <RetryDashboard /></div>
-            : visibleReviews.length === 0 ? <p style={{ fontSize: 13, color: 'var(--ink-3)' }}>No {TRADE_META[trade].singular} packets awaiting approval.</p>
+            : visibleReviews.length === 0 ? <p style={{ fontSize: 13, color: 'var(--ink-3)' }}>No {TRADE_META[trade].singular} jobs awaiting approval.</p>
             : <div style={{ border: '1px solid var(--rule)', borderRadius: 10, overflow: 'hidden' }}>
               {visibleReviews.map(p => <div key={p.id} style={{ padding: '14px 18px', borderBottom: '1px solid var(--rule)', display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
                 <div style={{ flex: 1, minWidth: 180 }}>

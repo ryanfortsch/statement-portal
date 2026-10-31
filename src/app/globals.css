@@ -478,10 +478,10 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
      rule above). HelmMobileMenu's "Menu" button + full-screen overlay is
      the mobile entry point now. */
 
-  /* Drop the Cmd+K trigger from the masthead on phones — there's no
-     keyboard, the kbd hint reads as decoration, and it eats real estate
-     on the right cluster. Search lives in the mobile menu instead. */
-  .rt-helm-search-trigger { display: none !important; }
+  /* Keep Search reachable on phones; only the keyboard hint is desktop-only. */
+  .rt-helm-search-trigger kbd { display: none; }
+  .rt-helm-search-trigger { flex-shrink: 0; }
+  @media (max-width: 380px) { .rt-search-label { display: none; } }
 
   /* Filter bar on /reviews and similar: stack inputs vertically. */
   .rt-helm-filter-bar { flex-direction: column !important; align-items: stretch !important; gap: 10px !important; }
@@ -860,10 +860,10 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
   justify-content: center;
   gap: 8px;
   font-family: inherit;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 500;
   line-height: 1.2;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   text-decoration: none;
   white-space: nowrap;
@@ -876,8 +876,8 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
 .rt-btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .rt-btn:disabled { cursor: not-allowed; }
 .rt-btn[aria-busy="true"] { cursor: wait; }
-.rt-btn--sm { font-size: 10px; font-weight: 600; letter-spacing: 0.14em; padding: 6px 12px; min-height: 32px; }
-.rt-btn--lg { font-size: 12px; padding: 13px 22px; }
+.rt-btn--sm { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; padding: 6px 12px; min-height: 36px; }
+.rt-btn--lg { font-size: 14px; padding: 13px 22px; }
 
 .rt-btn--primary { background: var(--ink); color: var(--paper); border: 2px solid var(--ink); font-weight: 700; }
 .rt-btn--primary.rt-btn--sm { border-width: 1px; }
@@ -1602,3 +1602,5 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
   .rt-vg-marks[data-n="2"] .rt-vg-mark { width: 16px; height: 16px; font-size: 8px; }
   .rt-vg-bar { top: 10px; bottom: 10px; }
 }
+
+@media (pointer: coarse) { .rt-btn, .rt-btn--sm { min-height: 44px; } }

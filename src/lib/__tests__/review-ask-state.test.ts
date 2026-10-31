@@ -174,7 +174,7 @@ test('a late first ask is the only ask', () => {
 });
 
 test('nothing recorded: the stay itself decides what can be said', () => {
-  assert.deepEqual(describeAsk({ checkOut: CO, channel: 'Direct' }, null, S, '2026-10-20'), { text: 'Not asked: direct booking', tone: 'skipped' });
+  assert.deepEqual(describeAsk({ checkOut: CO, channel: 'Direct' }, null, S, '2026-10-20'), { text: 'Not asked: the Google review link is not set yet', tone: 'skipped' });
   assert.equal(describeAsk(airbnb, null, S, '2026-10-15').text, 'First ask due Oct 16');
   assert.equal(describeAsk(airbnb, null, S, '2026-10-17').text, 'First ask not sent yet');
   assert.equal(describeAsk(airbnb, null, S, '2026-10-19').text, 'First ask missed; a late ask is due Oct 21');
@@ -186,6 +186,40 @@ test('nothing recorded: the stay itself decides what can be said', () => {
   assert.equal(early.text, 'Not asked: they reviewed on their own');
   const old = describeAsk({ checkOut: '2026-09-20', channel: 'VRBO' }, null, S, '2026-10-19');
   assert.equal(old.text, 'No record: before our own asks began Oct 4');
+});
+
+test('direct guests: one ask, stellar stays only, once the Google review link exists', () => {
+  const direct = { checkOut: CO, channel: 'Direct' };
+  const on = { ...S, direct_enabled: true, direct_since: '2026-10-01' };
+  // Off until the concierge holds the link; never "not asked" as if judged.
+  assert.deepEqual(describeAsk(direct, null, S, '2026-10-20'), { text: 'Not asked: the Google review link is not set yet', tone: 'skipped' });
+  assert.deepEqual(describeAsk(direct, null, { ...S, direct_enabled: undefined }, '2026-10-20').text, 'Not asked: the Google review link is not set yet');
+  // On: the same windows as every other stay, including the late first ask.
+  assert.equal(describeAsk(direct, null, on, '2026-10-15').text, 'First ask due Oct 16');
+  assert.equal(describeAsk(direct, null, on, '2026-10-17').text, 'First ask not sent yet');
+  assert.equal(describeAsk(direct, null, on, '2026-10-19').text, 'First ask missed; a late ask is due Oct 21');
+  // Stays judged before direct asks began have no record to read.
+  assert.deepEqual(describeAsk(direct, null, { ...on, direct_since: '2026-10-31' }, '2026-10-20'), { text: 'No record: before direct asks began Oct 31', tone: 'unknown' });
+  // One ask: a sent first ask is the whole line, with no follow-up due or missed.
+  const sent = ask({ first: stage('green', card('approved')) });
+  assert.deepEqual(describeAsk(direct, sent, on, '2026-10-18'), { text: 'Asked Oct 16', tone: 'done' });
+  assert.deepEqual(describeAsk(direct, sent, on, '2026-10-25'), { text: 'Asked Oct 16', tone: 'done' });
+  assert.equal(describeAsk(direct, ask({ first: stage('green', card('pending')) }), on, '2026-10-18').text, 'First ask waiting for approval');
+  // Stellar stays only: a held first stage says what kept the stay short of it.
+  const quiet = ask({ first: stage('held', null, { reason: 'not stellar: the stay read as neutral' }) });
+  assert.deepEqual(describeAsk(direct, quiet, on, '2026-10-18'), { text: 'Not asked: stellar stays only, the stay read as neutral', tone: 'skipped' });
+  const snag = ask({ first: stage('held', null, { reason: "not stellar: guest mentioned 'broken' during the stay" }) });
+  assert.equal(describeAsk(direct, snag, on, '2026-10-18').text, 'Not asked: stellar stays only, the guest reported something broken');
+  const friction = ask({ first: stage('held', null, { reason: 'not stellar: The wifi dropped twice' }) });
+  assert.equal(describeAsk(direct, friction, on, '2026-10-18').text, 'Not asked: stellar stays only, the wifi dropped twice');
+  const noContact = ask({ first: stage('held', null, { reason: 'no phone or email on the reservation' }) });
+  assert.equal(describeAsk(direct, noContact, on, '2026-10-18').text, 'Not asked: no phone or email on the reservation');
+  assert.equal(describeAsk(direct, ask({ first: stage('red', null, { reason: "guest said 'refund'" }) }), on, '2026-10-18').text, 'Not asked: the guest asked about a refund');
+  // The review itself lands on Google, which Helm does not read.
+  assert.deepEqual(describeReview(direct, null, '2026-10-20', false, true), { kind: 'no_platform', text: 'Google review, not tracked here' });
+  assert.deepEqual(describeReview(direct, null, '2026-10-20'), { kind: 'no_platform', text: 'No review site' });
+  // An OTA stay is untouched by any of it.
+  assert.equal(describeAsk(airbnb, sent, on, '2026-10-18').text, 'Asked Oct 16 · follow-up due Oct 21');
 });
 
 test('the old single ask is reported as the only ask', () => {
@@ -279,4 +313,28 @@ test('Recent stays is a page, not a queue: the home feed does not read it', () =
   const tab = read('src/app/guests/ReviewsTab.tsx');
   assert.ok(tab.includes("params.view === 'stays'"), 'the Reviews tab carries the Recent stays view');
   assert.ok(tab.includes('#stay-') && tab.includes('#review-'), 'a review links to its stay and back');
+});
+
+test('our review of them: only a red stay has a line, and it follows the ledger', async () => {
+  const { describeHostReview } = await import('../review-ask-state.ts');
+  const base = { stage: 'stop', check_out: CO, outcome: '', outcome_note: '', outcome_at: '', fires_at: '2026-10-17T00:00:00-04:00', due_by: '2026-10-16', window_closes: '2026-10-28', conduct: '', conduct_reason: '', card_status: 'pending' };
+  const ask = (hr: ReservationReviewAsk['host_review']): ReservationReviewAsk => ({
+    reservation_id: 'r', first: stage('red', null), followup: null, legacy: null, guest_reported_review: false, host_acknowledged_review: false, host_review: hr,
+  });
+  assert.equal(describeHostReview(null, '2026-10-16'), null);
+  assert.equal(describeHostReview('unavailable', '2026-10-16'), null);
+  assert.equal(describeHostReview(ask(undefined), '2026-10-16'), null);
+  assert.equal(describeHostReview(ask({ stop: null, post: null }), '2026-10-16'), null);
+  assert.deepEqual(describeHostReview(ask({ stop: base, post: null }), '2026-10-15'), { text: "Stop Guesty's auto review in Guesty by Oct 16", tone: 'waiting' });
+  assert.equal(describeHostReview(ask({ stop: base, post: null }), '2026-10-17')?.tone, 'due');
+  assert.deepEqual(describeHostReview(ask({ stop: { ...base, outcome: 'stopped' }, post: null }), '2026-10-20'), { text: "Guesty's auto review stopped · our review of them follows on day 13", tone: 'done' });
+  assert.equal(describeHostReview(ask({ stop: { ...base, outcome: 'too_late' }, post: null }), '2026-10-20')?.tone, 'skipped');
+  assert.equal(describeHostReview(ask({ stop: { ...base, outcome: 'let_post' }, post: null }), '2026-10-20')?.text, "Guesty's 5-star auto review allowed, by choice");
+  assert.equal(describeHostReview(ask({ stop: { ...base, outcome: 'no_auto_review' }, post: null }), '2026-10-20'), null);
+  const post = { ...base, stage: 'post', due_by: '2026-10-27', fires_at: '' };
+  assert.deepEqual(describeHostReview(ask({ stop: { ...base, outcome: 'stopped' }, post }), '2026-10-26'), { text: 'Our review of them waiting to post, due Oct 27', tone: 'waiting' });
+  assert.equal(describeHostReview(ask({ stop: { ...base, outcome: 'stopped' }, post }), '2026-10-28')?.tone, 'due');
+  assert.match(describeHostReview(ask({ stop: null, post: { ...post, outcome: 'posted', outcome_at: '2026-10-27T15:00:00+00:00' } }), '2026-10-28')?.text ?? '', /^Our review of them posted /);
+  assert.equal(describeHostReview(ask({ stop: null, post: { ...post, outcome: 'skipped' } }), '2026-10-28')?.text, 'No review of them, by choice');
+  assert.equal(describeHostReview(ask({ stop: null, post: { ...post, outcome: 'not_possible' } }), '2026-10-28')?.tone, 'skipped');
 });

@@ -13,7 +13,7 @@ function load(path: string, mocks: Record<string, unknown>) {
   new Function('require', 'module', 'exports', code)((id: string) => { if (id === 'server-only') return {}; if (id in mocks) return mocks[id]; throw Error(id); }, mod, mod.exports);
   return mod.exports;
 }
-function fixture({ token = 'fake', owner = true, claimed = true, providerFails = false, storedFails = false } = {}) {
+function fixture({ token = 'fake', owner = true, claimed = true, providerFails = false, calendarFails = false, gmailRecords = [] as capture.Capture[], storedFails = false } = {}) {
   const writes: Array<{ name: string; args: any }> = [], reads: Array<{ table: string; filters: Record<string, unknown> }> = [];
   let providerCalls = 0;
   const old = { kind: 'calendar', state: 'available', detail: 'Previous success', last_success_at: '2026-10-30T12:00:00Z', last_attempt_at: '2026-10-30T12:00:00Z' };
@@ -28,11 +28,15 @@ function fixture({ token = 'fake', owner = true, claimed = true, providerFails =
         then(resolve: (r: unknown) => unknown) { return Promise.resolve(result()).then(resolve); } }; return q;
     },
   };
-  const providers = async () => { providerCalls++; if (providerFails) throw new CaptureAccessError(403); return []; };
+  const providers = async (kind: 'calendar' | 'gmail') => {
+    providerCalls++;
+    if (providerFails || (kind === 'calendar' && calendarFails)) throw new CaptureAccessError(403);
+    return kind === 'gmail' ? gmailRecords : [];
+  };
   const mod = load('lib/appointment-capture-server.ts', {
     'node:crypto': { randomUUID: () => 'lease' }, '@/lib/supabase-admin': { supabaseAdmin: db }, '@/lib/paged-select': { selectAllPaged },
     '@/lib/gmail-draft': { existingGoogleAccess: async (requested: string) => { assert.equal(requested, email); return token || null; } },
-    '@/lib/helm-access': { effectiveRole: () => owner ? 'owner' : 'staff' }, '@/lib/appointment-capture-google': { captureCalendar: providers, captureGmail: providers, CaptureAccessError },
+    '@/lib/helm-access': { effectiveRole: () => owner ? 'owner' : 'staff' }, '@/lib/appointment-capture-google': { captureCalendar: () => providers('calendar'), captureGmail: () => providers('gmail'), CaptureAccessError },
     '@/lib/appointment-capture': capture, '@/lib/appointment-agenda': agenda,
   });
   return { mod, writes, reads, providerCalls: () => providerCalls };
@@ -60,6 +64,21 @@ test('unreadable prior records prevent falsely successful sync; no token never c
     const f = fixture({ storedFails: true }); await assert.rejects(f.mod.syncAppointmentSources(email, now), /read completely/); assert.equal(f.providerCalls(), 0); assert.equal(f.writes.length, 1);
     const missing = fixture({ token: '', owner: false }); await missing.mod.syncAppointmentSources(email, now); assert.equal(missing.providerCalls(), 0);
     assert.equal(missing.writes.filter(w => w.name === 'record_agenda_capture')[2].args.p_state.state, 'unavailable'); assert.equal(missing.reads.filter(r => r.table === 'contact_touches').length, 0);
+  } finally { if (previous === undefined) delete process.env.AGENDA_CAPTURE_EMAILS; else process.env.AGENDA_CAPTURE_EMAILS = previous; }
+});
+test('Calendar permission can remain pending while Gmail candidates and Quo still complete', async () => {
+  const previous = process.env.AGENDA_CAPTURE_EMAILS; process.env.AGENDA_CAPTURE_EMAILS = email;
+  try {
+    const candidate = capture.messageCapture('gmail', `gmail:${email}:thread1`, [], 'https://mail.google.com/mail/u/0/#all/thread1', ['synthetic scheduling message'], now);
+    const f = fixture({ calendarFails: true, gmailRecords: [candidate] });
+    const result = await f.mod.syncAppointmentSources(email, now);
+    assert.deepEqual(result.sources, { calendar: 'not_connected', gmail: 'available', quo: 'available' });
+    const records = f.writes.filter(w => w.name === 'record_agenda_capture');
+    assert.deepEqual(records[0].args.p_records, []);
+    assert.equal(records[0].args.p_state.last_success_at, '2026-10-30T12:00:00Z');
+    assert.deepEqual(records[1].args.p_records, [candidate]);
+    assert.equal(records[1].args.p_state.last_success_at, now.toISOString());
+    assert.equal(f.providerCalls(), 2);
   } finally { if (previous === undefined) delete process.env.AGENDA_CAPTURE_EMAILS; else process.env.AGENDA_CAPTURE_EMAILS = previous; }
 });
 test('capture endpoint requires a nonempty exact cron bearer; cookies are not a fallback', async () => {

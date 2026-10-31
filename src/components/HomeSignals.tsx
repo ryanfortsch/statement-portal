@@ -1,3 +1,6 @@
+import { selectAllPaged } from '@/lib/paged-select';
+import { collapseWorkIssues } from '@/lib/work-issues';
+import { loadWorkIssueLinks } from '@/lib/work-issues-server';
 import { availableCount } from '@/lib/recovery';
 import { RetryDashboard } from '@/components/RetryDashboard';
 import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
@@ -115,34 +118,33 @@ const ACTIVE_TASK_STATUSES = ['open', 'in_progress', 'blocked'];
 /**
  * Open work due this week: slips scheduled and tasks due on or before the
  * sixth day from today (Gloucester), overdue included, snoozed slips left
- * out. Four head counts, no rows.
+ * out. Linked reports count once; the earliest visit or follow-up date wins.
  */
 async function getWeekWork(): Promise<{ weekWork: number | null; overdueWork: number | null }> {
   if (!isHelmConfigured) return { weekWork: null, overdueWork: null };
   try {
     const today = operatingDate();
     const weekEnd = workWeekEnd(today);
-    const slips = () =>
-      supabase
-        .from('work_slips')
-        .select('*', { count: 'exact', head: true })
-        .in('status', ACTIVE_SLIP_STATUSES)
-        .or(`snoozed_until.is.null,snoozed_until.lte.${today}`);
     const tasks = () =>
       supabase
         .from('tasks')
         .select('*', { count: 'exact', head: true })
         .in('status', ACTIVE_TASK_STATUSES);
-    const [slipWeek, slipLate, taskWeek, taskLate] = await Promise.all([
-      slips().lte('scheduled_date', weekEnd),
-      slips().lt('scheduled_date', today),
+    const [slipRows, links, taskWeek, taskLate] = await Promise.all([
+      selectAllPaged<{ id: string; property_id: string; scheduled_date: string | null; follow_up_date: string | null }>((from, to) => supabase
+        .from('work_slips').select('id, property_id, scheduled_date, follow_up_date')
+        .in('status', ACTIVE_SLIP_STATUSES)
+        .or(`snoozed_until.is.null,snoozed_until.lte.${today}`).order('id').range(from, to)),
+      loadWorkIssueLinks(supabase).catch(() => []),
       tasks().lte('due_date', weekEnd),
       tasks().lt('due_date', today),
     ]);
-    const parts = [availableCount(slipWeek), availableCount(slipLate), availableCount(taskWeek), availableCount(taskLate)];
-    if (parts.some((n) => n === null)) return { weekWork: null, overdueWork: null };
-    const [sw, sl, tw, tl] = parts as number[];
-    return { weekWork: sw + tw, overdueWork: sl + tl };
+    const tw = availableCount(taskWeek), tl = availableCount(taskLate);
+    if (tw === null || tl === null) return { weekWork: null, overdueWork: null };
+    const issues = collapseWorkIssues(slipRows, links);
+    const datedBy = (s: typeof issues[number], end: string) => [s.scheduled_date, s.follow_up_date].some(d => !!d && d <= end);
+    return { weekWork: issues.filter(s => datedBy(s, weekEnd)).length + tw,
+      overdueWork: issues.filter(s => [s.scheduled_date, s.follow_up_date].some(d => !!d && d < today)).length + tl };
   } catch {
     return { weekWork: null, overdueWork: null };
   }

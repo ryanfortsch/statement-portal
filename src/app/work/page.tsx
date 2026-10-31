@@ -1,3 +1,6 @@
+import { selectAllPaged } from '@/lib/paged-select';
+import { loadWorkIssueLinks } from '@/lib/work-issues-server';
+import { collapseWorkIssues } from '@/lib/work-issues';
 import { HelmFooter } from '@/components/HelmFooter';
 import { operatingDate } from '@/lib/operating-date';
 import { auth } from '@/auth';
@@ -32,22 +35,15 @@ async function getData(): Promise<{
   briefHeadlines: Record<string, WorkBriefHeadline>;
 }> {
   const todayIso = operatingDate();
-  const [{ data: ws }, { data: snz }, { data: tk }, { data: ps }, { data: slipComments }, { data: taskComments }, briefHeadlines] = await Promise.all([
-    supabase
-      .from('work_slips')
-      .select('*')
-      .in('status', ACTIVE_WORK_SLIP_STATUSES)
+  const [ws, snz, { data: tk }, { data: ps }, { data: slipComments }, { data: taskComments }, briefHeadlines] = await Promise.all([
+    selectAllPaged<WorkSlipRow>((from, to) => supabase
+      .from('work_slips').select('*').in('status', ACTIVE_WORK_SLIP_STATUSES)
       .or(`snoozed_until.is.null,snoozed_until.lte.${todayIso}`)
-      .order('priority', { ascending: false })
-      .order('created_at', { ascending: false }),
-    // Snoozed bucket — only future-snoozed slips, surfaced via the
-    // "Snoozed" filter pill on the queue.
-    supabase
-      .from('work_slips')
-      .select('*')
-      .in('status', ACTIVE_WORK_SLIP_STATUSES)
-      .gt('snoozed_until', todayIso)
-      .order('snoozed_until', { ascending: true }),
+      .order('id').range(from, to)),
+    // Future-snoozed reports stay available in their own filter.
+    selectAllPaged<WorkSlipRow>((from, to) => supabase
+      .from('work_slips').select('*').in('status', ACTIVE_WORK_SLIP_STATUSES)
+      .gt('snoozed_until', todayIso).order('id').range(from, to)),
     supabase
       .from('tasks')
       .select('*')
@@ -96,9 +92,10 @@ async function getData(): Promise<{
     }
   }
 
+  const issueLinks = await loadWorkIssueLinks(supabase).catch(() => []);
   return {
-    workSlips: (ws ?? []) as WorkSlipRow[],
-    snoozedSlips: (snz ?? []) as WorkSlipRow[],
+    workSlips: collapseWorkIssues((ws ?? []) as WorkSlipRow[], issueLinks),
+    snoozedSlips: collapseWorkIssues((snz ?? []) as WorkSlipRow[], issueLinks),
     tasks: (tk ?? []) as TaskRow[],
     properties: (ps ?? []) as PropertyForPicker[],
     slipCommentCounts,
@@ -117,7 +114,7 @@ export default async function WorkQueuePage() {
     // (the button then copies the email instead).
     sessionMailbox(myEmail).catch(() => null),
   ]);
-  // A staff login opens on its own week; an owner on everything
+  // A staff login opens on its own next actions; an owner on the team’s next actions
   // (lib/work-board-view.ts). Owners also get "Review stale slips".
   const role = await sessionRole();
 

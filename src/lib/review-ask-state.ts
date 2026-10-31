@@ -17,6 +17,13 @@
  * - Airbnb and VRBO keep a guest's review sealed until the host reviews back
  *   or 14 days pass, so before day 14 "no review" is never certain. Those
  *   stays read "Sealed until <date>" instead.
+ *
+ * Direct (staycapeann.com) guests joined the sweep on 2026-10-31, for stellar
+ * stays only (Dotti, 2026-10-30): one ask carrying the Google Business Profile
+ * review link, by text or email, and no follow-up. The concierge says whether
+ * that link is set (`direct_enabled`) and from when direct stays were judged
+ * (`direct_since`); a direct stay it held back carries its reason like any
+ * other. The review itself lands on Google, which Helm does not read.
  */
 
 import { shiftIsoDay } from './sca-quotes-types.ts';
@@ -60,10 +67,32 @@ export type ReviewAskStage = {
   card: ReviewAskCard | null;
 };
 
+/** One stage of our review OF the guest (concierge host_reviews): the stop
+ *  of Guesty's auto review, or our own review to post. */
+export type HostReviewStage = {
+  /** stop | post */
+  stage: string;
+  check_out: string;
+  /** '' while open; stopped | let_post | too_late | expired | no_auto_review
+   *  (stop), posted | skipped | expired | not_possible (post). */
+  outcome: string;
+  outcome_note: string;
+  outcome_at: string;
+  fires_at: string;
+  due_by: string;
+  window_closes: string;
+  conduct: string;
+  conduct_reason: string;
+  card_status: string;
+};
+
 export type ReservationReviewAsk = {
   reservation_id: string;
   first: ReviewAskStage | null;
   followup: ReviewAskStage | null;
+  /** Our review OF the guest, by stage. Only a red stay has one; absent on
+   *  an older concierge. */
+  host_review?: { stop: HostReviewStage | null; post: HostReviewStage | null } | null;
   /** The one ask the engine made before 2026-10-04. */
   legacy: { requested_at: string; card: ReviewAskCard | null } | null;
   /** The thread says the guest submitted a review. A report, not proof. */
@@ -80,6 +109,16 @@ export type ReviewAskSettings = {
   excluded_slugs: string[];
   /** YYYY-MM-DD of the ledger's first decision. */
   ledger_started: string;
+  /** Guesty's Auto reviews delay, as the concierge is told it (host_reviews). */
+  auto_review_delay_days?: number;
+  /** The day after checkout our own review of a red guest is due. */
+  host_review_post_day?: number;
+  host_review_cards?: boolean;
+  /** Direct (staycapeann.com) guests are asked only once the concierge holds
+   *  the Google review link. Absent on an older concierge: read as off. */
+  direct_enabled?: boolean;
+  /** YYYY-MM-DD from which direct stays are judged at all. */
+  direct_since?: string;
 };
 
 export type ReviewAsksPayload = ReviewAskSettings & {
@@ -115,6 +154,8 @@ export const DEFAULT_ASK_SETTINGS: ReviewAskSettings = {
   followup_days: [7, 10],
   excluded_slugs: [],
   ledger_started: '2026-10-04',
+  direct_enabled: false,
+  direct_since: '2026-10-31',
 };
 
 /** Airbnb and VRBO hold a guest's review until the host reviews back or this
@@ -194,6 +235,10 @@ function guestWord(word: string): string {
 export function plainReason(raw: string): string {
   const r = (raw ?? '').trim().replace(/^not green at follow-up:\s*/i, '').trim();
   if (!r) return 'something went wrong during the stay';
+  // A direct guest is asked after a stellar stay only; the rest of the
+  // reason is what kept this one short of that.
+  const stellar = r.match(/^not stellar:\s*(.+)$/i);
+  if (stellar) return `stellar stays only, ${plainReason(stellar[1])}`;
   const safety = r.match(/^safety incident:\s*(.+)$/i);
   if (safety) return `a safety issue during the stay (${clip(safety[1], 40)})`;
   const mood = r.match(/^sentiment bad:?\s*(.*)$/i);
@@ -254,6 +299,7 @@ function cardText(card: ReviewAskCard, what: string, sentVerb: string, concern: 
 function firstText(stage: ReviewAskStage, what: string, sentVerb: string): CardText {
   switch (stage.tier) {
     case 'red':
+    case 'held': // a direct stay short of stellar, or one with no phone or email
       return { text: `Not asked: ${plainReason(stage.reason)}`, tone: 'skipped', went: false };
     case 'external':
       return { text: 'Asked earlier in the thread', tone: 'done', went: true };
@@ -307,7 +353,14 @@ export function describeAsk(
   } else {
     // Nothing recorded. Say what the stay itself tells us, never "not asked"
     // as if the ledger had said so.
-    if (isDirect(stay.channel)) return { text: 'Not asked: direct booking', tone: 'skipped' };
+    if (isDirect(stay.channel)) {
+      // A direct guest is asked only once the concierge holds the Google
+      // review link, and only for stays judged since direct asks began.
+      if (!settings.direct_enabled) return { text: 'Not asked: the Google review link is not set yet', tone: 'skipped' };
+      if (settings.direct_since && shiftIsoDay(stay.checkOut, firstTo) < settings.direct_since) {
+        return { text: `No record: before direct asks began ${shortDay(settings.direct_since)}`, tone: 'unknown' };
+      }
+    }
     if (settings.ledger_started && shiftIsoDay(stay.checkOut, firstTo) < settings.ledger_started) {
       return { text: `No record: before our own asks began ${shortDay(settings.ledger_started)}`, tone: 'unknown' };
     }
@@ -337,6 +390,8 @@ export function describeAsk(
       const t = cardText(followup.card, 'Follow-up', 'Follow-up sent', followup.tier === 'yellow' ? followup.reason : null);
       tail = { text: t.text.charAt(0).toLowerCase() + t.text.slice(1), tone: t.tone };
     }
+  } else if (isDirect(stay.channel)) {
+    tail = null; // a direct guest gets one ask and no second knock
   } else if (first?.tier === 'yellow') {
     // A stay where something went wrong gets one ask, never a second.
     tail = { text: `no follow-up: ${plainReason(first.reason)}`, tone: 'skipped' };
@@ -356,6 +411,51 @@ export function describeAsk(
   return { text: `${head.text} · ${tail.text}`, tone: rank[tail.tone] > rank[head.tone] ? tail.tone : head.tone };
 }
 
+// ── Our review of them ─────────────────────────────────────────────────────
+
+/**
+ * Our review OF the guest, in one line, for the Recent stays view. Only a red
+ * stay has a record (the concierge files host-review cards for red first-stage
+ * decisions alone); on every other stay Guesty's auto review runs unseen, so
+ * the line is null and the row stays as it was.
+ */
+export function describeHostReview(ask: ReservationReviewAsk | null | 'unavailable', today: string): AskLine | null {
+  if (!ask || ask === 'unavailable') return null;
+  const stop = ask.host_review?.stop ?? null;
+  const post = ask.host_review?.post ?? null;
+  if (post) {
+    switch (post.outcome) {
+      case 'posted':
+        return { text: `Our review of them posted${post.outcome_at ? ` ${shortInstant(post.outcome_at)}` : ''}`, tone: 'done' };
+      case 'skipped':
+        return { text: 'No review of them, by choice', tone: 'skipped' };
+      case 'expired':
+        return { text: 'Our review of them: the window closed with the card open', tone: 'unknown' };
+      case 'not_possible':
+        return { text: "Guesty's 5-star auto review went up; a stay gets one host review", tone: 'skipped' };
+      default:
+        if (post.due_by && today > post.due_by) return { text: `Our review of them overdue since ${shortDay(post.due_by)}`, tone: 'due' };
+        return { text: `Our review of them waiting to post, due ${shortDay(post.due_by)}`, tone: 'waiting' };
+    }
+  }
+  if (!stop) return null;
+  switch (stop.outcome) {
+    case 'stopped':
+      return { text: "Guesty's auto review stopped · our review of them follows on day 13", tone: 'done' };
+    case 'let_post':
+      return { text: "Guesty's 5-star auto review allowed, by choice", tone: 'skipped' };
+    case 'too_late':
+      return { text: "Guesty's 5-star auto review went up before the stay read red", tone: 'skipped' };
+    case 'expired':
+      return { text: "Guesty's 5-star auto review went up: the stop card was not acted on", tone: 'unknown' };
+    case 'no_auto_review':
+      return null;
+    default:
+      if (stop.due_by && today > stop.due_by) return { text: "Stop Guesty's auto review: past due, check the reservation", tone: 'due' };
+      return { text: `Stop Guesty's auto review in Guesty by ${shortDay(stop.due_by)}`, tone: 'waiting' };
+  }
+}
+
 // ── The review line ────────────────────────────────────────────────────────
 
 export function stars(rating: number): string {
@@ -369,12 +469,17 @@ export function describeReview(
   review: StayReview,
   today: string,
   guestReported = false,
+  directReviews = false,
 ): ReviewLine {
   if (review) {
     if (review.rating == null) return { kind: 'reviewed', text: 'Reviewed, no rating shown' };
     return { kind: 'reviewed', text: `Reviewed ${stars(review.rating)}` };
   }
-  if (isDirect(stay.channel)) return { kind: 'no_platform', text: 'No review site' };
+  if (isDirect(stay.channel)) {
+    // Once direct guests are asked, their review lands on Google, which
+    // Helm's reviews table never sees.
+    return { kind: 'no_platform', text: directReviews ? 'Google review, not tracked here' : 'No review site' };
+  }
   const said = guestReported ? 'Guest says they reviewed · ' : '';
   if (SEALED_CHANNELS.has(stay.channel.trim().toLowerCase())) {
     const opens = shiftIsoDay(stay.checkOut, SEALED_DAYS);

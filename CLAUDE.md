@@ -146,6 +146,27 @@ attachments); a draft job is labelled proposed. My work includes slips a person 
 or performs. The board can filter for missing coordinators and assign selected slips to the
 signed-in coordinator without changing their workers.
 
+**One repair can have several original reports.** A person explicitly selects and
+confirms related reports on `/work/[id]`. Suggestions based on matching text or
+an existing object grouping never link automatically. Only reports at the same
+property and with the same open/completed state can link; recurring supplies,
+prep rules and guest requests stay independent. Work, property lists and home
+work counts collapse confirmed memberships; original reports remain available.
+The earliest visible deadline, high priority, active progress and every assigned
+person remain represented. Completing any member completes all members atomically;
+reopening one reopens the issue. Separate reports first for different outcomes.
+This behavior lives in database triggers so existing Field and integration writers
+follow it too; the table map and RPCs are in `SCHEMA.md`.
+
+Work opens on **Next actions** (staff: **For me**): due this week, overdue, high
+priority, in progress, or waiting without a follow-up date. Scheduled, Waiting,
+Backlog and All are one click away; older filter URLs still work. Missing dates
+or coordinators alone are not row warnings. Team keeps answered owner questions
+and cleanly sent schedules folded; pending approvals, failed sends and unavailable
+schedule data remain open. After all statements are marked sent, the dashboard
+shows delivery and finalization separately from current checks. Those checks do
+not establish whether an exception existed when the statement was sent.
+
 **Every home also carries a brief** (`property_work_briefs`, `src/lib/work-briefs.ts`): a one-line
 headline for the Work board's home header and three to seven bullets (`items`, each a lead naming
 whose hands it is in and one clause) that lead the property page's Open Work section and the

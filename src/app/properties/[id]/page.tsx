@@ -1,3 +1,6 @@
+import { selectAllPaged } from '@/lib/paged-select';
+import { loadWorkIssueLinks } from '@/lib/work-issues-server';
+import { collapseWorkIssues } from '@/lib/work-issues';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
@@ -325,19 +328,13 @@ async function getOpenWorkSlips(propertyId: string): Promise<WorkSlipRow[]> {
   if (!isHelmConfigured) return [];
   try {
     const todayIso = new Date().toISOString().slice(0, 10);
-    const { data, error } = await supabase
-      .from('work_slips')
-      .select('*')
-      .eq('property_id', propertyId)
+    const data = await selectAllPaged<WorkSlipRow>((from, to) => supabase
+      .from('work_slips').select('*').eq('property_id', propertyId)
       .in('status', ACTIVE_WORK_SLIP_STATUSES)
       .or(`snoozed_until.is.null,snoozed_until.lte.${todayIso}`)
-      // Lane order, priority and clustering are applied in memory by
-      // groupSlipsByLane; the read just needs a stable base order. The old
-      // cap of 20 silently hid a third of 73 Rocky Neck's list.
-      .order('created_at', { ascending: true })
-      .limit(80);
-    if (error) throw error;
-    return (data ?? []) as WorkSlipRow[];
+      .order('id').range(from, to));
+    const links = await loadWorkIssueLinks(supabase).catch(() => []);
+    return collapseWorkIssues((data ?? []) as WorkSlipRow[], links);
   } catch {
     return [];
   }

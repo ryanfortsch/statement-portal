@@ -14,6 +14,7 @@ type Props = {
   initialStatus: WorkSlipStatus;
   initialResolutionNotes: string | null;
   initialSnoozedUntil: string | null;
+  linkedReportCount?: number;
 };
 
 const CLOSED: WorkSlipStatus[] = ['done', 'dismissed'];
@@ -35,6 +36,7 @@ export function SlipClosePanel({
   initialStatus,
   initialResolutionNotes,
   initialSnoozedUntil,
+  linkedReportCount = 1,
 }: Props) {
   const softRefresh = useSoftRefresh();
   const [status, setStatus] = useState<WorkSlipStatus>(initialStatus);
@@ -157,11 +159,11 @@ export function SlipClosePanel({
         ) : (
           <>
             <Button variant="primary" onClick={() => save('done')} disabled={saving !== null} pending={saving === 'done'} pendingLabel="Saving">
-              Mark Done
+              {linkedReportCount > 1 ? `Complete issue · ${linkedReportCount} reports` : 'Mark Done'}
             </Button>
             <Button
               onClick={() => save('dismissed')}
-              disabled={saving !== null}
+              disabled={saving !== null || linkedReportCount > 1}
               pending={saving === 'dismissed'}
               pendingLabel="Saving"
               title="Close without work: false alarm, duplicate, won't do"
@@ -174,6 +176,7 @@ export function SlipClosePanel({
           </>
         )}
       </div>
+      {linkedReportCount > 1 && !isClosed && <p style={{ fontSize: 13, color: 'var(--ink-3)' }}>To dismiss only one report, separate the linked reports above first.</p>}
       {(saving === 'notes' || (notesSaved && !notesDirty)) && (
         <div role="status" style={{ marginTop: 8, fontSize: 11, color: 'var(--ink-4)' }}>
           {saving === 'notes' ? 'Saving notes…' : 'Notes saved.'}

@@ -50,6 +50,7 @@ await writeFile(join(scratch,'team.js'),`export const TEAM_MEMBERS=[];export con
 await writeFile(join(scratch,'crm-types.js'),`export const CONTACT_TYPE_LABELS={owner:'Owner',lead:'Lead',vendor:'Vendor',other:'Other'};`);
 await writeFile(join(scratch,'entry.js'),compile(`
 import React,{useState} from 'react';import {createRoot} from 'react-dom/client';
+import {operatingDate} from './operating-date.js';
 import {QueueClient,WorkSlipRowItem,TaskRowItem} from './queue.js';import {NumberTriage} from './triage.js';
 import {WorkOrderComposer,RunCard,VendorGroup} from './runs.js';import {hasUnsavedWork} from './unsaved.js';
 const params=new URLSearchParams(location.search),mode=params.get('mode');
@@ -59,6 +60,7 @@ window.clipboardText=null;Object.defineProperty(navigator,'clipboard',{configura
 const now='2026-09-01T12:00:00Z',me='me@example.test';
 const properties=[{id:'synthetic-home',name:'Synthetic Home',city:'Gloucester',title:null,is_active:true}];
 const slips=['a','b'].map(id=>({id:'slip-'+id,title:'Slip '+id,property_id:'synthetic-home',category:'maintenance',priority:'normal',status:'open',assigned_to_type:'unassigned',created_at:now}));
+const focusSlips=[{id:'urgent',title:'Urgent undated repair',priority:'high'},{id:'routine',title:'Routine backlog repair'}, {id:'scheduled',title:'Future appointment',scheduled_date:'2099-12-01'}, {id:'waiting',title:'Waiting for a reply',status:'blocked',follow_up_date:'2099-12-01'}, {id:'due',title:'Due follow-up',follow_up_date:operatingDate()}].map(s=>({...slips[0],...s}));
 const tasks=['a','b'].map(id=>({id:'task-'+id,title:'Task '+id,priority:'normal',status:'open',scope:'corporate',created_at:now}));
 const contacts=['a','b'].map(id=>({id:'contact-'+id,name:'Contact '+id,type:'owner',emails:[],phone:null,tags:[],linked_property_ids:[],created_at:now,updated_at:now}));
 const unknownNumbers=['+19785550101','+19785550102'].map(phone=>({phone,last_body:'Synthetic message'}));
@@ -70,6 +72,7 @@ function Fixture(){
  window.changeRoster=()=>{setRoster([{...initialRoster[0],name:'Renamed Vendor',organization:'Changed Company'}]);setSlipIds(['different-slip']);};
  window.unmount=()=>setMounted(false);const close=()=>{window.closeCount++;setMounted(false);};if(!mounted)return null;
  return <>
+ {mode==='focus'&&<section id="focus"><QueueClient workSlips={focusSlips} snoozedSlips={[]} tasks={[]} properties={properties} myEmail={me} slipCommentCounts={{}} taskCommentCounts={{}} reporterNames={{}} defaultFilter="next" /></section>}
  {mode==='queue'&&<section id="queue"><QueueClient workSlips={slips} snoozedSlips={[]} tasks={tasks} properties={properties} myEmail={me} slipCommentCounts={{}} taskCommentCounts={{}} reporterNames={{}}/></section>}
  {mode==='done'&&<section id="done"><section id="slip"><WorkSlipRowItem slip={slips[0]} selected={false} onToggleSelect={()=>{}} commentCount={0}/></section><section id="task"><TaskRowItem task={tasks[0]} selected={false} onToggleSelect={()=>{}} commentCount={0}/></section></section>}
  {mode==='crm'&&<section id="crm"><NumberTriage contacts={contacts} properties={properties} unknownNumbers={unknownNumbers} guestByPhone={{}} suggestions={suggestions}/></section>}
@@ -105,9 +108,21 @@ const pass=m=>{checks++;console.log('PASS '+m);};
 const beforeUnload=()=>page.evaluate(()=>{const e=new Event('beforeunload',{cancelable:true});window.dispatchEvent(e);return e.defaultPrevented;});
 const checked=label=>page.$eval('[aria-label="'+label+'"]',e=>e.getAttribute('aria-checked')==='true');
 const switchTab=tab=>page.$$eval('#queue button',(bs,tab)=>{const b=bs.find(b=>b.textContent.startsWith(tab));if(!b)throw Error('Missing tab '+tab);b.click();},tab);
-const selectMixed=async()=>{await click('#queue','Select work slip Slip a');await switchTab('Office to-dos');await click('#queue','Select to-do Task a');};
+const selectMixed=async()=>{await click('#queue','Select work item Slip a');await switchTab('Office to-dos');await click('#queue','Select to-do Task a');};
 const bulk='[aria-label="Bulk actions"]';
 const bulkOff=label=>page.$$eval(bulk+' button',(bs,label)=>bs.find(b=>b.textContent.trim()===label).disabled,label);
+
+await reset('focus','&open=synthetic-home');
+const visibleWork=()=>page.$$eval('#focus [aria-label^="Select work item"]',es=>es.map(e=>e.getAttribute('aria-label')));
+const focusFilter=label=>page.$$eval('#focus button',(bs,label)=>bs.find(b=>b.textContent.startsWith(label)).click(),label);
+assert.deepEqual(new Set(await visibleWork()),new Set(['Select work item Urgent undated repair','Select work item Due follow-up']));
+await focusFilter('Scheduled');assert.deepEqual(await visibleWork(),['Select work item Future appointment']);
+await focusFilter('Waiting');assert.deepEqual(await visibleWork(),['Select work item Waiting for a reply']);
+await focusFilter('Backlog');assert.deepEqual(await visibleWork(),['Select work item Routine backlog repair']);
+await focusFilter('All');assert.equal((await visibleWork()).length,5);
+await reset('focus','&open=synthetic-home&filter=high');assert.deepEqual(await visibleWork(),['Select work item Urgent undated repair']);
+assert.equal((await calls()).length,0);
+pass('next actions keeps urgent undated work and due follow-ups visible; Scheduled, Waiting, Backlog, All and older filter links remain usable');
 
 await reset('queue','&open=synthetic-home');await selectMixed();await waitText('Pick slips or office to-dos, not both.');
 assert.match(await body(),/1 slip and 1 to-do selected/);
@@ -118,9 +133,9 @@ pass('a mixed selection is refused in one line, sends nothing, and unticking one
 
 await click(bulk,'Normal',true);await waitCalls(1);
 assert.deepEqual((await calls()).map(c=>[c.kind,c.args.patch.priority]),[['bulkSlips','normal']]);
-await switchTab('Property Work');assert.equal(await page.$eval('[aria-label="Select work slip Slip a"]',e=>e.disabled),true);await click(bulk,'Clear');assert.equal(await checked('Select work slip Slip a'),true);assert.equal(await beforeUnload(),true);
-await finish(0,{ok:false,error:'Slips denied'});await ready(bulk+' button');await clean();await waitText('Work slips: Slips denied They remain selected.');
-assert.equal(await checked('Select work slip Slip a'),true);
+await switchTab('Property Work');assert.equal(await page.$eval('[aria-label="Select work item Slip a"]',e=>e.disabled),true);await click(bulk,'Clear');assert.equal(await checked('Select work item Slip a'),true);assert.equal(await beforeUnload(),true);
+await finish(0,{ok:false,error:'Slips denied'});await ready(bulk+' button');await clean();await waitText('Work items: Slips denied They remain selected.');
+assert.equal(await checked('Select work item Slip a'),true);
 pass('slip bulk waits for its result, ignores a same-tick double click, and keeps a refused selection');
 await click(bulk,'Assign to me',true);await waitCalls(2);assert.deepEqual((await calls())[1],{kind:'bulkSlips',args:{ids:['slip-a'],patch:{assigned_to_email:'me@example.test'}}});await finish(1,{ok:true,updated:1});await clean();await page.waitForFunction(()=>!document.querySelector('[aria-label="Bulk actions"]'));
 pass('slip bulk retry submits the remaining IDs once and a confirmed update clears the bar');

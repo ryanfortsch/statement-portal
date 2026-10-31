@@ -78,7 +78,7 @@ export function FieldTabs({
 
   const lenses = (
     [
-      TRADE_META[trade].hasPackets ? { id: 'packets', label: 'Packets' } : null,
+      TRADE_META[trade].hasPackets ? { id: 'packets', label: 'Jobs' } : null,
       hasShoots(trade) ? { id: 'shoots', label: 'Shoots & Pay' } : null,
       { id: 'contractors', label: 'Roster' },
       { id: 'trades', label: 'Trades' },
@@ -108,7 +108,7 @@ export function FieldTabs({
                     letterSpacing: '.06em',
                     textTransform: 'uppercase',
                     fontWeight: isActive ? 600 : 500,
-                    color: isActive ? 'var(--ink)' : 'var(--ink-4)',
+                    color: isActive ? 'var(--ink)' : 'var(--ink-3)',
                     textDecoration: 'none',
                   }}
                 >

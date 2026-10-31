@@ -336,7 +336,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
           <div id="decision" style={{ marginTop: 20, border: '1px solid var(--rule)', borderRadius: 10, padding: '14px 18px', background: 'var(--paper-2, #fff)', display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'flex-start' }}>
             <form action={approvePacket} style={{ margin: 0 }}>
               <input type="hidden" name="packet_id" value={packet.id} />
-              <PendingButton label="Approve packet" busyLabel="Approving, sending reports…" className={buttonClass('primary')} />
+              <PendingButton label="Approve job & send reports" busyLabel="Approving, sending reports…" className={buttonClass('primary')} />
             </form>
             <details>
               <summary style={quietSummary}>Send back for changes ▾</summary>
@@ -378,7 +378,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                       </span>
                     </div>
                   )}
-                  <PendingButton label="Approve packet" busyLabel="Approving, sending reports…" className={buttonClass('primary')} />
+                  <PendingButton label="Approve job & send reports" busyLabel="Approving, sending reports…" className={buttonClass('primary')} />
                   <details>
                     <summary style={quietSummary}>+ Add an above-and-beyond bonus ▾</summary>
                     <div style={{ marginTop: 10 }}><BonusFields /></div>

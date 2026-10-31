@@ -21,6 +21,57 @@ import type { RentalInquiry } from '@/lib/rental-inquiry';
 import type { ConciergeAttention } from '@/lib/concierge-alerts';
 import type { ReviewAsksPayload } from '@/lib/review-ask-state';
 
+/** Our review OF a guest, from the concierge's host_reviews ledger: the stop
+ *  card for Guesty's 5-star auto review on a red stay, or the review to post
+ *  by hand before the window closes. Null on every other card. */
+export type HostReviewCard = {
+  /** stop | post */
+  stage: string;
+  tier: string;
+  reason: string;
+  /** The Guesty module: airbnb2, homeaway2. */
+  channel: string;
+  check_out: string;
+  /** When Guesty's auto review goes up (stop stage), local ISO. */
+  fires_at: string;
+  /** The last day to act, YYYY-MM-DD. */
+  due_by: string;
+  window_closes: string;
+  /** fine | concern | unknown | '' (post stage): the guest's conduct in the thread. */
+  conduct: string;
+  conduct_reason: string;
+  /** '' while the card is open; stopped | let_post | too_late | expired |
+   *  no_auto_review (stop) or posted | skipped | expired | not_possible (post). */
+  outcome: string;
+  outcome_note: string;
+  outcome_at: string;
+  posted_text: string;
+  guesty_url: string;
+  channel_url: string;
+  card_status: string;
+  approval_id: string;
+};
+
+/** Our public reply to a guest's below-five review (concierge
+ *  review_replies): the review as written, and the removal grounds the
+ *  thread supports. Null on every other card. */
+export type ReviewReplyCard = {
+  review_id: string;
+  stars: number | null;
+  written_on: string;
+  channel: string;
+  public_review: string;
+  private_feedback: string;
+  /** retaliation | off_topic | conduct | no_stay */
+  grounds: string[];
+  grounds_line: string;
+  policy_url: string;
+  /** Guesty's reply endpoint covers this channel, so Post reply sends. */
+  can_post: boolean;
+  outcome: string;
+  outcome_note?: string;
+};
+
 export type Approval = MessageOutcomeCarrier & {
   id: string;
   short_id: string;
@@ -87,6 +138,10 @@ export type Approval = MessageOutcomeCarrier & {
    * never offers held nights; the card names the hold so an owner can
    * overrule a high-value ask. Null/absent otherwise. */
   extension_hold?: { start: string; end: string; reason: string; note: string } | null;
+  /** Our review OF this guest (hostreview: cards). Null/absent elsewhere. */
+  host_review?: HostReviewCard | null;
+  /** Our public reply to THEIR review (reviewreply: cards). Null/absent elsewhere. */
+  review_reply?: ReviewReplyCard | null;
   /** A 2027 pre-release request's own details (party size, email, phone), so
    * the quote composer can be opened complete rather than half-filled.
    * Null/absent on every other card. */
