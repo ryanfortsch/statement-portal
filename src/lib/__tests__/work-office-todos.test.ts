@@ -115,7 +115,7 @@ describe('the board says which is which', () => {
     assert.ok(board.includes('label={OFFICE_TODOS_LABEL}'), 'the board tab is Office to-dos');
     assert.ok(!/label="Tasks"/.test(board), 'no tab called Tasks');
     assert.ok(board.includes('+ To-do'), 'the create button says To-do');
-    assert.ok(read('src/components/ForMeFeed.tsx').includes("'Work item' : OFFICE_TODO_LABEL"), 'the home feed tags a to-do as one');
+    assert.ok(read('src/components/ForMeFeed.tsx').includes("{OFFICE_TODO_LABEL}{sublineBits.length"), 'the home feed tags a to-do as one');
   });
 
   test('a new to-do asks for no house', () => {

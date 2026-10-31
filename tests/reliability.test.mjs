@@ -167,7 +167,7 @@ async function homePage(searchParams = {}) {
   mocks['@/components/ConciergeAlerts'] = { ConciergeAlertsLine: blank };
   mocks['@/components/HelmHero'] = { HelmHero: ({ title }) => React.createElement('h1', null, title) };
   mocks['@/components/HomeFeedTabs'] = { HomeFeedTabs: ({ active }) => React.createElement('nav', null, `tabs:${active}`) };
-  mocks['@/components/ForMeFeed'] = { ForMeFeed: () => React.createElement('section', null, 'Personalized work feed') };
+  mocks['@/components/ForMeFeed'] = { ForMeFeed: () => React.createElement('section', null, 'Personalized work feed'), RecentPayments: () => React.createElement('section', null, 'Payments received') };
   mocks['@/components/TeamActivity'] = { TeamActivity: () => React.createElement('section', null, 'Team activity') };
   mocks['@/components/HomeSignals'] = { HomeSignals: () => React.createElement('section', null, 'Signals') };
   mocks['@/components/AskHelm'] = { AskHelm: () => React.createElement('section', null, 'Ask Helm') };
@@ -205,7 +205,7 @@ test('homepage uses Today with Ask Helm directly under it, then the day', async 
 });
 test('Recent Activity renders only when its tab is open', async () => {
   const home = await homePage();
-  assert.match(home, /tabs:forme/); assert.doesNotMatch(home, /Team activity/);
+  assert.match(home, /tabs:forme/); assert.doesNotMatch(home, /Team activity|Payments received/);
   const activity = await homePage({ tab: 'activity' });
-  assert.match(activity, /tabs:activity/); assert.match(activity, /Team activity/); assert.doesNotMatch(activity, /Personalized work feed/);
+  assert.match(activity, /tabs:activity/); assert.match(activity, /Team activity/); assert.match(activity, /Payments received/); assert.doesNotMatch(activity, /Personalized work feed/);
 });

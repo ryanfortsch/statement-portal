@@ -94,11 +94,11 @@ const TIME_SENSITIVE: readonly FeedSection[] = ['holds', 'cleanings', 'week'];
  * the "clean after?" card first. The mail is the daily-brief triage read
  * from cache, with no live classification on page load.
  *
- * One × with one meaning: it hides a row from your own feed and changes
+ * One secondary action with one meaning: it hides a row from your own feed and changes
  * nothing else (recorded per user in home_feed_dismissals), and the next
  * from the pool backfills. A card that clears by being answered (an owner
  * block, a cleaning flag, a cleaner text to place, an office queue, a Stripe
- * key to fix) has no ×.
+ * key to fix) has no hide action.
  */
 export async function ForMeFeed() {
   let needsReply: BriefEmail[] = [];
@@ -154,15 +154,14 @@ export async function ForMeFeed() {
   const ownerHoldAsks: OwnerHoldQuestionCard[] = ownerHolds?.pending ?? [];
   const ownerHoldToday = ownerHolds?.today ?? todayET();
 
-  // Guest payment links: paid this week (the "did they pay?" answer) and
-  // still open past a day (the "they haven't" answer). Both hide with ×.
+  // Only payments needing action appear in the day. Received payments live
+  // on Recent Activity and in the unchanged payment ledger.
   // A property whose Stripe key will not let Helm read payments is one row
   // with no ×: it clears itself once the key is fixed and the next sweep
   // reads it. The feed shows a few, unpaid first; the rest fold into "N more".
   const overdueLinks = paymentCards.overdue.filter((c) => !dismissed.has(`plink-unpaid:${c.row.request_key}`));
-  const paidLinks = paymentCards.paid.filter((c) => !dismissed.has(`plink-paid:${c.row.request_key}`));
   const keyProblems = paymentCards.keyProblems;
-  const payments = windowPayments(overdueLinks, keyProblems, paidLinks);
+  const payments = windowPayments(overdueLinks, keyProblems, []);
 
   // Drop cleared items, then pick the window (tasks first, slips spread
   // across properties) so clearing one reveals the next.
@@ -359,15 +358,14 @@ export async function ForMeFeed() {
       ) : null,
 
     // PAYMENTS: guest payment links (late checkouts, pets, extra nights,
-    // deposits) still open after a day, and ones just paid. Helm is the
-    // alert for a link, per the team-notification policy.
+    // deposits) still open after a day, or whose status cannot be checked.
     payments:
-      overdueLinks.length + keyProblems.length + paidLinks.length > 0 ? (
+      overdueLinks.length + keyProblems.length > 0 ? (
         <>
           <SectionHeaderLink
             href={PAYMENTS_HREF}
-            title="Payments"
-            eyebrow={paymentsEyebrow(paidLinks.length, overdueLinks.length, keyProblems.length)}
+            title="Payments to check"
+            eyebrow={paymentsEyebrow(0, overdueLinks.length, keyProblems.length)}
           />
           <div style={{ borderTop: '1px solid var(--ink)' }}>
             {payments.overdue.map((c) => (
@@ -375,9 +373,6 @@ export async function ForMeFeed() {
             ))}
             {payments.problems.map((k) => (
               <PaymentKeyProblemRow key={k.propertyId} problem={k} owner={owner} />
-            ))}
-            {payments.paid.map((c) => (
-              <PaymentLinkFeedRow key={c.row.request_key} card={c} />
             ))}
             {payments.more > 0 && <MoreRow href={PAYMENTS_HREF} text={`${payments.more} more`} />}
           </div>
@@ -388,7 +383,7 @@ export async function ForMeFeed() {
   const shown = homeFeedOrder(role).filter((key) => sections[key] != null);
 
   return (
-    <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 24, paddingBottom: 80, width: '100%' }}>
+    <section className="rt-home-feed max-w-[1100px] mx-auto px-10" style={{ paddingTop: 20, paddingBottom: 24, width: '100%' }}>
       {shown.length === 0 ? (
         // Without the Gmail read the feed cannot know about replies, so it
         // does not claim them; it never names the missing setup.
@@ -399,9 +394,9 @@ export async function ForMeFeed() {
         </EmptyState>
       ) : (
         shown.map((key) => (
-          <div key={key} data-feed-section={key} style={{ marginBottom: 36 }}>
+          <div key={key} data-feed-section={key} style={{ marginBottom: 24 }}>
             {(key === shown[0] || TIME_SENSITIVE.includes(key) !== TIME_SENSITIVE.includes(shown[shown.indexOf(key) - 1])) && key !== 'updates' && (
-              <div className="eyebrow" style={{ color: 'var(--tide-deep)', marginBottom: 18 }}>
+              <div className="eyebrow rt-home-feed-group" style={{ color: 'var(--tide-deep)', marginBottom: 12 }}>
                 {TIME_SENSITIVE.includes(key) ? 'Time-sensitive & upcoming' : 'My next actions'}
               </div>
             )}
@@ -622,28 +617,24 @@ function MyWorkRow({ item, onDay }: { item: MyWork; onDay?: WorkDateKind }) {
   if (isHigh) sublineBits.push(<span style={{ color: 'var(--signal)' }}>High priority</span>);
 
   return (
-    <div style={feedRowStyle}>
+    <div className="rt-home-work-row" style={feedRowStyle}>
       <span aria-hidden style={{ ...dotStyle, background: isHigh ? 'var(--signal)' : 'var(--tide-deep)' }} />
       <Link href={href} style={{ flex: 1, minWidth: 0, textDecoration: 'none', color: 'inherit' }}>
-        <div className="flex items-baseline justify-between" style={{ gap: 16 }}>
+        <div>
           <span
             style={{
               fontSize: 14,
               fontWeight: 500,
               color: 'var(--ink)',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
+              overflowWrap: 'anywhere',
             }}
           >
             {item.title}
           </span>
-          <span style={{ flexShrink: 0, fontSize: 11, color: 'var(--ink-4)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-            {item.kind === 'slip' ? 'Work item' : OFFICE_TODO_LABEL}
-          </span>
         </div>
-        {sublineBits.length > 0 && (
+        {(sublineBits.length > 0 || item.kind === 'task') && (
           <div style={{ marginTop: 3, fontSize: 11, fontWeight: 500, lineHeight: 1.4 }}>
+            {item.kind === 'task' && <span style={{ color: 'var(--ink-4)' }}>{OFFICE_TODO_LABEL}{sublineBits.length ? ' · ' : ''}</span>}
             {sublineBits.map((bit, i) => (
               <span key={i}>
                 {i > 0 && <span style={{ color: 'var(--ink-4)' }}> · </span>}
@@ -653,7 +644,7 @@ function MyWorkRow({ item, onDay }: { item: MyWork; onDay?: WorkDateKind }) {
           </div>
         )}
       </Link>
-      <FeedClearButton itemType={item.kind} itemId={item.id} />
+      <FeedClearButton itemType={item.kind} itemId={item.id} itemLabel={item.title} />
     </div>
   );
 }
@@ -1316,7 +1307,7 @@ type PaymentCard = { row: PaymentLinkRow; propertyName: string; status: 'paid' |
  *  read, so none of its open links can be called paid or unpaid. */
 type PaymentKeyProblem = { propertyId: string; propertyName: string; openLinks: number; fixUrl: string };
 
-/** A paid link stays on the feed this long; an unpaid one is called out
+/** A paid link stays in Recent Activity this long; an unpaid one is called out
  *  from a day after it was sent until it is this old, then it is a dead
  *  deal that only the ledger still lists. */
 const PAID_SHOW_DAYS = 7;
@@ -1370,6 +1361,22 @@ function paymentsEyebrow(paid: number, overdue: number, cantCheck: number): stri
   ]
     .filter(Boolean)
     .join(' · ');
+}
+
+/** Received payments belong in history. Reuses the same payment read and role
+ * scope as the previous home rows, without changing payment state. */
+export async function RecentPayments() {
+  const [{ paid }, session] = await Promise.all([loadPaymentLinkCards(), auth()]);
+  const dismissed = await loadDismissals(session?.user?.email ?? '');
+  const visible = paid.filter(c => !dismissed.has(`plink-paid:${c.row.request_key}`));
+  if (!visible.length) return null;
+  return <section className="rt-home-receipts max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingTop: 20, paddingBottom: 24 }}>
+    <SectionHeaderLink href={PAYMENTS_HREF} title="Payments received" eyebrow="Past 7 days" />
+    <div style={{ borderTop: '1px solid var(--ink)' }}>
+      {visible.slice(0, 4).map(c => <PaymentLinkFeedRow key={c.row.request_key} card={c} />)}
+      {visible.length > 4 && <MoreRow href={PAYMENTS_HREF} text={`View all ${visible.length} payments`} />}
+    </div>
+  </section>;
 }
 
 function PaymentKeyProblemRow({ problem, owner }: { problem: PaymentKeyProblem; owner: boolean }) {
