@@ -95,6 +95,11 @@ export type GridCell = {
   arriving: boolean;
   /** Tonight's occupant is yesterday's: the bar runs through, no break. */
   continues: boolean;
+  /** An owner's hold in the cell: `edge` when it ends inside the window
+   *  (the clean after it is in view, so it keeps its weight), `long` when
+   *  it runs past the last day shown (the owner's for the foreseeable, a
+   *  whisper). */
+  hold: 'edge' | 'long' | null;
   /** The arriving stay's channel on its arrival day (the dot on its bar);
    *  null on every other day. */
   channel: string | null;
@@ -110,6 +115,15 @@ export type GridCell = {
 export type GridRow = {
   propertyId: string;
   propertyName: string;
+  /** The house this row rides under: a unit of a split home with a guest
+   *  in the window. Null for a house or a home of its own. */
+  unitOf: string | null;
+  /** This house's units with nothing booked in the window, by name, folded
+   *  into its row as a count so the fleet stays whole without a row each. */
+  foldedUnits: string[];
+  /** No guest arrives in the window, for the house and its shown units:
+   *  the divider sits before the first quiet row. */
+  quiet: boolean;
   cells: GridCell[];
   /** The next arrival nobody is covering yet, for the row's deadline chip. */
   nextNeed: string | null;
@@ -136,12 +150,19 @@ export type VisitGridInput = {
    *  address and her Workspace email are the same hands. Default: the
    *  address itself. */
   identityFor?: (email: string) => string;
+  /** Unit home id -> its whole-house id (lib/unit-homes.ts). A unit with a
+   *  guest in the window rides under its house; one with nothing booked
+   *  folds into the house's row. */
+  parentOf?: Readonly<Record<string, string>>;
 };
 
 /** How many days before an arrival a walk is worth making: the arrival
  *  day and the three before it read green ("needs someone"). An earlier
  *  open day can still be tapped, but the board does not ask for it. */
 export const PREP_DAYS = 3;
+
+/** The sort key of a home with no arrival ahead: after every real day. */
+const NO_ARRIVAL = '9999-99-99';
 
 // ── small words ───────────────────────────────────────────────────────
 
@@ -221,9 +242,13 @@ export function composeVisitGrid(input: VisitGridInput): VisitGrid {
   for (const home of homes) {
     const stays = staysByHome.get(home.id) ?? [];
     const cellByDate = new Map(home.cells.map((c) => [c.date, c]));
-    let seenArrival = false;
-    let seenNeed = false;
-    let seenBadge = false;
+    // The holds whose last morning is inside the window: the owner leaves
+    // this fortnight, so the clean after is in view.
+    const endsInView = new Set<string>();
+    for (const date of days) {
+      const c = cellByDate.get(date);
+      if (c?.am && c.am.kind === 'block' && c.pm?.stayId !== c.am.stayId) endsInView.add(c.am.stayId);
+    }
 
     const cells: GridCell[] = days.map((date, i) => {
       const c = cellByDate.get(date) ?? { date, am: null, pm: null };
@@ -237,7 +262,8 @@ export function composeVisitGrid(input: VisitGridInput): VisitGrid {
       const arriving = !!pm && pm.kind === 'guest' && !sameStay;
       const continues = !!am && !!prev?.pm && prev.pm.stayId === am.stayId;
       const state: GridCellState = sameStay ? (am!.kind === 'block' ? 'blocked' : 'occupied') : 'open';
-      if (arriving) seenArrival = true;
+      const blocks = [am, pm].filter((o): o is GridOccupant => !!o && o.kind === 'block');
+      const hold: GridCell['hold'] = blocks.length === 0 ? null : blocks.some((o) => endsInView.has(o.stayId)) ? 'edge' : 'long';
       const arrival = arriving ? stays.find((s) => s.checkIn === date) ?? null : null;
 
       const next = stays.find((s) => s.checkIn >= date) ?? null;
@@ -248,7 +274,6 @@ export function composeVisitGrid(input: VisitGridInput): VisitGrid {
       const inPrep = !!next && daysBetween(date, next.checkIn) <= PREP_DAYS;
       const fieldOpen = !!next && ws === 'field' && next.field!.status === 'published';
       const needs = (claimable && inPrep && (ws === 'open' || late)) || (fieldOpen && workable && inPrep);
-      if (needs) seenNeed = true;
 
       // Who is going there that day, from every record Helm keeps.
       const badges: GridBadge[] = [];
@@ -287,7 +312,6 @@ export function composeVisitGrid(input: VisitGridInput): VisitGrid {
           });
         }
       }
-      if (badges.length) seenBadge = true;
       for (const b of badges) if (b.mine && b.kind === 'plan') mine += 1;
 
       const tapFor = (stay: GridStay): GridTap => {
@@ -313,6 +337,7 @@ export function composeVisitGrid(input: VisitGridInput): VisitGrid {
         leaving,
         arriving,
         continues,
+        hold,
         channel: arrival?.channel ?? null,
         needs,
         fieldOpen,
@@ -321,28 +346,75 @@ export function composeVisitGrid(input: VisitGridInput): VisitGrid {
       };
     });
 
-    // Every home is on the grid, so the whole fleet is accounted for at a
-    // glance (Dotti, 2026-10-31, after a quiet first week of November left
-    // nine rows and the rest looked lost). A home with nothing coming sorts
-    // to the bottom below, where it reads as quiet rather than missing.
-    void seenArrival; void seenNeed; void seenBadge;
-
     const nextNeed =
       stays
         .filter((s) => s.checkIn >= today && (walkState(s) === 'open' || isLate(s, today)))
         .map((s) => s.checkIn)
         .sort()[0] ?? null;
-    rows.push({ propertyId: home.id, propertyName: home.name, cells, nextNeed });
+    rows.push({ propertyId: home.id, propertyName: home.name, unitOf: null, foldedUnits: [], quiet: false, cells, nextNeed });
   }
 
-  // The order the week happens in: the home that turns next at the top,
-  // then by name; a home with no arrival ahead sorts last, by name. Stable
-  // as people claim, so a house never jumps.
+  // Every home is on the grid, so the whole fleet is accounted for at a
+  // glance (Dotti, 2026-10-31, after a quiet first week of November left
+  // nine rows and the rest looked lost), in the order the week happens:
+  // the home that turns next at the top, then by name. A home with nothing
+  // in the window (no arrival, no day asking for someone, no mark) is quiet
+  // and sorts under the divider, by its next known arrival and then by
+  // name. The stays the page sends run past the window (a checkout in it
+  // carries its next arrival whenever that is), so the window itself, not
+  // the stay list, says what is quiet. Stable as people claim, so a house
+  // never jumps.
+  //
+  // A split home's units (lib/unit-homes.ts) ride under their house. A
+  // unit with a guest in the window is a row of its own right under the
+  // house and pulls the house up to its arrival; one with nothing booked
+  // folds into the house's row as a count (Dotti, 2026-10-31: "nested
+  // unless there are bookings at the sub units"). A hold alone never opens
+  // a unit row: the units carry hand blocks most of the year.
+  const parentOf = input.parentOf ?? {};
+  const byId = new Map(rows.map((r) => [r.propertyId, r]));
   const nextArrival = (r: GridRow): string =>
-    (staysByHome.get(r.propertyId) ?? []).map((s) => s.checkIn).filter((d) => d >= today).sort()[0] ?? '9999-99-99';
-  rows.sort((a, b) => nextArrival(a).localeCompare(nextArrival(b)) || a.propertyName.localeCompare(b.propertyName));
+    (staysByHome.get(r.propertyId) ?? []).map((s) => s.checkIn).filter((d) => d >= today).sort()[0] ?? NO_ARRIVAL;
+  const byArrival = (a: GridRow, b: GridRow): number =>
+    nextArrival(a).localeCompare(nextArrival(b)) || a.propertyName.localeCompare(b.propertyName);
+  const hasGuest = (r: GridRow): boolean =>
+    r.cells.some((c) => c.am === 'guest' || c.pm === 'guest') || (staysByHome.get(r.propertyId) ?? []).length > 0;
+  const active = (r: GridRow): boolean => r.cells.some((c) => c.arriving || c.needs || c.badges.length > 0);
+  const houses: GridRow[] = [];
+  const unitsOf = new Map<string, GridRow[]>();
+  for (const r of rows) {
+    // A unit whose house is not on the grid stays a row of its own.
+    const house = byId.get(parentOf[r.propertyId] ?? '');
+    if (!house || house === r) {
+      houses.push(r);
+    } else if (hasGuest(r)) {
+      r.unitOf = house.propertyId;
+      unitsOf.set(house.propertyId, [...(unitsOf.get(house.propertyId) ?? []), r]);
+    } else {
+      house.foldedUnits.push(r.propertyName);
+    }
+  }
+  const groupKey = new Map<string, string>();
+  for (const h of houses) {
+    const units = (unitsOf.get(h.propertyId) ?? []).sort(byArrival);
+    unitsOf.set(h.propertyId, units);
+    h.foldedUnits.sort();
+    groupKey.set(h.propertyId, [h, ...units].map(nextArrival).sort()[0]);
+    // The group's: a house whose unit has an arrival is working.
+    const quiet = ![h, ...units].some(active);
+    h.quiet = quiet;
+    for (const u of units) u.quiet = quiet;
+  }
+  houses.sort(
+    (a, b) =>
+      Number(a.quiet) - Number(b.quiet) ||
+      groupKey.get(a.propertyId)!.localeCompare(groupKey.get(b.propertyId)!) ||
+      a.propertyName.localeCompare(b.propertyName),
+  );
+  const ordered: GridRow[] = [];
+  for (const h of houses) ordered.push(h, ...(unitsOf.get(h.propertyId) ?? []));
 
-  return { today, days, rows, mine };
+  return { today, days, rows: ordered, mine };
 }
 
 /** "today", "1d", "2d" for a deadline at most two days out; null beyond. */
