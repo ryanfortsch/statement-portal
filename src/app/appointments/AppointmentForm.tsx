@@ -19,13 +19,18 @@ export function AppointmentForm({ initial, available }: { initial?: AgendaEntry;
   const [dirty, setDirty] = useState(false);
   useUnsavedWorkGuard(dirty || pending);
   const [error, setError] = useState<string | null>(null);
+  const [reviewed, setReviewed] = useState(false);
   const change = (key: keyof AppointmentInput, value: string) => { setDirty(true); setDetails(d => ({ ...d, [key]: value || null })); };
   async function save(event: React.FormEvent) {
     event.preventDefault();
     if (pending || !available) return;
     setPending(true); setError(null);
     try {
-      const result = await saveAppointment({ id, expectedVersion: initial?.editable ? initial.version : 0, details });
+      const updates = initial?.sourceUpdates || [];
+      if (updates.length && !reviewed) { setError('Check the linked source changes and confirm the review before saving.'); return; }
+      const reviewedDetails = updates.length ? { ...details, sourceKeys: [...new Set([...details.sourceKeys, ...updates.map(u => u.key)])],
+        sourceRevisions: { ...details.sourceRevisions, ...Object.fromEntries(updates.map(u => [u.key, u.revision])) } } : details;
+      const result = await saveAppointment({ id, expectedVersion: initial?.editable ? initial.version : 0, details: reviewedDetails });
       if (!result.ok) { setError(result.error); return; }
       setDirty(false);
       router.push('/appointments'); router.refresh();
@@ -36,7 +41,12 @@ export function AppointmentForm({ initial, available }: { initial?: AgendaEntry;
   const field = (label: string, key: keyof AppointmentInput, type = 'text', required = false) => <label style={{ display: 'block', fontSize: 13 }}>{label}<input name={key} type={type} required={required} value={(details[key] as string) ?? ''} onChange={e => change(key, e.target.value)} style={inputStyle} /></label>;
   return <form onSubmit={save} style={{ maxWidth: 720 }}>
     <p style={{ fontSize: 14, lineHeight: 1.6 }}>Save business appointments to your own agenda. This does not invite anyone or change their calendar. Keep private family and medical details in your personal calendar.</p>
-    {initial && !initial.editable && <p style={{ color: 'var(--signal)', fontSize: 13 }}>This review updates your agenda only. The original CRM record and any reminder texts still need correction on <Link href={initial.href}>the contact page</Link>.</p>}
+    {initial?.id.startsWith('meeting:') && <p style={{ color: 'var(--signal)', fontSize: 13 }}>This review updates your agenda only. The original CRM record and any reminder texts still need correction on <Link href={initial.href}>the contact page</Link>.</p>}
+    {!!initial?.sourceUpdates?.length && <div style={{ padding: 14, background: 'var(--paper-2)', marginBottom: 18 }}>
+      <strong>Review source changes</strong>
+      {initial.sourceUpdates.map(u => <p key={u.key} style={{ fontSize: 13 }}>{u.summary} {u.url && <a href={u.url} target="_blank" rel="noopener noreferrer">Open source ↗</a>}</p>)}
+      <label style={{ fontSize: 13 }}><input type="checkbox" checked={reviewed} onChange={e => { setReviewed(e.target.checked); setDirty(true); }} /> I checked the latest sources and updated the details below. To dismiss a non-appointment, choose Cancelled.</label>
+    </div>}
     {!available && <p role="status" style={{ color: 'var(--negative)' }}>Appointment storage is unavailable. Setup or repair is required before saving.</p>}
     <div style={{ display: 'grid', gap: 18 }}>
       {field('Appointment', 'title', 'text', true)}

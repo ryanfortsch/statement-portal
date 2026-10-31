@@ -4,6 +4,8 @@ import { sessionView } from '@/lib/helm-access-server';
 import { supabaseAdmin as db } from '@/lib/supabase-admin';
 import { selectAllPaged } from '@/lib/paged-select';
 import { loadMeetingCardsResult } from '@/lib/meetings';
+import { loadCaptures } from '@/lib/appointment-capture-server';
+import { reconcileCaptures } from '@/lib/appointment-capture';
 import { AGENDA_DAYS, agendaWindow, meetingToAgenda, mergeAgenda, validateAppointment, type AgendaData, type AgendaEntry, type SourceCoverage } from '@/lib/appointment-agenda';
 
 export type SavedAppointment = { id: string; user_email: string; version: number; details: unknown; updated_at: string };
@@ -23,20 +25,20 @@ export async function loadAppointmentAgenda(now = new Date()): Promise<AgendaDat
   const result: AgendaData = { ...window, entries: [], sources: [], canSave: false };
   if (!email || !email.endsWith('@risingtidestr.com')) return result;
   const owner = view.role === 'owner';
-  const [meetings, saved] = await Promise.all([
+  const [meetings, saved, captured] = await Promise.all([
     loadMeetingCardsResult(now, { days: AGENDA_DAYS, ...(owner ? {} : { createdBy: email }) }),
     !view.viewingAsStaff ? loadSaved(email) : Promise.resolve({ entries: [], source: {
       name: 'Saved appointments', state: 'unavailable', detail: 'Hidden while viewing as staff.',
     } as SourceCoverage, canSave: false }),
+    !view.viewingAsStaff ? loadCaptures(email, now, owner) : Promise.resolve({ captures: [], sources: [] }),
   ]);
-  result.entries = mergeAgenda(saved.entries, meetings.cards.map(meetingToAgenda));
+  result.entries = mergeAgenda(reconcileCaptures(saved.entries, captured.captures), meetings.cards.map(meetingToAgenda));
   result.canSave = saved.canSave;
   result.sources = [
     saved.source,
     { name: 'Helm contact meetings', state: meetings.available ? 'available' : 'unavailable',
       detail: meetings.available ? `${owner ? 'Business contact records' : 'Records you created'} read for the next ${AGENDA_DAYS} days. Attendance still needs review.` : 'Could not read contact meetings. The schedule may be missing appointments.' },
-    { name: 'Work Google Calendar', state: 'not_connected', detail: 'No automatic calendar sync in Helm. Saved Calendar entries are reviewed snapshots; changes and cancellations need checking at the source.' },
-    { name: 'Email and Quo', state: 'partial', detail: 'Only appointments filed in Helm are included. New messages, replies and reschedules are not comprehensively captured.' },
+    ...captured.sources,
     { name: 'Personal calendars', state: 'not_connected', detail: 'Not included. Keep family and medical appointments in your private calendar.' },
   ];
   return result;

@@ -45,13 +45,77 @@ correction needs a separate reviewed action. Similar titles never auto-merge.
 4. Obtain authorization for deployment. This draft branch has automatic Vercel
    deployments disabled in `vercel.json`, using the documented branch rule:
    https://vercel.com/docs/project-configuration/git-configuration
-5. Complete a real Calendar/message ingestion connection. Existing Helm Google
-   SSO supplies identity, not a calendar feed. No new scopes or credentials are
-   created here. The current register and reviewed imports are durable, but
-   they are not continuous email/Calendar sync. Keep that limitation visible.
-   A future integration must verify mailbox/calendar ownership, paginate,
-   preserve stable IDs and provider revisions, honor cancellations and declined
-   attendance, exclude private event content, and report freshness/coverage.
+5. Review/apply `20261031040000_appointment_capture.sql`, then explicitly enable
+   only the approved accounts with `AGENDA_CAPTURE_EMAILS` (initial proposed
+   scope: Ryan's work account). No accounts are enabled by default. The hourly
+   cron at :20 reuses existing Google refresh credentials after Gmail verifies
+   the exact account identity; it never opens OAuth or requests new scopes.
+   This deployment setting is part of the separate rollout approval.
+
+## Ongoing capture
+
+`/api/cron/appointment-capture` is bearer-cron-only. It reads sources, records
+private observations, and never sends or changes a provider event/message.
+Source tables are service-only and the DAL requires the same authenticated
+email as saved appointments. Each account has a database lease. Observations
+and coverage are recorded atomically only while that lease is valid. Failed
+or partial reads preserve the last good records and success time. The home
+page shows each source's coverage and stale checks (over two hours).
+
+- Calendar: only the verified account's primary work calendar, a 30-day window
+  with pagination and recurring instances. Previously tracked IDs are re-read
+  individually, including reschedules outside the window and cancellations.
+  Guest checkout/check-in placeholders are excluded. Declined or unanswered
+  invitations never imply personal attendance. All new events require business
+  purpose/attendance review. Calendar descriptions, attachments and video-call
+  credentials are not copied. Calendar summary/place stay private to that account.
+- Gmail: scheduling-keyword search across read/sent/inbox mail (excluding spam
+  and trash), a rolling 30-day lookback extended after failed runs, and complete
+  tracked threads. Bodies are hashed in memory and never stored in agenda
+  tables. The queue stores generic titles and source links, not guessed dates
+  from prose. Exact event links can deduplicate Calendar/email copies; threads
+  naming multiple event IDs remain separate review items. It is a bounded
+  search, not exhaustive natural-language understanding or every historical email.
+- Quo: existing Helm contact history for known business owners, vendors and
+  prospects, both directions, scheduling mentions plus replies in the lookback.
+  This reuses the signed webhook/authenticated REST ingest; no new Quo credential
+  or webhook is created. No unsigned raw events, unknown numbers, calls or guest
+  conversations are read. The status also checks upstream Quo sync freshness.
+  Each message has a stable identity; use “Does this update an existing
+  appointment?” to link a follow-up after review rather than create a duplicate.
+
+Source revisions never acknowledge themselves. A changed source flags the
+existing appointment for review and removes it from the confirmed list while
+preserving the last reviewed details. The review form shows the source's latest
+date/time or cancellation and requires an explicit source check. Save validates
+the revision again; a race remains visibly unreviewed on the next load. Dismiss
+non-appointments using Cancelled; a later changed source returns for review.
+Old inactive sources stop being polled after 60 days; current/future saved
+appointments remain tracked. Caps and deadline failures are visible, never
+reported as successful empty results. Retained observations require operational
+archiving before the explicit 10,000-record read cap is reached.
+
+The bootstrap JSON import is a reviewed snapshot only, independent of this
+worker. It does not establish live coverage or automatically enable capture.
+Personal calendars remain excluded. No personal-family/medical records should
+be filed as shared business meetings.
+
+## Authorization and setup boundary
+
+The local environment has no Ryan or shared Gmail refresh token; this does not
+establish whether deployment already holds one. Existing Google SSO is identity
+only. Check the deployed credential and its current scopes before requesting
+anything. The worker reports 401/403 or missing credentials without expanding
+access. If authorization is missing, the minimum Google scopes are
+`https://www.googleapis.com/auth/gmail.readonly` and
+`https://www.googleapis.com/auth/calendar.events.readonly`, for the explicitly
+enabled person's own work account. Implementation reads only that primary
+calendar and that mailbox; it does not request send, write, contacts or access
+to teammates' accounts. No such authorization has been performed in this PR.
+The existing Quo ingest needs no new permission for owner-only business capture.
+
+Provider contracts: [Calendar events list](https://developers.google.com/workspace/calendar/api/v3/reference/events/list),
+[Gmail threads list](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.threads/list).
 
 ## Validation
 
@@ -61,6 +125,9 @@ correction needs a separate reviewed action. Similar titles never auto-merge.
   exact duplicate handling, tentative/owner-handled states and overlap.
 - Executable DAL/action mocks prove account/role scope, view-as suppression,
   fail-visible coverage and session-derived mutation identities.
+- Provider fixtures cover pagination, changed/cancelled tracked events, exact
+  cross-source identities, RSVP, all-day/multi-day/DST clocks, stale reads and
+  provider failures. No live source or production record is modified by tests.
 - Disposable PostgreSQL test (requires `pg`, optionally through PG_TEST_MODULES):
   `AGENDA_TEST_DATABASE_URL=postgres://postgres@127.0.0.1:PORT/helm_agenda_test node scripts/appointment-agenda-db-test.mjs`
   Only this local database name is accepted. Use a fresh disposable database.

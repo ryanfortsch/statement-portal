@@ -45,7 +45,7 @@ Related docs:
 
 **Vercel plan: Pro.** Verified against the Vercel API on 2026-08-25 (team "Rising Tide",
 `plan: pro`). Older source comments calling this a Hobby project were wrong and have been corrected.
-Practical consequences: the 32 scheduled crons and the 28 routes at `maxDuration = 300` (counted
+Practical consequences: the 33 scheduled crons and the 29 routes at `maxDuration = 300` (counted
 2026-10-23) are all fine, and platform Skew Protection is available. It was switched **on** on
 2026-08-26 at `skewProtectionMaxAge = 43200` (12 hours).
 
@@ -59,7 +59,7 @@ silently. They are here to tell you where the weight sits, nothing more.
 ```
 src/
   app/          37 route folders + api/. 151 pages, 78 *actions.ts server-action files
-    api/        148 route handlers, 33 cron routes (32 scheduled in vercel.json)
+    api/        149 route handlers, 34 cron routes (33 scheduled in vercel.json)
   lib/          450 top-level modules (478 including subfolders). The domain logic lives here.
   components/   145 shared components (91 at the top level, the rest in subfolders)
   proxy.ts      Next 16 middleware. THE auth gate. Read this before adding any public route.
@@ -68,7 +68,7 @@ supabase/migrations/   302 migrations
 scripts/               parity harnesses and one-off tools (see Testing below)
 ```
 
-**33 cron routes, 32 schedules, and that is correct.** `/api/cron/reviews-to-slips` is a manual
+**34 cron routes, 33 schedules, and that is correct.** `/api/cron/reviews-to-slips` is a manual
 and backfill trigger on purpose; the recurring work runs at the end of `/api/cron/sync-guesty`.
 Do not "fix" it by adding a schedule.
 
@@ -258,6 +258,15 @@ and successful syncs exist. Do not import private family/medical content or use
 occupancy/cleaning events as personal attendance. The bootstrap import script is
 offline by default and accepts reviewed business snapshots only; it is not a
 sync worker. See `docs/appointment-agenda.md` for rollout and checks.
+
+The separate hourly `/api/cron/appointment-capture` worker is opt-in through
+`AGENDA_CAPTURE_EMAILS`, reuses only existing identity-verified Google credentials
+and existing Quo business contact history, and records per-source freshness.
+`agenda_capture` observations are private, service-only, and distinct from saved
+appointments. Changed provider revisions require explicit review; they never
+silently overwrite reviewed details or send anything. Gmail/Quo capture is a
+bounded candidate queue, not exhaustive extraction. Calendar reads only the
+account's primary work calendar. Missing scopes remain a visible coverage gap.
 
 ## Auth and routing
 
@@ -976,7 +985,7 @@ counted 2026-10-22).
 
 - **Core**: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
 - **Auth**: `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, `AUTH_SECRET`, `AUTH_URL`, `AUTH_COOKIE_DOMAIN`
-- **Cron**: `CRON_SECRET`. All 33 cron routes fail closed without it (verified 2026-10-22: every
+- **Cron**: `CRON_SECRET`. All 34 cron routes fail closed without it (verified 2026-10-22: every
   one calls `authorizeCron`).
 - **Guesty**: `GUESTY_CLIENT_ID`, `GUESTY_CLIENT_SECRET`
 - **Stripe**: `STRIPE_KEYS_JSON`, `STRIPE_KEYS_JSON_EXTRA`, `STRIPE_KEY_<PROPERTY_ID>`

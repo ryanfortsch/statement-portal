@@ -339,6 +339,17 @@ agenda access for an owner or View as staff. These tables do not change the
 shared `contact_meetings` row or its reminder ledger. Cancelled and later-dated
 rows are still read to suppress explicitly superseded CRM entries.
 
+`agenda_capture`, `agenda_capture_state` and `agenda_capture_lease`
+(`20261031040000_appointment_capture.sql`, not yet applied) hold private provider
+observations, per-account/source success and attempt times, and expiring worker
+leases. RLS and grants are service-only. `record_agenda_capture` atomically
+records a source batch and its state only under a valid account lease. Bodies
+are not copied; Gmail/Quo observations retain generic review text, exact source
+identities, hashes and links. A saved appointment's optional `sourceRevisions`
+records what the operator explicitly reviewed; differing observations require
+review again. The worker has an explicit account allowlist and no OAuth/send
+path. See `docs/appointment-agenda.md` for capture boundaries and freshness.
+
 `quo_unknown_numbers` is the queue of numbers Helm cannot name: one row per
 phone, filed by the Quo ingest (`captureUnknownInbound` in
 `src/lib/quo-ingest.ts`, forward-only on `last_message_at`) with the line it

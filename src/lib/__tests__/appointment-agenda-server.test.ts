@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
 import * as core from '../appointment-agenda.ts';
+import { reconcileCaptures } from '../appointment-capture.ts';
 import { selectAllPaged } from '../paged-select.ts';
 
 function load(path: string, mocks: Record<string, unknown>) {
@@ -31,6 +32,8 @@ function setup({ email = 'ryan@risingtidestr.com', role = 'owner', viewAs = fals
   const mod = load('lib/appointment-agenda-server.ts', {
     '@/auth': { auth: async () => ({ user: { email } }) }, '@/lib/helm-access-server': { sessionView: async () => ({ role, viewingAsStaff: viewAs }) },
     '@/lib/supabase-admin': { supabaseAdmin: db }, '@/lib/paged-select': { selectAllPaged }, '@/lib/appointment-agenda': core,
+    '@/lib/appointment-capture': { reconcileCaptures },
+    '@/lib/appointment-capture-server': { loadCaptures: async () => ({ captures: [], sources: [{ name: 'Work Google Calendar', state: 'not_connected', detail: 'Not configured.' }] }) },
     '@/lib/meetings': { loadMeetingCardsResult: async (_now: Date, opts: unknown) => { meetingOptions.push(opts); return { cards: [], available: true }; } },
   });
   return { run: () => mod.loadAppointmentAgenda(new Date('2026-10-31T12:00:00Z')), queries, meetingOptions };

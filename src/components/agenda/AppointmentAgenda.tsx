@@ -7,6 +7,7 @@ export function AppointmentAgenda({ data, full = false }: { data: AgendaData; fu
   const groups = agendaGroups(data.entries, data.today, data.through);
   const overlaps = overlappingAppointments(groups.scheduled);
   const total = groups.scheduled.length + groups.review.length + groups.other.length;
+  const reviewVisible = full ? groups.review : [...groups.review.filter(e => !e.id.startsWith('capture:')), ...groups.review.filter(e => e.id.startsWith('capture:')).slice(0, 5)];
   const render = (items: AgendaEntry[]) => items.map(e => <AppointmentRow key={e.id} entry={e} overlap={overlaps.has(e.id)} />);
   return <section aria-label="Upcoming appointments" style={{ marginBottom: 28 }}>
     <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
@@ -15,7 +16,7 @@ export function AppointmentAgenda({ data, full = false }: { data: AgendaData; fu
     </div>
     <p style={{ fontSize: 12, color: 'var(--ink-3)', margin: '0 0 12px' }}>Next 30 days · through {houseDay(data.through)} · Eastern time</p>
     <div style={{ padding: '10px 12px', background: 'var(--paper-2)', fontSize: 12, lineHeight: 1.55, marginBottom: 10 }}>
-      <strong>Coverage is incomplete.</strong> Work calendars are not synced; email and Quo appointments need to be filed or reviewed.
+      <strong>Check source coverage.</strong> New scheduling conversations and changed invitations need review. Only the sources below are included.
       <details style={{ marginTop: 5 }} open={full || undefined}>
         <summary style={{ cursor: 'pointer' }}>What is included</summary>
         <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
@@ -31,7 +32,8 @@ export function AppointmentAgenda({ data, full = false }: { data: AgendaData; fu
     </div>}
     {groups.review.length > 0 && <div aria-label="Appointments needing review" style={{ marginTop: 16 }}>
       <h3 className="eyebrow">Needs confirmation or scheduling · {groups.review.length}</h3>
-      {render(groups.review)}
+      {render(reviewVisible)}
+      {reviewVisible.length < groups.review.length && <Link href="/appointments">Review all {groups.review.length} scheduling items →</Link>}
     </div>}
     {groups.other.length > 0 && <details style={{ marginTop: 18 }} open={full || undefined}>
       <summary style={{ cursor: 'pointer', fontSize: 14 }}>Owner-handled & not attending · {groups.other.length}</summary>
@@ -55,12 +57,13 @@ function AppointmentRow({ entry: e, overlap }: { entry: AgendaEntry; overlap: bo
       <div style={{ color: e.attendance === 'coverage_needed' ? 'var(--signal)' : 'var(--ink-2)' }}>{ATTENDANCE_LABEL[e.attendance]}</div>
       {overlap && <div style={{ color: 'var(--signal)', fontWeight: 600 }}>Overlapping window: assign separate coverage or confirm timing.</div>}
       {e.reviewReason && <div style={{ color: 'var(--signal)' }}>{e.reviewReason}</div>}
+      {e.sourceUpdates?.map(update => <div key={update.key} style={{ marginTop: 5 }}>{update.summary} {update.url && <a href={update.url} target="_blank" rel="noopener noreferrer">Check source ↗</a>}</div>)}
       {e.notes && <div style={{ marginTop: 4, whiteSpace: 'pre-line' }}>{e.notes}</div>}
     </div>
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px 14px', fontSize: 11, color: 'var(--ink-4)', marginTop: 9 }}>
       {sourceUrl ? <a href={sourceUrl} target="_blank" rel="noopener noreferrer">{e.sourceLabel} ↗</a> : <span>{e.sourceLabel}</span>}
       {e.updatedAt && <span>Reviewed {new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' }).format(new Date(e.updatedAt))}</span>}
-      <Link href={e.editable ? e.href : `/appointments/new?meeting=${encodeURIComponent(e.id.slice('meeting:'.length))}`}>{e.editable ? 'Edit / reschedule' : 'Review for my agenda'}</Link>
+      <Link href={e.editable || e.id.startsWith('capture:') ? e.href : `/appointments/new?meeting=${encodeURIComponent(e.id.slice('meeting:'.length))}`}>{e.editable ? 'Edit / reschedule' : 'Review for my agenda'}</Link>
     </div>
   </article>;
 }

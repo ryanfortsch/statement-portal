@@ -28,6 +28,8 @@ export type AppointmentInput = {
   /** Stable event/thread identities, never include the event date. */
   sourceKeys: string[];
   reviewReason: string | null;
+  /** Explicitly reviewed provider revisions; polling alone never acknowledges changes. */
+  sourceRevisions?: Record<string, string>;
 };
 export type AgendaEntry = AppointmentInput & {
   id: string;
@@ -35,6 +37,7 @@ export type AgendaEntry = AppointmentInput & {
   version: number;
   updatedAt: string | null;
   editable: boolean;
+  sourceUpdates?: Array<{ key: string; revision: string; summary: string; url: string | null }>;
 };
 export type SourceCoverage = {
   name: string;
@@ -66,6 +69,11 @@ export function safeSourceUrl(value: string | null): string | null {
 export function validateAppointment(value: unknown): { ok: true; value: AppointmentInput } | { ok: false; error: string } {
   if (!value || typeof value !== 'object') return { ok: false, error: 'Enter an appointment.' };
   const v = value as Record<string, unknown>;
+  if (v.sourceRevisions !== undefined && (!v.sourceRevisions || typeof v.sourceRevisions !== 'object' || Array.isArray(v.sourceRevisions) ||
+    Object.keys(v.sourceRevisions).length > 40 || Object.entries(v.sourceRevisions).some(([key, revision]) =>
+      !/^(gcal|gmail|quo):[^\s]{1,400}$/.test(key) || typeof revision !== 'string' || !/^[a-f0-9]{64}$/.test(revision)))) {
+    return { ok: false, error: 'Invalid source review. Reload the appointment.' };
+  }
   const fields = ['title', 'date', 'time', 'endTime', 'propertyName', 'location', 'people', 'notes', 'sourceLabel', 'sourceUrl', 'reviewReason'] as const;
   for (const field of fields) if (v[field] !== null && typeof v[field] !== 'string') return { ok: false, error: `Invalid ${field}.` };
   const text = (key: typeof fields[number]) => (v[key] as string | null)?.trim() || null;
@@ -93,6 +101,7 @@ export function validateAppointment(value: unknown): { ok: true; value: Appointm
     title, date, time, endTime, timeKind: v.timeKind as AppointmentInput['timeKind'], status: v.status as AppointmentStatus, attendance: v.attendance as Attendance,
     propertyName: text('propertyName'), location: text('location'), people: text('people'), notes: text('notes'),
     sourceLabel, sourceUrl, sourceKeys: [...new Set(v.sourceKeys as string[])].sort(), reviewReason: text('reviewReason'),
+    ...(v.sourceRevisions ? { sourceRevisions: v.sourceRevisions as Record<string, string> } : {}),
   } };
 }
 
@@ -128,7 +137,7 @@ export function agendaWindow(now = new Date()) {
   return { today, through: addDays(today, AGENDA_DAYS - 1) };
 }
 export function agendaGroups(entries: AgendaEntry[], today: string, through: string) {
-  const relevant = entries.filter(e => e.status !== 'cancelled' && (e.date === null || e.date <= through) &&
+  const relevant = entries.filter(e => e.status !== 'cancelled' && (e.date === null || e.date <= through || !!e.sourceUpdates?.length) &&
     (e.date === null || e.date >= today || e.status === 'needs_scheduling' || !!e.reviewReason));
   const sort = (a: AgendaEntry, b: AgendaEntry) => (a.date ?? '9999').localeCompare(b.date ?? '9999') ||
     (a.time ?? '99').localeCompare(b.time ?? '99') || a.title.localeCompare(b.title);

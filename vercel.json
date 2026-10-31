@@ -1,6 +1,10 @@
 {
   "crons": [
     {
+      "path": "/api/cron/appointment-capture",
+      "schedule": "20 * * * *"
+    },
+    {
       "path": "/api/cron/marketing-sync",
       "schedule": "0 5 * * *"
     },

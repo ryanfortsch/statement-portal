@@ -16,6 +16,10 @@ export async function saveAppointment(args: { id: string; expectedVersion: numbe
   const alias = sourceKeyFromUrl(details.sourceUrl, email);
   if (alias) details.sourceKeys = [...new Set([...details.sourceKeys, alias])].sort();
   if (details.sourceKeys.length > 20) return { ok: false, error: 'Too many linked sources.' };
+  for (const [key, revision] of Object.entries(details.sourceRevisions || {})) {
+    const { data, error } = await db.from('agenda_capture').select('revision').eq('user_email', email).eq('source_key', key).maybeSingle();
+    if (error || !data || data.revision !== revision) return { ok: false, error: 'A source changed during your review. Reload and check its latest update before saving.' };
+  }
   // A caller cannot suppress a CRM row that their effective role cannot read.
   for (const key of details.sourceKeys.filter(k => k.startsWith('helm:'))) {
     if (!/^helm:meeting:[a-f0-9-]{36}$/i.test(key)) return { ok: false, error: 'Invalid linked contact meeting.' };
