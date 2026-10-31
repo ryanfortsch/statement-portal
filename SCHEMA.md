@@ -118,6 +118,16 @@ never key per-stay logic on `bookings.id` (`memory/project_bookings_duplicate_ro
   lexicographic migration replay fails at `20260430_create_inspections.sql` because
   `properties` has not been created yet. Do not treat this curated local fixture
   as a replay or as evidence of the hosted migration state.
+- **Candidate only, not installed (October 31):**
+  `docs/guesty-exit/staging-storage/inventory-reviewed-retry.sql` adds an append-only
+  `helm_inventory_retry_events` ledger and service-only read/reserve/update RPCs.
+  A distinct recovery attempt retains the original journal unchanged. Reservation
+  locks capture scope then consumer, compares the complete source/configuration/
+  journal/route/recovery snapshot, requires publishing paused and fresh coverage,
+  and permits one original single-date/value payload per original attempt token.
+  Outcome updates use revision CAS and preserve request/receipt identity. Browser
+  roles and direct service table writes are denied. No automatic sender, enablement,
+  production installation or resolution of the original uncertain attempt is included.
 - **Installed only in isolated staging (October 19):** `staging-storage/booking-inventory-planning.sql`
   (under `docs/guesty-exit`) adds `helm_booking_inventory_consumers`: owner-reviewed
   single-unit staging configuration, processed capture/configuration versions,

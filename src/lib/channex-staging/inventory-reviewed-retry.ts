@@ -1,8 +1,9 @@
 /** Explicit isolated-staging recovery preparation. Not wired to a route, worker or
- * hosted adapter. The original journal is immutable; a retry has its own ledger.
+ * active hosted adapter. The original journal is immutable; a retry has its own ledger.
  * A verified retry does NOT establish that its uncertain predecessor is settled.
  */
 import { createHash } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { replayInventoryJournal, inventoryJournalVersion, inventoryResumeAfter } from './inventory-journal.ts';
 import { inventoryDigest, type InventoryJob } from './inventory-outbox.ts';
@@ -32,8 +33,8 @@ export interface ReviewedRetryStore {
   /** Atomically compare revision AND all source/journal/configuration inputs in
    * expected, enforce one record per original attempt, and append the record.
    * The same transaction must enforce the paused worker and freshness at now.
-   * false/throw is NEVER permission to send. No existing hosted RPC implements
-   * this contract yet; do not substitute a plain journal append or file write.
+   * false/throw is NEVER permission to send. The candidate inventory-reviewed-retry.sql adapter implements this contract;
+   * it must be installed explicitly. Never substitute a plain journal append or file write.
    */
   reserve(expected: RetrySnapshot, record: RetryRecord, now: number): Promise<boolean>;
   /** CAS append a new record version; retain earlier versions for audit. */
@@ -115,7 +116,7 @@ export async function sendReviewedRetryOnce(store: ReviewedRetryStore, client: R
     next.outcome = outcome.status === 'ambiguous' ? 'uncertain' : 'rejected';
   }
   const saved = await store.read();
-  if (JSON.stringify(saved.records.find(a => a.id === record.id)) !== JSON.stringify(record) ||
+  if (!isDeepStrictEqual(saved.records.find(a => a.id === record.id), record) ||
       !await store.update(saved, next)) throw Error('Retry outcome not saved; do not resend');
   return { status: next.outcome, originalSettled: false as const };
 }
