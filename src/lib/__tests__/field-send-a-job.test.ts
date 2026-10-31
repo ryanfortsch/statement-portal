@@ -41,7 +41,7 @@ test('the board has one create door, and the old pages redirect to it', () => {
 test('the trade rides from the form to the packet row and the offer check', () => {
   const actions = read('src/app/fieldwork/packets/actions.ts');
   const send = actions.match(/export async function sendJobAction[\s\S]*?\n}\n/)?.[0] ?? '';
-  assert.ok(send.includes('await staffEmail()'), 'a signed-in session is required');
+  assert.ok(send.includes('await dispatchEmail()'), 'the dispatcher is required (team.ts, the dispatch duty)');
   assert.ok(send.includes("raw === 'inspection' && trade !== 'inspection'"), 'an inspection aimed at the handymen is refused, not converted');
   assert.ok(actions.includes('c.trade === trade'), 'an Offer to pick must be on the trade that gets the job');
   assert.doesNotMatch(actions, /c\.trade === 'inspection'\)\.map\(\(c\) => c\.id\)/, 'no create path pins the offer to the inspectors');

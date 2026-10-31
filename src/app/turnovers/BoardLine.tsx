@@ -27,7 +27,7 @@ import { fieldChipColor, fieldChipLabel, formatDateLong } from './turnover-forma
  * Desktop: one grid line, columns aligned down the board. Phone: two lines,
  * the house and its verb, then the facts (see .rt-tb-* in globals.css).
  */
-export function BoardLine({ row, today, myEmail }: { row: BoardRow; today: string; myEmail: string }) {
+export function BoardLine({ row, today, myEmail, dispatcher = false }: { row: BoardRow; today: string; myEmail: string; dispatcher?: boolean }) {
   const [open, setOpen] = useState(false);
   const t = row.turnover;
   const detailId = `${row.id}-detail`;
@@ -80,7 +80,7 @@ export function BoardLine({ row, today, myEmail }: { row: BoardRow; today: strin
         )}
       </div>
       <div className="rt-tb-verb">
-        <Verb row={row} myEmail={myEmail} />
+        <Verb row={row} myEmail={myEmail} dispatcher={dispatcher} />
       </div>
 
       {open && (
@@ -136,6 +136,7 @@ export function BoardLine({ row, today, myEmail }: { row: BoardRow; today: strin
                 plannedNotes={t.plan?.notes ?? null}
                 assignedToEmail={t.plan?.assigned_to_email ?? null}
                 myEmail={myEmail}
+                dispatcher={dispatcher}
               />
             )}
             {battery && t?.lockBattery && (
@@ -190,7 +191,7 @@ export function BoardLine({ row, today, myEmail }: { row: BoardRow; today: strin
 }
 
 /** The row's one action. */
-function Verb({ row, myEmail }: { row: BoardRow; myEmail: string }) {
+function Verb({ row, myEmail, dispatcher }: { row: BoardRow; myEmail: string; dispatcher: boolean }) {
   const t = row.turnover;
   if (!t || !row.verb) return null;
   switch (row.verb) {
@@ -233,6 +234,7 @@ function Verb({ row, myEmail }: { row: BoardRow; myEmail: string }) {
           plannedNotes={t.plan?.notes ?? null}
           assignedToEmail={t.plan?.assigned_to_email ?? null}
           myEmail={myEmail}
+          dispatcher={dispatcher}
         />
       );
   }

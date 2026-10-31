@@ -158,7 +158,7 @@ async function dashboard({ dbError = null, opsError = false } = {}) {
   return renderToStaticMarkup(await HomeSignals({ owner: true }));
 }
 async function homePage(searchParams = {}) {
-  const mocks = { 'react': React, '@/lib/helm-access-server': { isOwnerSession: async () => true } };
+  const mocks = { 'react': React, '@/lib/helm-access-server': { isOwnerSession: async () => true, sessionDispatches: async () => true } };
   for (const name of ['HelmMasthead', 'HelmFooter', 'CleaningsStrip', 'AiStatusBanner']) mocks[`@/components/${name}`] = { [name]: blank };
   mocks['@/components/ConciergeAlerts'] = { ConciergeAlertsLine: blank };
   mocks['@/components/HelmHero'] = { HelmHero: ({ title }) => React.createElement('h1', null, title) };
