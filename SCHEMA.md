@@ -592,6 +592,22 @@ live in `property_access` and per-stay `guest_access_codes`.
 
 ---
 
+### Guest testimonials (direct guests)
+
+`guest_testimonials` is a direct (staycapeann.com) guest's review, since
+2026-10-31. One row per Guesty reservation (`reservation_id` unique), minted
+by stay-concierge's review ask through `POST /api/testimonials/invite` as
+`invited` with a 32-hex `token`; the guest fills the form at
+staycapeann.com/review/<token> (`GET`/`POST /api/testimonials/<token>`,
+status `submitted`); a person on the Reviews tab sets `approved` or `hidden`
+(`decided_by`, `decided_at`). Approved rows render on the home's listing page
+ahead of the live Guesty reviews (`GET /api/testimonials?listing=<guesty id>`,
+resolved through `guesty_listings` then `properties.guesty_listing_id` /
+`former_guesty_listing_id`). `show_name` false renders "A Stay Cape Ann
+guest". RLS on, service role only; the three routes carry
+`authorizeStayConcierge`. Helm's `reviews` table never sees these, and the
+Google review the form's thank-you page invites is tracked nowhere.
+
 ## Auditing this map
 
 When this doc drifts from reality, the fix is usually to update it.

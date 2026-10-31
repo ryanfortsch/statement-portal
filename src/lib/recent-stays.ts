@@ -31,7 +31,9 @@ import {
   type ReviewAskSettings,
   type ReviewLine,
   type StayReview,
+  type StayTestimonial,
 } from '@/lib/review-ask-state';
+import { testimonialsForReservations } from '@/lib/guest-testimonials-store';
 
 export type RecentStay = {
   reservationId: string;
@@ -140,9 +142,14 @@ export async function loadRecentStays(opts: {
   const shown = rows.slice(0, MAX_ROWS);
   const ids = shown.map((r) => r.reservationId);
 
-  const [reviews, asks] = await Promise.all([
+  const [reviews, asks, testimonials] = await Promise.all([
     reviewsFor(ids),
     ids.length > 0 ? getReviewAsks(ids) : Promise.resolve(null),
+    // A direct guest's review is their testimonial. An unreadable table (not
+    // yet migrated, a blip) reads as none: the ask line is this view's point.
+    ids.length > 0
+      ? testimonialsForReservations(ids).catch(() => new Map<string, NonNullable<StayTestimonial>>())
+      : Promise.resolve(new Map<string, NonNullable<StayTestimonial>>()),
   ]);
 
   let settings: ReviewAskSettings = DEFAULT_ASK_SETTINGS;
@@ -182,6 +189,7 @@ export async function loadRecentStays(opts: {
         today,
         ask !== 'unavailable' && !!ask?.guest_reported_review,
         !!settings.direct_enabled,
+        testimonials.get(r.reservationId) ?? null,
       ),
       reviewLink,
     });
