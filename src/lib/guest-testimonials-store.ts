@@ -20,6 +20,34 @@ import {
  *  Unset until Dotti creates the profile; the page then offers nothing. */
 export const GOOGLE_REVIEW_URL = (process.env.GOOGLE_REVIEW_URL || '').trim();
 
+/**
+ * What a failed read or write actually said. supabase-js rejects with a plain
+ * PostgrestError object, not an Error, so `String(err)` logs "[object Object]"
+ * and the first production 503 had to be diagnosed blind (2026-10-31). The
+ * code names the cause: 42P01 no such table, 42501 no grant, PGRST205 a
+ * stale schema cache after a hand-applied migration.
+ */
+export function dbErrorText(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (err && typeof err === 'object') {
+    const e = err as { code?: unknown; message?: unknown; details?: unknown; hint?: unknown };
+    const parts = [e.code, e.message, e.details, e.hint].filter((v) => typeof v === 'string' && v.trim()) as string[];
+    if (parts.length) return parts.join(' · ');
+    try {
+      return JSON.stringify(err);
+    } catch {
+      return '[unprintable error]';
+    }
+  }
+  return String(err);
+}
+
+/** The error's code alone, for a bridge answer the caller can act on. */
+export function dbErrorCode(err: unknown): string {
+  const code = (err as { code?: unknown } | null)?.code;
+  return typeof code === 'string' ? code : '';
+}
+
 export type TestimonialRow = {
   id: string;
   token: string;

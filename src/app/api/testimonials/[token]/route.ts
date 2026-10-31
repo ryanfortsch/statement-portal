@@ -3,6 +3,8 @@ import { authorizeStayConcierge } from '@/lib/stay-concierge-auth';
 import { isTestimonialToken, parseSubmission } from '@/lib/guest-testimonials';
 import {
   GOOGLE_REVIEW_URL,
+  dbErrorCode,
+  dbErrorText,
   propertyTitle,
   submitTestimonial,
   testimonialByToken,
@@ -37,8 +39,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ token: string }
     const title = await propertyTitle(row.property_id);
     return NextResponse.json({ ok: true, testimonial: toView(row, title), google_review_url: GOOGLE_REVIEW_URL });
   } catch (err) {
-    console.error('[testimonials] read failed:', err instanceof Error ? err.message : String(err));
-    return NextResponse.json({ ok: false, error: 'unavailable' }, { status: 503 });
+    console.error('[testimonials] read failed:', dbErrorText(err));
+    return NextResponse.json({ ok: false, error: 'unavailable', code: dbErrorCode(err) }, { status: 503 });
   }
 }
 
@@ -64,7 +66,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     }
     return NextResponse.json({ ok: true, status: 'submitted', google_review_url: GOOGLE_REVIEW_URL });
   } catch (err) {
-    console.error('[testimonials] submit failed:', err instanceof Error ? err.message : String(err));
-    return NextResponse.json({ ok: false, error: 'unavailable' }, { status: 503 });
+    console.error('[testimonials] submit failed:', dbErrorText(err));
+    return NextResponse.json({ ok: false, error: 'unavailable', code: dbErrorCode(err) }, { status: 503 });
   }
 }

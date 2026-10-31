@@ -101,3 +101,15 @@ test('every testimonials route is public by prefix and checks the concierge head
   assert.ok(/grant all on public\.guest_testimonials to service_role/i.test(sql));
   assert.ok(/reservation_id text not null unique/.test(sql), 'one testimonial per stay');
 });
+
+test('a database error is logged with its code and message, never "[object Object]"', async () => {
+  // The store imports the Supabase client, so read the helper's source rather
+  // than importing it: the rule is that no route stringifies the error itself.
+  const store = read('src/lib/guest-testimonials-store.ts');
+  assert.ok(/export function dbErrorText\(err: unknown\): string/.test(store));
+  for (const r of ['src/app/api/testimonials/route.ts', 'src/app/api/testimonials/invite/route.ts', 'src/app/api/testimonials/[token]/route.ts']) {
+    const src = read(r);
+    assert.ok(!/String\(err\)/.test(src), `${r}: never String(err)`);
+    assert.ok((src.match(/dbErrorText\(err\)/g) ?? []).length >= 1, `${r}: logs dbErrorText`);
+  }
+});
