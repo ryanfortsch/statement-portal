@@ -112,10 +112,10 @@ describe('My week, and who opens on it', () => {
     const home = read('src/components/HomeSignals.tsx');
     assert.ok(home.includes('workWeekEnd(today)'), 'the home tile counts with work-week.ts');
   });
-  test('a staff login opens on My week, an owner on All', () => {
-    assert.equal(defaultWorkFilter('staff'), 'my-week');
-    assert.equal(defaultWorkFilter('owner'), 'all');
-    assert.equal(defaultWorkFilter(null), 'all');
+  test('the default opens on next actions, scoped to staff assignments', () => {
+    assert.equal(defaultWorkFilter('staff'), 'my-next');
+    assert.equal(defaultWorkFilter('owner'), 'next');
+    assert.equal(defaultWorkFilter(null), 'next');
   });
 });
 

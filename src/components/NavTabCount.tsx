@@ -96,7 +96,7 @@ export function NavTabCount({ kind, trade, href }: { kind: 'fieldPackets' | 'sta
 
   const monthName = month ? new Date(`${month}-01T00:00:00`).toLocaleDateString('en-US', { month: 'long' }) : null;
   const label = kind === 'fieldPackets'
-    ? `${count} packet${count === 1 ? '' : 's'} awaiting review`
+    ? `${count} job${count === 1 ? '' : 's'} awaiting review`
     : `${count} bank row${count === 1 ? '' : 's'} to review${monthName ? ` for ${monthName}` : ''}`;
   const target = href ?? (kind === 'statementsReview' && month ? statementsHref(month) : undefined);
   const pill = (

@@ -96,14 +96,14 @@ test('each board has one create door and its own planner: the calendar for inspe
 test('a queue that is empty here but not elsewhere still points at the other trade', async () => {
   const html = await board([packet('maintenance', 'maintenance')]);
   assert.match(html, /Needs review · 0/);
-  assert.match(html, /No inspector packets awaiting approval/);
+  assert.match(html, /No inspector jobs awaiting approval/);
   assert.match(html, /1 in other trades:/);
 });
 
 test('failed queue stays visible; an empty default queue is quiet and a filtered queue explains its empty state', async () => {
-  const failed = await board(null); assert.match(failed, /Couldn’t load/); assert.match(failed, /Retry unavailable data/); assert.doesNotMatch(failed, /No packets awaiting|Needs review · 0/);
-  const empty = await board([]); assert.doesNotMatch(empty, /Needs review|No packets awaiting approval/);
-  const focused = await board([], 'inspection', 'review'); assert.match(focused, /Needs review · 0/); assert.match(focused, /No inspector packets awaiting approval/);
+  const failed = await board(null); assert.match(failed, /Couldn’t load/); assert.match(failed, /Retry unavailable data/); assert.doesNotMatch(failed, /No jobs awaiting|Needs review · 0/);
+  const empty = await board([]); assert.doesNotMatch(empty, /Needs review|No jobs awaiting approval/);
+  const focused = await board([], 'inspection', 'review'); assert.match(focused, /Needs review · 0/); assert.match(focused, /No inspector jobs awaiting approval/);
 });
 
 

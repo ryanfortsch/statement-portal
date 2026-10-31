@@ -1,14 +1,17 @@
 import type { WorkSlipRow, TaskRow } from './work-types';
 import { dueThisWeek } from './work-week.ts'; // relative + .ts: node:test loads this file
 
-type BoardItem = Pick<WorkSlipRow | TaskRow, 'status' | 'priority' | 'created_at' | 'assigned_to_email'> & {
+import type { LinkedIssueSummary } from './work-issues';
+
+type BoardItem = Pick<WorkSlipRow | TaskRow, 'status' | 'priority' | 'created_at' | 'assigned_to_email'> & LinkedIssueSummary & {
   scheduled_date?: string | null; due_date?: string | null;
   coordinator_email?: string | null; follow_up_date?: string | null;
   assigned_to_type?: WorkSlipRow['assigned_to_type']; assigned_to_label?: string | null;
+  owner_action_required?: boolean; owner_status?: WorkSlipRow['owner_status'];
 };
 export function workDate(item: BoardItem): string | null { return [item.follow_up_date, item.scheduled_date, item.due_date].filter((d): d is string => !!d).sort()[0] ?? null; }
 export function workUnassigned(item: BoardItem): boolean {
-  return !item.assigned_to_email && !item.assigned_to_label && (!item.assigned_to_type || item.assigned_to_type === 'unassigned');
+  return !item.linked_people?.length && !item.assigned_to_email && !item.assigned_to_label && (!item.assigned_to_type || item.assigned_to_type === 'unassigned');
 }
 export function workOverdue(item: BoardItem, today: string): boolean {
   const date = workDate(item);
@@ -45,13 +48,31 @@ export function workThisWeek(item: BoardItem, today: string): boolean {
 }
 
 /** My week: assigned to me and due this week. */
+export function workAssignedTo(item: Pick<BoardItem, 'assigned_to_email' | 'coordinator_email' | 'linked_people'>, me: string): boolean {
+  return !!me && (item.assigned_to_email === me || item.coordinator_email === me || !!item.linked_people?.includes(me));
+}
 export function workMyWeek(item: BoardItem, me: string, today: string): boolean {
-  return !!me && (item.assigned_to_email === me || item.coordinator_email === me) && workThisWeek(item, today);
+  return workAssignedTo(item, me) && workThisWeek(item, today);
 }
 
-/** The view the board opens on with no ?filter=. A staff login opens on its
- *  own week (All is the first pill, one tap away, and the tab carries the
- *  total); an owner, or a session with no role, opens on everything. */
-export function defaultWorkFilter(role: string | null | undefined): 'all' | 'my-week' {
-  return role === 'staff' ? 'my-week' : 'all';
+/** Staff start with their next actions; owners start with all next actions. */
+export function defaultWorkFilter(role: string | null | undefined): 'next' | 'my-next' {
+  return role === 'staff' ? 'my-next' : 'next';
+}
+
+/** Waiting is still visible when a follow-up is due. A missing date alone is
+ * not an alarm. High-priority and in-progress work must not disappear simply
+ * because nobody supplied a date. These views intentionally overlap. */
+export function workWaiting(item: BoardItem): boolean {
+  return !!item.linked_waiting || item.status === 'blocked' || !!(item.owner_action_required && item.owner_status === 'sent');
+}
+export function workScheduled(item: BoardItem, today: string): boolean {
+  return !!item.scheduled_date && item.scheduled_date >= today;
+}
+export function workNeedsAction(item: BoardItem, today: string): boolean {
+  return workThisWeek(item, today) || item.priority === 'high' || (item.status === 'in_progress' || !!item.linked_statuses?.includes('in_progress'))
+    || (workWaiting(item) && !item.follow_up_date);
+}
+export function workBacklog(item: BoardItem, today: string): boolean {
+  return !workNeedsAction(item, today) && !workWaiting(item) && !workScheduled(item, today);
 }

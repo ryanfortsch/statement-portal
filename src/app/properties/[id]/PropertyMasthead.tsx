@@ -249,7 +249,7 @@ export function PropertyMasthead({
               href={`/properties/${propertyId}?tab=now#open-work`}
               style={{ color: 'var(--signal)', textDecoration: 'none' }}
             >
-              {openSlipCount} {openSlipCount === 1 ? 'slip' : 'slips'} →
+              {openSlipCount} {openSlipCount === 1 ? 'work item' : 'work items'} →
             </Link>
           ) : (
             <span style={{ color: 'var(--ink-3)' }}>Clear</span>

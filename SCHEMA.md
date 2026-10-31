@@ -538,6 +538,17 @@ live in `property_access` and per-stay `guest_access_codes`.
   `coordinator_email` and `follow_up_date` track office accountability independently
   of the worker (`assigned_to_*`), work lane and `scheduled_date`. Added by
   `20261030180000_work_coordination.sql`; no existing assignments are rewritten.
+- `work_issue_reports`: operator-confirmed membership of existing repair reports
+  in one issue. `report_id` is unique; `issue_id` points at the primary work slip
+  and includes its self-membership. `work_issue_events` records link, separation,
+  completion and reopening with the affected IDs. Both are service-role only
+  with RLS. `20261031010000_linked_work_issues.sql` adds the tables, validated
+  `link_work_issue` / `separate_work_issue` RPCs, and transactional status triggers.
+  No original evidence, photos, receipts, assignment or resolution note is merged
+  or removed. Status changes take an advisory transaction lock before row locks;
+  completion and reopening propagate to members. Completed retry timestamps are
+  stable. Separate before dismissing one report, moving a property, or giving a
+  report a recurring purpose. Supplies, prep rules and guest requests cannot link.
 - `property_work_briefs`: one row per home, the nightly brief over its open
   slips (`headline`, `brief`, `slip_fingerprint`, `slip_count`,
   `generated_at`). Service role only. Written by `/api/cron/work-briefs`

@@ -22,6 +22,11 @@ export type TaskPriority = WorkPriority;
 export type TaskStatus = 'open' | 'in_progress' | 'blocked' | 'done' | 'archived';
 
 export type WorkSlipRow = {
+  /** Read-only presentation metadata for explicitly linked repair reports. */
+  linked_report_ids?: string[];
+  linked_people?: string[];
+  linked_statuses?: string[];
+  linked_waiting?: boolean;
   id: string;
   property_id: string;
   inspection_id: string | null;

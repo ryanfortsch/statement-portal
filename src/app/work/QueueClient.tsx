@@ -38,7 +38,7 @@ import { useOwnerEmailDraft } from '@/lib/use-owner-email-draft';
 import { CopiedEmailNotice } from '@/components/CopiedEmailNotice';
 import { operatingDate } from '@/lib/operating-date';
 import { houseDay } from '@/lib/house-date';
-import { compareWork, workDate, workMyWeek, workOverdue, workSignals, workThisWeek, workUnassigned } from '@/lib/work-board-view';
+import { compareWork, workAssignedTo, workDate, workMyWeek, workOverdue, workSignals, workThisWeek, workUnassigned, workNeedsAction, workWaiting, workScheduled, workBacklog } from '@/lib/work-board-view';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { groupSlipsByLane, LANE_LABELS, slipDetailLine, slipDisplayTitle, type WorkLane } from '@/lib/work-slip-lanes';
 import type { WorkBriefHeadline } from '@/lib/work-briefs';
@@ -67,16 +67,16 @@ type Props = {
   /** property id -> the nightly brief's one-line headline and its date (lib/work-briefs.ts). */
   briefHeadlines?: Record<string, WorkBriefHeadline>;
   /** The view with no ?filter= (lib/work-board-view.ts defaultWorkFilter):
-   *  'my-week' for a staff login, 'all' for an owner. */
+   *  'my-next' for a staff login, 'next' for an owner. */
   defaultFilter?: FilterId;
-  /** Owners get "Review stale slips" on the Organize menu. */
+  /** Owners get "Review older work items" on the Organize menu. */
   isOwner?: boolean;
   /** The session's own Gmail for Draft Owner Email, or null when Helm holds
    *  none for them (the button copies the email instead). */
   myMailbox?: string | null;
 };
 
-type FilterId = 'all' | 'my-week' | 'week' | 'overdue' | 'blocked' | 'mine' | 'high' | 'due-today' | 'unclaimed' | 'no-coordinator' | 'owner-action' | 'snoozed';
+type FilterId = 'next' | 'my-next' | 'scheduled' | 'waiting' | 'backlog' | 'all' | 'my-week' | 'week' | 'overdue' | 'blocked' | 'mine' | 'high' | 'due-today' | 'unclaimed' | 'no-coordinator' | 'owner-action' | 'snoozed';
 
 // The board has two faces: property work, where you land, and the office
 // to-dos one tab over. A slip belongs to a house; an office to-do does not.
@@ -85,9 +85,9 @@ type FilterId = 'all' | 'my-week' | 'week' | 'overdue' | 'blocked' | 'mine' | 'h
 // a time. The URL keeps ?tab=tasks (the table's name) so old links land.
 type TabId = 'slips' | 'tasks';
 
-const FILTER_IDS: FilterId[] = ['all', 'my-week', 'week', 'overdue', 'blocked', 'mine', 'high', 'due-today', 'unclaimed', 'no-coordinator', 'owner-action', 'snoozed'];
+const FILTER_IDS: FilterId[] = ['next', 'my-next', 'scheduled', 'waiting', 'backlog', 'all', 'my-week', 'week', 'overdue', 'blocked', 'mine', 'high', 'due-today', 'unclaimed', 'no-coordinator', 'owner-action', 'snoozed'];
 
-/** Filters that only mean anything to a work slip. On the Tasks tab they
+/** Filters that only mean anything to a work item. On the Tasks tab they
  *  neither render nor apply, but they stay in the URL so tabbing back to
  *  Property Work restores the view you left. */
 const SLIP_ONLY_FILTERS: FilterId[] = ['no-coordinator', 'owner-action', 'snoozed'];
@@ -98,7 +98,7 @@ const SLIP_ONLY_FILTERS: FilterId[] = ['no-coordinator', 'owner-action', 'snooze
 const TASK_ONLY_FILTERS: FilterId[] = ['blocked'];
 
 /** The filters behind the "More" select, in its order. */
-const MORE_FILTERS: FilterId[] = ['mine', 'high', 'owner-action', 'snoozed'];
+const MORE_FILTERS: FilterId[] = ['mine', 'my-week', 'week', 'high', 'overdue', 'due-today', 'blocked', 'unclaimed', 'no-coordinator', 'owner-action', 'snoozed'];
 
 /** No ?filter= is the role's default view; an unknown one reads as All. */
 function parseFilter(value: string | null, fallback: FilterId = 'all'): FilterId {
@@ -215,7 +215,7 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   }
   const [showSlipModal, setShowSlipModal] = useState(false);
-  // "Review stale slips" (owners): the read starts on the tap and the panel
+  // "Review older work items" (owners): the read starts on the tap and the panel
   // reads the promise, so nothing loads until an owner asks.
   const [staleLoad, setStaleLoad] = useState<Promise<StaleLoad> | null>(null);
   function openStaleReview() {
@@ -280,7 +280,7 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
 
     const onSlipsNow = slipIds.length > 0;
     const ids = onSlipsNow ? slipIds : taskIds;
-    const label = onSlipsNow ? 'Work slips' : OFFICE_TODOS_LABEL;
+    const label = onSlipsNow ? 'Work items' : OFFICE_TODOS_LABEL;
     const deselect = onSlipsNow ? setSelectedSlipIds : setSelectedTaskIds;
     startBulkTransition(async () => {
       try {
@@ -319,10 +319,15 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
     // to see what they pushed off, not what's active.
     const source = activeFilter === 'snoozed' ? snoozedSlips : workSlips;
     return source.filter((w) => {
+      if (activeFilter === 'next' && !workNeedsAction(w, todayIso)) return false;
+      if (activeFilter === 'my-next' && !(workNeedsAction(w, todayIso) && workAssignedTo(w, myEmail))) return false;
+      if (activeFilter === 'scheduled' && !workScheduled(w, todayIso)) return false;
+      if (activeFilter === 'waiting' && !workWaiting(w)) return false;
+      if (activeFilter === 'backlog' && !workBacklog(w, todayIso)) return false;
       if (activeFilter === 'my-week' && !workMyWeek(w, myEmail, todayIso)) return false;
       if (activeFilter === 'week' && !workThisWeek(w, todayIso)) return false;
       if (activeFilter === 'overdue' && !workOverdue(w, todayIso)) return false;
-      if (activeFilter === 'mine' && w.assigned_to_email !== myEmail && w.coordinator_email !== myEmail) return false;
+      if (activeFilter === 'mine' && !workAssignedTo(w, myEmail)) return false;
       if (activeFilter === 'high' && w.priority !== 'high') return false;
       if (activeFilter === 'due-today' && workDate(w) !== todayIso) return false;
       if (activeFilter === 'unclaimed' && !workUnassigned(w)) return false;
@@ -334,6 +339,11 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
 
   const filteredTasks = useMemo(() => {
     return tasks.filter((t) => {
+      if (activeFilter === 'next' && !workNeedsAction(t, todayIso)) return false;
+      if (activeFilter === 'my-next' && !(workNeedsAction(t, todayIso) && (t.assigned_to_email === myEmail))) return false;
+      if (activeFilter === 'scheduled' && !workScheduled(t, todayIso)) return false;
+      if (activeFilter === 'waiting' && !workWaiting(t)) return false;
+      if (activeFilter === 'backlog' && !workBacklog(t, todayIso)) return false;
       if (activeFilter === 'my-week' && !workMyWeek(t, myEmail, todayIso)) return false;
       if (activeFilter === 'week' && !workThisWeek(t, todayIso)) return false;
       if (activeFilter === 'overdue' && !workOverdue(t, todayIso)) return false;
@@ -423,6 +433,11 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
       return {
         ...workSignals(tasks, todayIso),
         all: tasks.length,
+        next: tasks.filter(w => workNeedsAction(w, todayIso)).length,
+        myNext: tasks.filter(w => workNeedsAction(w, todayIso) && (w.assigned_to_email === myEmail)).length,
+        scheduled: tasks.filter(w => workScheduled(w, todayIso)).length,
+        waiting: tasks.filter(workWaiting).length,
+        backlog: tasks.filter(w => workBacklog(w, todayIso)).length,
         myWeek: tasks.filter((t) => workMyWeek(t, myEmail, todayIso)).length,
         week: tasks.filter((t) => workThisWeek(t, todayIso)).length,
         mine: tasks.filter((t) => t.assigned_to_email === myEmail).length,
@@ -434,9 +449,14 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
     return {
       ...workSignals(workSlips, todayIso),
       all: workSlips.length,
+        next: workSlips.filter(w => workNeedsAction(w, todayIso)).length,
+        myNext: workSlips.filter(w => workNeedsAction(w, todayIso) && workAssignedTo(w, myEmail)).length,
+        scheduled: workSlips.filter(w => workScheduled(w, todayIso)).length,
+        waiting: workSlips.filter(workWaiting).length,
+        backlog: workSlips.filter(w => workBacklog(w, todayIso)).length,
       myWeek: workSlips.filter((w) => workMyWeek(w, myEmail, todayIso)).length,
       week: workSlips.filter((w) => workThisWeek(w, todayIso)).length,
-      mine: workSlips.filter((w) => w.assigned_to_email === myEmail || w.coordinator_email === myEmail).length,
+      mine: workSlips.filter((w) => workAssignedTo(w, myEmail)).length,
       high: workSlips.filter((w) => w.priority === 'high').length,
       ownerAction: workSlips.filter((w) => w.owner_action_required).length,
       snoozed: snoozedSlips.length,
@@ -481,34 +501,35 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
             </Button>}
             {onSlips && <OrganizeButton onReviewStale={isOwner ? openStaleReview : undefined} />}
             {onSlips && <Button variant="primary" onClick={() => setShowSlipModal(true)}>
-              + Work Slip
+              + Work item
             </Button>}
           </div>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap rt-work-filters" aria-label="Filter work">
+          <Pill active={activeFilter === 'next'} onClick={() => setFilter('next')} label="Next actions" count={counts.next} />
+          {(defaultFilter === 'my-next' || activeFilter === 'my-next') && <Pill active={activeFilter === 'my-next'} onClick={() => setFilter('my-next')} label="For me" count={counts.myNext} />}
+          <Pill active={activeFilter === 'scheduled'} onClick={() => setFilter('scheduled')} label="Scheduled" count={counts.scheduled} />
+          <Pill active={activeFilter === 'waiting'} onClick={() => setFilter('waiting')} label="Waiting" count={counts.waiting} />
+          <Pill active={activeFilter === 'backlog'} onClick={() => setFilter('backlog')} label="Backlog" count={counts.backlog} />
           <Pill active={activeFilter === 'all'} onClick={() => setFilter('all')} label="All" count={counts.all} />
-          {(counts.myWeek > 0 || activeFilter === 'my-week' || defaultFilter === 'my-week') && <Pill active={activeFilter === 'my-week'} onClick={() => setFilter('my-week')} label="My week" count={counts.myWeek} />}
-          {/* Everyone's week: the home page's "Open work · this week" tile
-              opens here, on the same rule (src/lib/work-week.ts). */}
-          {(counts.week > 0 || activeFilter === 'week') && <Pill active={activeFilter === 'week'} onClick={() => setFilter('week')} label="This week" count={counts.week} />}
-          {(counts.overdue > 0 || activeFilter === 'overdue') && <Pill active={activeFilter === 'overdue'} onClick={() => setFilter('overdue')} label="Overdue" count={counts.overdue} accent="var(--negative)" />}
-          {(counts.dueToday > 0 || activeFilter === 'due-today') && <Pill active={activeFilter === 'due-today'} onClick={() => setFilter('due-today')} label="Due today" count={counts.dueToday} />}
-          {!onSlips && (counts.blocked > 0 || activeFilter === 'blocked') && <Pill active={activeFilter === 'blocked'} onClick={() => setFilter('blocked')} label="Blocked" count={counts.blocked} accent="var(--signal)" />}
-          {onSlips && <Pill active={activeFilter === 'no-coordinator'} onClick={() => setFilter('no-coordinator')} label="Needs coordinator" count={workSlips.filter(w => !w.coordinator_email).length} />}
-          {(counts.unclaimed > 0 || activeFilter === 'unclaimed') && <Pill active={activeFilter === 'unclaimed'} onClick={() => setFilter('unclaimed')} label="Unassigned" count={counts.unclaimed} />}
-          {/* The first option is the way out: once a More filter is on, the
-              select's own list offers All, so clearing it is one gesture
-              here and not a trip to the All pill. */}
           <select aria-label="More work filters" value={MORE_FILTERS.includes(activeFilter) ? activeFilter : ''}
             onChange={e => setFilter((e.target.value || 'all') as FilterId)} style={{ ...selectStyle(), width: MORE_FILTERS.includes(activeFilter) ? 'auto' : 96, padding: '8px', fontSize: 12, minHeight: 44 }}>
             <option value="">{MORE_FILTERS.includes(activeFilter) ? 'All' : 'More'}</option>
             <option value="mine">My items ({counts.mine})</option>
+            <option value="my-week">My week ({counts.myWeek})</option>
+            <option value="week">This week ({counts.week})</option>
+            <option value="overdue">Overdue ({counts.overdue})</option>
+            <option value="due-today">Due today ({counts.dueToday})</option>
+            {!onSlips && <option value="blocked">Blocked ({counts.blocked})</option>}
+            <option value="unclaimed">Unassigned ({counts.unclaimed})</option>
+            {onSlips && <option value="no-coordinator">Needs coordinator ({workSlips.filter(w => !w.coordinator_email).length})</option>}
             <option value="high">High priority ({counts.high})</option>
-            {onSlips && <option value="owner-action">Owner action ({counts.ownerAction})</option>}
+            {onSlips && <option value="owner-action">Owner decisions ({counts.ownerAction})</option>}
             {onSlips && <option value="snoozed">Snoozed ({counts.snoozed})</option>}
           </select>
         </div>
+        {(activeFilter === 'next' || activeFilter === 'my-next') && <p style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 12 }}>Due this week, overdue, high priority, and work in progress. Waiting items without a follow-up date also appear here.</p>}
       </section>
 
       {onSlips && (
@@ -523,10 +544,10 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
               )}
             >
               {activeFilter === 'snoozed'
-                ? 'Nothing is snoozed; Snooze is on each slip’s own page.'
+                ? 'Nothing is snoozed; Snooze is on each work item’s page.'
                 : activeFilter === 'my-week'
                   ? 'Nothing assigned to you is due this week.'
-                  : 'No work slips match this filter.'}
+                  : 'No work items match this filter.'}
             </EmptyState>
           ) : (
             <CollapsibleList
@@ -939,7 +960,7 @@ function PropertyGroup({
               fontWeight: 700,
             }}
           >
-            {ownerActionCount} OWNER
+            {ownerActionCount} OWNER DECISIONS
           </span>
         )}
         <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>{slips.length} open</span>
@@ -991,7 +1012,7 @@ function PropertyGroup({
           onClick={onAddSlip}
           className="rt-no-print"
         >
-          + Slip
+          + Work item
         </Button>}
       </div>
 
@@ -1122,7 +1143,7 @@ function WorkSlipRowItem({
           checked={selected}
           disabled={bulkPending || isPending}
           onChange={() => onToggleSelect(slip.id)}
-          ariaLabel={`Select work slip ${slip.title}`}
+          ariaLabel={`Select work item ${slip.title}`}
         />
       </span>
       <Link
@@ -1141,6 +1162,7 @@ function WorkSlipRowItem({
       >
         <div style={{ flex: '1 1 180px', minWidth: 0 }}>
           <div style={{ fontSize: 14, color: 'var(--ink)' }}>{slipDisplayTitle(slip.title, propertyName)}</div>
+          {slip.linked_report_ids && <span style={{ fontSize: 13, color: 'var(--tide-deep)' }}>{slip.linked_report_ids.length} linked reports · one issue</span>}
           {doneError && <div role="alert" style={{ marginTop: 4, fontSize: 12, color: 'var(--negative)' }}>{doneError}</div>}
           {/* The detail is what you triage on — surface it right on the row
               (one clamped line, full text on hover) so you don't have to
@@ -1168,19 +1190,16 @@ function WorkSlipRowItem({
             </div>
           )}
           <div style={{ marginTop: 3, fontSize: 11, color: isOverdue ? 'var(--negative)' : 'var(--ink-4)', letterSpacing: '.06em' }}>
-            {isOverdue && <span style={{ fontWeight: 700 }}>OVERDUE · </span>}
-            {slip.coordinator_email ? `Coordinator: ${displayNameForEmail(slip.coordinator_email)}` : 'Needs coordinator'}
-            {slip.follow_up_date ? ` · Follow up ${houseDay(slip.follow_up_date)}` : ' · No follow-up date'}
-            {' · Worker: '}
-            {slip.assigned_to_label || (slip.assigned_to_email ? displayNameForEmail(slip.assigned_to_email) : slip.assigned_to_type === 'owner' ? 'Owner' : 'Unassigned')}
-            {slip.scheduled_date ? ` · ${slip.scheduled_date === operatingDate() ? 'Due today' : `Scheduled ${houseDay(slip.scheduled_date)}`}` : ''}
-            {slip.location ? ` · ${slip.location}` : ''}
-            {reporterName && <span style={{ color: 'var(--tide-deep)' }}> · flagged by {reporterName}</span>}
-            {slip.last_verified_open_at && (
-              <span style={{ color: 'var(--positive)' }}>
-                {' '}· ✓ still needed {new Date(slip.last_verified_open_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: GLOUCESTER_TZ })}
-              </span>
-            )}
+            {[
+              isOverdue ? 'Overdue' : null,
+              slip.coordinator_email ? `Coordinator: ${displayNameForEmail(slip.coordinator_email)}` : null,
+              slip.follow_up_date ? `Follow up ${houseDay(slip.follow_up_date)}` : null,
+              slip.assigned_to_label || (slip.assigned_to_email ? `Worker: ${displayNameForEmail(slip.assigned_to_email)}` : slip.assigned_to_type === 'owner' ? 'With owner' : null),
+              slip.scheduled_date ? (slip.scheduled_date === operatingDate() ? 'Due today' : `Scheduled ${houseDay(slip.scheduled_date)}`) : null,
+              slip.location,
+              reporterName ? `Flagged by ${reporterName}` : null,
+              slip.last_verified_open_at ? `Still needed ${new Date(slip.last_verified_open_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: GLOUCESTER_TZ })}` : null,
+            ].filter(Boolean).join(' · ')}
           </div>
         </div>
         {commentCount > 0 && (
@@ -1243,7 +1262,7 @@ function WorkSlipRowItem({
         className="rt-no-print"
         style={{ color: 'var(--positive)', flexShrink: 0 }}
       >
-        ✓ Done
+        {slip.linked_report_ids ? `Complete ${slip.linked_report_ids.length} reports` : '✓ Done'}
       </Button>
     </div>
   );
@@ -1404,7 +1423,7 @@ function WorkSlipModal({
   const [assignedToEmail, setAssignedToEmail] = useState<string | null>(null);
   const [photos, setPhotos] = useState<string[]>([]);
   // Everything except Property / Title / Description lives behind the
-  // "+ Details" inline link, mirroring the inspection Work Slip modal:
+  // "+ Details" inline link, mirroring the inspection Work item modal:
   // the defaults are right for the vast majority of slips filed from
   // the board, so the form fits on a phone with the keyboard open. The
   // panel auto-expands if any of its fields drifted off the defaults
@@ -1425,9 +1444,9 @@ function WorkSlipModal({
   async function requestClose() {
     if (saving.current || uploadBusy.current) return;
     if ((dirty || uncertain) && !(await ask({
-      title: 'Discard this unfinished work slip?',
+      title: 'Discard this unfinished work item?',
       body: 'Nothing was filed. What you typed is dropped.',
-      confirmLabel: 'Discard slip',
+      confirmLabel: 'Discard work item',
     }))) return;
     if (saving.current || uploadBusy.current) return;
     onClose();
@@ -1469,7 +1488,7 @@ function WorkSlipModal({
     router.push(`/work/${res.id}`);
     } catch {
       setUncertain(true);
-      setError('Could not confirm whether the work slip was created. Your draft is kept. Check the work list in another tab before retrying to avoid a duplicate.');
+      setError('Could not confirm whether the work item was created. Your draft is kept. Check the work list in another tab before retrying to avoid a duplicate.');
     } finally {
       saving.current = false;
       setSubmitting(false);
@@ -1477,7 +1496,7 @@ function WorkSlipModal({
   }
 
   return (
-    <ModalShell title="New Work Slip" onClose={requestClose} busy={submitting || uploading}>
+    <ModalShell title="New work item" onClose={requestClose} busy={submitting || uploading}>
       <form onSubmit={handleSubmit}>
         <fieldset disabled={submitting} className="flex flex-col gap-4" style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         <Field label="Property *">
@@ -1628,7 +1647,7 @@ function WorkSlipModal({
 
         {error && <div role="alert"><ErrorBlock message={error} />{uncertain && <a href="/work" target="_blank" rel="noopener noreferrer">View saved work</a>}</div>}
 
-        <ModalActions onCancel={requestClose} submitLabel="Create Work Slip" submitting={submitting || uploading} />
+        <ModalActions onCancel={requestClose} submitLabel="Create work item" submitting={submitting || uploading} />
       </fieldset>
       </form>
     </ModalShell>
@@ -1649,7 +1668,7 @@ const inlineLinkStyle: React.CSSProperties = {
 /**
  * New office to-do. A to-do is desk work that belongs to no house, so the
  * form asks only what one needs: what, when, who, how urgent. Work at a
- * house is a work slip (+ Work Slip on the Property Work tab).
+ * house is a work item (+ Work item on the Property Work tab).
  */
 function TaskModal({
   myEmail,
@@ -2052,7 +2071,7 @@ function OrganizeButton({ onReviewStale }: { onReviewStale?: () => void }) {
                   fontFamily: 'inherit',
                 }}
               >
-                Review stale slips
+                Review older work items
               </button>
             </span>
           )}
@@ -2064,12 +2083,12 @@ function OrganizeButton({ onReviewStale }: { onReviewStale?: () => void }) {
 
 type StaleLoad = Awaited<ReturnType<typeof loadStaleSlips>>;
 
-/** "Review stale slips": every open slip nobody has touched in 90 days,
+/** "Review older work items": every open slip nobody has touched in 90 days,
  *  grouped by home, with Dismiss per row and per home. Nothing closes
  *  unless an owner taps (src/lib/work-stale.ts). */
 function StaleReviewPanel({ load, onClose }: { load: Promise<StaleLoad>; onClose: () => void }) {
   return (
-    <ModalShell title="Stale slips" onClose={onClose} busy={false}>
+    <ModalShell title="Older work items" onClose={onClose} busy={false}>
       <Suspense fallback={<div style={{ fontSize: 13, color: 'var(--ink-3)', padding: '12px 0' }}>Reading the board…</div>}>
         <StaleReviewList load={load} />
       </Suspense>

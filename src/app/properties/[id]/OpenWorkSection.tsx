@@ -51,7 +51,7 @@ export function OpenWorkSection({
     counts.visit && `${counts.visit} this visit`,
     counts.handyman && `${counts.handyman} handyman`,
     counts.pro && `${counts.pro} pro`,
-    counts.owner && `${counts.owner} owner`,
+    counts.owner && `${counts.owner} owner decisions`,
     counts.office && `${counts.office} office`,
   ].filter(Boolean) as string[];
 
@@ -304,7 +304,8 @@ function LaneRows({ slips, lane, property }: { slips: WorkSlipRow[]; lane: WorkL
                   </span>
                 ))}
               </Link>
-              <MarkSlipDoneButton slipId={s.id} propertyId={property.id} />
+              {s.linked_report_ids && <Link href={`/work/${s.id}`} style={{ fontSize: 13, color: 'var(--tide-deep)' }}>{s.linked_report_ids.length} linked reports</Link>}
+              <MarkSlipDoneButton slipId={s.id} propertyId={property.id} reportCount={s.linked_report_ids?.length} />
             </div>
           </Fragment>
         );

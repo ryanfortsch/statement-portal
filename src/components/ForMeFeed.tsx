@@ -1,3 +1,6 @@
+import { collapseWorkIssues } from '@/lib/work-issues';
+import { loadWorkIssueLinks } from '@/lib/work-issues-server';
+import { workAssignedTo } from '@/lib/work-board-view';
 import { selectAllPaged } from '@/lib/paged-select';
 import { splitReplyUpdates } from '@/lib/home-reply-triage';
 import Link from 'next/link';
@@ -459,9 +462,9 @@ type WorkFilter = { kind: 'assigned'; email: string } | { kind: 'unassigned' };
 async function fetchWork(filter: WorkFilter, propertyNames: Map<string, string>): Promise<MyWork[]> {
   const today = operatingDate();
 
-  let slipQ = supabase
+  const slipQ = supabase
     .from('work_slips')
-    .select('id, property_id, title, priority, status, scheduled_date, follow_up_date')
+    .select('id, property_id, title, priority, status, scheduled_date, follow_up_date, assigned_to_email, coordinator_email')
     .in('status', ACTIVE_WORK_SLIP_STATUSES)
     .or(`snoozed_until.is.null,snoozed_until.lte.${today}`)
     .order('id');
@@ -472,20 +475,19 @@ async function fetchWork(filter: WorkFilter, propertyNames: Map<string, string>)
     .order('id');
 
   if (filter.kind === 'assigned') {
-    slipQ = slipQ.or(`assigned_to_email.eq.${filter.email},coordinator_email.eq.${filter.email}`);
     taskQ = taskQ.eq('assigned_to_email', filter.email);
   } else {
-    slipQ = slipQ.is('coordinator_email', null).is('assigned_to_email', null);
     taskQ = taskQ.is('assigned_to_email', null);
   }
 
-  const [slipRows, taskRows] = await Promise.all([
+  const [slipRows, taskRows, issueLinks] = await Promise.all([
     selectAllPaged((from, to) => slipQ.range(from, to)),
     selectAllPaged((from, to) => taskQ.range(from, to)),
+    loadWorkIssueLinks(supabase).catch(() => []),
   ]);
-  const slips: MyWork[] = (
-    slipRows as Array<{ id: string; property_id: string | null; title: string; priority: string | null; scheduled_date: string | null; follow_up_date: string | null }>
-  ).map((s) => ({
+  const slips: MyWork[] = collapseWorkIssues(
+    slipRows as Array<{ id: string; property_id: string | null; title: string; priority: string | null; scheduled_date: string | null; follow_up_date: string | null; assigned_to_email: string | null; coordinator_email: string | null }>, issueLinks
+  ).filter(s => filter.kind === 'assigned' ? workAssignedTo(s, filter.email) : !s.assigned_to_email && !s.coordinator_email && !s.linked_people?.length).map((s) => ({
     id: s.id,
     kind: 'slip',
     title: s.title,
@@ -641,7 +643,7 @@ function MyWorkRow({ item, onDay }: { item: MyWork; onDay?: WorkDateKind }) {
             {item.title}
           </span>
           <span style={{ flexShrink: 0, fontSize: 11, color: 'var(--ink-4)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-            {item.kind === 'slip' ? 'Work slip' : OFFICE_TODO_LABEL}
+            {item.kind === 'slip' ? 'Work item' : OFFICE_TODO_LABEL}
           </span>
         </div>
         {sublineBits.length > 0 && (
@@ -1099,7 +1101,7 @@ async function loadPacketQueue(): Promise<QueueCard[]> {
       cards.push({
         id: 'queue-packets-more',
         href: '/fieldwork/packets',
-        text: `Field: ${more} more packet${more === 1 ? '' : 's'} awaiting approval`,
+        text: `Field: ${more} more job${more === 1 ? '' : 's'} awaiting approval`,
       });
     }
     return cards;

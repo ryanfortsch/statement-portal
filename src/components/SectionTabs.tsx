@@ -95,7 +95,7 @@ export function SectionTabs({
                 letterSpacing: '.04em',
                 textTransform: 'uppercase',
                 fontWeight: 600,
-                color: isActive ? 'var(--ink)' : 'var(--ink-4)',
+                color: isActive ? 'var(--ink)' : 'var(--ink-3)',
                 textDecoration: 'none',
                 paddingBottom: 12,
                 borderBottom: isActive ? '2px solid var(--signal)' : '2px solid transparent',

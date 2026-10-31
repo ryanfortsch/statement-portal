@@ -1,3 +1,6 @@
+import { selectAllPaged } from '@/lib/paged-select';
+import { collapseWorkIssues } from '@/lib/work-issues';
+import { loadWorkIssueLinks } from '@/lib/work-issues-server';
 import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmHero } from '@/components/HelmHero';
@@ -50,25 +53,20 @@ async function getProperties(): Promise<{ properties: HelmPropertyRow[]; error: 
   }
 }
 
-/**
- * Pulls every active work slip with just (property_id, owner_action_required)
- * and rolls up to a {property_id: { total, ownerAction }} map. One round
- * trip is fine — we have ~12 properties and at most a few dozen slips
- * per. If this ever grows we can swap to a server-side aggregation.
- */
+/** Count explicitly linked reports as one issue, matching the property list. */
 async function getWorkCountsByProperty(): Promise<Record<string, WorkCounts>> {
   if (!isHelmConfigured) return {};
   try {
     const todayIso = operatingDate();
-    const { data, error } = await supabase
-      .from('work_slips')
-      .select('property_id, owner_action_required')
-      .in('status', ACTIVE_WORK_SLIP_STATUSES)
-      .or(`snoozed_until.is.null,snoozed_until.lte.${todayIso}`);
-    if (error) throw error;
-
+    const [data, links] = await Promise.all([
+      selectAllPaged<{ id: string; property_id: string; owner_action_required: boolean }>((from, to) => supabase
+        .from('work_slips').select('id, property_id, owner_action_required')
+        .in('status', ACTIVE_WORK_SLIP_STATUSES)
+        .or(`snoozed_until.is.null,snoozed_until.lte.${todayIso}`).order('id').range(from, to)),
+      loadWorkIssueLinks(supabase).catch(() => []),
+    ]);
     const counts: Record<string, WorkCounts> = {};
-    for (const row of (data ?? []) as Array<{ property_id: string; owner_action_required: boolean }>) {
+    for (const row of collapseWorkIssues(data, links)) {
       const c = counts[row.property_id] ?? { total: 0, ownerAction: 0 };
       c.total += 1;
       if (row.owner_action_required) c.ownerAction += 1;

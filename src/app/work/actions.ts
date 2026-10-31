@@ -124,7 +124,10 @@ export async function updateWorkSlipStatus(args: {
 
   revalidatePath('/work');
   revalidatePath(`/work/${args.id}`);
+  revalidatePath('/work/[id]', 'page');
+  revalidatePath('/properties/[id]', 'page');
   revalidatePath('/messaging/team');
+  revalidatePath('/');
   // Marking a slip done anywhere feeds through every read path: the work
   // board (above), the property's Open Work list, and the /properties
   // slip-count badges. All filter by status, so a revalidate is enough.
@@ -217,6 +220,10 @@ export async function updateWorkSlipResolution(args: {
   if (error) return { ok: false, error: error.message };
 
   revalidatePath('/work');
+  revalidatePath('/work/[id]', 'page');
+  revalidatePath('/properties/[id]', 'page');
+  revalidatePath('/messaging/team');
+  revalidatePath('/');
   revalidatePath(`/work/${args.id}`);
   // A status change feeds the property surfaces too, same as
   // updateWorkSlipStatus.

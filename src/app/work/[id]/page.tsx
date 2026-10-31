@@ -1,4 +1,6 @@
 import Link from 'next/link';
+import { LinkedWorkReports } from './LinkedWorkReports';
+import { loadWorkIssueLinks, loadWorkIssueReports } from '@/lib/work-issues-server';
 import { notFound } from 'next/navigation';
 import { auth } from '@/auth';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
@@ -92,6 +94,9 @@ export default async function WorkSlipDetailPage({
   const myEmail = session?.user?.email ?? '';
 
   const { slip, property, inspection, inspectionItem, comments } = data;
+  const issueContext = await Promise.all([loadWorkIssueLinks(supabase), loadWorkIssueReports(supabase, slip.property_id)])
+    .then(([links, reports]) => ({ links, reports, available: true }))
+    .catch(() => ({ links: [], reports: [], available: false }));
 
   // A slip carrying an out-of-pocket receipt: say whether the money is riding
   // a payout, already went out, or still needs a home, so a contractor's
@@ -156,6 +161,10 @@ export default async function WorkSlipDetailPage({
           <Pill color="var(--ink-4)" label={LANE_LABELS[lane]} />
         </div>
       </section>
+
+      <div className="max-w-[1100px] mx-auto px-10" style={{ width: '100%' }}>
+        <LinkedWorkReports current={slip} {...issueContext} />
+      </div>
 
       {/* STAT GRID — assignment lives here as an inline picker instead of
           its own section (only 1-in-25 slips is ever assigned). */}
@@ -393,6 +402,7 @@ export default async function WorkSlipDetailPage({
           initialStatus={slip.status}
           initialResolutionNotes={slip.resolution_notes ?? null}
           initialSnoozedUntil={slip.snoozed_until ?? null}
+          linkedReportCount={issueContext.links.filter(l => l.issue_id === (issueContext.links.find(x => x.report_id === slip.id)?.issue_id ?? slip.id)).length}
         />
       </Section>
 
@@ -437,7 +447,7 @@ export default async function WorkSlipDetailPage({
             color: 'var(--ink-4)',
           }}
         >
-          <span>Rising Tide &middot; Work Slip {slip.id.slice(0, 8)}</span>
+          <span>Rising Tide &middot; Work item {slip.id.slice(0, 8)}</span>
           <span style={{ fontStyle: 'italic', textTransform: 'none', letterSpacing: 0, color: 'var(--ink-3)', fontSize: 11 }}>
             Source: Helm
           </span>

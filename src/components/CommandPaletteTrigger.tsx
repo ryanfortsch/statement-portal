@@ -35,15 +35,17 @@ export function CommandPaletteTrigger() {
         gap: 6,
         background: 'transparent',
         border: '1px solid var(--rule)',
-        padding: '4px 8px',
+        padding: '8px 10px',
+        minHeight: 44,
+        minWidth: 44,
         cursor: 'pointer',
         color: 'var(--ink-3)',
         fontFamily: 'inherit',
-        fontSize: 11,
+        fontSize: 13,
         whiteSpace: 'nowrap',
       }}
     >
-      <SearchIcon />
+      <SearchIcon /><span className="rt-search-label">Search</span>
       <kbd
         className="font-mono"
         style={{
@@ -63,7 +65,7 @@ export function CommandPaletteTrigger() {
 
 function SearchIcon() {
   return (
-    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
       <circle cx="7" cy="7" r="5" stroke="currentColor" strokeWidth="1.5" />
       <path d="M11 11l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
     </svg>
