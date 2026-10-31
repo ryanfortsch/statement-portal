@@ -19,11 +19,13 @@
  *   stays read "Sealed until <date>" instead.
  *
  * Direct (staycapeann.com) guests joined the sweep on 2026-10-31, for stellar
- * stays only (Dotti, 2026-10-30): one ask carrying the Google Business Profile
- * review link, by text or email, and no follow-up. The concierge says whether
- * that link is set (`direct_enabled`) and from when direct stays were judged
- * (`direct_since`); a direct stay it held back carries its reason like any
- * other. The review itself lands on Google, which Helm does not read.
+ * stays only (Dotti, 2026-10-30): one ask linking a testimonial form on
+ * staycapeann.com, by text or email, and no follow-up. The concierge says
+ * whether direct asks are on (`direct_enabled`) and from when direct stays
+ * were judged (`direct_since`); a direct stay it held back carries its reason
+ * like any other. What the guest writes is a `guest_testimonials` row, read
+ * here as the stay's review; the Google review the form's thank-you page
+ * invites them to leave as well is never tracked.
  */
 
 import { shiftIsoDay } from './sca-quotes-types.ts';
@@ -114,8 +116,8 @@ export type ReviewAskSettings = {
   /** The day after checkout our own review of a red guest is due. */
   host_review_post_day?: number;
   host_review_cards?: boolean;
-  /** Direct (staycapeann.com) guests are asked only once the concierge holds
-   *  the Google review link. Absent on an older concierge: read as off. */
+  /** Direct (staycapeann.com) guests are asked only once the concierge's
+   *  direct asks are switched on. Absent on an older concierge: read as off. */
   direct_enabled?: boolean;
   /** YYYY-MM-DD from which direct stays are judged at all. */
   direct_since?: string;
@@ -139,6 +141,13 @@ export type StayReview = {
   rating: number | null;
   /** When the guest wrote it, ISO. */
   createdAt: string | null;
+} | null;
+
+/** A direct guest's testimonial (guest_testimonials), or null when none. */
+export type StayTestimonial = {
+  /** invited | submitted | approved | hidden */
+  status: string;
+  rating: number | null;
 } | null;
 
 export type AskTone = 'done' | 'waiting' | 'due' | 'skipped' | 'unknown';
@@ -356,7 +365,7 @@ export function describeAsk(
     if (isDirect(stay.channel)) {
       // A direct guest is asked only once the concierge holds the Google
       // review link, and only for stays judged since direct asks began.
-      if (!settings.direct_enabled) return { text: 'Not asked: the Google review link is not set yet', tone: 'skipped' };
+      if (!settings.direct_enabled) return { text: 'Not asked: direct asks are not switched on yet', tone: 'skipped' };
       if (settings.direct_since && shiftIsoDay(stay.checkOut, firstTo) < settings.direct_since) {
         return { text: `No record: before direct asks began ${shortDay(settings.direct_since)}`, tone: 'unknown' };
       }
@@ -470,15 +479,29 @@ export function describeReview(
   today: string,
   guestReported = false,
   directReviews = false,
+  testimonial: StayTestimonial = null,
 ): ReviewLine {
   if (review) {
     if (review.rating == null) return { kind: 'reviewed', text: 'Reviewed, no rating shown' };
     return { kind: 'reviewed', text: `Reviewed ${stars(review.rating)}` };
   }
   if (isDirect(stay.channel)) {
-    // Once direct guests are asked, their review lands on Google, which
-    // Helm's reviews table never sees.
-    return { kind: 'no_platform', text: directReviews ? 'Google review, not tracked here' : 'No review site' };
+    // A direct guest's review is the testimonial they leave on
+    // staycapeann.com; the Google review they may also leave is not tracked.
+    if (testimonial) {
+      const s = testimonial.rating != null ? ` ${stars(testimonial.rating)}` : '';
+      switch (testimonial.status) {
+        case 'submitted':
+          return { kind: 'reviewed', text: `Testimonial${s} · waiting for your approval` };
+        case 'approved':
+          return { kind: 'reviewed', text: `Testimonial${s} · on the site` };
+        case 'hidden':
+          return { kind: 'none', text: `Testimonial${s} · hidden` };
+        default:
+          return { kind: 'none', text: 'Form link sent, no testimonial yet' };
+      }
+    }
+    return { kind: 'no_platform', text: directReviews ? 'No testimonial yet' : 'No review site' };
   }
   const said = guestReported ? 'Guest says they reviewed · ' : '';
   if (SEALED_CHANNELS.has(stay.channel.trim().toLowerCase())) {
