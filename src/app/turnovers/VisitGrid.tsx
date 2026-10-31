@@ -33,6 +33,10 @@ type Props = {
   /** Holds the dispatch duty (team.ts): a row above the grid picks whom a
    *  tap plans for. Everyone else plans for themselves. */
   dispatcher?: boolean;
+  /** Unit home id -> its house (lib/unit-homes.ts): a unit with a guest in
+   *  the window rides under its house; one with nothing booked folds into
+   *  the house's row. */
+  parentOf?: Record<string, string>;
 };
 
 type Outcome = { ok: true; id?: string } | { ok: false; error: string };
@@ -48,7 +52,7 @@ const identityFor = (e: string): string => teamMemberForAnyEmail(e)?.email ?? e;
  *  occupancy calendar already give each channel (lib/channel-style.ts). */
 const CHANNEL_KEY = ['airbnb', 'vrbo', 'booking_com', 'direct'];
 
-export function VisitGrid({ today, days, homes, stays, myEmail, dispatcher = false }: Props) {
+export function VisitGrid({ today, days, homes, stays, myEmail, dispatcher = false, parentOf }: Props) {
   const { ask, choose } = useConfirm();
   const softRefresh = useSoftRefresh();
   // Whom a tap plans for. Everyone plans for themselves; the dispatcher
@@ -90,8 +94,9 @@ export function VisitGrid({ today, days, homes, stays, myEmail, dispatcher = fal
         nameFor,
         initialsFor,
         identityFor,
+        parentOf,
       }),
-    [today, days, homes, shown, actor],
+    [today, days, homes, shown, actor, parentOf],
   );
 
   function minePlan(date: string, stay: GridStay): GridPlan {
@@ -236,10 +241,20 @@ export function VisitGrid({ today, days, homes, stays, myEmail, dispatcher = fal
               </div>
             );
           })}
-          {grid.rows.map((row) => {
+          {grid.rows.map((row, i) => {
             const chip = deadlineChip(row.nextNeed, today);
+            // The line between the homes with an arrival ahead and the
+            // quiet ones, so the eye knows where the work ends.
+            const divider = row.quiet && i > 0 && !grid.rows[i - 1].quiet;
             return (
-              <Row key={row.propertyId} name={row.propertyName} chip={chip} cells={row.cells} today={today} pending={pending} onTap={(cell) => tap(row.propertyName, cell)} />
+              <Fragment key={row.propertyId}>
+                {divider && (
+                  <div className="rt-vg-divider">
+                    <span>No arrivals in the next two weeks</span>
+                  </div>
+                )}
+                <Row name={row.propertyName} unit={!!row.unitOf} folded={row.foldedUnits} chip={chip} cells={row.cells} today={today} pending={pending} onTap={(cell) => tap(row.propertyName, cell)} />
+              </Fragment>
             );
           })}
         </div>
@@ -300,6 +315,8 @@ export function VisitGrid({ today, days, homes, stays, myEmail, dispatcher = fal
 
 function Row({
   name,
+  unit,
+  folded,
   chip,
   cells,
   today,
@@ -307,6 +324,10 @@ function Row({
   onTap,
 }: {
   name: string;
+  /** A unit of a split home, riding under its house's row. */
+  unit: boolean;
+  /** This house's units with nothing booked, folded into the row. */
+  folded: string[];
   chip: string | null;
   cells: GridCell[];
   today: string;
@@ -315,8 +336,13 @@ function Row({
 }) {
   return (
     <>
-      <div className="rt-vg-name">
+      <div className="rt-vg-name" data-unit={unit || undefined}>
         <span className="rt-vg-nm">{name}</span>
+        {folded.length > 0 && (
+          <span className="rt-vg-units" title={`${listNames(folded)}: nothing booked in the next two weeks`}>
+            {folded.length} {folded.length === 1 ? 'unit' : 'units'}
+          </span>
+        )}
         {chip && (
           <span className="rt-vg-chip" title={`Guest arrives ${chip === 'today' ? 'today' : `in ${chip.replace('d', '')} day${chip === '1d' ? '' : 's'}`} and nobody is down to walk it`}>
             {chip}
@@ -343,11 +369,11 @@ function Row({
             onClick={() => onTap(cell)}
           >
             {cell.state !== 'open' ? (
-              <span className="rt-vg-bar" data-half="full" data-block={cell.state === 'blocked' || undefined} aria-hidden />
+              <span className="rt-vg-bar" data-half="full" data-block={cell.state === 'blocked' || undefined} data-long={cell.hold === 'long' || undefined} aria-hidden />
             ) : (
               <>
-                {cell.am && <span className="rt-vg-bar" data-half="am" data-end="" data-block={cell.am === 'block' || undefined} aria-hidden />}
-                {cell.pm && <span className="rt-vg-bar" data-half="pm" data-start="" data-block={cell.pm === 'block' || undefined} aria-hidden />}
+                {cell.am && <span className="rt-vg-bar" data-half="am" data-end="" data-block={cell.am === 'block' || undefined} data-long={(cell.am === 'block' && cell.hold === 'long') || undefined} aria-hidden />}
+                {cell.pm && <span className="rt-vg-bar" data-half="pm" data-start="" data-block={cell.pm === 'block' || undefined} data-long={(cell.pm === 'block' && cell.hold === 'long') || undefined} aria-hidden />}
                 {cell.channel && <span className="rt-vg-ch" data-channel={cell.channel} style={{ background: channelAccent(cell.channel) }} aria-hidden />}
               </>
             )}
@@ -380,7 +406,7 @@ function cellText(home: string, cell: GridCell, today: string): string {
   const who = cell.badges.map((b) => (b.kind === 'walked' ? `walked by ${b.name}` : b.kind === 'walking' ? `${b.name} walking now` : b.kind === 'field' ? b.name : b.kind === 'unassigned' ? b.name : `${b.name}${b.late ? ', was due earlier' : ''}`));
   const lead = `${home} · ${when}`;
   if (cell.state === 'occupied') return `${lead}: guest in house${who.length ? ` · ${who.join(', ')}` : ''}`;
-  if (cell.state === 'blocked') return `${lead}: owner / hold${who.length ? ` · ${who.join(', ')}` : ''}`;
+  if (cell.state === 'blocked') return `${lead}: owner / hold${cell.hold === 'long' ? ', no end in view' : ''}${who.length ? ` · ${who.join(', ')}` : ''}`;
   const events = [cell.leaving ? 'guest leaves' : null, cell.arriving ? `${cell.channel ? `${channelLabel(cell.channel)} ` : ''}guest arrives` : null].filter(Boolean).join(', ');
   const t = cell.tap;
   switch (t.kind) {
@@ -398,6 +424,12 @@ function cellText(home: string, cell: GridCell, today: string): string {
       if (cell.fieldOpen) return `${lead}: ${events ? `${events}, ` : ''}out to Field, nobody has claimed it yet.`;
       return `${lead}: ${events || 'open'}${who.length ? ` · ${who.join(', ')}` : ', nothing to prep'}`;
   }
+}
+
+/** "Front Unit and Guest House"; "A, B and C". */
+function listNames(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? '';
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
 }
 
 function dow(date: string): string {
