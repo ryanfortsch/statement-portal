@@ -13,6 +13,8 @@ export type PendingCounts = {
   owners?: number | null;
   cleaners?: number | null;
   contractors?: number | null;
+  /** The Guest reviews lens: host-review and review-reply cards waiting. */
+  reviews?: number | null;
 };
 
 const TTL_MS = 10_000;

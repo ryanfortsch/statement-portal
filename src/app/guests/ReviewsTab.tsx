@@ -431,6 +431,11 @@ function StayRow({ stay, propertyName }: { stay: RecentStay; propertyName?: stri
         <p style={{ marginTop: 6, fontSize: 13, lineHeight: 1.55, color: ASK_TONE_COLOR[stay.ask.tone] }}>
           {stay.ask.text}
         </p>
+        {stay.ourReview && (
+          <p style={{ marginTop: 4, fontSize: 12, lineHeight: 1.5, color: ASK_TONE_COLOR[stay.ourReview.tone] }}>
+            {stay.ourReview.text}
+          </p>
+        )}
       </div>
       <div style={{ textAlign: 'right' }}>
         <span style={{ fontSize: 10, letterSpacing: '.16em', textTransform: 'uppercase', color: 'var(--ink-3)', whiteSpace: 'nowrap' }}>

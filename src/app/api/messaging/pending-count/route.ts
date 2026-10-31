@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { listApprovals, listOwnerApprovals, listCleanerApprovals, listContractorApprovals, isStayConciergeConfigured } from '@/lib/stay-concierge';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { todayET } from '@/lib/checkout-schedule';
+import { isReviewLensKind, proactiveKind } from '@/app/messaging/format';
 
 /**
  * Lightweight count endpoint for the Messaging nav badge.
@@ -51,7 +52,7 @@ export async function GET() {
   if (!isStayConciergeConfigured()) {
     const [digests, ownerHolds] = await Promise.all([pendingDigestCount(), countPendingOwnerHoldQuestions(supabase)]);
     const cleaners = digests !== null && ownerHolds !== null ? digests + ownerHolds : null;
-    return NextResponse.json({ count: cleaners, guests: 0, owners: 0, cleaners, contractors: 0 });
+    return NextResponse.json({ count: cleaners, guests: 0, owners: 0, cleaners, contractors: 0, reviews: 0 });
   }
   const [guestRes, ownerRes, cleanerRes, contractorRes, digests, ownerHolds, vendorVisits] = await Promise.all([
     listApprovals(),
@@ -82,7 +83,13 @@ export async function GET() {
   // pending cards. If those numbers ever diverge again, the fix is to mirror
   // whatever filter the page added -- not to invent a new definition here.
   const notScheduled = (a: { status: string }) => a.status !== 'scheduled';
-  const guests = guestRes.ok ? guestRes.data.approvals.filter(notScheduled).length : null;
+  // The Guest reviews lens (/messaging/reviews) shows the host-review and
+  // review-reply cards and the Inbox leaves them out, so each count mirrors
+  // its own page, same rule as above.
+  const onReviewLens = (a: { guesty_message_id: string; topic: string }) =>
+    isReviewLensKind(proactiveKind(a.guesty_message_id, a.topic));
+  const guests = guestRes.ok ? guestRes.data.approvals.filter((a) => notScheduled(a) && !onReviewLens(a)).length : null;
+  const reviews = guestRes.ok ? guestRes.data.approvals.filter((a) => notScheduled(a) && onReviewLens(a)).length : null;
   const owners = !owner ? 0 : ownerRes?.ok ? ownerRes.data.approvals.filter(notScheduled).length : null;
   const cleaners = cleanerRes.ok && digests !== null && ownerHolds !== null
     ? cleanerRes.data.approvals.filter(notScheduled).length + digests + ownerHolds
@@ -91,10 +98,14 @@ export async function GET() {
   // filter (docs/vendor-visit-holds.md), so it counts with them.
   const contractors = contractorRes.ok && vendorVisits !== null ? contractorRes.data.approvals.filter(notScheduled).length + vendorVisits : null;
   return NextResponse.json({
-    count: guests !== null && owners !== null && cleaners !== null && contractors !== null ? guests + owners + cleaners + contractors : null,
+    count:
+      guests !== null && owners !== null && cleaners !== null && contractors !== null && reviews !== null
+        ? guests + owners + cleaners + contractors + reviews
+        : null,
     guests,
     owners,
     cleaners,
     contractors,
+    reviews,
   });
 }

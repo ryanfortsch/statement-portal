@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
 import { fetchPendingCounts, invalidatePendingCounts, subscribePendingCounts } from '../src/lib/pending-count-client.ts';
+import { isReviewLensKind, proactiveKind } from '../src/app/messaging/format.ts';
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
 const response = data => ({ ok: true, json: async () => data });
@@ -34,7 +35,7 @@ test('late pre-action count cannot overwrite a post-action count', async () => {
   } finally { globalThis.fetch = original; }
 });
 
-function route({ guestFailed = false, digestFailed = false, configured = true, ownerHolds = 0, role = 'owner', ownerPending = false, vendorVisits = 0 } = {}) {
+function route({ guestFailed = false, digestFailed = false, configured = true, ownerHolds = 0, role = 'owner', ownerPending = false, vendorVisits = 0, lensCards = [] } = {}) {
   const queries = [];
   const reads = { owner: 0 };
   const db = { from(table) { queries.push(['from',table]); return this; }, select(...a) { queries.push(['select',...a]); return this; }, eq(...a) { queries.push(['eq',...a]); return this; }, gte(...a) { queries.push(['gte',...a]); return this; }, order(...a) { queries.push(['order',...a]); return this; }, limit(...a) { queries.push(['limit',...a]); return this; }, then(done) { return Promise.resolve(digestFailed ? { error: {} } : { data: [{ id: 'visible' }] }).then(done); } };
@@ -42,6 +43,9 @@ function route({ guestFailed = false, digestFailed = false, configured = true, o
   const mocks = {
     'next/server': { NextResponse: { json: value => value } },
     '@/lib/property-scope': { CAPE_ANN_REGION: 'cape-ann' },
+    // The route tells the Guest reviews lens's cards apart from the Inbox's with
+    // the real kind table: a stand-in would hide a drifted prefix.
+    '@/app/messaging/format': { proactiveKind, isReviewLensKind },
     '@/lib/checkout-schedule': { todayET: () => '2026-09-29' },
     '@/lib/supabase-admin': { supabaseAdmin: db },
     // Owner blocks waiting on "clean after?" ride on the Cleaners badge; null
@@ -54,7 +58,7 @@ function route({ guestFailed = false, digestFailed = false, configured = true, o
     // is never read for it and counts as nothing.
     '@/lib/helm-access-server': { sessionRole: async () => role },
     '@/lib/stay-concierge': { isStayConciergeConfigured: () => configured,
-      listApprovals: async () => guestFailed ? { ok: false } : ok('pending','scheduled','pending'),
+      listApprovals: async () => guestFailed ? { ok: false } : { ok: true, data: { approvals: [...ok('pending','scheduled','pending').data.approvals, ...lensCards] } },
       listOwnerApprovals: async () => { reads.owner++; return ownerPending ? ok('pending', 'scheduled') : ok('scheduled'); },
       listCleanerApprovals: async () => ok('pending'),
       listContractorApprovals: async () => ok('pending'),
@@ -68,16 +72,32 @@ function route({ guestFailed = false, digestFailed = false, configured = true, o
 
 test('a staff login never reads the owner feed and its badge counts no owner drafts', async () => {
   const owner = route({ ownerPending: true });
-  assert.deepEqual(await owner.GET(), { count: 6, guests: 2, owners: 1, cleaners: 2, contractors: 1 });
+  assert.deepEqual(await owner.GET(), { count: 6, guests: 2, owners: 1, cleaners: 2, contractors: 1, reviews: 0 });
   assert.equal(owner.reads.owner, 1);
   const staff = route({ role: 'staff', ownerPending: true });
-  assert.deepEqual(await staff.GET(), { count: 5, guests: 2, owners: 0, cleaners: 2, contractors: 1 });
+  assert.deepEqual(await staff.GET(), { count: 5, guests: 2, owners: 0, cleaners: 2, contractors: 1, reviews: 0 });
   assert.equal(staff.reads.owner, 0, 'the owner feed must not be requested for staff');
+});
+
+test('our reviews of guests and replies to theirs count on the lens, never as guest drafts', async () => {
+  // The Guest reviews lens (/messaging/reviews) shows the host-review and
+  // review-reply cards and the Inbox leaves them out, so a badge that says 2
+  // guest drafts opens on 2 guest drafts. A queued (scheduled) card counts
+  // nowhere, same as every other audience.
+  const lensCards = [
+    { status: 'pending', guesty_message_id: 'hostreview:6aadab46:stop', topic: 'host_review_stop' },
+    { status: 'pending', guesty_message_id: 'reviewreply:68f1', topic: 'review_reply' },
+    { status: 'scheduled', guesty_message_id: 'reviewreply:68f2', topic: 'review_reply' },
+  ];
+  const data = await route({ lensCards }).GET();
+  assert.equal(data.guests, 2);
+  assert.equal(data.reviews, 2);
+  assert.equal(data.count, 7);
 });
 
 test('counts exclude scheduled sends and count only the visible regional digest card', async () => {
   const { GET, queries } = route(); const data = await GET();
-  assert.deepEqual(data, { count: 5, guests: 2, owners: 0, cleaners: 2, contractors: 1 });
+  assert.deepEqual(data, { count: 5, guests: 2, owners: 0, cleaners: 2, contractors: 1, reviews: 0 });
   assert.ok(queries.some(q => JSON.stringify(q) === JSON.stringify(['eq','region','cape-ann'])));
   assert.ok(queries.some(q => JSON.stringify(q) === JSON.stringify(['limit',1])));
   assert.ok(queries.some(q => JSON.stringify(q) === JSON.stringify(['gte','service_date','2026-09-29'])));

@@ -30,7 +30,7 @@ import { MessagingTabCount } from './MessagingTabCount';
 type MessagingAudience = 'guests' | 'owners' | 'team';
 /** 'none' is a page of the section that belongs to no audience (Delivery &
  *  sync): the strip renders with no tab lit, so the way out is still there. */
-type MessagingLens = 'inbox' | 'send' | 'blurbs' | 'quality';
+type MessagingLens = 'inbox' | 'reviews' | 'send' | 'blurbs' | 'quality';
 
 export function MessagingTabs({
   current,
@@ -43,6 +43,9 @@ export function MessagingTabs({
     current === 'guests'
       ? [
           { id: 'inbox', label: 'Inbox', href: '/messaging' },
+          // Our reviews of guests and replies to theirs (2026-10-30): a
+          // stop card is time-bound, so this lens carries a count pill.
+          { id: 'reviews', label: 'Guest reviews', href: '/messaging/reviews' },
           { id: 'send', label: 'Send', href: '/messaging/send' },
           { id: 'blurbs', label: 'Saved replies', href: '/messaging/blurbs' },
           { id: 'quality', label: 'Quality', href: '/messaging/quality' },
@@ -79,6 +82,7 @@ export function MessagingTabs({
                 >
                   {l.label}
                 </Link>
+                {l.id === 'reviews' && <MessagingTabCount category="reviews" />}
               </span>
             );
           })}
