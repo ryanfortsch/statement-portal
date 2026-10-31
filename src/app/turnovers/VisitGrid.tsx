@@ -4,7 +4,7 @@ import { Fragment, useMemo, useState } from 'react';
 import { useConfirm } from '@/components/ConfirmDialog';
 import { channelAccent, channelLabel } from '@/lib/channel-style';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
-import { assignableTeam, displayNameForEmail, hueForEmail, initialsForEmail, teamMemberForAnyEmail } from '@/lib/team';
+import { displayNameForEmail, hueForEmail, initialsForEmail, teamMemberForAnyEmail, walkTeam, walksHomes } from '@/lib/team';
 import {
   composeVisitGrid,
   deadlineChip,
@@ -53,13 +53,15 @@ export function VisitGrid({ today, days, homes, stays, myEmail, dispatcher = fal
   const softRefresh = useSoftRefresh();
   // Whom a tap plans for. Everyone plans for themselves; the dispatcher
   // picks a teammate on the row above the grid and the grid then reads as
-  // that person's: their marks are the ones a tap releases or moves.
-  const [planFor, setPlanFor] = useState(myEmail);
-  const actor = dispatcher ? planFor : myEmail;
+  // that person's: their marks are the ones a tap releases or moves. The
+  // row lists the walkers (team.ts `walks`), me first; a dispatcher who
+  // does not walk starts on the first of them.
   const team = useMemo(() => {
-    const all = assignableTeam();
+    const all = walkTeam();
     return [...all.filter((m) => m.email === myEmail), ...all.filter((m) => m.email !== myEmail)];
   }, [myEmail]);
+  const [planFor, setPlanFor] = useState(walksHomes(myEmail) || !dispatcher ? myEmail : (team[0]?.email ?? myEmail));
+  const actor = dispatcher ? planFor : myEmail;
   // Taps the server has not confirmed yet, layered over the stays the page
   // sent, so a mark shows the moment it is tapped. Dropped once fresh props
   // carry the saved plan, except for a tap still in flight.

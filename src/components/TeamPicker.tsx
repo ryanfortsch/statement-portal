@@ -21,6 +21,9 @@ type Props = {
   /** Optional placeholder text for the trigger when nothing is selected. */
   placeholder?: string;
   allowCustom?: boolean;
+  /** The roster rows to offer; default every active member. The walk
+   *  dialog passes `walkTeam()`, so someone who never walks is not named. */
+  members?: TeamMember[];
 };
 
 /**
@@ -32,7 +35,8 @@ type Props = {
  * Stays out of HTML form submission — the parent reads `value` from
  * its own state.
  */
-export function TeamPicker({ value, onChange, disabled, myEmail, placeholder = 'Unassigned', allowCustom = true }: Props) {
+export function TeamPicker({ value, onChange, disabled, myEmail, placeholder = 'Unassigned', allowCustom = true, members }: Props) {
+  const roster = members ?? TEAM_MEMBERS.filter((m) => m.active);
   const [open, setOpen] = useState(false);
   const [customMode, setCustomMode] = useState(false);
   const [customEmail, setCustomEmail] = useState('');
@@ -188,7 +192,7 @@ export function TeamPicker({ value, onChange, disabled, myEmail, placeholder = '
                   onClick={() => pick(myEmail)}
                 />
               )}
-              {myEmail && TEAM_MEMBERS.some((m) => m.email === myEmail) && (
+              {myEmail && roster.some((m) => m.email === myEmail) && (
                 <PickerRow
                   initials={initialsForEmail(myEmail)}
                   primary="Assign to me"
@@ -198,7 +202,7 @@ export function TeamPicker({ value, onChange, disabled, myEmail, placeholder = '
                 />
               )}
 
-              {TEAM_MEMBERS.filter((m) => m.active).map((m: TeamMember) => (
+              {roster.map((m: TeamMember) => (
                 <PickerRow
                   key={m.email}
                   initials={m.initials}

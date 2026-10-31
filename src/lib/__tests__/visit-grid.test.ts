@@ -259,18 +259,19 @@ describe('who is going, and what a tap does', () => {
 });
 
 describe('which homes are on the grid, and in what order', () => {
-  test('a home is on the grid only when someone could go there', () => {
-    const ids = gridFor(ME).rows.map((r) => r.propertyId);
-    assert.ok(!ids.includes('17_beach'), 'vacant all window');
-    assert.ok(!ids.includes('84_thatcher'), 'one guest all window');
-    assert.ok(!ids.includes('73_rocky_neck'), "a checkout with nobody behind it is the cleaner's day, not a walk");
-    assert.ok(ids.includes('4_middle'), 'an arrival just past the window: its prep days fall inside');
-    assert.equal(cell(ME, '4_middle', '2026-10-31').needs, true);
-    assert.ok(!ids.includes('47_atlantic'), 'an arrival well past the window');
+  test('every home is on the grid, the ones with nothing coming last (Dotti, 2026-10-31)', () => {
+    const rows = gridFor(ME).rows;
+    const ids = rows.map((r) => r.propertyId);
+    assert.equal(ids.length, HOMES.length, 'the whole fleet is accounted for');
+    assert.deepEqual(ids.slice(-3), ['17_beach', '73_rocky_neck', '84_thatcher'], 'vacant, a checkout with nobody behind it, one guest all window: last, by name');
+    assert.equal(cell(ME, '4_middle', '2026-10-31').needs, true, 'an arrival just past the window still asks for its prep days');
+    const quiet = rows.find((r) => r.propertyId === '73_rocky_neck')!;
+    assert.ok(quiet.cells.every((c) => !c.needs && c.tap.kind === 'none'), 'a quiet home asks for nothing and takes no tap');
+    assert.equal(quiet.nextNeed, null);
   });
   test('rows run in the order the week happens: next arrival first', () => {
     const ids = gridFor(ME).rows.map((r) => r.propertyId);
-    assert.deepEqual(ids, ['16_waterman', '20_enon', '30_woodward', '19_rackliffe', '3_south', '36_granite', '21_horton', '3_locust', '7_sumac', '4_middle']);
+    assert.deepEqual(ids, ['16_waterman', '20_enon', '30_woodward', '19_rackliffe', '3_south', '36_granite', '21_horton', '3_locust', '7_sumac', '4_middle', '47_atlantic', '17_beach', '73_rocky_neck', '84_thatcher']);
   });
 });
 
