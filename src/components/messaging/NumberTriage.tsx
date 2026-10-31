@@ -197,11 +197,14 @@ export function NumberTriage({ unknownNumbers, olderUnknownNumbers = [], suggest
     const isNew = s.suggestion_type === 'add_contact';
     return (
       <div key={s.id} data-triage="suggestion" style={rowStyle}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+        <div className="rt-triage-row">
+        <div className="rt-triage-facts">
           <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{s.suggested_name ?? formatPhone(s.phone ?? '')}</span>
           {s.phone && s.suggested_name && <span className="font-mono" style={{ fontSize: 12, color: 'var(--ink-3)' }}>{formatPhone(s.phone)}</span>}
           <span className="eyebrow" style={{ fontSize: 10, padding: '2px 7px', border: '1px solid var(--rule)', color: 'var(--ink-3)' }}>Quo address book</span>
           <span style={{ flex: 1, fontSize: 12, color: 'var(--ink-3)', minWidth: 160 }}>{s.reason}</span>
+        </div>
+        <div className="rt-triage-verbs">
           {isNew && (
             <select
               disabled={busy}
@@ -223,6 +226,7 @@ export function NumberTriage({ unknownNumbers, olderUnknownNumbers = [], suggest
             Not ours
           </button>
         </div>
+        </div>
         {suggestionErr[s.id] && <div role="alert" style={{ fontSize: 11, color: 'var(--negative)', paddingLeft: 2 }}>{suggestionErr[s.id]}</div>}
       </div>
     );
@@ -236,7 +240,11 @@ export function NumberTriage({ unknownNumbers, olderUnknownNumbers = [], suggest
     const flagged = doNotHostByPhone[u.phone];
     return (
       <div key={u.phone} data-triage="phone" style={rowStyle}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, flexWrap: 'wrap' }}>
+        {/* Facts on the left, the three verbs together on the right so they
+            never wrap one at a time; under 900px the verbs take their own
+            line (globals.css .rt-triage-row, 2026-10-31). */}
+        <div className="rt-triage-row">
+        <div className="rt-triage-facts">
           {known && <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', whiteSpace: 'nowrap' }}>{known.name}</span>}
           <span className="font-mono" style={known ? { fontSize: 12, color: 'var(--ink-3)', whiteSpace: 'nowrap' } : { fontSize: 13, fontWeight: 600, color: 'var(--ink)', whiteSpace: 'nowrap' }}>{formatPhone(u.phone)}</span>
           {known && (
@@ -261,6 +269,8 @@ export function NumberTriage({ unknownNumbers, olderUnknownNumbers = [], suggest
             {u.last_body ? `“${truncate(u.last_body, 90)}”` : 'Reached out'}
             {u.last_message_at && <span style={{ color: 'var(--ink-4)' }}>{' · '}{formatRelative(u.last_message_at)}</span>}
           </span>
+        </div>
+        <div className="rt-triage-verbs">
           <select
             disabled={busy}
             aria-label={`Attach ${formatPhone(u.phone)} to contact`}
@@ -282,6 +292,7 @@ export function NumberTriage({ unknownNumbers, olderUnknownNumbers = [], suggest
           <button type="button" disabled={busy} onClick={() => onNotOurs(u.phone)} style={smallBtn(false)}>
             {busy ? '…' : 'Not ours'}
           </button>
+        </div>
         </div>
         {/* A guest Helm will not host again, texting again: say so before
             anyone answers or files them (src/lib/do-not-host.ts). */}
