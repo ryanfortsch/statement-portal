@@ -45,7 +45,7 @@ describe('the home feed reads as the signed-in person\'s day', () => {
 
   test('a staff login sees its own meetings and none of an owner inbox', () => {
     const feed = read('src/components/ForMeFeed.tsx');
-    assert.ok(feed.includes("owner ? loadMeetingCards(new Date(), { days: WEEK_DAYS }) : email ? loadMeetingCards(new Date(), { createdBy: email, days: WEEK_DAYS }) : Promise.resolve([])"));
+    assert.ok(read('src/lib/appointment-agenda-server.ts').includes("owner ? {} : { createdBy: email }"));
     assert.ok(feed.includes('if (!owner && !mail.canOpen) {'), 'the triaged mail waits on its owners only');
     const meetings = read('src/lib/meetings.ts');
     assert.ok(meetings.includes("if (opts.createdBy) q = q.eq('created_by_email', opts.createdBy);"));

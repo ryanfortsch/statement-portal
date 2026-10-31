@@ -45,7 +45,7 @@ Related docs:
 
 **Vercel plan: Pro.** Verified against the Vercel API on 2026-08-25 (team "Rising Tide",
 `plan: pro`). Older source comments calling this a Hobby project were wrong and have been corrected.
-Practical consequences: the 32 scheduled crons and the 28 routes at `maxDuration = 300` (counted
+Practical consequences: the 33 scheduled crons and the 29 routes at `maxDuration = 300` (counted
 2026-10-23) are all fine, and platform Skew Protection is available. It was switched **on** on
 2026-08-26 at `skewProtectionMaxAge = 43200` (12 hours).
 
@@ -59,7 +59,7 @@ silently. They are here to tell you where the weight sits, nothing more.
 ```
 src/
   app/          37 route folders + api/. 151 pages, 78 *actions.ts server-action files
-    api/        148 route handlers, 33 cron routes (32 scheduled in vercel.json)
+    api/        149 route handlers, 34 cron routes (33 scheduled in vercel.json)
   lib/          450 top-level modules (478 including subfolders). The domain logic lives here.
   components/   145 shared components (91 at the top level, the rest in subfolders)
   proxy.ts      Next 16 middleware. THE auth gate. Read this before adding any public route.
@@ -68,7 +68,7 @@ supabase/migrations/   302 migrations
 scripts/               parity harnesses and one-off tools (see Testing below)
 ```
 
-**33 cron routes, 32 schedules, and that is correct.** `/api/cron/reviews-to-slips` is a manual
+**34 cron routes, 33 schedules, and that is correct.** `/api/cron/reviews-to-slips` is a manual
 and backfill trigger on purpose; the recurring work runs at the end of `/api/cron/sync-guesty`.
 Do not "fix" it by adding a schedule.
 
@@ -85,7 +85,7 @@ as modules land, so read it as where the weight sits today.
 
 | Route | What it is |
 |---|---|
-| `/` | The signed-in person's day. Ask Helm under the title; the For Me feed in the order a day is worked (`src/lib/home-feed-order.ts`: This week first, the next seven days day by day with my planned walks, meetings and my slips and to-dos dated this week (`src/lib/home-week.ts`; each row opens its own page), then the clock-bound team items, my work, replies, office queues, payments; owners keep the clean-after card first); Today at the houses; two signals (Open work · this week, Turnovers · next 7 days) plus payout for owners; the cleanings strip. Concierge alerts are one line linking to `/messaging#alerts`. The feed's × only ever hides a row from your own feed |
+| `/` | The signed-in person's day. Ask Helm under the title; the For Me feed in the order a day is worked (`src/lib/home-feed-order.ts`: Upcoming appointments first (30 days, explicit confirmation/attendance and source coverage, `src/lib/appointment-agenda.ts`), then my planned walks and dated work for seven days (`src/lib/home-week.ts`), then the clock-bound team items, my work, replies, office queues, payments; owners keep the clean-after card first); Today at the houses; two signals (Open work · this week, Turnovers · next 7 days) plus payout for owners; the cleanings strip. Concierge alerts are one line linking to `/messaging#alerts`. The feed's × only ever hides a row from your own feed |
 | `/statements` | Monthly owner statements. Ingest, reconcile, close, send |
 | `/revenue` | Portfolio revenue snapshot: stays, ADR, occupancy, owner payout |
 | `/forecast` | The business plan as an interactive model; the scenario is a link (`?year=2027&new=3,2,0`). Its Actuals section (`#actuals`) holds the company card and operating upload and the "Where it goes" ledger (`overhead_expenses`) |
@@ -109,7 +109,7 @@ as modules land, so read it as where the weight sits today.
 | `/owner-messaging` | Owner reply drafts (SMS + email), owners only |
 | `/messaging/team` | The Team inbox: cleaner drafts (Portuguese with the English beside them) and contractor drafts in one list, an All / Cleaners / Contractors filter, the schedule text and "clean after?" under it. `/cleaner-messaging` and `/contractor-messaging` redirect here |
 | `/guests` | Reviews (the last 30 days by default). The subscriber list is `/guests/contacts` (Add contact, New campaign, and a Manage list menu: campaigns, the CSV import, Sync from Guesty); `/guests/import` redirects there and `/guests/segments` to `/guests/campaigns/new`, whose audience select carries the segments. `/guests/agreements` for SCA rental agreements. `/guests/quotes` for SCA custom quotes and booking requests (composed here, paid on staycapeann.com). Testimonials from direct guests (`guest_testimonials`: the concierge's review ask links a form on staycapeann.com, see `src/lib/guest-testimonials.ts`) are approved or hidden on the Reviews tab and render ahead of Guesty's reviews on the home's listing page. All of these, `/marketing` and `/competitors` share the Growth strip |
-| `/crm` | Contacts, each with its Activity (calls, texts, emails and notes), and meetings. It opens on the contact list; one Refresh runs its syncs. Unknown numbers are triaged on the Messaging inbox (the New numbers card), not here. An important meeting (owner and prospect meetings by default) texts the evening before from the 24/7 line to `MEETING_REMINDER_PHONES`, else `DOTTI_PHONE` (the AirDNA reminder's rail); every meeting in the next seven days shows under This week on an owner's home feed, and a staff login sees the meetings it logged. The reminder cron and the home card failed every read from 10/07 until #2040 (2026-10-22): `contact_meetings.property_id` has no foreign key, so never embed `properties(...)` on it |
+| `/crm` | Contacts, each with its Activity (calls, texts, emails and notes), and meetings. It opens on the contact list; one Refresh runs its syncs. Unknown numbers are triaged on the Messaging inbox (the New numbers card), not here. An important meeting (owner and prospect meetings by default) texts the evening before from the 24/7 line to `MEETING_REMINDER_PHONES`, else `DOTTI_PHONE` (the AirDNA reminder's rail); business meetings in the next 30 days feed the home agenda for owners, with attendance held for review; staff see the meetings they logged. The reminder cron and the home card failed every read from 10/07 until #2040 (2026-10-22): `contact_meetings.property_id` has no foreign key, so never embed `properties(...)` on it |
 | `/channels` | The Helm-native Guesty replacement: multi-channel listings, iCal sync, bookings. Hidden from the nav lists (the route and Cmd+K stay) until a Cape Ann home is Helm-run; its pages light the Properties tab |
 | `/marketing` | Site traffic and conversions for both sites. `/marketing/airdna` for comps (owners only) |
 | `/competitors` | Other Cape Ann managers, inventory tracking. Owners only: owner-of-record research is prospecting |
@@ -262,6 +262,32 @@ home, so a night booked since the card was drafted stops it), then the ticked sl
 unclear day or home is a question on the card. A home is matched by street number AND a street
 word with dates stripped, never by a bare number, because "Wed 10/21" is not 21 Horton.
 `vendor-visit-guard.test.ts` holds the never-write-before-approve rule.
+
+
+The home appointment agenda also has `/appointments` for capture, review,
+rescheduling and cancellation. Saved business appointments are private to the
+signed-in email, including between owners; View as staff hides them. Existing
+CRM visibility is unchanged. Confirmed times, arrival windows, tentative plans,
+team coverage, owner-handled visits and unscheduled requests stay distinct.
+Explicit source identities merge reviewed Calendar/email copies or a legacy CRM
+row. Similar titles never merge automatically. Reviewing a CRM row in your own
+agenda does not change the original shared record or its reminder texts.
+
+Calendar and message ingestion is not comprehensive: no OAuth scopes are added
+by the agenda. Its source coverage must remain visible until real connections
+and successful syncs exist. Do not import private family/medical content or use
+occupancy/cleaning events as personal attendance. The bootstrap import script is
+offline by default and accepts reviewed business snapshots only; it is not a
+sync worker. See `docs/appointment-agenda.md` for rollout and checks.
+
+The separate hourly `/api/cron/appointment-capture` worker is opt-in through
+`AGENDA_CAPTURE_EMAILS`, reuses only existing identity-verified Google credentials
+and existing Quo business contact history, and records per-source freshness.
+`agenda_capture` observations are private, service-only, and distinct from saved
+appointments. Changed provider revisions require explicit review; they never
+silently overwrite reviewed details or send anything. Gmail/Quo capture is a
+bounded candidate queue, not exhaustive extraction. Calendar reads only the
+account's primary work calendar. Missing scopes remain a visible coverage gap.
 
 ## Auth and routing
 
@@ -980,7 +1006,7 @@ counted 2026-10-22).
 
 - **Core**: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
 - **Auth**: `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, `AUTH_SECRET`, `AUTH_URL`, `AUTH_COOKIE_DOMAIN`
-- **Cron**: `CRON_SECRET`. All 33 cron routes fail closed without it (verified 2026-10-22: every
+- **Cron**: `CRON_SECRET`. All 34 cron routes fail closed without it (verified 2026-10-22: every
   one calls `authorizeCron`).
 - **Guesty**: `GUESTY_CLIENT_ID`, `GUESTY_CLIENT_SECRET`
 - **Stripe**: `STRIPE_KEYS_JSON`, `STRIPE_KEYS_JSON_EXTRA`, `STRIPE_KEY_<PROPERTY_ID>`

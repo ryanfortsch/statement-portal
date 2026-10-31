@@ -16,9 +16,9 @@ import { FeedClearButton } from '@/components/FeedClearButton';
 import { listRecentPaymentLinks, type PaymentLinkRow } from '@/lib/payment-links';
 import { ageLabel, LINK_LOOKBACK_DAYS, money, paymentLinkStatus, stripeKeyFixUrl } from '@/lib/payment-links-text';
 import { PaymentLinkActions } from '@/app/messaging/send/PaymentLinkActions';
-import { loadMeetingCards } from '@/lib/meetings';
-import { formatMeetingTime, todayET, type MeetingCard } from '@/lib/meetings-core';
-import { countLater, groupByDay, weekEyebrow, workDateLabel, workDay, WEEK_DAYS, type WeekDay, type WorkDateKind } from '@/lib/home-week';
+import { AppointmentAgendaSection } from '@/components/agenda/AppointmentAgendaSection';
+import { todayET } from '@/lib/meetings-core';
+import { countLater, groupByDay, weekEyebrow, workDateLabel, workDay, type WeekDay, type WorkDateKind } from '@/lib/home-week';
 import { operatingDate } from '@/lib/operating-date';
 import { checkoutBoardHref } from '@/lib/turnover-board';
 import { roleMayOpen, type HelmRole } from '@/lib/helm-access';
@@ -86,8 +86,8 @@ const TIME_SENSITIVE: readonly FeedSection[] = ['holds', 'cleanings', 'week'];
 
 /**
  * The "For Me" home feed: the signed-in person's day, in the order it is
- * worked (lib/home-feed-order.ts). This week (my walks, meetings and dated
- * work, the next seven days day by day; lib/home-week.ts); then the
+ * worked (lib/home-feed-order.ts). Upcoming appointments and source coverage,
+ * then my walks and dated work for seven days (lib/home-week.ts); then the
  * clock-bound team items (an owner block's "clean after?", a cleaning to
  * check); then my work and what is waiting on my reply, or the team's
  * unassigned work; then the office queues; then guest payments. Owners keep
@@ -138,15 +138,12 @@ export async function ForMeFeed() {
     needsReply = [];
     fyi = [];
   }
-  const [{ work: allWork, mode: workMode }, dismissed, plannedWalks, queueCards, paymentCards, meetingCards, ownerHolds, unplacedTexts] = await Promise.all([
+  const [{ work: allWork, mode: workMode }, dismissed, plannedWalks, queueCards, paymentCards, ownerHolds, unplacedTexts] = await Promise.all([
     loadMyWork(email),
     loadDismissals(email),
     loadPlannedWalks(email),
     loadQueueCards(role),
     loadPaymentLinkCards(),
-    // Owners see every meeting on the calendar; staff see the ones they
-    // logged. Seven days: the window of This week.
-    owner ? loadMeetingCards(new Date(), { days: WEEK_DAYS }) : email ? loadMeetingCards(new Date(), { createdBy: email, days: WEEK_DAYS }) : Promise.resolve([]),
     // Owner blocks nobody has answered "clean after?" for. No clear
     // button: answering is the clear, on the buttons right here.
     loadOwnerHoldQuestions(supabase).catch(() => null),
@@ -174,14 +171,13 @@ export async function ForMeFeed() {
   const myTaskCount = allWork.filter(w => w.kind === 'task').length;
   const mySlipCount = allWork.length - myTaskCount;
 
-  // THIS WEEK: the next seven days as one list. The walks planned for me,
-  // the meetings, and my own dated work (only when I have work of my own:
+  // DATED WORK: the next seven days as one list. The walks planned for me
+  // and my own dated work (only when I have work of my own:
   // the unassigned backlog is nobody's week). Walks past the window are
   // counted so the grid is one tap away.
   const weekToday = operatingDate();
   const weekEntries: ThisWeekItem[] = [
     ...plannedWalks.flatMap((w): ThisWeekItem[] => (w.plannedFor ? [{ kind: 'walk', date: w.plannedFor, time: null, walk: w }] : [])),
-    ...meetingCards.map((m): ThisWeekItem => ({ kind: 'meeting', date: m.date, time: m.time, meeting: m })),
     ...(workMode === 'assigned' ? workFiltered : []).flatMap((w): ThisWeekItem[] => {
       const day = workDay(w.kind === 'slip' ? { scheduled: w.scheduledDate, followUp: w.followUpDate } : { due: w.dueDate }, weekToday);
       return day ? [{ kind: w.kind, date: day.date, time: null, work: w, dateKind: day.kind }] : [];
@@ -224,23 +220,23 @@ export async function ForMeFeed() {
         </>
       ) : null,
 
-    // THIS WEEK: the next seven days, day by day. A walk planned for me
-    // (the row lands on the walk's own pipeline row), a meeting logged on a
-    // contact page (every one for an owner, the ones I logged for staff),
-    // a slip or to-do of mine with a date this week. No header link: each
-    // row opens its own place. Days with nothing are left out.
+    // Appointments always render, including unavailable-source coverage.
+    // Walks and dated work keep their existing seven-day window underneath.
     week:
-      weekDays.length > 0 ? (
-        <>
-          <SectionHeader title="This week" eyebrow={weekEyebrow(weekCount, weekToday)} />
-          <div style={{ borderTop: '1px solid var(--ink)' }}>
-            {weekDays.map((d) => (
-              <ThisWeekDay key={d.date} day={d} />
-            ))}
-            {walksLater > 0 && <MoreRow href="/turnovers" text={`${walksLater} more walk${walksLater === 1 ? '' : 's'} after this week, on the grid`} />}
-          </div>
-        </>
-      ) : null,
+      <>
+        <AppointmentAgendaSection />
+        {weekDays.length > 0 ? (
+          <>
+            <SectionHeader title="Walks & dated work" eyebrow={weekEyebrow(weekCount, weekToday)} />
+            <div style={{ borderTop: '1px solid var(--ink)' }}>
+              {weekDays.map((d) => (
+                <ThisWeekDay key={d.date} day={d} />
+              ))}
+              {walksLater > 0 && <MoreRow href="/turnovers" text={`${walksLater} more walk${walksLater === 1 ? '' : 's'} after this week, on the grid`} />}
+            </div>
+          </>
+        ) : null}
+      </>,
 
     // NEEDS YOUR REPLY: triaged mail flagged for a reply and texts or
     // emails from a contact still waiting on us; then, with no heading, the
@@ -868,7 +864,6 @@ async function loadPlannedWalks(email: string): Promise<PlannedWalk[]> {
 
 type ThisWeekItem =
   | { kind: 'walk'; date: string; time: null; walk: PlannedWalk }
-  | { kind: 'meeting'; date: string; time: string | null; meeting: MeetingCard }
   | { kind: 'slip' | 'task'; date: string; time: null; work: MyWork; dateKind: WorkDateKind };
 
 /** One day of This week: its name and date on one line, its rows under it.
@@ -885,44 +880,11 @@ function ThisWeekDay({ day }: { day: WeekDay<ThisWeekItem> }) {
       {day.items.map((it) =>
         it.kind === 'walk' ? (
           <PlannedWalkRow key={`walk-${it.walk.id}`} walk={it.walk} />
-        ) : it.kind === 'meeting' ? (
-          <MeetingFeedRow key={`meeting-${it.meeting.id}`} meeting={it.meeting} />
         ) : (
           <MyWorkRow key={`${it.kind}-${it.work.id}`} item={it.work} onDay={it.dateKind} />
         ),
       )}
     </div>
-  );
-}
-
-/** A meeting under its day heading: who, what, the clock if one was agreed. */
-function MeetingFeedRow({ meeting: m }: { meeting: MeetingCard }) {
-  const today = todayET();
-  const isToday = m.date === today;
-  const dotColor = isToday ? 'var(--signal)' : 'var(--tide-deep)';
-  const detail = [m.propertyName, m.location].filter(Boolean).join(' · ');
-  // An appointment is at the house, so the home leads and the owner follows.
-  const appointment = m.kind === 'appointment';
-  return (
-    <Link
-      href={`/crm/${m.contactId}`}
-      style={{ ...feedRowStyle, alignItems: 'center', textDecoration: 'none', color: 'inherit' }}
-    >
-      <span style={{ ...dotStyle, marginTop: 0, background: dotColor }} aria-hidden="true" />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 14, color: 'var(--ink)' }}>
-          {appointment ? (m.propertyName ?? m.contactName) : m.contactName}
-          {m.title && (appointment || m.title.toLowerCase() !== `meeting with ${m.contactName}`.toLowerCase()) ? (
-            <span style={{ color: 'var(--ink-3)' }}> · {m.title}</span>
-          ) : null}
-        </div>
-        <div style={{ marginTop: 3, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.06em' }}>
-          {formatMeetingTime(m.time) ?? 'No time set'}
-          {appointment ? ` · booked by ${m.contactName}` : detail ? ` · ${detail}` : ''}
-          {m.notes ? ` · ${m.notes}` : ''}
-        </div>
-      </div>
-    </Link>
   );
 }
 

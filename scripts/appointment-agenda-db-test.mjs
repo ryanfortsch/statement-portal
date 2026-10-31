@@ -1,0 +1,75 @@
+/** Disposable local PostgreSQL only. Requires pg (or PG_TEST_MODULES pointing to its node_modules). */
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const { Client } = process.env.PG_TEST_MODULES ? require(process.env.PG_TEST_MODULES + '/pg') : require('pg');
+const url = new URL(process.env.AGENDA_TEST_DATABASE_URL || '');
+if (!['127.0.0.1', 'localhost'].includes(url.hostname) || url.pathname !== '/helm_agenda_test') throw Error('Use a disposable local helm_agenda_test database.');
+const config = { connectionString: url.href };
+const client = new Client(config); await client.connect();
+const d = { title: 'Synthetic business meeting', date: '2026-11-02', time: '10:00', endTime: '10:30', timeKind: 'exact', status: 'confirmed', attendance: 'attending', propertyName: null, location: null, people: null, notes: null, sourceLabel: 'Synthetic source', sourceUrl: null, sourceKeys: ['gcal:operator@risingtidestr.com:event-a', 'gmail:operator@risingtidestr.com:123456abcdef'], reviewReason: null };
+const a = '00000000-0000-4000-a000-000000000001', b = '00000000-0000-4000-a000-000000000002', c = '00000000-0000-4000-a000-000000000003';
+const save = (db, id, version, details = d, user = 'operator@risingtidestr.com') => db.query('select * from public.save_agenda_appointment($1,$2,$3,$4::jsonb)', [user, id, version, JSON.stringify(details)]);
+try {
+  await client.query(`do $$ begin if not exists(select 1 from pg_roles where rolname='anon') then create role anon; end if; if not exists(select 1 from pg_roles where rolname='authenticated') then create role authenticated; end if; if not exists(select 1 from pg_roles where rolname='service_role') then create role service_role bypassrls; end if; end $$; grant usage on schema public to service_role, anon, authenticated;`);
+  await client.query(await readFile('supabase/migrations/20261031030000_appointment_agenda.sql', 'utf8'));
+  await client.query(await readFile('supabase/migrations/20261031040000_appointment_capture.sql', 'utf8'));
+  await client.query('set role service_role');
+  assert.equal((await save(client, a, 0)).rows[0].version, 1);
+  assert.equal((await save(client, a, 0)).rows[0].version, 1); // lost response retry
+  assert.equal((await client.query('select count(*) from agenda_appointments')).rows[0].count, '1');
+  assert.equal((await client.query('select count(*) from agenda_source_links')).rows[0].count, '2');
+  console.log('PASS creation, exact retry and alias identities');
+  await assert.rejects(save(client, b, 0), /already belongs/);
+  assert.equal((await client.query('select count(*) from agenda_appointments')).rows[0].count, '1');
+  const moved = { ...d, date: '2026-12-02', sourceKeys: [d.sourceKeys[0]] };
+  assert.equal((await save(client, a, 1, moved)).rows[0].version, 2);
+  await assert.rejects(save(client, a, 1, { ...d, title: 'Stale edit' }), /changed/);
+  assert.equal((await client.query('select count(*) from agenda_source_links')).rows[0].count, '2');
+  const cancelled = { ...moved, status: 'cancelled' };
+  assert.equal((await save(client, a, 2, cancelled)).rows[0].version, 3);
+  await assert.rejects(save(client, b, 0, { ...d, sourceKeys: [d.sourceKeys[1]] }), /already belongs/);
+  console.log('PASS duplicate rollback, reschedule, stale edit, cancellation and retained aliases');
+  await assert.rejects(save(client, a, 3, d, 'other@risingtidestr.com'), /unavailable/);
+  await save(client, b, 0, d, 'other@risingtidestr.com');
+  console.log('PASS account isolation and per-account source namespaces');
+  const parallel = new Client(config); await parallel.connect(); await parallel.query('set role service_role');
+  const concurrent = { ...d, sourceKeys: ['manual:concurrent'] };
+  const result = await Promise.all([save(client, c, 0, concurrent), save(parallel, c, 0, concurrent)]);
+  assert.deepEqual(result.map(r => r.rows[0].version), [1,1]);
+  const raceId1 = '00000000-0000-4000-a000-000000000004', raceId2 = '00000000-0000-4000-a000-000000000005';
+  const aliasRace = await Promise.allSettled([save(client, raceId1, 0, { ...d, sourceKeys: ['manual:alias-race'] }), save(parallel, raceId2, 0, { ...d, sourceKeys: ['manual:alias-race'] })]);
+  assert.equal(aliasRace.filter(r => r.status === 'fulfilled').length, 1);
+  const sharedId = '00000000-0000-4000-a000-000000000006';
+  const idRace = await Promise.allSettled([save(client, sharedId, 0, { ...d, sourceKeys: ['manual:id-race'] }), save(parallel, sharedId, 0, { ...d, sourceKeys: ['manual:id-race-other'] }, 'other@risingtidestr.com')]);
+  assert.equal(idRace.filter(r => r.status === 'fulfilled').length, 1);
+  await parallel.end();
+  console.log('PASS concurrent retries, competing source claims and cross-account UUID races');
+  const lease = '00000000-0000-4000-a000-000000000011', lease2 = '00000000-0000-4000-a000-000000000012';
+  const claim = (id) => client.query('select claim_agenda_capture($1,$2) as claimed', ['operator@risingtidestr.com', id]);
+  assert.equal((await claim(lease)).rows[0].claimed, true); assert.equal((await claim(lease2)).rows[0].claimed, false);
+  const capture = { source_key: d.sourceKeys[0], kind: 'calendar', revision: 'a'.repeat(64), aliases: d.sourceKeys, details: d, checked_at: new Date().toISOString() };
+  const record = (id, records = [capture], state = { state: 'available', detail: 'Synthetic complete read', last_success_at: new Date().toISOString() }) => client.query('select record_agenda_capture($1,$2,$3,$4,$5)', ['operator@risingtidestr.com', id, 'calendar', JSON.stringify(records), JSON.stringify(state)]);
+  await record(lease); const firstChanged = (await client.query('select changed_at from agenda_capture')).rows[0].changed_at.toISOString();
+  await record(lease); assert.equal((await client.query('select changed_at from agenda_capture')).rows[0].changed_at.toISOString(), firstChanged);
+  await assert.rejects(record(lease2), /lease expired/);
+  await record(lease, [], { state: 'unavailable', detail: 'Synthetic failure', last_success_at: null });
+  assert.equal((await client.query('select count(*) from agenda_capture')).rows[0].count, '1');
+  await client.query("update agenda_capture_lease set expires_at=now()-interval '1 second'");
+  assert.equal((await claim(lease2)).rows[0].claimed, true); await assert.rejects(record(lease), /lease expired/);
+  await assert.rejects(record(lease2, [{ ...capture, kind: 'gmail' }]), /source mismatch/);
+  assert.equal((await client.query('select state from agenda_capture_state')).rows[0].state, 'unavailable');
+  console.log('PASS capture leases, unchanged revisions, failure retention and atomic source writes');
+  await client.query('reset role');
+  for (const role of ['anon', 'authenticated']) {
+    await client.query(`set role ${role}`);
+    await assert.rejects(client.query('select * from agenda_appointments'), /permission denied/);
+    await assert.rejects(save(client, c, 1), /permission denied/);
+    await assert.rejects(client.query('select * from agenda_capture'), /permission denied/);
+    await assert.rejects(client.query('select * from agenda_capture_state'), /permission denied/);
+    await assert.rejects(claim(lease), /permission denied/);
+    await client.query('reset role');
+  }
+  console.log('PASS no direct anonymous/authenticated read or RPC access');
+} finally { await client.end(); }

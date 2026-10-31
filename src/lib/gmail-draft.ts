@@ -140,6 +140,14 @@ async function getAccessToken(pick: TokenPick, timeoutMs?: number): Promise<stri
   return data.access_token;
 }
 
+/** Read integrations may reuse only an already authorized, identity-verified
+ * mailbox. This never requests scopes, opens OAuth or falls back to another user. */
+export async function existingGoogleAccess(email: string): Promise<string | null> {
+  const mailbox = await sessionMailbox(email);
+  const pick = mailbox ? tokenFor(mailbox.key) : null;
+  return pick ? getAccessToken(pick, 10000) : null;
+}
+
 /** Base64-URL encoding (RFC 4648 §5). Gmail's drafts endpoint requires this. */
 function base64url(input: string | Buffer): string {
   const buf = typeof input === 'string' ? Buffer.from(input, 'utf-8') : input;
