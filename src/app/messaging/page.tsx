@@ -33,6 +33,7 @@ import { guestFirstFromDraft, prettifySlug } from './format';
 import { ConversationsBrowser } from './Conversations';
 import { NumberTriage } from '@/components/messaging/NumberTriage';
 import { loadNumberTriage, triageIsEmpty } from '@/lib/number-triage';
+import { loadDoNotHostGuests, loadGuestyGuestByReservation } from '@/lib/do-not-host-server';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -135,7 +136,14 @@ async function QueueSection() {
   // priced instead of leaving the operator to go and look. Degrades to {}:
   // the queue is the point of this page and must render without it.
   const quotes = await loadGuestQuoteContext(pending.data.approvals).catch(() => ({}));
-  return <MessagingQueue initialPending={pending.data.approvals} initialQuotes={quotes} aiPaused={aiPaused} held={held} />;
+  // The guests Helm will not host again, and the Guesty guest behind each
+  // card's reservation so an OTA card resolves too. Both degrade to nothing:
+  // the flag is an enrichment, never a gate on the queue.
+  const flagged = await loadDoNotHostGuests().catch(() => []);
+  const guestyGuests = flagged.length > 0
+    ? await loadGuestyGuestByReservation(pending.data.approvals.map((a) => a.reservation_id)).catch(() => ({}))
+    : {};
+  return <MessagingQueue initialPending={pending.data.approvals} initialQuotes={quotes} aiPaused={aiPaused} held={held} flagged={flagged} guestyGuests={guestyGuests} />;
 }
 
 // Numbers that reached a Quo line and that Helm cannot name, plus what the

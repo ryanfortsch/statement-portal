@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { maintenanceWorkState, MaintenanceWorkControls } from '@/components/MaintenanceWorkPanel';
 import { EnglishLine } from '@/components/messaging/TranslationLine';
 import { splitMaintenanceOutcomes } from '@/lib/message-outcomes';
@@ -8,6 +8,8 @@ import { useHelmRole } from '@/components/useHelmRole';
 import { useQueueRefresh } from '@/components/QueueRefreshControl';
 import { useApprovalQueue } from '@/lib/use-approval-queue';
 import type { Approval } from '@/lib/stay-concierge';
+import { buildDoNotHostIndex, type DoNotHostGuest, type DoNotHostIndex } from '@/lib/do-not-host';
+import { DoNotHostLine } from '@/components/DoNotHostLine';
 import type { CardQuoteBlock, GuestQuoteContext } from '@/lib/guest-quote-context-core';
 import { ApprovalCard, BodyText, sentAgoLabel, type CardController } from '@/components/messaging/card/ApprovalCard';
 import { ApprovalQueue, type QueueCardHelpers } from '@/components/messaging/card/ApprovalQueue';
@@ -70,6 +72,8 @@ export function MessagingQueue({
   initialQuotes,
   aiPaused,
   held,
+  flagged,
+  guestyGuests,
 }: {
   initialPending: Approval[];
   /** This guest's Stay Cape Ann quotes, keyed by approval id. Rides the
@@ -80,7 +84,15 @@ export function MessagingQueue({
   /** First-contact emails the pitch screen held in the last day, with no
    *  draft written: they wait here with Release, not two folds deep. */
   held?: HeldPitch[];
+  /** The do-not-host register (src/lib/do-not-host.ts): the guests Helm will
+   *  not host again, with every key each is known by. A card about one of
+   *  them carries the red line. Absent or empty: no card is flagged. */
+  flagged?: DoNotHostGuest[];
+  /** reservation id -> Guesty guest id for the cards on the page, so an OTA
+   *  card (no email, no phone) still resolves. */
+  guestyGuests?: Record<string, string>;
 }) {
+  const doNotHost = useMemo(() => buildDoNotHostIndex(flagged ?? []), [flagged]);
   const { approvals, context: quotes, refreshStatus, refresh, watchRegen, stalledId } = useApprovalQueue<Approval, GuestQuoteContext>(
     initialPending,
     'guests',
@@ -113,6 +125,8 @@ export function MessagingQueue({
           onRegenerating={watchRegen}
           regenStalled={stalledId === approval.id}
           aiPaused={aiPaused}
+          doNotHost={doNotHost}
+          guestyGuestId={guestyGuests?.[approval.reservation_id] ?? null}
         />
       )}
     />
@@ -126,6 +140,8 @@ function GuestCard({
   onRegenerating,
   regenStalled,
   aiPaused,
+  doNotHost,
+  guestyGuestId,
 }: {
   approval: Approval;
   /** Stay Cape Ann quotes already on file for this guest, with the true
@@ -136,6 +152,8 @@ function GuestCard({
   onRegenerating: (id: string) => void;
   regenStalled: boolean;
   aiPaused?: { reason?: string } | null;
+  doNotHost: DoNotHostIndex;
+  guestyGuestId: string | null;
 }) {
   const id = approval.id;
   // Guest pricing is set by the owners: /guests/quotes is an owner page, so a
@@ -212,6 +230,14 @@ function GuestCard({
     : null;
   const kind = proactiveKind(approval.guesty_message_id, approval.topic);
   const badge = proactiveBadge(kind);
+  // A guest Helm will not host again: the Guesty guest behind the
+  // reservation, else the email or the phone the card carries. One red line
+  // under the header, read before the reply (src/lib/do-not-host.ts).
+  const doNotHostMatch = doNotHost.resolve({
+    guestyGuestId,
+    email: approval.guest_email || pre?.guest_email || null,
+    phone: approval.sms_to || pre?.guest_phone || approval.addon?.guest_phone || null,
+  });
   // A proactive card has no guest message, so "Guest said thanks" cannot apply.
   const noReplyReasons = kind ? NO_REPLY_REASONS.filter((r) => r !== 'Guest said thanks') : NO_REPLY_REASONS;
 
@@ -488,6 +514,7 @@ function GuestCard({
       ageMinutes={approval.age_minutes}
       createdAt={approval.created_at}
       shortId={approval.short_id}
+      flag={doNotHostMatch ? <DoNotHostLine reason={doNotHostMatch.reason} set_by={doNotHostMatch.set_by} set_at={doNotHostMatch.set_at} /> : undefined}
       wait={waitReason({
         status: approval.status,
         lastSendError: approval.last_send_error,

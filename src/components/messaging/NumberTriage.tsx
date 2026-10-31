@@ -8,6 +8,8 @@ import type { ContactType, UnknownNumberRow } from '@/lib/crm';
 import { QUO_LINES } from '@/lib/quo-lines';
 import type { ContactReconcileSuggestionRow } from '@/lib/quo-reconcile';
 import type { KnownForRow } from '@/lib/number-triage';
+import type { DoNotHostNote } from '@/lib/do-not-host';
+import { DoNotHostLine } from '@/components/DoNotHostLine';
 import {
   addUnknownAsContact,
   dismissUnknownNumber,
@@ -47,6 +49,8 @@ type Props = {
   olderSuggestions?: ContactReconcileSuggestionRow[];
   guestByPhone: Record<string, string>;
   knownByPhone?: Record<string, KnownForRow>;
+  /** phone -> the do-not-host note, when the number is a guest Helm will not host again. */
+  doNotHostByPhone?: Record<string, DoNotHostNote>;
   contacts: TriageContact[];
   properties: Array<{ id: string; name: string }>;
 };
@@ -66,7 +70,7 @@ function defaultTypeForLine(line: UnknownNumberRow['quo_line'], known?: KnownFor
   return 'other';
 }
 
-export function NumberTriage({ unknownNumbers, olderUnknownNumbers = [], suggestions, olderSuggestions = [], guestByPhone, knownByPhone = {}, contacts, properties }: Props) {
+export function NumberTriage({ unknownNumbers, olderUnknownNumbers = [], suggestions, olderSuggestions = [], guestByPhone, knownByPhone = {}, doNotHostByPhone = {}, contacts, properties }: Props) {
   const router = useRouter();
   const softRefresh = useSoftRefresh();
   const [promote, setPromote] = useState<UnknownNumberRow | null>(null);
@@ -229,6 +233,7 @@ export function NumberTriage({ unknownNumbers, olderUnknownNumbers = [], suggest
     const known = knownByPhone[u.phone];
     const target = attachTarget(u.phone);
     const suggestion = contactSuggestions[u.phone];
+    const flagged = doNotHostByPhone[u.phone];
     return (
       <div key={u.phone} data-triage="phone" style={rowStyle}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, flexWrap: 'wrap' }}>
@@ -278,6 +283,9 @@ export function NumberTriage({ unknownNumbers, olderUnknownNumbers = [], suggest
             {busy ? '…' : 'Not ours'}
           </button>
         </div>
+        {/* A guest Helm will not host again, texting again: say so before
+            anyone answers or files them (src/lib/do-not-host.ts). */}
+        {flagged && <DoNotHostLine size="sm" reason={flagged.reason} set_by={flagged.set_by} set_at={flagged.set_at} />}
         {(suggestion || known?.contactId) && <p style={{ fontSize: 12, color: 'var(--tide-deep)', margin: '6px 0' }}>Suggested match: {suggestion?.contact.name ?? known?.name}. {suggestion?.evidence ?? `Number found in ${known?.label.toLowerCase()} records`}. Confirm or choose another contact.</p>}
         {attachMsg[u.phone] && <div role="status" style={{ fontSize: 11, color: 'var(--ink-3)', paddingLeft: 2 }}>{attachMsg[u.phone]}</div>}
       </div>

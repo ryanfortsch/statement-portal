@@ -37,6 +37,9 @@ export type StayRow = {
   property_id: string | null;
   guest_name: string | null;
   guest_phone: string | null;
+  /** The booking's email, when the source gave one; the do-not-host
+   *  register answers by email before phone. Optional for older callers. */
+  guest_email?: string | null;
   check_in: string;
   check_out: string;
   status: string | null;
@@ -52,6 +55,7 @@ export type StayWhen = 'in-house' | 'arriving' | 'upcoming' | 'departed';
 export type GuestStayMatch = {
   bookingId: string;
   guestName: string;
+  guestEmail: string | null;
   propertyId: string | null;
   checkIn: string;
   checkOut: string;
@@ -105,6 +109,7 @@ export function indexStaysByPhone(rows: StayRow[], today: string): Record<string
     const candidate: GuestStayMatch = {
       bookingId: r.id,
       guestName: (r.guest_name as string).trim(),
+      guestEmail: (r.guest_email ?? '').trim() || null,
       propertyId: r.property_id,
       checkIn: r.check_in,
       checkOut: r.check_out,
@@ -149,7 +154,7 @@ export async function loadGuestStaysByPhone(db: Db, today: string): Promise<Reco
       (from, to) =>
         db
           .from('bookings')
-          .select('id, property_id, guest_name, guest_phone, check_in, check_out, status, duplicate_of')
+          .select('id, property_id, guest_name, guest_phone, guest_email, check_in, check_out, status, duplicate_of')
           .gte('check_out', addDays(today, -GUEST_LOOKBACK_DAYS))
           .lte('check_in', addDays(today, GUEST_LOOKAHEAD_DAYS))
           .order('id', { ascending: true })

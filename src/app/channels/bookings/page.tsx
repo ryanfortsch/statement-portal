@@ -12,6 +12,9 @@ import { isOwnerSession } from '@/lib/helm-access-server';
 import { CHANNEL_LABELS, STATUS_LABELS, type BookingChannel, type BookingStatus } from '@/lib/channels-types';
 import { authorityBadge, channelColor, sourceGlyph } from '@/lib/calendar-model';
 import { shiftIsoDay, todayInEastern } from '@/lib/sca-quotes-types';
+import { loadDoNotHostIndex } from '@/lib/do-not-host-server';
+import { EMPTY_DO_NOT_HOST_INDEX, type DoNotHostIndex } from '@/lib/do-not-host';
+import { DoNotHostLine } from '@/components/DoNotHostLine';
 
 export const dynamic = 'force-dynamic';
 
@@ -60,7 +63,10 @@ export default async function ChannelsBookingsPage({ searchParams }: { searchPar
     dbError = e instanceof Error ? e.message : String(e);
   }
   if (status) bookings = bookings.filter((b) => b.status === status);
-  const echoes = await safeEchoes(bookings.map((b) => b.id));
+  const [echoes, doNotHost] = await Promise.all([
+    safeEchoes(bookings.map((b) => b.id)),
+    loadDoNotHostIndex().catch(() => EMPTY_DO_NOT_HOST_INDEX),
+  ]);
 
   const fleetById = new Map(fleet.map((p) => [p.id, p]));
   const directFeedIds = new Set(listings.filter((l) => l.is_active && !!l.ical_import_url && l.channel !== 'guesty').map((l) => l.property_id));
@@ -159,7 +165,7 @@ export default async function ChannelsBookingsPage({ searchParams }: { searchPar
         {bookings.length === 0 ? (
           <EmptyState />
         ) : (
-          <BookingsTable bookings={bookings} fleetById={fleetById} directFeedIds={directFeedIds} echoes={echoes} today={today} qs={qs} />
+          <BookingsTable bookings={bookings} fleetById={fleetById} directFeedIds={directFeedIds} echoes={echoes} today={today} qs={qs} doNotHost={doNotHost} />
         )}
       </section>
 
@@ -196,6 +202,7 @@ async function BookingsTable({
   echoes,
   today,
   qs,
+  doNotHost,
 }: {
   bookings: BookingEx[];
   fleetById: Map<string, FleetProperty>;
@@ -203,6 +210,8 @@ async function BookingsTable({
   echoes: Map<string, number>;
   today: string;
   qs: (patch: Record<string, string | undefined>) => string;
+  /** The guests Helm will not host again; a row naming one carries the red line. */
+  doNotHost: DoNotHostIndex;
 }) {
   // The Payout column is owner money per stay: owners only, and the grid
   // loses the column rather than keeping an empty one.
@@ -228,6 +237,7 @@ async function BookingsTable({
         const isCancelled = b.status === 'cancelled';
         const echo = echoes.get(b.id) ?? 0;
         const inHouse = b.check_in <= today && b.check_out > today && (b.status === 'confirmed' || b.status === 'completed');
+        const flagged = b.status !== 'block' ? doNotHost.resolve({ email: b.guest_email, phone: b.guest_phone }) : null;
         return (
           <div key={b.id} style={{ display: 'grid', gridTemplateColumns: cols, gap: 12, padding: '12px 0', alignItems: 'baseline', borderBottom: '1px solid var(--rule)', opacity: isCancelled ? 0.5 : 1 }}>
             <span style={{ display: 'inline-block', width: 6, height: 20, background: channelColor(b.channel, b.status === 'block'), transform: 'translateY(3px)' }} />
@@ -265,6 +275,7 @@ async function BookingsTable({
                   +{echo} echo{echo === 1 ? '' : 'es'}
                 </span>
               )}
+              {flagged && <DoNotHostLine size="sm" reason={flagged.reason} set_by={flagged.set_by} set_at={flagged.set_at} style={{ marginTop: 4 }} />}
             </span>
             <span className="tabular-nums" style={{ fontSize: 12, textAlign: 'right' }}>{b.nights ?? '-'}</span>
             {owner && <span className="tabular-nums" style={{ fontSize: 12, textAlign: 'right', color: 'var(--ink-3)' }}>{b.payout ? `$${Math.round(b.payout)}` : '-'}</span>}

@@ -348,3 +348,91 @@ export async function manuallyAddContact(formData: FormData): Promise<AddContact
   revalidatePath('/guests/contacts');
   return outcome;
 }
+
+/** What the Do not host again control reports back inline. */
+export type DoNotHostOutcome = { ok: true } | { ok: false; error: string };
+
+/** The reason prints beside the flag on every surface, so it stays one line. */
+const DO_NOT_HOST_REASON_MAX = 240;
+
+/**
+ * Do not host this guest again. Owners and staff alike: the person who was
+ * harassed or found the damage is the one who knows, and a staff login is
+ * who answers the texts. The reason is required because the line that
+ * follows the guest everywhere is only as useful as its why. Writes the
+ * four flag columns on the record and one timeline event; nothing is
+ * blocked or messaged by this write (src/lib/do-not-host.ts).
+ */
+export async function setDoNotHost(input: { id: string; reason: string }): Promise<DoNotHostOutcome> {
+  const session = await auth();
+  const by = session?.user?.email;
+  if (!by) return { ok: false, error: 'Not signed in.' };
+
+  const id = String(input?.id || '').trim();
+  if (!id) return { ok: false, error: 'Missing contact id.' };
+  const reason = String(input?.reason || '').trim().replace(/\s+/g, ' ');
+  if (!reason) return { ok: false, error: 'Say why, in a few words. The reason prints beside the flag wherever this guest appears.' };
+  if (reason.length > DO_NOT_HOST_REASON_MAX) return { ok: false, error: `Keep the reason under ${DO_NOT_HOST_REASON_MAX} characters; it prints as one line.` };
+
+  const { data, error } = await supabase
+    .from('audience_contacts')
+    .update({
+      do_not_host: true,
+      do_not_host_reason: reason,
+      do_not_host_set_by: by,
+      do_not_host_set_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+    .select('id');
+  if (error) return { ok: false, error: error.message };
+  if (!data || data.length === 0) return { ok: false, error: 'That guest record was not found.' };
+
+  await supabase.from('audience_events').insert({
+    contact_id: id,
+    event_type: 'do_not_host_set',
+    metadata: { reason, by, source: 'helm_ui' },
+  });
+
+  revalidatePath('/guests/contacts');
+  revalidatePath(`/guests/${id}`);
+  return { ok: true };
+}
+
+/** Undo: host them again. The decision and its reason stay in the timeline. */
+export async function clearDoNotHost(input: { id: string }): Promise<DoNotHostOutcome> {
+  const session = await auth();
+  const by = session?.user?.email;
+  if (!by) return { ok: false, error: 'Not signed in.' };
+
+  const id = String(input?.id || '').trim();
+  if (!id) return { ok: false, error: 'Missing contact id.' };
+
+  const { data: before } = await supabase
+    .from('audience_contacts')
+    .select('do_not_host_reason')
+    .eq('id', id)
+    .maybeSingle();
+
+  const { data, error } = await supabase
+    .from('audience_contacts')
+    .update({
+      do_not_host: false,
+      do_not_host_reason: null,
+      do_not_host_set_by: null,
+      do_not_host_set_at: null,
+    })
+    .eq('id', id)
+    .select('id');
+  if (error) return { ok: false, error: error.message };
+  if (!data || data.length === 0) return { ok: false, error: 'That guest record was not found.' };
+
+  await supabase.from('audience_events').insert({
+    contact_id: id,
+    event_type: 'do_not_host_cleared',
+    metadata: { by, source: 'helm_ui', previous_reason: (before as { do_not_host_reason: string | null } | null)?.do_not_host_reason ?? null },
+  });
+
+  revalidatePath('/guests/contacts');
+  revalidatePath(`/guests/${id}`);
+  return { ok: true };
+}
