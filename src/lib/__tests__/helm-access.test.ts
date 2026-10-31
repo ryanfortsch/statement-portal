@@ -739,7 +739,8 @@ describe('the data behind the page gate refuses a staff session', () => {
   });
 });
 
-describe("the dispatch duty: who goes where is one person's call (Dotti, 2026-10-30)", () => {
+describe('the dispatch duty: who goes where is Ryan and Dotti\'s call (2026-10-30)', () => {
+  const RYAN = 'ryan@risingtidestr.com';
   const DOTTI = 'dotti@risingtidestr.com';
   const holders = TEAM_MEMBERS.filter((m) => m.duties?.includes('dispatch')).map((m) => m.email);
   const fn = (src: string, name: string): string => {
@@ -748,12 +749,14 @@ describe("the dispatch duty: who goes where is one person's call (Dotti, 2026-10
     return m![0];
   };
 
-  test('one person holds it, and View as staff drops it like every other privilege', () => {
-    assert.deepEqual(holders, [DOTTI]);
-    assert.equal(canDispatch(DOTTI, undefined), true);
-    assert.equal(canDispatch(DOTTI, VIEW_AS_STAFF), false);
-    assert.equal(helmView(DOTTI, undefined).dispatcher, true);
-    assert.equal(helmView(DOTTI, VIEW_AS_STAFF).dispatcher, false);
+  test('Ryan and Dotti hold it, and View as staff drops it like every other privilege', () => {
+    assert.deepEqual(holders, [RYAN, DOTTI], 'Ryan runs the company, so the duty is his too (Dotti, 2026-10-30)');
+    for (const who of [RYAN, DOTTI]) {
+      assert.equal(canDispatch(who, undefined), true, who);
+      assert.equal(canDispatch(who, VIEW_AS_STAFF), false, `${who} in View as staff`);
+      assert.equal(helmView(who, undefined).dispatcher, true, who);
+      assert.equal(helmView(who, VIEW_AS_STAFF).dispatcher, false, `${who} in View as staff`);
+    }
     for (const m of TEAM_MEMBERS.filter((m) => !holders.includes(m.email))) assert.equal(canDispatch(m.email, undefined), false, m.email);
     assert.equal(canDispatch('someone-new@risingtidestr.com', undefined), false);
     assert.equal(canDispatch(null, undefined), false);
