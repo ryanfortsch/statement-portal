@@ -82,7 +82,11 @@ export function SectionTabs({
 
   return (
     <section className="max-w-[1100px] mx-auto px-10 rt-section-tabs" style={{ width: '100%', paddingTop: 20, paddingBottom: 4 }}>
-      <nav ref={strip} aria-label="Section navigation" className="flex items-baseline rt-tab-strip" style={{ gap: 28, borderBottom: '1px solid var(--ink)', overflowX: 'auto' }}>
+      {/* The rule is an inset shadow, not a border, so the active tab's 2px
+          underline paints over it without a negative margin: nothing
+          overflows the strip, and a Mac that always shows scrollbars no
+          longer draws one beside the tabs (seen 2026-10-31). */}
+      <nav ref={strip} aria-label="Section navigation" className="flex items-baseline rt-tab-strip" style={{ gap: 28, boxShadow: 'inset 0 -1px 0 var(--ink)', overflowX: 'auto', overflowY: 'hidden' }}>
         {visible.map((t) => {
           const isActive = t.id === activeId;
           const label = (
@@ -99,7 +103,6 @@ export function SectionTabs({
                 textDecoration: 'none',
                 paddingBottom: 12,
                 borderBottom: isActive ? '2px solid var(--signal)' : '2px solid transparent',
-                marginBottom: -1,
                 whiteSpace: 'nowrap',
               }}
             >

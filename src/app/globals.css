@@ -1228,7 +1228,8 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
 .rt-disclosure-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--ink-3); }
 .rt-inline-action { display: inline-flex; align-items: center; min-height: 44px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .rt-section-actions { flex-wrap: wrap; min-width: 0; }
-.rt-tab-strip { position: relative; scrollbar-width: thin; scroll-padding-inline: 12px; }
+.rt-tab-strip { position: relative; scrollbar-width: none; scroll-padding-inline: 12px; }
+.rt-tab-strip::-webkit-scrollbar { display: none; }
 .rt-tab-strip > a { display: inline-flex; align-items: center; min-height: 44px; flex-shrink: 0; }
 /* A card's quiet exits (Redraft, Mark handled) sit on the card, right of the
    send controls; no More actions menu since 2026-10-18. */
@@ -1365,6 +1366,34 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
 @media (max-width: 640px) {
   .rt-messaging-tabs .rt-tab-strip { gap: 12px !important; }
   .rt-messaging-tabs .rt-tab-strip > a { font-size: 11px !important; letter-spacing: .03em !important; }
+  /* The lens row wraps on a phone; the dots between lenses go, so no
+     line starts with one. */
+  .rt-lens-dot { display: none; }
+}
+
+/* New numbers rows (NumberTriage): facts left, the verbs together on the
+   right so they never wrap one at a time. Under 900px the verbs take their
+   own line; on a phone the contact picker is full width above them. */
+.rt-triage-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 16px; row-gap: 8px; align-items: start; }
+.rt-triage-facts { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; min-width: 0; }
+.rt-triage-verbs { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+@media (max-width: 900px) {
+  .rt-triage-row { grid-template-columns: minmax(0, 1fr); }
+  .rt-triage-verbs { justify-content: flex-start; }
+  .rt-triage-verbs select { flex: 1 1 180px; max-width: none !important; }
+}
+@media (max-width: 640px) {
+  .rt-triage-verbs select { flex-basis: 100%; }
+  .rt-triage-verbs button { min-height: 40px; }
+}
+
+/* Masthead: the divider belongs to the module nav, so wherever the nav has
+   folded into Menu it goes too. On a phone the row stays one line: the
+   wordmark may shrink and Search is its icon. */
+@media (max-width: 1023px) { .rt-masthead-divider { display: none; } }
+@media (max-width: 640px) {
+  .rt-masthead-brand { flex: 1 1 auto !important; min-width: 0; }
+  .rt-search-label { display: none; }
 }
 
 .rt-inbox-search { max-width: 1100px; margin: 0 auto; padding: 0 40px; }

@@ -531,8 +531,8 @@ export function ApprovalCard(props: ApprovalCardProps) {
         >
           {draft}
         </span>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginLeft: 'auto' }}>
-          <Button variant="quiet" onClick={() => setExpanded(true)} aria-expanded={false}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginLeft: 'auto', flexWrap: 'wrap' }}>
+          <Button variant="quiet" onClick={() => setExpanded(true)} aria-expanded={false} style={{ whiteSpace: 'nowrap' }}>
             Show ▾
           </Button>
           {queuedActions}

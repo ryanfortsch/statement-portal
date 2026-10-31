@@ -62,12 +62,12 @@ export function MessagingTabs({
         { id: 'team', label: 'Team', href: '/messaging/team', badge: <MessagingTabCount category="team" /> },
       ]}
       secondRow={lenses.length > 0 ?
-        <div className="flex items-center" style={{ gap: 16, paddingTop: 10, paddingBottom: 2, overflowX: 'auto' }}>
+        <div className="flex items-center rt-lens-row" style={{ gap: '6px 16px', paddingTop: 10, paddingBottom: 2, flexWrap: 'wrap' }}>
           {lenses.map((l, i) => {
             const isActive = l.id === lens;
             return (
               <span key={l.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 16, whiteSpace: 'nowrap' }}>
-                {i > 0 && <span style={{ color: 'var(--rule)', fontSize: 12 }}>·</span>}
+                {i > 0 && <span className="rt-lens-dot" style={{ color: 'var(--rule)', fontSize: 12 }}>·</span>}
                 <Link
                   href={l.href}
                   aria-current={isActive ? 'page' : undefined}
