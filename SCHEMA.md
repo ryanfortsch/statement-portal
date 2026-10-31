@@ -322,6 +322,23 @@ read `properties` separately (an embed failed every read from 10/07 until
 `audience_contacts` (Resend webhook events). `comms` has no reader or writer
 in `src/` (dead; `20260820_rls_lockdown_unused_tables.sql`).
 
+`agenda_appointments` and `agenda_source_links` hold each operator's reviewed
+business agenda (`20261031030000_appointment_agenda.sql`, not yet applied).
+`details` is the validated `AppointmentInput` JSON shape from
+`src/lib/appointment-agenda.ts`: local Eastern date/clock, time kind, status,
+attendance, property/place/people, brief notes and source links. No provider
+credentials or raw email bodies. A composite foreign key keeps every alias in
+its appointment's user namespace. Unique `(user_email, source_key)` identities
+prevent Calendar/email/CRM copies from becoming independent appointments.
+
+Only `save_agenda_appointment` writes through the application: account and UUID
+transaction locks, optimistic versions and idempotent exact retries; source
+aliases survive rescheduling and cancellation. Both tables enable RLS and grant
+only service_role. The DAL derives email from auth and never broadens saved
+agenda access for an owner or View as staff. These tables do not change the
+shared `contact_meetings` row or its reminder ledger. Cancelled and later-dated
+rows are still read to suppress explicitly superseded CRM entries.
+
 `quo_unknown_numbers` is the queue of numbers Helm cannot name: one row per
 phone, filed by the Quo ingest (`captureUnknownInbound` in
 `src/lib/quo-ingest.ts`, forward-only on `last_message_at`) with the line it

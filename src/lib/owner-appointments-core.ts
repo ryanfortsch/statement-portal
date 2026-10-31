@@ -20,6 +20,7 @@
  * date.
  */
 
+import { appointmentAddressConflict } from './appointment-evidence.ts';
 import { formatMeetingTime } from './meetings-core.ts';
 
 export type OwnerAppointment = {
@@ -60,6 +61,7 @@ export function checkOwnerAppointment(a: Partial<OwnerAppointment>): string | nu
   if (a.endTime && !HHMM.test(a.endTime)) return 'end_time must be HH:MM';
   if (!a.what || !String(a.what).trim()) return 'what is required';
   if (!a.message || !String(a.message).trim()) return 'message is required';
+  if (appointmentAddressConflict(a.propertyId, a.what)) return 'appointment title names a different street number from property_id; review the source before filing';
   return null;
 }
 

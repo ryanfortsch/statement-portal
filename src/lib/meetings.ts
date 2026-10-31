@@ -8,6 +8,7 @@
 
 import 'server-only';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
+import { selectAllPaged } from '@/lib/paged-select';
 import { helmBaseUrl } from '@/lib/daily-brief';
 import { shiftIsoDay } from '@/lib/sca-quotes-types';
 import { normalizePhone, quoFromNumber, sendMessage } from '@/lib/quo';
@@ -113,29 +114,27 @@ export async function loadMeetingCards(
   now: Date = new Date(),
   opts: { createdBy?: string; days?: number } = {},
 ): Promise<MeetingCard[]> {
+  return (await loadMeetingCardsResult(now, opts)).cards;
+}
+
+/** The agenda must distinguish a successful empty read from a failed source. */
+export async function loadMeetingCardsResult(
+  now: Date = new Date(),
+  opts: { createdBy?: string; days?: number } = {},
+): Promise<{ cards: MeetingCard[]; available: boolean }> {
   try {
     const today = todayET(now);
     const last = opts.days && opts.days > 1 ? shiftIsoDay(today, opts.days - 1) : reminderTargetDate(now);
-    let q = supabase
-      .from('contact_meetings')
-      .select(JOIN_SELECT)
-      .is('cancelled_at', null)
-      .gte('meeting_date', today)
-      .lte('meeting_date', last);
-    if (opts.createdBy) q = q.eq('created_by_email', opts.createdBy);
-    const { data, error } = await q
-      .order('meeting_date', { ascending: true })
-      .order('meeting_time', { ascending: true, nullsFirst: false })
-      .limit(40);
-    // Still empty on a failure, but never silently again: this read failing
-    // is how the card sat blank for two weeks with nothing in the logs.
-    if (error) {
-      console.error(`loadMeetingCards: contact_meetings read failed: ${error.message}`);
-      return [];
-    }
-    return (await withPropertyNames((data ?? []) as MeetingJoinRow[])).map(toCard);
+    const rows = await selectAllPaged<MeetingJoinRow>((from, to) => {
+      let q = supabase.from('contact_meetings').select(JOIN_SELECT)
+        .is('cancelled_at', null).gte('meeting_date', today).lte('meeting_date', last);
+      if (opts.createdBy) q = q.eq('created_by_email', opts.createdBy);
+      return q.order('meeting_date').order('meeting_time', { nullsFirst: false }).order('id').range(from, to);
+    }, { label: 'loadMeetingCards: contact_meetings read failed', maxRows: 10000 });
+    return { cards: (await withPropertyNames(rows)).map(toCard), available: true };
   } catch {
-    return [];
+    console.error('loadMeetingCards: contact_meetings read failed');
+    return { cards: [], available: false };
   }
 }
 

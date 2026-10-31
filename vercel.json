@@ -128,5 +128,10 @@
       "path": "/api/cron/expire-queues",
       "schedule": "25 5 * * *"
     }
-  ]
+  ],
+  "git": {
+    "deploymentEnabled": {
+      "codex/helm-upcoming-appointments": false
+    }
+  }
 }

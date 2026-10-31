@@ -119,7 +119,7 @@ describe('which day a piece of work lands on', () => {
 });
 
 describe('the home feed renders This week through this module', () => {
-  test('walks, meetings and dated work fold into one list; the two old cards are gone', () => {
+  test('walks and dated work stay together beside the appointment agenda', () => {
     const feed = read('src/components/ForMeFeed.tsx');
     assert.ok(feed.includes('const weekDays = groupByDay(weekEntries, weekToday);'), 'grouped by day here');
     assert.ok(feed.includes('<ThisWeekDay key={d.date} day={d} />'), 'one block per day');
@@ -129,11 +129,12 @@ describe('the home feed renders This week through this module', () => {
     assert.ok(!feed.includes('title="Meetings"'), 'no separate meetings card');
   });
 
-  test('meetings are read for the whole window, owners every one and staff their own', () => {
+  test('appointments have a separate 30-day source-aware agenda', () => {
     const feed = read('src/components/ForMeFeed.tsx');
-    assert.ok(feed.includes('loadMeetingCards(new Date(), { days: WEEK_DAYS })'), 'owners: every meeting, seven days');
-    assert.ok(feed.includes('loadMeetingCards(new Date(), { createdBy: email, days: WEEK_DAYS })'), 'staff: the ones they logged, seven days');
-    const meetings = read('src/lib/meetings.ts');
-    assert.ok(meetings.includes('opts.days'), 'the loader takes the window');
+    assert.ok(feed.includes('<AppointmentAgendaSection />'));
+    assert.ok(!feed.includes('loadMeetingCards('), 'appointments are not duplicated in dated work');
+    const agenda = read('src/lib/appointment-agenda-server.ts');
+    assert.ok(agenda.includes('days: AGENDA_DAYS'));
+    assert.ok(agenda.includes('owner ? {} : { createdBy: email }'));
   });
 });
