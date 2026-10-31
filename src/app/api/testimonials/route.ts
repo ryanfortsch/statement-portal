@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { authorizeStayConcierge } from '@/lib/stay-concierge-auth';
-import { approvedTestimonials, propertyForGuestyListing } from '@/lib/guest-testimonials-store';
+import { approvedTestimonials, dbErrorCode, dbErrorText, propertyForGuestyListing } from '@/lib/guest-testimonials-store';
 
 /**
  * GET /api/testimonials?listing=<guesty listing id>   or   ?property=<helm id>
@@ -34,7 +34,7 @@ export async function GET(req: Request) {
     if (!propertyId) return NextResponse.json({ ok: true, testimonials: [] });
     return NextResponse.json({ ok: true, property_id: propertyId, testimonials: await approvedTestimonials(propertyId) });
   } catch (err) {
-    console.error('[testimonials] list failed:', err instanceof Error ? err.message : String(err));
-    return NextResponse.json({ ok: false, error: 'unavailable' }, { status: 503 });
+    console.error('[testimonials] list failed:', dbErrorText(err));
+    return NextResponse.json({ ok: false, error: 'unavailable', code: dbErrorCode(err) }, { status: 503 });
   }
 }

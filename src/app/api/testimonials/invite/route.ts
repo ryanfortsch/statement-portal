@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { authorizeStayConcierge } from '@/lib/stay-concierge-auth';
 import { parseInvite } from '@/lib/guest-testimonials';
-import { inviteTestimonial, propertyExists, testimonialFormUrl } from '@/lib/guest-testimonials-store';
+import { dbErrorCode, dbErrorText, inviteTestimonial, propertyExists, testimonialFormUrl } from '@/lib/guest-testimonials-store';
 
 /**
  * POST /api/testimonials/invite
@@ -38,7 +38,7 @@ export async function POST(req: Request) {
     const row = await inviteTestimonial(parsed.value);
     return NextResponse.json({ ok: true, token: row.token, url: testimonialFormUrl(row.token), status: row.status });
   } catch (err) {
-    console.error('[testimonials] invite failed:', err instanceof Error ? err.message : String(err));
-    return NextResponse.json({ ok: false, error: 'unavailable' }, { status: 503 });
+    console.error('[testimonials] invite failed:', dbErrorText(err));
+    return NextResponse.json({ ok: false, error: 'unavailable', code: dbErrorCode(err) }, { status: 503 });
   }
 }
