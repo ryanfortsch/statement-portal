@@ -927,7 +927,7 @@ export function ScaLaunchClient(props: Props) {
         </div>
 
         <div style={{ marginTop: 14, border: '1px solid var(--rule)', padding: 16 }}>
-          <span style={labelStyle}>Which permissions the booking site&rsquo;s secret key needs</span>
+          <span style={labelStyle}>Key 1 of 2: the booking site&rsquo;s key, and the permissions it needs</span>
           <p style={{ ...hintStyle, marginTop: 0, marginBottom: 12 }}>
             Only if you mint a <strong>restricted</strong> key: Developers &rsaquo; API keys &rsaquo; Create
             restricted key, start from zero permissions, then set exactly these four. Every other row stays{' '}
@@ -945,8 +945,9 @@ export function ScaLaunchClient(props: Props) {
             </div>
           ))}
           <p style={{ ...hintStyle, marginTop: 12 }}>
-            Write already covers Read, so there is nothing to pair these with. Disputes, Events, Balance,
-            Products and Payouts are never called by the booking site and stay on <span style={mono}>None</span>.
+            Write already covers Read, so there is nothing to pair these with. On <strong>this</strong> key, Disputes,
+            Events, Balance, Products and Payouts stay on <span style={mono}>None</span>: the booking site never calls
+            them. Helm&rsquo;s key below is a different key and does need some of them.
           </p>
           <p style={hintStyle}>
             <strong>One trade.</strong> Scoped this tightly the key cannot read the account object, so
@@ -963,9 +964,10 @@ export function ScaLaunchClient(props: Props) {
         </div>
 
         <div style={{ marginTop: 14, border: '1px solid var(--rule)', padding: 16 }}>
-          <span style={labelStyle}>Helm&rsquo;s own key (a second restricted key, on Helm&rsquo;s Vercel project)</span>
+          <span style={labelStyle}>Key 2 of 2: Helm&rsquo;s own key (a second restricted key, on Helm&rsquo;s Vercel project)</span>
           <p style={{ ...hintStyle, marginTop: 0, marginBottom: 10 }}>
-            Separate from the booking site&rsquo;s key. Helm uses it to put direct bookings on the owner statement
+            A separate key from Key 1, made in the same Stripe account; its permissions are its own and do not
+            change Key 1&rsquo;s. Helm uses it to put direct bookings on the owner statement
             with Stripe&rsquo;s real fees and to make add-on payment links. In this property&rsquo;s Stripe account:
             Developers &rsaquo; API keys &rsaquo; Create restricted key, name it <strong>Helm</strong>, start from zero
             permissions and set exactly these seven. Every other row stays <span style={mono}>None</span>. Then in
