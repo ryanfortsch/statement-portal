@@ -51,8 +51,10 @@ const favoriteSchema = z.object({
   name: z.string().trim().min(1, 'Name required'),
   town: z.string().trim().min(1, 'Town required'),
   blurb: z.string().trim().min(1, 'A one-sentence blurb is required'),
-  lat: z.number().refine((n) => Number.isFinite(n), 'Latitude required'),
-  lng: z.number().refine((n) => Number.isFinite(n), 'Longitude required'),
+  // A blank pin reaches here as NaN from the form, or null once a saved draft
+  // has been through JSON. Both read as the field's own words, never zod's.
+  lat: z.number({ error: 'Latitude required' }),
+  lng: z.number({ error: 'Longitude required' }),
 });
 
 const reviewSchema = z.object({
@@ -157,6 +159,122 @@ export function validateScaForm(draft: unknown): ValidationResult {
     if (!errors[key]) errors[key] = issue.message;
   }
   return { ok: false, errors };
+}
+
+type Favorite = ScaFormDraft['stayFavorite'];
+
+const hasPin = (f: Favorite): boolean =>
+  typeof f.lat === 'number' && Number.isFinite(f.lat) && typeof f.lng === 'number' && Number.isFinite(f.lng);
+
+/**
+ * Fill the map pin of every restaurant that has a name and town but no
+ * coordinates, through `lookup` (Nominatim in production). A favorite whose
+ * lookup misses keeps its blank pin, so validation still names it. Returns the
+ * same draft object when nothing changed.
+ */
+export async function fillFavoritePins(
+  draft: ScaFormDraft,
+  lookup: (name: string, town: string) => Promise<{ lat: number; lng: number } | null>,
+): Promise<ScaFormDraft> {
+  const fill = async (f: Favorite | undefined): Promise<Favorite | undefined> => {
+    if (!f || hasPin(f) || !f.name?.trim() || !f.town?.trim()) return f;
+    const at = await lookup(f.name, f.town);
+    return at ? { ...f, lat: at.lat, lng: at.lng } : f;
+  };
+  let changed = false;
+  const stayFavorite = await fill(draft.stayFavorite);
+  if (stayFavorite !== draft.stayFavorite) changed = true;
+  let extraFavorites = draft.extraFavorites;
+  if (extraFavorites?.length) {
+    const next: Favorite[] = [];
+    for (const f of extraFavorites) next.push((await fill(f)) as Favorite);
+    if (next.some((f, i) => f !== extraFavorites![i])) {
+      extraFavorites = next;
+      changed = true;
+    }
+  }
+  return changed ? { ...draft, stayFavorite: stayFavorite as Favorite, extraFavorites } : draft;
+}
+
+const placeKey = (name: string, town: string): string =>
+  [name, town]
+    .map((v) =>
+      v
+        .toLowerCase()
+        .replace(/&/g, ' and ')
+        .replace(/[^a-z0-9 ]/g, ' ')
+        .replace(/^\s*the\s+/, '')
+        .replace(/\s+/g, ' ')
+        .trim(),
+    )
+    .join('|');
+
+/**
+ * The pins of every restaurant already on a Stay Cape Ann listing, read from
+ * the raw registry JSON. Those are the verified picks, placed by hand, so a
+ * repeat pick takes the same pin before any outside lookup runs.
+ */
+export function registryFavoritePins(registryJson: string): Map<string, { lat: number; lng: number }> {
+  const pins = new Map<string, { lat: number; lng: number }>();
+  let obj: { listings?: Record<string, unknown> };
+  try {
+    obj = JSON.parse(registryJson);
+  } catch {
+    return pins;
+  }
+  for (const entry of Object.values(obj.listings ?? {})) {
+    const e = (entry ?? {}) as { stayFavorite?: unknown; extraFavorites?: unknown };
+    const favs = [e.stayFavorite, ...(Array.isArray(e.extraFavorites) ? e.extraFavorites : [])];
+    for (const f of favs) {
+      const v = (f ?? {}) as Record<string, unknown>;
+      if (typeof v.name !== 'string' || typeof v.town !== 'string') continue;
+      if (typeof v.lat !== 'number' || typeof v.lng !== 'number' || !Number.isFinite(v.lat) || !Number.isFinite(v.lng)) continue;
+      const key = placeKey(v.name, v.town);
+      if (!pins.has(key)) pins.set(key, { lat: v.lat, lng: v.lng });
+    }
+  }
+  return pins;
+}
+
+/** The registry's pin for a restaurant, matched on name and town ("&" = "and", a leading "The" ignored). */
+export function knownFavoritePin(
+  pins: Map<string, { lat: number; lng: number }>,
+  name: string,
+  town: string,
+): { lat: number; lng: number } | null {
+  return pins.get(placeKey(name, town)) ?? null;
+}
+
+/** True when some restaurant has a name and town but no pin yet. */
+export function needsFavoritePins(draft: ScaFormDraft): boolean {
+  const wants = (f: Favorite | undefined) => !!f && !hasPin(f) && !!f.name?.trim() && !!f.town?.trim();
+  return wants(draft.stayFavorite) || (draft.extraFavorites ?? []).some(wants);
+}
+
+/**
+ * One line for the launcher's top notice, each problem named by its field.
+ * A blank pin reads as one line per restaurant (latitude and longitude miss
+ * together), saying Helm looked and could not find it.
+ */
+export function describeScaErrors(errors: Record<string, string>): string {
+  const lines: string[] = [];
+  const seen = new Set<string>();
+  const add = (line: string) => {
+    if (!seen.has(line)) {
+      seen.add(line);
+      lines.push(line);
+    }
+  };
+  for (const [key, msg] of Object.entries(errors)) {
+    const stay = key.match(/^stayFavorite\.(\w+)$/);
+    const extra = key.match(/^extraFavorites\.(\d+)\.(\w+)$/);
+    const who = stay ? 'Restaurant' : extra ? `Extra spot ${Number(extra[1]) + 1}` : null;
+    const field = stay?.[1] ?? extra?.[2];
+    if (!who) add(msg);
+    else if (field === 'lat' || field === 'lng') add(`${who} map pin: Helm could not find it by name and town, so enter its latitude and longitude`);
+    else add(`${who} ${field}: ${msg.charAt(0).toLowerCase()}${msg.slice(1)}`);
+  }
+  return lines.join('; ');
 }
 
 /** 36_granite -> 36_GRANITE. Sanitizes to the registry's allowed charset. */
