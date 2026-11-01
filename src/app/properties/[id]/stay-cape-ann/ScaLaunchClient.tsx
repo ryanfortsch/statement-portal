@@ -908,9 +908,10 @@ export function ScaLaunchClient(props: Props) {
         <div className="eyebrow">Step 3</div>
         <h2 className="font-serif" style={sectionTitle}>Wire up payments</h2>
         <p style={hintStyle}>
-          This property charges through <strong>its own Stripe account</strong>. Helm never sees the secret key.
-          Set these three values on the <strong>stay-cape-ann</strong> Vercel project (Production + Preview), then
-          register the webhook in that Stripe account, and check each box.
+          This home&rsquo;s <strong>own Stripe account</strong> serves two apps, so it needs <strong>two secret keys</strong>:
+          one for the booking site (staycapeann.com takes the guest&rsquo;s payment) and one for Helm (the owner
+          statement and add-on payment links). Four things to copy out of Stripe, then four places to paste them in Vercel.
+          Helm never sees the booking site&rsquo;s key.
         </p>
 
         <div style={{ marginTop: 14, maxWidth: 360 }}>
@@ -920,84 +921,74 @@ export function ScaLaunchClient(props: Props) {
         </div>
 
         <div style={{ marginTop: 14, border: '1px solid var(--rule)', padding: 16 }}>
-          <span style={labelStyle}>Keys to set on the booking site (stay-cape-ann, Production and Preview)</span>
-          <CopyLine text={env.publishable} suffix=" = pk_live_… (this property's publishable key)" />
-          <CopyLine text={env.secret} suffix=" = sk_live_… or rk_live_… (secret or restricted key; Helm never sees this)" />
-          <CopyLine text={env.webhookSecret} suffix=" = whsec_… (from the webhook below)" />
-        </div>
-
-        <div style={{ marginTop: 14, border: '1px solid var(--rule)', padding: 16 }}>
-          <span style={labelStyle}>Key 1 of 2: the booking site&rsquo;s key, and the permissions it needs</span>
-          <p style={{ ...hintStyle, marginTop: 0, marginBottom: 12 }}>
-            Only if you mint a <strong>restricted</strong> key: Developers &rsaquo; API keys &rsaquo; Create
-            restricted key, start from zero permissions, then set exactly these four. Every other row stays{' '}
-            <span style={mono}>None</span>. A plain <span style={mono}>sk_live_</span> secret key has no
-            permissions to choose, so skip this block.
-          </p>
-          {SCA_STRIPE_KEY_PERMISSIONS.map((p) => (
-            <div
-              key={p.resource}
-              style={{ display: 'flex', gap: 12, alignItems: 'baseline', padding: '7px 0', borderTop: '1px solid var(--rule)' }}
-            >
-              <code style={{ ...mono, fontSize: 12.5, width: 124, flexShrink: 0 }}>{p.resource}</code>
-              <span style={{ fontSize: 12, fontWeight: 600, letterSpacing: '.04em', width: 42, flexShrink: 0 }}>{p.access}</span>
-              <span style={{ fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5 }}>{p.why}</span>
-            </div>
-          ))}
-          <p style={{ ...hintStyle, marginTop: 12 }}>
-            Write already covers Read, so there is nothing to pair these with. On <strong>this</strong> key, Disputes,
-            Events, Balance, Products and Payouts stay on <span style={mono}>None</span>: the booking site never calls
-            them. Helm&rsquo;s key below is a different key and does need some of them.
-          </p>
-          <p style={hintStyle}>
-            <strong>One trade.</strong> Scoped this tightly the key cannot read the account object, so
-            staycapeann&rsquo;s key diagnostic confirms it authenticates but cannot print the account name
-            back for you to check against the owner. A plain <span style={mono}>sk_live_</span> key can.
-            Either kind passes both diagnostics.
-          </p>
-        </div>
-
-        <div style={{ marginTop: 14, border: '1px solid var(--rule)', padding: 16 }}>
-          <span style={labelStyle}>Stripe webhook (in this property&rsquo;s Stripe account)</span>
-          <CopyLine text={webhookUrl} />
-          <p style={{ ...hintStyle, marginTop: 8 }}>Subscribe to: <span style={mono}>{SCA_STRIPE_WEBHOOK_EVENTS.join(', ')}</span>. Copy its signing secret into <span style={mono}>{env.webhookSecret}</span>.</p>
-        </div>
-
-        <div style={{ marginTop: 14, border: '1px solid var(--rule)', padding: 16 }}>
-          <span style={labelStyle}>Key 2 of 2: Helm&rsquo;s own key (a second restricted key, on Helm&rsquo;s Vercel project)</span>
-          <p style={{ ...hintStyle, marginTop: 0, marginBottom: 10 }}>
-            A separate key from Key 1, made in the same Stripe account; its permissions are its own and do not
-            change Key 1&rsquo;s. Helm uses it to put direct bookings on the owner statement
-            with Stripe&rsquo;s real fees and to make add-on payment links. In this property&rsquo;s Stripe account:
-            Developers &rsaquo; API keys &rsaquo; Create restricted key, name it <strong>Helm</strong>, start from zero
-            permissions and set exactly these seven. Every other row stays <span style={mono}>None</span>. Then in
-            Vercel, <strong>rising-tide-statements</strong> &rsaquo; Environment Variables, add this name with the{' '}
-            <span style={mono}>rk_live_</span> key as its value, and Redeploy. Never an <span style={mono}>sk_</span> key:
-            Helm ignores one.
-          </p>
-          <CopyLine
-            text={helmStripeKeyEnvName(props.propertyId)}
-            suffix={
-              props.helmStripeKeySet === true
-                ? ' = rk_live_… (set on Helm)'
-                : props.helmStripeKeySet === false
-                  ? ' = rk_live_… (not set on Helm yet)'
-                  : ' = rk_live_…'
-            }
-          />
-          <div style={{ marginTop: 10 }}>
-            {HELM_STRIPE_KEY_PERMISSIONS.map((p) => (
-              <div
-                key={p.resource}
-                style={{ display: 'flex', gap: 12, alignItems: 'baseline', padding: '7px 0', borderTop: '1px solid var(--rule)' }}
-              >
-                <code style={{ ...mono, fontSize: 12.5, width: 124, flexShrink: 0 }}>{p.resource}</code>
-                <span style={{ fontSize: 12, fontWeight: 600, letterSpacing: '.04em', width: 42, flexShrink: 0 }}>{p.access}</span>
-                <span style={{ fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5 }}>{p.why}</span>
+          <span style={labelStyle}>In Stripe, signed in to this property&rsquo;s account</span>
+          <ol style={{ margin: '8px 0 0', paddingLeft: 22, fontSize: 13, lineHeight: 1.6 }}>
+            <li style={{ marginBottom: 10 }}>
+              <strong>Publishable key.</strong> Developers &rsaquo; API keys. Copy the <span style={mono}>pk_live_…</span> key.
+            </li>
+            <li style={{ marginBottom: 10 }}>
+              <strong>Secret key, for the booking site.</strong> Same page, click Reveal on the Secret key and copy the{' '}
+              <span style={mono}>sk_live_…</span> key. A plain secret key has no permissions to pick. (Prefer a
+              restricted one? See the note at the end of this step.)
+            </li>
+            <li style={{ marginBottom: 10 }}>
+              <strong>Restricted key, for Helm.</strong> Same page, Create restricted key. Name it <strong>Helm</strong>,
+              start from zero permissions and set exactly these seven; every other row stays{' '}
+              <span style={mono}>None</span>. Copy the <span style={mono}>rk_live_…</span> key.
+              <div style={{ marginTop: 8, marginBottom: 2 }}>
+                {HELM_STRIPE_KEY_PERMISSIONS.map(PERM_ROW)}
               </div>
-            ))}
-          </div>
+            </li>
+            <li>
+              <strong>Webhook.</strong> Developers &rsaquo; Webhooks &rsaquo; Add endpoint, with this URL:
+              <CopyLine text={webhookUrl} />
+              <span style={{ display: 'block', marginTop: 6, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+                Events: <span style={mono}>{SCA_STRIPE_WEBHOOK_EVENTS.join(', ')}</span>. Once it is saved, copy its
+                signing secret, <span style={mono}>whsec_…</span>.
+              </span>
+            </li>
+          </ol>
         </div>
+
+        <div style={{ marginTop: 14, border: '1px solid var(--rule)', padding: 16 }}>
+          <span style={labelStyle}>In Vercel: where each one goes</span>
+          <p style={{ ...hintStyle, marginTop: 0 }}>
+            Three on the <strong>stay-cape-ann</strong> project (Production and Preview), one on{' '}
+            <strong>rising-tide-statements</strong>. Project &rsaquo; Settings &rsaquo; Environment Variables, add the
+            name, paste the value.
+          </p>
+          <VercelRow value="pk_live_… (1)" project="stay-cape-ann"><CopyLine text={env.publishable} /></VercelRow>
+          <VercelRow value="sk_live_… (2)" project="stay-cape-ann"><CopyLine text={env.secret} /></VercelRow>
+          <VercelRow value="whsec_… (4)" project="stay-cape-ann"><CopyLine text={env.webhookSecret} /></VercelRow>
+          <VercelRow value="rk_live_… named Helm (3)" project="rising-tide-statements">
+            <CopyLine
+              text={helmStripeKeyEnvName(props.propertyId)}
+              suffix={props.helmStripeKeySet === true ? 'set on Helm' : props.helmStripeKeySet === false ? 'not set on Helm yet' : undefined}
+            />
+          </VercelRow>
+          <p style={{ ...hintStyle, marginTop: 12 }}>
+            Then <strong>Redeploy</strong> both projects (Deployments &rsaquo; the latest &rsaquo; Redeploy), tick the three
+            boxes below and click Verify wiring. Helm ignores an <span style={mono}>sk_</span> key in its own variable, so
+            the Helm one must be the restricted key from step 3.
+          </p>
+        </div>
+
+        <details style={{ marginTop: 14, border: '1px solid var(--rule)', padding: 16 }}>
+          <summary style={{ ...labelStyle, cursor: 'pointer', marginBottom: 0 }}>
+            Optional: a restricted key for the booking site instead of the plain secret key
+          </summary>
+          <p style={{ ...hintStyle, marginTop: 10, marginBottom: 10 }}>
+            In step 2, Create restricted key instead of revealing the secret key, name it <strong>Stay Cape Ann</strong>,
+            and set exactly these four. Every other row stays <span style={mono}>None</span>: Disputes, Events, Balance,
+            Products and Payouts are never called by the booking site. That is a separate key from Helm&rsquo;s in step 3,
+            with its own permissions.
+          </p>
+          {SCA_STRIPE_KEY_PERMISSIONS.map(PERM_ROW)}
+          <p style={{ ...hintStyle, marginTop: 12 }}>
+            One trade: a key this tight cannot read the account object, so staycapeann&rsquo;s key diagnostic confirms it
+            authenticates but cannot print the account name back for you to check against the owner. Either kind passes.
+          </p>
+        </details>
 
         <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
           <Check label={`${env.publishable} set in Vercel`} checked={!!row?.payment_publishable_set} disabled={!prOpen || busy !== null} onChange={(v) => onTogglePayment('publishable', v)} />
@@ -1088,6 +1079,25 @@ function Field({ label, error, hint, children }: { label: string; error?: string
       <span style={labelStyle}>{label}</span>
       {children}
       {error ? <FieldError>{error}</FieldError> : hint ? <p style={hintStyle}>{hint}</p> : null}
+    </div>
+  );
+}
+
+const PERM_ROW = (p: { resource: string; access: string; why: string }) => (
+            <div key={p.resource} style={{ display: 'flex', gap: 12, alignItems: 'baseline', padding: '6px 0', borderTop: '1px solid var(--rule)' }}>
+              <code style={{ ...mono, fontSize: 12.5, width: 136, flexShrink: 0 }}>{p.resource}</code>
+              <span style={{ fontSize: 12, fontWeight: 600, letterSpacing: '.04em', width: 42, flexShrink: 0 }}>{p.access}</span>
+              <span style={{ fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5 }}>{p.why}</span>
+            </div>
+          );
+
+/** One line of the Vercel table: which value, which project, which variable name. */
+function VercelRow({ value, project, children }: { value: string; project: string; children: ReactNode }) {
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-[170px_190px_1fr]" style={{ gap: 8, alignItems: 'center', padding: '6px 0', borderTop: '1px solid var(--rule)' }}>
+      <span style={{ fontSize: 12.5 }}>{value}</span>
+      <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>{project}</span>
+      <div style={{ marginTop: -8 }}>{children}</div>
     </div>
   );
 }
