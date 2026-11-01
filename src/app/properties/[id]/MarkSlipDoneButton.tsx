@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useTransition } from 'react';
 import { updateWorkSlipStatus } from '@/app/work/actions';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
+import { buttonClass } from '@/lib/button-class';
 
 /**
  * Inline "Done" control on the property page's Open Work list. Marks the
@@ -17,6 +18,10 @@ import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
  * a transition so the property page's loading skeleton never swaps in and
  * yanks scroll to the top (you stay on the slip you just closed and can
  * knock out the next one in place).
+ *
+ * The row's one box, on the house small secondary face; armed it turns
+ * green, failed it turns red, and the row's dates and hands beside it are
+ * plain text so nothing else on the row reads as a control.
  */
 export function MarkSlipDoneButton({ slipId, propertyId, reportCount = 1 }: { slipId: string; propertyId: string; reportCount?: number }) {
   const softRefresh = useSoftRefresh();
@@ -34,6 +39,7 @@ export function MarkSlipDoneButton({ slipId, propertyId, reportCount = 1 }: { sl
     <button
       type="button"
       disabled={pending || done}
+      aria-busy={pending || undefined}
       onClick={(e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -63,19 +69,15 @@ export function MarkSlipDoneButton({ slipId, propertyId, reportCount = 1 }: { sl
         });
       }}
       title={reportCount > 1 ? `Complete this issue and its ${reportCount} linked reports` : "Mark this work item done"}
+      className={buttonClass('secondary', 'sm')}
       style={{
         flexShrink: 0,
-        background: confirming ? 'var(--positive)' : 'transparent',
-        color: confirming ? 'var(--paper)' : error ? 'var(--negative)' : 'var(--ink-3)',
-        border: `1px solid ${confirming ? 'var(--positive)' : error ? 'var(--negative)' : 'var(--rule)'}`,
-        fontSize: 12,
-        letterSpacing: '.16em',
-        textTransform: 'uppercase',
-        fontWeight: 600,
-        padding: '6px 10px',
-        minHeight: 44,
         cursor: pending ? 'wait' : 'pointer',
-        whiteSpace: 'nowrap',
+        ...(confirming
+          ? { background: 'var(--positive)', color: 'var(--paper)', borderColor: 'var(--positive)' }
+          : error
+            ? { color: 'var(--negative)', borderColor: 'var(--negative)' }
+            : {}),
       }}
     >
       {pending ? 'Saving…' : done ? 'Done ✓' : error ? 'Retry' : confirming ? (reportCount > 1 ? `Complete ${reportCount} reports` : 'Confirm ✓') : 'Done'}

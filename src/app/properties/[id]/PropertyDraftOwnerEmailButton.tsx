@@ -1,6 +1,7 @@
 'use client';
 
 import { useOwnerEmailDraft } from '@/lib/use-owner-email-draft';
+import { Button } from '@/components/Button';
 import { CopiedEmailNotice } from '@/components/CopiedEmailNotice';
 
 type Props = {
@@ -16,7 +17,9 @@ type Props = {
  * Property-detail-page version of the Draft Owner Email button shipped on
  * the Work Queue's PropertyGroup (#136). Same backend: drafts in the
  * sender's own Gmail and opens it, or copies the email when Helm holds no
- * Gmail for them.
+ * Gmail for them. The house secondary button: the section's one dark verb
+ * is the new work item beside it. The draft composes with the model, so the
+ * watchdog is off; waiting is the job.
  */
 export function PropertyDraftOwnerEmailButton({ propertyId, disabled, myMailbox }: Props) {
   const { pending: drafting, error: err, draftUrl, draft, savedIn, copied } = useOwnerEmailDraft('/api/work/draft-owner-email', 'property_id', propertyId);
@@ -24,26 +27,18 @@ export function PropertyDraftOwnerEmailButton({ propertyId, disabled, myMailbox 
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
-      <button
-        type="button"
+      <Button
+        variant="secondary"
+        size="sm"
         onClick={() => { if (!disabled) void draft(); }}
-        disabled={disabled || drafting}
+        disabled={disabled}
+        pending={drafting}
+        pendingLabel={copyMode ? 'Copying' : 'Drafting'}
+        watchdog={false}
         title={disabled ? 'No open owner-action items to draft' : copyMode ? 'Copy an email listing every open owner-action item' : `Draft in your Gmail${myMailbox ? ` (${myMailbox})` : ''} an email listing every open owner-action item`}
-        style={{
-          background: disabled ? 'transparent' : 'var(--ink)',
-          color: disabled ? 'var(--ink-4)' : 'var(--paper)',
-          border: '1px solid var(--ink)',
-          padding: '6px 12px',
-          fontSize: 11,
-          letterSpacing: '.16em',
-          textTransform: 'uppercase',
-          fontWeight: 500,
-          cursor: disabled || drafting ? 'default' : 'pointer',
-          opacity: disabled ? 0.5 : drafting ? 0.7 : 1,
-        }}
       >
-        {drafting ? (copyMode ? 'Copying…' : 'Drafting…') : draftUrl ? 'Open Gmail draft' : savedIn ? 'Drafted' : copied ? 'Copy again' : copyMode ? 'Copy owner email' : 'Draft Owner Email'}
-      </button>
+        {draftUrl ? 'Open Gmail draft' : savedIn ? 'Drafted' : copied ? 'Copy again' : copyMode ? 'Copy owner email' : 'Draft Owner Email'}
+      </Button>
       {copied && <CopiedEmailNotice copied={copied} align="right" />}
       {draftUrl && <a href={draftUrl} target="_blank" rel="noopener noreferrer">Open saved Gmail draft</a>}
       {savedIn && <span style={{ fontSize: 11, color: 'var(--ink-3)', maxWidth: 320, textAlign: 'right' }}>{savedIn}</span>}

@@ -4,14 +4,15 @@ import type { WorkSlipRow } from '@/lib/work-types';
 import {
   groupSlipsByLane,
   LANE_LABELS,
-  laneCounts,
   slipDetailLine,
   slipDisplayTitle,
   supplyChipLabel,
   type WorkLane,
 } from '@/lib/work-slip-lanes';
-import type { WorkBriefRow } from '@/lib/work-brief-rules';
+import { briefEarnsItsPlace, type WorkBriefRow } from '@/lib/work-brief-rules';
 import { displayNameForEmail } from '@/lib/team';
+import { buttonClass } from '@/lib/button-class';
+import { EmptyState } from '@/components/EmptyState';
 import { PropertyAddSlipButton } from './PropertyAddSlipButton';
 import { PropertyDraftOwnerEmailButton } from './PropertyDraftOwnerEmailButton';
 import { MarkSlipDoneButton } from './MarkSlipDoneButton';
@@ -22,12 +23,23 @@ import { MarkSlipDoneButton } from './MarkSlipDoneButton';
  *
  * The brief is the paragraph a seasoned operations manager would write
  * about this home (lib/work-briefs.ts, nightly, rewritten only when the
- * slip set changes). The ledger is the receipts, dense on purpose: one line
- * per slip with the synthesized detail inline, the shopping list as one
- * row of chips, office items as one line, clustered slips under one
- * header, and no boilerplate (a claim-status word, an OPEN pill) on rows
- * where it says nothing. Lanes and labels are shared with the Work board and the
- * print sheet (lib/work-slip-lanes.ts).
+ * slip set changes). It leads only when it is shorter than the ledger it
+ * stands in for (briefEarnsItsPlace): on a three-slip home a one-bullet
+ * brief restated one slip in other words a few lines above the slip itself.
+ *
+ * The ledger is the receipts, dense on purpose: one line per slip with the
+ * synthesized detail inline and clamped to two lines, the slip's dates and
+ * hands as a quiet second line in small caps (never boxed, so the one box on
+ * the row is its verb), the shopping list as one row of chips, office items
+ * as one line, clustered slips under one header, and no boilerplate (a
+ * claim-status word, an OPEN pill) on rows where it says nothing. Each lane
+ * header carries its count; the section header does not repeat them. Lanes
+ * and labels are shared with the Work board and the print sheet
+ * (lib/work-slip-lanes.ts).
+ *
+ * The header holds one dark verb (a new work item) and the outlined
+ * alternatives beside it, on the house button; the owner email appears only
+ * when there is an owner decision to write about.
  */
 export function OpenWorkSection({
   property,
@@ -44,46 +56,23 @@ export function OpenWorkSection({
   myMailbox: string | null;
 }) {
   const lanes = groupSlipsByLane(slips);
-  const counts = laneCounts(slips);
   const ownerCount = slips.filter((s) => s.owner_action_required).length;
-  const countBits = [
-    counts.supply && `${counts.supply} to bring`,
-    counts.visit && `${counts.visit} this visit`,
-    counts.handyman && `${counts.handyman} handyman`,
-    counts.pro && `${counts.pro} pro`,
-    counts.owner && `${counts.owner} owner decisions`,
-    counts.office && `${counts.office} office`,
-  ].filter(Boolean) as string[];
+  const showBrief = briefEarnsItsPlace(brief, slips.length);
 
   return (
     <section id="open-work" className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 36, width: '100%' }}>
-      <div className="flex items-baseline justify-between flex-wrap" style={{ marginBottom: 14, gap: 12 }}>
+      <div className="flex items-center justify-between flex-wrap" style={{ marginBottom: 14, gap: 12 }}>
         <h2
           className="font-serif"
           style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}
         >
           Open Work
         </h2>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, flexWrap: 'wrap' }}>
-          <span className="eyebrow">
-            {slips.length} open{countBits.length > 1 ? ` · ${countBits.join(' · ')}` : ''}
-          </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <PropertyAddSlipButton propertyId={property.id} propertyName={property.name} myEmail={myEmail} />
-          <PropertyDraftOwnerEmailButton propertyId={property.id} disabled={ownerCount === 0} myMailbox={myMailbox} />
+          {ownerCount > 0 && <PropertyDraftOwnerEmailButton propertyId={property.id} myMailbox={myMailbox} />}
           {slips.length > 0 && (
-            <Link
-              href={`/properties/${property.id}/work-slips/print`}
-              style={{
-                fontSize: 11,
-                letterSpacing: '.18em',
-                textTransform: 'uppercase',
-                color: 'var(--ink)',
-                textDecoration: 'none',
-                border: '1px solid var(--ink)',
-                padding: '8px 14px',
-                fontWeight: 600,
-              }}
-            >
+            <Link href={`/properties/${property.id}/work-slips/print`} className={buttonClass('secondary', 'sm')}>
               Print →
             </Link>
           )}
@@ -92,9 +81,9 @@ export function OpenWorkSection({
 
       {/* THE BRIEF: bullets, each a lead (whose hands) and one clause. A
           brief written before bullets existed still shows as a paragraph. */}
-      {brief && (brief.items?.length > 0 || brief.brief) && slips.length > 0 && (
+      {showBrief && brief && (
         <div style={{ marginBottom: 18 }}>
-          {brief.items?.length > 0 ? (
+          {brief.items.length > 0 ? (
             <ul style={{ listStyle: 'none', margin: 0, padding: 0, maxWidth: 820 }}>
               {brief.items.map((item, i) => (
                 <li
@@ -129,9 +118,7 @@ export function OpenWorkSection({
       )}
 
       {slips.length === 0 ? (
-        <div style={{ borderTop: '1px solid var(--ink)', padding: '20px 0', color: 'var(--ink-4)', fontSize: 12 }}>
-          No open work for this property.
-        </div>
+        <EmptyState>No open work at this home.</EmptyState>
       ) : (
         <div style={{ borderTop: '1px solid var(--ink)' }}>
           {lanes.map(({ lane, slips: laneSlips }) => (
@@ -239,21 +226,24 @@ function LaneRows({ slips, lane, property }: { slips: WorkSlipRow[]; lane: WorkL
         const showGroup = !!group && group !== lastGroup;
         lastGroup = group;
         const detail = slipDetailLine(s, property.name, 180);
-        const chips: Array<{ text: string; color: string }> = [];
-        if (s.status === 'in_progress') chips.push({ text: 'started', color: 'var(--ink-3)' });
-        if (s.status === 'scheduled') chips.push({ text: 'scheduled', color: 'var(--ink-3)' });
-        if (s.status === 'blocked') chips.push({ text: 'blocked', color: 'var(--signal)' });
-        if (s.coordinator_email) chips.push({ text: `Coordinator: ${displayNameForEmail(s.coordinator_email)}`, color: 'var(--ink-3)' });
-        if (s.follow_up_date) chips.push({ text: `follow up ${shortDate(s.follow_up_date)}`, color: 'var(--tide-deep)' });
-        if (s.scheduled_date) chips.push({ text: `for ${shortDate(s.scheduled_date)}`, color: 'var(--ink-3)' });
+        // The slip's standing, dates and hands: one quiet line under the
+        // text, in the order a dispatcher asks (what state, whose, when).
+        const meta: Array<{ text: string; color: string }> = [];
+        if (s.status === 'in_progress') meta.push({ text: 'started', color: 'var(--ink-3)' });
+        if (s.status === 'scheduled') meta.push({ text: 'scheduled', color: 'var(--ink-3)' });
+        if (s.status === 'blocked') meta.push({ text: 'blocked', color: 'var(--signal)' });
         if (s.assigned_to_label || s.assigned_to_email) {
-          chips.push({ text: s.assigned_to_label || displayNameForEmail(s.assigned_to_email!), color: 'var(--ink-3)' });
+          meta.push({ text: s.assigned_to_label || displayNameForEmail(s.assigned_to_email!), color: 'var(--ink-3)' });
         }
+        if (s.coordinator_email) meta.push({ text: `Coordinator ${displayNameForEmail(s.coordinator_email)}`, color: 'var(--ink-3)' });
+        if (s.scheduled_date) meta.push({ text: `for ${shortDate(s.scheduled_date)}`, color: 'var(--ink-3)' });
+        if (s.follow_up_date) meta.push({ text: `follow up ${shortDate(s.follow_up_date)}`, color: 'var(--tide-deep)' });
         if (s.owner_action_required) {
           const stand =
             s.owner_status === 'approved' ? ' · approved' : s.owner_status === 'declined' ? ' · declined' : s.owner_status === 'questions' ? ' · questions' : s.owner_last_contacted_at ? ' · asked' : '';
-          chips.push({ text: `${OWNER_ASK[s.owner_action_type ?? ''] ?? 'owner'}${stand}`, color: 'var(--signal)' });
+          meta.push({ text: `${OWNER_ASK[s.owner_action_type ?? ''] ?? 'owner'}${stand}`, color: 'var(--signal)' });
         }
+        const linked = s.linked_report_ids?.length ?? 0;
         return (
           <Fragment key={s.id}>
             {showGroup && (
@@ -266,7 +256,7 @@ function LaneRows({ slips, lane, property }: { slips: WorkSlipRow[]; lane: WorkL
                 display: 'flex',
                 alignItems: 'center',
                 gap: 12,
-                padding: '9px 0',
+                padding: '10px 0',
                 paddingLeft: group ? 14 : 0,
                 borderBottom: '1px solid var(--rule)',
               }}
@@ -281,31 +271,51 @@ function LaneRows({ slips, lane, property }: { slips: WorkSlipRow[]; lane: WorkL
                   background: s.priority === 'high' ? 'var(--negative)' : lane === 'owner' ? 'var(--signal)' : 'var(--ink-4)',
                 }}
               />
-              <Link href={`/work/${s.id}`} style={{ flex: 1, minWidth: 0, textDecoration: 'none', color: 'inherit', fontSize: 13, lineHeight: 1.45 }}>
-                <span style={{ color: 'var(--ink)', fontWeight: 500 }}>{slipDisplayTitle(s.title, property.name)}</span>
-                {detail && <span style={{ color: 'var(--ink-3)' }}> · {detail}</span>}
-                {chips.map((c) => (
-                  <span
-                    key={c.text}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <Link
+                  href={`/work/${s.id}`}
+                  style={{
+                    display: '-webkit-box',
+                    WebkitLineClamp: 2,
+                    WebkitBoxOrient: 'vertical',
+                    overflow: 'hidden',
+                    textDecoration: 'none',
+                    color: 'inherit',
+                    fontSize: 13,
+                    lineHeight: 1.45,
+                  }}
+                >
+                  <span style={{ color: 'var(--ink)', fontWeight: 500 }}>{slipDisplayTitle(s.title, property.name)}</span>
+                  {detail && <span style={{ color: 'var(--ink-3)' }}> · {detail}</span>}
+                </Link>
+                {meta.length > 0 && (
+                  <div
                     style={{
-                      marginLeft: 8,
-                      fontSize: 9,
+                      marginTop: 3,
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      columnGap: 12,
+                      rowGap: 2,
+                      fontSize: 10,
                       letterSpacing: '.14em',
                       textTransform: 'uppercase',
                       fontWeight: 600,
-                      color: c.color,
-                      border: `1px solid ${c.color}`,
-                      padding: '1px 6px',
-                      whiteSpace: 'nowrap',
-                      verticalAlign: 'middle',
                     }}
                   >
-                    {c.text}
-                  </span>
-                ))}
-              </Link>
-              {s.linked_report_ids && <Link href={`/work/${s.id}`} style={{ fontSize: 13, color: 'var(--tide-deep)' }}>{s.linked_report_ids.length} linked reports</Link>}
-              <MarkSlipDoneButton slipId={s.id} propertyId={property.id} reportCount={s.linked_report_ids?.length} />
+                    {meta.map((m) => (
+                      <span key={m.text} style={{ color: m.color }}>
+                        {m.text}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {linked > 0 && (
+                <Link href={`/work/${s.id}`} style={{ fontSize: 12, color: 'var(--tide-deep)', whiteSpace: 'nowrap' }}>
+                  {linked} linked {linked === 1 ? 'report' : 'reports'}
+                </Link>
+              )}
+              <MarkSlipDoneButton slipId={s.id} propertyId={property.id} reportCount={linked} />
             </div>
           </Fragment>
         );

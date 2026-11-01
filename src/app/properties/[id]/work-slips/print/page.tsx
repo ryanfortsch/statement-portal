@@ -15,6 +15,7 @@ import {
   type WorkLane,
 } from '@/lib/work-slip-lanes';
 import { loadWorkBrief, type WorkBriefRow } from '@/lib/work-briefs';
+import { briefEarnsItsPlace } from '@/lib/work-brief-rules';
 import { operatingDate } from '@/lib/operating-date';
 import { PrintButton } from './PrintButton';
 import { SlipRow, type PrintSlip } from './SlipRow';
@@ -123,6 +124,9 @@ export default async function WorkSlipsPrintPage({
 
   const lanes = groupSlipsByLane(slips);
   const counts = laneCounts(slips);
+  // The brief leads only when it is shorter than the ledger under it
+  // (lib/work-brief-rules.ts); a short sheet reads its own lines.
+  const showBrief = briefEarnsItsPlace(brief, slips.length);
   const visitCount = counts.supply + counts.visit;
   const waitingCount = counts.handyman + counts.pro + counts.owner + counts.office;
   const summaryBits = [
@@ -298,7 +302,7 @@ export default async function WorkSlipsPrintPage({
                 would write about this home (lib/work-briefs.ts), each a
                 lead and one clause. The old one-line count stands in when
                 no brief has been written yet. */}
-            {slips.length > 0 && brief && brief.items?.length > 0 ? (
+            {showBrief && brief && brief.items.length > 0 ? (
               <ul style={{ listStyle: 'none', margin: '18px 0 0', padding: 0, maxWidth: 620 }}>
                 {brief.items.map((item, i) => (
                   <li key={`${item.lead}-${i}`} className="ws-pdf-row" style={{ display: 'flex', gap: 12, alignItems: 'baseline', padding: '4px 0' }}>
@@ -322,19 +326,19 @@ export default async function WorkSlipsPrintPage({
               </ul>
             ) : (
               <p
-                className={brief?.brief && slips.length > 0 ? 'font-serif' : undefined}
+                className={showBrief && brief?.brief ? 'font-serif' : undefined}
                 style={{
                   marginTop: 18,
-                  fontSize: brief?.brief && slips.length > 0 ? 15 : 14,
+                  fontSize: showBrief && brief?.brief ? 15 : 14,
                   color: 'var(--ink-2)',
                   lineHeight: 1.55,
-                  fontStyle: brief?.brief && slips.length > 0 ? 'normal' : 'italic',
+                  fontStyle: showBrief && brief?.brief ? 'normal' : 'italic',
                   maxWidth: 600,
                 }}
               >
                 {slips.length === 0
                   ? 'No open work slips. Nothing to bring.'
-                  : brief?.brief
+                  : showBrief && brief?.brief
                     ? brief.brief
                     : visitCount > 0
                       ? `${visitCount} ${visitCount === 1 ? 'item' : 'items'} for this visit${waitingCount > 0 ? `, ${waitingCount} waiting on someone else` : ''}.`

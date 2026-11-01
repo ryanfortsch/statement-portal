@@ -89,6 +89,30 @@ export function briefWordCount(items: BriefItem[]): number {
   return items.reduce((n, i) => n + i.text.trim().split(/\s+/).filter(Boolean).length, 0);
 }
 
+/**
+ * The smallest ledger a brief stands in for. Under it the slips are the
+ * orientation: three lines read faster than a bullet about them.
+ */
+export const BRIEF_MIN_SLIPS = 5;
+
+/**
+ * Whether the brief leads the sheet, or the ledger reads alone. A brief is
+ * a condensation, so it earns its place only when it is shorter than the
+ * ledger under it and the ledger is long enough to want one. On 47 Atlantic
+ * (three slips, 2026-10-31) the one bullet restated one slip in other words
+ * a few lines above the slip itself; the ledger alone says it once. A
+ * paragraph brief from before bullets existed follows the same size rule.
+ */
+export function briefEarnsItsPlace(
+  brief: Pick<WorkBriefRow, 'items' | 'brief'> | null | undefined,
+  slipCount: number,
+): boolean {
+  if (!brief || slipCount < BRIEF_MIN_SLIPS) return false;
+  const n = brief.items?.length ?? 0;
+  if (n > 0) return n >= 2 && n < slipCount;
+  return !!brief.brief?.trim();
+}
+
 /** FNV-1a over a string, hex. A stale-check, not a security hash: no
  *  imports, so this module stays client-safe. */
 function fnv1a(input: string): string {

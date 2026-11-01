@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { createWorkSlip } from '@/app/work/actions';
+import { Button } from '@/components/Button';
 import { TeamPicker } from '@/components/TeamPicker';
 import {
   type WorkSlipCategory,
@@ -84,23 +85,9 @@ export function PropertyAddSlipButton({ propertyId, propertyName, myEmail }: Pro
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        style={{
-          background: 'var(--ink)',
-          color: 'var(--paper)',
-          border: '1px solid var(--ink)',
-          padding: '6px 12px',
-          fontSize: 11,
-          letterSpacing: '.16em',
-          textTransform: 'uppercase',
-          fontWeight: 500,
-          cursor: 'pointer',
-        }}
-      >
+      <Button variant="primary" size="sm" onClick={() => setOpen(true)}>
         + Work item
-      </button>
+      </Button>
 
       {open && (
         <div

@@ -180,10 +180,35 @@ export function laneChoicesFor(s: LaneChoiceSlip): WorkLane[] {
 export function slipDisplayTitle(title: string, propertyName: string | null | undefined): string {
   const t = title.trim();
   const name = (propertyName ?? '').trim();
-  if (!name || !t.toLowerCase().startsWith(name.toLowerCase())) return t;
+  if (!name || !t.toLowerCase().startsWith(name.toLowerCase())) return unshoutTitle(t);
   const tail = t.slice(name.length);
   const rest = tail.replace(/^\s*[:\-–—]\s*/, '');
-  return rest && rest !== tail ? rest : t;
+  return unshoutTitle(rest && rest !== tail ? rest : t);
+}
+
+/** The letters a house says as capitals; they stay when a shouted title is
+ *  read back in sentence case. */
+const KEEP_CAPS = new Set([
+  'TV', 'HVAC', 'AC', 'A/C', 'WIFI', 'WI-FI', 'QR', 'PIN', 'STR', 'ID', 'DPW', 'LED', 'GFCI', 'USB',
+  'HDMI', 'SCA', 'RT', 'ASAP', 'BBQ', 'UV', 'CO', 'CO2', 'AM', 'PM', 'ET', 'OK', 'ETA', 'CAE',
+]);
+
+/**
+ * A title typed in capitals ("CREATE SPARE KEYS") shouts beside its
+ * neighbours on every ledger, so it reads back in sentence case: "Create
+ * spare keys". Only a title of several words with no lowercase letter at
+ * all is touched (a code, a short label and an ordinary title are left as
+ * typed), and the capitals a house says as letters stay. A proper noun
+ * inside one comes back lowercase, which is the slip's title to fix; it no
+ * longer shouts.
+ */
+export function unshoutTitle(title: string): string {
+  const t = title.trim();
+  const letters = t.replace(/[^A-Za-z]/g, '');
+  if (letters.length < 6 || letters !== letters.toUpperCase()) return title;
+  if (!/\S\s+\S/.test(t)) return title;
+  const lowered = title.replace(/[A-Za-z][A-Za-z0-9/'-]*/g, (word) => (KEEP_CAPS.has(word.toUpperCase()) ? word : word.toLowerCase()));
+  return lowered.replace(/[a-z]/, (c) => c.toUpperCase());
 }
 
 function oneLine(text: string): string {
