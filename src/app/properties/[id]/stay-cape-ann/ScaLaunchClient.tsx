@@ -927,14 +927,19 @@ export function ScaLaunchClient(props: Props) {
               <strong>Publishable key.</strong> Developers &rsaquo; API keys. Copy the <span style={mono}>pk_live_…</span> key.
             </li>
             <li style={{ marginBottom: 10 }}>
-              <strong>Secret key, for the booking site.</strong> Same page, click Reveal on the Secret key and copy the{' '}
-              <span style={mono}>sk_live_…</span> key. A plain secret key has no permissions to pick. (Prefer a
-              restricted one? See the note at the end of this step.)
+              <strong>Secret key, for the booking site.</strong> Same page, under Standard keys. If the account&rsquo;s
+              default Secret key still shows <strong>Reveal live key</strong>, click it and copy the{' '}
+              <span style={mono}>sk_live_…</span> key. That button only exists on keys Stripe made for the account; a
+              key you create yourself is shown once and never again. If there is no Reveal, click Create secret key
+              (Stripe texts or emails a code), name it <strong>Stay Cape Ann</strong>, and copy the key before closing
+              the dialog. A plain secret key has no permissions to pick; a restricted key with four is the better
+              choice, see the note at the end of this step.
             </li>
             <li style={{ marginBottom: 10 }}>
               <strong>Restricted key, for Helm.</strong> Same page, Create restricted key. Name it <strong>Helm</strong>,
               start from zero permissions and set exactly these seven; every other row stays{' '}
-              <span style={mono}>None</span>. Copy the <span style={mono}>rk_live_…</span> key.
+              <span style={mono}>None</span>. Copy the <span style={mono}>rk_live_…</span> key <strong>before closing
+              the dialog</strong>: Stripe shows it once. Lost it? Rotate the key and copy the new one.
               <div style={{ marginTop: 8, marginBottom: 2 }}>
                 {HELM_STRIPE_KEY_PERMISSIONS.map(PERM_ROW)}
               </div>
@@ -978,8 +983,8 @@ export function ScaLaunchClient(props: Props) {
             Optional: a restricted key for the booking site instead of the plain secret key
           </summary>
           <p style={{ ...hintStyle, marginTop: 10, marginBottom: 10 }}>
-            In step 2, Create restricted key instead of revealing the secret key, name it <strong>Stay Cape Ann</strong>,
-            and set exactly these four. Every other row stays <span style={mono}>None</span>: Disputes, Events, Balance,
+            In step 2, Create restricted key instead, name it <strong>Stay Cape Ann</strong>, set exactly these four,
+            and copy it before closing the dialog (shown once). Every other row stays <span style={mono}>None</span>: Disputes, Events, Balance,
             Products and Payouts are never called by the booking site. That is a separate key from Helm&rsquo;s in step 3,
             with its own permissions.
           </p>
