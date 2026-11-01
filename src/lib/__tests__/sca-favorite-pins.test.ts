@@ -97,7 +97,7 @@ test("Step 3 names Helm's own key and its seven permissions, matching what Helm 
   assert.equal(helmStripeKeyEnvName('47_atlantic'), 'STRIPE_KEY_47_ATLANTIC');
   assert.deepEqual(
     HELM_STRIPE_KEY_PERMISSIONS.map((p) => `${p.resource} ${p.access}`),
-    ['Charges Read', 'Balance Read', 'Checkout Sessions Read', 'Payment Links Write', 'Products Write', 'Prices Write', 'Payment Intents Write'],
+    ['Charges and Refunds Read', 'Balance Read', 'Checkout Sessions Read', 'Payment Links Write', 'Products Write', 'Prices Write', 'Payment Intents Write'],
   );
   const { readFile } = await import('node:fs/promises');
   const src = await readFile(new URL('../../app/properties/[id]/stay-cape-ann/ScaLaunchClient.tsx', import.meta.url), 'utf8');

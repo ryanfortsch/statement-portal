@@ -57,7 +57,9 @@ export const SCA_STRIPE_WEBHOOK_EVENTS: ReadonlyArray<string> = [
  * hint about which ones an integration needs, so this list is the answer,
  * derived by reading stay-cape-ann's actual call sites rather than guessed.
  * Stripe's own rule: GET needs Read, POST/DELETE need Write, and Write implies
- * Read (docs.stripe.com/keys/restricted-api-keys).
+ * Read (docs.stripe.com/keys/restricted-api-keys). Resource names are Stripe's
+ * current ones, as the Create secret key > Custom permissions list spells them
+ * (checked in the Dashboard 2026-11-01: "Charges and Refunds", not "Charges").
  *
  * What the booking site actually calls, and nothing else:
  *
@@ -91,7 +93,7 @@ export const SCA_STRIPE_KEY_PERMISSIONS: ReadonlyArray<{
     why: 'authorize, capture, cancel and look up every booking charge',
   },
   {
-    resource: 'Charges',
+    resource: 'Charges and Refunds',
     access: 'Read',
     why: 'the dispute webhook reads the disputed charge to find its payment',
   },
@@ -182,7 +184,7 @@ export const HELM_STRIPE_KEY_PERMISSIONS: ReadonlyArray<{
   access: 'Read' | 'Write';
   why: string;
 }> = [
-  { resource: 'Charges', access: 'Read', why: 'matches each direct booking to its charge for the owner statement and the Payments lookup' },
+  { resource: 'Charges and Refunds', access: 'Read', why: 'matches each direct booking to its charge for the owner statement and the Payments lookup' },
   { resource: 'Balance', access: 'Read', why: "reads Stripe's real processing fee on each charge, so statements never use the 3.9% estimate" },
   { resource: 'Checkout Sessions', access: 'Read', why: 'tells Helm when an add-on payment link has been paid' },
   { resource: 'Payment Links', access: 'Write', why: 'makes and closes add-on links (late checkout, extra night, replacement cost)' },

@@ -908,10 +908,11 @@ export function ScaLaunchClient(props: Props) {
         <div className="eyebrow">Step 3</div>
         <h2 className="font-serif" style={sectionTitle}>Wire up payments</h2>
         <p style={hintStyle}>
-          This home&rsquo;s <strong>own Stripe account</strong> serves two apps, so it needs <strong>two secret keys</strong>:
-          one for the booking site (staycapeann.com takes the guest&rsquo;s payment) and one for Helm (the owner
-          statement and add-on payment links). Four things to copy out of Stripe, then four places to paste them in Vercel.
-          Helm never sees the booking site&rsquo;s key.
+          This home&rsquo;s <strong>own Stripe account</strong> serves two apps, so it gets <strong>two secret keys</strong>,
+          each with only the permissions that app uses: one for the booking site (staycapeann.com takes the guest&rsquo;s
+          payment) and one for Helm (the owner statement and add-on payment links). Both are made the same way. Four
+          things to copy out of Stripe, then four places to paste them in Vercel. Helm never sees the booking
+          site&rsquo;s key.
         </p>
 
         <div style={{ marginTop: 14, maxWidth: 360 }}>
@@ -921,25 +922,25 @@ export function ScaLaunchClient(props: Props) {
         </div>
 
         <div style={{ marginTop: 14, border: '1px solid var(--rule)', padding: 16 }}>
-          <span style={labelStyle}>In Stripe, signed in to this property&rsquo;s account</span>
+          <span style={labelStyle}>In Stripe: switch to this property&rsquo;s account, then Developers &rsaquo; API keys</span>
           <ol style={{ margin: '8px 0 0', paddingLeft: 22, fontSize: 13, lineHeight: 1.6 }}>
             <li style={{ marginBottom: 10 }}>
-              <strong>Publishable key.</strong> Developers &rsaquo; API keys. Copy the <span style={mono}>pk_live_…</span> key.
+              <strong>Publishable key.</strong> It is printed at the top of the API keys page, <span style={mono}>pk_live_…</span>,
+              with a copy icon beside it.
             </li>
             <li style={{ marginBottom: 10 }}>
-              <strong>Secret key, for the booking site.</strong> Same page, under Standard keys. If the account&rsquo;s
-              default Secret key still shows <strong>Reveal live key</strong>, click it and copy the{' '}
-              <span style={mono}>sk_live_…</span> key. That button only exists on keys Stripe made for the account; a
-              key you create yourself is shown once and never again. If there is no Reveal, click Create secret key
-              (Stripe texts or emails a code), name it <strong>Stay Cape Ann</strong>, and copy the key before closing
-              the dialog. A plain secret key has no permissions to pick; a restricted key with four is the better
-              choice, see the note at the end of this step.
+              <strong>The booking site&rsquo;s key.</strong> Click <strong>Create secret key</strong> &rsaquo; Building your own
+              integration &rsaquo; Continue &rsaquo; <strong>Custom permissions</strong> &rsaquo; Continue. Search each resource
+              below by name and set its level; everything else stays <span style={mono}>None</span>. Continue, name it{' '}
+              <strong>Helm - SCA</strong>, Create. Copy the <span style={mono}>rk_live_…</span> key before closing:
+              Stripe shows it once.
+              <div style={{ marginTop: 8, marginBottom: 2 }}>
+                {SCA_STRIPE_KEY_PERMISSIONS.map(PERM_ROW)}
+              </div>
             </li>
             <li style={{ marginBottom: 10 }}>
-              <strong>Restricted key, for Helm.</strong> Same page, Create restricted key. Name it <strong>Helm</strong>,
-              start from zero permissions and set exactly these seven; every other row stays{' '}
-              <span style={mono}>None</span>. Copy the <span style={mono}>rk_live_…</span> key <strong>before closing
-              the dialog</strong>: Stripe shows it once. Lost it? Rotate the key and copy the new one.
+              <strong>Helm&rsquo;s key.</strong> Create secret key again, the same way, with these seven. Name it{' '}
+              <strong>Helm</strong>. Copy the <span style={mono}>rk_live_…</span> key before closing.
               <div style={{ marginTop: 8, marginBottom: 2 }}>
                 {HELM_STRIPE_KEY_PERMISSIONS.map(PERM_ROW)}
               </div>
@@ -953,6 +954,11 @@ export function ScaLaunchClient(props: Props) {
               </span>
             </li>
           </ol>
+          <p style={{ ...hintStyle, marginTop: 12 }}>
+            Skip the Full access choices: a key with every permission puts the whole account at risk if it leaks, and Helm
+            refuses one (<span style={mono}>sk_</span>). Lost a key? Its row menu has Rotate key, which shows a new value
+            once. A key&rsquo;s permissions can be checked any time from its row menu &rsaquo; Edit key.
+          </p>
         </div>
 
         <div style={{ marginTop: 14, border: '1px solid var(--rule)', padding: 16 }}>
@@ -963,9 +969,9 @@ export function ScaLaunchClient(props: Props) {
             name, paste the value.
           </p>
           <VercelRow value="pk_live_… (1)" project="stay-cape-ann"><CopyLine text={env.publishable} /></VercelRow>
-          <VercelRow value="sk_live_… (2)" project="stay-cape-ann"><CopyLine text={env.secret} /></VercelRow>
+          <VercelRow value="rk_live_… Helm - SCA (2)" project="stay-cape-ann"><CopyLine text={env.secret} /></VercelRow>
           <VercelRow value="whsec_… (4)" project="stay-cape-ann"><CopyLine text={env.webhookSecret} /></VercelRow>
-          <VercelRow value="rk_live_… named Helm (3)" project="rising-tide-statements">
+          <VercelRow value="rk_live_… Helm (3)" project="rising-tide-statements">
             <CopyLine
               text={helmStripeKeyEnvName(props.propertyId)}
               suffix={props.helmStripeKeySet === true ? 'set on Helm' : props.helmStripeKeySet === false ? 'not set on Helm yet' : undefined}
@@ -973,27 +979,9 @@ export function ScaLaunchClient(props: Props) {
           </VercelRow>
           <p style={{ ...hintStyle, marginTop: 12 }}>
             Then <strong>Redeploy</strong> both projects (Deployments &rsaquo; the latest &rsaquo; Redeploy), tick the three
-            boxes below and click Verify wiring. Helm ignores an <span style={mono}>sk_</span> key in its own variable, so
-            the Helm one must be the restricted key from step 3.
+            boxes below and click Verify wiring.
           </p>
         </div>
-
-        <details style={{ marginTop: 14, border: '1px solid var(--rule)', padding: 16 }}>
-          <summary style={{ ...labelStyle, cursor: 'pointer', marginBottom: 0 }}>
-            Optional: a restricted key for the booking site instead of the plain secret key
-          </summary>
-          <p style={{ ...hintStyle, marginTop: 10, marginBottom: 10 }}>
-            In step 2, Create restricted key instead, name it <strong>Stay Cape Ann</strong>, set exactly these four,
-            and copy it before closing the dialog (shown once). Every other row stays <span style={mono}>None</span>: Disputes, Events, Balance,
-            Products and Payouts are never called by the booking site. That is a separate key from Helm&rsquo;s in step 3,
-            with its own permissions.
-          </p>
-          {SCA_STRIPE_KEY_PERMISSIONS.map(PERM_ROW)}
-          <p style={{ ...hintStyle, marginTop: 12 }}>
-            One trade: a key this tight cannot read the account object, so staycapeann&rsquo;s key diagnostic confirms it
-            authenticates but cannot print the account name back for you to check against the owner. Either kind passes.
-          </p>
-        </details>
 
         <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
           <Check label={`${env.publishable} set in Vercel`} checked={!!row?.payment_publishable_set} disabled={!prOpen || busy !== null} onChange={(v) => onTogglePayment('publishable', v)} />
