@@ -58,3 +58,46 @@ export async function geocodeAddress(address: string): Promise<Coords | null> {
     return null;
   }
 }
+
+/**
+ * A named place (a restaurant for a listing's map) in one town, for the Stay
+ * Cape Ann launcher's map pin. Same Nominatim service and failure mode as
+ * geocodeAddress: null on any miss. The match must sit in the town asked for,
+ * so a same-named spot elsewhere never lands on a Cape Ann map; a wrong pin is
+ * worse than an empty one, which the launcher then asks a person to fill.
+ */
+export async function geocodePlace(name: string, town: string): Promise<Coords | null> {
+  const n = name.trim();
+  const t = town.trim();
+  if (!n || !t) return null;
+  const url = new URL('https://nominatim.openstreetmap.org/search');
+  url.searchParams.set('q', `${n}, ${t}, Massachusetts`);
+  url.searchParams.set('format', 'json');
+  url.searchParams.set('limit', '1');
+  url.searchParams.set('countrycodes', 'us');
+  url.searchParams.set('addressdetails', '1');
+  try {
+    const r = await fetch(url, {
+      headers: { 'User-Agent': USER_AGENT },
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!r.ok) return null;
+    const data = (await r.json()) as Array<{
+      lat: string;
+      lon: string;
+      address?: Record<string, string | undefined>;
+    }>;
+    if (!data?.length) return null;
+    const a = data[0].address ?? {};
+    const places = [a.city, a.town, a.village, a.hamlet, a.suburb, a.municipality]
+      .filter((v): v is string => typeof v === 'string')
+      .map((v) => v.toLowerCase());
+    if (!places.includes(t.toLowerCase())) return null;
+    const lat = parseFloat(data[0].lat);
+    const lng = parseFloat(data[0].lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    return { lat, lng };
+  } catch {
+    return null;
+  }
+}

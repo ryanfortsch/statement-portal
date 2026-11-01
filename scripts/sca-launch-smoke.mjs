@@ -44,6 +44,7 @@ await writeFile(join(scratch, 'actions.js'), `
   export const pullFromGuesty = (...args) => call('guesty', args);
   export const draftScaCopyWithAi = (...args) => call('ai', args);
   export const adoptLiveScaListing = (...args) => call('adopt', args);
+  export const fillScaFavoritePins = async (draft) => draft;
 `);
 await writeFile(join(scratch, 'upload.js'), compile(`
   import React from 'react';

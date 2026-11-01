@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useTransition, type CSSProperties, type ReactNode } from 'react';
 import { PhotoUploader } from '@/components/PhotoUploader';
 import { useConfirm, type AskOptions } from '@/components/ConfirmDialog';
-import { scaDraftPreviewSignature, type ScaFormDraft, type ScaLaunchRow, type PaymentVerifySignal } from '@/lib/sca-launch';
+import { scaDraftPreviewSignature, describeScaErrors, needsFavoritePins, type ScaFormDraft, type ScaLaunchRow, type PaymentVerifySignal } from '@/lib/sca-launch';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import {
   scaStripeEnvVarNames,
@@ -25,6 +25,7 @@ import {
   openScaUpdatePr,
   publishScaUpdate,
   adoptLiveScaListing,
+  fillScaFavoritePins,
 } from './actions';
 import { etStamp } from '@/lib/stable-time';
 import { listingCopyNotes } from '@/lib/sca-copy-notes';
@@ -403,21 +404,31 @@ export function ScaLaunchClient(props: Props) {
       setNotice({ kind: 'ok', text: 'This is the live listing. Edit it here, preview the changes, then Publish.' });
     });
 
+  // A restaurant with a name and town but no pin is looked up first, and the
+  // form takes the pins, so what the PR builds is what the page shows.
+  const withFavoritePins = async (draft: ScaFormDraft): Promise<ScaFormDraft> => {
+    if (!needsFavoritePins(draft)) return draft;
+    const filled = await fillScaFavoritePins(draft);
+    if (filled !== draft) setForm(filled);
+    return filled;
+  };
+
   const onOpenPr = () =>
     run('pr', async () => {
       setPreviewSignature(null);
       setPreviewError(null);
       setErrors({});
-      const res = await openScaPr(props.propertyId, form);
+      const ready = await withFavoritePins(form);
+      const res = await openScaPr(props.propertyId, ready);
       if (res.ok) {
         setRow(res.row);
-        setSavedForm(JSON.stringify(form));
-        setPreviewSignature(scaDraftPreviewSignature(form));
+        setSavedForm(JSON.stringify(ready));
+        setPreviewSignature(scaDraftPreviewSignature(ready));
         setPreviewState('pending');
         setNotice({ kind: 'ok', text: 'Pull request opened. Building a preview…' });
       } else if (res.errors) {
         setErrors(res.errors);
-        setNotice({ kind: 'err', text: `Can't open the PR yet: ${Object.values(res.errors).join('; ')}` });
+        setNotice({ kind: 'err', text: `Can't open the PR yet: ${describeScaErrors(res.errors)}` });
         if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
       } else {
         setNotice({ kind: 'err', text: res.error ?? 'Could not open PR' });
@@ -430,16 +441,17 @@ export function ScaLaunchClient(props: Props) {
       setPreviewSignature(null);
       setPreviewError(null);
       setErrors({});
-      const res = await openScaUpdatePr(props.propertyId, form);
+      const ready = await withFavoritePins(form);
+      const res = await openScaUpdatePr(props.propertyId, ready);
       if (res.ok) {
         setRow(res.row);
-        setSavedForm(JSON.stringify(form));
-        setPreviewSignature(scaDraftPreviewSignature(form));
+        setSavedForm(JSON.stringify(ready));
+        setPreviewSignature(scaDraftPreviewSignature(ready));
         setPreviewState('pending');
         setNotice({ kind: 'ok', text: 'Preview opened. The listing stays live until you publish. Review the preview, then Publish.' });
       } else if (res.errors) {
         setErrors(res.errors);
-        setNotice({ kind: 'err', text: `Can't preview the changes yet: ${Object.values(res.errors).join('; ')}` });
+        setNotice({ kind: 'err', text: `Can't preview the changes yet: ${describeScaErrors(res.errors)}` });
         if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
       } else {
         setNotice({ kind: 'err', text: res.error ?? 'Could not open the preview' });
@@ -690,7 +702,7 @@ export function ScaLaunchClient(props: Props) {
         {/* Stay favorite */}
         <div style={{ marginTop: 24 }}>
           <span style={labelStyle}>Stay favorite (one verified restaurant)</span>
-          <p style={hintStyle}>The &ldquo;we&rsquo;d eat here&rdquo; pick shown on the neighborhood map. Use only a verified business.</p>
+          <p style={hintStyle}>The &ldquo;we&rsquo;d eat here&rdquo; pick shown on the neighborhood map. Use only a verified business. Leave lat and lng blank and Helm looks them up when the PR opens.</p>
           <div className="grid grid-cols-2 sm:grid-cols-[2fr_1fr_1fr_1fr]" style={{ gap: 8, marginTop: 8 }}>
             <input className="col-span-2 sm:col-span-1" style={inputStyle} value={form.stayFavorite.name} onChange={(e) => set('stayFavorite', { ...form.stayFavorite, name: e.target.value })} placeholder="Restaurant name" />
             <input style={inputStyle} value={form.stayFavorite.town} onChange={(e) => set('stayFavorite', { ...form.stayFavorite, town: e.target.value })} placeholder="Town" />
@@ -698,7 +710,7 @@ export function ScaLaunchClient(props: Props) {
             <input style={inputStyle} inputMode="decimal" value={Number.isFinite(form.stayFavorite.lng) ? String(form.stayFavorite.lng) : ''} onChange={(e) => set('stayFavorite', { ...form.stayFavorite, lng: e.target.value === '' ? NaN : Number(e.target.value) })} placeholder="Lng" />
           </div>
           {(errOf('stayFavorite.name') || errOf('stayFavorite.town') || errOf('stayFavorite.blurb') || errOf('stayFavorite.lat') || errOf('stayFavorite.lng')) && (
-            <FieldError>Restaurant needs a name, town, lat, lng, and a one-sentence blurb.</FieldError>
+            <FieldError>Restaurant needs a name, town and one-sentence blurb. Helm finds the pin from the name and town; type the lat and lng only if it cannot.</FieldError>
           )}
           <input style={{ ...inputStyle, marginTop: 8 }} value={form.stayFavorite.blurb} onChange={(e) => set('stayFavorite', { ...form.stayFavorite, blurb: e.target.value })} placeholder="One-sentence editorial blurb" />
         </div>
