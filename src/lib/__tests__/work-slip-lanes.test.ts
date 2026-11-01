@@ -59,6 +59,20 @@ test('a leading home name is stripped from a title only when a separator follows
   assert.equal(slipDisplayTitle('73 Rocky Neck: Fix the lock', null), '73 Rocky Neck: Fix the lock');
 });
 
+test('a title typed in capitals reads back in sentence case; codes, short labels and acronyms stay', () => {
+  // 47 Atlantic, 2026-10-31: "CREATE SPARE KEYS (Ryan)" shouted beside
+  // "Helm has no Stripe key for this home" on the same office line.
+  assert.equal(slipDisplayTitle('CREATE SPARE KEYS', '47 Atlantic'), 'Create spare keys');
+  assert.equal(slipDisplayTitle('47 Atlantic: CREATE SPARE KEYS', '47 Atlantic'), 'Create spare keys');
+  assert.equal(slipDisplayTitle('REPLACE TV REMOTE AND HVAC FILTER', null), 'Replace TV remote and HVAC filter');
+  assert.equal(slipDisplayTitle('21 HORTON SINK LEAK', null), '21 Horton sink leak');
+  // Anything with a lowercase letter is as typed, a lone token may be a code.
+  assert.equal(slipDisplayTitle('Fix the HVAC', null), 'Fix the HVAC');
+  assert.equal(slipDisplayTitle('GFCI', null), 'GFCI');
+  assert.equal(slipDisplayTitle('RRST-25-1312', null), 'RRST-25-1312');
+  assert.equal(slipDisplayTitle('TV OK', null), 'TV OK');
+});
+
 test('the detail line prefers a summary that says more than the title, else the description collapsed', () => {
   // A guest-message slip carries its title as its action summary: no echo.
   const echo = {

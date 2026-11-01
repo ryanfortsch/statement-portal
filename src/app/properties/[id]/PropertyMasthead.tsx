@@ -7,10 +7,11 @@ import { headerGuestCode } from '@/lib/masthead-guest-code';
 import type { PropertyCleaner } from '@/lib/property-crew';
 import type { TrashDayFact } from '@/lib/civic';
 
-/** Current occupancy and open work stay visible above the tabs. Access,
- * contacts and reference facts are one disclosure away in readable columns.
- * Alerts remain outside the disclosure. Existing credential and role gates
- * apply equally to expanded and collapsed states. */
+/** Current occupancy and open work stay visible above the tabs, with any
+ * alert under them as a line. Access, contacts and reference facts are one
+ * disclosure away in readable columns. Alerts remain outside the disclosure.
+ * Existing credential and role gates apply equally to expanded and collapsed
+ * states. */
 
 type Alert = {
   key: string;
@@ -266,12 +267,43 @@ export function PropertyMasthead({
         @media (max-width: 1024px) { .rt-band-rail { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 18px; } }
         @media (max-width: 640px) { .rt-band-rail { grid-template-columns: minmax(0, 1fr); } }
       `}</style>
-      <details style={{ borderBottom: '1px solid var(--rule)' }}>
+      {/* ALERTS: only rendered when something has actually fired. These are
+          the expensive, quiet failures the page used to bury inside a fold:
+          a live listing in demo mode, a contract that disagrees with the fee
+          we bill, a permit about to lapse. They sit with the live row, one
+          line each in the errand colour, and read like the rail's own fix
+          links rather than as a stray button between the fold and the tabs. */}
+      {alerts.length > 0 && (
+        <div
+          style={{
+            borderBottom: '1px solid var(--rule)',
+            padding: '10px 0',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 4,
+          }}
+        >
+          {alerts.slice(0, 5).map((a) => (
+            <Link
+              key={a.key}
+              href={a.href}
+              className="rt-action-link"
+              style={{ fontSize: 12, color: `var(--${a.tone})`, textDecoration: 'none', lineHeight: 1.4, alignSelf: 'flex-start' }}
+            >
+              {a.text} →
+            </Link>
+          ))}
+        </div>
+      )}
+
+      {/* The fold closes the band: one ink rule under it whether it is open
+          or shut, and a soft rule between the summary and the rail. */}
+      <details style={{ borderBottom: '1px solid var(--ink)' }}>
       <summary style={{ padding: '14px 0', cursor: 'pointer', fontSize: 14 }}>Visit details <span style={{ color: 'var(--ink-3)' }}>· Access, Wi-Fi, parking & contacts</span></summary>
       <div
         className="rt-masthead-band rt-band-rail"
         style={{
-          borderBottom: alerts.length > 0 ? '1px solid var(--rule)' : '1px solid var(--ink)',
+          borderTop: '1px solid var(--rule)',
           padding: '14px 0',
         }}
       >
@@ -371,39 +403,6 @@ export function PropertyMasthead({
 
       </details>
 
-      {/* ALERTS — only rendered when something has actually fired. These are
-          the expensive, quiet failures the page used to bury inside a fold:
-          a live listing in demo mode, a contract that disagrees with the fee
-          we bill, a permit about to lapse. */}
-      {alerts.length > 0 && (
-        <div
-          style={{
-            borderBottom: '1px solid var(--ink)',
-            padding: '12px 0',
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: 8,
-          }}
-        >
-          {alerts.slice(0, 5).map((a) => (
-            <Link
-              key={a.key}
-              href={a.href}
-              style={{
-                fontSize: 11,
-                textDecoration: 'none',
-                padding: '5px 10px',
-                borderRadius: 2,
-                border: `1px solid var(--${a.tone})`,
-                color: `var(--${a.tone})`,
-                lineHeight: 1.3,
-              }}
-            >
-              {a.text}
-            </Link>
-          ))}
-        </div>
-      )}
     </section>
   );
 }

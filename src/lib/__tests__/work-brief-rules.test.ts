@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { ageDays, ageWords, briefFingerprint, briefIsStale, briefText, briefWordCount, normalizeBriefItems, trimHeadline } from '../work-brief-rules.ts';
+import { ageDays, ageWords, briefEarnsItsPlace, briefFingerprint, briefIsStale, briefText, briefWordCount, normalizeBriefItems, trimHeadline } from '../work-brief-rules.ts';
 import { supplyChipLabel } from '../work-slip-lanes.ts';
 import { suppliesLabel } from '../inspection-supplies.ts';
 
@@ -79,6 +79,27 @@ test('the property page, the print sheet and the board all carry the brief', () 
   const lib = readFileSync(new URL('../work-briefs.ts', import.meta.url), 'utf8');
   assert.match(lib, /current\.slip_fingerprint === fingerprint && current\.brief/);
   assert.match(lib, /Never a guest's name/);
+});
+
+test('a brief leads only when it is shorter than the ledger it stands in for', () => {
+  const item = (n: number) => Array.from({ length: n }, (_, i) => ({ lead: 'Office', text: `bullet ${i}` }));
+  // 47 Atlantic, 2026-10-31: three slips, one bullet that restated one of them.
+  assert.equal(briefEarnsItsPlace({ items: item(1), brief: 'Office: bullet 0.' }, 3), false);
+  assert.equal(briefEarnsItsPlace({ items: item(3), brief: '' }, 3), false, 'one bullet per slip is the ledger twice');
+  assert.equal(briefEarnsItsPlace({ items: item(3), brief: '' }, 4), false, 'a four-line ledger reads alone');
+  assert.equal(briefEarnsItsPlace({ items: item(3), brief: '' }, 5), true);
+  assert.equal(briefEarnsItsPlace({ items: item(1), brief: '' }, 9), false, 'a single bullet is a headline, not a brief');
+  assert.equal(briefEarnsItsPlace({ items: item(5), brief: '' }, 12), true);
+  // A paragraph brief from before bullets existed follows the size rule.
+  assert.equal(briefEarnsItsPlace({ items: [], brief: 'The sink first, then the deck.' }, 6), true);
+  assert.equal(briefEarnsItsPlace({ items: [], brief: 'The sink first.' }, 3), false);
+  assert.equal(briefEarnsItsPlace({ items: [], brief: '  ' }, 8), false);
+  assert.equal(briefEarnsItsPlace(null, 20), false);
+  // Both surfaces that lead with the brief ask the rule, not their own count.
+  const section = readFileSync(new URL('../../app/properties/[id]/OpenWorkSection.tsx', import.meta.url), 'utf8');
+  assert.match(section, /briefEarnsItsPlace\(brief, slips\.length\)/);
+  const sheet = readFileSync(new URL('../../app/properties/[id]/work-slips/print/page.tsx', import.meta.url), 'utf8');
+  assert.match(sheet, /briefEarnsItsPlace\(brief, slips\.length\)/);
 });
 
 test('a long headline is cut at a clause boundary, never mid-word', () => {

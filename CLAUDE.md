@@ -170,14 +170,18 @@ not establish whether an exception existed when the statement was sent.
 **Every home also carries a brief** (`property_work_briefs`, `src/lib/work-briefs.ts`): a one-line
 headline for the Work board's home header and three to seven bullets (`items`, each a lead naming
 whose hands it is in and one clause) that lead the property page's Open Work section and the
-print sheet, written by the model from the open slips grouped by lane
+print sheet when the brief is shorter than the ledger it stands in for (`briefEarnsItsPlace` in
+`work-brief-rules.ts`: five or more slips, two or more bullets, fewer bullets than slips; a three-slip
+home reads its own lines), written by the model from the open slips grouped by lane
 (what is blocking, what needs a pro, what a handyman run covers, what the next visit knocks out,
 what to bring, what the owner owes, what is for the office; never a guest's name). It is rewritten
 only when the slip set changes (`briefFingerprint` in `work-brief-rules.ts`), so the text is stable
 and the model runs only for homes that moved: `/api/cron/work-briefs` at 05:05 UTC, after the
 organize pass and before the field-packets planner, and after the board's Organize button. The
 ledger under the brief is dense on purpose: the shopping list is one chip line, office items one
-line, clustered slips one header, and a row carries no "Unclaimed" or OPEN pill.
+line, clustered slips one header, a row's dates and hands a quiet small-caps line under its text (never
+boxed: the row's one box is Done), a title typed in capitals read back in sentence case
+(`unshoutTitle`), and a row carries no "Unclaimed" or OPEN pill.
 
 **A signed management contract's terms are locked** (`src/lib/contract-terms.ts`, since
 2026-10-15). The contract is not a stored document: `/contract/<token>`, the prospect page and
