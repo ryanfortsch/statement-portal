@@ -1,3 +1,5 @@
+import { prepareSupportResolution } from '../src/lib/channex-staging/inventory-support-resolution.ts';
+import { replayInventoryJournal } from '../src/lib/channex-staging/inventory-journal.ts';
 // Native PostgreSQL only, fictional sources and mocked provider transport.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -70,6 +72,39 @@ export async function verifyInventoryReviewedRetry(db, check, race) {
     const rows=(await db.query('select record from helm_inventory_retry_events where property_id=$1 order by revision',[f.property])).rows;
     assert.deepEqual(rows.map(r=>r.record.outcome),['submitting','submitted','verified']);
     assert.deepEqual((await f.base.read()).journal,f.journal);await assert.rejects(f.run(),/already has/);assert.equal(f.posts(),1);
+  });
+  await db.exec(readFileSync(new URL('../docs/guesty-exit/staging-storage/inventory-support-resolution.sql',import.meta.url),'utf8'));
+  await check('support resolution SQL: append-only retirement keeps publisher paused and original receipt absent', async()=>{
+    const f=await seed(); await f.run(); const first=await f.base.read();
+    await checkReviewedRetry(f.base,f.client,first.records[0].id);
+    const snapshot=await f.base.read();
+    const prepared=prepareSupportResolution(snapshot,{originalId:'original',requestDigest:f.review.requestDigest,
+      supportMessage:'1a194f5fa29b4351',reviewedBy:'fixture@example.invalid'});
+    const call=(version=prepared.expectedVersion,rev=snapshot.revision,journal=prepared.journal)=>db.query(
+      'select helm_inventory_support_resolution($1,$2,$3,$4) v',[f.property,version,rev,journal]);
+    assert.equal((await call(prepared.expectedVersion+1)).rows[0].v,false);
+    assert.equal((await call(prepared.expectedVersion,snapshot.revision-1)).rows[0].v,false);
+    await db.query("update helm_booking_inventory_consumers set configuration=jsonb_set(configuration,'{publishEnabled}','true'::jsonb) where property_id=$1",[f.property]);
+    assert.equal((await call()).rows[0].v,false);
+    await db.query("update helm_booking_inventory_consumers set configuration=jsonb_set(configuration,'{publishEnabled}','false'::jsonb) where property_id=$1",[f.property]);
+    const nullTime=structuredClone(prepared.journal); nullTime.commands.at(-1).now=null;
+    await assert.rejects(call(prepared.expectedVersion,snapshot.revision,nullTime),/explicit support/);
+    for(const role of ['anon','authenticated']) {
+      await a.query(`set role ${role}`);
+      try { await assert.rejects(a.query('select helm_inventory_support_resolution($1,$2,$3,$4)',[f.property,prepared.expectedVersion,snapshot.revision,prepared.journal]),/permission denied/); }
+      finally { await a.query('reset role'); }
+    }
+    const wrong=structuredClone(prepared.journal); wrong.commands.at(-1).retryTask='11111111-1111-4111-8111-111111111111';
+    await assert.rejects(call(prepared.expectedVersion,snapshot.revision,wrong),/matching recovery/);
+    const rewrite=structuredClone(prepared.journal); rewrite.commands[0].now++;
+    await assert.rejects(call(prepared.expectedVersion,snapshot.revision,rewrite),/rewrite/);
+    assert.equal((await call()).rows[0].v,true);
+    assert.equal((await call()).rows[0].v,false);
+    const stored=(await db.query('select journal,configuration from helm_booking_inventory_consumers where property_id=$1',[f.property])).rows[0];
+    assert.deepEqual(stored.journal.commands.slice(0,-1),f.journal.commands);
+    const retired=replayInventoryJournal(stored.journal).queue.list()[0];
+    assert.equal(retired.status,'superseded'); assert.equal(retired.task,undefined);
+    assert.equal(stored.configuration.publishEnabled,false); assert.equal(f.posts(),1);
   });
   await check('recovery SQL: concurrent reservation waits and loses without a duplicate',async()=>{
     const f=await seed(),x=await f.candidate(a),y=await f.candidate(b);

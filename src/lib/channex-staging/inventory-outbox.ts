@@ -173,6 +173,15 @@ export class MemoryInventoryOutbox {
     j.status = evidence.digest === j.digest ? 'verified' : 'needs-review';
     return j.status === 'verified';
   }
+  /** Administrative retirement based on reviewed provider non-receipt evidence.
+   * Never claims successful delivery or attaches another attempt's receipt. */
+  retireNotReceived(id: string, token: string, requestDigest: string): void {
+    const j = this.owned(id, token, ['uncertain']);
+    if (!j.request || j.request.digest !== requestDigest || j.task || j.receipt || j.dispatchedAt === undefined) {
+      throw Error('Unreceipted attempt changed');
+    }
+    j.status = 'superseded';
+  }
   private get(id: string): InventoryJob {
     const j = this.jobs.get(id);
     if (!j) throw new Error('Unknown command');

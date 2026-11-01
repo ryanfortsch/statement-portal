@@ -1,3 +1,4 @@
+import { prepareSupportResolution } from '../channex-staging/inventory-support-resolution.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { sendReviewedRetryOnce, checkReviewedRetry, type RetryRecord, type RetrySnapshot, type ReviewedRetryStore } from '../channex-staging/inventory-reviewed-retry.ts';
@@ -122,4 +123,32 @@ test('matching readback is not proof of original settlement', async () => {
   assert.deepEqual(await f.run(), { status: 'already-matches', originalSettled: false });
   assert.equal(f.posts(), 0); assert.equal(f.state.records.length, 0);
   assert.equal(JSON.stringify(f.state.journal), f.journalBefore);
+});
+
+
+test('support disposition retires only the original attempt, preserving both receipts and history', async () => {
+  const f = fixture(); await f.run();
+  await checkReviewedRetry(f.store, f.client, f.state.records[0].id);
+  const before = structuredClone(f.state);
+  const input = { originalId: 'original', requestDigest: f.review.requestDigest,
+    supportMessage: '1a194f5fa29b4351', reviewedBy: 'reviewer@example.invalid' };
+  const result = prepareSupportResolution(f.state, input, NOW);
+  assert.deepEqual(f.state, before);
+  assert.deepEqual(result.journal.commands.slice(0, -1), replayInventoryJournal(before.journal).journal.commands);
+  const job = replayInventoryJournal(result.journal).queue.list()[0];
+  assert.equal(job.status, 'superseded'); assert.equal(job.task, undefined); assert.equal(job.receipt, undefined);
+  assert.equal(job.request?.digest, f.review.requestDigest);
+  assert.equal(f.posts(), 1);
+  for (const change of [
+    s => { s.current.workerPaused = false; },
+    s => { s.records[0].outcome = 'submitted'; },
+    s => { s.records[0].job.request!.body = '{}'; },
+    s => { s.records[0].originalJournalVersion++; },
+    s => { s.records.push(structuredClone(s.records[0])); },
+  ] as Array<(s: RetrySnapshot) => void>) {
+    const altered = structuredClone(f.state); change(altered);
+    assert.throws(() => prepareSupportResolution(altered, input, NOW));
+  }
+  assert.throws(() => prepareSupportResolution(f.state, { ...input, supportMessage: '' }, NOW));
+  assert.throws(() => prepareSupportResolution({ ...f.state, journal: result.journal }, input, NOW));
 });

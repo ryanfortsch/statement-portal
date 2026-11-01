@@ -30,6 +30,11 @@ const context = z.object({ environment: z.literal('staging'), connection: id, pr
   generation: positive, version: positive, digest: id, authority: z.enum(['helm', 'guesty']),
   enabled: z.boolean(), complete: z.boolean(), freshUntil: int }).strict();
 const commandSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('retire-not-received'), id, token: id,
+    requestDigest: z.string().regex(/^[a-f0-9]{64}$/),
+    supportMessage: z.string().regex(/^[a-f0-9]{16}$/),
+    retryId: id, retryTask: z.string().uuid(), reviewedBy: z.string().email(),
+    reason: z.literal('provider-asserted-non-receipt'), now: int }).strict(),
   z.object({ kind: z.literal('enqueue'), intent, now: int }).strict(),
   z.object({ kind: z.literal('retire-pending'), connection: id, property: id, generation: positive }).strict(),
   z.object({ kind: z.literal('claim'), id, now: int, leaseMs: positive }).strict(),
@@ -70,6 +75,7 @@ export function assertInventoryEnqueue(journal: InventoryJournal, input: z.infer
 export const emptyInventoryJournal = (): InventoryJournal => ({ format: 1, commands: [] });
 function apply(queue: MemoryInventoryOutbox, command: InventoryCommand) {
   switch (command.kind) {
+    case 'retire-not-received': return queue.retireNotReceived(command.id, command.token, command.requestDigest);
     case 'enqueue': return queue.enqueue(command.intent, command.now);
     case 'retire-pending': return queue.retirePending(command.connection, command.property, command.generation);
     case 'claim': return queue.claim(command.id, command.now, command.leaseMs);
@@ -137,6 +143,7 @@ export function inventoryAttemptAudit(value: unknown) {
     return [{ id: command.id, token: command.token, property: job.property, connection: job.connection,
       generation: job.generation, version: job.version, desiredDigest: job.digest, dispatchedAt: command.now,
       request: command.request ?? null,
+      disposition: following.find(next => next.kind === 'retire-not-received') ?? null,
       receipt: accepted?.kind === 'accepted' ? { task: accepted.task, binding: accepted.receipt ?? null } : null,
       outcome: outcome?.kind ?? 'unresolved', canVerify: false as const }];
   });
