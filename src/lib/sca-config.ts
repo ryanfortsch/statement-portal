@@ -156,3 +156,42 @@ export function scaBookProbeUrl(guestyListingId: string): string {
  * is configured for the listing. Presence => NOT wired.
  */
 export const SCA_DEMO_MODE_SENTINEL = 'Payment processing is in demo mode';
+
+/**
+ * Helm's OWN key for a home's Stripe account: a second restricted key, set on
+ * Helm's Vercel project (rising-tide-statements) as STRIPE_KEY_<PROPERTY_ID>,
+ * never the booking site's. Helm refuses an sk_ key there (getStripeKeysMap).
+ *
+ * What Helm calls with it, and nothing else:
+ *
+ *   charges.list (+ expand balance_transaction)  lib/stripe-sync.ts,
+ *       lib/stripe-payments-lookup.ts, api/installments/verify-source,
+ *       api/stripe-account-check: match each direct stay to its charge and
+ *       read Stripe's real fee for the owner statement
+ *   checkout/sessions.list                        lib/payment-links.ts,
+ *       lib/stripe-sync.ts: was the add-on link paid
+ *   prices.create (product_data creates the product), payment_links.create
+ *       / update                                   lib/payment-links.ts
+ *   payment_intents.create / search                app/payments/balance-charges:
+ *       charge a guest's saved card for a booking balance (owners only)
+ *
+ * stay-concierge's fleet_watch slip lists the same set; change both together.
+ */
+export const HELM_STRIPE_KEY_PERMISSIONS: ReadonlyArray<{
+  resource: string;
+  access: 'Read' | 'Write';
+  why: string;
+}> = [
+  { resource: 'Charges', access: 'Read', why: 'matches each direct booking to its charge for the owner statement and the Payments lookup' },
+  { resource: 'Balance', access: 'Read', why: "reads Stripe's real processing fee on each charge, so statements never use the 3.9% estimate" },
+  { resource: 'Checkout Sessions', access: 'Read', why: 'tells Helm when an add-on payment link has been paid' },
+  { resource: 'Payment Links', access: 'Write', why: 'makes and closes add-on links (late checkout, extra night, replacement cost)' },
+  { resource: 'Products', access: 'Write', why: 'each add-on link carries its own product' },
+  { resource: 'Prices', access: 'Write', why: 'and its own price, tax included' },
+  { resource: 'Payment Intents', access: 'Write', why: "charges a guest's saved card for a booking balance (Payments, Balance charges)" },
+];
+
+/** Helm's env var for a home's Stripe key: STRIPE_KEY_<PROPERTY_ID>, e.g. STRIPE_KEY_47_ATLANTIC. */
+export function helmStripeKeyEnvName(propertyId: string): string {
+  return `STRIPE_KEY_${propertyId.toUpperCase().replace(/[^A-Z0-9_]/g, '_')}`;
+}

@@ -9,6 +9,8 @@ import {
   scaStripeEnvVarNames,
   scaStripeWebhookUrl,
   SCA_STRIPE_KEY_PERMISSIONS,
+  HELM_STRIPE_KEY_PERMISSIONS,
+  helmStripeKeyEnvName,
   SCA_STRIPE_WEBHOOK_EVENTS,
 } from '@/lib/sca-config';
 import {
@@ -54,6 +56,8 @@ type Props = {
   liveDraft?: ScaFormDraft | null;
   /** On staycapeann.com but with no launch record in Helm: offer to open it here. */
   adoptable?: boolean;
+  /** Whether Helm's own key for this home (STRIPE_KEY_<ID>) is set on Helm. Owners only; undefined = unknown. */
+  helmStripeKeySet?: boolean;
   /** The restaurant dropdown: verified picks plus every live listing's, each with its pin. */
   restaurants?: ScaRestaurant[];
 };
@@ -923,7 +927,7 @@ export function ScaLaunchClient(props: Props) {
         </div>
 
         <div style={{ marginTop: 14, border: '1px solid var(--rule)', padding: 16 }}>
-          <span style={labelStyle}>Which permissions that secret key needs</span>
+          <span style={labelStyle}>Which permissions the booking site&rsquo;s secret key needs</span>
           <p style={{ ...hintStyle, marginTop: 0, marginBottom: 12 }}>
             Only if you mint a <strong>restricted</strong> key: Developers &rsaquo; API keys &rsaquo; Create
             restricted key, start from zero permissions, then set exactly these four. Every other row stays{' '}
@@ -956,6 +960,41 @@ export function ScaLaunchClient(props: Props) {
           <span style={labelStyle}>Stripe webhook (in this property&rsquo;s Stripe account)</span>
           <CopyLine text={webhookUrl} />
           <p style={{ ...hintStyle, marginTop: 8 }}>Subscribe to: <span style={mono}>{SCA_STRIPE_WEBHOOK_EVENTS.join(', ')}</span>. Copy its signing secret into <span style={mono}>{env.webhookSecret}</span>.</p>
+        </div>
+
+        <div style={{ marginTop: 14, border: '1px solid var(--rule)', padding: 16 }}>
+          <span style={labelStyle}>Helm&rsquo;s own key (a second restricted key, on Helm&rsquo;s Vercel project)</span>
+          <p style={{ ...hintStyle, marginTop: 0, marginBottom: 10 }}>
+            Separate from the booking site&rsquo;s key. Helm uses it to put direct bookings on the owner statement
+            with Stripe&rsquo;s real fees and to make add-on payment links. In this property&rsquo;s Stripe account:
+            Developers &rsaquo; API keys &rsaquo; Create restricted key, name it <strong>Helm</strong>, start from zero
+            permissions and set exactly these seven. Every other row stays <span style={mono}>None</span>. Then in
+            Vercel, <strong>rising-tide-statements</strong> &rsaquo; Environment Variables, add this name with the{' '}
+            <span style={mono}>rk_live_</span> key as its value, and Redeploy. Never an <span style={mono}>sk_</span> key:
+            Helm ignores one.
+          </p>
+          <CopyLine
+            text={helmStripeKeyEnvName(props.propertyId)}
+            suffix={
+              props.helmStripeKeySet === true
+                ? ' = rk_live_… (set on Helm)'
+                : props.helmStripeKeySet === false
+                  ? ' = rk_live_… (not set on Helm yet)'
+                  : ' = rk_live_…'
+            }
+          />
+          <div style={{ marginTop: 10 }}>
+            {HELM_STRIPE_KEY_PERMISSIONS.map((p) => (
+              <div
+                key={p.resource}
+                style={{ display: 'flex', gap: 12, alignItems: 'baseline', padding: '7px 0', borderTop: '1px solid var(--rule)' }}
+              >
+                <code style={{ ...mono, fontSize: 12.5, width: 124, flexShrink: 0 }}>{p.resource}</code>
+                <span style={{ fontSize: 12, fontWeight: 600, letterSpacing: '.04em', width: 42, flexShrink: 0 }}>{p.access}</span>
+                <span style={{ fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5 }}>{p.why}</span>
+              </div>
+            ))}
+          </div>
         </div>
 
         <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
