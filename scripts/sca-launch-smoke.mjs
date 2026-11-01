@@ -21,6 +21,7 @@ for (const [name, path] of [['stabletime', 'src/lib/stable-time.ts'],
   ['component', 'src/app/properties/[id]/stay-cape-ann/ScaLaunchClient.tsx'],
   ['unsaved-work', 'src/lib/unsaved-work.ts'],
   ['sca-launch', 'src/lib/sca-launch.ts'],
+  ['sca-restaurants', 'src/lib/sca-restaurants.ts'],
   ['sca-config', 'src/lib/sca-config.ts'],
   ['sca-copy-notes', 'src/lib/sca-copy-notes.ts'],
   ['confirm-dialog', 'src/components/ConfirmDialog.tsx'],
@@ -140,7 +141,7 @@ await new Promise((done,reject)=>{
       '@/components/ConfirmDialog':join(scratch,'confirm-dialog.js'),
       '@/lib/confirm-question':join(scratch,'confirm-question.js'),
       '@/lib/button-class':join(scratch,'button-class.js'),
-      ...Object.fromEntries(['unsaved-work','sca-launch','sca-config','sca-copy-notes'].map(name=>['@/lib/'+name,join(scratch,name+'.js')])),
+      ...Object.fromEntries(['unsaved-work','sca-launch','sca-config','sca-copy-notes','sca-restaurants'].map(name=>['@/lib/'+name,join(scratch,name+'.js')])),
     }},performance:{hints:false},
   });
   compiler.run((error,stats)=>compiler.close(()=>error||stats?.hasErrors()

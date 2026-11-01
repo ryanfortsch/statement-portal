@@ -16,8 +16,6 @@ import {
   deriveStripeAccountKey,
   interpretBookProbe,
   fillFavoritePins,
-  registryFavoritePins,
-  knownFavoritePin,
   type ScaFormDraft,
   type ScaLaunchRow,
   type PaymentVerifySignal,
@@ -36,6 +34,8 @@ import { readScaPreviewContent, requireScaPreviewMatch } from '@/lib/sca-preview
 import { getGuestyListing } from '@/lib/guesty';
 import { draftListingCopy } from '@/lib/listing-copy-draft';
 import { geocodePlace } from '@/lib/geocode';
+import { findRestaurant } from '@/lib/sca-restaurants';
+import { scaRestaurants } from '@/lib/sca-live';
 import type { HelmPropertyRow } from '@/lib/properties';
 
 /**
@@ -504,19 +504,15 @@ export async function adoptLiveScaListing(propertyId: string): Promise<ActionRes
 
 /**
  * Fill the map pin of each restaurant that has a name and town but no
- * coordinates: first from the same restaurant on another live listing, then
- * from OpenStreetMap. The launcher calls this before opening a PR so the draft
- * it shows, saves and previews is the one with the pins in it.
+ * coordinates: first from the restaurant list (the verified picks and every
+ * live listing's), then from OpenStreetMap. The launcher calls this before
+ * opening a PR so the draft it shows, saves and previews has the pins in it.
  */
 export async function fillScaFavoritePins(draft: ScaFormDraft): Promise<ScaFormDraft> {
   const email = await requireEmail();
   if (!email) return draft;
-  let pins = new Map<string, { lat: number; lng: number }>();
-  if (gh.isGithubConfigured()) {
-    const file = await gh.getFile(SCA_REGISTRY_PATH, SCA_PROD_BRANCH).catch(() => null);
-    if (file) pins = registryFavoritePins(file.contentUtf8);
-  }
-  return fillFavoritePins(draft, async (name, town) => knownFavoritePin(pins, name, town) ?? geocodePlace(name, town));
+  const choices = await scaRestaurants();
+  return fillFavoritePins(draft, async (name, town) => findRestaurant(choices, name, town) ?? geocodePlace(name, town));
 }
 
 /**
