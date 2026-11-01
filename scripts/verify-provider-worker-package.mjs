@@ -1,3 +1,5 @@
+import { prepareSupportResolution } from '../src/lib/channex-staging/inventory-support-resolution.ts';
+if (typeof prepareSupportResolution !== 'function') throw Error('Resolution module missing');
 /** Import-only packaging check. No credentials, clients, timers, database or network calls. */
 import { createAirbnbRevisionReader } from '../src/lib/channex-bookings/client.ts';
 import { processAirbnbBookingCycle } from '../src/lib/channex-bookings/cycle.ts';
