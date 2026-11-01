@@ -14,6 +14,7 @@ import {
 } from '@/lib/sca-launch';
 import * as gh from '@/lib/github';
 import { scaLiveEntry, scaRestaurants } from '@/lib/sca-live';
+import { getStripeKeysMap } from '@/lib/stripe-sync';
 import { ScaLaunchClient } from './ScaLaunchClient';
 
 export const dynamic = 'force-dynamic';
@@ -119,6 +120,7 @@ export default async function StayCapeAnnLaunchPage({
           liveDraft={liveDraft}
           adoptable={adoptable}
           restaurants={restaurants}
+          helmStripeKeySet={isOwner ? !!getStripeKeysMap()[id] : undefined}
         />
       </main>
     </div>
