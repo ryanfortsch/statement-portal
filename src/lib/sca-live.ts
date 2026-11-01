@@ -18,6 +18,7 @@
 import * as gh from './github';
 import { SCA_PROD_BRANCH, SCA_REGISTRY_PATH } from './sca-config';
 import { registryEntryFor } from './sca-launch';
+import { restaurantChoices, type ScaRestaurant } from './sca-restaurants';
 
 export type ScaLiveCheck = { known: true; entry: Record<string, unknown> | null } | { known: false; entry: null };
 
@@ -43,5 +44,19 @@ export async function scaLiveEntry(listingId: string | null | undefined, opts: {
     return { known: true, entry: registryEntryFor(raw, id) };
   } catch {
     return { known: false, entry: null };
+  }
+}
+
+/**
+ * The launcher's restaurant dropdown, from the same registry read: the
+ * verified picks plus every pinned restaurant on a live listing. When GitHub
+ * cannot be read it is the verified picks alone.
+ */
+export async function scaRestaurants(opts: { maxAgeMs?: number } = {}): Promise<ScaRestaurant[]> {
+  if (!gh.isGithubConfigured()) return restaurantChoices(null);
+  try {
+    return restaurantChoices(await registryRaw(opts.maxAgeMs ?? 0));
+  } catch {
+    return restaurantChoices(null);
   }
 }

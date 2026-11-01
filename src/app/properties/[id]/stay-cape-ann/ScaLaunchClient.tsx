@@ -29,6 +29,7 @@ import {
 } from './actions';
 import { etStamp } from '@/lib/stable-time';
 import { listingCopyNotes } from '@/lib/sca-copy-notes';
+import { findRestaurant, restaurantChoices, restaurantKey, type ScaRestaurant } from '@/lib/sca-restaurants';
 
 type Props = {
   propertyId: string;
@@ -53,6 +54,8 @@ type Props = {
   liveDraft?: ScaFormDraft | null;
   /** On staycapeann.com but with no launch record in Helm: offer to open it here. */
   adoptable?: boolean;
+  /** The restaurant dropdown: verified picks plus every live listing's, each with its pin. */
+  restaurants?: ScaRestaurant[];
 };
 
 const newRoomKey = (): string =>
@@ -97,6 +100,7 @@ function normalize(d: Partial<ScaFormDraft>, base: ScaFormDraft): ScaFormDraft {
 export function ScaLaunchClient(props: Props) {
   const [start] = useState(() => startingForm(props));
   const [form, setForm] = useState<ScaFormDraft>(start.form);
+  const [restaurants] = useState(() => props.restaurants ?? restaurantChoices(null));
   const [row, setRow] = useState<ScaLaunchRow | null>(props.initialRow);
   // A stable identity per bedroom, so removing an earlier room never hands a
   // later room's upload (or failed upload) to its neighbour. Editor-only:
@@ -702,17 +706,18 @@ export function ScaLaunchClient(props: Props) {
         {/* Stay favorite */}
         <div style={{ marginTop: 24 }}>
           <span style={labelStyle}>Stay favorite (one verified restaurant)</span>
-          <p style={hintStyle}>The &ldquo;we&rsquo;d eat here&rdquo; pick shown on the neighborhood map. Use only a verified business. Leave lat and lng blank and Helm looks them up when the PR opens.</p>
-          <div className="grid grid-cols-2 sm:grid-cols-[2fr_1fr_1fr_1fr]" style={{ gap: 8, marginTop: 8 }}>
-            <input className="col-span-2 sm:col-span-1" style={inputStyle} value={form.stayFavorite.name} onChange={(e) => set('stayFavorite', { ...form.stayFavorite, name: e.target.value })} placeholder="Restaurant name" />
-            <input style={inputStyle} value={form.stayFavorite.town} onChange={(e) => set('stayFavorite', { ...form.stayFavorite, town: e.target.value })} placeholder="Town" />
-            <input style={inputStyle} inputMode="decimal" value={Number.isFinite(form.stayFavorite.lat) ? String(form.stayFavorite.lat) : ''} onChange={(e) => set('stayFavorite', { ...form.stayFavorite, lat: e.target.value === '' ? NaN : Number(e.target.value) })} placeholder="Lat" />
-            <input style={inputStyle} inputMode="decimal" value={Number.isFinite(form.stayFavorite.lng) ? String(form.stayFavorite.lng) : ''} onChange={(e) => set('stayFavorite', { ...form.stayFavorite, lng: e.target.value === '' ? NaN : Number(e.target.value) })} placeholder="Lng" />
+          <p style={hintStyle}>The &ldquo;we&rsquo;d eat here&rdquo; pick shown on the neighborhood map. The list is every restaurant already on Stay Cape Ann, pinned. Use &ldquo;Another restaurant&rdquo; only for a verified business; Helm puts it on the map.</p>
+          <div style={{ marginTop: 8 }}>
+            <RestaurantPicker value={form.stayFavorite} choices={restaurants} onChange={(f) => set('stayFavorite', f)} />
           </div>
           {(errOf('stayFavorite.name') || errOf('stayFavorite.town') || errOf('stayFavorite.blurb') || errOf('stayFavorite.lat') || errOf('stayFavorite.lng')) && (
-            <FieldError>Restaurant needs a name, town and one-sentence blurb. Helm finds the pin from the name and town; type the lat and lng only if it cannot.</FieldError>
+            <FieldError>
+              {errOf('stayFavorite.lat') || errOf('stayFavorite.lng')
+                ? 'Helm could not find that restaurant on the map. Pick one from the list, or check the name and town.'
+                : 'Pick a restaurant and write a one-sentence blurb.'}
+            </FieldError>
           )}
-          <input style={{ ...inputStyle, marginTop: 8 }} value={form.stayFavorite.blurb} onChange={(e) => set('stayFavorite', { ...form.stayFavorite, blurb: e.target.value })} placeholder="One-sentence editorial blurb" />
+          <input style={{ ...inputStyle, marginTop: 8 }} value={form.stayFavorite.blurb} onChange={(e) => set('stayFavorite', { ...form.stayFavorite, blurb: e.target.value })} placeholder={blurbPlaceholder(restaurants, form.stayFavorite)} />
         </div>
 
         {/* Optional repeatables */}
@@ -723,13 +728,8 @@ export function ScaLaunchClient(props: Props) {
           onRemove={(i) => set('extraFavorites', (form.extraFavorites ?? []).filter((_, j) => j !== i))}
           render={(f, i) => (
             <>
-              <div className="grid grid-cols-2 sm:grid-cols-[2fr_1fr_1fr_1fr]" style={{ gap: 8 }}>
-                <input className="col-span-2 sm:col-span-1" style={inputStyle} value={f.name} onChange={(e) => updateAt('extraFavorites', i, { ...f, name: e.target.value })} placeholder="Name" />
-                <input style={inputStyle} value={f.town} onChange={(e) => updateAt('extraFavorites', i, { ...f, town: e.target.value })} placeholder="Town" />
-                <input style={inputStyle} inputMode="decimal" value={Number.isFinite(f.lat) ? String(f.lat) : ''} onChange={(e) => updateAt('extraFavorites', i, { ...f, lat: e.target.value === '' ? NaN : Number(e.target.value) })} placeholder="Lat" />
-                <input style={inputStyle} inputMode="decimal" value={Number.isFinite(f.lng) ? String(f.lng) : ''} onChange={(e) => updateAt('extraFavorites', i, { ...f, lng: e.target.value === '' ? NaN : Number(e.target.value) })} placeholder="Lng" />
-              </div>
-              <input style={{ ...inputStyle, marginTop: 8 }} value={f.blurb} onChange={(e) => updateAt('extraFavorites', i, { ...f, blurb: e.target.value })} placeholder="Blurb" />
+              <RestaurantPicker value={f} choices={restaurants} onChange={(next) => updateAt('extraFavorites', i, next)} />
+              <input style={{ ...inputStyle, marginTop: 8 }} value={f.blurb} onChange={(e) => updateAt('extraFavorites', i, { ...f, blurb: e.target.value })} placeholder={blurbPlaceholder(restaurants, f)} />
             </>
           )}
         />
@@ -1049,6 +1049,65 @@ function Field({ label, error, hint, children }: { label: string; error?: string
       {error ? <FieldError>{error}</FieldError> : hint ? <p style={hintStyle}>{hint}</p> : null}
     </div>
   );
+}
+
+type Favorite = ScaFormDraft['stayFavorite'];
+
+const OTHER_RESTAURANT = '__other';
+
+/**
+ * One restaurant: a dropdown of the listed ones (picking one sets its name,
+ * town and map pin), or "Another restaurant" with a name and town that Helm
+ * puts on the map when the PR opens. Nobody types coordinates.
+ */
+function RestaurantPicker({ value, choices, onChange }: { value: Favorite; choices: ScaRestaurant[]; onChange: (f: Favorite) => void }) {
+  const match = value.name.trim() ? findRestaurant(choices, value.name, value.town) : null;
+  const [other, setOther] = useState(!!value.name.trim() && !match);
+  const selected = other ? OTHER_RESTAURANT : match ? restaurantKey(match.name, match.town) : '';
+  const towns = [...new Set(choices.map((c) => c.town))];
+  return (
+    <>
+      <select
+        style={inputStyle}
+        value={selected}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (v === OTHER_RESTAURANT) {
+            setOther(true);
+            onChange({ ...value, name: '', lat: NaN, lng: NaN });
+            return;
+          }
+          setOther(false);
+          const r = choices.find((c) => restaurantKey(c.name, c.town) === v);
+          onChange(r ? { ...value, name: r.name, town: r.town, lat: r.lat, lng: r.lng } : { ...value, name: '', lat: NaN, lng: NaN });
+        }}
+      >
+        <option value="">Pick a restaurant</option>
+        {towns.map((t) => (
+          <optgroup key={t} label={t}>
+            {choices.filter((c) => c.town === t).map((c) => (
+              <option key={restaurantKey(c.name, c.town)} value={restaurantKey(c.name, c.town)}>{c.name}</option>
+            ))}
+          </optgroup>
+        ))}
+        <option value={OTHER_RESTAURANT}>Another restaurant</option>
+      </select>
+      {other && (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-[2fr_1fr]" style={{ gap: 8, marginTop: 8 }}>
+            <input style={inputStyle} value={value.name} onChange={(e) => onChange({ ...value, name: e.target.value, lat: NaN, lng: NaN })} placeholder="Restaurant name" />
+            <input style={inputStyle} value={value.town} onChange={(e) => onChange({ ...value, town: e.target.value, lat: NaN, lng: NaN })} placeholder="Town" />
+          </div>
+          <p style={hintStyle}>Helm finds it on the map when the PR opens.</p>
+        </>
+      )}
+    </>
+  );
+}
+
+function blurbPlaceholder(choices: ScaRestaurant[], f: Favorite): string {
+  const sample = f.name.trim() ? findRestaurant(choices, f.name, f.town)?.sampleBlurb : undefined;
+  return sample ? `One sentence, e.g. ${sample}` : 'One-sentence editorial blurb';
 }
 
 function FieldError({ children }: { children: ReactNode }) {

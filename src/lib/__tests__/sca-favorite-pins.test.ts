@@ -3,12 +3,11 @@ import assert from 'node:assert/strict';
 import {
   describeScaErrors,
   fillFavoritePins,
-  knownFavoritePin,
-  registryFavoritePins,
   needsFavoritePins,
   validateScaForm,
   type ScaFormDraft,
 } from '../sca-launch.ts';
+import { VERIFIED_RESTAURANTS, findRestaurant, restaurantChoices } from '../sca-restaurants.ts';
 
 const base = (): ScaFormDraft => ({
   guestyListingId: 'abc',
@@ -33,7 +32,7 @@ test('a blank pin, as NaN or as null after JSON, reads as its own field, never z
     assert.equal(v.errors['stayFavorite.lng'], 'Longitude required');
     const line = describeScaErrors(v.errors);
     assert.doesNotMatch(line, /expected number|received null/);
-    assert.match(line, /^Restaurant map pin: /);
+    assert.match(line, /^Restaurant: Helm could not find it on the map/);
     assert.equal(line.split('; ').length, 1, 'latitude and longitude read as one line');
   }
 });
@@ -66,20 +65,29 @@ test('extra spots are filled too and named by position', async () => {
   const filled = await fillFavoritePins(draft, async (name) => (name === 'Duckworth' ? { lat: 1, lng: 2 } : null));
   assert.equal(filled.extraFavorites?.[0].lat, 1);
   assert.equal(Number.isNaN(filled.stayFavorite.lat), true);
-  assert.match(describeScaErrors({ 'extraFavorites.0.lat': 'Latitude required' }), /^Extra spot 1 map pin/);
+  assert.match(describeScaErrors({ 'extraFavorites.0.lat': 'Latitude required' }), /^Extra spot 1: Helm could not find it/);
 });
 
-test('a restaurant already on a live listing takes that pin, spelled loosely', () => {
+test('the dropdown holds the verified picks plus any pinned restaurant on a live listing', () => {
   const registry = JSON.stringify({
     listings: {
-      a: { stayFavorite: { name: 'Short and Main', town: 'Gloucester', lat: 42.61, lng: -70.66 } },
-      b: { extraFavorites: [{ name: 'The Gloucester House', town: 'Gloucester', lat: 42.6, lng: -70.67 }, { name: 'No pin', town: 'Rockport' }] },
+      a: { stayFavorite: { name: 'Short & Main', town: 'Gloucester', lat: 1, lng: 2, blurb: 'x' } },
+      b: { extraFavorites: [{ name: 'New Spot', town: 'Essex', lat: 42.63, lng: -70.78, blurb: 'Clams.' }, { name: 'No pin', town: 'Rockport' }] },
     },
   });
-  const pins = registryFavoritePins(registry);
-  assert.deepEqual(knownFavoritePin(pins, 'Short & Main', 'gloucester'), { lat: 42.61, lng: -70.66 });
-  assert.deepEqual(knownFavoritePin(pins, 'Gloucester House', 'Gloucester'), { lat: 42.6, lng: -70.67 });
-  assert.equal(knownFavoritePin(pins, 'Short and Main', 'Rockport'), null);
-  assert.equal(knownFavoritePin(pins, 'No pin', 'Rockport'), null);
-  assert.equal(registryFavoritePins('not json').size, 0);
+  const choices = restaurantChoices(registry);
+  assert.equal(choices.length, VERIFIED_RESTAURANTS.length + 1, 'Short & Main is the verified Short and Main; No pin is left out');
+  assert.deepEqual(findRestaurant(choices, 'New Spot', 'essex'), { name: 'New Spot', town: 'Essex', lat: 42.63, lng: -70.78, sampleBlurb: 'Clams.' });
+  assert.equal(findRestaurant(choices, 'Short & Main', 'Gloucester')?.lat, 42.6129, 'the verified pin wins');
+  assert.equal(findRestaurant(choices, 'Gloucester House', 'Gloucester')?.name, 'The Gloucester House');
+  assert.equal(findRestaurant(choices, 'Short and Main', 'Rockport'), null);
+  assert.equal(restaurantChoices('not json').length, VERIFIED_RESTAURANTS.length);
+  for (const r of VERIFIED_RESTAURANTS) assert.ok(Number.isFinite(r.lat) && Number.isFinite(r.lng), r.name);
+});
+
+test('the launcher has no coordinate boxes; the restaurant is a dropdown', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const src = await readFile(new URL('../../app/properties/[id]/stay-cape-ann/ScaLaunchClient.tsx', import.meta.url), 'utf8');
+  assert.doesNotMatch(src, /placeholder="Lat"|placeholder="Lng"/);
+  assert.match(src, /<RestaurantPicker value=\{form\.stayFavorite\}/);
 });

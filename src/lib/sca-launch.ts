@@ -196,55 +196,6 @@ export async function fillFavoritePins(
   return changed ? { ...draft, stayFavorite: stayFavorite as Favorite, extraFavorites } : draft;
 }
 
-const placeKey = (name: string, town: string): string =>
-  [name, town]
-    .map((v) =>
-      v
-        .toLowerCase()
-        .replace(/&/g, ' and ')
-        .replace(/[^a-z0-9 ]/g, ' ')
-        .replace(/^\s*the\s+/, '')
-        .replace(/\s+/g, ' ')
-        .trim(),
-    )
-    .join('|');
-
-/**
- * The pins of every restaurant already on a Stay Cape Ann listing, read from
- * the raw registry JSON. Those are the verified picks, placed by hand, so a
- * repeat pick takes the same pin before any outside lookup runs.
- */
-export function registryFavoritePins(registryJson: string): Map<string, { lat: number; lng: number }> {
-  const pins = new Map<string, { lat: number; lng: number }>();
-  let obj: { listings?: Record<string, unknown> };
-  try {
-    obj = JSON.parse(registryJson);
-  } catch {
-    return pins;
-  }
-  for (const entry of Object.values(obj.listings ?? {})) {
-    const e = (entry ?? {}) as { stayFavorite?: unknown; extraFavorites?: unknown };
-    const favs = [e.stayFavorite, ...(Array.isArray(e.extraFavorites) ? e.extraFavorites : [])];
-    for (const f of favs) {
-      const v = (f ?? {}) as Record<string, unknown>;
-      if (typeof v.name !== 'string' || typeof v.town !== 'string') continue;
-      if (typeof v.lat !== 'number' || typeof v.lng !== 'number' || !Number.isFinite(v.lat) || !Number.isFinite(v.lng)) continue;
-      const key = placeKey(v.name, v.town);
-      if (!pins.has(key)) pins.set(key, { lat: v.lat, lng: v.lng });
-    }
-  }
-  return pins;
-}
-
-/** The registry's pin for a restaurant, matched on name and town ("&" = "and", a leading "The" ignored). */
-export function knownFavoritePin(
-  pins: Map<string, { lat: number; lng: number }>,
-  name: string,
-  town: string,
-): { lat: number; lng: number } | null {
-  return pins.get(placeKey(name, town)) ?? null;
-}
-
 /** True when some restaurant has a name and town but no pin yet. */
 export function needsFavoritePins(draft: ScaFormDraft): boolean {
   const wants = (f: Favorite | undefined) => !!f && !hasPin(f) && !!f.name?.trim() && !!f.town?.trim();
@@ -271,7 +222,7 @@ export function describeScaErrors(errors: Record<string, string>): string {
     const who = stay ? 'Restaurant' : extra ? `Extra spot ${Number(extra[1]) + 1}` : null;
     const field = stay?.[1] ?? extra?.[2];
     if (!who) add(msg);
-    else if (field === 'lat' || field === 'lng') add(`${who} map pin: Helm could not find it by name and town, so enter its latitude and longitude`);
+    else if (field === 'lat' || field === 'lng') add(`${who}: Helm could not find it on the map, so pick one from the list or check the name and town`);
     else add(`${who} ${field}: ${msg.charAt(0).toLowerCase()}${msg.slice(1)}`);
   }
   return lines.join('; ');

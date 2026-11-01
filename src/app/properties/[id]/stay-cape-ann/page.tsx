@@ -13,7 +13,7 @@ import {
   type ScaLaunchRow,
 } from '@/lib/sca-launch';
 import * as gh from '@/lib/github';
-import { scaLiveEntry } from '@/lib/sca-live';
+import { scaLiveEntry, scaRestaurants } from '@/lib/sca-live';
 import { ScaLaunchClient } from './ScaLaunchClient';
 
 export const dynamic = 'force-dynamic';
@@ -72,6 +72,8 @@ export default async function StayCapeAnnLaunchPage({
       ? await getLiveDraft(listingId, { internalName: property.name, stripeAccountKey: deriveStripeAccountKey(property.id), rank: launch?.rank ?? 100 })
       : null;
   const adoptable = !!liveDraft && (!launch || launch.status === 'draft');
+  // Read after the live check, so it reuses that registry read.
+  const restaurants = await scaRestaurants({ maxAgeMs: 120_000 });
 
   // Defaults for a fresh draft, prefilled from the Helm property row.
   const defaults: ScaFormDraft = {
@@ -116,6 +118,7 @@ export default async function StayCapeAnnLaunchPage({
           isOwner={isOwner}
           liveDraft={liveDraft}
           adoptable={adoptable}
+          restaurants={restaurants}
         />
       </main>
     </div>
