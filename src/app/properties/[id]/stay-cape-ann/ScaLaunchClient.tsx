@@ -908,8 +908,8 @@ export function ScaLaunchClient(props: Props) {
         <div className="eyebrow">Step 3</div>
         <h2 className="font-serif" style={sectionTitle}>Wire up payments</h2>
         <p style={hintStyle}>
-          Make <strong>two keys</strong> in this home&rsquo;s own Stripe account: one for the booking site, one for Helm.
-          Four things to copy out of Stripe (steps 1 to 4), then four places to paste them in Vercel.
+          Four values, each copied out of this home&rsquo;s own Stripe account and pasted into Vercel. Three go to the
+          booking site, one to Helm. Do them in order and tick each box as you go.
         </p>
 
         <div style={{ marginTop: 14, maxWidth: 360 }}>
@@ -918,70 +918,77 @@ export function ScaLaunchClient(props: Props) {
           </Field>
         </div>
 
+        <p style={{ ...hintStyle, marginTop: 14 }}>
+          In Stripe, pick this property&rsquo;s account from the menu at the top left, then Developers (bottom left) &rsaquo;
+          API keys. Keys made there are shown <strong>once</strong>: copy each one before closing its dialog. Never pick
+          Full access.
+        </p>
+
         <div style={{ marginTop: 14, border: '1px solid var(--rule)', padding: 16 }}>
-          <span style={labelStyle}>In Stripe: switch to this property&rsquo;s account, then Developers &rsaquo; API keys</span>
+          <span style={labelStyle}>For the booking site: three values, all on the stay-cape-ann Vercel project</span>
           <ol style={{ margin: '8px 0 0', paddingLeft: 22, fontSize: 13, lineHeight: 1.6, listStyle: 'decimal' }}>
-            <li style={{ marginBottom: 10 }}>
-              <strong>Publishable key.</strong> Printed at the top of the API keys page, <span style={mono}>pk_live_…</span>,
-              with a copy icon. Copy it.
+            <li style={{ marginBottom: 14 }}>
+              <strong>Publishable key</strong>
+              <WireStep
+                stripe={<>Printed at the top of the API keys page, <span style={mono}>pk_live_…</span>. Copy it.</>}
+                vercel={<CopyLine text={env.publishable} />}
+                check={<Check label="Set" checked={!!row?.payment_publishable_set} disabled={!prOpen || busy !== null} onChange={(v) => onTogglePayment('publishable', v)} />}
+              />
             </li>
-            <li style={{ marginBottom: 10 }}>
-              <strong>The booking site&rsquo;s key.</strong> Click <strong>Create secret key</strong> &rsaquo; Building your own
-              integration &rsaquo; Continue &rsaquo; <strong>Custom permissions</strong> &rsaquo; Continue. Search each resource
-              below by name and set its level; everything else stays <span style={mono}>None</span>. Continue, name it{' '}
-              <strong>Helm - SCA</strong>, Create. Copy the <span style={mono}>rk_live_…</span> key before closing:
-              Stripe shows it once.
-              <div style={{ marginTop: 8, marginBottom: 2 }}>
-                {SCA_STRIPE_KEY_PERMISSIONS.map(PERM_ROW)}
-              </div>
-            </li>
-            <li style={{ marginBottom: 10 }}>
-              <strong>Helm&rsquo;s key.</strong> Create secret key again, the same way, with these seven. Name it{' '}
-              <strong>Helm</strong>. Copy the <span style={mono}>rk_live_…</span> key before closing.
-              <div style={{ marginTop: 8, marginBottom: 2 }}>
-                {HELM_STRIPE_KEY_PERMISSIONS.map(PERM_ROW)}
-              </div>
+            <li style={{ marginBottom: 14 }}>
+              <strong>Secret key</strong>
+              <WireStep
+                stripe={<>
+                  Create secret key &rsaquo; Building your own integration &rsaquo; Continue &rsaquo; <strong>Custom permissions</strong>{' '}
+                  &rsaquo; Continue. Search each of these by name and set it; everything else stays None. Continue, name it{' '}
+                  <strong>Helm - SCA</strong>, Create, copy the <span style={mono}>rk_live_…</span> key.
+                  <PermChips perms={SCA_STRIPE_KEY_PERMISSIONS} />
+                </>}
+                vercel={<CopyLine text={env.secret} />}
+                check={<Check label="Set" checked={!!row?.payment_secret_set} disabled={!prOpen || busy !== null} onChange={(v) => onTogglePayment('secret', v)} />}
+              />
             </li>
             <li>
-              <strong>Webhook.</strong> Developers &rsaquo; Webhooks &rsaquo; Add endpoint, with this URL:
-              <CopyLine text={webhookUrl} />
-              <span style={{ display: 'block', marginTop: 6, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5 }}>
-                Events: <span style={mono}>{SCA_STRIPE_WEBHOOK_EVENTS.join(', ')}</span>. Once it is saved, copy its
-                signing secret, <span style={mono}>whsec_…</span>.
-              </span>
+              <strong>Webhook</strong>
+              <WireStep
+                stripe={<>
+                  Developers &rsaquo; Webhooks &rsaquo; Add endpoint, with this URL and these events. Once saved, copy its signing
+                  secret, <span style={mono}>whsec_…</span>.
+                  <CopyLine text={webhookUrl} />
+                  <span style={{ display: 'block', marginTop: 6, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+                    <span style={mono}>{SCA_STRIPE_WEBHOOK_EVENTS.join(', ')}</span>
+                  </span>
+                </>}
+                vercel={<CopyLine text={env.webhookSecret} />}
+                check={<Check label="Set" checked={!!row?.payment_webhook_set} disabled={!prOpen || busy !== null} onChange={(v) => onTogglePayment('webhook', v)} />}
+              />
             </li>
           </ol>
-          <p style={{ ...hintStyle, marginTop: 12 }}>
-            Never pick Full access: it puts the whole account at risk if it leaks, and Helm refuses such a key. Lost a key?
-            Its row menu &rsaquo; Rotate key shows a new one, once. Row menu &rsaquo; Edit key shows its permissions any time.
+          <p style={{ ...hintStyle, marginTop: 12, marginBottom: 0 }}>
+            On stay-cape-ann, tick Production and Preview for each one. Then Deployments &rsaquo; the latest &rsaquo;{' '}
+            <strong>Redeploy</strong>.
           </p>
         </div>
 
         <div style={{ marginTop: 14, border: '1px solid var(--rule)', padding: 16 }}>
-          <span style={labelStyle}>In Vercel: where each one goes</span>
-          <p style={{ ...hintStyle, marginTop: 0 }}>
-            Project &rsaquo; Settings &rsaquo; Environment Variables, add the name, paste the value. On stay-cape-ann, tick
-            Production and Preview.
+          <span style={labelStyle}>For Helm: one value, on the rising-tide-statements Vercel project</span>
+          <ol start={4} style={{ margin: '8px 0 0', paddingLeft: 22, fontSize: 13, lineHeight: 1.6, listStyle: 'decimal' }}>
+            <li>
+              <strong>Helm&rsquo;s key</strong>
+              <WireStep
+                stripe={<>
+                  Create secret key again, the same way, with these seven. Name it <strong>Helm</strong>, Create, copy the{' '}
+                  <span style={mono}>rk_live_…</span> key.
+                  <PermChips perms={HELM_STRIPE_KEY_PERMISSIONS} />
+                </>}
+                vercel={<CopyLine text={helmStripeKeyEnvName(props.propertyId)} suffix={props.helmStripeKeySet === true ? 'set on Helm' : props.helmStripeKeySet === false ? 'not set on Helm yet' : undefined} />}
+              />
+            </li>
+          </ol>
+          <p style={{ ...hintStyle, marginTop: 12, marginBottom: 0 }}>
+            Then Deployments &rsaquo; the latest &rsaquo; <strong>Redeploy</strong> on rising-tide-statements. This line reads
+            &ldquo;set on Helm&rdquo; once that deploy is live; Helm uses the key for the owner statement and add-on payment links.
           </p>
-          <VercelRow value="pk_live_… (1)" project="stay-cape-ann"><CopyLine text={env.publishable} /></VercelRow>
-          <VercelRow value="rk_live_… Helm - SCA (2)" project="stay-cape-ann"><CopyLine text={env.secret} /></VercelRow>
-          <VercelRow value="whsec_… (4)" project="stay-cape-ann"><CopyLine text={env.webhookSecret} /></VercelRow>
-          <VercelRow value="rk_live_… Helm (3)" project="rising-tide-statements">
-            <CopyLine
-              text={helmStripeKeyEnvName(props.propertyId)}
-              suffix={props.helmStripeKeySet === true ? 'set on Helm' : props.helmStripeKeySet === false ? 'not set on Helm yet' : undefined}
-            />
-          </VercelRow>
-          <p style={{ ...hintStyle, marginTop: 12 }}>
-            Then <strong>Redeploy</strong> both projects (Deployments &rsaquo; the latest &rsaquo; Redeploy), tick the three
-            boxes below and click Verify wiring.
-          </p>
-        </div>
-
-        <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <Check label={`${env.publishable} set in Vercel`} checked={!!row?.payment_publishable_set} disabled={!prOpen || busy !== null} onChange={(v) => onTogglePayment('publishable', v)} />
-          <Check label={`${env.secret} set in Vercel`} checked={!!row?.payment_secret_set} disabled={!prOpen || busy !== null} onChange={(v) => onTogglePayment('secret', v)} />
-          <Check label={`Webhook created + ${env.webhookSecret} set`} checked={!!row?.payment_webhook_set} disabled={!prOpen || busy !== null} onChange={(v) => onTogglePayment('webhook', v)} />
         </div>
 
         <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
@@ -1071,21 +1078,36 @@ function Field({ label, error, hint, children }: { label: string; error?: string
   );
 }
 
-const PERM_ROW = (p: { resource: string; access: string; why: string }) => (
-            <div key={p.resource} style={{ display: 'flex', gap: 12, alignItems: 'baseline', padding: '6px 0', borderTop: '1px solid var(--rule)' }}>
-              <code style={{ ...mono, fontSize: 12.5, width: 136, flexShrink: 0 }}>{p.resource}</code>
-              <span style={{ fontSize: 12, fontWeight: 600, letterSpacing: '.04em', width: 42, flexShrink: 0 }}>{p.access}</span>
-              <span style={{ fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5 }}>{p.why}</span>
-            </div>
-          );
-
-/** One line of the Vercel table: which value, which project, which variable name. */
-function VercelRow({ value, project, children }: { value: string; project: string; children: ReactNode }) {
+/** One wiring step: what to do in Stripe, the Vercel variable it fills, and its box. */
+function WireStep({ stripe, vercel, check }: { stripe: ReactNode; vercel: ReactNode; check?: ReactNode }) {
+  const cell: CSSProperties = { fontSize: 11, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--ink-3)', width: 64, flexShrink: 0, paddingTop: 3 };
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-[170px_190px_1fr]" style={{ gap: 8, alignItems: 'center', padding: '6px 0', borderTop: '1px solid var(--rule)' }}>
-      <span style={{ fontSize: 12.5 }}>{value}</span>
-      <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>{project}</span>
-      <div style={{ marginTop: -8 }}>{children}</div>
+    <div style={{ marginTop: 6 }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+        <span style={cell}>Stripe</span>
+        <div style={{ flex: 1 }}>{stripe}</div>
+      </div>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 6 }}>
+        <span style={cell}>Vercel</span>
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+          <div style={{ marginTop: -8 }}>{vercel}</div>
+          {check}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** The permissions to set, as the Stripe dialog names them. The reason sits in the tooltip. */
+function PermChips({ perms }: { perms: ReadonlyArray<{ resource: string; access: string; why: string }> }) {
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+      {perms.map((p) => (
+        <span key={p.resource} title={p.why} style={{ display: 'inline-flex', alignItems: 'baseline', gap: 6, border: '1px solid var(--rule)', padding: '3px 8px', fontSize: 12 }}>
+          <code style={{ ...mono, fontSize: 12 }}>{p.resource}</code>
+          <span style={{ fontWeight: 600, letterSpacing: '.04em', fontSize: 11 }}>{p.access}</span>
+        </span>
+      ))}
     </div>
   );
 }
