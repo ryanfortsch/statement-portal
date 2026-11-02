@@ -42,7 +42,7 @@ begin
  required_start := (c.configuration->>'start')::date-buffer_days;
  required_end := (c.configuration->>'end')::date+buffer_days;
  if required_start is null or required_end is null or required_end<=required_start
-    or required_end-required_start>426 then return false; end if;
+    or required_end-required_start>560 then return false; end if;
  if exists(select 1 from jsonb_array_elements(c.configuration->'coverage') v
    where v->'complete' is distinct from 'true'::jsonb
     or not (c.configuration->'requiredSources' @> jsonb_build_array(v->'source'))
@@ -52,7 +52,7 @@ begin
     or (v->>'freshUntil')::bigint<fresh_until
     or (v->>'freshUntil')::bigint-(v->>'observedAt')::bigint not between 1 and 3600000
     or (v->>'start')::date>required_start or (v->>'end')::date<required_end
-    or (v->>'end')::date-(v->>'start')::date not between 1 and 426)
+    or (v->>'end')::date-(v->>'start')::date not between 1 and 560)
  then return false; end if;
  update public.helm_booking_inventory_consumers set planned_fresh_until=fresh_until where property_id=p_property;
  return true;

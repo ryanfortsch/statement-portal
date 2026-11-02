@@ -80,6 +80,19 @@ export async function verifyBookingInventoryRefresh(db, check) {
       const s=await baseline();assert.equal(await refresh(expected(s),Date.now()+10000,s.lastDigest),false);assert.deepEqual(await read(),s);
     });
   });
+  await check('refresh accepts 500-day recovery coverage and rejects coverage beyond 560 days',async()=>{
+    for(const days of [500,560,561]) await transaction(async()=>{
+      const c=structuredClone(configuration);c.end=shiftIsoDay(start,days);
+      for(const proof of c.coverage)proof.end=c.end;
+      await query('update helm_booking_inventory_consumers set configuration=$2 where property_id=$1',[property,c]);
+      await query('update helm_booking_inventory_consumers set planned_configuration_version=configuration_version,planned_inputs=helm_booking_inventory_inputs($1) where property_id=$1',[property]);
+      const before=await baseline();
+      assert.equal(await refresh(expected(before),Date.now()+10000,before.lastDigest),days<=560);
+      const after=await read();assert.deepEqual(after.journal,before.journal);
+      assert.equal(after.planVersion,before.planVersion);
+      if(days>560)assert.deepEqual(after,before);
+    });
+  });
   await check('lost RPC reply recovers without enqueue or journal rewrite',async()=>{
     const before=await baseline();store.refreshPlan=async(...args)=>{assert.equal(await refresh(...args),true);throw Error('Lost reply');};
     try{await assert.rejects(run,/Lost reply/);}finally{store.refreshPlan=refresh;}
