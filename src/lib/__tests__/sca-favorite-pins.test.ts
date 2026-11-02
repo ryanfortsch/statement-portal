@@ -101,6 +101,6 @@ test("Step 3 names Helm's own key and its seven permissions, matching what Helm 
   );
   const { readFile } = await import('node:fs/promises');
   const src = await readFile(new URL('../../app/properties/[id]/stay-cape-ann/ScaLaunchClient.tsx', import.meta.url), 'utf8');
-  assert.match(src, /HELM_STRIPE_KEY_PERMISSIONS\.map/);
+  assert.match(src, /<PermChips perms=\{HELM_STRIPE_KEY_PERMISSIONS\}/);
   assert.match(src, /helmStripeKeyEnvName\(props\.propertyId\)/);
 });
