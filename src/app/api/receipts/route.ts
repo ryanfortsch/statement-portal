@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import { PROPERTIES } from '@/lib/properties';
+import { getActivePropertyForStatements } from '@/lib/properties-server';
 import { assertStatementWritable, getFreezeStatus, StatementFrozenError } from '@/lib/statement-finality';
 import { writeStatementTotals, type FreezeReceipt } from '@/lib/statement-totals-write';
 
@@ -219,7 +219,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const categoryRaw = ((formData.get('category') as string) || '').trim().toLowerCase();
     const acknowledgeWarnings = String(formData.get('acknowledge_warnings') || '') === 'true';
 
-    if (!PROPERTIES[propertyId]) {
+    // The database roster, never the code roster: a home promoted in Helm
+    // (7 Sumac, 16 Waterman, 36 Granite, 4 Middle, 79 Main) has a statement
+    // but no PROPERTIES entry, and a receipt for it must still file.
+    if (!propertyId || !(await getActivePropertyForStatements(propertyId))) {
       return NextResponse.json({ error: `Unknown property_id: ${propertyId}` }, { status: 400 });
     }
     if (!/^\d{4}-\d{2}$/.test(month)) {
