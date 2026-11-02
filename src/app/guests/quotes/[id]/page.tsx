@@ -23,6 +23,7 @@ import {
   voidQuote,
 } from '../actions';
 import { CopyTextButton } from './CopyTextButton';
+import { CopyLinkMarkSent } from './CopyLinkMarkSent';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,6 +43,57 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
   const editable = status !== 'accepted' && status !== 'voided';
   const sendable = status !== 'accepted' && status !== 'voided' && status !== 'expired';
   const guestName = `${q.guest_first_name} ${q.guest_last_name}`.trim();
+  const first = q.guest_first_name.trim() || 'the guest';
+  const hasContact = !!(q.guest_email || q.guest_phone);
+  const nextStep: { text: string; actions?: React.ReactNode } | null = (() => {
+    if (status === 'draft' && !hasContact) {
+      return {
+        text: `Nothing has gone to ${first} yet. Add ${first}'s email or phone and Helm sends the quote, or copy the link and text it yourself.`,
+        actions: (
+          <>
+            <Link href={`/guests/quotes/${q.id}/edit#guest`} style={{ ...actionPrimary, textDecoration: 'none', display: 'inline-block' }}>
+              Add {first}&rsquo;s email or phone
+            </Link>
+            <CopyLinkMarkSent url={guestUrl} quoteId={q.id} markSent={markQuoteSent} />
+          </>
+        ),
+      };
+    }
+    if (status === 'draft') {
+      return {
+        text: `Nothing has gone to ${first} yet. Send it, and the link starts working the moment you do.`,
+        actions: (
+          <>
+            {q.guest_email && (
+              <form action={sendQuote}>
+                <input type="hidden" name="id" value={q.id} />
+                <input type="hidden" name="via" value="email" />
+                <SubmitButton label="Email quote" busyLabel="Sending…" style={actionPrimary} />
+              </form>
+            )}
+            {q.guest_phone && (
+              <form action={sendQuote}>
+                <input type="hidden" name="id" value={q.id} />
+                <input type="hidden" name="via" value="sms" />
+                <SubmitButton label="Text quote" busyLabel="Sending…" style={q.guest_email ? actionGhost : actionPrimary} spinnerTone={q.guest_email ? 'ink' : undefined} />
+              </form>
+            )}
+            <CopyLinkMarkSent url={guestUrl} quoteId={q.id} markSent={markQuoteSent} />
+          </>
+        ),
+      };
+    }
+    if (status === 'sent' && !q.viewed_at) {
+      return { text: `Sent ${fmtStamp(q.last_sent_at ?? q.sent_at ?? '')}. Waiting for ${first} to open it. Nothing to do unless the terms change.` };
+    }
+    if (status === 'sent') {
+      return { text: `${first} opened it ${fmtStamp(q.viewed_at!)}. Waiting for ${first} to accept and pay on staycapeann.com. Nothing to do.` };
+    }
+    if (status === 'expired') {
+      return { text: `This quote expired ${q.expires_at ? fmtStamp(q.expires_at) : ''}. Extend it below to send it again.` };
+    }
+    return null;
+  })();
   // edited_at moves only on a composer save; updated_at also moves on every
   // bridge event (a repeat view), which is why it is not the comparison.
   const editedSinceSend = !!q.last_sent_at && !!q.edited_at && Date.parse(q.edited_at) > Date.parse(q.last_sent_at);
@@ -76,6 +128,17 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
           {q.source_kind ? ` · from ${q.source_kind}` : ''}
         </p>
       </section>
+
+      {/* What to do next: one sentence, the one or two verbs that do it. */}
+      {nextStep && (
+        <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 28 }}>
+          <div style={{ border: '1px solid var(--ink)', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div className="eyebrow">Next</div>
+            <p style={{ margin: 0, fontSize: 14, color: 'var(--ink)', lineHeight: 1.55, maxWidth: 680 }}>{nextStep.text}</p>
+            {nextStep.actions && <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>{nextStep.actions}</div>}
+          </div>
+        </section>
+      )}
 
       {/* Meta strip */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 28 }}>
@@ -124,7 +187,7 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
         <p style={{ marginTop: 12, fontSize: 12, color: 'var(--ink-4)', maxWidth: 640, lineHeight: 1.55 }}>
           <span style={{ fontFamily: 'var(--font-mono), monospace', fontSize: 11, overflowWrap: 'anywhere' }}>{guestUrl}</span>
           . Anyone with the link can accept and pay, so share it only with the guest.
-          {status === 'draft' ? ' The page reads as not found until the quote is sent or marked as sent.' : ''}
+          {status === 'draft' ? ' It starts working when the quote is sent (the Next card above does that).' : ''}
         </p>
       </section>
 
@@ -227,9 +290,6 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
                     <input type="hidden" name="id" value={q.id} />
                     <SubmitButton label="Mark as sent" busyLabel="Marking…" style={actionGhost} spinnerTone="ink" />
                   </form>
-                )}
-                {!q.guest_email && (
-                  <span style={{ fontSize: 12, color: 'var(--ink-4)' }}>Add a guest email (Edit) to send from Helm, or copy the link and share it by hand.</span>
                 )}
               </div>
             )}

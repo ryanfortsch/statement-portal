@@ -564,7 +564,7 @@ export function QuoteComposer({
           )}
         </FormBlock>
 
-        <FormBlock title="Guest">
+        <FormBlock title="Guest" id="guest">
           <div className="rt-form-grid3" style={grid3}>
             <Field label="First name">
               <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder="Emily" style={inputStyle} />
@@ -925,9 +925,9 @@ const textBtn: React.CSSProperties = {
   textUnderlineOffset: 3,
 };
 
-function FormBlock({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
+function FormBlock({ title, hint, id, children }: { title: string; hint?: string; id?: string; children: React.ReactNode }) {
   return (
-    <section>
+    <section id={id} style={id ? { scrollMarginTop: 90 } : undefined}>
       <div style={{ borderBottom: '1px solid var(--ink)', paddingBottom: 8, marginBottom: 16 }}>
         <span className="font-serif" style={{ fontSize: 16, fontWeight: 500, color: 'var(--ink)', letterSpacing: '-0.01em' }}>
           {title}
