@@ -2,7 +2,7 @@ import { requireStatementRenderAccess } from '@/lib/statement-render-auth';
 import { DownloadPdfChip } from '@/components/DownloadPdfChip';
 import { PROPERTIES } from '@/lib/properties';
 import { getActivePropertyForStatements } from '@/lib/properties-server';
-import { bundleCleaningTurnovers, itemizationTiesToTotal, type CleaningItemization } from '@/lib/cleaning-turnovers';
+import { bundleCleaningTurnovers, itemizationTiesToTotal, nameUnplacedTurnovers, type CleaningItemization } from '@/lib/cleaning-turnovers';
 
 // Render fresh on every request -- the page reflects mutable review-queue
 // state (bank_deposit_attributions, period_notes, gap resolutions). Without
@@ -408,9 +408,23 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
       .from('cleaning_events')
       .select('checkout_date, bank_charge_date, guest_name, source, amount, credit_amount')
       .eq('property_statement_id', id);
-    const itemization = bundleCleaningTurnovers(cleaningRows || []);
+    const bundled = bundleCleaningTurnovers(cleaningRows || []);
+    // A charge ingest could not place (the stay closed last month) is named
+    // from the home's own checkouts in the seven days before the bank took
+    // it, so the owner reads a guest, not a bare "Turnover".
+    const windowStart = new Date(Date.UTC(parseInt(month.split('-')[0]), parseInt(month.split('-')[1]) - 1, 1 - 7))
+      .toISOString().slice(0, 10);
+    const { data: recentCheckouts } = await supabase
+      .from('guesty_reservations')
+      .select('guest_name, check_out')
+      .eq('property_id', prop.property_id)
+      .gte('check_out', windowStart)
+      .lte('check_out', `${month}-${String(daysInMonth(month)).padStart(2, '0')}`)
+      .or('status.is.null,status.in.(confirmed,reserved)');
+    const itemization = nameUnplacedTurnovers(bundled, recentCheckouts || []);
     cleaningItemization = itemizationTiesToTotal(itemization, prop.cleaning_total) ? itemization : null;
   }
+  const pages = cleaningItemization ? 2 : 1;
   const d: PropertyDetails = dbProp
     ? {
         name: dbProp.name,
@@ -971,30 +985,6 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
                   <tr className="total"><td><span className="cat">Owner Payout</span></td><td className="amt">${fmt(prop.owner_payout)}</td></tr>
                 </tbody></table>
 
-                {cleaningItemization && (
-                  <div className="clean-detail">
-                    <div className="clean-detail-head">
-                      <span>Cleaning, by turnover</span>
-                      <span>{cleaningItemization.rows.length} {cleaningItemization.rows.length === 1 ? 'turnover' : 'turnovers'}</span>
-                    </div>
-                    <table className="clean-table"><tbody>
-                      {cleaningItemization.rows.map((r, i) => (
-                        <tr key={i}>
-                          <td className="when">{shortDate(r.date)}</td>
-                          <td>
-                            <div className="who">{r.guest ? titleCase(r.guest) : 'Turnover'}</div>
-                            <div className="parts">
-                              Housekeeping ${fmt(r.housekeeping)}{r.laundry > 0 ? ` \u00b7 Laundry $${fmt(r.laundry)}` : ''}
-                            </div>
-                          </td>
-                          <td className="amt">${fmt(r.total)}</td>
-                        </tr>
-                      ))}
-                      <tr className="sum"><td /><td>Cleaning</td><td className="amt">${fmt(cleaningItemization.total)}</td></tr>
-                    </tbody></table>
-                  </div>
-                )}
-
                 {/* Donut */}
                 <div className="donut">
                   <svg viewBox="0 0 42 42">
@@ -1115,10 +1105,79 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
             <footer className="footer">
               <div>Rising Tide &middot; Gloucester, MA</div>
               <div className="center">&ldquo;We care for your home as if it were our own.&rdquo;</div>
-              <div className="right">Statement {moStr}&middot;{yr} &middot; pg 1/1</div>
+              <div className="right">Statement {moStr}&middot;{yr} &middot; pg 1/{pages}</div>
             </footer>
 
           </main>
+
+          {/* ── PAGE 2: CLEANING DETAIL (opt-in per home) ── */}
+          {cleaningItemization && (
+            <main data-statement-page="2" className="sheet sheet-detail">
+              <header className="masthead">
+                <div className="mast-left"><b>Rising Tide</b> &middot; Vacation Rentals</div>
+                <div className="mast-center">Owner Statement &middot; No. {moStr} / {yr} &middot; Cleaning detail</div>
+                <div className="mast-right">85 Eastern Ave &middot; Gloucester, MA 01930<br />allie@risingtidestr.com</div>
+              </header>
+
+              <section className="header-row">
+                <div className="logo-block">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src="/rising-tide-logo.png" alt="Rising Tide" />
+                </div>
+                <div className="headline-block">
+                  <div className="kicker">{mo} &middot; {yr}</div>
+                  <h1 className="display">Cleaning <em>Detail</em></h1>
+                  <div className="display-sub">{d.name.toUpperCase()} &middot; {d.city.toUpperCase()}</div>
+                </div>
+              </section>
+
+              <section className="detail-lede">
+                <p>
+                  Each line is one turnover: the housekeeping for that checkout and the laundry
+                  delivered for it. The total is the Cleaning line on the statement.
+                </p>
+                <div className="detail-count">
+                  {cleaningItemization.rows.length} {cleaningItemization.rows.length === 1 ? 'turnover' : 'turnovers'}
+                </div>
+              </section>
+
+              <table className="detail-table">
+                <thead>
+                  <tr>
+                    <th>Checkout</th>
+                    <th>Guest</th>
+                    <th className="num">Housekeeping</th>
+                    <th className="num">Laundry</th>
+                    <th className="num">Turnover</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cleaningItemization.rows.map((r, i) => (
+                    <tr key={i}>
+                      <td className="when">{shortDate(r.date)}</td>
+                      <td className="who">{r.guest ? titleCase(r.guest) : <span className="unnamed">Turnover</span>}</td>
+                      <td className="num">${fmt(r.housekeeping)}</td>
+                      <td className="num">{r.laundry > 0 ? `$${fmt(r.laundry)}` : '\u2014'}</td>
+                      <td className="num total">${fmt(r.total)}</td>
+                    </tr>
+                  ))}
+                  <tr className="sum">
+                    <td />
+                    <td>Cleaning</td>
+                    <td className="num">${fmt(cleaningItemization.rows.reduce((sum, r) => sum + r.housekeeping, 0))}</td>
+                    <td className="num">${fmt(cleaningItemization.rows.reduce((sum, r) => sum + r.laundry, 0))}</td>
+                    <td className="num total">${fmt(cleaningItemization.total)}</td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <footer className="footer">
+                <div>Rising Tide &middot; Gloucester, MA</div>
+                <div className="center">&ldquo;We care for your home as if it were our own.&rdquo;</div>
+                <div className="right">Statement {moStr}&middot;{yr} &middot; pg 2/{pages}</div>
+              </footer>
+            </main>
+          )}
         </div>
       </body>
     </html>
@@ -1242,19 +1301,24 @@ html, body { margin:0; padding:0; background:#e4ddcb; font-family:var(--sans); c
 .fin-table .addon-row td { border-bottom:none; padding:1px 0 3px; }
 .fin-table .addon-row td.addon-amt { text-align:right; }
 
-/* CLEANING BY TURNOVER: opt-in per home (properties.statement_cleaning_detail).
-   Sits under the Financials column so the owner reads the line, then what it
-   was made of, then the total that ties back to it. */
-.clean-detail { margin-top:14px; }
-.clean-detail-head { display:flex; justify-content:space-between; align-items:baseline; font-size:9px; text-transform:uppercase; letter-spacing:.18em; color:var(--ink-3); padding-bottom:4px; border-bottom:1px solid var(--ink); }
-.clean-table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; }
-.clean-table td { padding:5px 0 4px; border-bottom:1px dotted var(--rule); font-size:11px; color:var(--ink-2); vertical-align:baseline; }
-.clean-table td.when { width:42px; font-family:var(--mono); font-size:9px; color:var(--ink-4); letter-spacing:.04em; white-space:nowrap; }
-.clean-table .who { font-family:var(--serif); font-weight:500; font-size:12px; color:var(--ink); line-height:1.2; }
-.clean-table .parts { font-size:9px; color:var(--ink-4); letter-spacing:.02em; margin-top:1px; }
-.clean-table td.amt { text-align:right; font-family:var(--serif); font-size:12px; color:var(--ink); white-space:nowrap; }
-.clean-table tr.sum td { border-bottom:none; border-top:1px solid var(--ink); color:var(--ink); padding-top:6px; }
-.clean-table tr.sum td.amt { font-weight:600; }
+/* CLEANING DETAIL: the second sheet, opt-in per home
+   (properties.statement_cleaning_detail). The statement keeps its one
+   Cleaning line; this page says what it was made of, one turnover per row,
+   and foots to that line. */
+.sheet-detail { margin:24px auto 0; }
+.detail-lede { display:grid; grid-template-columns:1fr auto; gap:24px; align-items:end; padding:20px 0 16px; }
+.detail-lede p { margin:0; max-width:520px; font-family:var(--serif); font-size:14px; line-height:1.45; color:var(--ink-2); }
+.detail-count { font-family:var(--mono); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:var(--ink-3); white-space:nowrap; }
+.detail-table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; }
+.detail-table thead th { text-align:left; font-family:var(--sans); font-size:9px; font-weight:600; text-transform:uppercase; letter-spacing:.14em; color:var(--ink-3); padding:8px 6px; border-bottom:1px solid var(--ink); }
+.detail-table thead th.num { text-align:right; }
+.detail-table tbody td { padding:10px 6px; border-bottom:1px solid var(--rule-soft); vertical-align:baseline; font-size:12px; color:var(--ink-2); }
+.detail-table td.when { width:84px; font-family:var(--mono); font-size:10px; color:var(--ink-4); letter-spacing:.04em; white-space:nowrap; }
+.detail-table td.who { font-family:var(--serif); font-weight:500; font-size:14px; color:var(--ink); }
+.detail-table .unnamed { font-style:italic; font-weight:400; color:var(--ink-3); }
+.detail-table td.num { text-align:right; font-family:var(--serif); font-size:13px; color:var(--ink); white-space:nowrap; }
+.detail-table td.num.total { font-weight:600; }
+.detail-table tr.sum td { border-top:1.5px solid var(--ink); border-bottom:2.5px double var(--ink); font-weight:600; color:var(--ink); padding:9px 6px; }
 
 /* DONUT */
 .donut { display:flex; align-items:center; gap:12px; margin-top:10px; }
@@ -1352,8 +1416,9 @@ html, body { margin:0; padding:0; background:#e4ddcb; font-family:var(--sans); c
   .stay-dates { font-size:11px; }
 
   /* Financials: tighter row padding */
-  .clean-table td { padding:3px 0 2px; }
-  .clean-detail { margin-top:8px; }
+  .sheet-detail { margin:0; page-break-before:always; break-before:page; }
+  .detail-table tbody td { padding:7px 6px; }
+  .detail-table tr { page-break-inside:avoid; }
   .fin-table td { padding:5px 0 4px; font-size:11px; }
   .fin-table td.amt { font-size:12px; }
   .fin-table tr.total td { padding:6px 0 4px; font-size:12px; }
