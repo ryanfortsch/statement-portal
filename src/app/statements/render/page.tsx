@@ -2,6 +2,7 @@ import { requireStatementRenderAccess } from '@/lib/statement-render-auth';
 import { DownloadPdfChip } from '@/components/DownloadPdfChip';
 import { PROPERTIES } from '@/lib/properties';
 import { getActivePropertyForStatements } from '@/lib/properties-server';
+import { bundleCleaningTurnovers, itemizationTiesToTotal, type CleaningItemization } from '@/lib/cleaning-turnovers';
 
 // Render fresh on every request -- the page reflects mutable review-queue
 // state (bank_deposit_attributions, period_notes, gap resolutions). Without
@@ -395,6 +396,21 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
     .or('status.is.null,status.in.(confirmed,reserved)');
 
   const dbProp = await getActivePropertyForStatements(prop.property_id);
+
+  // Itemized cleaning, opt-in per home (properties.statement_cleaning_detail,
+  // the Grubers' ask at the October 2026 close). One row per turnover under
+  // the Financials column, bundled by src/lib/cleaning-turnovers.ts. It
+  // prints only when its rows add up to the Cleaning line; a statement whose
+  // rows drift keeps the single line rather than two figures that disagree.
+  let cleaningItemization: CleaningItemization | null = null;
+  if (dbProp?.statement_cleaning_detail) {
+    const { data: cleaningRows } = await supabase
+      .from('cleaning_events')
+      .select('checkout_date, bank_charge_date, guest_name, source, amount, credit_amount')
+      .eq('property_statement_id', id);
+    const itemization = bundleCleaningTurnovers(cleaningRows || []);
+    cleaningItemization = itemizationTiesToTotal(itemization, prop.cleaning_total) ? itemization : null;
+  }
   const d: PropertyDetails = dbProp
     ? {
         name: dbProp.name,
@@ -955,6 +971,30 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
                   <tr className="total"><td><span className="cat">Owner Payout</span></td><td className="amt">${fmt(prop.owner_payout)}</td></tr>
                 </tbody></table>
 
+                {cleaningItemization && (
+                  <div className="clean-detail">
+                    <div className="clean-detail-head">
+                      <span>Cleaning, by turnover</span>
+                      <span>{cleaningItemization.rows.length} {cleaningItemization.rows.length === 1 ? 'turnover' : 'turnovers'}</span>
+                    </div>
+                    <table className="clean-table"><tbody>
+                      {cleaningItemization.rows.map((r, i) => (
+                        <tr key={i}>
+                          <td className="when">{shortDate(r.date)}</td>
+                          <td>
+                            <div className="who">{r.guest ? titleCase(r.guest) : 'Turnover'}</div>
+                            <div className="parts">
+                              Housekeeping ${fmt(r.housekeeping)}{r.laundry > 0 ? ` \u00b7 Laundry $${fmt(r.laundry)}` : ''}
+                            </div>
+                          </td>
+                          <td className="amt">${fmt(r.total)}</td>
+                        </tr>
+                      ))}
+                      <tr className="sum"><td /><td>Cleaning</td><td className="amt">${fmt(cleaningItemization.total)}</td></tr>
+                    </tbody></table>
+                  </div>
+                )}
+
                 {/* Donut */}
                 <div className="donut">
                   <svg viewBox="0 0 42 42">
@@ -1202,6 +1242,20 @@ html, body { margin:0; padding:0; background:#e4ddcb; font-family:var(--sans); c
 .fin-table .addon-row td { border-bottom:none; padding:1px 0 3px; }
 .fin-table .addon-row td.addon-amt { text-align:right; }
 
+/* CLEANING BY TURNOVER: opt-in per home (properties.statement_cleaning_detail).
+   Sits under the Financials column so the owner reads the line, then what it
+   was made of, then the total that ties back to it. */
+.clean-detail { margin-top:14px; }
+.clean-detail-head { display:flex; justify-content:space-between; align-items:baseline; font-size:9px; text-transform:uppercase; letter-spacing:.18em; color:var(--ink-3); padding-bottom:4px; border-bottom:1px solid var(--ink); }
+.clean-table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; }
+.clean-table td { padding:5px 0 4px; border-bottom:1px dotted var(--rule); font-size:11px; color:var(--ink-2); vertical-align:baseline; }
+.clean-table td.when { width:42px; font-family:var(--mono); font-size:9px; color:var(--ink-4); letter-spacing:.04em; white-space:nowrap; }
+.clean-table .who { font-family:var(--serif); font-weight:500; font-size:12px; color:var(--ink); line-height:1.2; }
+.clean-table .parts { font-size:9px; color:var(--ink-4); letter-spacing:.02em; margin-top:1px; }
+.clean-table td.amt { text-align:right; font-family:var(--serif); font-size:12px; color:var(--ink); white-space:nowrap; }
+.clean-table tr.sum td { border-bottom:none; border-top:1px solid var(--ink); color:var(--ink); padding-top:6px; }
+.clean-table tr.sum td.amt { font-weight:600; }
+
 /* DONUT */
 .donut { display:flex; align-items:center; gap:12px; margin-top:10px; }
 .donut svg { width:78px; height:78px; flex-shrink:0; }
@@ -1298,6 +1352,8 @@ html, body { margin:0; padding:0; background:#e4ddcb; font-family:var(--sans); c
   .stay-dates { font-size:11px; }
 
   /* Financials: tighter row padding */
+  .clean-table td { padding:3px 0 2px; }
+  .clean-detail { margin-top:8px; }
   .fin-table td { padding:5px 0 4px; font-size:11px; }
   .fin-table td.amt { font-size:12px; }
   .fin-table tr.total td { padding:6px 0 4px; font-size:12px; }

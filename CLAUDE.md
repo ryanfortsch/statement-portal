@@ -656,7 +656,11 @@ column only (the Type column is deliberately unused so a match survives Chase re
 - **`MAINTENANCE_VENDORS`** is a fourth category and feeds `repairs_total`, not `cleaning_total`
 
 All three cleaning-family vendors roll into a single `cleaning_total`. The owner sees one Cleaning
-line with no turnover count.
+line with no turnover count, unless the home opted in to the itemized block
+(`properties.statement_cleaning_detail`, set from the property page's Owner & money tab; 16
+Waterman since 2026-11-02): one row per turnover under Financials, housekeeping plus the laundry
+ingest attributed to that checkout, built by `src/lib/cleaning-turnovers.ts` and printed only when
+its rows tie to the Cleaning line. Presentation only; no money column reads the flag.
 
 **Adding a new vendor**: a new vendor inside an existing category (say a second linen service) is a
 one-file change: add it to `LINEN_VENDORS` or `LAUNDRY_VENDORS` in `src/lib/bank-charges.ts`.

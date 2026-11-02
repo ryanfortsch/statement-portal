@@ -152,8 +152,9 @@ Two representations exist today.
 
 - **`properties` (DB table)**: the registry and the source of truth. Has
   `is_rising_tide_owned`, `management_fee_pct`, `is_active`, `activated_at`,
-  the owner and bank fields, plus all human-readable address / name / title
-  fields. The statements pipeline reads it too: since #498, ingest, the
+  the owner and bank fields, `statement_cleaning_detail` (the owner opted in
+  to an itemized cleaning block on each statement; presentation only), plus
+  all human-readable address / name / title fields. The statements pipeline reads it too: since #498, ingest, the
   render page and the statement email load each home through
   `getActivePropertyForStatements` / `getActivePropertiesForStatements` in
   `src/lib/properties.ts`, and the fee snapshotted onto a statement comes

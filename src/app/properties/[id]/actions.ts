@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
+import { requireOwnerEmail } from '@/lib/helm-access-server';
 
 /**
  * Update a property's MassTaxConnect occupancy-tax certificate ID. The
@@ -26,6 +27,31 @@ export async function updateTaxCertId(
     .update({ tax_cert_id: certId, last_synced_at: new Date().toISOString() })
     .eq('id', propertyId).select('id').maybeSingle();
   if (error || !data) return { ok: false, error: error?.message || 'Property not found. The certificate ID was not saved.' };
+  revalidatePath(`/properties/${propertyId}`);
+  revalidatePath('/statements');
+  return { ok: true };
+}
+
+/**
+ * Switch the itemized cleaning block on an owner's statement on or off.
+ * Presentation only: the Cleaning line and the payout read nothing from it.
+ * Owners only, because it lives on the Owner & money tab and changes what a
+ * homeowner is sent.
+ */
+export async function updateStatementCleaningDetail(
+  propertyId: string,
+  on: boolean,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    await requireOwnerEmail();
+  } catch {
+    return { ok: false, error: 'Owners only' };
+  }
+  const { data, error } = await supabase
+    .from('properties')
+    .update({ statement_cleaning_detail: !!on, updated_at: new Date().toISOString() })
+    .eq('id', propertyId).select('id').maybeSingle();
+  if (error || !data) return { ok: false, error: error?.message || 'Property not found. Nothing was saved.' };
   revalidatePath(`/properties/${propertyId}`);
   revalidatePath('/statements');
   return { ok: true };

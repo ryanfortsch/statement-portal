@@ -57,6 +57,13 @@ export type Property = {
    * because they are in neither pipeline. See the note below the map.)
    */
   is_rising_tide_owned?: boolean;
+  /**
+   * The owner opted in to an itemized cleaning block on each statement, one
+   * row per turnover under the Financials column. Presentation only; the
+   * Cleaning line is unchanged. Mirrors `properties.statement_cleaning_detail`;
+   * the DB loader fills it, the fallback map leaves it off (false).
+   */
+  statement_cleaning_detail?: boolean;
 };
 
 // Emails pulled from confirmed statement sends in the Apr 2026 audit.
@@ -441,6 +448,7 @@ export type HelmPropertyRow = {
   management_fee_pct: number;
   bank_last4: string | null;
   tax_cert_id: string | null;
+  statement_cleaning_detail: boolean | null;
 
   // Property characteristics (from onboarding intake)
   bedrooms: number | null;
