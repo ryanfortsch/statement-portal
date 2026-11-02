@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { authorizeCron } from '@/lib/cron-auth';
+import { originalSender } from '@/lib/gmail-relay';
 import { recordSyncFailure, recordSyncSuccess } from '@/lib/sync-status';
 
 export const runtime = 'nodejs';
@@ -105,15 +106,6 @@ function getHeader(headers: GmailHeader[] | undefined, name: string): string | n
     if (h.name.toLowerCase() === lower) return h.value;
   }
   return null;
-}
-
-/** Pull the bare address out of a "Name <addr@x.y>" or bare-address header. */
-function parseEmail(value: string | null): string | null {
-  if (!value) return null;
-  const match = value.match(/<([^>]+)>/);
-  const raw = match ? match[1] : value;
-  const trimmed = raw.trim().toLowerCase();
-  return trimmed.includes('@') ? trimmed : null;
 }
 
 function decodeBase64Url(s: string): string {
@@ -257,7 +249,10 @@ async function syncContactEmails(args: { window: string; perContactCap: number }
           }
           const msg = (await msgRes.json()) as GmailMessage;
           const headers = msg.payload?.headers;
-          const fromEmail = parseEmail(getHeader(headers, 'From'));
+          // The sender, read through our relay groups: an owner writing to
+          // statements@ or onboarding@ arrives with the group on the From
+          // line and would otherwise be filed as our own outbound mail.
+          const fromEmail = originalSender((name) => getHeader(headers, name));
 
           // Direction: the contact sent it -> inbound; anyone else on a
           // thread that includes this contact -> outbound (our side).
