@@ -48,7 +48,7 @@ test('server property loaders retain database row mapping and query scope', asyn
     bank_last4: null, tax_cert_id: null };
   const expected = { id: row.id, name: row.name, address: row.address, city: row.city,
     owner_last: '', owner_full: '', owner_greeting: '', owner_emails: [], fee_pct: 25,
-    bank_last4: null, listing_match: 'fixture home', tax_cert_id: null, is_rising_tide_owned: false };
+    bank_last4: null, listing_match: 'fixture home', tax_cert_id: null, is_rising_tide_owned: false, statement_cleaning_detail: false };
   const list = fixture(true, [row]);
   assert.deepEqual(await list.getActivePropertiesForStatements(), [expected]);
   assert.ok(list.calls.some(c => c[0] === 'eq' && c[1] === 'is_active' && c[2] === true));

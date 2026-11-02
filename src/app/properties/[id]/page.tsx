@@ -26,6 +26,7 @@ import { PropertyDraftOwnerEmailButton } from './PropertyDraftOwnerEmailButton';
 import { PropertyAddSlipButton } from './PropertyAddSlipButton';
 import { MarkContactedButton } from './MarkContactedButton';
 import { TaxCertEditor } from './TaxCertEditor';
+import { CleaningDetailToggle } from './CleaningDetailToggle';
 import { MultiMonthBookingsSection } from './MultiMonthBookingsSection';
 import { Fragment, Suspense } from 'react';
 import { PropertyActivityList, loadPropertyActivity } from './PropertyActivity';
@@ -1496,6 +1497,14 @@ export default async function PropertyDetailPage({
             <dt className="eyebrow" style={{ marginBottom: 4 }}>Tax Cert ID</dt>
             <dd style={{ margin: 0 }}>
               <TaxCertEditor propertyId={p.id} initial={p.tax_cert_id} />
+            </dd>
+          </div>
+          )}
+          {owner && (
+          <div>
+            <dt className="eyebrow" style={{ marginBottom: 4 }}>Statement cleaning</dt>
+            <dd style={{ margin: 0 }}>
+              <CleaningDetailToggle propertyId={p.id} initial={!!p.statement_cleaning_detail} />
             </dd>
           </div>
           )}

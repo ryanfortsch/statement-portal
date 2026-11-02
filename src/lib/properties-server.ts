@@ -24,7 +24,7 @@ export async function getActivePropertiesForStatements(): Promise<Property[]> {
   if (!isConfigured) return Object.values(PROPERTIES);
   const { data, error } = await supabase
     .from('properties')
-    .select('id, name, address, city, owner_last, owner_full, owner_greeting, owner_emails, management_fee_pct, bank_last4, listing_match, tax_cert_id, is_rising_tide_owned, is_active')
+    .select('id, name, address, city, owner_last, owner_full, owner_greeting, owner_emails, management_fee_pct, bank_last4, listing_match, tax_cert_id, is_rising_tide_owned, is_active, statement_cleaning_detail')
     .eq('is_active', true)
     .order('name');
   if (error || !data) return Object.values(PROPERTIES);
@@ -42,6 +42,7 @@ export async function getActivePropertiesForStatements(): Promise<Property[]> {
     listing_match: string | null;
     tax_cert_id: string | null;
     is_rising_tide_owned: boolean | null;
+    statement_cleaning_detail: boolean | null;
   }>).map((r) => ({
     id: r.id,
     name: r.name,
@@ -56,6 +57,7 @@ export async function getActivePropertiesForStatements(): Promise<Property[]> {
     listing_match: (r.listing_match ?? '').toLowerCase(),
     tax_cert_id: r.tax_cert_id,
     is_rising_tide_owned: !!r.is_rising_tide_owned,
+    statement_cleaning_detail: !!r.statement_cleaning_detail,
   }));
 }
 
@@ -66,7 +68,7 @@ export async function getActivePropertyForStatements(id: string): Promise<Proper
   if (!isConfigured) return PROPERTIES[id] ?? null;
   const { data, error } = await supabase
     .from('properties')
-    .select('id, name, address, city, owner_last, owner_full, owner_greeting, owner_emails, management_fee_pct, bank_last4, listing_match, tax_cert_id, is_rising_tide_owned')
+    .select('id, name, address, city, owner_last, owner_full, owner_greeting, owner_emails, management_fee_pct, bank_last4, listing_match, tax_cert_id, is_rising_tide_owned, statement_cleaning_detail')
     .eq('id', id)
     .maybeSingle();
   if (error || !data) return PROPERTIES[id] ?? null;
@@ -77,6 +79,7 @@ export async function getActivePropertyForStatements(id: string): Promise<Proper
     management_fee_pct: number | null; bank_last4: string | null;
     listing_match: string | null; tax_cert_id: string | null;
     is_rising_tide_owned: boolean | null;
+    statement_cleaning_detail: boolean | null;
   };
   return {
     id: r.id,
@@ -92,6 +95,7 @@ export async function getActivePropertyForStatements(id: string): Promise<Proper
     listing_match: (r.listing_match ?? '').toLowerCase(),
     tax_cert_id: r.tax_cert_id,
     is_rising_tide_owned: !!r.is_rising_tide_owned,
+    statement_cleaning_detail: !!r.statement_cleaning_detail,
   };
 }
 
