@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-import { bundleCleaningTurnovers, itemizationTiesToTotal } from '../cleaning-turnovers.ts';
+import { bundleCleaningTurnovers, itemizationTiesToTotal, nameUnplacedTurnovers } from '../cleaning-turnovers.ts';
 import { deriveCleaningTotal } from '../statement-totals.ts';
 
 // 16 Waterman, October 2026: the month the Grubers asked for the list. Seven
@@ -54,8 +54,44 @@ test('rows ingest could not place keep their own line, dated by the bank charge'
   // unnamed: the owner reads "Turnover · Oct 2", never a wrong guest.
   assert.equal(sept30.date, '2026-10-02');
   assert.equal(sept30.guest, null);
+  assert.equal(sept30.placed, false);
   assert.equal(sept30.housekeeping, 280);
   assert.equal(sept30.laundry, 47);
+  assert.equal(rows[1].placed, true);
+});
+
+test('an unplaced turnover takes the last checkout at the house within seven days of the charge', () => {
+  const checkouts = [
+    { check_out: '2026-09-26', guest_name: 'Earlier Guest' },
+    { check_out: '2026-09-30', guest_name: 'Teresa MacCartney' },
+    { check_out: '2026-10-05', guest_name: 'Brittney Dahlen' },
+    { check_out: null, guest_name: 'No Date' },
+    { check_out: '2026-10-01', guest_name: null },
+  ];
+  const named = nameUnplacedTurnovers(bundleCleaningTurnovers(waterman), checkouts);
+  const first = named.rows[0];
+  // The latest checkout before the Oct 2 charge wins, and the row moves to
+  // that checkout's date so it reads like every placed row.
+  assert.equal(first.guest, 'Teresa MacCartney');
+  assert.equal(first.date, '2026-09-30');
+  assert.equal(first.total, 327);
+  // Placed rows and the money are untouched.
+  assert.equal(named.rows[1].guest, 'Brittney Dahlen');
+  assert.equal(named.rows[1].date, '2026-10-05');
+  assert.equal(named.total, 2129.1);
+  assert.equal(named.rows.length, 7);
+});
+
+test('naming never reaches past the window or forward to a later checkout', () => {
+  const base = bundleCleaningTurnovers(waterman);
+  const stale = nameUnplacedTurnovers(base, [{ check_out: '2026-09-24', guest_name: 'Too Early' }]);
+  assert.equal(stale.rows[0].guest, null);
+  assert.equal(stale.rows[0].date, '2026-10-02');
+  const later = nameUnplacedTurnovers(base, [{ check_out: '2026-10-03', guest_name: 'After The Charge' }]);
+  assert.equal(later.rows[0].guest, null);
+  // An exact seven-day gap is inside the window.
+  const edge = nameUnplacedTurnovers(base, [{ check_out: '2026-09-25', guest_name: 'Edge Guest' }]);
+  assert.equal(edge.rows[0].guest, 'Edge Guest');
 });
 
 test('the block ties to the Cleaning line exactly as deriveCleaningTotal bills it', () => {
@@ -82,6 +118,14 @@ test('the render page prints the block only for an opted-in home whose rows tie 
   const source = readFileSync(new URL('../../app/statements/render/page.tsx', import.meta.url), 'utf8');
   assert.match(source, /statement_cleaning_detail/);
   assert.match(source, /itemizationTiesToTotal\(/);
+  assert.match(source, /nameUnplacedTurnovers\(/);
+  // The detail is its own sheet after the statement, never squeezed into
+  // page one, and only exists when there is an itemization to print.
+  assert.match(source, /\{cleaningItemization && \(\s*<main[^>]*data-statement-page="2"/);
+  // The PDF carries every sheet the page renders, fitting each to its page.
+  const pdf = readFileSync(new URL('../pdf.ts', import.meta.url), 'utf8');
+  assert.match(pdf, /pageRanges: `1-\$\{sheets\}`/);
+  assert.doesNotMatch(pdf, /pageRanges: '1',/);
   // The money columns never read the flag: the block is presentation only.
   for (const file of ['../statement-totals.ts', '../statement-totals-write.ts', '../statement-addons.ts']) {
     assert.doesNotMatch(readFileSync(new URL(file, import.meta.url), 'utf8'), /statement_cleaning_detail/, file);

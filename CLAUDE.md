@@ -658,9 +658,12 @@ column only (the Type column is deliberately unused so a match survives Chase re
 All three cleaning-family vendors roll into a single `cleaning_total`. The owner sees one Cleaning
 line with no turnover count, unless the home opted in to the itemized block
 (`properties.statement_cleaning_detail`, set from the property page's Owner & money tab; 16
-Waterman since 2026-11-02): one row per turnover under Financials, housekeeping plus the laundry
-ingest attributed to that checkout, built by `src/lib/cleaning-turnovers.ts` and printed only when
-its rows tie to the Cleaning line. Presentation only; no money column reads the flag.
+Waterman since 2026-11-02): a second sheet, "Cleaning Detail", one row per turnover, housekeeping
+plus the laundry ingest attributed to that checkout, built by `src/lib/cleaning-turnovers.ts` and
+printed only when its rows tie to the Cleaning line. A charge ingest could not place (the stay
+closed last month) is named from the home's last checkout within seven days before the bank date.
+`src/lib/pdf.ts` fits each `.sheet` to its own page and prints that many pages. Presentation only;
+no money column reads the flag.
 
 **Adding a new vendor**: a new vendor inside an existing category (say a second linen service) is a
 one-file change: add it to `LINEN_VENDORS` or `LAUNDRY_VENDORS` in `src/lib/bank-charges.ts`.

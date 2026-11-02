@@ -30,10 +30,17 @@ export type CleaningTurnoverInput = {
 };
 
 export type CleaningTurnover = {
-  /** The checkout, or the bank date for a delivery with no checkout. */
+  /** The checkout, or the bank date for a row ingest could not place. */
   date: string;
-  /** The guest who checked out; null for a standalone delivery. */
+  /** The guest who checked out; null when no stay could be named. */
   guest: string | null;
+  /**
+   * False when ingest found no checkout on this statement for the charge
+   * (the stay closed last month, so it sits on last month's statement) and
+   * the row is dated by the bank charge instead. nameUnplacedTurnovers can
+   * still put a guest on it from the home's own checkouts.
+   */
+  placed: boolean;
   /** Cape Ann Elite's housekeeping, net of any credit. */
   housekeeping: number;
   /** Laundry and linen deliveries, net of any credit. */
@@ -67,7 +74,7 @@ export function bundleCleaningTurnovers(events: CleaningTurnoverInput[]): Cleani
     // for a stay that closed last month land together on the day the bank
     // took them), never as a guess at a guest.
     const key = e.checkout_date ? `turnover:${e.checkout_date}` : `bank:${e.bank_charge_date}`;
-    const row = byKey.get(key) || { date, guest: null, housekeeping: 0, laundry: 0, total: 0 };
+    const row = byKey.get(key) || { date, guest: null, placed: !!e.checkout_date, housekeeping: 0, laundry: 0, total: 0 };
     if (e.guest_name && !row.guest) row.guest = e.guest_name;
     if (isDelivery(e.source)) row.laundry = round2(row.laundry + net);
     else row.housekeeping = round2(row.housekeeping + net);
@@ -88,4 +95,45 @@ export function bundleCleaningTurnovers(events: CleaningTurnoverInput[]): Cleani
 export function itemizationTiesToTotal(itemization: CleaningItemization, cleaningTotal: number | string | null): boolean {
   if (itemization.rows.length === 0) return false;
   return Math.abs(itemization.total - n(cleaningTotal)) < 0.005;
+}
+
+export type CheckoutInput = { check_out: string | null; guest_name: string | null };
+
+/** Seven days, the same window ingest allows a delivery to trail its cleaning. */
+const NAMING_WINDOW_DAYS = 7;
+
+function daysBetween(earlier: string, later: string): number {
+  return (Date.parse(later + 'T00:00:00Z') - Date.parse(earlier + 'T00:00:00Z')) / 86_400_000;
+}
+
+/**
+ * Put a guest on a turnover ingest could not place.
+ *
+ * Ingest pairs a cleaning charge with a checkout on the SAME statement, so a
+ * stay that closed on the last day of September and was cleaned (and charged)
+ * on October 2 has nothing in October to attach to and prints as a bare
+ * "Turnover". The home's own checkouts settle it: the last checkout at the
+ * house within the seven days before the bank charge is the stay that
+ * turnover closed. The row takes that checkout's date and guest and reads
+ * like every other row. A charge with no checkout in the window stays
+ * unnamed; the block never guesses past the window.
+ *
+ * Money is untouched: rows keep their amounts and the total is the same.
+ */
+export function nameUnplacedTurnovers(itemization: CleaningItemization, checkouts: CheckoutInput[]): CleaningItemization {
+  const named = checkouts
+    .filter((c): c is { check_out: string; guest_name: string } => !!c.check_out && !!c.guest_name)
+    .sort((a, b) => a.check_out.localeCompare(b.check_out));
+  const rows = itemization.rows.map((row) => {
+    if (row.placed || row.guest) return row;
+    let match: { check_out: string; guest_name: string } | null = null;
+    for (const c of named) {
+      const gap = daysBetween(c.check_out, row.date);
+      if (gap < 0 || gap > NAMING_WINDOW_DAYS) continue;
+      if (!match || c.check_out > match.check_out) match = c;
+    }
+    return match ? { ...row, date: match.check_out, guest: match.guest_name } : row;
+  });
+  rows.sort((a, b) => a.date.localeCompare(b.date));
+  return { rows, total: itemization.total };
 }

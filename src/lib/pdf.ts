@@ -10,7 +10,9 @@ import {
 } from './pdf-fit.ts';
 
 /**
- * Shrink the statement until it fits on one page, and report what it took.
+ * Shrink one sheet until it fits on its page, and report what it took. The
+ * statement is the first sheet; an opted-in home's Cleaning Detail is the
+ * second, and renderStatementPdf fits each in turn.
  *
  * WHY THIS EXISTS. The statement is a single editorial page and page.pdf() is
  * asked for `pageRanges: '1'`. Until this function, that pairing was the whole
@@ -36,11 +38,11 @@ import {
  * gets the same treatment so a month that reflows short still paints a full
  * sheet instead of a band of white.
  */
-async function fitSheetToOnePage(page: Page): Promise<{ scale: number; height: number }> {
+async function fitSheetToOnePage(page: Page, index = 0): Promise<{ scale: number; height: number }> {
   const measure = (s: number) =>
     page.evaluate(
-      (scale: number, pageWidth: number, pageHeight: number) => {
-        const sheet = document.querySelector('.sheet') as HTMLElement | null;
+      (scale: number, pageWidth: number, pageHeight: number, which: number) => {
+        const sheet = document.querySelectorAll('.sheet')[which] as HTMLElement | undefined;
         if (!sheet) return -1;
         if (scale === 1) {
           sheet.style.removeProperty('width');
@@ -58,6 +60,7 @@ async function fitSheetToOnePage(page: Page): Promise<{ scale: number; height: n
       s,
       PAGE_WIDTH_PX,
       PAGE_HEIGHT_PX,
+      index,
     );
 
   let scale = 1;
@@ -163,7 +166,18 @@ export async function renderStatementPdf(args: {
     // screen layout would shrink a statement that print was about to fit on
     // its own.
     await page.emulateMediaType('print');
-    await fitSheetToOnePage(page);
+    // One sheet per page. The statement is always the first; a home that
+    // opted in to itemized cleaning renders a second (.sheet-detail), which
+    // breaks before itself under print rules. Each sheet is fitted to its
+    // own page, and the print asks for exactly that many pages.
+    const sheets = await page.evaluate(() => document.querySelectorAll('.sheet').length);
+    if (sheets < 1) {
+      throw new Error(
+        'The statement page rendered without a .sheet element, so it could not be fitted to one page. ' +
+          'Nothing was sent. Check /statements/render for a renamed wrapper class.',
+      );
+    }
+    for (let i = 0; i < sheets; i += 1) await fitSheetToOnePage(page, i);
 
     const pdf = await page.pdf({
       format: 'letter',
@@ -171,9 +185,9 @@ export async function renderStatementPdf(args: {
       preferCSSPageSize: true,  // honor the @page { size:letter; margin:0; } rule
       margin: { top: '0', bottom: '0', left: '0', right: '0' },
       // A backstop, no longer the fitting strategy. fitSheetToOnePage above
-      // is what actually makes the content fit; this only guarantees that a
-      // stray pixel cannot turn into a second, near-empty page.
-      pageRanges: '1',
+      // is what actually makes each sheet fit; this only guarantees that a
+      // stray pixel cannot turn into an extra, near-empty page.
+      pageRanges: `1-${sheets}`,
     });
 
     return Buffer.from(pdf);
