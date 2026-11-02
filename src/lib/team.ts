@@ -32,10 +32,12 @@ export type TeamAccess = 'owner' | 'staff';
  * someone else off one, and creates, publishes or hands out a Field packet.
  * Ryan and Dotti (2026-10-30; Ryan runs the company, so he holds every
  * duty's authority); `hasDuty` is the gate, so moving it is one line here.
+ * `cleaning_billing`: Cape Ann Elite's billing contact, copied on the
+ * bank-account email a new home sends them (src/lib/cleaner-bank-email.ts).
  * Notices resolve through `src/lib/team-recipients.ts`; nothing in the app
  * should name a teammate's inbox directly.
  */
-export type TeamDuty = 'field_pay' | 'creative' | 'countersign' | 'staff_copy' | 'dispatch';
+export type TeamDuty = 'field_pay' | 'creative' | 'countersign' | 'staff_copy' | 'dispatch' | 'cleaning_billing';
 
 export type TeamMember = {
   email: string;        // canonical id
@@ -91,7 +93,7 @@ export const TEAM_MEMBERS: TeamMember[] = [
     role: 'operations',
     access: 'owner',
     active: true,
-    duties: ['staff_copy'],
+    duties: ['staff_copy', 'cleaning_billing'],
   },
   {
     email: 'dotti@risingtidestr.com',

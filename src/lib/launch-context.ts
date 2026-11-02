@@ -309,6 +309,7 @@ export async function loadLaunchForFleet(
       locksMapped: locksById.get(p.id) ?? 0,
       forwardDistinctPrices: per?.forwardDistinctPrices ?? 0,
       firstStayStarted: !!per?.firstStayCheckIn,
+      firstStayCheckIn: per?.firstStayCheckIn ?? null,
       invoiceNeedleMapped: invoiceMapped.has(p.id),
       inCodeRoster: !!PROPERTIES[p.id],
     };

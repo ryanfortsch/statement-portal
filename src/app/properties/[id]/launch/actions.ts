@@ -10,6 +10,12 @@ import {
   type LaunchStepStatus,
 } from '@/lib/launch-checklist';
 import { loadLaunchForProperty, type LaunchPropertyLite } from '@/lib/launch-context';
+import { requireOwnerEmail } from '@/lib/helm-access-server';
+import { createGmailDraft, sessionMailbox } from '@/lib/gmail-draft';
+import { buildCleanerBankEmail } from '@/lib/cleaner-bank-email';
+import type { CopiedEmail } from '@/lib/copy-email';
+import { getTeamMember } from '@/lib/team';
+import { dutyEmails } from '@/lib/team-recipients';
 
 /** Service-role client for writes to the RLS-protected `properties`
  *  table (same posture as src/app/properties/actions.ts — the anon
@@ -289,4 +295,65 @@ export async function activateProperty(
   revalidatePath(`/properties/${propertyId}`);
   revalidatePath('/properties');
   return { ok: true, activatedAt };
+}
+
+/**
+ * The cleaner_bank_sent step: the bank-account email to Cape Ann Elite
+ * (src/lib/cleaner-bank-email.ts). Owners only, since it carries a full
+ * account number. Drafts in the sender's own Gmail when Helm holds a token
+ * for them and hands back the email to paste otherwise; never sends. The
+ * account number is checked against properties.bank_last4 and written
+ * nowhere: not the property, not the step's notes, not a log line. The
+ * step stays the operator's tick once the email is actually sent.
+ */
+export async function draftCleanerBankEmail(
+  propertyId: string,
+  accountNumber: string,
+  routingNumber: string,
+): Promise<
+  | { ok: true; kind: 'draft'; draftUrl: string }
+  | { ok: true; kind: 'copy'; email: CopiedEmail }
+  | { ok: false; error: string }
+> {
+  let sender: string;
+  try {
+    sender = await requireOwnerEmail();
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Owners only' };
+  }
+
+  const sb = getServiceClient();
+  const { data: p, error } = await sb
+    .from('properties')
+    .select('id, name, address, bank_last4')
+    .eq('id', propertyId)
+    .maybeSingle();
+  if (error || !p) return { ok: false, error: error?.message || `Property ${propertyId} not found.` };
+  const prop = p as { id: string; name: string; address: string | null; bank_last4: string | null };
+
+  const built = buildCleanerBankEmail({
+    propertyName: prop.name,
+    address: prop.address,
+    bankLast4: prop.bank_last4,
+    accountNumber,
+    routingNumber,
+    senderShort: getTeamMember(sender)?.short ?? '',
+    cc: dutyEmails('cleaning_billing').filter((e) => e !== sender.toLowerCase()),
+  });
+  if (!built.ok) return built;
+
+  const mailbox = await sessionMailbox(sender);
+  if (!mailbox) return { ok: true, kind: 'copy', email: built.email };
+  const draft = await createGmailDraft({
+    from: sender,
+    to: built.email.to,
+    cc: built.email.cc,
+    subject: built.email.subject,
+    body: built.email.body,
+    mailbox: mailbox.key,
+  });
+  // A failed draft still hands the email over to paste, rather than
+  // sending the operator back to type the number again.
+  if (!draft.ok) return { ok: true, kind: 'copy', email: built.email };
+  return { ok: true, kind: 'draft', draftUrl: draft.draftUrl };
 }
