@@ -28,6 +28,7 @@ import {
   contractorCost,
   onPayroll,
   payrollCost,
+  workersCompCost,
   CONTRACTOR_CREATIVE_MONTHLY,
   CONTRACTOR_FIELD_PROP_COUNT,
   CONTRACTOR_MISC_MONTHLY,
@@ -36,7 +37,6 @@ import {
   PHONE_ALLOWANCE_MONTHLY,
   SALARY_ANNUAL,
   SALARY_EMPLOYER_TAX_RATE,
-  SALARY_WORKERS_COMP_RATE,
   SEASON,
 } from '../forecast-model.ts';
 
@@ -123,14 +123,36 @@ describe('the forecast carries the salary on its own line', () => {
     assert.equal(onPayroll(2027, 1), true);
     assert.equal(payrollCost(2026, 10), 0);
     const expected =
-      (SALARY_ANNUAL / 12) * (1 + SALARY_EMPLOYER_TAX_RATE + SALARY_WORKERS_COMP_RATE) +
+      (SALARY_ANNUAL / 12) * (1 + SALARY_EMPLOYER_TAX_RATE) +
       PAYROLL_PLATFORM_MONTHLY +
       PHONE_ALLOWANCE_MONTHLY;
     assert.ok(Math.abs(payrollCost(2026, 11) - expected) < 1e-9);
     assert.ok(Math.abs(payrollCost(2028, 7) - expected) < 1e-9);
-    // The number the letter and the costing agreed on: about $6,697 at the
-    // $70,000 salary (2026-10-19).
-    assert.ok(expected > 6670 && expected < 6720, `monthly all-in ${expected.toFixed(2)}`);
+    // About $6,500 at the $70,000 salary on Gusto Plus ($92), with workers
+    // comp moved off this line once the AmTrust policy was bound (2026-11-03).
+    assert.ok(expected > 6480 && expected < 6520, `monthly all-in ${expected.toFixed(2)}`);
+  });
+
+  test('workers comp rides the Insurance line on the AmTrust installment dates', () => {
+    for (let m = 1; m <= 10; m++) assert.equal(workersCompCost(2026, m), 0, `2026-${m} is before the policy`);
+    // $274 down in November, nothing in December, $188 January to September,
+    // nothing in October: $1,966 a policy year.
+    assert.equal(workersCompCost(2026, 11), 274);
+    assert.equal(workersCompCost(2026, 12), 0);
+    for (let m = 1; m <= 9; m++) assert.equal(workersCompCost(2027, m), 188);
+    assert.equal(workersCompCost(2027, 10), 0);
+    let policyYear = 0;
+    for (const [y, m] of [[2026, 11], [2026, 12], ...Array.from({ length: 10 }, (_, i) => [2027, i + 1])]) {
+      policyYear += workersCompCost(y, m);
+    }
+    assert.equal(policyYear, 1966);
+    // Projected months put it on exp_insurance, beside Phillips in March.
+    const y2027 = calcYear(0, 2027);
+    assert.equal(y2027.monthly[2].exp_insurance, 5264 + 188);
+    assert.equal(y2027.monthly[10].exp_insurance, 274);
+    assert.equal(y2027.monthly[11].exp_insurance, 0);
+    // An AmTrust debit is filed where the projection puts it.
+    assert.equal(operating('ORIG CO NAME:AMTRUST FINANCIA CO ENTRY DESCR:EASYPAY', '2026-11-17'), 'Insurance');
   });
 
   test('the per-job field line ends the month she joins payroll; creative and misc carry on', () => {
