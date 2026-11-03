@@ -17,6 +17,7 @@ export const dynamic = 'force-dynamic';
 // authorizes this page before any data access.
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { statementSumsToPayout, FINALITY_FROM_MONTH } from '@/lib/statement-finality';
+import { isQuotableReview } from '@/lib/statement-review-quotes';
 
 // Display details for the statement header. Used to be a hardcoded
 // const matching only the legacy 10 properties — new prospect-promoted
@@ -500,8 +501,12 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
 
   // Review snippets: only show reviews from THIS month. 1 review renders
   // long-form; multiple renders as stacked short quotes ("Guest Reviews").
+  // Only praise is quoted: a low rating or a complaint in the text keeps a
+  // review out of the quotes (statement-review-quotes.ts). The rating tile
+  // above still counts every review.
   const uniqueReviewPool = uniqueMonthReviews.filter(
-    r => r.public_review && r.public_review.trim().length > 15,
+    r => r.public_review && r.public_review.trim().length > 15
+      && isQuotableReview({ rating: r.overall_rating, text: r.public_review }),
   );
   const selectedReviews = pickReviews(
     uniqueReviewPool.map(r => ({ guest: titleCase(r.guest_name) || 'Guest', review: r.public_review! })),
