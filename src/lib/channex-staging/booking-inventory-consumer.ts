@@ -143,7 +143,7 @@ export function bookingInventorySnapshot(state: BookingInventoryState, now: numb
 
 /** One bounded pass. A lost response is not retried blindly; reread durable state. */
 export async function consumeBookingInventory(store: BookingInventoryConsumerStore, clock: () => number,
-  options: { forceEnqueue?: boolean; reviewedIntent?: { id: string; digest: string } } = {}) {
+  options: { forceEnqueue?: boolean; renewReviewedFreshness?: boolean; reviewedIntent?: { id: string; digest: string } } = {}) {
   const state = parseBookingInventoryState(await store.read(), store.property);
   const snapshot = bookingInventorySnapshot(state, clock());
   if (!snapshot) return { status: 'blocked' as const };
@@ -161,7 +161,8 @@ export async function consumeBookingInventory(store: BookingInventoryConsumerSto
         current.version !== state.planVersion) return { status: 'blocked' as const };
   }
   if (!options.forceEnqueue && identical) {
-    if (state.plannedFreshUntil > clock()) return { status: 'unchanged' as const };
+    if (state.plannedFreshUntil > clock() && !(options.reviewedIntent && options.renewReviewedFreshness &&
+        projection.freshUntil > state.plannedFreshUntil)) return { status: 'unchanged' as const };
     const jobs = replayInventoryJournal(state.journal).queue.list(), current = jobs.at(-1);
     // Retain rejection backoff, attempt counters, task bindings and lease tokens.
     // Unknown or active attempts must finish reconciliation, never refresh past it.

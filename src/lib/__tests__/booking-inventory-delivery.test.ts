@@ -629,3 +629,41 @@ test('full-sync intent refresh survives restart delay but never replaces changed
     assert.equal(f.calls.filter(c => c.method === 'POST').length, changed ? 0 : 1);
   }
 });
+
+function enableDeliveryRefresh(f: Awaited<ReturnType<typeof fixture>>) {
+  f.store.refreshPlan = async (e, freshUntil, digest) => {
+    if (e.captureVersion !== f.state.captureVersion || e.configurationVersion !== f.state.configurationVersion ||
+        e.planVersion !== f.state.planVersion || e.journalVersion !== f.state.journalVersion ||
+        digest !== f.state.lastDigest ||
+        freshUntil <= f.state.plannedFreshUntil || freshUntil <= f.clock()) return false;
+    assert.deepEqual(e.inputs, f.state.inputs);
+    f.state.plannedFreshUntil = freshUntil; return true;
+  };
+}
+test('slow provider preparation renews the identical plan before claiming without renewing source evidence', async () => {
+  const f = await fixture(); enableDeliveryRefresh(f);
+  const sourceDeadline = f.state.configuration.coverage[0].freshUntil;
+  f.afterRead(() => f.advance(59000));
+  const read = f.store.journal.read;
+  f.store.journal.read = async () => { f.advance(1000); return read(); };
+  const result = await f.run();
+  assert.equal(result.status, 'submitted', JSON.stringify({now:f.clock(),fresh:f.state.plannedFreshUntil,job:f.job()}));
+  assert.equal(f.state.plannedFreshUntil, sourceDeadline);
+  assert.equal(f.state.configuration.coverage[0].freshUntil, sourceDeadline);
+  assert.equal(f.calls.filter(c => c.method === 'POST').length, 1);
+  assert.equal(f.state.planVersion, 1);
+});
+test('post-preparation refresh blocks changed inputs, expired coverage and lost refresh races before claim', async () => {
+  for (const mode of ['changed', 'expired', 'race']) {
+    const f = await fixture(); enableDeliveryRefresh(f);
+    f.afterRead(() => {
+      f.advance(59000);
+      if (mode === 'changed') f.state.captureVersion++;
+      if (mode === 'expired') f.state.configuration.coverage[0].freshUntil = f.clock();
+      if (mode === 'race') f.store.refreshPlan = async () => false;
+    });
+    assert.equal((await f.run()).status, 'blocked', mode);
+    assert.equal(f.job().status, 'pending', mode);
+    assert.equal(f.calls.filter(c => c.method === 'POST').length, 0, mode);
+  }
+});

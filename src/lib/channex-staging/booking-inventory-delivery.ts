@@ -1,7 +1,7 @@
 import { inventoryStage, InventoryDeliveryError } from './inventory-diagnostics.ts';
 /** One explicit attempt. No loop, env credentials, scheduler or production URL. */
 import { ChannexAvailabilityClient } from './availability-client.ts';
-import { bookingInventoryDispatchContext, parseBookingInventoryState, type BookingInventoryConsumerStore } from './booking-inventory-consumer.ts';
+import { bookingInventoryDispatchContext, consumeBookingInventory, parseBookingInventoryState, type BookingInventoryConsumerStore } from './booking-inventory-consumer.ts';
 import { inventoryResumeAfter, recordInventoryCommand, replayInventoryJournal } from './inventory-journal.ts';
 import { prepareInventoryDispatch } from './inventory-worker.ts';
 
@@ -26,6 +26,15 @@ export async function deliverBookingInventoryOnce(store: BookingInventoryConsume
   if (now < inventoryResumeAfter(journal)) return { status: 'blocked' as const };
   const permit = await inventoryStage('prepare', () => client.prepare(job, fullSync));
   if (!permit.request) return { status: 'already-matches' as const }; // Observation, not task settlement.
+  // Provider preparation can consume most of the plan's 60-second window.
+  // Renew only this identical pending intent, under the store's atomic checks.
+  // This does not renew source evidence or the transport permit.
+  if (store.refreshPlan) {
+    const refreshed = await consumeBookingInventory(store, clock, {
+      reviewedIntent: { id: job.id, digest: job.digest }, renewReviewedFreshness: true,
+    });
+    if (!['unchanged', 'refreshed'].includes(refreshed.status)) return { status: 'blocked' as const };
+  }
   const request = permit.request;
   let freshUntil = 0;
   const prepared = await inventoryStage('dispatch-save', () => prepareInventoryDispatch(store.journal, id, clock, 60_000, async claimed => {
