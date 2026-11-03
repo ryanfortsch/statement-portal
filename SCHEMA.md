@@ -153,7 +153,11 @@ Two representations exist today.
 - **`properties` (DB table)**: the registry and the source of truth. Has
   `is_rising_tide_owned`, `management_fee_pct`, `is_active`, `activated_at`,
   the owner and bank fields, `statement_cleaning_detail` (the owner opted in
-  to an itemized cleaning block on each statement; presentation only), plus
+  to an itemized cleaning block on each statement; presentation only),
+  `contract_end_pct` / `contract_end_month` (the forecast's chance the
+  management contract ends and the first month the home would be gone, set on
+  `/forecast`; a forecast assumption only, never read by statements or the
+  contracts register, see `src/lib/forecast-contract-endings.ts`), plus
   all human-readable address / name / title fields. The statements pipeline reads it too: since #498, ingest, the
   render page and the statement email load each home through
   `getActivePropertyForStatements` / `getActivePropertiesForStatements` in
