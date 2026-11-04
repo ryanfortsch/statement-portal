@@ -21,6 +21,8 @@ import { knownFromRoster, rosterFromRegistry } from '@/lib/forecast-roster';
 import type { MonthlyActual } from '@/lib/forecast-actuals';
 import type { SmartForecast } from '@/lib/forecast-smart';
 import type { ProspectForecast } from '@/lib/forecast-prospects';
+import { endingsForYear, keepFn, monthLabel, type ContractEnding } from '@/lib/forecast-contract-endings';
+import { ContractEndingsPanel } from './ContractEndingsPanel';
 import type { StatementRevenueByMonth } from '@/lib/forecast-statement-actuals';
 import { describeMonths, type YtdSummary } from '@/lib/forecast-fy-total';
 import { describeMeasured, scenarioQuery, type ForecastScenario } from '@/lib/forecast-scenario';
@@ -54,6 +56,14 @@ type Props = {
   prospects2026: ProspectForecast;
   prospects2027: ProspectForecast;
   prospects2028: ProspectForecast;
+  /** Homes carrying a chance their contract ends (forecast-contract-endings.ts). */
+  contractEndings: ContractEnding[];
+  /** Set when the read failed, so the panel says so instead of reading as "every home stays". */
+  contractEndingsError: string | null;
+  /** The months the ending picker offers, decided on the server clock. */
+  endingMonthChoices: string[];
+  /** The month a new entry starts on. */
+  endingDefaultMonth: string;
   /** Map keyed by YYYY-MM → total mgmt fee from property_statements. */
   statementRevenue: StatementRevenueByMonth;
   /**
@@ -83,6 +93,10 @@ export function ForecastClient({
   prospects2026,
   prospects2027,
   prospects2028,
+  contractEndings,
+  contractEndingsError,
+  endingMonthChoices,
+  endingDefaultMonth,
   statementRevenue,
   ytdByYear,
   bankActuals2026,
@@ -268,13 +282,31 @@ export function ForecastClient({
     return map;
   }, [statementRevenue, yearKey]);
 
+  // Contracts that may end: each home's projected fee times the chance it
+  // ends, from the month it would be gone, read off the same smart months as
+  // the Properties row. The per-property table keeps the if-it-stays figure.
+  const endingNames = useMemo(
+    () => new Map((smart2026 ?? smartForYear)?.properties.map((p) => [p.property.id, p.property.name]) ?? []),
+    [smart2026, smartForYear]
+  );
+  const endingYear = useMemo(
+    () => endingsForYear(smartForYear, contractEndings, yearKey, endingNames),
+    [smartForYear, contractEndings, yearKey, endingNames]
+  );
+  const endingInputs = useMemo(
+    () => (contractEndings.length > 0
+      ? { lossByMonth: smartForYear ? endingYear.lossByMonth : undefined, keep: keepFn(contractEndings) }
+      : undefined),
+    [contractEndings, smartForYear, endingYear]
+  );
+
   const year = useMemo(
     () => calcYear(
       numNew, yearKey, actualsForYear, actualsThrough, smartOverride,
       calibrationFactor, rolledForward, prospectsForYear.monthlyExpectedTotals,
-      statementByMonthForYear, opensIn, matureFee, rosterForYear,
+      statementByMonthForYear, opensIn, matureFee, rosterForYear, endingInputs,
     ),
-    [numNew, yearKey, actualsForYear, actualsThrough, smartOverride, calibrationFactor, rolledForward, prospectsForYear, statementByMonthForYear, matureFee, rosterForYear]
+    [numNew, yearKey, actualsForYear, actualsThrough, smartOverride, calibrationFactor, rolledForward, prospectsForYear, statementByMonthForYear, matureFee, rosterForYear, endingInputs]
   );
 
   /** Switch year. Per-year slider state is independent so no clamping needed. */
@@ -326,6 +358,7 @@ export function ForecastClient({
           yearKey={yearKey}
           currentCount={liveCurrentCount}
           prospectsCount={prospectsForYear.totals.count}
+          endingCount={endingYear.count}
         />
       </section>
 
@@ -341,6 +374,7 @@ export function ForecastClient({
           yearKey={yearKey}
           currentCount={liveCurrentCount}
           prospectsCount={prospectsForYear.totals.count}
+          endingCount={endingYear.count}
           ruleBefore={measured.ruleBefore}
         />
       </section>
@@ -361,6 +395,7 @@ export function ForecastClient({
             smart2028
           }
           ytd={ytdByYear[yearKey]}
+          endings={contractEndings}
         />
       </section>
 
@@ -370,6 +405,22 @@ export function ForecastClient({
         style={{ paddingBottom: 32, width: '100%' }}
       >
         <ProspectsLine data={prospectsForYear} yearKey={yearKey} />
+      </section>
+
+      {/* The pipeline in reverse: homes that may not stay. */}
+      <section
+        className="max-w-[1100px] mx-auto px-10"
+        style={{ paddingBottom: 32, width: '100%' }}
+      >
+        <ContractEndingsPanel
+          yearKey={yearKey}
+          data={endingYear}
+          fyLoss={-year.totals.rev_ending}
+          homes={[...endingNames].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name))}
+          monthOptions={endingMonthChoices}
+          defaultMonth={endingDefaultMonth}
+          loadError={contractEndingsError}
+        />
       </section>
 
       {/* Notes & Methodology — collapsible bottom block */}
@@ -427,9 +478,11 @@ export function ForecastClient({
 function SmartForecastPanel({
   data,
   ytd,
+  endings,
 }: {
   data: SmartForecast | null;
   ytd: YtdSummary;
+  endings: readonly ContractEnding[];
 }) {
   // Whole dollars throughout — round to nearest dollar.
   const fmtUsd = (n: number) =>
@@ -656,6 +709,25 @@ function SmartForecastPanel({
                     off-season {Math.round(p.offSeasonFactor * 100)}%
                   </span>
                 )}
+                {(() => {
+                  const e = endings.find((x) => x.propertyId === p.property.id);
+                  if (!e || !data.months.some((ym) => ym >= e.fromMonth)) return null;
+                  return (
+                    <span
+                      title={`${e.pct}% chance the contract ends, gone from ${monthLabel(e.fromMonth)}. This row is what the home earns if it stays; the Contracts that may end row in Monthly Detail takes the ${e.pct}% off.`}
+                      style={{
+                        marginLeft: 6,
+                        fontSize: 8.5,
+                        letterSpacing: '.12em',
+                        textTransform: 'uppercase',
+                        color: 'var(--signal)',
+                        fontFamily: 'var(--font-mono)',
+                      }}
+                    >
+                      may end {e.pct}%
+                    </span>
+                  );
+                })()}
               </td>
               <td style={cellStyle({ color: 'var(--signal)', fontWeight: 600 })}>
                 {p.property.mgmtFeePct != null ? `${p.property.mgmtFeePct}%` : '—'}
@@ -877,6 +949,12 @@ function ProspectsLine({
   );
 }
 
+/** The pipeline in reverse, the same line in every year's notes. */
+const ENDINGS_ASSUMPTION: AssumptionItem = {
+  label: 'Contracts that may end',
+  value: 'A home can carry the chance its contract ends and the first month it would be gone, set under Contracts that may end. From that month its projected fee is weighted by the chance it stays, and the card and the bench scale on the same share. A home with no chance entered is forecast to stay.',
+};
+
 function Assumptions({ yearKey }: { yearKey: ForecastYear }) {
   const sections =
     yearKey === 2026 ? sections2026 :
@@ -939,6 +1017,7 @@ const sections2026: AssumptionSection[] = [
     items: [
       { label: 'Properties', value: 'Seventeen homes filed 2026 statements and make up the Properties row. Measured months carry the real management fee from those statements from April 2026; January to March carry the bank sweep from Chase ...5130, because the Statements module began in April. Forward months come from the smart forecast: the bookings already in Guesty for each home, pace-corrected against the capture rate Rising Tide itself achieved on the closed months of 2026, blended with the annual gross of the home spread over the Gloucester revenue curve. That annual gross is floored at what the closed statements of the home prove: while it is still ramping (two or three closed months), the larger of its latest full month and its whole record (first ramp month dropped once there are three); from four closed months, the whole record alone, so one strong month cannot set the year (decided 2026-10-15, when a single September had 17 Beach at $358K a year). Each month is held at no less than what is already booked, and the pacing scale-up is capped at 2.5x. Rows the floor lifts carry a floor tag in the per-property table. A unit of a home already in the table (17 Beach\'s front unit and guest house, split off on 2026-09-28) sells the same nights as the whole house, so it projects only its own bookings, never the portfolio average; such rows carry a unit tag. Outside June to September every home\'s curve share is scaled to its own off-season, read from the shoulder month on the books (October 2026 as of mid-October: 17 Beach at 61% of what the curve expected, 84 Thatcher 54%, most homes at 100%), so a summer house is not projected a market-shaped winter; the factor only lowers, and rows it lowers carry an off-season tag.' },
       { label: 'Prospects', value: 'The live prospect pipeline (Prospects). Each deck projects a year-one fee; it enters month by month, weighted by close likelihood.' },
+      ENDINGS_ASSUMPTION,
       { label: 'New mandates', value: '$25K/yr each in their first season on Cape Ann seasonality (4.3% of the year in each of Jan to May and Nov to Dec, 10% in Jun, Sep and Oct, 20% in Jul and Aug), from the month the slider starts them. Default 3, in Jul, Sep and Nov. Each carries the $3,000 outfitting charge in its start month, so a home added late in the year is a small loss in that year and earns its keep the next. From 2027 they roll forward at the fleet average fee per earning home.' },
       { label: 'Operating windows', value: '4 Brier Neck ran June to August 2026 and is not renewed (notice given 2026-08-31). 73 Rocky Neck is off from November 2026 and 79 Main after 21 October 2026. 16 Waterman runs May to October every year. A closed month projects no revenue, and the card and the bench count only the homes operating that month.' },
     ],
@@ -979,6 +1058,7 @@ const sections2027: AssumptionSection[] = [
       { label: 'Active (Jan 1)', value: 'Every active managed home in Helm\'s registry drives the cost lines (card and bench), minus 4 Brier Neck, 73 Rocky Neck and 79 Main, which the operating windows have offline for the whole year; 16 Waterman is open May to October and counts only in those months. A home costs from the month it is activated, so 4 Middle Road is on the cost lines from day one rather than from its first closed statement. The revenue row is every active managed home in Helm with its operating window applied, so a home with no bookings or statements yet rides the portfolio-average gross (4 Middle Road today), except a unit of a home already in the table (17 Beach\'s front unit and guest house), which sells the whole house\'s nights and projects only its own bookings. Plus every home added on the 2026 slider, rolled forward as a full-year Cape Ann contract at the fleet average fee per earning home for 2027 (the mean of the per-property totals in the smart table, about $32K today), never below $25K.' },
       { label: 'Revenue per home', value: 'The smart forecast, almost entirely its annual-times-seasonality part: the annual gross of each home (its forward pace, floored at what its closed statements prove: the whole record once it has four closed months) spread over the Gloucester revenue curve, with the months outside June to September scaled to the home\'s own off-season as its shoulder month on the books showed it, times its fee percent. Bookings already placed for 2027 blend in where they exist.' },
       { label: 'Prospects', value: 'The live prospect pipeline (Prospects). Each open deck contributes a full year at its projected fee times its close likelihood (50% when none is entered), and adds no cost until it becomes a property.' },
+      ENDINGS_ASSUMPTION,
       { label: 'New mandates', value: '$25K/yr each in their first season on Cape Ann seasonality from the month the slider starts them. Default 3, in Mar, Jun and Sep. They roll into 2028 at the fleet average fee.' },
     ],
   },
@@ -1018,6 +1098,7 @@ const sections2028: AssumptionSection[] = [
       { label: 'Active (Jan 1)', value: 'The same active managed homes drive the cost lines and the revenue row, each with its operating window applied; a unit of a home already in the table projects only its own bookings. Plus everything added on the 2026 and 2027 sliders, all rolled forward as full-year Cape Ann contracts at the fleet average fee per earning home for 2028, never below $25K. Homes offline before 2028 stay out.' },
       { label: 'Revenue per home', value: 'The smart forecast on its annual-times-seasonality part alone: the annual gross of each home, floored at what its closed statements prove (the whole record once it has four closed months), spread over the Gloucester revenue curve with the months outside June to September scaled to the home\'s own off-season, times its fee percent. Bookings placed for 2028 blend in where they exist; none are on the books today.' },
       { label: 'Prospects', value: 'The live prospect pipeline (Prospects): each open deck a full year at its projected fee times its close likelihood, no cost until it becomes a property.' },
+      ENDINGS_ASSUMPTION,
       { label: 'New mandates', value: '$25K/yr each in their first season on Cape Ann seasonality. Default 3, in Mar, Jun and Sep.' },
     ],
   },
@@ -1331,6 +1412,7 @@ function KpiStrip({
   yearKey,
   currentCount,
   prospectsCount,
+  endingCount,
 }: {
   year: YearResult;
   numNew: number;
@@ -1342,6 +1424,8 @@ function KpiStrip({
   yearKey: ForecastYear;
   currentCount: number;
   prospectsCount: number;
+  /** Homes whose contract may end in or before this year. */
+  endingCount: number;
 }) {
   const { totals } = year;
   // Every term that is in the number is in the caption, so the two always
@@ -1355,10 +1439,22 @@ function KpiStrip({
           prospectsCount > 0 ? `${prospectsCount} prospect${prospectsCount === 1 ? '' : 's'}` : null,
           `${numNew} new`,
         ].filter(Boolean).join(' + ');
+  const ending =
+    endingCount > 0 && totals.rev_ending !== 0 ? `may end (${fmtCompactSimple(-totals.rev_ending)})` : null;
   const revBreakdown =
     yearKey === 2026
-      ? `cur ${fmtCompactSimple(totals.rev_current)} · prospects ${fmtCompactSimple(totals.rev_presigned)} · new ${fmtCompactSimple(totals.rev_new)}`
-      : `active ${fmtCompactSimple(totals.rev_current)} · new ${fmtCompactSimple(totals.rev_new)}`;
+      ? [
+          `cur ${fmtCompactSimple(totals.rev_current)}`,
+          ending,
+          `prospects ${fmtCompactSimple(totals.rev_presigned)}`,
+          `new ${fmtCompactSimple(totals.rev_new)}`,
+        ].filter(Boolean).join(' · ')
+      : [
+          `active ${fmtCompactSimple(totals.rev_current)}`,
+          ending,
+          totals.rev_presigned !== 0 ? `prospects ${fmtCompactSimple(totals.rev_presigned)}` : null,
+          `new ${fmtCompactSimple(totals.rev_new)}`,
+        ].filter(Boolean).join(' · ');
 
   return (
     <div
@@ -1492,12 +1588,14 @@ function ForecastTable({
   yearKey,
   currentCount,
   prospectsCount,
+  endingCount,
   ruleBefore,
 }: {
   year: YearResult;
   yearKey: ForecastYear;
   currentCount: number;
   prospectsCount: number;
+  endingCount: number;
   /** Month indexes (0-11) that open a new measured or projected run. */
   ruleBefore: number[];
 }) {
@@ -1511,8 +1609,19 @@ function ForecastTable({
   const presignedInfo =
     'Live pipeline from Prospects. Each prospect\'s projected year-1 mgmt fee × its close likelihood (50% when none is entered), summed per month. This row is what RT keeps; each deck\'s owner payout is on Prospects.';
 
+  const endingLine: Line[] =
+    endingCount > 0
+      ? [{
+          label: `Contracts that may end (${endingCount})`,
+          info: 'The prospects pipeline in reverse. Each home carrying a chance its contract ends takes that share of its projected mgmt fee off from the month it would be gone (set under Contracts that may end below). The Properties row and the per-property table stay what each home earns if it stays; this row is the expected loss. The card and the contractor bench scale on the share of each home expected to stay, so a home half expected to leave costs half.',
+          values: monthly.map((r) => r.rev_ending),
+          fy: totals.rev_ending,
+        }]
+      : [];
+
   const revenue: Line[] = [
     { label: currentLabel, info: currentInfo, values: monthly.map((r) => r.rev_current), fy: totals.rev_current },
+    ...endingLine,
     { label: presignedLabel, info: presignedInfo, values: monthly.map((r) => r.rev_presigned), fy: totals.rev_presigned },
     { label: 'New', info: 'Hypothetical new contracts added via the slider above. $25K/yr on Cape Ann seasonality in their first season, which is a ramp, less the $3,000 outfitting charge on the Onboarding line in the month each starts. From the next year they roll into the Properties row at the fleet\'s projected average fee per earning home (never below $25K), so an added home is worth what the average home already run is worth.', values: monthly.map((r) => r.rev_new), fy: totals.rev_new, highlight: true },
   ];

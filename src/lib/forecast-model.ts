@@ -113,6 +113,27 @@ export const PRESIGNED_2026: ManagedProperty[] = [];
 export type OpenInYear = (propertyId: string, year: number, month?: number) => boolean;
 
 /**
+ * The share of a month a real home is expected to stay under management, 0
+ * to 1: 1 - the chance its contract ends, from the month it would be gone
+ * (forecast-contract-endings.ts keepFn). Supplied by the caller for the same
+ * reason OpenInYear is.
+ */
+export type KeepShare = (propertyId: string, year: number, month: number) => number;
+
+/**
+ * Contracts that may end, as calcYear takes them. `lossByMonth` (index
+ * month - 1, positive) is the expected fee lost, read off the smart
+ * forecast's per-home months; it is the line wherever smart carries the
+ * month. A month smart cannot supply takes the loss from the roster's
+ * seasonal fees through `keep`, and every projected month scales the card
+ * and the bench on the homes expected to stay.
+ */
+export type ContractEndingInputs = {
+  lossByMonth?: readonly number[];
+  keep: KeepShare;
+};
+
+/**
  * In 2027 the current properties roll forward as full-year actives.
  * Prospects that closed in 2026 will appear in Helm's `properties` table by
  * then and get queried as currents; until then the forecast layer carries
@@ -969,6 +990,12 @@ export type MonthRow = {
   rev_presigned: number;
   /** Revenue from the N hypothetical new properties this month. */
   rev_new: number;
+  /**
+   * Expected management fee lost to contracts that may end, zero or
+   * negative: each home's projected fee times the chance it ends, from the
+   * month it would be gone. Zero on a measured month.
+   */
+  rev_ending: number;
   /** All revenue combined. */
   rev_total: number;
 
@@ -1039,6 +1066,7 @@ export type YearResult = {
     rev_current: number;
     rev_presigned: number;
     rev_new: number;
+    rev_ending: number;
     rev_total: number;
     exp_total: number;
     net_business: number;
@@ -1135,7 +1163,9 @@ export function calcYear(
   /** Second-season fee for rolled-forward homes; see getYearConfig. */
   matureFee?: number,
   /** The registry-built cost roster; see getYearConfig. */
-  roster?: ManagedProperty[]
+  roster?: ManagedProperty[],
+  /** Contracts that may end; see ContractEndingInputs. Omitted, every home stays. */
+  endings?: ContractEndingInputs,
 ): YearResult {
   const config = getYearConfig(year, rolledForward ?? 0, openIn, matureFee, roster);
   const maxNew = config.newOrder.length;
@@ -1166,9 +1196,11 @@ export function calcYear(
       // bench rather than replacing them.
       const cardOnly = a.operating_covered === false;
       let opCount = activeForActual;
-      if (cardOnly && openIn) {
+      if (cardOnly && (openIn || endings)) {
         for (const p of config.current) {
-          if (m >= p.start && p.id && !openIn(p.id, year, m)) opCount -= 1;
+          if (m < p.start || !p.id) continue;
+          if (openIn && !openIn(p.id, year, m)) opCount -= 1;
+          else if (endings) opCount -= 1 - endings.keep(p.id, year, m);
         }
       }
       const exp_office = cardOnly ? a.exp_office + rentCost(m, config.officeStartMonth) : a.exp_office;
@@ -1201,6 +1233,7 @@ export function calcYear(
         rev_current: a.revenue, // attribute everything to current portfolio
         rev_presigned: 0,
         rev_new: 0,
+        rev_ending: 0,
         rev_total: a.revenue,
         exp_office,
         exp_software: a.exp_software,
@@ -1240,6 +1273,7 @@ export function calcYear(
     let rev_current = 0;
     let rev_presigned = 0;
     let rev_new = 0;
+    let rev_ending = 0;
 
     if (useSmart) {
       // Smart Forecast owns the real fleet. Presigned + new remain on
@@ -1252,15 +1286,23 @@ export function calcYear(
       for (const p of config.current) {
         if (p.synthetic && m >= p.start) rev_current += p.fee * dist[p.type];
       }
+      // The loss is read off the same smart months as rev_current, so a
+      // home's row in the per-property table and its share here agree.
+      const loss = endings?.lossByMonth?.[i] ?? 0;
+      if (loss > 0) rev_ending = -loss;
     } else {
       // No smart data — fall back to seasonality for current too.
       for (const p of config.current) {
         if (m >= p.start) rev_current += p.fee * dist[p.type];
+        if (endings && p.id && !p.synthetic && m >= p.start) {
+          rev_ending -= p.fee * dist[p.type] * (1 - endings.keep(p.id, year, m));
+        }
       }
       // Apply forward-year calibration if we learned one from a prior
       // year's smart forecast.
       if (calibrationFactor && calibrationFactor > 0 && calibrationFactor !== 1) {
         rev_current *= calibrationFactor;
+        rev_ending *= calibrationFactor;
       }
     }
     // Prospects pipeline: per-month expected mgmt fee, weighted by each
@@ -1289,9 +1331,10 @@ export function calcYear(
       rev_current = stmtRevenue;
       rev_presigned = 0;
       rev_new = 0;
+      rev_ending = 0;
     }
 
-    const rev_total = rev_current + rev_presigned + rev_new;
+    const rev_total = rev_current + rev_presigned + rev_new + rev_ending;
 
     // Count contracts whose start month equals this month → multiply by
     // the per-contract onboarding cost. This handles the case where two
@@ -1311,11 +1354,15 @@ export function calcYear(
     // home whose operating window has it closed (4 Brier Neck after August
     // 2026, 73 Rocky Neck from November, 79 Main from late October, 16
     // Waterman outside May to October). The card and the bench, which is
-    // the whole people line, scale on this.
+    // the whole people line, scale on this. A home whose contract may end
+    // counts for the share of it expected to stay, so a home half expected
+    // to leave costs half, the same expectation its revenue carries.
     let operatingCount = activeCount;
-    if (openIn) {
+    if (openIn || endings) {
       for (const p of config.current) {
-        if (m >= p.start && p.id && !openIn(p.id, year, m)) operatingCount -= 1;
+        if (m < p.start || !p.id) continue;
+        if (openIn && !openIn(p.id, year, m)) operatingCount -= 1;
+        else if (endings) operatingCount -= 1 - endings.keep(p.id, year, m);
       }
     }
 
@@ -1351,6 +1398,7 @@ export function calcYear(
       rev_current,
       rev_presigned,
       rev_new,
+      rev_ending,
       rev_total,
       exp_office,
       exp_software,
@@ -1388,6 +1436,7 @@ export function calcYear(
       rev_current: sum('rev_current'),
       rev_presigned: sum('rev_presigned'),
       rev_new: sum('rev_new'),
+      rev_ending: sum('rev_ending'),
       rev_total: sum('rev_total'),
       exp_total: sum('exp_total'),
       net_business: sum('net_business'),

@@ -28,6 +28,8 @@ import {
 } from '@/lib/forecast-actuals';
 import { getActualsFromDb } from '@/lib/forecast-actuals-from-db';
 import { getProspectForecast } from '@/lib/forecast-prospects';
+import { getContractEndings } from '@/lib/forecast-contract-endings-from-db';
+import { defaultEndingMonth, monthChoices } from '@/lib/forecast-contract-endings';
 import {
   getStatementRevenueByMonth,
   getStatementGrossByProperty,
@@ -348,6 +350,7 @@ export default async function ForecastPage({
     statementRevenue,
     statementMgmtFee,
     overhead,
+    contractEndings,
   ] = await Promise.all([
     getSmartForecast(2028),
     getProspectForecast(2026),
@@ -358,6 +361,8 @@ export default async function ForecastPage({
     // The Actuals section's ledger; same overhead_expenses rows the
     // measured months read, through Cost Analysis's old loader.
     getOverhead(),
+    // The homes that may not stay: the prospects pipeline in reverse.
+    getContractEndings(),
   ]);
   const smart2026 = filterToYear(smartAll, 2026);
   const smart2027 = filterToYear(smartAll, 2027);
@@ -410,6 +415,10 @@ export default async function ForecastPage({
         prospects2026={prospects2026}
         prospects2027={prospects2027}
         prospects2028={prospects2028}
+        contractEndings={contractEndings.endings}
+        contractEndingsError={contractEndings.error}
+        endingMonthChoices={monthChoices(asOf)}
+        endingDefaultMonth={defaultEndingMonth(asOf)}
         statementRevenue={statementRevenue}
         ytdByYear={ytdByYear}
         bankActuals2026={bankActuals2026}
