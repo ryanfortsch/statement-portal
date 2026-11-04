@@ -4,8 +4,8 @@
  * Until 2026-10-18 the unknown Quo numbers and the Quo address-book
  * suggestions were two boxes at the top of /crm, with two verb sets for one
  * decision (Attach / Add as new / Dismiss, Add to Helm / Skip). They are one
- * card on /messaging now, with one verb set, and /crm opens straight on the
- * list.
+ * optional disclosure below Conversations on /messaging now, with one verb
+ * set, and /crm opens straight on the list.
  *
  * Run: npm test
  */
@@ -17,10 +17,10 @@ const read = (repoPath: string): string =>
   readFileSync(new URL(`../../../${repoPath}`, import.meta.url), 'utf8');
 
 describe('one card on /messaging', () => {
-  test('the Inbox renders the card in its own boundary, after the queue', () => {
+  test('the Inbox renders optional matching after conversations, in its own boundary', () => {
     const page = read('src/app/messaging/page.tsx');
     assert.ok(page.includes('<Suspense fallback={null}>\n        <NumberTriageSection />\n      </Suspense>'));
-    assert.ok(page.indexOf('<NumberTriageSection />') > page.indexOf('<QueueSection />'), 'the queue comes first');
+    assert.ok(page.indexOf('<NumberTriageSection />') > page.indexOf('<ConversationsSection searchParams='), 'conversations come before contact maintenance');
     assert.ok(page.includes('if (!triage || triageIsEmpty(triage)) return null;'), 'an empty card renders nothing');
   });
 
@@ -35,7 +35,7 @@ describe('one card on /messaging', () => {
     assert.ok(card.includes('id="new-numbers"'), 'the alert link lands on the card');
   });
 
-  test('the card opens on the newest three numbers; the rest wait behind Show all', () => {
+  test('expanded matching shows three numbers; the rest wait behind Show all', () => {
     const card = read('src/components/messaging/NumberTriage.tsx');
     assert.ok(card.includes('const RECENT_SHOWN = 3;'));
     assert.ok(card.includes('visibleUnknowns.slice(0, RECENT_SHOWN)'), 'a backlog never fills the inbox');
@@ -43,7 +43,7 @@ describe('one card on /messaging', () => {
   });
 
   test('the concierge alert for an unknown Owners-line texter opens the card', () => {
-    assert.ok(read('src/lib/concierge-alerts.ts').includes("{ label: 'Open New numbers', href: '/messaging#new-numbers' }"));
+    assert.ok(read('src/lib/concierge-alerts.ts').includes("{ label: 'Match this sender', href: '/messaging#new-numbers' }"));
   });
 });
 

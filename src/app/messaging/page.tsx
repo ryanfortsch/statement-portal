@@ -146,12 +146,9 @@ async function QueueSection() {
   return <MessagingQueue initialPending={pending.data.approvals} initialQuotes={quotes} aiPaused={aiPaused} held={held} flagged={flagged} guestyGuests={guestyGuests} />;
 }
 
-// Numbers that reached a Quo line and that Helm cannot name, plus what the
-// Quo address book knows that the contact list does not: one card with one
-// verb set (Attach, New contact, Not ours). It lived on /crm until
-// 2026-10-18; it belongs where the texts are answered. Its own boundary: a
-// slow or failed read never holds the queue, and an empty card renders
-// nothing.
+// Optional contact matching, collapsed below Conversations. A filing
+// backlog is not an unread-message queue. Its own boundary keeps a slow
+// directory read from delaying conversations; an empty card renders nothing.
 async function NumberTriageSection() {
   const triage = await loadNumberTriage().catch(() => null);
   if (!triage || triageIsEmpty(triage)) return null;
@@ -231,10 +228,10 @@ export default function MessagingPage({ searchParams }: { searchParams: Promise<
         <RecentDecisionsSection />
       </Suspense>
       <Suspense fallback={null}>
-        <NumberTriageSection />
+        <ConversationsSection searchParams={searchParams} />
       </Suspense>
       <Suspense fallback={null}>
-        <ConversationsSection searchParams={searchParams} />
+        <NumberTriageSection />
       </Suspense>
       <Suspense fallback={null}><PropertyFactsToFile /></Suspense>
       <Suspense fallback={null}><RecentMessageOutcomesSection audience="guests" /></Suspense>
