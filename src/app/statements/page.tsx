@@ -27,7 +27,8 @@ import { revenueSignal } from '@/lib/guesty-revenue-signal';
 import { Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { isStatementMonth, previousCalendarMonth, statementsHref, statementsUploadHref } from '@/lib/statements-month';
+import { isStatementMonth, previousCalendarMonth, statementsHref, statementsUploadHref, statementsReceiptsHref } from '@/lib/statements-month';
+import { buttonClass } from '@/lib/button-class';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { FinancialsTabs } from '@/components/FinancialsTabs';
 import { AddNoteModal } from '@/components/AddNoteModal';
@@ -3922,6 +3923,11 @@ function DashboardContent() {
           }}>
             Upload Data
           </Link>
+          <div style={{ marginTop: 20 }}>
+            <Link href={statementsReceiptsHref(missingMonth || urlMonth || selectedMonth)} className={buttonClass('secondary')}>
+              Add receipt
+            </Link>
+          </div>
         </div>
       </div>
     );
@@ -4195,6 +4201,9 @@ function DashboardContent() {
               />
             </div>
             <div className="flex items-center gap-3">
+              <Link href={statementsReceiptsHref(missingMonth || selectedMonth)} className={buttonClass('secondary', 'sm')}>
+                Add receipt
+              </Link>
               {refreshing > 0 && (
                 <span className="eyebrow" aria-live="polite" style={{ color: 'var(--ink-4)' }}>Refreshing…</span>
               )}

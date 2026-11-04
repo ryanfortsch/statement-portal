@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { getActivePropertyForStatements } from '@/lib/properties-server';
+import { isStatementMonth } from '@/lib/statements-month';
 import { assertStatementWritable, getFreezeStatus, StatementFrozenError } from '@/lib/statement-finality';
 import { writeStatementTotals, type FreezeReceipt } from '@/lib/statement-totals-write';
 
@@ -111,7 +112,7 @@ async function findStatement(
 
 
 type Warning = {
-  kind: 'possible_double_deduction' | 'statement_already_sent' | 'statement_frozen';
+  kind: 'possible_double_deduction' | 'possible_duplicate_receipt' | 'statement_already_sent' | 'statement_frozen';
   message: string;
   owner_payout_before?: number;
   owner_payout_after?: number;
@@ -127,6 +128,25 @@ async function collectWarnings(
   periodId: string | null,
 ): Promise<Warning[]> {
   const warnings: Warning[] = [];
+
+  // Receipts saved before the first statement have no repair_events mirror
+  // yet. Check their durable rows too, before uploading another attachment.
+  try {
+    const { data: receipts } = await supabase
+      .from('property_receipts')
+      .select('id, amount, vendor_name')
+      .eq('property_id', propertyId)
+      .eq('month', month)
+      .eq('status', 'active')
+      .eq('amount', amount)
+      .limit(1);
+    if (receipts?.length) {
+      warnings.push({
+        kind: 'possible_duplicate_receipt',
+        message: `A receipt for $${amount.toFixed(2)}${receipts[0].vendor_name ? ` from ${receipts[0].vendor_name}` : ''} is already saved for this property in ${month}. Check the saved receipts before adding this purchase again.`,
+      });
+    }
+  } catch { /* guard is best-effort, like the bank-charge warning below */ }
 
   // (a) Double deduction: a same-amount bank debit already parked in the
   // review queue (would flow to attributed_debits_total if attributed) or a
@@ -225,7 +245,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (!propertyId || !(await getActivePropertyForStatements(propertyId))) {
       return NextResponse.json({ error: `Unknown property_id: ${propertyId}` }, { status: 400 });
     }
-    if (!/^\d{4}-\d{2}$/.test(month)) {
+    if (!isStatementMonth(month)) {
       return NextResponse.json({ error: "month must be 'YYYY-MM'" }, { status: 400 });
     }
     if (!Number.isFinite(amount) || amount <= 0) {
