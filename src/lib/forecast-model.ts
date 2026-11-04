@@ -772,8 +772,10 @@ export function contractorCost(
  * scale with the fleet; the creative and misc bench still does.
  *
  * Employer cost on top of the salary, per month:
- *   - payroll taxes at 9% (FICA 7.65%, plus FUTA and MA unemployment on
- *     their small wage bases, blended over the year);
+ *   - payroll taxes at 8.1%: FICA 7.65% on every dollar, plus about $300
+ *     a year of FUTA ($42 on the first $7,000) and MA unemployment (on the
+ *     first $15,000), blended flat over the year. In cash those two land in
+ *     the first months of each year. Was 9% until 2026-11-04;
  *   - the Gusto platform fee, $92 (Plus plan, one person, reactivated
  *     2026-11-03);
  *   - the $50 phone allowance in the offer letter.
@@ -791,7 +793,7 @@ export function contractorCost(
 export const SALARY_ANNUAL = 70000;
 export const SALARY_START_YEAR = 2026;
 export const SALARY_START_MONTH = 11;
-export const SALARY_EMPLOYER_TAX_RATE = 0.09;
+export const SALARY_EMPLOYER_TAX_RATE = 0.081;
 export const PAYROLL_PLATFORM_MONTHLY = 92;
 export const PHONE_ALLOWANCE_MONTHLY = 50;
 

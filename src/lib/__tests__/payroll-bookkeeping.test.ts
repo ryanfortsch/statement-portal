@@ -128,9 +128,9 @@ describe('the forecast carries the salary on its own line', () => {
       PHONE_ALLOWANCE_MONTHLY;
     assert.ok(Math.abs(payrollCost(2026, 11) - expected) < 1e-9);
     assert.ok(Math.abs(payrollCost(2028, 7) - expected) < 1e-9);
-    // About $6,500 at the $70,000 salary on Gusto Plus ($92), with workers
-    // comp moved off this line once the AmTrust policy was bound (2026-11-03).
-    assert.ok(expected > 6480 && expected < 6520, `monthly all-in ${expected.toFixed(2)}`);
+    // About $6,450 at the $70,000 salary: 8.1% employer taxes, Gusto Plus
+    // ($92), the phone, and no workers comp (on Insurance since 2026-11-03).
+    assert.ok(expected > 6430 && expected < 6470, `monthly all-in ${expected.toFixed(2)}`);
   });
 
   test('workers comp rides the Insurance line on the AmTrust installment dates', () => {
