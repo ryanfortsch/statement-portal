@@ -1,8 +1,10 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { deleteWithFreezeRetry } from '@/lib/freeze-confirm';
 import { useConfirm } from '@/components/ConfirmDialog';
+import { isStatementMonth } from '@/lib/statements-month';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 
 /**
  * Receipt capture -- photograph (or drag in) a paper receipt, review the
@@ -75,7 +77,7 @@ export function ReceiptRowActions({ receiptId, onVoided }: { receiptId: string; 
     // receipt leaves Repairs & Maintenance and the statement is recomputed.
     const go = await ask({
       title: 'Void this receipt?',
-      body: 'It comes off this month\'s Repairs & Maintenance and the owner payout is recomputed without it.',
+      body: 'It is removed from this month\'s expenses. If a statement exists, its owner payout is recomputed without it.',
       confirmLabel: 'Void receipt',
       tone: 'danger',
       irreversible: true,
@@ -139,7 +141,7 @@ export function ReceiptCapture({
   /** 'YYYY-MM' the capture bills to by default (the card's selected month). */
   defaultMonth: string;
   /** Fired after a successful save so the caller can refresh totals. */
-  onDone: () => void;
+  onDone: (saved: { month: string; statementFound: boolean }) => void;
   onCancel?: () => void;
 }) {
   const [phase, setPhase] = useState<Phase>('input');
@@ -160,9 +162,12 @@ export function ReceiptCapture({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<Warning[]>([]);
-  const [doneInfo, setDoneInfo] = useState<{ amount: string; month: string; uploadWarning: string | null } | null>(null);
+  const [doneInfo, setDoneInfo] = useState<{ amount: string; month: string; statementFound: boolean; uploadWarning: string | null; saveWarning?: string } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const savingRef = useRef(false);
+  const fieldId = useId();
+  useUnsavedWorkGuard(phase === 'review');
 
   // Revoke the local object URL when it changes / unmounts.
   useEffect(() => {
@@ -227,9 +232,11 @@ export function ReceiptCapture({
   }
 
   async function submit(acknowledge: boolean) {
+    if (savingRef.current) return;
     const amt = Number(amount);
     if (!Number.isFinite(amt) || amt <= 0) { setError('Enter a positive amount.'); return; }
-    if (!/^\d{4}-\d{2}$/.test(statementMonth)) { setError('Pick a statement month.'); return; }
+    if (!isStatementMonth(statementMonth)) { setError('Pick a statement month.'); return; }
+    savingRef.current = true;
     setSaving(true); setError(null);
     try {
       const fd = new FormData();
@@ -244,18 +251,26 @@ export function ReceiptCapture({
       if (file) fd.append('file', file);
       const res = await fetch('/api/receipts', { method: 'POST', body: fd });
       const data = await res.json().catch(() => null);
+      // A failed recompute can still leave a saved receipt. Never offer a
+      // second Confirm in that case, or call onDone and hide the warning.
+      if (!res.ok && data?.receipt?.id) {
+        setDoneInfo({ amount: amt.toFixed(2), month: statementMonth, statementFound: !!data.statement_found, uploadWarning: data.upload_warning || null, saveWarning: data.error || 'Receipt saved, but the statement needs to be refreshed. Do not add it again.' });
+        setPhase('done');
+        return;
+      }
       if (!res.ok) { setError(data?.error || 'Save failed'); return; }
       if (data?.needs_confirm) {
         setWarnings((data.warnings || []) as Warning[]);
         return;
       }
       if (!data?.ok) { setError(data?.error || 'Save failed'); return; }
-      setDoneInfo({ amount: amt.toFixed(2), month: statementMonth, uploadWarning: data.upload_warning || null });
+      setDoneInfo({ amount: amt.toFixed(2), month: statementMonth, statementFound: !!data.statement_found, uploadWarning: data.upload_warning || null });
       setPhase('done');
-      onDone();
+      onDone({ month: statementMonth, statementFound: !!data.statement_found });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Save failed');
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }
@@ -278,8 +293,12 @@ export function ReceiptCapture({
       <div style={frame}>
         <div style={{ fontSize: 12, color: 'var(--ink)' }}>
           <span style={{ color: 'var(--positive)', fontWeight: 600 }}>Saved.</span>{' '}
-          ${doneInfo.amount} billed to {doneInfo.month} under Repairs &amp; Maintenance.
+          ${doneInfo.amount} for {propertyName} · {doneInfo.month}.
+          {!doneInfo.saveWarning && (doneInfo.statementFound
+            ? ' Included under Repairs & Maintenance.'
+            : ' It will be included when this month’s statement is imported.')}
         </div>
+        {doneInfo.saveWarning && <div role="alert" style={{ fontSize: 12, color: 'var(--signal)', marginTop: 6 }}>{doneInfo.saveWarning}</div>}
         {doneInfo.uploadWarning && (
           <div style={{ fontSize: 11, color: 'var(--signal)', marginTop: 6 }}>{doneInfo.uploadWarning}</div>
         )}
@@ -411,23 +430,23 @@ export function ReceiptCapture({
         )}
         <div style={{ flex: 1, minWidth: 240, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
           <div>
-            <label style={LABEL_STYLE}>Amount ($)</label>
-            <input type="number" step="0.01" min="0" value={amount} disabled={saving}
+            <label htmlFor={`${fieldId}-amount`} style={LABEL_STYLE}>Amount ($)</label>
+            <input id={`${fieldId}-amount`} type="number" step="0.01" min="0" value={amount} disabled={saving}
               onChange={(e) => { setAmount(e.target.value); setWarnings([]); }} style={FIELD_STYLE} />
           </div>
           <div>
-            <label style={LABEL_STYLE}>Vendor</label>
-            <input type="text" value={vendor} disabled={saving} placeholder="Home Depot"
+            <label htmlFor={`${fieldId}-vendor`} style={LABEL_STYLE}>Vendor</label>
+            <input id={`${fieldId}-vendor`} type="text" value={vendor} disabled={saving} placeholder="Home Depot"
               onChange={(e) => setVendor(e.target.value)} style={FIELD_STYLE} />
           </div>
           <div>
-            <label style={LABEL_STYLE}>Expense date</label>
-            <input type="date" value={expenseDate} disabled={saving}
+            <label htmlFor={`${fieldId}-date`} style={LABEL_STYLE}>Expense date</label>
+            <input id={`${fieldId}-date`} type="date" value={expenseDate} disabled={saving}
               onChange={(e) => setExpenseDate(e.target.value)} style={FIELD_STYLE} />
           </div>
           <div>
-            <label style={LABEL_STYLE}>Statement month</label>
-            <input type="month" value={statementMonth} disabled={saving}
+            <label htmlFor={`${fieldId}-month`} style={LABEL_STYLE}>Statement month</label>
+            <input id={`${fieldId}-month`} type="month" value={statementMonth} disabled={saving}
               onChange={(e) => { setStatementMonth(e.target.value); setWarnings([]); }} style={FIELD_STYLE} />
             {monthMismatch && (
               <button
@@ -443,8 +462,8 @@ export function ReceiptCapture({
             )}
           </div>
           <div>
-            <label style={LABEL_STYLE}>Category</label>
-            <select value={category} disabled={saving}
+            <label htmlFor={`${fieldId}-category`} style={LABEL_STYLE}>Category</label>
+            <select id={`${fieldId}-category`} value={category} disabled={saving}
               onChange={(e) => setCategory(e.target.value as 'repairs' | 'supplies' | 'other')} style={FIELD_STYLE}>
               <option value="repairs">Repairs</option>
               <option value="supplies">Supplies</option>
@@ -452,8 +471,8 @@ export function ReceiptCapture({
             </select>
           </div>
           <div>
-            <label style={LABEL_STYLE}>Note (owner-facing)</label>
-            <input type="text" value={note} disabled={saving} placeholder="Replacement smoke detectors"
+            <label htmlFor={`${fieldId}-note`} style={LABEL_STYLE}>Note (owner-facing)</label>
+            <input id={`${fieldId}-note`} type="text" value={note} disabled={saving} placeholder="Replacement smoke detectors"
               onChange={(e) => setNote(e.target.value)} style={FIELD_STYLE} />
           </div>
         </div>
