@@ -81,6 +81,7 @@ describe('what a staff login may open', () => {
       '/forecast',
       '/revenue',
       '/payments/balance-charges',
+      '/payments/disputes/21_horton/ch_1',
       '/properties/contracts',
       '/properties/prospects',
       '/prospects/abc',

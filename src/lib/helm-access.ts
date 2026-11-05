@@ -125,6 +125,9 @@ export const OWNER_PATH_PREFIXES: readonly string[] = [
   // 2026-10-19 (Dotti): "did this guest pay?" is a guest-messaging question.
   // Charging a saved card is not.
   '/payments/balance-charges',
+  // A dispute packet lays out a guest's whole folio and every payment
+  // (2026-11-05): owner money, like a statement.
+  '/payments/disputes',
   // Owner relationships and the pipeline.
   '/properties/contracts',
   '/properties/prospects',

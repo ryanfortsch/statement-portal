@@ -129,6 +129,7 @@ export default async function PaymentsPage({
               search={search}
               rosterIds={fleet.map((p) => p.id)}
               names={Object.fromEntries(names)}
+              owner={owner}
             />
           </Suspense>
         )}
@@ -144,10 +145,13 @@ async function LookupResults({
   search,
   rosterIds,
   names,
+  owner,
 }: {
   search: { email: string; q: string; propertyId: string; from: string; to: string; includeUnsuccessful: boolean };
   rosterIds: string[];
   names: Record<string, string>;
+  /** A charged-back row links to its dispute packet, which is owners only. */
+  owner: boolean;
 }) {
   const { email, q, propertyId, from, to, includeUnsuccessful } = search;
   const propertyLabel = (id: string) => names[id] || id.replace(/_/g, ' ');
@@ -248,6 +252,15 @@ async function LookupResults({
                           )}
                         </td>
                         <td style={{ padding: '10px 0' }}>
+                          {owner && r.disputed && (
+                            <Link
+                              href={`/payments/disputes/${r.property_id}/${r.id}`}
+                              className="eyebrow"
+                              style={{ color: 'var(--signal)', display: 'block', marginBottom: 4 }}
+                            >
+                              Dispute packet
+                            </Link>
+                          )}
                           {r.receipt_url && (
                             <a href={r.receipt_url} target="_blank" rel="noopener noreferrer" className="eyebrow" style={{ color: 'var(--signal)' }}>
                               Receipt
