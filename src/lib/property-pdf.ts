@@ -50,6 +50,13 @@ const GEOMETRIES: Record<PropertyDeliverable, Geometry> = {
   'trash-notice':  { viewportWidth: 384, viewportHeight: 576,  pdfWidth: '4in',   pdfHeight: '6in'  },
 };
 
+const BACKGROUND_REQUESTS = new Set(['fetch', 'xhr', 'eventsource', 'websocket', 'ping', 'prefetch']);
+
+/** Requests a printed page never needs: client fetches, prefetches, beacons. */
+export function isBackgroundRequest(resourceType: string): boolean {
+  return BACKGROUND_REQUESTS.has(resourceType);
+}
+
 export async function renderPropertyPdf(args: {
   propertyId: string;
   type: PropertyDeliverable;
@@ -87,19 +94,27 @@ export async function renderPropertyPdf(args: {
       });
     }
 
-    if (isProtectedPropertyDocument(type)) {
-      const token = createPropertyDocumentToken(propertyId, type, process.env.AUTH_SECRET);
-      await page.setRequestInterception(true);
-      page.on('request', (request) => {
-        const headers = { ...request.headers() };
-        // Do not put this token in URLs, assets, redirects, or third-party requests.
-        delete headers[PROPERTY_RENDER_HEADER];
-        if (request.isNavigationRequest() && request.frame() === page.mainFrame() && request.url() === url) {
-          headers[PROPERTY_RENDER_HEADER] = token;
-        }
-        void request.continue({ headers }).catch(() => {});
-      });
-    }
+    const token = isProtectedPropertyDocument(type)
+      ? createPropertyDocumentToken(propertyId, type, process.env.AUTH_SECRET)
+      : null;
+    await page.setRequestInterception(true);
+    page.on('request', (request) => {
+      // The document arrives whole in its own HTML stream. What the client
+      // fetches after hydration (the header bar's Back link prefetch, the
+      // shell's) runs without a session, lands on the sign-in page and never
+      // settles, so networkidle0 timed out on every render.
+      if (isBackgroundRequest(request.resourceType())) {
+        void request.abort().catch(() => {});
+        return;
+      }
+      const headers = { ...request.headers() };
+      // Do not put this token in URLs, assets, redirects, or third-party requests.
+      delete headers[PROPERTY_RENDER_HEADER];
+      if (token && request.isNavigationRequest() && request.frame() === page.mainFrame() && request.url() === url) {
+        headers[PROPERTY_RENDER_HEADER] = token;
+      }
+      void request.continue({ headers }).catch(() => {});
+    });
 
     const response = await page.goto(url, { waitUntil: 'networkidle0', timeout: 30_000 });
     if (isProtectedPropertyDocument(type)) {
