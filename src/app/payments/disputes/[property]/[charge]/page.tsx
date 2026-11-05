@@ -198,7 +198,7 @@ export default async function DisputePacketPage({
               name="paid"
               defaultValue={paidText}
               rows={3}
-              placeholder={"cashiers check, $15,500.00, 2026-07-08, Mountain America check 1042"}
+              placeholder={"cashiers check, $12,400.00, 2026-07-08, check 1001"}
               style={{ display: 'block', width: '100%', marginTop: 4, padding: 8, fontFamily: 'var(--font-mono)', fontSize: 13 }}
             />
             <span style={quiet}>

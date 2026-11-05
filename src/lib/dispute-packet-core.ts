@@ -3,9 +3,9 @@
  * runner can load it directly.
  *
  * Why this exists (2026-11-05): every dispute we lost, we lost by answering
- * with our own story instead of the question the reason code asks. Eva
- * Madruga's dock fee (Visa 12.6.2, paid by other means) is the clearest: the
- * bank's ruling said our documents never reconciled her $15,500 cashier's
+ * with our own story instead of the question the reason code asks. A 2026
+ * dock fee dispute (Visa 12.6.2, paid by other means) is the clearest: the
+ * bank's ruling said our documents never reconciled the guest's cashier's
  * check against the folio and never showed the disputed charge was a separate
  * purchase. A written explanation was there; the arithmetic was not.
  *
@@ -32,8 +32,8 @@ export type DisputeKind =
  * Stripe flattens the networks' codes into its own `reason`. Paid by other
  * means and a true duplicate both arrive as `duplicate`; only the network
  * code tells them apart (Visa 12.6.1 duplicate, 12.6.2 paid by other means).
- * Madruga's dispute was `duplicate` / 12.6.2: the guest never claimed two
- * card charges, she claimed her check already paid for it.
+ * The dock fee dispute was `duplicate` / 12.6.2: the guest never claimed two
+ * card charges, only that their check already paid for it.
  */
 export function disputeKind(reason: string | null | undefined, networkCode: string | null | undefined): DisputeKind {
   const r = (reason || '').toLowerCase();
@@ -422,7 +422,7 @@ export function parseOtherPayments(text: string): { payments: OtherPayment[]; er
   for (const raw of (text || '').split(/\r?\n/)) {
     const line = raw.trim();
     if (!line) continue;
-    // The amount may carry thousands commas ("$15,500.00"), so the line is
+    // The amount may carry thousands commas ("$12,400.00"), so the line is
     // read as method, amount, then the rest split on commas.
     const parsed = /^([^,]*),\s*(\$?\d{1,3}(?:,\d{3})+(?:\.\d+)?|[^,]*)(.*)$/.exec(line);
     const m = parsed?.[1].trim() ?? line;
@@ -459,7 +459,7 @@ export type FlaggedLine = ThreadLine & {
 
 const STOP = new Set(['fee', 'fees', 'the', 'and', 'for', 'stay', 'at', 'charge', 'tax', 'occupancy']);
 
-/** Words from the item label worth matching ("Boat docking fee - Eva ..."
+/** Words from the item label worth matching ("Boat docking fee - Pat Guest ..."
  *  gives boat, docking, dock). Names and short words are left out. */
 export function itemWords(item: string, guestName: string | null = null): string[] {
   const name = new Set((guestName || '').toLowerCase().split(/\s+/).filter(Boolean));
@@ -473,7 +473,7 @@ export function itemWords(item: string, guestName: string | null = null): string
   return [...words];
 }
 
-/** The amounts as a guest would type them: 726.05, 726, 811. */
+/** The amounts as a guest would type them: 640.00, 640, 714.88. */
 function amountTokens(cents: number[]): string[] {
   const out = new Set<string>();
   for (const c of cents) {
