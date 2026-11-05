@@ -157,3 +157,11 @@ test('flagThread marks the written agreement and every refund mention', () => {
   assert.deepEqual(flagged.map((f) => f.aboutCharge), [true, true, true, false, false]);
   assert.deepEqual(flagged.map((f) => f.mentionsRefund), [false, false, true, false, false]);
 });
+
+test('an unread dispute raises no amount gap against a figure nobody has seen', () => {
+  const base = dockFee();
+  const r = reconcileOtherMeans({ ...base, disputed: { ...base.disputed, disputedCents: null } });
+  assert.ok(!r.gaps.some((g) => g.includes('The bank is disputing')));
+  const read = reconcileOtherMeans({ ...base, disputed: { ...base.disputed, disputedCents: 71_488 } });
+  assert.ok(read.gaps.some((g) => g.includes('The bank is disputing $714.88')));
+});

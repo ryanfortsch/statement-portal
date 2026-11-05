@@ -96,7 +96,7 @@ export default async function DisputePacketPage({
   const paidText = one(sp.paid);
   const other = parseOtherPayments(paidText);
   const item = facts.item || link?.label || facts.description || 'this charge';
-  const disputedCents = facts.dispute?.disputedCents || facts.amountCents;
+  const disputedCents = facts.dispute?.disputedCents ?? null;
 
   const recon = SEPARATE_PURCHASE.includes(kind)
     ? reconcileOtherMeans({
@@ -119,7 +119,7 @@ export default async function DisputePacketPage({
         {
           item,
           guestName: stay?.guestName ?? facts.cardholderName,
-          amountsCents: [facts.amountCents, disputedCents, link?.base_cents ?? 0],
+          amountsCents: [facts.amountCents, disputedCents ?? 0, link?.base_cents ?? 0],
         },
       ).filter((l) => l.aboutCharge || l.mentionsRefund)
     : null;
