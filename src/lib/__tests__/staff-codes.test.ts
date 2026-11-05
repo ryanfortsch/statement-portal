@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  STAFF_CODES,
+  parseStaffCodes,
   planLockStaffCodes,
   staffCodeIntents,
   staffCodeName,
@@ -16,18 +16,26 @@ const src = (p: string) => readFileSync(new URL(`../../${p}`, import.meta.url), 
 const FLEET = ['2222', '3333', '5555'];
 const ann = { email: 'ann@risingtidestr.com', short: 'Ann', active: true };
 
-test('every listed staff code survives the rules against the real roster and default fleet PINs', () => {
-  const intents = staffCodeIntents(STAFF_CODES, TEAM_MEMBERS, FLEET, '2026-11-05');
-  assert.equal(intents.length, STAFF_CODES.length, 'a listed code was silently dropped (collision, shape or roster)');
-  assert.ok(intents.every((i) => i.wanted));
+test('SEAM_STAFF_CODES parses to email and PIN pairs, skipping malformed ones', () => {
+  assert.deepEqual(parseStaffCodes(undefined), []);
+  assert.deepEqual(parseStaffCodes(' Ann@RisingTideSTR.com:4444 , bad, :1234, bo@x: ,'), [
+    { email: 'ann@risingtidestr.com', code: '4444' },
+  ]);
 });
 
-test('Delaney carries 7699, named so it reads as staff', () => {
-  const [d] = staffCodeIntents(STAFF_CODES, TEAM_MEMBERS, FLEET, '2026-11-05');
-  assert.deepEqual(d, { email: 'delaney@risingtidestr.com', code: '7699', name: 'Rising Tide Delaney', wanted: true });
+test('a teammate code is named so it reads as staff', () => {
+  const codes = parseStaffCodes('delaney@risingtidestr.com:4444');
+  const [d] = staffCodeIntents(codes, TEAM_MEMBERS, FLEET, '2026-11-05');
+  assert.deepEqual(d, { email: 'delaney@risingtidestr.com', code: '4444', name: 'Rising Tide Delaney', wanted: true });
   // classifyCodeRole maps /rising tide/ to staff; the name must keep that prefix.
   assert.match(src('lib/seam.ts'), /rising\\s\*tide/);
   assert.match(staffCodeName('X'), /^Rising Tide /);
+});
+
+test('no staff PIN is written in source: the repository is public', () => {
+  const s = src('lib/staff-code-rules.ts');
+  assert.match(s, /parseStaffCodes\(process\.env\.SEAM_STAFF_CODES\)/);
+  assert.doesNotMatch(s.replace(/\/\*[\s\S]*?\*\//g, ''), /code: '\d{4}'/);
 });
 
 test('a code that collides, repeats or is malformed is dropped entirely', () => {

@@ -2,27 +2,43 @@
  * Personal keypad codes for Rising Tide staff: one PIN per person, programmed
  * onto every lock Seam can reach at a home we run, so a teammate's door
  * entries read as THEM instead of borrowing the cleaner's 2222 (which would
- * log every visit as a cleaning). Delaney asked for 7699 on 2026-11-04 and
- * Ryan agreed to it "across the board".
+ * log every visit as a cleaning). Delaney asked for her own code on 2026-11-04
+ * and Ryan agreed to it "across the board".
  *
- * This file is the pure half: the roster of codes and the decisions. The
- * Seam calls live in staff-codes.ts, which runs on the same daily sync as the
+ * This file is the pure half: the codes and the decisions. The Seam calls
+ * live in staff-codes.ts, which runs on the same daily sync as the
  * maintenance and creative PINs, so a newly connected lock picks a person's
  * code up within a day, and the property page's Sync Seam devices button
  * does it on demand.
  *
- * The digits are operator-known, like 3333 and 5555, but personal: import
- * this only from server modules (staff-codes.test.ts holds that).
+ * The digits live ONLY in the SEAM_STAFF_CODES env var
+ * ("email:pin,email:pin"), never in source: this repository is public, and a
+ * personal PIN that opens every home must not be readable on GitHub. Unset,
+ * there are no staff codes and the sync neither creates nor revokes any.
+ * Import this only from server modules (staff-codes.test.ts holds that).
  *
  * Leaving the team revokes: set the member `active: false` in team.ts and the
  * next sync deletes the code Helm programmed (never a hand-programmed one).
+ * Keep the entry in the env var until that sync has run.
  */
 
 export type StaffCode = { email: string; code: string };
 
-export const STAFF_CODES: readonly StaffCode[] = [
-  { email: 'delaney@risingtidestr.com', code: '7699' },
-];
+/** "a@x:1234, b@y:5678" -> entries. A malformed pair is skipped here; the
+ *  shape and collision rules in staffCodeIntents drop bad PINs. */
+export function parseStaffCodes(raw: string | undefined): StaffCode[] {
+  return (raw ?? '')
+    .split(',')
+    .map((pair) => pair.trim())
+    .filter(Boolean)
+    .map((pair) => {
+      const i = pair.lastIndexOf(':');
+      return i > 0 ? { email: pair.slice(0, i).trim().toLowerCase(), code: pair.slice(i + 1).trim() } : null;
+    })
+    .filter((c): c is StaffCode => !!c && !!c.email && !!c.code);
+}
+
+export const STAFF_CODES: readonly StaffCode[] = parseStaffCodes(process.env.SEAM_STAFF_CODES);
 
 /** The fleet's PINs are all four digits (Schlage Encode wants one length per
  *  lock), no leading zero, matching the guest and Field generators. */
