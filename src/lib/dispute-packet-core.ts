@@ -449,7 +449,13 @@ export function parseOtherPayments(text: string): { payments: OtherPayment[]; er
   return { payments, errors };
 }
 
-export type ThreadLine = { at: string; who: string; body: string };
+export type ThreadLine = {
+  at: string;
+  who: string;
+  body: string;
+  /** Guesty no longer serves this message; it came from the concierge's record. */
+  fromLog?: boolean;
+};
 
 export type FlaggedLine = ThreadLine & {
   /** Names this charge's item or amount: the guest's written agreement. */
