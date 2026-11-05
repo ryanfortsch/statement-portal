@@ -998,7 +998,8 @@ devices** button on demand. Both run the same `ensure*Code` pass, so a lock conn
 does not have to wait for 2 AM.
 
 **Staff carry their own PIN** (`src/lib/staff-code-rules.ts`, since 2026-11-05), so a teammate's
-entries never borrow 2222 and read as a cleaning. The same pass (`ensureStaffCodes` in
+entries never borrow 2222 and read as a cleaning. The digits live only in `SEAM_STAFF_CODES`
+(`email:pin,email:pin`), never in source: **this repository is public**. The same pass (`ensureStaffCodes` in
 `staff-codes.ts`) programs each one as "Rising Tide <short name>" (role staff) on every lock except
 at a home that is no longer active, and deletes the code Helm made once the member in `team.ts` is
 inactive. Random guest and Field PINs skip every fleet and staff code (`isReservedPin`).
@@ -1042,7 +1043,8 @@ counted 2026-10-22).
 - **Quo**: `QUO_API_KEY`, `QUO_WEBHOOK_SECRET`, `QUO_WEBHOOK_SECRETS`, `QUO_FROM_NUMBER` (24/7 line
   override), `QUO_GUEST_FROM_NUMBER`, `QUO_OWNER_FROM_NUMBER`
 - **Seam**: `SEAM_API_KEY`, `SEAM_WEBHOOK_SECRET`, `SEAM_CLEANER_CODE`, `SEAM_INSPECTION_CODE`,
-  `SEAM_MAINTENANCE_CODE`, `SEAM_CREATIVE_CODE`
+  `SEAM_MAINTENANCE_CODE`, `SEAM_CREATIVE_CODE`, `SEAM_STAFF_CODES` (personal staff PINs, unset =
+  none)
 - **Bridge**: `STAY_CONCIERGE_KEY`, `STAY_CONCIERGE_URL`
 - **Maps**: `NEXT_PUBLIC_CARTO_API_KEY`, optional. CARTO basemap tiles need a key since September
   2026 or they render watermarked. `src/lib/map-tiles.ts` carries Rising Tide's key (public by
