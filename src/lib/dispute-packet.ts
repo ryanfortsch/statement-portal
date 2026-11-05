@@ -20,7 +20,12 @@
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { loadPaymentLink, type PaymentLinkRow } from '@/lib/payment-links';
 import { reservationIdFromRequestKey } from '@/lib/payment-links-text';
-import { getConversationThread, listConversationsInRange, type ThreadMessage } from '@/lib/stay-concierge';
+import {
+  getConversationThread,
+  listConversationsInRange,
+  type StayConciergeError,
+  type ThreadMessage,
+} from '@/lib/stay-concierge';
 import { loadDisputeFacts, type DisputeFacts } from '@/lib/dispute-stripe';
 import { folioLines, type FolioLine } from '@/lib/dispute-packet-core';
 
@@ -94,8 +99,9 @@ export async function loadDisputePacket(
     }
   }
 
-  const thread = stay ? await loadStayThread(stay, link) : null;
-  if (stay && !thread) unread.push('the guest conversation');
+  const threadRead = stay ? await loadStayThread(stay, link) : null;
+  const thread = threadRead?.messages ?? null;
+  if (threadRead && !threadRead.messages) unread.push(`the guest conversation (${threadRead.why})`);
 
   return { ok: true, data: { facts, link, stay, thread, unread } };
 }
@@ -104,16 +110,29 @@ export async function loadDisputePacket(
  * The guest's conversation, fetched live through stay-concierge (Guesty-run
  * homes keep no thread in Helm). A Helm-minted link names its conversation;
  * otherwise the stay is found among the conversations checking in that day.
- * Null when neither finds it or the concierge is unreachable.
+ * When it cannot be read, `why` says which step failed, so the packet names
+ * the cause instead of a bare "could not read".
  */
-async function loadStayThread(stay: PacketStay, link: PaymentLinkRow | null): Promise<ThreadMessage[] | null> {
+async function loadStayThread(
+  stay: PacketStay,
+  link: PaymentLinkRow | null,
+): Promise<{ messages: ThreadMessage[]; why?: never } | { messages: null; why: string }> {
   let conversationId = (link?.conversation_id || '').trim();
-  if (!conversationId && stay.checkIn) {
+  if (!conversationId) {
+    if (!stay.checkIn) return { messages: null, why: 'no check-in date to find it by' };
     const list = await listConversationsInRange(stay.checkIn, stay.checkIn);
-    if (!list.ok) return null;
+    if (!list.ok) return { messages: null, why: `the conversation list failed: ${conciergeWhy(list.error)}` };
     conversationId = list.data.conversations.find((c) => c.reservation_id === stay.reservationId)?.conversation_id || '';
+    if (!conversationId) return { messages: null, why: `no conversation checking in ${stay.checkIn} matches this reservation` };
   }
-  if (!conversationId) return null;
   const thread = await getConversationThread(conversationId, 500);
-  return thread.ok ? thread.data.messages : null;
+  return thread.ok
+    ? { messages: thread.data.messages }
+    : { messages: null, why: `the thread read failed: ${conciergeWhy(thread.error)}` };
+}
+
+function conciergeWhy(error: StayConciergeError): string {
+  if (error.kind === 'http') return `${error.status} ${error.detail}`.trim();
+  if (error.kind === 'unconfigured') return 'the messaging service is not configured';
+  return `the messaging service did not answer (${error.message})`;
 }

@@ -218,8 +218,9 @@ export type ChargeRefund = {
 export type DisputedCharge = {
   /** What the guest's card was charged. */
   amountCents: number;
-  /** What the bank is pulling back. */
-  disputedCents: number;
+  /** What the bank is pulling back; null when the dispute itself could not
+   *  be read, so no gap is raised against a figure nobody has seen. */
+  disputedCents: number | null;
   refunds: ChargeRefund[];
   /** YYYY-MM-DD. */
   chargedOn: string | null;
@@ -369,14 +370,14 @@ export function reconcileOtherMeans(input: ReconcileInput): Reconciliation {
       .map((r) => `${money(r.cents)}${r.date ? ` on ${r.date}` : ''}${r.note ? ` (${r.note.trim()})` : ''}`)
       .join(', ');
     forBank.push(
-      `We refunded ${notes} on this charge. That refund corrected the amount charged; it was not a partial payment of a larger refund, and no other refund was promised. The guest kept paying ${money(chargeNetCents)}, which is the amount agreed in writing.`,
+      `We refunded ${notes} on this charge. That refund corrected the amount charged; it was not a partial payment of a larger refund, and no other refund was promised. The charge stands at ${money(chargeNetCents)}, the amount agreed in writing.`,
     );
     gaps.push(
       'A refund on the disputed charge reads to a bank as a refund we promised and did not finish. Quote the message where the corrected amount was agreed, and confirm no message offered more.',
     );
   }
 
-  if (input.disputed.disputedCents !== chargeNetCents) {
+  if (input.disputed.disputedCents !== null && input.disputed.disputedCents !== chargeNetCents) {
     gaps.push(
       `The bank is disputing ${money(input.disputed.disputedCents)}, but the charge net of refunds is ${money(chargeNetCents)}. Check which amount the claim names.`,
     );
