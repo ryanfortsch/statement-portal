@@ -59,6 +59,11 @@ const TITLES: Record<string, string> = {
   extension_double_booked: 'Paid nights were already booked',
   extension_nights_unknown: 'A paid extension has no nights to block',
   payment_status_down: 'Payment checks are failing',
+  // A direct guest Guesty cannot text from its US number (concierge #152,
+  // 2026-11-05): no portal link or door code by text.
+  direct_guest_no_phone: 'A direct booking has no phone',
+  direct_guest_foreign_sms: 'A direct guest was texted from a foreign number',
+  direct_guest_phone_unreadable: "A direct guest's phone needs a look",
 };
 
 /** A plain title for an alert kind. A kind nobody named yet still reads as
