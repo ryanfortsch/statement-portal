@@ -11,6 +11,7 @@ import { resolveCleanerCodeId } from '@/lib/cleaning-sessions';
 import { resolveInspectorCodeId } from '@/lib/inspection-sessions';
 import { ensureMaintenanceCode } from '@/lib/maintenance-code';
 import { ensureCreativeCode } from '@/lib/creative-code';
+import { ensureStaffCodes } from '@/lib/staff-codes';
 import { recordSyncFailure, recordSyncResult } from '@/lib/sync-status';
 
 // Backfill / cold-start / cron-poll route. The webhook is the live path;
@@ -65,6 +66,10 @@ export async function POST() {
       creative_code_present: 0,
       creative_code_created: 0,
       creative_code_failed: 0,
+      staff_code_present: 0,
+      staff_code_created: 0,
+      staff_code_revoked: 0,
+      staff_code_failed: 0,
       devices: [] as DeviceSummary[],
       errors: [] as string[],
     };
@@ -110,6 +115,14 @@ export async function POST() {
           if (creative === 'present') summary.creative_code_present += 1;
           if (creative === 'created') summary.creative_code_created += 1;
           if (creative === 'failed') summary.creative_code_failed += 1;
+
+          // Staff keypad codes (staff-code-rules.ts) converge on the same
+          // pass: each teammate's own PIN, so their entries never borrow 2222.
+          const staff = await ensureStaffCodes(supabase, res.deviceId, res.propertyId);
+          summary.staff_code_present += staff.present;
+          summary.staff_code_created += staff.created;
+          summary.staff_code_revoked += staff.revoked;
+          summary.staff_code_failed += staff.failed;
         }
         if (res.propertyId) {
           await resolveCleanerCodeId(supabase, res.deviceId);

@@ -25,9 +25,7 @@ import {
   ingestDeviceBattery,
   type SeamAccessCodeFull,
 } from '@/lib/seam';
-import { CLEANER_CODE } from '@/lib/cleaning-sessions';
-import { INSPECTION_CODE } from '@/lib/inspection-sessions';
-import { MAINTENANCE_CODE } from '@/lib/maintenance-code';
+import { isReservedPin } from '@/lib/staff-codes';
 
 export type PropertyLock = { device_id: string; display_name: string | null };
 
@@ -67,13 +65,14 @@ export type GuestCodeView = {
 export type IssueResult = { ok: true; code: string } | { ok: false; error: string };
 
 // Schlage Encode wants all codes the same length; field-locks uses 4 digits,
-// so we match (no leading zero). Never a fleet-wide code (cleaner / master
-// inspection / maintenance): the lock refuses duplicate PINs, and a collision
-// would misattribute keypad unlocks between the guest and the other role.
+// so we match (no leading zero). Never a fleet-wide or staff code (cleaner,
+// master inspection, maintenance, creative, a teammate's own PIN): the lock
+// refuses duplicate PINs, and a collision would misattribute keypad unlocks
+// between the guest and the other role.
 function randomPin(): string {
   for (;;) {
     const pin = String(1000 + Math.floor(Math.random() * 9000));
-    if (pin !== CLEANER_CODE && pin !== INSPECTION_CODE && pin !== MAINTENANCE_CODE) return pin;
+    if (!isReservedPin(pin)) return pin;
   }
 }
 
@@ -434,8 +433,8 @@ export async function removeLockCode(
  * Runs as the signed-in operator from the panel, so it needs no CRON_SECRET —
  * the same work the /api/cron/sync-seam route does, callable from a button.
  *
- * That includes converging the two fleet-wide PINs (maintenance, creative),
- * exactly as the nightly route does. Without it this button and the cron
+ * That includes converging the two fleet-wide PINs (maintenance, creative)
+ * and the staff codes, exactly as the nightly route does. Without it this button and the cron
  * disagreed: a lock connected this morning carried neither code until 2 AM,
  * long after the shoot it was needed for. It is also the only way to make a
  * newly shipped fleet code real today instead of tomorrow.
@@ -447,11 +446,13 @@ export async function syncSeamDevices(): Promise<{ ok: boolean; count: number; e
     const devices = await listDevices();
     const { ensureMaintenanceCode } = await import('@/lib/maintenance-code');
     const { ensureCreativeCode } = await import('@/lib/creative-code');
+    const { ensureStaffCodes } = await import('@/lib/staff-codes');
     for (const d of devices) {
       const res = await ingestDeviceBattery(sb, normalizeFromDevice(d));
       if ((d.device_type ?? '').includes('lock')) {
         await ensureMaintenanceCode(sb, res.deviceId);
         await ensureCreativeCode(sb, res.deviceId);
+        await ensureStaffCodes(sb, res.deviceId, res.propertyId);
       }
       if (res.propertyId) {
         const { resolveCleanerCodeId } = await import('@/lib/cleaning-sessions');

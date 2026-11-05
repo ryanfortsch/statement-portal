@@ -997,6 +997,12 @@ The bottom two **converge**: `/api/cron/sync-seam` nightly, and the property pag
 devices** button on demand. Both run the same `ensure*Code` pass, so a lock connected this morning
 does not have to wait for 2 AM.
 
+**Staff carry their own PIN** (`src/lib/staff-code-rules.ts`, since 2026-11-05), so a teammate's
+entries never borrow 2222 and read as a cleaning. The same pass (`ensureStaffCodes` in
+`staff-codes.ts`) programs each one as "Rising Tide <short name>" (role staff) on every lock except
+at a home that is no longer active, and deletes the code Helm made once the member in `team.ts` is
+inactive. Random guest and Field PINs skip every fleet and staff code (`isReservedPin`).
+
 `ensureCreativeCode` stamps `lock_devices.creative_access_code_id` once Seam confirms the PIN on the
 device, mirroring `cleaner_access_code_id`. **That stamp, not "this home has a lock", is what the
 shoot brief reads before printing 5555**. An unstamped lock falls through to the home's own code,
