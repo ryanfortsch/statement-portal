@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useRef, useState, useTransition, type ReactNode } from 'react';
+import { useActionState, useEffect, useRef, useState, useTransition, type ReactNode } from 'react';
 import { upload } from '@vercel/blob/client';
 import {
   addPhotoUrlAction,
@@ -246,7 +246,9 @@ function ScaSnapshotBlock({ snapshot, listingUrl, propertyId, onAdd }: { snapsho
         {snapshot.about && (
           <div>
             <div style={{ ...termStyle, marginBottom: 6 }}>About</div>
-            <Paragraphs text={snapshot.about} />
+            <Folded>
+              <Paragraphs text={snapshot.about} />
+            </Folded>
           </div>
         )}
         {snapshot.rooms.length > 0 && (
@@ -319,6 +321,56 @@ function Paragraphs({ text, style }: { text: string; style?: React.CSSProperties
         <p key={i} style={{ margin: '0 0 10px', fontSize: 14, lineHeight: 1.6, color: 'var(--ink-2)', whiteSpace: 'pre-line', maxWidth: 720, ...style }}>{p}</p>
       ))}
     </>
+  );
+}
+
+const FOLDED_PX = 180;
+const FADE = 'linear-gradient(to bottom, #000 55%, transparent)';
+
+/**
+ * A long description folded to its first few lines. A full room-by-room
+ * About ran past a screen and pushed everything under the listing out of
+ * sight; the fold keeps the opening lines and one verb to read the rest.
+ * Short copy shows whole, with no button.
+ */
+function Folded({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  // null until measured: the first paint is already folded, so a long
+  // description never flashes open and then snaps shut.
+  const [long, setLong] = useState<boolean | null>(null);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => setLong(el.scrollHeight > FOLDED_PX + 40);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const folded = long !== false && !open;
+  return (
+    <div style={{ maxWidth: 720 }}>
+      <div
+        ref={ref}
+        style={
+          folded
+            ? {
+                maxHeight: long ? FOLDED_PX : FOLDED_PX + 40,
+                overflow: 'hidden',
+                ...(long ? { maskImage: FADE, WebkitMaskImage: FADE } : {}),
+              }
+            : undefined
+        }
+      >
+        {children}
+      </div>
+      {long && (
+        <button type="button" className={buttonClass('quiet')} aria-expanded={open} onClick={() => setOpen((o) => !o)} style={{ marginTop: 6 }}>
+          {open ? 'Show less ↑' : 'Show the full description ↓'}
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -543,7 +595,7 @@ function CopyBlocks({
             {about.length === 0 && !values.neighborhood.trim() ? (
               <Empty>Nothing written yet.</Empty>
             ) : (
-              <div style={{ maxWidth: 720 }}>
+              <Folded>
                 {about.map((b, i) =>
                   b.kind === 'heading' ? (
                     <div key={i} style={{ ...termStyle, margin: i === 0 ? '0 0 6px' : '14px 0 6px' }}>{b.text}</div>
@@ -563,7 +615,7 @@ function CopyBlocks({
                     <Paragraphs text={values.neighborhood} />
                   </>
                 )}
-              </div>
+              </Folded>
             )}
           </>
         )}
