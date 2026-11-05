@@ -109,8 +109,12 @@ export async function loadDisputePacket(
 /**
  * The guest's conversation, fetched live through stay-concierge (Guesty-run
  * homes keep no thread in Helm). A Helm-minted link names its conversation;
- * otherwise the stay is found among the conversations checking in that day.
- * When it cannot be read, `why` says which step failed, so the packet names
+ * otherwise the stay is found among the conversations checking in around that
+ * day. The window runs from the day before to two days after because the
+ * concierge compares Guesty's UTC checkIn against bare dates: `to = check-in
+ * day` means midnight UTC and drops a 4 PM arrival, and a 9 PM arrival is
+ * already the next day in UTC. The match is by reservation id, so the wider
+ * window cannot pick the wrong stay. When it cannot be read, `why` says which step failed, so the packet names
  * the cause instead of a bare "could not read".
  */
 async function loadStayThread(
@@ -120,7 +124,7 @@ async function loadStayThread(
   let conversationId = (link?.conversation_id || '').trim();
   if (!conversationId) {
     if (!stay.checkIn) return { messages: null, why: 'no check-in date to find it by' };
-    const list = await listConversationsInRange(stay.checkIn, stay.checkIn);
+    const list = await listConversationsInRange(shiftDay(stay.checkIn, -1), shiftDay(stay.checkIn, 2));
     if (!list.ok) return { messages: null, why: `the conversation list failed: ${conciergeWhy(list.error)}` };
     conversationId = list.data.conversations.find((c) => c.reservation_id === stay.reservationId)?.conversation_id || '';
     if (!conversationId) return { messages: null, why: `no conversation checking in ${stay.checkIn} matches this reservation` };
@@ -129,6 +133,13 @@ async function loadStayThread(
   return thread.ok
     ? { messages: thread.data.messages }
     : { messages: null, why: `the thread read failed: ${conciergeWhy(thread.error)}` };
+}
+
+/** A YYYY-MM-DD moved by whole days. */
+function shiftDay(ymd: string, days: number): string {
+  const d = new Date(`${ymd.slice(0, 10)}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
 }
 
 function conciergeWhy(error: StayConciergeError): string {
