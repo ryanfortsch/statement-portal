@@ -38,6 +38,8 @@ test('the alerts that sat unread Sep 12-26 read as plain words', () => {
   assert.equal(conciergeAlertTitle('send_delivery_failed'), 'A reply never reached the guest');
   assert.equal(conciergeAlertTitle('addon_sms_failed'), 'A payment link did not go out');
   assert.equal(conciergeAlertTitle('unknown_owner_sms'), 'Unknown number on the Owners line');
+  assert.equal(conciergeAlertTitle('direct_guest_foreign_sms'), 'A direct guest was texted from a foreign number');
+  assert.equal(conciergeAlertHref('direct_guest_no_phone'), '/messaging');
 });
 
 test('a kind nobody named yet still shows, as words and never as a code', () => {
