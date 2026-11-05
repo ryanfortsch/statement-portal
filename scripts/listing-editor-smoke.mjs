@@ -262,6 +262,16 @@ try {
     await click('Write Helm’s own copy'); await page.waitForSelector('textarea[name="summary"]');
     pass('with no Helm copy, the live staycapeann.com copy shows read-only, labelled');
 
+    assert.ok(!(await page.evaluate(()=>!!document.querySelector('[aria-expanded]'))), 'short copy grew a fold');
+    const longAbout = Array(9).fill('Restored Victorian with original stained glass, hardwood floors and a kitchen that opens to the dining room and the porch.').join('\n\n');
+    await page.evaluate(about=>window.replaceContent(null, {listingUrl: null, snapshot: {title: 'Long House', tagline: '', highlights: [], about, rooms: [], heroPhoto: null}}), longAbout);
+    await waitText('Show the full description ↓');
+    const foldHeight = () => page.evaluate(()=>document.querySelector('[aria-expanded]').previousElementSibling.getBoundingClientRect().height);
+    assert.ok(await foldHeight() <= 180, 'a long description is not folded');
+    await click('Show the full description ↓'); await waitText('Show less ↑');
+    assert.ok(await foldHeight() > 400, 'Show the full description did not open it');
+    pass('a long description folds to its first lines and opens on one click; short copy shows whole');
+
     await page.evaluate(()=>window.replaceContent({...window.lastBase, source: 'guesty_seed'}));
     await waitText('Copied from Guesty');
     assert.ok(!(await page.evaluate(()=>[...document.querySelectorAll('button')].some(b => b.textContent.trim() === 'Edit'))), 'a Guesty seed is editable before Edit in Helm');
