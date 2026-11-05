@@ -81,12 +81,14 @@ export default async function WifiPlacardPage({ params }: { params: Promise<{ id
           <article className="rt-card" key={i}>
             {/* Cream inner panel */}
             <div className="rt-panel">
-              <ScaMark size={48} />
+              <div className="rt-head">
+                <ScaMark size={48} />
 
-              <div className="rt-eyebrow">Wi-Fi</div>
-              {/* Unit label distinguishes the two cards of a two-network
-                  home ("Main House" / "Boat House"). Hidden when unset. */}
-              {card.label && <div className="rt-unit">{card.label}</div>}
+                <div className="rt-eyebrow">Wi-Fi</div>
+                {/* Unit label distinguishes the two cards of a two-network
+                    home ("Main House" / "Boat House"). Hidden when unset. */}
+                {card.label && <div className="rt-unit">{card.label}</div>}
+              </div>
 
               <div className="rt-qr" style={{ width: card.qrSize, height: card.qrSize }}>
                 {card.qrSvg ? (
@@ -184,7 +186,13 @@ const placardCss = `
     align-items: center;
     text-align: center;
     color: var(--sca-navy);
+    /* Three groups (the mark and headline, the QR, the fields) share the
+       panel's spare height evenly. The margins below are the minimum gaps:
+       a two-network card with a unit label has no spare height and prints
+       at those, a one-network card no longer bunches at the top. */
+    justify-content: space-evenly;
   }
+  .rt-head { display: flex; flex-direction: column; align-items: center; }
 
   .rt-mark { line-height: 0; margin-top: 4px; }
 
