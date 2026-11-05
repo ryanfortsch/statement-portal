@@ -6,7 +6,7 @@ import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { isOwnerSession } from '@/lib/helm-access-server';
 import { getActivePropertiesForStatements } from '@/lib/properties-server';
-import { loadDisputePacket } from '@/lib/dispute-packet';
+import { loadDisputePacket, type ThreadCoverage } from '@/lib/dispute-packet';
 import {
   PLAYBOOK,
   disputeKind,
@@ -49,6 +49,16 @@ function one(v: string | string[] | undefined): string {
   return (Array.isArray(v) ? v[0] : v ?? '').trim();
 }
 
+/** What the packet says when Guesty cut the guest's thread off. */
+function incompleteThreadNote(c: ThreadCoverage): string {
+  const served = `Guesty serves only the newest 25${c.guestyTotal ? ` of its ${c.guestyTotal}` : ''} posts`;
+  const filled =
+    c.fromLog > 0
+      ? `; ${c.fromLog} earlier messages come from the concierge's own record of what the guest sent and what we sent. Guesty's automated messages and anything typed in Guesty's own inbox before then are not here`
+      : ', and the concierge has no record of the earlier ones';
+  return `This thread is not complete. ${served}${filled}. Export the whole thread from Guesty before submitting.`;
+}
+
 function when(iso: string): string {
   const d = new Date(iso);
   return Number.isNaN(d.getTime())
@@ -89,7 +99,7 @@ export default async function DisputePacketPage({
     );
   }
 
-  const { facts, link, stay, thread, unread } = packet.data;
+  const { facts, link, stay, thread, threadCoverage, unread } = packet.data;
   const kindOverride = one(sp.kind) as DisputeKind;
   const kind: DisputeKind = kindOverride in PLAYBOOK ? kindOverride : disputeKind(facts.dispute?.reason, facts.dispute?.networkCode);
   const playbook = PLAYBOOK[kind];
@@ -115,7 +125,12 @@ export default async function DisputePacketPage({
 
   const flagged = thread
     ? flagThread(
-        thread.map((m) => ({ at: m.at, who: m.who === 'guest' ? stay?.guestName || 'Guest' : 'Rising Tide', body: m.body })),
+        thread.map((m) => ({
+          at: m.at,
+          who: m.who === 'guest' ? stay?.guestName || 'Guest' : 'Rising Tide',
+          body: m.body,
+          fromLog: m.source === 'log',
+        })),
         {
           item,
           guestName: stay?.guestName ?? facts.cardholderName,
@@ -313,6 +328,11 @@ export default async function DisputePacketPage({
       </table>
 
       <h2 style={h2}>The guest&apos;s messages</h2>
+      {threadCoverage?.complete === false && (
+        <p className="no-print" style={{ ...quiet, color: 'var(--signal)', margin: '0 0 8px' }}>
+          {incompleteThreadNote(threadCoverage)}
+        </p>
+      )}
       {flagged === null ? (
         <p style={quiet}>The conversation could not be read. Export the thread from Guesty and attach it.</p>
       ) : flagged.length === 0 ? (
@@ -333,6 +353,11 @@ export default async function DisputePacketPage({
                   </td>
                   <td style={cell}>
                     {m.body}
+                    {m.fromLog && (
+                      <div className="no-print" style={{ ...quiet, marginTop: 4 }}>
+                        From the concierge&apos;s record; Guesty no longer serves this message
+                      </div>
+                    )}
                     {m.mentionsRefund && (
                       <div className="no-print eyebrow" style={{ color: 'var(--signal)', marginTop: 4 }}>
                         Mentions a refund

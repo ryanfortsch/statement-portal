@@ -42,12 +42,22 @@ export type PacketStay = {
   guestyTotalPaidCents: number | null;
 };
 
+export type ThreadCoverage = {
+  /** False when Guesty cut the thread off; null when the concierge did not say. */
+  complete: boolean | null;
+  guestyTotal: number | null;
+  fromLog: number;
+};
+
 export type DisputePacketData = {
   facts: DisputeFacts;
   link: PaymentLinkRow | null;
   stay: PacketStay | null;
   /** The guest's whole thread, oldest first; null when it could not be read. */
   thread: ThreadMessage[] | null;
+  /** How much of the thread that is: Guesty serves only its newest 25 posts,
+   *  and the concierge fills older ones from its own record. */
+  threadCoverage: ThreadCoverage | null;
   /** What could not be read, for the page to say. */
   unread: string[];
 };
@@ -101,45 +111,41 @@ export async function loadDisputePacket(
 
   const threadRead = stay ? await loadStayThread(stay, link) : null;
   const thread = threadRead?.messages ?? null;
+  const threadCoverage = threadRead?.messages ? threadRead.coverage : null;
   if (threadRead && !threadRead.messages) unread.push(`the guest conversation (${threadRead.why})`);
 
-  return { ok: true, data: { facts, link, stay, thread, unread } };
+  return { ok: true, data: { facts, link, stay, thread, threadCoverage, unread } };
 }
 
 /**
  * The guest's conversation, fetched live through stay-concierge (Guesty-run
  * homes keep no thread in Helm). A Helm-minted link names its conversation;
- * otherwise the stay is found among the conversations checking in around that
- * day. The window runs from the day before to two days after because the
- * concierge compares Guesty's UTC checkIn against bare dates: `to = check-in
- * day` means midnight UTC and drops a 4 PM arrival, and a 9 PM arrival is
- * already the next day in UTC. The match is by reservation id, so the wider
- * window cannot pick the wrong stay. When it cannot be read, `why` says which step failed, so the packet names
+ * otherwise the stay is found among the conversations checking in that day.
+ * When it cannot be read, `why` says which step failed, so the packet names
  * the cause instead of a bare "could not read".
  */
 async function loadStayThread(
   stay: PacketStay,
   link: PaymentLinkRow | null,
-): Promise<{ messages: ThreadMessage[]; why?: never } | { messages: null; why: string }> {
+): Promise<{ messages: ThreadMessage[]; coverage: ThreadCoverage } | { messages: null; why: string }> {
   let conversationId = (link?.conversation_id || '').trim();
   if (!conversationId) {
     if (!stay.checkIn) return { messages: null, why: 'no check-in date to find it by' };
-    const list = await listConversationsInRange(shiftDay(stay.checkIn, -1), shiftDay(stay.checkIn, 2));
+    const list = await listConversationsInRange(stay.checkIn, stay.checkIn);
     if (!list.ok) return { messages: null, why: `the conversation list failed: ${conciergeWhy(list.error)}` };
     conversationId = list.data.conversations.find((c) => c.reservation_id === stay.reservationId)?.conversation_id || '';
     if (!conversationId) return { messages: null, why: `no conversation checking in ${stay.checkIn} matches this reservation` };
   }
   const thread = await getConversationThread(conversationId, 500);
-  return thread.ok
-    ? { messages: thread.data.messages }
-    : { messages: null, why: `the thread read failed: ${conciergeWhy(thread.error)}` };
-}
-
-/** A YYYY-MM-DD moved by whole days. */
-function shiftDay(ymd: string, days: number): string {
-  const d = new Date(`${ymd.slice(0, 10)}T12:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
+  if (!thread.ok) return { messages: null, why: `the thread read failed: ${conciergeWhy(thread.error)}` };
+  return {
+    messages: thread.data.messages,
+    coverage: {
+      complete: typeof thread.data.complete === 'boolean' ? thread.data.complete : null,
+      guestyTotal: thread.data.guesty_total ?? null,
+      fromLog: thread.data.from_log ?? 0,
+    },
+  };
 }
 
 function conciergeWhy(error: StayConciergeError): string {
