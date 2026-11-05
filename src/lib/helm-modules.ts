@@ -151,6 +151,9 @@ export const HELM_MODULES: HelmModule[] = [
     section: 'financials',
     group: 'money',
     access: 'owner',
+    // A charged-back row's dispute packet (2026-11-05): owners only, reached
+    // from the Stripe lookup row, no index page of its own.
+    routePrefixes: ['/payments/disputes'],
   },
   {
     id: 'statements',

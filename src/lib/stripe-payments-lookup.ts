@@ -46,7 +46,7 @@ const STRIPE = 'https://api.stripe.com/v1';
  *  bounds the whole lookup at roughly one slow account, not the sum. */
 const REQUEST_TIMEOUT_MS = 15_000;
 
-async function stripeGet(
+export async function stripeGet(
   key: string,
   path: string,
   params: Record<string, string>,
