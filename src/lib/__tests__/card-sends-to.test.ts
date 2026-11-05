@@ -14,6 +14,20 @@ test('a guest-SMS card says the number it texts, in house format', () => {
   assert.equal(sendsTo({ guesty_message_id: 'quo_sms:abc123', sms_to: ' 9785550134 ' }), 'Texts (978) 555-0134');
 });
 
+test('a household text card names every number it texts', () => {
+  assert.equal(
+    sendsTo({ guesty_message_id: 'quo_sms:staycontact:r:9785550141', sms_to: '+19785550141', sms_also: ['+19785550142'] }),
+    'Texts (978) 555-0141 and (978) 555-0142',
+  );
+  assert.equal(
+    sendsTo({ sms_to: '+19785550141', sms_also: ['+19785550142', '+19785550143'] }),
+    'Texts (978) 555-0141, (978) 555-0142 and (978) 555-0143',
+  );
+  // A repeat or a blank never prints twice or as a gap.
+  assert.equal(sendsTo({ sms_to: '+19785550141', sms_also: ['+19785550141', ''] }), 'Texts (978) 555-0141');
+  assert.equal(sendsTo({ sms_to: '+19785550141', sms_also: null }), 'Texts (978) 555-0141');
+});
+
 test('a relay card says the address it emails', () => {
   assert.equal(
     sendsTo({

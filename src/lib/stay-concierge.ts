@@ -133,6 +133,9 @@ export type Approval = MessageOutcomeCarrier & {
    * it since 2026-09-25 so a text is never approved without the number in
    * view. Null/absent on every non-SMS card. */
   sms_to?: string | null;
+  /** The rest of the numbers a household text card reaches, after `sms_to`
+   * (concierge #155). Empty/absent on a one-number card. */
+  sms_also?: string[] | null;
   /** The hold that stopped an extension this guest asked for, when it is a
    * manual or owner hold rather than a booking (concierge #106). The reply
    * never offers held nights; the card names the hold so an owner can

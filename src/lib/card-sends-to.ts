@@ -8,7 +8,8 @@
  *     code for somebody who is not on the reservation
  *
  * The concierge has sent `sms_to` since 2026-09-25 so the operator could see
- * the number before approving a text (stay-concierge api_approvals). The relay
+ * the number before approving a text (stay-concierge api_approvals), and
+ * `sms_also` since 2026-11-05 for the rest of a household's numbers. The relay
  * check reads the same prefix the concierge reads to pick the send path at
  * approve time (guest_relay.is_relay_approval).
  *
@@ -24,10 +25,18 @@ const RELAY_PREFIX = 'relay_email:';
 export function sendsTo(approval: {
   guesty_message_id?: string | null;
   sms_to?: string | null;
+  sms_also?: string[] | null;
   guest_email?: string | null;
 }): string {
   const phone = (approval.sms_to || '').trim();
-  if (phone) return `Texts ${formatUsPhone(phone)}`;
+  if (phone) {
+    // A household text card reaches every number on it (concierge #155).
+    const numbers = [phone, ...(approval.sms_also ?? []).map((p) => (p || '').trim())]
+      .filter((p, i, all) => p && all.indexOf(p) === i)
+      .map(formatUsPhone);
+    const last = numbers.pop();
+    return `Texts ${numbers.length ? `${numbers.join(', ')} and ${last}` : last}`;
+  }
   const relay = (approval.guesty_message_id || '').startsWith(RELAY_PREFIX);
   const email = (approval.guest_email || '').trim();
   if (relay && email) return `Emails ${email}`;
