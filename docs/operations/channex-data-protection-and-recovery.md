@@ -275,7 +275,18 @@ RECOVERY_TEST_AGE_KEYGEN=/absolute/path/to/age-keygen npm test
 
 Without these variables, the real-age tests are reported as skipped; the
 synthetic transport and signature tests still run. No live Drive or customer DB
-is used by the test suite. Before launch we still need consistent database and
+is used by the test suite. A dedicated GitHub encryption workflow was prepared on
+`codex/channex-recovery-foundation` at `538b012a`, but GitHub rejected its upload
+because the current OAuth credential lacks workflow permission. That commit is
+preserved locally. The release uses the existing repository CI; real-age cases
+remain locally verified and are skipped in CI until the extra workflow can be
+installed with an appropriately authorized credential.
+
+The user authorized integration/deployment on 6 November. This rollout delivers
+the code through the existing PR and Vercel checks; it does not activate a
+scheduled backup worker. Vercel hosts the web application, while the exporter
+needs a separate worker with persistent private spool storage. Before activation
+we still need consistent database and
 object-storage adapters, destination membership review, real key custody,
 an authorized live Drive smoke test, scheduler/watchdog integration, retention
 controls, and a complete isolated application restore. This batch is transport
@@ -364,13 +375,16 @@ performed. The local age binary was installed for the synthetic roundtrip drill;
 all generated keys were temporary test keys. Full application restoration and
 live disaster recovery remain unproven.
 
-Branch: `codex/channex-recovery-foundation`, based on verified main
-`f3c559783c2e718edfdd5bd16abbb6df0f7084ac`. The initial verifier commit is
+Release branch: `codex/channex-recovery-release`, based on the owned
+`codex/channex-recovery-foundation` work at main
+`f3c559783c2e718edfdd5bd16abbb6df0f7084ac`, integrated with main
+`e661ea1fdefbf57805ef18b5a721cf716dcb8f65` for deployment. The initial verifier commit is
 `62d7f988`. This batch adds the three worker modules, upload CLI, worker tests,
 signed-manifest support in the existing verification CLI, and the pinned official
 Google auth dependency/lockfile. Validation results are recorded in the handoff.
-Validation: **3,662 tests passed, zero skipped**, including the real age roundtrip
+Validation after main integration: **3,682 tests passed, zero skipped**, including the real age roundtrip
 and synthetic Drive failure cases; `npx tsc --noEmit`, focused ESLint, and
 `git diff --check` passed. The real-age tests were explicitly enabled for this run.
 All work is in the owned isolated worktree; the shared checkout and its environment
-files were not changed. No branch was pushed or deployed.
+files were not changed. The approved release proceeds through PR checks and a
+verified Vercel deployment. This remains code delivery, not backup activation.
