@@ -69,6 +69,9 @@ export type GridBadge = {
   mine: boolean;
   /** A planned day that passed with the walk still open. */
   late: boolean;
+  /** A walk made (or started) before the window, for an arrival still
+   *  ahead: the mark rides today and this is the day it happened. */
+  on: string | null;
   stayId: string;
 };
 
@@ -214,6 +217,17 @@ function isLate(s: GridStay, today: string): boolean {
   return s.walk === 'open' && !!s.plan?.date && s.plan.date < today;
 }
 
+/** The day a walk's mark sits on: the day it happened, or today when that
+ *  was before the window and the guest it was for has not arrived yet.
+ *  Without the carry, a house walked yesterday for tomorrow's guest shows
+ *  no mark at all and reads as nobody's (Delaney walked 225 Washington,
+ *  53 Rocky Neck Downstairs and 4 Middle on 2026-11-05; the next morning
+ *  the grid showed all three as bare). */
+function walkMarkDay(s: GridStay, today: string): string | null {
+  if (!s.walkedOn) return null;
+  return s.walkedOn < today && s.checkIn >= today ? today : s.walkedOn;
+}
+
 /** The day a plan's mark sits on: its own day, or today once that day has
  *  passed with the walk still open, so a missed walk is never off-screen. */
 function markDay(plan: GridPlan, today: string): string | null {
@@ -282,8 +296,8 @@ export function composeVisitGrid(input: VisitGridInput): VisitGrid {
           const email = s.plan.assignee?.trim() || null;
           badges.push(
             email
-              ? { kind: 'plan', initials: initialsFor(email), name: nameFor(email), email, mine: same(email, me), late: s.plan.date! < today, stayId: s.reservationId }
-              : { kind: 'unassigned', initials: '?', name: `Planned by ${nameFor(s.plan.plannedBy)}, nobody named`, email: null, mine: false, late: s.plan.date! < today, stayId: s.reservationId },
+              ? { kind: 'plan', initials: initialsFor(email), name: nameFor(email), email, mine: same(email, me), late: s.plan.date! < today, on: null, stayId: s.reservationId }
+              : { kind: 'unassigned', initials: '?', name: `Planned by ${nameFor(s.plan.plannedBy)}, nobody named`, email: null, mine: false, late: s.plan.date! < today, on: null, stayId: s.reservationId },
           );
         }
         // A packet whose walk already happened is history: the walker's mark
@@ -296,10 +310,11 @@ export function composeVisitGrid(input: VisitGridInput): VisitGrid {
             email: null,
             mine: false,
             late: false,
+            on: null,
             stayId: s.reservationId,
           });
         }
-        if (s.walk !== 'open' && s.walkedOn === date) {
+        if (s.walk !== 'open' && walkMarkDay(s, today) === date) {
           const email = s.walkedBy?.trim() || null;
           badges.push({
             kind: s.walk === 'done' ? 'walked' : 'walking',
@@ -308,6 +323,7 @@ export function composeVisitGrid(input: VisitGridInput): VisitGrid {
             email,
             mine: same(email, me),
             late: false,
+            on: s.walkedOn !== date ? s.walkedOn : null,
             stayId: s.reservationId,
           });
         }

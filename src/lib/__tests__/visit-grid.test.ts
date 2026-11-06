@@ -271,6 +271,31 @@ describe('who is going, and what a tap does', () => {
     assert.equal(c.tap.kind, 'none');
     assert.equal(cell(ME, '30_woodward', '2026-10-19').needs, false);
   });
+  test('a house walked before the window for a guest still to come carries its mark to today', () => {
+    // Delaney walked three homes on 2026-11-05; the next morning the grid
+    // showed them bare, as if nobody had been.
+    const stays = STAYS.map((s) => (s.reservationId === 'C' ? { ...s, walk: 'done' as const, walkedOn: '2026-10-17', walkedBy: ME } : s));
+    const row = gridFor(DOTTI, stays).rows.find((r) => r.propertyId === '3_south')!;
+    const today = row.cells.find((x) => x.date === TODAY)!;
+    assert.deepEqual(today.badges.map((b) => [b.kind, b.initials, b.on]), [['walked', 'DJ', '2026-10-17']]);
+    assert.equal(today.tap.kind, 'none', 'nothing to claim');
+    assert.ok(row.cells.every((c) => !c.needs), 'and no day asks for someone');
+    assert.equal(row.cells.filter((c) => c.badges.length > 0).length, 1, 'one mark, on today only');
+  });
+  test('a walk started before the window and never finished carries too, so it gets closed', () => {
+    const stays = STAYS.map((s) => (s.reservationId === 'C' ? { ...s, walk: 'walking' as const, walkedOn: '2026-10-17', walkedBy: ME } : s));
+    const c = gridFor(DOTTI, stays).rows.find((r) => r.propertyId === '3_south')!.cells.find((x) => x.date === TODAY)!;
+    assert.deepEqual(c.badges.map((b) => [b.kind, b.on]), [['walking', '2026-10-17']]);
+  });
+  test('a walk for a guest already arrived stays where it happened, off the window', () => {
+    // 21 Horton's A arrived 10-16: its walk is history, not today's news.
+    const stays = [...STAYS, stay({ reservationId: 'A', propertyId: '21_horton', checkIn: '2026-10-16', checkOut: '2026-10-19', walk: 'done', walkedOn: '2026-10-15', walkedBy: ME })];
+    const row = gridFor(DOTTI, stays).rows.find((r) => r.propertyId === '21_horton')!;
+    assert.ok(row.cells.every((c) => c.badges.every((b) => b.stayId !== 'A')));
+  });
+  test('a walk made today has no carried day', () => {
+    assert.equal(cell(ME, '30_woodward', TODAY).badges[0].on, null);
+  });
   test('a walk made under a Field address is still mine, in my initials', () => {
     const stays = STAYS.map((s) => (s.reservationId === 'E' ? { ...s, walkedBy: ME_FIELD } : s));
     const row = gridFor(ME, stays).rows.find((r) => r.propertyId === '30_woodward')!;
