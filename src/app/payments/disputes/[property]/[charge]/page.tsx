@@ -167,6 +167,7 @@ export default async function DisputePacketPage({
           guestName: stay.guestName,
           complaints,
           threadComplete: !!allFlagged && threadCoverage?.complete !== false,
+          proof: record?.proof ?? null,
         })
       : null;
 

@@ -272,7 +272,7 @@ test('a cancelled reservation never claims the stay was provided', () => {
 
 test('fraud: the cardholder is the guest, or the mismatch is a gap', () => {
   const same = stayEvidence({ ...base, kind: 'fraud' });
-  assert.ok(same.forBank.some((s) => s.includes('is the guest who booked')));
+  assert.ok(same.forBank.some((s) => s.includes('is the guest named on the booking')));
   const other = stayEvidence({ ...base, kind: 'fraud', cardholderName: 'Someone Else' });
   assert.equal(other.forBank.length, 0);
   assert.ok(other.gaps.some((g) => g.includes('not the booking guest')));
@@ -292,4 +292,65 @@ test('an incomplete thread never yields "no complaint"', () => {
   const ev = stayEvidence({ ...base, kind: 'not_as_described', threadComplete: false });
   assert.ok(!ev.forBank.some((s) => s.includes('raised no complaint')));
   assert.ok(ev.gaps.some((g) => g.includes('not complete')));
+});
+
+// --- proof the stay happened (2026-11-06) -----------------------------------
+
+import { codeFitsGuest, guestEntriesForStay, stayProofEvidence, type StayProof } from '../dispute-packet-core.ts';
+
+const proof = (over: Partial<StayProof> = {}): StayProof => ({
+  monitored: true,
+  guestName: 'Pat Guest',
+  entries: [
+    // 8:12 PM ET on Oct 9 is Oct 10 in UTC: still the 9th for the stay.
+    { at: '2026-10-10T00:12:00Z', codeName: 'October Guest Code' },
+    { at: '2026-10-11T14:00:00Z', codeName: 'Pat Guest' },
+    // another guest's leftover code, inside the dates: never counted
+    { at: '2026-10-11T15:00:00Z', codeName: 'Robin Other' },
+    // the stay before: outside the dates
+    { at: '2026-10-05T15:00:00Z', codeName: 'Guest' },
+  ],
+  cleaning: { enteredAt: '2026-10-13T15:05:00Z', entrySource: 'seam_lock', finishedAt: '2026-10-13T18:00:00Z', finishSource: 'estimate' },
+  ...over,
+});
+
+test('a guest code fits a generic guest code or the guest by name, never another guest', () => {
+  assert.ok(codeFitsGuest('November Guest Code', 'Pat Guest'));
+  assert.ok(codeFitsGuest(null, 'Pat Guest'));
+  assert.ok(codeFitsGuest('Pat', 'Pat Guest'));
+  assert.ok(!codeFitsGuest('Robin Other', 'Pat Guest'));
+});
+
+test("the stay's entries are read on Eastern dates, oldest first", () => {
+  const p = proof();
+  const mine = guestEntriesForStay(p.entries, '2026-10-09', '2026-10-13', p.guestName);
+  assert.deepEqual(mine.map((e) => e.at), ['2026-10-10T00:12:00Z', '2026-10-11T14:00:00Z']);
+});
+
+test('door use and the turnover entry go to the bank; an estimated finish never does', () => {
+  const ev = stayProofEvidence(proof(), '2026-10-09', '2026-10-13');
+  assert.ok(ev.guestUsedCode);
+  assert.ok(ev.forBank.some((s) => s.includes('used 2 times, first on Oct 9 at 8:12 PM and last on Oct 11 at 10:00 AM')));
+  assert.ok(ev.forBank.some((s) => s.includes("cleaner's code opened the door on Oct 13 at 11:05 AM")));
+  assert.ok(!ev.forBank.some((s) => /left|departed|checked out at/.test(s)), 'a last code use is not a departure');
+  const est = stayProofEvidence(proof({ cleaning: { enteredAt: null, entrySource: null, finishedAt: '2026-10-13T18:00:00Z', finishSource: 'estimate' } }), '2026-10-09', '2026-10-13');
+  assert.ok(!est.rows.some((r) => r.label === 'Turnover after checkout'));
+});
+
+test('no lock, or no guest entry, is a gap and never a claim', () => {
+  const none = stayProofEvidence(proof({ monitored: false, entries: [] }), '2026-10-09', '2026-10-13');
+  assert.equal(none.guestUsedCode, false);
+  assert.ok(none.gaps.some((g) => g.includes('no smart lock')));
+  const quiet = stayProofEvidence(proof({ entries: [] }), '2026-10-09', '2026-10-13');
+  assert.ok(quiet.gaps.some((g) => g.includes('no entry with this guest')));
+  assert.ok(!quiet.forBank.some((s) => s.includes('door code')));
+});
+
+test('stay evidence swaps the "confirm the guest stayed" gap for the lock record', () => {
+  const ev = stayEvidence({ ...base, kind: 'not_received', checkIn: '2026-10-09', checkOut: '2026-10-13', proof: proof() });
+  assert.ok(ev.forBank.some((s) => s.includes("guest's door code")));
+  assert.ok(!ev.gaps.some((g) => g.includes('Attach arrival proof')));
+  assert.ok(ev.rows.some((r) => r.label === 'Guest door code'));
+  const without = stayEvidence({ ...base, kind: 'not_received' });
+  assert.ok(without.gaps.some((g) => g.includes('Attach arrival proof')));
 });

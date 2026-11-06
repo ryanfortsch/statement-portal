@@ -31,7 +31,9 @@ import {
   folioLines,
   stayHintsFromDescription,
   type FolioLine,
+  type DoorEntry,
   type StayAgreement,
+  type StayProof,
   type StayReview,
 } from '@/lib/dispute-packet-core';
 
@@ -60,6 +62,8 @@ export type StayRecord = {
   /** The home's own cancellation policy (house policy). */
   housePolicy: string | null;
   review: StayReview | null;
+  /** The smart-lock log and the turnover; null when it could not be read. */
+  proof: StayProof | null;
 };
 
 export type ThreadCoverage = {
@@ -184,7 +188,9 @@ async function loadStayRecord(propertyId: string, stay: PacketStay, unread: stri
   const rows = (agreements.data ?? []) as DbRow[];
   const a = rows.find((r) => r.guest_signed_at && !r.voided_at) ?? rows[0] ?? null;
   const r = ((reviews.data ?? []) as DbRow[])[0] ?? null;
+  const proof = await loadStayProof(propertyId, stay, unread);
   return {
+    proof,
     agreement: a
       ? {
           signedAt: a.guest_signed_at ?? null,
@@ -238,4 +244,71 @@ function conciergeWhy(error: StayConciergeError): string {
   if (error.kind === 'http') return `${error.status} ${error.detail}`.trim();
   if (error.kind === 'unconfigured') return 'the messaging service is not configured';
   return `the messaging service did not answer (${error.message})`;
+}
+
+function shiftDay(ymd: string, days: number): string {
+  const d = new Date(`${ymd}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * The home's smart-lock log for the stay's dates and the turnover after its
+ * checkout. Guest-role keypad unlocks only (lock_access_codes role 'guest');
+ * which of them belong to this guest is decided in the core. Null when a read
+ * fails, so the packet asks for proof instead of claiming there is none.
+ */
+async function loadStayProof(propertyId: string, stay: PacketStay, unread: string[]): Promise<StayProof | null> {
+  if (!stay.checkIn || !stay.checkOut) return null;
+  const devices = await supabaseAdmin.from('lock_devices').select('device_id').eq('property_id', propertyId);
+  if (devices.error) {
+    unread.push('the smart-lock log');
+    return null;
+  }
+  const deviceIds = ((devices.data ?? []) as { device_id: string }[]).map((d) => d.device_id).filter(Boolean);
+  const cleaningRead = await supabaseAdmin
+    .from('cleaning_sessions')
+    .select('entered_at, entry_source, finished_at, finish_source')
+    .eq('property_id', propertyId)
+    .eq('checkout_date', stay.checkOut)
+    .maybeSingle();
+  if (cleaningRead.error) unread.push('the turnover record');
+  const c = cleaningRead.data as DbRow | null;
+  const cleaning = c
+    ? {
+        enteredAt: c.entered_at ?? null,
+        entrySource: c.entry_source ?? null,
+        finishedAt: c.finished_at ?? null,
+        finishSource: c.finish_source ?? null,
+      }
+    : null;
+  if (deviceIds.length === 0) return { monitored: false, entries: [], guestName: stay.guestName, cleaning };
+
+  const [codes, events] = await Promise.all([
+    supabaseAdmin.from('lock_access_codes').select('device_id, access_code_id, name').eq('role', 'guest').in('device_id', deviceIds),
+    supabaseAdmin
+      .from('lock_events')
+      .select('device_id, payload')
+      .eq('event_type', 'lock.unlocked')
+      .in('device_id', deviceIds)
+      .gte('received_at', `${shiftDay(stay.checkIn, -1)}T00:00:00Z`)
+      .lte('received_at', `${shiftDay(stay.checkOut, 2)}T00:00:00Z`)
+      .order('received_at', { ascending: true })
+      .limit(2000),
+  ]);
+  if (codes.error || events.error) {
+    unread.push('the smart-lock log');
+    return null;
+  }
+  const guestCodes = new Map<string, string | null>();
+  for (const r of (codes.data ?? []) as DbRow[]) guestCodes.set(`${r.device_id}|${r.access_code_id}`, r.name ?? null);
+  const entries: DoorEntry[] = [];
+  for (const r of (events.data ?? []) as DbRow[]) {
+    const p = (r.payload ?? {}) as DbRow;
+    if (String(p.method ?? '').toLowerCase() !== 'keycode' || !p.access_code_id || !p.occurred_at) continue;
+    const key = `${r.device_id}|${p.access_code_id}`;
+    if (!guestCodes.has(key)) continue;
+    entries.push({ at: String(p.occurred_at), codeName: guestCodes.get(key) ?? null });
+  }
+  return { monitored: true, entries, guestName: stay.guestName, cleaning };
 }
