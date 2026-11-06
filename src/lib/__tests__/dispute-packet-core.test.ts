@@ -165,3 +165,112 @@ test('an unread dispute raises no amount gap against a figure nobody has seen', 
   const read = reconcileOtherMeans({ ...base, disputed: { ...base.disputed, disputedCents: 71_488 } });
   assert.ok(read.gaps.some((g) => g.includes('The bank is disputing $714.88')));
 });
+
+// --- stay evidence (2026-11-06) ---------------------------------------------
+
+import {
+  agreementCancellationWords,
+  stayEvidence,
+  stayHintsFromDescription,
+  type StayEvidenceInput,
+} from '../dispute-packet-core.ts';
+
+test('a charge description names its stay by confirmation code or by date range', () => {
+  assert.deepEqual(stayHintsFromDescription('HA-Ou0mq08'), { confirmationCode: 'HA-Ou0mq08', checkIn: null, checkOut: null });
+  assert.deepEqual(stayHintsFromDescription('Stay at Rocky Neck - 2026-08-28 to 2026-09-04'), {
+    confirmationCode: null,
+    checkIn: '2026-08-28',
+    checkOut: '2026-09-04',
+  });
+  assert.equal(stayHintsFromDescription('HMABCD1234 reservation').confirmationCode, 'HMABCD1234');
+  assert.deepEqual(stayHintsFromDescription(null), { confirmationCode: null, checkIn: null, checkOut: null });
+  assert.equal(stayHintsFromDescription('Pet fee').confirmationCode, null);
+});
+
+test('flagThread marks a complaint only on the guest side', () => {
+  const lines = [
+    { at: '2026-09-01T10:00:00Z', who: 'Guest A', body: 'The shower is broken and the kitchen is dirty' },
+    { at: '2026-09-01T10:05:00Z', who: 'Rising Tide', body: 'So sorry it is broken, a plumber is on the way' },
+    { at: '2026-09-01T11:00:00Z', who: 'Guest A', body: 'Lovely house, thank you!' },
+  ];
+  const f = flagThread(lines, { item: 'stay', amountsCents: [], guestWho: 'Guest A' });
+  assert.deepEqual(
+    f.map((l) => l.complaint),
+    [true, false, false],
+  );
+});
+
+const base: StayEvidenceInput = {
+  kind: 'credit_not_processed',
+  checkIn: '2026-08-28',
+  checkOut: '2026-09-04',
+  bookedAt: '2026-05-01T14:00:00Z',
+  reservationStatus: 'confirmed',
+  housePolicy: 'Full refund up to 30 days before arrival.',
+  agreement: null,
+  review: null,
+  cardholderName: 'Pat Guest',
+  guestName: 'Pat Guest',
+  complaints: 0,
+};
+
+const signed = {
+  signedAt: '2026-05-02T12:00:00Z',
+  signedName: 'Pat Guest',
+  countersignedAt: '2026-05-03T12:00:00Z',
+  cancelCutoffDays: 30,
+  cancelRefundPct: 50,
+  voided: false,
+  driveUrl: null,
+};
+
+test('a cancellation dispute leans on the signed agreement, and still asks for the cancel date', () => {
+  const ev = stayEvidence({ ...base, agreement: signed });
+  assert.ok(ev.forBank.some((s) => s.includes('signed our rental agreement on 2026-05-02')));
+  assert.ok(ev.forBank.some((s) => s.includes('50% refund when cancelled more than 30 days')));
+  assert.ok(ev.gaps.some((g) => g.includes('day the guest cancelled')));
+  assert.ok(ev.rows.some((r) => r.label === 'Booked' && r.value.includes('119 days before check-in')));
+});
+
+test('with no agreement, the house policy shows but the bank sentence is a gap', () => {
+  const ev = stayEvidence(base);
+  assert.equal(ev.forBank.length, 0);
+  assert.ok(ev.rows.some((r) => r.label === "The home's cancellation policy"));
+  assert.ok(ev.gaps.some((g) => g.includes('No signed agreement')));
+});
+
+test('a voided agreement is never cited', () => {
+  const ev = stayEvidence({ ...base, agreement: { ...signed, voided: true } });
+  assert.equal(ev.forBank.length, 0);
+  assert.ok(ev.rows.some((r) => r.label === 'Rental agreement' && r.value === 'Voided'));
+});
+
+test('strict no-refund agreements read as such', () => {
+  assert.equal(agreementCancellationWords({ ...signed, cancelCutoffDays: null }), 'no refund on cancellation');
+});
+
+test('not as described: a full stay and a good review go to the bank; complaints are gaps', () => {
+  const good = stayEvidence({ ...base, kind: 'not_as_described', review: { rating: 5, at: '2026-09-06', text: null } });
+  assert.ok(good.forBank.some((s) => s.includes('stayed the full booking')));
+  assert.ok(good.forBank.some((s) => s.includes('5 of 5')));
+  assert.ok(good.forBank.some((s) => s.includes('raised no complaint')));
+
+  const bad = stayEvidence({ ...base, kind: 'not_as_described', review: { rating: 2, at: null, text: null }, complaints: 3 });
+  assert.ok(!bad.forBank.some((s) => s.includes('raised no complaint')));
+  assert.ok(bad.gaps.some((g) => g.includes('3 guest messages raise a complaint')));
+  assert.ok(bad.gaps.some((g) => g.includes('rates the stay 2 of 5')));
+});
+
+test('a cancelled reservation never claims the stay was provided', () => {
+  const ev = stayEvidence({ ...base, kind: 'not_received', reservationStatus: 'canceled' });
+  assert.equal(ev.forBank.length, 0);
+  assert.ok(ev.gaps.some((g) => g.includes('cancelled')));
+});
+
+test('fraud: the cardholder is the guest, or the mismatch is a gap', () => {
+  const same = stayEvidence({ ...base, kind: 'fraud' });
+  assert.ok(same.forBank.some((s) => s.includes('is the guest who booked')));
+  const other = stayEvidence({ ...base, kind: 'fraud', cardholderName: 'Someone Else' });
+  assert.equal(other.forBank.length, 0);
+  assert.ok(other.gaps.some((g) => g.includes('not the booking guest')));
+});
