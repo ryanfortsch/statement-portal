@@ -164,8 +164,8 @@ Synthetic integration tests use actual canonical functions extracted from
 database named `helm_synthetic_channex`. `scripts/test-channex-database.mjs`
 checks transactions, replay, ordering, cancellation of pending automation,
 overlap rollback, source invalidations and permissions. The concurrent test
-checks manual calendar editing against import and two deliveries of the same
-revision. GitHub CI runs this against Postgres 16. These tests do not establish
+checks manual creation and same-booking editing against import, plus two
+deliveries of the same revision. GitHub CI runs this against Postgres 16. These tests do not establish
 live OTA delivery, complete stay coverage or permission to disconnect Guesty.
 
 ## Implementation validation

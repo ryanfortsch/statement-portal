@@ -42,7 +42,7 @@ returns jsonb language plpgsql security definer set search_path=pg_catalog,publi
 declare
  s helm_airbnb_bookings.scope; m helm_airbnb_bookings.bookings; saved helm_airbnb_bookings.receipts;
  b public.bookings; rid uuid; remote uuid; at_time timestamptz; din date; dout date;
- status_value public.booking_status; result text:='applied'; source_key text;
+ status_value public.booking_status; result text:='applied'; source_key text; existing_canonical uuid;
 begin
  if p_revision is null or jsonb_typeof(p_revision)<>'object'
  or (select count(*) from jsonb_object_keys(p_revision))<>13
@@ -62,15 +62,19 @@ begin
  din:=(p_revision->>'checkIn')::date; dout:=(p_revision->>'checkOut')::date;
  if to_char(din,'YYYY-MM-DD')<>p_revision->>'checkIn' or to_char(dout,'YYYY-MM-DD')<>p_revision->>'checkOut' or dout<=din or dout-din>500 then raise exception 'invalid_revision_dates'; end if;
  lock table public.bookings in row exclusive mode;
- -- Match the canonical writer's lock before locking the capture version.
- -- Otherwise a concurrent manual writer could hold this lock while waiting
- -- for our capture share lock.
- perform pg_advisory_xact_lock(hashtext('helm_bookings:65_calderwood'));
  select * into s from helm_airbnb_bookings.scope where singleton for update;
  if not found or not s.enabled then raise exception 'airbnb_import_disabled'; end if;
  if s.environment<>p_revision->>'environment' or s.remote_property<>(p_revision->>'propertyId')::uuid
  or s.room_type<>(p_revision->>'roomTypeId')::uuid or s.rate_plan<>(p_revision->>'ratePlanId')::uuid
  or s.generation<>(p_revision->>'mappingGeneration')::bigint then raise exception 'airbnb_mapping_changed'; end if;
+ -- Scope serializes importers before looking up a canonical row, including the
+ -- first delivery where no mapping exists yet. Match helm_move_booking's order:
+ -- existing booking row, canonical property advisory lock, then capture version.
+ -- Taking the advisory lock before an existing row deadlocks a simultaneous
+ -- manual move that already owns that row. Taking capture first deadlocks create.
+ select canonical_id into existing_canonical from helm_airbnb_bookings.bookings where remote_id=remote;
+ if found then perform 1 from public.bookings where id=existing_canonical for update; end if;
+ perform pg_advisory_xact_lock(hashtext('helm_bookings:65_calderwood'));
  perform 1 from public.properties where id=s.property_id and calendar_authority='helm' for share;
  if not found then raise exception 'helm_authority_required'; end if;
  perform 1 from public.helm_inventory_capture_scopes where property_id=s.property_id and enabled for share;

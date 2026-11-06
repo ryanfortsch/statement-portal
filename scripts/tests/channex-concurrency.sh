@@ -42,3 +42,34 @@ do $$begin
 end$$;
 select 'PASS: concurrent manual and provider writes; concurrent duplicate delivery' as result;
 SQL
+
+# Existing manual moves lock the booking row BEFORE the canonical advisory lock.
+# Importing a modification to that same booking must use that order too.
+PGAPPNAME=channex_synthetic_move psql -X -q -v ON_ERROR_STOP=1 <<'SQL' >/dev/null &
+begin;
+set local statement_timeout='12s';
+select id from bookings where external_confirmation_code='SYNTHETIC4' for update;
+select pg_sleep(2);
+select helm_move_booking(id,check_in,check_out,status,'synthetic-manual',false)
+from bookings where external_confirmation_code='SYNTHETIC4';
+commit;
+SQL
+manual=$!
+ready=0
+for i in $(seq 1 30); do
+ if [[ "$(psql -X -Atc "select count(*) from pg_stat_activity where application_name='channex_synthetic_move' and wait_event='PgSleep'")" == 1 ]];then ready=1;break;fi
+ sleep 0.1
+done
+[[ $ready == 1 ]]
+psql -X -q -v ON_ERROR_STOP=1 <<'SQL' >/dev/null
+set statement_timeout='12s';
+select helm_airbnb_revision_commit(channex_synthetic_revision(12,'2026-11-06T15:00:12.000001Z','modified',4)||'{"checkIn":"2028-02-01","checkOut":"2028-02-05"}'::jsonb);
+SQL
+wait "$manual"
+psql -X -q -v ON_ERROR_STOP=1 <<'SQL'
+do $$begin
+ if (select check_out from bookings where external_confirmation_code='SYNTHETIC4') is distinct from '2028-02-05'::date
+ then raise exception 'Concurrent same-booking modification was lost';end if;
+end$$;
+select 'PASS: concurrent manual and provider modification of the same booking' as result;
+SQL
