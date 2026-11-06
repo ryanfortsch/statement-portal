@@ -32,6 +32,8 @@ import { homeFeedOrder, windowPayments, type FeedSection } from '@/lib/home-feed
 import { EmptyState } from '@/components/EmptyState';
 import { seriousQueueText } from '@/lib/lease-leads-core';
 import { loadUnplacedCleanerTexts } from '@/lib/cleaner-unplaced-server';
+import { splitUnplacedForHome } from '@/lib/cleaner-unplaced';
+import { dropCarryOnStays } from '@/lib/home-houses';
 import { UnplacedCleanerTextRow } from '@/components/UnplacedCleanerTextRow';
 
 type MyWork = {
@@ -151,6 +153,9 @@ export async function ForMeFeed() {
     loadUnplacedCleanerTexts(),
   ]);
   const ownerHoldAsks: OwnerHoldQuestionCard[] = ownerHolds?.pending ?? [];
+  // Today's and yesterday's texts ask here; older ones wait on the
+  // cleanings page, counted in one line.
+  const { home: unplacedHome, older: unplacedOlder } = splitUnplacedForHome(unplacedTexts, operatingDate());
   const ownerHoldToday = ownerHolds?.today ?? todayET();
 
   // Only payments needing action appear in the day. Received payments live
@@ -165,7 +170,6 @@ export async function ForMeFeed() {
   // Drop cleared items, then pick the window (tasks first, slips spread
   // across properties) so clearing one reveals the next.
   const workFiltered = allWork.filter((w) => !dismissed.has(`${w.kind}:${w.id}`));
-  const myWork = pickForFeed(workFiltered, workMode, WORK_WINDOW);
   const myTaskCount = allWork.filter(w => w.kind === 'task').length;
   const mySlipCount = allWork.length - myTaskCount;
 
@@ -182,6 +186,11 @@ export async function ForMeFeed() {
     }),
   ];
   const weekDays = groupByDay(weekEntries, weekToday);
+  // A fact once: work already under its day in Scheduled work does not
+  // print again in On your plate. The header count still counts it.
+  const onWeek = new Set(weekDays.flatMap((d) => d.items.flatMap((i) => (i.kind === 'walk' ? [] : [`${i.kind}:${i.work.id}`]))));
+  const plate = workMode === 'assigned' ? workFiltered.filter((w) => !onWeek.has(`${w.kind}:${w.id}`)) : workFiltered;
+  const myWork = pickForFeed(plate, workMode, WORK_WINDOW);
   const weekCount = weekDays.reduce((n, d) => n + d.items.length, 0);
   const walksLater = countLater(plannedWalks.map((w) => ({ date: w.plannedFor })), weekToday);
 
@@ -210,10 +219,9 @@ export async function ForMeFeed() {
             {myWork.map((w) => (
               <MyWorkRow key={`${w.kind}-${w.id}`} item={w} />
             ))}
-            {workFiltered.length > myWork.length && <>
-              {mySlipCount > 0 && <MoreRow href="/work?filter=mine" text={`View all ${mySlipCount} property work items`} />}
-              {myTaskCount > 0 && <MoreRow href="/work?filter=mine&tab=tasks" text={`View all ${myTaskCount} office to-dos`} />}
-            </>}
+            {plate.length > myWork.length && (
+              <MoreRow href={mySlipCount ? '/work?filter=mine' : '/work?filter=mine&tab=tasks'} text={`${plate.length - myWork.length} more on Work`} />
+            )}
           </div>
         </>
       ) : null,
@@ -261,8 +269,8 @@ export async function ForMeFeed() {
         </>
       ) : null,
 
+    // The fold's own line names it, so no heading inside.
     updates: updates.length ? <>
-      <SectionHeader title="Updates" eyebrow="For your information" />
       <div style={{ borderTop: '1px solid var(--rule)' }}>
         {updates.map((item) => item.kind === 'email'
           ? <EmailItem key={`email-${item.email.id}`} email={item.email} mail={mail} dim />
@@ -306,7 +314,7 @@ export async function ForMeFeed() {
             eyebrow={`${cleaningFlags.length + unplacedTexts.length} to check`}
           />
           <div style={{ borderTop: '1px solid var(--ink)' }}>
-            {unplacedTexts.map((t) => (
+            {unplacedHome.map((t) => (
               <UnplacedCleanerTextRow
                 key={t.id}
                 id={t.id}
@@ -320,6 +328,12 @@ export async function ForMeFeed() {
             {cleaningFlags.map((f) => (
               <CleaningFlagRow key={`${f.date}|${f.propertyId}`} flag={f} />
             ))}
+            {unplacedOlder > 0 && (
+              <MoreRow
+                href="/turnovers/cleanings#cleaner-texts"
+                text={`${unplacedOlder} older cleaner text${unplacedOlder === 1 ? '' : 's'} to place`}
+              />
+            )}
           </div>
         </>
       ) : null,
@@ -394,7 +408,16 @@ export async function ForMeFeed() {
       ) : (
         shown.map((key) => (
           <div key={key} data-feed-section={key} style={{ marginBottom: 24 }}>
-            {key === 'updates' ? <details><summary style={{ cursor: 'pointer', fontSize: 16 }}>Updates · {updates.length}</summary><div style={{ paddingTop: 16 }}>{sections[key]}</div></details> : sections[key]}
+            {key === 'updates' ? (
+              // Folded, and a quiet line rather than a heading of its own:
+              // nothing in it waits on you.
+              <details>
+                <summary className="eyebrow" style={{ cursor: 'pointer', color: 'var(--ink-3)', padding: '4px 0' }}>
+                  {updates.length} {updates.length === 1 ? 'update' : 'updates'} for your information
+                </summary>
+                <div style={{ paddingTop: 16 }}>{sections[key]}</div>
+              </details>
+            ) : sections[key]}
           </div>
         ))
       )}
@@ -1188,7 +1211,9 @@ type TodayAtTheHouses = { out: HouseRow[]; in: HouseRow[]; walked: BriefInspecti
 
 /** Today's checkouts, then check-ins, each ticked when the home was walked
  *  today; a home walked with no stay today gets its own row. */
-function todayAtTheHouses(checkouts: BriefStay[], checkins: BriefStay[], walks: BriefInspection[]): TodayAtTheHouses {
+function todayAtTheHouses(checkoutRows: BriefStay[], checkinRows: BriefStay[], walks: BriefInspection[]): TodayAtTheHouses {
+  // A guest out and back in at the same house is one stay carrying on.
+  const { out: checkouts, in: checkins } = dropCarryOnStays(checkoutRows, checkinRows);
   const walkedHomes = new Set(walks.map((w) => w.propertyId));
   const stayHomes = new Set([...checkouts, ...checkins].map((s) => s.propertyId));
   const byName = (a: HouseRow, b: HouseRow) => a.stay.propertyName.localeCompare(b.stay.propertyName);

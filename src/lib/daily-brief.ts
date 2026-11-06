@@ -946,7 +946,10 @@ async function createIssueSlipFromEmail(
 export async function loadDailyBrief(): Promise<DailyBrief> {
   const todayIso = today();
 
-  type ContactPick = { id: string; first_name: string | null; last_name: string | null; name: string | null; phone: string | null; emails: string[] | null };
+  // contacts has one name column. It never had first_name / last_name:
+  // asking for them failed the whole read, so every waiting reply printed
+  // "Contact" (fixed 2026-11-06; contact-name-columns.test.ts holds it).
+  type ContactPick = { id: string; name: string | null; phone: string | null; emails: string[] | null };
   type InboundTouchPick = {
     id: string;
     contact_id: string;
@@ -1068,10 +1071,11 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
     .map(([cid]) => cid);
   const contactById = new Map<string, ContactPick>();
   if (waitingIds.length > 0) {
-    const { data: contacts } = await supabase
+    const { data: contacts, error: contactsError } = await supabase
       .from('contacts')
-      .select('id, first_name, last_name, name, phone, emails')
+      .select('id, name, phone, emails')
       .in('id', waitingIds);
+    if (contactsError) console.error('[daily-brief] waiting contacts read failed', contactsError.code, contactsError.message);
     for (const c of (contacts ?? []) as ContactPick[]) contactById.set(c.id, c);
   }
   const inboundWaiting: BriefInboundTouch[] = [];
@@ -1080,8 +1084,7 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
     if (lastOut && lastOut >= inbound.touched_at) continue;
     const contact = contactById.get(contactId);
     const name = contact
-      ? contact.name ||
-        [contact.first_name, contact.last_name].filter(Boolean).join(' ').trim() ||
+      ? contact.name?.trim() ||
         (contact.phone ? formatUsPhone(contact.phone) : null) ||
         contact.emails?.[0] ||
         null

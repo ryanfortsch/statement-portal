@@ -41,6 +41,7 @@ export async function attachUnplacedCleanerTextAction(id: string, propertyId: st
   if (error) return { ok: false, message: 'Could not save. Try again.' };
   if (!claimed) {
     revalidatePath('/');
+    revalidatePath('/turnovers/cleanings');
     return { ok: false, message: 'Someone already placed or set aside this text.' };
   }
 
@@ -63,6 +64,7 @@ export async function attachUnplacedCleanerTextAction(id: string, propertyId: st
   }
 
   revalidatePath('/');
+  revalidatePath('/turnovers/cleanings');
   revalidatePath('/turnovers');
   return { ok: true };
 }
@@ -83,5 +85,6 @@ export async function setAsideUnplacedCleanerTextAction(id: string): Promise<Res
   if (error) return { ok: false, message: 'Could not save. Try again.' };
 
   revalidatePath('/');
+  revalidatePath('/turnovers/cleanings');
   return { ok: true };
 }
