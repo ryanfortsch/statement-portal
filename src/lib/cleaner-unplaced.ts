@@ -23,6 +23,34 @@ export const UNPLACED_WINDOW_DAYS = 14;
 /** Rows the feed shows at once; the rest wait behind them. */
 export const UNPLACED_FEED_LIMIT = 6;
 
+/** Rows the cleanings page lists, where every open text in the window is. */
+export const UNPLACED_PAGE_LIMIT = 40;
+
+/**
+ * Which open texts still ask on the home page, and how many have aged
+ * onto the cleanings page. A "done" is about the day's turnover: by the
+ * day after next that turnover is behind the team and the next guest is in,
+ * so the text stops leading anyone's morning. It is still open, and it is
+ * listed on /turnovers/cleanings until someone places it or sets it aside.
+ * Today and yesterday ask here (a 9 PM "done" is still news at 9 AM).
+ */
+export function splitUnplacedForHome<T extends { day: string }>(
+  cards: T[],
+  today: string,
+  limit: number = UNPLACED_FEED_LIMIT,
+): { home: T[]; older: number } {
+  const yesterday = shiftDay(today, -1);
+  const fresh = cards.filter((c) => c.day >= yesterday);
+  const home = fresh.slice(0, limit);
+  return { home, older: cards.length - home.length };
+}
+
+function shiftDay(day: string, by: number): string {
+  const d = new Date(`${day}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + by);
+  return d.toISOString().slice(0, 10);
+}
+
 export type AttachChoice = { id: string; name: string };
 
 export type AttachChoices = {

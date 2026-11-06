@@ -1,6 +1,6 @@
 'use client';
 
-import { suggestedHouses } from '@/lib/matching-suggestions';
+import { houseSuggestions } from '@/lib/matching-suggestions';
 import { useState, useTransition } from 'react';
 import { Button } from '@/components/Button';
 import {
@@ -32,7 +32,9 @@ export function UnplacedCleanerTextRow({
   body: string;
   choices: AttachChoices;
 }) {
-  const suggestions = suggestedHouses(body, [...choices.likely, ...choices.rest]);
+  const { houses: suggestions, by } = houseSuggestions(body, [...choices.likely, ...choices.rest]);
+  // The full text folds open only when the line above had to cut it.
+  const clipped = line.endsWith('…');
   const [house, setHouse] = useState(() => suggestions.length === 1 ? suggestions[0].id : '');
   const [busy, setBusy] = useState<'attach' | 'aside' | null>(null);
   const [error, setError] = useState('');
@@ -80,9 +82,9 @@ export function UnplacedCleanerTextRow({
         <span style={{ color: 'var(--ink-3)' }}> · &ldquo;{line}&rdquo;</span>
       </span>
       {suggestions.length > 0 && <span style={{ flexBasis: '100%', fontSize: 12, color: 'var(--tide-deep)' }}>
-        {suggestions.length === 1 ? `Suggested: ${suggestions[0].name}. The text names this house. Confirm below or choose another.` : `The text names ${suggestions.map(p => p.name).join(', ')}. Review which house this update belongs to.`}
+        {suggestions.length === 1 ? `Suggested: ${suggestions[0].name}. The text names ${by === 'street' ? 'its street' : 'this house'}. Confirm below or choose another.` : `The text names ${suggestions.map(p => p.name).join(', ')}. Review which house this update belongs to.`}
       </span>}
-      <details style={{ flexBasis: '100%', fontSize: 12 }}><summary style={{ cursor: 'pointer' }}>Read full text</summary><p style={{ whiteSpace: 'pre-wrap' }}>{body}</p></details>
+      {clipped && <details style={{ flexBasis: '100%', fontSize: 12 }}><summary style={{ cursor: 'pointer' }}>Read full text</summary><p style={{ whiteSpace: 'pre-wrap' }}>{body}</p></details>}
       <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <select
           aria-label="Which house"
@@ -109,10 +111,12 @@ export function UnplacedCleanerTextRow({
             ))}
           </optgroup>
         </select>
-        <Button
+        {/* A verb with nothing to act on is hidden, not greyed out: Attach
+            appears once a house is picked. */}
+        {house && <Button
           variant="primary"
           size="sm"
-          disabled={!house || pending}
+          disabled={pending}
           pending={busy === 'attach'}
           pendingLabel="Attaching"
           confirm={{
@@ -123,7 +127,7 @@ export function UnplacedCleanerTextRow({
           onClick={() => run('attach')}
         >
           {suggestions.length === 1 && house === suggestions[0].id ? 'Confirm house' : 'Attach'}
-        </Button>
+        </Button>}
         <Button variant="quiet" size="sm" disabled={pending} pending={busy === 'aside'} pendingLabel="Saving" onClick={() => run('aside')}>
           Set aside
         </Button>

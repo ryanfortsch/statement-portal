@@ -11,6 +11,9 @@ import { loadCleaningSchedule } from '@/lib/cleaning-schedule';
 import type { CleaningItem } from '@/lib/cleaning-days';
 import { boardRangeFor } from '@/lib/turnover-board';
 import { pullVendorTextsAction } from './actions';
+import { loadUnplacedCleanerTexts } from '@/lib/cleaner-unplaced-server';
+import { UNPLACED_WINDOW_DAYS } from '@/lib/cleaner-unplaced';
+import { UnplacedCleanerTextRow } from '@/components/UnplacedCleanerTextRow';
 
 /**
  * From Cape Ann Elite: what the crew's own schedule says that the turnover
@@ -111,7 +114,7 @@ export default async function CleaningsPage({
   const scanned = first(sp.scanned);
   const err = first(sp.err);
 
-  const sched = await loadCleaningSchedule(supabase, { days: DAYS });
+  const [sched, cleanerTexts] = await Promise.all([loadCleaningSchedule(supabase, { days: DAYS }), loadUnplacedCleanerTexts()]);
   const { today, horizon, lastAnnouncedAt, days, scheduleError, ingest } = sched;
   // The two things the board cannot show: visits with no checkout (or none
   // we could check them against), and unannounced days with checkouts.
@@ -188,6 +191,33 @@ export default async function CleaningsPage({
           )}
         </div>
       </Section>
+
+      {/* A cleaner's text Helm could not place on a house. The home asks
+          about today's and yesterday's; every open one is here until it is
+          placed or set aside. */}
+      {cleanerTexts.length > 0 && (
+          <Section
+            id="cleaner-texts"
+            title="Cleaner texts to place"
+            eyebrow={`${plural(cleanerTexts.length, 'text', 'texts')} · last ${UNPLACED_WINDOW_DAYS} days`}
+            paddingTop={8}
+            paddingBottom={12}
+          >
+            <div style={{ borderTop: '1px solid var(--ink)' }}>
+              {cleanerTexts.map((t) => (
+                <UnplacedCleanerTextRow
+                  key={t.id}
+                  id={t.id}
+                  when={t.when}
+                  cleanerName={t.cleanerName}
+                  line={t.line}
+                  body={t.body}
+                  choices={t.choices}
+                />
+              ))}
+            </div>
+          </Section>
+      )}
 
       {scheduleError && (
         <Section title="Checkout cross-check unavailable" eyebrow="Read failure" paddingTop={8} paddingBottom={8}>
