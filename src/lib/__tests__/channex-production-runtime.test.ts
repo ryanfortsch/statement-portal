@@ -9,6 +9,7 @@ function harness() {
   const storage = {propertyId:m.helmPropertyId,environment:'production',remotePropertyId:m.propertyId,
     roomTypeId:m.roomTypeId,ratePlanId:m.ratePlanId,generation:1,importEnabled:false,captureEnabled:false,
     calendarAuthority:'guesty',receipts:0,inventoryEvents:0};
+  const inventory = { format: 1, planningEnabled: false, publishingEnabled: false, headVersion: 0, plans: 0, coverageSources: 0, maxDays: 500 };
   const calls: { name: string; args: Record<string,unknown> }[] = [];
   const urls: string[] = [];
   const relation = (id: string) => ({data:{id}});
@@ -19,13 +20,13 @@ function harness() {
     {data:[],meta:{total:0,page:1}},
   ];
   const rpc = async(name:string,args:Record<string,unknown>) => {
-    calls.push({name,args});return {data:name==='helm_channex_storage_status'?storage:true,error:null};
+    calls.push({name,args});return {data:name==='helm_channex_storage_status'?storage:name==='helm_channex_inventory_status'?inventory:true,error:null};
   };
   const fetcher:typeof fetch = async(url,init) => {
     assert.equal(init?.method,'GET');assert.equal(init?.redirect,'error');
     urls.push(String(url));return Response.json(rows[urls.length-1]);
   };
-  return {storage,calls,urls,rpc,fetcher};
+  return {storage,inventory,calls,urls,rpc,fetcher};
 }
 test('production runtime proves provider access and dormant storage, persists only bounded health',async()=>{
  const h=harness();const r=await inspectProductionRuntime(env,h.rpc,h.fetcher);
@@ -33,6 +34,7 @@ test('production runtime proves provider access and dormant storage, persists on
  assert.equal(r.providerWrites,0);assert.equal(r.messagesSent,0);assert.equal(h.urls.length,4);
  assert.equal(h.urls.some(u=>u.includes('booking_revisions')),false);
  assert.deepEqual(h.calls,[{name:'helm_channex_storage_status',args:{}},
+  {name:'helm_channex_inventory_status',args:{}},
   {name:'helm_channex_runtime_checkpoint',args:{p_ok:true,p_code:'OK'}}]);
  assert.equal(JSON.stringify(r).includes('synthetic-'),false);
 });
@@ -65,4 +67,12 @@ test('missing migration, bad status payload, and failed health storage are expli
  }
  const h=harness();await assert.rejects(inspectProductionRuntime(env,async(name,args)=>name==='helm_channex_runtime_checkpoint'
   ?{data:false,error:null}:h.rpc(name,args),h.fetcher),e=>e instanceof ChannexRuntimeError&&e.code==='CHECKPOINT_FAILED');
+});
+
+test('availability storage is checked without reading bookings or creating plans',async()=>{
+ for(const patch of [{planningEnabled:true},{publishingEnabled:true},{plans:1},{headVersion:1},{coverageSources:1},{maxDays:366}]){
+  const h=harness();Object.assign(h.inventory,patch);
+  await assert.rejects(inspectProductionRuntime(env,h.rpc,h.fetcher),e=>e instanceof ChannexRuntimeError&&e.code==='STORAGE_NOT_READY');
+  assert.equal(h.urls.length,0);assert.equal(h.calls.some(c=>c.name==='helm_channex_inventory_read'),false);
+ }
 });

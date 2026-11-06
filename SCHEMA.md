@@ -153,6 +153,14 @@ never key per-stay logic on `bookings.id`.
   changes append events in the source transaction. Rates and minimum stays are excluded.
   Events require full-window recomputation; they are not provider publish commands.
   The app can read these tables but cannot activate capture or edit history.
+- **`helm_airbnb_bookings.inventory_scope` / `inventory_plans`**: dormant,
+  service-RPC-only availability planning. The scope holds coverage evidence,
+  configuration version and latest plan pointer; immutable plans contain only
+  500 dated availability values and source/version fingerprints. No prices,
+  minimum stays, guest fields or provider credentials. Atomic compare-and-save
+  rejects changed bookings/configuration, missing coverage and expired windows;
+  identical retries resolve to the same plan. No dispatch/publishing RPC exists.
+  `helm_channex_inventory_status()` exposes bounded configuration counts only.
 - **`guests`**: the Helm-native guest record (name, email, phone, notes,
   `source`). `bookings.guest_id` points here for direct and manual stays.
   It is NOT `audience_contacts` (the marketing list) and NOT `contacts`
