@@ -4,6 +4,12 @@ Scope and first implementation, 6 November 2026. User authorized the scope and
 implementation start, including evaluating Google Drive. This is a deployment
 plan, not a statement that live backups or recovery have been configured.
 
+**Latest implementation:** the [hosted restore and worker activation runbook](./hosted-supabase-recovery.md)
+adds the explicit one-shot worker, cluster-role capture and separate-cluster
+restore drill. Scheduled backups remain disabled. The user selected a business
+password manager for decryption-key custody; the product/vault is still pending.
+Historical batch results below describe their own commits, not current activation.
+
 ## Decision
 
 Keep Supabase as Helm's operational database. Use provider recovery for fast
@@ -353,16 +359,14 @@ the real PostgreSQL/encryption tests explicitly skip; synthetic adapter failure
 tests still run in ordinary CI. The current GitHub workflow permission limitation
 described above still applies.
 
-**This is not yet a complete hosted Supabase recovery exporter.** PostgreSQL
-`pg_dump` omits cluster roles/passwords; the synthetic test provisions its roles
-before restoring. Supabase-managed schemas/extensions and custom roles need the
-supported hosted restore procedure and a separate drill. The conservative
-`snapshotNotBefore()` timestamp is the command start bound, not an exact database
-MVCC snapshot timestamp; do not substitute upload completion time. Required roles,
-secret-free configuration, migration inventory and key-recovery references still
-need the final producer integration before any bundle may be presented as meeting
-the full recovery contract above. Existing PITR/Drive/key-custody/scheduler and
-post-snapshot deletion-replay activation requirements remain open.
+**This is not yet a complete hosted Supabase recovery exporter.** The subsequent
+worker batch captures password-free cluster roles and restores them into a
+separate synthetic cluster, with secret-free configuration and migration hashes.
+Supabase-managed schemas/extensions still require the supported hosted restore
+procedure and a separate drill. Snapshot timestamps are conservative start bounds,
+not exact database MVCC timestamps; never substitute upload completion time.
+PITR/Drive/key-custody/scheduler and post-snapshot deletion-replay activation
+requirements remain open. See the linked activation runbook for the current steps.
 
 Validation for this source-adapter batch: **3,711 tests passed, zero skipped**,
 with the real PostgreSQL and age variables enabled. TypeScript, focused ESLint and
