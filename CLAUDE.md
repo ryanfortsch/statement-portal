@@ -45,7 +45,7 @@ Related docs:
 
 **Vercel plan: Pro.** Verified against the Vercel API on 2026-08-25 (team "Rising Tide",
 `plan: pro`). Older source comments calling this a Hobby project were wrong and have been corrected.
-Practical consequences: the 33 scheduled crons and the 29 routes at `maxDuration = 300` (counted
+Practical consequences: the 34 scheduled crons and the 29 routes at `maxDuration = 300` (counted
 2026-10-23) are all fine, and platform Skew Protection is available. It was switched **on** on
 2026-08-26 at `skewProtectionMaxAge = 43200` (12 hours).
 
@@ -59,7 +59,7 @@ silently. They are here to tell you where the weight sits, nothing more.
 ```
 src/
   app/          37 route folders + api/. 151 pages, 78 *actions.ts server-action files
-    api/        149 route handlers, 34 cron routes (33 scheduled in vercel.json)
+    api/        149 route handlers, 35 cron routes (34 scheduled in vercel.json)
   lib/          450 top-level modules (478 including subfolders). The domain logic lives here.
   components/   145 shared components (91 at the top level, the rest in subfolders)
   proxy.ts      Next 16 middleware. THE auth gate. Read this before adding any public route.
@@ -68,7 +68,7 @@ supabase/migrations/   302 migrations
 scripts/               parity harnesses and one-off tools (see Testing below)
 ```
 
-**34 cron routes, 33 schedules, and that is correct.** `/api/cron/reviews-to-slips` is a manual
+**35 cron routes, 34 schedules, and that is correct.** `/api/cron/reviews-to-slips` is a manual
 and backfill trigger on purpose; the recurring work runs at the end of `/api/cron/sync-guesty`.
 Do not "fix" it by adding a schedule.
 
@@ -88,9 +88,9 @@ as modules land, so read it as where the weight sits today.
 | `/` | The signed-in person's day. Ask Helm beside the compact Today title; the For Me feed in the order a day is worked (`src/lib/home-feed-order.ts`: Upcoming appointments first (30 days, explicit confirmation/attendance and source coverage, `src/lib/appointment-agenda.ts`), then my planned walks and dated work for seven days (`src/lib/home-week.ts`), then the clock-bound team items, my work, replies, office queues, payments; owners keep the clean-after card first); Today at the houses; two signals (Open work · this week, Turnovers · next 7 days) plus payout for owners; the cleanings strip. Concierge alerts are one line linking to `/messaging#alerts`. The feed's × only ever hides a row from your own feed |
 | `/statements` | Monthly owner statements. Ingest, reconcile, close, send |
 | `/revenue` | Portfolio revenue snapshot: stays, ADR, occupancy, owner payout |
-| `/forecast` | The business plan as an interactive model; the scenario is a link (`?year=2027&new=3,2,0`). Its Actuals section (`#actuals`) holds the company card and operating upload and the "Where it goes" ledger (`overhead_expenses`) |
+| `/forecast` | The business plan as an interactive model; the scenario is a link (`?year=2027&new=3,2,0`). Contracts that may end is the prospects pipeline in reverse: a home carries the chance its contract ends and the month it would be gone (`properties.contract_end_pct` / `_month`), and Monthly Detail takes that share of its fee off from then while the per-property table keeps the if-it-stays figure (`src/lib/forecast-contract-endings.ts`). Its Actuals section (`#actuals`) holds the company card and operating upload and the "Where it goes" ledger (`overhead_expenses`) |
 | `/books` | In-house bookkeeping for the three LLCs. Lands on the Rising Tide ledger (review filtered by the link: unreviewed only, quarter, search); the 1099 candidates sit there too; chart of accounts at `/books/accounts`. Each LLC's cash-basis P&L by month is `/books/<entity>/pnl?year=`, with the Excel download for the CPA (`src/lib/books-pnl.ts`: equity, liability, asset and owner trust money are listed beside net income, never in it). Its December 31 balance sheet is `/books/<entity>/balance-sheet?year=` (`src/lib/books-balance-sheet.ts`): opening figures as of one date per LLC, then the same ledger, each row's account on one side and its category on the other, plus year-end journal entries (the 1098's interest out of a mortgage, the CPA's depreciation) that the P&L reads too. It balances by construction; each bank account is checked against Chase's Balance column |
-| `/payments` | Stripe lookup: did this guest pay, read live from the home's own Stripe account (read-only). Balance charges at `/payments/balance-charges` (owners only). The lookup is open to staff, read-only, since 2026-10-19, and the guest card and booking record link to it for every login; a tab on the Financials strip |
+| `/payments` | Stripe lookup: did this guest pay, read live from the home's own Stripe account (read-only). Balance charges at `/payments/balance-charges` (owners only). Card disputes at `/payments/disputes` (owners only): every dispute across the homes' Stripe accounts with its evidence deadline, a packet per charge shaped by the reason code (`src/lib/dispute-packet-core.ts`), and whether each home's payment page asks the guest to accept terms; `/api/cron/stripe-disputes` files each one waiting on us as a to-do for the `disputes` duty, due Stripe's deadline. Helm never submits evidence. The lookup is open to staff, read-only, since 2026-10-19, and the guest card and booking record link to it for every login; a tab on the Financials strip |
 | `/cost-analysis` | Retired 2026-10-18; redirects to `/forecast#actuals`. Each home's cost to turn is on its property page (Owner & money, owners only) |
 | `/turnovers` | Who's going where first: the week grid (`src/lib/visit-grid.ts`, `VisitGrid.tsx`), one row per home and one column per day for two weeks, a mark for whoever is going (a planned walk, a Field contractor, the walker). A tap on an open day before an arrival writes the stay's `inspection_plans` row for the person tapping (`claimWalk` in `plan-actions.ts`), the one record the board's walk column, the home feed and the Field packet board all read; a tap on your own mark releases it; another's mark asks first. Under it the turnover board: one line per house per day (house, `Out 10:00 · In 4:00`, the cleaner verdict, the walk, one verb), today plus tomorrow by default. The model is `src/lib/turnover-board.ts`; the six-stage rail opens only on lock-monitored homes |
 | `/turnovers/calendar` | The occupancy calendar, 7, 14 or 30 days. The only place it renders; the pipeline links to it |
@@ -997,6 +997,13 @@ The bottom two **converge**: `/api/cron/sync-seam` nightly, and the property pag
 devices** button on demand. Both run the same `ensure*Code` pass, so a lock connected this morning
 does not have to wait for 2 AM.
 
+**Staff carry their own PIN** (`src/lib/staff-code-rules.ts`, since 2026-11-05), so a teammate's
+entries never borrow 2222 and read as a cleaning. The digits live only in `SEAM_STAFF_CODES`
+(`email:pin,email:pin`), never in source: **this repository is public**. The same pass (`ensureStaffCodes` in
+`staff-codes.ts`) programs each one as "Rising Tide <short name>" (role staff) on every lock except
+at a home that is no longer active, and deletes the code Helm made once the member in `team.ts` is
+inactive. Random guest and Field PINs skip every fleet and staff code (`isReservedPin`).
+
 `ensureCreativeCode` stamps `lock_devices.creative_access_code_id` once Seam confirms the PIN on the
 device, mirroring `cleaner_access_code_id`. **That stamp, not "this home has a lock", is what the
 shoot brief reads before printing 5555**. An unstamped lock falls through to the home's own code,
@@ -1021,7 +1028,7 @@ counted 2026-10-22).
 
 - **Core**: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
 - **Auth**: `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, `AUTH_SECRET`, `AUTH_URL`, `AUTH_COOKIE_DOMAIN`
-- **Cron**: `CRON_SECRET`. All 34 cron routes fail closed without it (verified 2026-10-22: every
+- **Cron**: `CRON_SECRET`. All 35 cron routes fail closed without it (verified 2026-10-22: every
   one calls `authorizeCron`).
 - **Guesty**: `GUESTY_CLIENT_ID`, `GUESTY_CLIENT_SECRET`
 - **Stripe**: `STRIPE_KEYS_JSON`, `STRIPE_KEYS_JSON_EXTRA`, `STRIPE_KEY_<PROPERTY_ID>`
@@ -1036,7 +1043,8 @@ counted 2026-10-22).
 - **Quo**: `QUO_API_KEY`, `QUO_WEBHOOK_SECRET`, `QUO_WEBHOOK_SECRETS`, `QUO_FROM_NUMBER` (24/7 line
   override), `QUO_GUEST_FROM_NUMBER`, `QUO_OWNER_FROM_NUMBER`
 - **Seam**: `SEAM_API_KEY`, `SEAM_WEBHOOK_SECRET`, `SEAM_CLEANER_CODE`, `SEAM_INSPECTION_CODE`,
-  `SEAM_MAINTENANCE_CODE`, `SEAM_CREATIVE_CODE`
+  `SEAM_MAINTENANCE_CODE`, `SEAM_CREATIVE_CODE`, `SEAM_STAFF_CODES` (personal staff PINs, unset =
+  none)
 - **Bridge**: `STAY_CONCIERGE_KEY`, `STAY_CONCIERGE_URL`
 - **Maps**: `NEXT_PUBLIC_CARTO_API_KEY`, optional. CARTO basemap tiles need a key since September
   2026 or they render watermarked. `src/lib/map-tiles.ts` carries Rising Tide's key (public by

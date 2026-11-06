@@ -21,6 +21,8 @@ import { knownFromRoster, rosterFromRegistry } from '@/lib/forecast-roster';
 import type { MonthlyActual } from '@/lib/forecast-actuals';
 import type { SmartForecast } from '@/lib/forecast-smart';
 import type { ProspectForecast } from '@/lib/forecast-prospects';
+import { endingsForYear, keepFn, monthLabel, type ContractEnding } from '@/lib/forecast-contract-endings';
+import { ContractEndingsPanel } from './ContractEndingsPanel';
 import type { StatementRevenueByMonth } from '@/lib/forecast-statement-actuals';
 import { describeMonths, type YtdSummary } from '@/lib/forecast-fy-total';
 import { describeMeasured, scenarioQuery, type ForecastScenario } from '@/lib/forecast-scenario';
@@ -54,6 +56,14 @@ type Props = {
   prospects2026: ProspectForecast;
   prospects2027: ProspectForecast;
   prospects2028: ProspectForecast;
+  /** Homes carrying a chance their contract ends (forecast-contract-endings.ts). */
+  contractEndings: ContractEnding[];
+  /** Set when the read failed, so the panel says so instead of reading as "every home stays". */
+  contractEndingsError: string | null;
+  /** The months the ending picker offers, decided on the server clock. */
+  endingMonthChoices: string[];
+  /** The month a new entry starts on. */
+  endingDefaultMonth: string;
   /** Map keyed by YYYY-MM → total mgmt fee from property_statements. */
   statementRevenue: StatementRevenueByMonth;
   /**
@@ -83,6 +93,10 @@ export function ForecastClient({
   prospects2026,
   prospects2027,
   prospects2028,
+  contractEndings,
+  contractEndingsError,
+  endingMonthChoices,
+  endingDefaultMonth,
   statementRevenue,
   ytdByYear,
   bankActuals2026,
@@ -268,13 +282,31 @@ export function ForecastClient({
     return map;
   }, [statementRevenue, yearKey]);
 
+  // Contracts that may end: each home's projected fee times the chance it
+  // ends, from the month it would be gone, read off the same smart months as
+  // the Properties row. The per-property table keeps the if-it-stays figure.
+  const endingNames = useMemo(
+    () => new Map((smart2026 ?? smartForYear)?.properties.map((p) => [p.property.id, p.property.name]) ?? []),
+    [smart2026, smartForYear]
+  );
+  const endingYear = useMemo(
+    () => endingsForYear(smartForYear, contractEndings, yearKey, endingNames),
+    [smartForYear, contractEndings, yearKey, endingNames]
+  );
+  const endingInputs = useMemo(
+    () => (contractEndings.length > 0
+      ? { lossByMonth: smartForYear ? endingYear.lossByMonth : undefined, keep: keepFn(contractEndings) }
+      : undefined),
+    [contractEndings, smartForYear, endingYear]
+  );
+
   const year = useMemo(
     () => calcYear(
       numNew, yearKey, actualsForYear, actualsThrough, smartOverride,
       calibrationFactor, rolledForward, prospectsForYear.monthlyExpectedTotals,
-      statementByMonthForYear, opensIn, matureFee, rosterForYear,
+      statementByMonthForYear, opensIn, matureFee, rosterForYear, endingInputs,
     ),
-    [numNew, yearKey, actualsForYear, actualsThrough, smartOverride, calibrationFactor, rolledForward, prospectsForYear, statementByMonthForYear, matureFee, rosterForYear]
+    [numNew, yearKey, actualsForYear, actualsThrough, smartOverride, calibrationFactor, rolledForward, prospectsForYear, statementByMonthForYear, matureFee, rosterForYear, endingInputs]
   );
 
   /** Switch year. Per-year slider state is independent so no clamping needed. */
@@ -326,6 +358,7 @@ export function ForecastClient({
           yearKey={yearKey}
           currentCount={liveCurrentCount}
           prospectsCount={prospectsForYear.totals.count}
+          endingCount={endingYear.count}
         />
       </section>
 
@@ -341,6 +374,7 @@ export function ForecastClient({
           yearKey={yearKey}
           currentCount={liveCurrentCount}
           prospectsCount={prospectsForYear.totals.count}
+          endingCount={endingYear.count}
           ruleBefore={measured.ruleBefore}
         />
       </section>
@@ -361,6 +395,7 @@ export function ForecastClient({
             smart2028
           }
           ytd={ytdByYear[yearKey]}
+          endings={contractEndings}
         />
       </section>
 
@@ -370,6 +405,22 @@ export function ForecastClient({
         style={{ paddingBottom: 32, width: '100%' }}
       >
         <ProspectsLine data={prospectsForYear} yearKey={yearKey} />
+      </section>
+
+      {/* The pipeline in reverse: homes that may not stay. */}
+      <section
+        className="max-w-[1100px] mx-auto px-10"
+        style={{ paddingBottom: 32, width: '100%' }}
+      >
+        <ContractEndingsPanel
+          yearKey={yearKey}
+          data={endingYear}
+          fyLoss={-year.totals.rev_ending}
+          homes={[...endingNames].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name))}
+          monthOptions={endingMonthChoices}
+          defaultMonth={endingDefaultMonth}
+          loadError={contractEndingsError}
+        />
       </section>
 
       {/* Notes & Methodology — collapsible bottom block */}
@@ -427,9 +478,11 @@ export function ForecastClient({
 function SmartForecastPanel({
   data,
   ytd,
+  endings,
 }: {
   data: SmartForecast | null;
   ytd: YtdSummary;
+  endings: readonly ContractEnding[];
 }) {
   // Whole dollars throughout — round to nearest dollar.
   const fmtUsd = (n: number) =>
@@ -656,6 +709,25 @@ function SmartForecastPanel({
                     off-season {Math.round(p.offSeasonFactor * 100)}%
                   </span>
                 )}
+                {(() => {
+                  const e = endings.find((x) => x.propertyId === p.property.id);
+                  if (!e || !data.months.some((ym) => ym >= e.fromMonth)) return null;
+                  return (
+                    <span
+                      title={`${e.pct}% chance the contract ends, gone from ${monthLabel(e.fromMonth)}. This row is what the home earns if it stays; the Contracts that may end row in Monthly Detail takes the ${e.pct}% off.`}
+                      style={{
+                        marginLeft: 6,
+                        fontSize: 8.5,
+                        letterSpacing: '.12em',
+                        textTransform: 'uppercase',
+                        color: 'var(--signal)',
+                        fontFamily: 'var(--font-mono)',
+                      }}
+                    >
+                      may end {e.pct}%
+                    </span>
+                  );
+                })()}
               </td>
               <td style={cellStyle({ color: 'var(--signal)', fontWeight: 600 })}>
                 {p.property.mgmtFeePct != null ? `${p.property.mgmtFeePct}%` : '—'}
@@ -877,6 +949,12 @@ function ProspectsLine({
   );
 }
 
+/** The pipeline in reverse, the same line in every year's notes. */
+const ENDINGS_ASSUMPTION: AssumptionItem = {
+  label: 'Contracts that may end',
+  value: 'A home can carry the chance its contract ends and the first month it would be gone, set under Contracts that may end. From that month its projected fee is weighted by the chance it stays, and the card and the bench scale on the same share. A home with no chance entered is forecast to stay.',
+};
+
 function Assumptions({ yearKey }: { yearKey: ForecastYear }) {
   const sections =
     yearKey === 2026 ? sections2026 :
@@ -939,6 +1017,7 @@ const sections2026: AssumptionSection[] = [
     items: [
       { label: 'Properties', value: 'Seventeen homes filed 2026 statements and make up the Properties row. Measured months carry the real management fee from those statements from April 2026; January to March carry the bank sweep from Chase ...5130, because the Statements module began in April. Forward months come from the smart forecast: the bookings already in Guesty for each home, pace-corrected against the capture rate Rising Tide itself achieved on the closed months of 2026, blended with the annual gross of the home spread over the Gloucester revenue curve. That annual gross is floored at what the closed statements of the home prove: while it is still ramping (two or three closed months), the larger of its latest full month and its whole record (first ramp month dropped once there are three); from four closed months, the whole record alone, so one strong month cannot set the year (decided 2026-10-15, when a single September had 17 Beach at $358K a year). Each month is held at no less than what is already booked, and the pacing scale-up is capped at 2.5x. Rows the floor lifts carry a floor tag in the per-property table. A unit of a home already in the table (17 Beach\'s front unit and guest house, split off on 2026-09-28) sells the same nights as the whole house, so it projects only its own bookings, never the portfolio average; such rows carry a unit tag. Outside June to September every home\'s curve share is scaled to its own off-season, read from the shoulder month on the books (October 2026 as of mid-October: 17 Beach at 61% of what the curve expected, 84 Thatcher 54%, most homes at 100%), so a summer house is not projected a market-shaped winter; the factor only lowers, and rows it lowers carry an off-season tag.' },
       { label: 'Prospects', value: 'The live prospect pipeline (Prospects). Each deck projects a year-one fee; it enters month by month, weighted by close likelihood.' },
+      ENDINGS_ASSUMPTION,
       { label: 'New mandates', value: '$25K/yr each in their first season on Cape Ann seasonality (4.3% of the year in each of Jan to May and Nov to Dec, 10% in Jun, Sep and Oct, 20% in Jul and Aug), from the month the slider starts them. Default 3, in Jul, Sep and Nov. Each carries the $3,000 outfitting charge in its start month, so a home added late in the year is a small loss in that year and earns its keep the next. From 2027 they roll forward at the fleet average fee per earning home.' },
       { label: 'Operating windows', value: '4 Brier Neck ran June to August 2026 and is not renewed (notice given 2026-08-31). 73 Rocky Neck is off from November 2026 and 79 Main after 21 October 2026. 16 Waterman runs May to October every year. A closed month projects no revenue, and the card and the bench count only the homes operating that month.' },
     ],
@@ -951,13 +1030,14 @@ const sections2026: AssumptionSection[] = [
       { label: 'Office', value: '$750/mo rent at 85 Eastern Ave from March 2026 when the lease began, plus $471/mo for the Republic Services dumpster through November 2026, the rate Republic has billed monthly since August. The dumpster was cancelled effective 2026-11-30 (notice sent 2026-10-05), so December is rent only.' },
       { label: 'Bank fees', value: '$10/mo. Real fee rows total $75 across 24 months; the old $100 figure counted bounced deposits, which are a wash, not a cost.' },
       { label: 'Contractors', value: 'The 1099 bench. Field labor (Delaney Jordan) at $33,700 a year per 16 homes, on Cape Ann seasonality and scaled to the live fleet, July to October 2026; from November it is her salary instead. Creative work (Cooper) $1,300/mo per 16 homes from July 2026 and listing photography (Lightshed, paid on the card) $1,000/mo per 16 homes from August 2026, both scaled to the live fleet. Everyone else $250/mo blended. The operating-account bench ran $8,288/mo over July 1 to August 25, 2026, plus two Lightshed shoots in the same window.' },
-      { label: 'Operations manager', value: 'Delaney Jordan on W-2 from 2026-11-01 at $70,000 a year: about $6,697 a month all-in (salary, 9% payroll taxes, a 4% workers comp placeholder pending the Wister quote, the $55 Gusto fee, the $50 phone allowance), flat. Mileage and summer overtime are not projected. The count-triggered hires in the old plan stay dropped (2026-09-06): this one is a date, not a threshold.' },
+      { label: 'Operations manager', value: 'Delaney Jordan on W-2 from 2026-11-01 at $70,000 a year: about $6,450 a month all-in (salary, 8.1% payroll taxes, the $92 Gusto Plus fee, the $50 phone allowance), flat. Workers comp is on the Insurance line. Mileage and summer overtime are not projected. The count-triggered hires in the old plan stay dropped (2026-09-06): this one is a date, not a threshold.' },
     ],
   },
   {
     heading: 'Periodic and one-time',
     items: [
-      { label: 'Mar 2026', value: 'Phillips commercial insurance, $5,264 paid 03/02. One lump; $0 every other month.' },
+      { label: 'Mar 2026', value: 'Phillips commercial insurance, $5,264 paid 03/02. One lump.' },
+      { label: 'Nov 2026', value: 'Workers comp down payment, $274 (AmTrust, due 11/17). The policy is $1,966 for its first year, 2026-11-01 to 2027-11-01, on $77,000 of estimated payroll; the rest is $188 a month January to September 2027.' },
       { label: 'Apr 2026', value: 'MS Consultants accounting, $4,443 paid 04/15. A one-off by operator ruling; $0 forward.' },
       { label: 'Bookkeeper', value: 'MH Partners $1,000/mo through April 2026 and a final $1,800 wrap-up in May. $0 after.' },
       { label: 'Onboarding', value: '$3,000 per new home, once, in the month a slider home starts: the linen order ($2,156; Fix Linens billed $23,719 across the eleven 2026 onboardings) plus about $850 of Amazon durables (towels, bedclothes, rugs, a Schlage lock, dispensers, a dryer, a coffee maker), measured item by item on the Amazon Business export. Prospects carry no cost until they become a property. Whether an owner should fund outfitting instead is an open decision; this is what the card shows Rising Tide paying today.' },
@@ -978,6 +1058,7 @@ const sections2027: AssumptionSection[] = [
       { label: 'Active (Jan 1)', value: 'Every active managed home in Helm\'s registry drives the cost lines (card and bench), minus 4 Brier Neck, 73 Rocky Neck and 79 Main, which the operating windows have offline for the whole year; 16 Waterman is open May to October and counts only in those months. A home costs from the month it is activated, so 4 Middle Road is on the cost lines from day one rather than from its first closed statement. The revenue row is every active managed home in Helm with its operating window applied, so a home with no bookings or statements yet rides the portfolio-average gross (4 Middle Road today), except a unit of a home already in the table (17 Beach\'s front unit and guest house), which sells the whole house\'s nights and projects only its own bookings. Plus every home added on the 2026 slider, rolled forward as a full-year Cape Ann contract at the fleet average fee per earning home for 2027 (the mean of the per-property totals in the smart table, about $32K today), never below $25K.' },
       { label: 'Revenue per home', value: 'The smart forecast, almost entirely its annual-times-seasonality part: the annual gross of each home (its forward pace, floored at what its closed statements prove: the whole record once it has four closed months) spread over the Gloucester revenue curve, with the months outside June to September scaled to the home\'s own off-season as its shoulder month on the books showed it, times its fee percent. Bookings already placed for 2027 blend in where they exist.' },
       { label: 'Prospects', value: 'The live prospect pipeline (Prospects). Each open deck contributes a full year at its projected fee times its close likelihood (50% when none is entered), and adds no cost until it becomes a property.' },
+      ENDINGS_ASSUMPTION,
       { label: 'New mandates', value: '$25K/yr each in their first season on Cape Ann seasonality from the month the slider starts them. Default 3, in Mar, Jun and Sep. They roll into 2028 at the fleet average fee.' },
     ],
   },
@@ -989,13 +1070,14 @@ const sections2027: AssumptionSection[] = [
       { label: 'Office', value: '$750/mo rent, full year. The Republic Services dumpster ended 2026-11-30 and is not projected.' },
       { label: 'Bank fees', value: '$10/mo.' },
       { label: 'Contractors', value: 'Creative $1,300/mo and listing photography $1,000/mo, each per 16 homes and scaled to the live count, plus $250/mo for everyone else, at half for January to April 2027 (ruling of 2026-10-21: the bench does half the work in the off-season). Field labor is no longer on the bench: since November 2026 it is the operations manager\'s salary.' },
-      { label: 'Operations manager', value: '$70,000 a year, about $6,697 a month all-in (salary, 9% payroll taxes, a 4% workers comp placeholder, the $55 Gusto fee, the $50 phone allowance), flat all year. The count-triggered hires were dropped 2026-09-06 because a step made whichever home landed on 20 read as a loss; this one is dated, and the bench still scales with the fleet.' },
+      { label: 'Operations manager', value: '$70,000 a year, about $6,450 a month all-in (salary, 8.1% payroll taxes, the $92 Gusto Plus fee, the $50 phone allowance), flat all year. Workers comp is on the Insurance line. The count-triggered hires were dropped 2026-09-06 because a step made whichever home landed on 20 read as a loss; this one is dated, and the bench still scales with the fleet.' },
     ],
   },
   {
     heading: 'Periodic and wind-down',
     items: [
-      { label: 'Mar 2027', value: 'Phillips insurance renewal, $5,264 lump, same as 2026. $0 every other month.' },
+      { label: 'Mar 2027', value: 'Phillips insurance renewal, $5,264 lump, same as 2026.' },
+      { label: 'Workers comp', value: 'AmTrust, $1,966 a policy year: $188 on the 1st of January to September, then the $274 down payment at the November renewal, assumed at the same price. The insurer re-rates it on actual payroll at the year-end audit, and adds the pay of any 1099 subcontractor without a workers comp certificate on file.' },
       { label: 'Onboarding', value: '$3,000 per slider home in its start month (linens plus the Amazon durables). Homes rolled forward from the 2026 slider were outfitted in 2026 and carry none.' },
       { label: 'Bookkeeper', value: '$0. The engagement ended May 2026.' },
       { label: 'Accounting', value: '$0. MS Consultants was a one-off.' },
@@ -1016,6 +1098,7 @@ const sections2028: AssumptionSection[] = [
       { label: 'Active (Jan 1)', value: 'The same active managed homes drive the cost lines and the revenue row, each with its operating window applied; a unit of a home already in the table projects only its own bookings. Plus everything added on the 2026 and 2027 sliders, all rolled forward as full-year Cape Ann contracts at the fleet average fee per earning home for 2028, never below $25K. Homes offline before 2028 stay out.' },
       { label: 'Revenue per home', value: 'The smart forecast on its annual-times-seasonality part alone: the annual gross of each home, floored at what its closed statements prove (the whole record once it has four closed months), spread over the Gloucester revenue curve with the months outside June to September scaled to the home\'s own off-season, times its fee percent. Bookings placed for 2028 blend in where they exist; none are on the books today.' },
       { label: 'Prospects', value: 'The live prospect pipeline (Prospects): each open deck a full year at its projected fee times its close likelihood, no cost until it becomes a property.' },
+      ENDINGS_ASSUMPTION,
       { label: 'New mandates', value: '$25K/yr each in their first season on Cape Ann seasonality. Default 3, in Mar, Jun and Sep.' },
     ],
   },
@@ -1027,13 +1110,14 @@ const sections2028: AssumptionSection[] = [
       { label: 'Office', value: '$750/mo rent, full year. The Republic Services dumpster ended 2026-11-30 and is not projected.' },
       { label: 'Bank fees', value: '$10/mo.' },
       { label: 'Contractors', value: 'Creative $1,300/mo and listing photography $1,000/mo, each per 16 homes and scaled to the live count, plus $250/mo for everyone else. Field labor is the operations manager\'s salary, not the bench.' },
-      { label: 'Operations manager', value: '$70,000 a year, about $6,697 a month all-in, flat all year (dated hire 2026-11-01; no count-triggered hires, decided 2026-09-06).' },
+      { label: 'Operations manager', value: '$70,000 a year, about $6,450 a month all-in, flat all year (dated hire 2026-11-01; no count-triggered hires, decided 2026-09-06).' },
     ],
   },
   {
     heading: 'Periodic',
     items: [
-      { label: 'Mar 2028', value: 'Phillips insurance renewal, $5,264 lump. $0 every other month.' },
+      { label: 'Mar 2028', value: 'Phillips insurance renewal, $5,264 lump.' },
+      { label: 'Workers comp', value: '$188 a month January to September and the $274 down payment in November, the 2026 policy renewed at the same price.' },
       { label: 'Onboarding', value: '$3,000 per slider home in its start month. Rolled-forward homes carry none.' },
       { label: 'Bookkeeper and accounting', value: '$0.' },
     ],
@@ -1328,6 +1412,7 @@ function KpiStrip({
   yearKey,
   currentCount,
   prospectsCount,
+  endingCount,
 }: {
   year: YearResult;
   numNew: number;
@@ -1339,6 +1424,8 @@ function KpiStrip({
   yearKey: ForecastYear;
   currentCount: number;
   prospectsCount: number;
+  /** Homes whose contract may end in or before this year. */
+  endingCount: number;
 }) {
   const { totals } = year;
   // Every term that is in the number is in the caption, so the two always
@@ -1352,10 +1439,22 @@ function KpiStrip({
           prospectsCount > 0 ? `${prospectsCount} prospect${prospectsCount === 1 ? '' : 's'}` : null,
           `${numNew} new`,
         ].filter(Boolean).join(' + ');
+  const ending =
+    endingCount > 0 && totals.rev_ending !== 0 ? `may end (${fmtCompactSimple(-totals.rev_ending)})` : null;
   const revBreakdown =
     yearKey === 2026
-      ? `cur ${fmtCompactSimple(totals.rev_current)} · prospects ${fmtCompactSimple(totals.rev_presigned)} · new ${fmtCompactSimple(totals.rev_new)}`
-      : `active ${fmtCompactSimple(totals.rev_current)} · new ${fmtCompactSimple(totals.rev_new)}`;
+      ? [
+          `cur ${fmtCompactSimple(totals.rev_current)}`,
+          ending,
+          `prospects ${fmtCompactSimple(totals.rev_presigned)}`,
+          `new ${fmtCompactSimple(totals.rev_new)}`,
+        ].filter(Boolean).join(' · ')
+      : [
+          `active ${fmtCompactSimple(totals.rev_current)}`,
+          ending,
+          totals.rev_presigned !== 0 ? `prospects ${fmtCompactSimple(totals.rev_presigned)}` : null,
+          `new ${fmtCompactSimple(totals.rev_new)}`,
+        ].filter(Boolean).join(' · ');
 
   return (
     <div
@@ -1489,12 +1588,14 @@ function ForecastTable({
   yearKey,
   currentCount,
   prospectsCount,
+  endingCount,
   ruleBefore,
 }: {
   year: YearResult;
   yearKey: ForecastYear;
   currentCount: number;
   prospectsCount: number;
+  endingCount: number;
   /** Month indexes (0-11) that open a new measured or projected run. */
   ruleBefore: number[];
 }) {
@@ -1508,8 +1609,19 @@ function ForecastTable({
   const presignedInfo =
     'Live pipeline from Prospects. Each prospect\'s projected year-1 mgmt fee × its close likelihood (50% when none is entered), summed per month. This row is what RT keeps; each deck\'s owner payout is on Prospects.';
 
+  const endingLine: Line[] =
+    endingCount > 0
+      ? [{
+          label: `Contracts that may end (${endingCount})`,
+          info: 'The prospects pipeline in reverse. Each home carrying a chance its contract ends takes that share of its projected mgmt fee off from the month it would be gone (set under Contracts that may end below). The Properties row and the per-property table stay what each home earns if it stays; this row is the expected loss. The card and the contractor bench scale on the share of each home expected to stay, so a home half expected to leave costs half.',
+          values: monthly.map((r) => r.rev_ending),
+          fy: totals.rev_ending,
+        }]
+      : [];
+
   const revenue: Line[] = [
     { label: currentLabel, info: currentInfo, values: monthly.map((r) => r.rev_current), fy: totals.rev_current },
+    ...endingLine,
     { label: presignedLabel, info: presignedInfo, values: monthly.map((r) => r.rev_presigned), fy: totals.rev_presigned },
     { label: 'New', info: 'Hypothetical new contracts added via the slider above. $25K/yr on Cape Ann seasonality in their first season, which is a ramp, less the $3,000 outfitting charge on the Onboarding line in the month each starts. From the next year they roll into the Properties row at the fleet\'s projected average fee per earning home (never below $25K), so an added home is worth what the average home already run is worth.', values: monthly.map((r) => r.rev_new), fy: totals.rev_new, highlight: true },
   ];
@@ -1531,13 +1643,13 @@ function ForecastTable({
   ];
   const people: Line[] = [
     { label: 'Contractors', info: 'The 1099 bench. Delaney Jordan\'s field labor ran per job from 2026-07-07 out of Chase ...5130 by Zelle, clustered on checkout days, so it rode the seasonality curve and scaled with the fleet; it ends in October 2026, when she joins payroll (the row below). Cooper\'s creative work is $1,300/mo per 16 homes from 2026-07-29 on the Chase payroll rail, and Lightshed\'s listing photography $1,000/mo per 16 homes from August 2026 on the card, both scaled to the live fleet. Nicole Whitten, Ian Drometer and one-off trades blend to $250/mo. The operating-account bench ran $8,288/mo across July and August 2026. January to April 2027 carry the bench at half, by ruling (2026-10-21). In a card-only month (operating export not yet uploaded) this row is the model\'s term plus what the card paid.', values: monthly.map((r) => r.exp_contractors), fy: sumOf(monthly, (r) => r.exp_contractors) },
-    { label: 'Operations manager', info: 'The one salaried hire, dated: Delaney Jordan moves from the bench to W-2 on 2026-11-01 at $70,000 a year. Projected months carry $5,833 of salary plus 9% payroll taxes, a 4% workers comp placeholder until the Wister quote lands, the $55 Gusto fee and the $50 phone allowance, about $6,697 a month, flat; it does not scale with the fleet. Mileage and summer overtime are not projected. Measured months read the Gusto debits (net pay, taxes and the fee) from the operating account. $0 before November 2026.', values: monthly.map((r) => r.exp_payroll), fy: sumOf(monthly, (r) => r.exp_payroll) },
+    { label: 'Operations manager', info: 'The one salaried hire, dated: Delaney Jordan moves from the bench to W-2 on 2026-11-01 at $70,000 a year. Projected months carry $5,833 of salary plus 8.1% payroll taxes, the $92 Gusto Plus fee and the $50 phone allowance, about $6,450 a month, flat (workers comp is on the Insurance row); it does not scale with the fleet. Mileage and summer overtime are not projected. Measured months read the Gusto debits (net pay, taxes and the fee) from the operating account. $0 before November 2026.', values: monthly.map((r) => r.exp_payroll), fy: sumOf(monthly, (r) => r.exp_payroll) },
   ];
   const onboarding = (r: MonthRow) => r.exp_onboard_presigned + r.exp_onboard_new;
   const periodic: Line[] = [
     { label: 'Onboarding', info: 'Outfitting a new home, charged once in the month a slider home starts: $3,000. The linen order is $2,156 (Fix Linens billed $23,719 across the eleven 2026 onboardings) and the Amazon durables bought for a new home beyond a settled home\'s replacement trickle are about $850: towels, bedclothes, rugs, a Schlage lock, soap dispensers, a hair dryer, a coffee maker, shelving, measured item by item on the Amazon Business export of 2026-10-15. The supplies left over once the per-home run rate is taken out say the same ($3,020 each). The card shows what Rising Tide paid; whether an owner should fund outfitting instead is an open decision. Measured months carry it inside Guest supplies, where the card put it. It was $0 until 2026-10-15, which is why the summer read as a supplies run rate.', values: monthly.map(onboarding), fy: sumOf(monthly, onboarding) },
     { label: 'Bookkeeper', info: 'MH Partners outside bookkeeper. ~$1,000/mo Jan-Apr 2026, $1,800 final wrap-up payment in May, then $0 once the engagement ends.', values: monthly.map((r) => r.exp_debt), fy: sumOf(monthly, (r) => r.exp_debt) },
-    { label: 'Insurance', info: 'Premiums paid once, not monthly. Phillips commercial liability, $5,263.92 by ACH on 2026-03-02, assumed to renew each March. Arbella, $3,188.57 on the card on 2026-04-15, is treated as a one-time hit and is not projected forward. GEICO auto is monthly and lives on the Vehicle & other insurance row above. $0 every other month.', values: monthly.map((r) => r.exp_insurance), fy: sumOf(monthly, (r) => r.exp_insurance) },
+    { label: 'Insurance', info: 'Premiums on their own schedule, not monthly. Phillips commercial liability, $5,263.92 by ACH on 2026-03-02, assumed to renew each March. Workers comp for the operations manager (AmTrust, $1,966 a policy year from 2026-11-01): $274 down each November and $188 on the 1st of January to September. Arbella, $3,188.57 on the card on 2026-04-15, is treated as a one-time hit and is not projected forward. GEICO auto is monthly and lives on the Vehicle & other insurance row above.', values: monthly.map((r) => r.exp_insurance), fy: sumOf(monthly, (r) => r.exp_insurance) },
     { label: 'Accounting', info: 'MS Consultants $4,442.96 paid 4/15/2026 was a one-time engagement, not recurring. $0 going forward.', values: monthly.map((r) => r.exp_accounting), fy: sumOf(monthly, (r) => r.exp_accounting) },
   ];
 

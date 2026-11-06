@@ -133,6 +133,9 @@ export type Approval = MessageOutcomeCarrier & {
    * it since 2026-09-25 so a text is never approved without the number in
    * view. Null/absent on every non-SMS card. */
   sms_to?: string | null;
+  /** The rest of the numbers a household text card reaches, after `sms_to`
+   * (concierge #155). Empty/absent on a one-number card. */
+  sms_also?: string[] | null;
   /** The hold that stopped an extension this guest asked for, when it is a
    * manual or owner hold rather than a booking (concierge #106). The reply
    * never offers held nights; the card names the hold so an owner can
@@ -722,6 +725,9 @@ export type ThreadMessage = {
   topic?: string;
   action?: string;
   approval_status?: string;
+  /** 'log' when Guesty no longer serves this message and it came from the
+   *  concierge's own record (a thread Guesty cut off; concierge #153). */
+  source?: 'log';
 };
 
 /** The list gather pages Guesty 25 rows at a time server-side (cached 90s
@@ -755,7 +761,17 @@ export type ConversationsResponse = {
 };
 
 export async function getConversationThread(conversationId: string, limit = 200) {
-  return request<{ messages: ThreadMessage[]; count: number }>(
+  return request<{
+    messages: ThreadMessage[];
+    count: number;
+    /** False when Guesty cut the thread off (it serves the newest 25 posts);
+     *  absent from a concierge older than #153. */
+    complete?: boolean;
+    /** Guesty's own count of the thread's posts. */
+    guesty_total?: number | null;
+    /** How many messages came from the concierge's record, not Guesty. */
+    from_log?: number;
+  }>(
     `/api/conversations/${encodeURIComponent(conversationId)}/thread?limit=${limit}`,
   );
 }

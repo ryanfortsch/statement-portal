@@ -113,6 +113,27 @@ export const PRESIGNED_2026: ManagedProperty[] = [];
 export type OpenInYear = (propertyId: string, year: number, month?: number) => boolean;
 
 /**
+ * The share of a month a real home is expected to stay under management, 0
+ * to 1: 1 - the chance its contract ends, from the month it would be gone
+ * (forecast-contract-endings.ts keepFn). Supplied by the caller for the same
+ * reason OpenInYear is.
+ */
+export type KeepShare = (propertyId: string, year: number, month: number) => number;
+
+/**
+ * Contracts that may end, as calcYear takes them. `lossByMonth` (index
+ * month - 1, positive) is the expected fee lost, read off the smart
+ * forecast's per-home months; it is the line wherever smart carries the
+ * month. A month smart cannot supply takes the loss from the roster's
+ * seasonal fees through `keep`, and every projected month scales the card
+ * and the bench on the homes expected to stay.
+ */
+export type ContractEndingInputs = {
+  lossByMonth?: readonly number[];
+  keep: KeepShare;
+};
+
+/**
  * In 2027 the current properties roll forward as full-year actives.
  * Prospects that closed in 2026 will appear in Helm's `properties` table by
  * then and get queried as currents; until then the forecast layer carries
@@ -326,6 +347,9 @@ export const BOOKKEEPER_FINAL_AMOUNT = 1800;
  * carries it on the Insurance line and nothing is projected. If Arbella
  * renews next April, add a second annual constant here rather than letting
  * it land in the card's monthly run rate.
+ *
+ * Workers comp for the operations manager rides this line too, on its own
+ * installment dates from November 2026: see workersCompCost.
  */
 export const INSURANCE_ANNUAL = 5264;
 export const INSURANCE_MONTH = 3;
@@ -748,27 +772,29 @@ export function contractorCost(
  * scale with the fleet; the creative and misc bench still does.
  *
  * Employer cost on top of the salary, per month:
- *   - payroll taxes at 9% (FICA 7.65%, plus FUTA and MA unemployment on
- *     their small wage bases, blended over the year);
- *   - workers compensation at 4%, a PLACEHOLDER until the Wister quote
- *     lands. Move it to the Insurance line once the policy exists, so the
- *     projected and measured shapes agree;
- *   - the Gusto platform fee, $55 (Simple plan, one person; the 2025 runs
- *     paid $68 to $87 with more people on it);
+ *   - payroll taxes at 8.1%: FICA 7.65% on every dollar, plus about $300
+ *     a year of FUTA ($42 on the first $7,000) and MA unemployment (on the
+ *     first $15,000), blended flat over the year. In cash those two land in
+ *     the first months of each year. Was 9% until 2026-11-04;
+ *   - the Gusto platform fee, $92 (Plus plan, one person, reactivated
+ *     2026-11-03);
  *   - the $50 phone allowance in the offer letter.
  * Mileage (IRS rate, reimbursed as driven) and summer overtime are not
  * modeled; ACT months carry them as they are paid.
  *
+ * Workers comp is NOT in here. It was a 4% placeholder until the AmTrust
+ * policy was bound, and now sits on the Insurance line on its real
+ * installment dates (workersCompCost below).
+ *
  * ACT months read the Gusto debits (NET + TAX + FEE) from overhead_expenses,
  * which is gross wages plus employer taxes plus the fee: the same shape as
- * the projection, less the workers comp placeholder.
+ * the projection.
  */
 export const SALARY_ANNUAL = 70000;
 export const SALARY_START_YEAR = 2026;
 export const SALARY_START_MONTH = 11;
-export const SALARY_EMPLOYER_TAX_RATE = 0.09;
-export const SALARY_WORKERS_COMP_RATE = 0.04;
-export const PAYROLL_PLATFORM_MONTHLY = 55;
+export const SALARY_EMPLOYER_TAX_RATE = 0.081;
+export const PAYROLL_PLATFORM_MONTHLY = 92;
 export const PHONE_ALLOWANCE_MONTHLY = 50;
 
 /** True from the operations manager's first month on payroll. */
@@ -780,10 +806,42 @@ export function onPayroll(year: number, month: number): boolean {
 export function payrollCost(year: number, month: number): number {
   if (!onPayroll(year, month)) return 0;
   return (
-    (SALARY_ANNUAL / 12) * (1 + SALARY_EMPLOYER_TAX_RATE + SALARY_WORKERS_COMP_RATE) +
+    (SALARY_ANNUAL / 12) * (1 + SALARY_EMPLOYER_TAX_RATE) +
     PAYROLL_PLATFORM_MONTHLY +
     PHONE_ALLOWANCE_MONTHLY
   );
+}
+
+/**
+ * Workers compensation for the operations manager. AmTrust (Wesco) policy
+ * WWC3900538, bound through EPIC for 2026-11-01 to 2027-11-01: class 9015 on
+ * $77,000 of estimated payroll, $1,966 for the year ($1,884 premium plus the
+ * $82 Massachusetts DIA assessment). It is paid on AmTrust's installment
+ * plan, so it is projected on the months the money leaves rather than spread
+ * evenly: $274 down in November (due 11/17), then $188 on the 1st of January
+ * through September. December and October carry nothing. Each November
+ * renewal is assumed at the same price on the same plan.
+ *
+ * Not modeled: the per-installment charge ($3 on AutoPay, $15 on a mailed
+ * invoice), and the year-end audit, which re-rates the premium on actual
+ * payroll and adds the pay of any 1099 subcontractor without a workers comp
+ * certificate on file.
+ *
+ * It rides the Insurance line because that is where the categorizer files
+ * an AmTrust debit, so projected and measured months have the same shape.
+ */
+export const WORKERS_COMP_DOWN_PAYMENT = 274;
+export const WORKERS_COMP_INSTALLMENT = 188;
+/** The last month (1-12) an installment is due; the first is January. */
+export const WORKERS_COMP_LAST_INSTALLMENT_MONTH = 9;
+export const WORKERS_COMP_RENEWAL_MONTH = 11;
+
+/** Workers comp paid in a month; $0 before the hire. */
+export function workersCompCost(year: number, month: number): number {
+  if (!onPayroll(year, month)) return 0;
+  if (month === WORKERS_COMP_RENEWAL_MONTH) return WORKERS_COMP_DOWN_PAYMENT;
+  if (month <= WORKERS_COMP_LAST_INSTALLMENT_MONTH) return WORKERS_COMP_INSTALLMENT;
+  return 0;
 }
 
 export const MONTH_LABELS = [
@@ -934,6 +992,12 @@ export type MonthRow = {
   rev_presigned: number;
   /** Revenue from the N hypothetical new properties this month. */
   rev_new: number;
+  /**
+   * Expected management fee lost to contracts that may end, zero or
+   * negative: each home's projected fee times the chance it ends, from the
+   * month it would be gone. Zero on a measured month.
+   */
+  rev_ending: number;
   /** All revenue combined. */
   rev_total: number;
 
@@ -943,7 +1007,7 @@ export type MonthRow = {
   exp_software: number;
   /** MH Partners debt service. */
   exp_debt: number;
-  /** Insurance (Phillips) — annual premium, lump sum in March. */
+  /** Insurance: Phillips, an annual lump in March, plus the workers comp installments from 2026-11. */
   exp_insurance: number;
   /** Accounting (MS Consultants), smoothed monthly. */
   exp_accounting: number;
@@ -962,7 +1026,7 @@ export type MonthRow = {
   exp_contractors: number;
   /**
    * The salaried operations manager from 2026-11: salary, employer taxes,
-   * the workers comp placeholder, the Gusto fee and the phone allowance.
+   * the Gusto fee and the phone allowance. Workers comp is on exp_insurance.
    * $0 before the hire. Flat; it does not scale with the fleet.
    */
   exp_payroll: number;
@@ -1004,6 +1068,7 @@ export type YearResult = {
     rev_current: number;
     rev_presigned: number;
     rev_new: number;
+    rev_ending: number;
     rev_total: number;
     exp_total: number;
     net_business: number;
@@ -1100,7 +1165,9 @@ export function calcYear(
   /** Second-season fee for rolled-forward homes; see getYearConfig. */
   matureFee?: number,
   /** The registry-built cost roster; see getYearConfig. */
-  roster?: ManagedProperty[]
+  roster?: ManagedProperty[],
+  /** Contracts that may end; see ContractEndingInputs. Omitted, every home stays. */
+  endings?: ContractEndingInputs,
 ): YearResult {
   const config = getYearConfig(year, rolledForward ?? 0, openIn, matureFee, roster);
   const maxNew = config.newOrder.length;
@@ -1127,19 +1194,21 @@ export function calcYear(
       // forward month would, on the homes operating in it. Every measured
       // figure on such a month is card-sourced (that is what uncovered
       // means), so the card's dumpster, Arbella and Lightshed charges are
-      // added to the projected rent, Phillips and operating bench rather
-      // than replacing them.
+      // added to the projected rent, Phillips, workers comp and operating
+      // bench rather than replacing them.
       const cardOnly = a.operating_covered === false;
       let opCount = activeForActual;
-      if (cardOnly && openIn) {
+      if (cardOnly && (openIn || endings)) {
         for (const p of config.current) {
-          if (m >= p.start && p.id && !openIn(p.id, year, m)) opCount -= 1;
+          if (m < p.start || !p.id) continue;
+          if (openIn && !openIn(p.id, year, m)) opCount -= 1;
+          else if (endings) opCount -= 1 - endings.keep(p.id, year, m);
         }
       }
       const exp_office = cardOnly ? a.exp_office + rentCost(m, config.officeStartMonth) : a.exp_office;
       const exp_debt = cardOnly ? bookkeeperCost(m, config.bookkeeperLastMonth) : a.exp_debt;
       const exp_insurance = cardOnly
-        ? a.exp_insurance + (m === INSURANCE_MONTH ? INSURANCE_ANNUAL : 0)
+        ? a.exp_insurance + (m === INSURANCE_MONTH ? INSURANCE_ANNUAL : 0) + workersCompCost(year, m)
         : a.exp_insurance;
       const exp_accounting = cardOnly ? accountingCost(year, m) : a.exp_accounting;
       const exp_bank = cardOnly ? BANK_FEES_MONTHLY : a.exp_bank;
@@ -1166,6 +1235,7 @@ export function calcYear(
         rev_current: a.revenue, // attribute everything to current portfolio
         rev_presigned: 0,
         rev_new: 0,
+        rev_ending: 0,
         rev_total: a.revenue,
         exp_office,
         exp_software: a.exp_software,
@@ -1205,6 +1275,7 @@ export function calcYear(
     let rev_current = 0;
     let rev_presigned = 0;
     let rev_new = 0;
+    let rev_ending = 0;
 
     if (useSmart) {
       // Smart Forecast owns the real fleet. Presigned + new remain on
@@ -1217,15 +1288,23 @@ export function calcYear(
       for (const p of config.current) {
         if (p.synthetic && m >= p.start) rev_current += p.fee * dist[p.type];
       }
+      // The loss is read off the same smart months as rev_current, so a
+      // home's row in the per-property table and its share here agree.
+      const loss = endings?.lossByMonth?.[i] ?? 0;
+      if (loss > 0) rev_ending = -loss;
     } else {
       // No smart data — fall back to seasonality for current too.
       for (const p of config.current) {
         if (m >= p.start) rev_current += p.fee * dist[p.type];
+        if (endings && p.id && !p.synthetic && m >= p.start) {
+          rev_ending -= p.fee * dist[p.type] * (1 - endings.keep(p.id, year, m));
+        }
       }
       // Apply forward-year calibration if we learned one from a prior
       // year's smart forecast.
       if (calibrationFactor && calibrationFactor > 0 && calibrationFactor !== 1) {
         rev_current *= calibrationFactor;
+        rev_ending *= calibrationFactor;
       }
     }
     // Prospects pipeline: per-month expected mgmt fee, weighted by each
@@ -1254,9 +1333,10 @@ export function calcYear(
       rev_current = stmtRevenue;
       rev_presigned = 0;
       rev_new = 0;
+      rev_ending = 0;
     }
 
-    const rev_total = rev_current + rev_presigned + rev_new;
+    const rev_total = rev_current + rev_presigned + rev_new + rev_ending;
 
     // Count contracts whose start month equals this month → multiply by
     // the per-contract onboarding cost. This handles the case where two
@@ -1276,18 +1356,22 @@ export function calcYear(
     // home whose operating window has it closed (4 Brier Neck after August
     // 2026, 73 Rocky Neck from November, 79 Main from late October, 16
     // Waterman outside May to October). The card and the bench, which is
-    // the whole people line, scale on this.
+    // the whole people line, scale on this. A home whose contract may end
+    // counts for the share of it expected to stay, so a home half expected
+    // to leave costs half, the same expectation its revenue carries.
     let operatingCount = activeCount;
-    if (openIn) {
+    if (openIn || endings) {
       for (const p of config.current) {
-        if (m >= p.start && p.id && !openIn(p.id, year, m)) operatingCount -= 1;
+        if (m < p.start || !p.id) continue;
+        if (openIn && !openIn(p.id, year, m)) operatingCount -= 1;
+        else if (endings) operatingCount -= 1 - endings.keep(p.id, year, m);
       }
     }
 
     const exp_office = officeCost(year, m, config.officeStartMonth);
     const exp_software = softwareCost(year, m);
     const exp_debt = bookkeeperCost(m, config.bookkeeperLastMonth);
-    const exp_insurance = m === INSURANCE_MONTH ? INSURANCE_ANNUAL : 0;
+    const exp_insurance = (m === INSURANCE_MONTH ? INSURANCE_ANNUAL : 0) + workersCompCost(year, m);
     const exp_accounting = accountingCost(year, m);
     const exp_bank = BANK_FEES_MONTHLY;
     const cc_detail = ccOperatingDetail(operatingCount, year, m);
@@ -1316,6 +1400,7 @@ export function calcYear(
       rev_current,
       rev_presigned,
       rev_new,
+      rev_ending,
       rev_total,
       exp_office,
       exp_software,
@@ -1353,6 +1438,7 @@ export function calcYear(
       rev_current: sum('rev_current'),
       rev_presigned: sum('rev_presigned'),
       rev_new: sum('rev_new'),
+      rev_ending: sum('rev_ending'),
       rev_total: sum('rev_total'),
       exp_total: sum('exp_total'),
       net_business: sum('net_business'),

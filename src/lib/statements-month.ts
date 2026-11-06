@@ -43,3 +43,12 @@ export function statementsUploadHref(month?: string | null, propertyId?: string 
   const q = params.toString();
   return q ? `/statements/upload?${q}` : '/statements/upload';
 }
+
+/** Receipts can be filed before a monthly statement exists. */
+export function statementsReceiptsHref(month?: string | null, propertyId?: string | null): string {
+  const params = new URLSearchParams();
+  if (isStatementMonth(month)) params.set('month', month);
+  if (propertyId) params.set('property', propertyId);
+  const q = params.toString();
+  return q ? `/statements/receipts?${q}` : '/statements/receipts';
+}
