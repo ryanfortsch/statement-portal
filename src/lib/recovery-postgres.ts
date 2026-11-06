@@ -4,7 +4,7 @@ import { isAbsolute } from 'node:path';
 import { Readable } from 'node:stream';
 import { withRecoveryAbort, type RecoverySource } from './recovery-export.ts';
 
-type Connection = {
+export type RecoveryPostgresConnection = {
   host: string; port: number; database: string; user: string; password: string;
   /** Pinned independently of credentials; never accept a libpq connection string. */
   expectedHost: string;
@@ -17,8 +17,17 @@ type Connection = {
  * snapshotNotBefore is a conservative bound, NOT the exact MVCC snapshot time.
  */
 export function createPostgresRecoverySource(options: {
-  pgDumpExecutable: string; connection: Connection; timeoutMs: number;
-}): RecoverySource & { snapshotNotBefore: () => string | null } {
+  pgDumpExecutable: string; connection: RecoveryPostgresConnection; timeoutMs: number;
+}) { return postgresSource(options, 'database'); }
+
+/** PostgreSQL 18 role SQL, without role passwords; no tables/databases are dumped. */
+export function createPostgresRolesSource(options: {
+  pgDumpAllExecutable: string; connection: RecoveryPostgresConnection; timeoutMs: number;
+}) { return postgresSource({ ...options, pgDumpExecutable: options.pgDumpAllExecutable }, 'roles'); }
+
+function postgresSource(options: {
+  pgDumpExecutable: string; connection: RecoveryPostgresConnection; timeoutMs: number;
+}, kind: 'database' | 'roles'): RecoverySource & { snapshotNotBefore: () => string | null } {
   const { pgDumpExecutable, connection: c, timeoutMs } = options;
   const atom = (s: string) => typeof s === 'string' && /^[A-Za-z0-9_.-]{1,128}$/.test(s);
   if (!isAbsolute(pgDumpExecutable) || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 86_400_000 ||
@@ -37,7 +46,9 @@ export function createPostgresRecoverySource(options: {
       opened = true; began = new Date().toISOString();
       const controller = new AbortController();
       const active = AbortSignal.any([signal, controller.signal, AbortSignal.timeout(timeoutMs)]);
-      const child = spawn(pgDumpExecutable, ['--format=custom', '--no-password', '--lock-wait-timeout=30000'], {
+      const args = kind === 'database' ? ['--format=custom', '--no-password', '--lock-wait-timeout=30000'] :
+        ['--roles-only', '--no-role-passwords', '--no-password', '--database', c.database];
+      const child = spawn(pgDumpExecutable, args, {
         shell: false, stdio: ['ignore', 'pipe', 'pipe'],
         env: { LANG: 'C', PATH: '/usr/bin:/bin', NODE_ENV: 'production', PGHOST: c.host, PGPORT: String(c.port), PGDATABASE: c.database,
           PGUSER: c.user, PGPASSWORD: c.password, PGCONNECT_TIMEOUT: '30', PGAPPNAME: 'helm-recovery-export',
@@ -68,12 +79,14 @@ export function createPostgresRecoverySource(options: {
           for await (const value of child.stdout) {
             active.throwIfAborted();
             const chunk = Buffer.from(value); bytes += chunk.length;
-            if (prefix.length < 5) prefix = Buffer.concat([prefix, chunk.subarray(0, 5 - prefix.length)]);
+            if (prefix.length < 100) prefix = Buffer.concat([prefix, chunk.subarray(0, 100 - prefix.length)]);
+            if (kind === 'roles' && bytes > 2 * 1024 * 1024) throw new Error();
             yield chunk;
           }
           // stdout EOF alone is not success: pg_dump may still fail afterwards.
           await withRecoveryAbort(producer, active);
-          if (bytes < 32 || prefix.toString('ascii') !== 'PGDMP') throw new Error();
+          if (bytes < 32 || (kind === 'database' ? prefix.subarray(0, 5).toString('ascii') !== 'PGDMP' :
+              !prefix.toString('ascii').startsWith('--\n-- PostgreSQL database cluster dump'))) throw new Error();
           complete = true;
         } catch { throw new Error('Recovery database export failed'); }
         finally { if (!complete) { controller.abort(); await producer.catch(() => {}); } }
