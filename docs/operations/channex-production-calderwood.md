@@ -1,7 +1,8 @@
 # Calderwood production Channex setup
 
-Verified in the authenticated production UI on 6 November 2026. **Account access
-and an unmapped property are ready. Live cutover is not ready.** Guesty continues
+Verified in the authenticated production UI and GET-only production API on
+6 November 2026. **Account access, the scoped server credential and an unmapped
+property are ready. Live cutover is not ready.** Guesty continues
 to operate the existing listing. These observations do not establish current
 calendar parity, provider delivery, or future runtime health.
 
@@ -66,32 +67,54 @@ or accept caller-supplied hosts, property IDs or URLs. Do not paste the key into
 chat or shell history. The two command arguments are mandatory. No cron, route,
 worker or environment flag starts this command automatically.
 
-As of this checkpoint, the production API Keys page had no keys. A create dialog
-was prepared with title `Helm - Calderwood production`, **Only Selected** and only
-65 Calderwood checked. The UI offers no read-only permission toggle. IP Access
-remains All; do not describe the key itself as read-only or IP restricted. The user
-has been asked to complete credential creation and approve storage in Helm's
-Vercel server secrets. **No key has been created or stored by this work, and no
-production API request has yet been executed.** Update this paragraph only after
-those steps and the actual inspection are verified.
+The user created `Helm - Calderwood production` and explicitly authorized storage
+in Helm/Vercel. Reopening the saved key's settings confirmed **Only Selected**,
+with only **65 Calderwood** checked. The UI offers no read-only permission toggle.
+IP Access remains All; the key itself permits API writes and is not IP restricted.
+The inspection command, independently, makes only GET requests.
+
+`CHANNEX_PRODUCTION_API_KEY` was saved to Vercel project
+`rising-tide-statements` as a **Sensitive**, **Production-only** environment
+variable at 14:53 UTC. Vercel metadata confirmed its type and target without
+printing its value. It was not added to source, chat, shell arguments, preview,
+development or the staging worker. The restrictive temporary credential file and
+directory were removed after verification; in-memory browser copies were cleared.
+
+At **2026-11-06T14:53:58.521Z**, the production inspection succeeded using that
+same credential. Its sanitized receipt established:
+
+| Check | Result |
+| --- | --- |
+| Property, room and rate identities/relationships | Exact reviewed IDs matched |
+| Currency, time zone and whole-home capacity | USD, America/New_York, one unit, six spaces |
+| Saved weekly stop-sell defaults | All seven true |
+| Property-filtered channel collection | Empty, provider total zero |
+| Provider mutations / calendar authority changes | None |
+| Ready for cutover | False |
+
+This was a local CLI process using the production API, not a Vercel runtime or
+background worker execution. Secret storage is not proof of a deployed consumer.
+No nightly availability, reservations, guest records, prices or messages were
+requested. The declared PriceLabs authority is configuration intent, not proof
+that PriceLabs has connected or populated this production rate.
 
 ## Work remaining before the Airbnb switch
 
-1. Provision the production credential, verify its saved property scope, and run
-   the configuration-only inspection above. Keep staging credentials and worker
-   isolated; changing a staging URL is not a production deployment procedure.
-2. Integrate and deploy the certified durable booking/availability path against
+1. Integrate and deploy the certified durable booking/availability path against
    the production mapping and real Helm property. The November 6 main tree has
    an iCal cutover path, while the Channex worker is on the separate staging
    branch/project. Neither is proof of a deployed production Channex consumer.
-3. Map PriceLabs to the actual production rate plan, preserving one price and
+   Keep staging credentials and worker isolated; changing a staging URL is not a
+   production deployment procedure. Credential provisioning and the GET-only
+   configuration inspection are complete.
+2. Map PriceLabs to the actual production rate plan, preserving one price and
    minimum-stay writer. Verify daily rates, restrictions, fees, markups and the
    existing Airbnb listing identity. Do not copy the staging $100 test rate.
-4. Refresh all current/future reservations, independent holds and message state.
+3. Refresh all current/future reservations, independent holds and message state.
    Prove automatic guest delivery plus cleaner SMS, duplicate prevention and the
    rare key-code hold/release. Preserve the existing Guesty schedule, including
    3 PM key-code delivery and guest-facing 3:30–4 PM guidance.
-5. Confirm the authorized Booking.com sales pause and resolve other sales paths
+4. Confirm the authorized Booking.com sales pause and resolve other sales paths
    (Vrbo is deferred but existing reservations still require protection). Then
    review the exact Airbnb/Guesty transition and containment procedure before
    connecting the live channel or releasing any sales.
@@ -108,8 +131,16 @@ GET-only requests, cross-environment/property mismatches, incomplete collection
 evidence, unclosed rates, redirect/error handling and credential redaction.
 Full suite: 3,737 passed, seven optional tests skipped, zero failed. TypeScript
 and targeted ESLint passed. An explicit credential-free CLI smoke exited with
-`CREDENTIAL_REQUIRED` before making a request. No live API connectivity is claimed
-from these synthetic checks or the authenticated UI observations.
+`CREDENTIAL_REQUIRED` before making a request. These synthetic checks are separate
+from the successful production API receipt above.
+
+Implementation [PR #2138](https://github.com/ryanfortsch/statement-portal/pull/2138)
+merged as `58aee09351f00d360641a3aaf02f94489e2e86e1` after all CI checks passed.
+The Vercel production deployment created at 14:45 UTC reached Ready. That
+deployment predates credential provisioning and does not establish that a running
+process loaded the new secret. This follow-up is documentation only: complete
+diff inspection, referenced-path checks and `git diff --check` apply; application
+tests need not be repeated for this evidence update.
 
 ## References
 
