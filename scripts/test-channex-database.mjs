@@ -1,0 +1,25 @@
+/** Real Postgres tests, synthetic loopback database only. No .env loading. */
+import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+if (process.env.PGDATABASE !== 'helm_synthetic_channex' || process.env.PGHOST !== '127.0.0.1') {
+  throw Error('Set PGHOST=127.0.0.1 and PGDATABASE=helm_synthetic_channex; never run against a hosted database');
+}
+const psql = process.env.CHANNEX_TEST_PSQL || 'psql';
+const read = p => readFileSync(new URL('../' + p, import.meta.url), 'utf8');
+const canonical = read('supabase/migrations/20260926200000_helm_pms_plumbing.sql');
+const functions = ['helm_row_conflicts', 'helm_create_booking', 'helm_move_booking'].map(name => {
+  const start = canonical.indexOf(`create or replace function public.${name}(`);
+  const end = canonical.indexOf('$$;', start);
+  if (start < 0 || end < 0) throw Error('Canonical booking function not found');
+  return canonical.slice(start, end + 3);
+}).join('\n');
+const sql = [read('scripts/tests/channex-fixture.sql'), functions,
+  read('supabase/migrations/20261106103000_channex_inventory_capture.sql'),
+  read('supabase/migrations/20261106103100_channex_booking_receipts.sql'),
+  read('supabase/migrations/20261106103200_channex_runtime_status.sql'),
+  read('supabase/migrations/20261106110000_channex_inventory_plans.sql'),
+  read('scripts/tests/channex-bookings.sql'),
+  read('scripts/tests/channex-inventory.sql')].join('\n');
+const result = spawnSync(psql, ['-X', '-q', '-v', 'ON_ERROR_STOP=1'], { input: sql, encoding: 'utf8' });
+if (result.status) { process.stderr.write(result.stderr); process.exit(result.status); }
+console.log('PASS: real Postgres booking receipts, canonical writers, inventory invalidation, and permissions');

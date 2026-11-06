@@ -470,7 +470,7 @@ export type FlaggedLine = ThreadLine & {
 /** Words a guest uses when something was wrong or when they want out. Read
  *  only on the guest's own messages. */
 const COMPLAINT =
-  /\b(broken|dirty|filthy|leak\w*|mold|mould|smell\w*|bugs?|mice|roach\w*|not working|doesn'?t work|didn'?t work|isn'?t working|no (?:heat|hot water|wifi|wi-fi|power)|misleading|not as (?:described|advertised|pictured)|disappoint\w*|unacceptable|unsafe|cancel\w*|complain\w*)\b/i;
+  /\b(broken|dirty|filthy|leak\w*|mold|mould|smell\w*|bugs?|mice|roach\w*|not working|doesn'?t work|didn'?t work|isn'?t working|no (?:heat|hot water|wifi|wi-fi|power)|misleading|not as (?:described|advertised|pictured)|disappoint\w*|unacceptable|unsafe|unsecured?|insecure|not secure|(?:can'?t|cannot|won'?t|unable to) (?:lock|latch|secure)|uncomfortable|refund\w*|money back|cancel\w*|complain\w*)\b/i;
 
 const STOP = new Set(['fee', 'fees', 'the', 'and', 'for', 'stay', 'at', 'charge', 'tax', 'occupancy']);
 
@@ -583,8 +583,12 @@ export type StayEvidenceInput = {
   review: StayReview | null;
   cardholderName: string | null;
   guestName: string | null;
-  /** Guest messages flagged as a complaint or a cancellation. */
+  /** Guest messages flagged as a complaint, a refund request or a cancellation. */
   complaints: number;
+  /** The whole thread was read. Without it, "no complaint" is never claimed. */
+  threadComplete: boolean;
+  /** The home's smart-lock and turnover record for the stay; null when not read. */
+  proof?: StayProof | null;
 };
 
 export type EvidenceRow = { label: string; value: string };
@@ -658,6 +662,8 @@ export function stayEvidence(input: StayEvidenceInput): StayEvidence {
   }
 
   const stayed = !cancelled && !!input.checkIn;
+  const proof = input.proof ? stayProofEvidence(input.proof, input.checkIn, input.checkOut) : null;
+  if (proof && (kind === 'not_as_described' || kind === 'not_received' || kind === 'fraud')) rows.push(...proof.rows);
   switch (kind) {
     case 'credit_not_processed': {
       if (signed) {
@@ -674,7 +680,7 @@ export function stayEvidence(input: StayEvidenceInput): StayEvidence {
     }
     case 'not_as_described': {
       if (stayed && input.checkOut) {
-        forBank.push(`The guest stayed the full booking, ${input.checkIn} to ${input.checkOut}, and was not moved or refunded for leaving early.`);
+        forBank.push(`Our booking record shows the reservation confirmed for its full dates, ${input.checkIn} to ${input.checkOut}, and never cancelled.`);
       }
       if (review && review.rating !== null && review.rating >= 4) {
         forBank.push(`After the stay the guest reviewed it at ${review.rating} of 5.`);
@@ -682,30 +688,36 @@ export function stayEvidence(input: StayEvidenceInput): StayEvidence {
         gaps.push(`The guest's review rates the stay ${review.rating} of 5. Answer each complaint in it with what was done.`);
       }
       if (input.complaints > 0) {
-        gaps.push(`${input.complaints} guest message${input.complaints === 1 ? '' : 's'} raise a complaint. Show each one beside what we did and when.`);
-      } else {
+        gaps.push(`${input.complaints} guest message${input.complaints === 1 ? ' raises' : 's raise'} a complaint. Show each one beside what we did and when.`);
+      } else if (input.threadComplete) {
         forBank.push('The guest raised no complaint with us during the stay.');
+      } else {
+        gaps.push('The guest thread is not complete in Helm. Read the whole thread in Guesty for complaints before submitting.');
       }
+      if (proof?.forBank.length) forBank.push(...proof.forBank);
+      gaps.push(...(proof?.gaps ?? ["Confirm the guest stayed: door unlocks, the check-in message, or the cleaner's turnover after checkout."]));
       gaps.push('Attach the listing as it read when the guest booked (description and photos).');
       if (!signed) gaps.push('No signed agreement for this stay in Helm. Attach the booking terms and house rules the guest accepted.');
       break;
     }
     case 'not_received': {
       if (stayed && input.checkOut) {
-        forBank.push(`The stay was provided: the guest checked in on ${input.checkIn} and out on ${input.checkOut}.`);
+        forBank.push(`Our booking record shows the reservation confirmed for ${input.checkIn} to ${input.checkOut} and never cancelled.`);
       }
       if (cancelled) gaps.push('Guesty shows this reservation cancelled. If the guest never arrived, check the refund owed under the policy before answering.');
-      gaps.push('Attach arrival proof: the check-in message, door code use, or the cleaner\'s turnover after checkout.');
+      if (proof?.forBank.length) forBank.push(...proof.forBank);
+      gaps.push(...(proof?.gaps ?? ["Attach arrival proof: the check-in message, door code use, or the cleaner's turnover after checkout."]));
       break;
     }
     case 'fraud': {
       const match = sameName(input.cardholderName, input.guestName);
       if (match === true) {
         rows.push({ label: 'Cardholder and guest', value: 'Same name' });
-        forBank.push(`The cardholder, ${input.cardholderName}, is the guest who booked and stayed.`);
+        forBank.push(`The cardholder, ${input.cardholderName}, is the guest named on the booking.`);
       } else if (match === false) {
         gaps.push(`The cardholder (${input.cardholderName}) is not the booking guest (${input.guestName}). Find out who paid before answering.`);
       }
+      if (proof?.guestUsedCode) forBank.push(...proof.forBank.filter((x) => x.startsWith("The guest's door code")));
       break;
     }
     default:
@@ -713,4 +725,123 @@ export function stayEvidence(input: StayEvidenceInput): StayEvidence {
   }
 
   return { rows, forBank, gaps };
+}
+
+// ---------------------------------------------------------------------------
+// Proof the stay happened, from the home's smart lock and the turnover.
+// ---------------------------------------------------------------------------
+
+/** A keypad unlock with a guest-role code. */
+export type DoorEntry = { at: string; codeName: string | null };
+
+export type StayProof = {
+  /** The home has a lock Helm reads. Without one, door proof is a gap. */
+  monitored: boolean;
+  /** Guest-role keypad unlocks at the home, any stay; filtered here. */
+  entries: DoorEntry[];
+  guestName: string | null;
+  /** The turnover after this checkout. */
+  cleaning: { enteredAt: string | null; entrySource: string | null; finishedAt: string | null; finishSource: string | null } | null;
+};
+
+const ET_DAY = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' });
+
+/** The Eastern calendar day of an instant (stays are Gloucester dates). */
+export function easternDay(iso: string): string {
+  const t = Date.parse(iso);
+  return Number.isFinite(t) ? ET_DAY.format(new Date(t)) : '';
+}
+
+/** "Oct 9 at 4:12 PM", Eastern. */
+export function easternWhen(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const day = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' });
+  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' });
+  return `${day} at ${time}`;
+}
+
+function tokens(name: string | null): Set<string> {
+  return new Set((name ?? '').toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length >= 3));
+}
+
+/**
+ * Whether a guest-role code belongs to this stay: a generic guest code (blank
+ * or named "...guest...") or one sharing a name with the guest. The same rule
+ * the turnover calendar's presence signal uses (operations.ts), so a leftover
+ * code named for another guest never counts.
+ */
+export function codeFitsGuest(codeName: string | null, guestName: string | null): boolean {
+  const n = (codeName ?? '').toLowerCase();
+  if (!n.trim() || /guest/.test(n)) return true;
+  const g = tokens(guestName);
+  for (const t of tokens(codeName)) if (g.has(t)) return true;
+  return false;
+}
+
+/** The guest's own keypad entries inside the stay's Eastern dates, oldest first. */
+export function guestEntriesForStay(
+  entries: DoorEntry[],
+  checkIn: string | null,
+  checkOut: string | null,
+  guestName: string | null,
+): DoorEntry[] {
+  if (!checkIn || !checkOut) return [];
+  return entries
+    .filter((e) => {
+      const day = easternDay(e.at);
+      return day >= checkIn && day <= checkOut && codeFitsGuest(e.codeName, guestName);
+    })
+    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+}
+
+/**
+ * What the lock log and the turnover prove about a stay. Only facts the
+ * record holds: when the guest's code was used, and when the cleaner's code
+ * opened the door after checkout. An estimated finish time is never cited,
+ * and a code's last use is not called a departure.
+ */
+export function stayProofEvidence(
+  proof: StayProof,
+  checkIn: string | null,
+  checkOut: string | null,
+): { rows: EvidenceRow[]; forBank: string[]; gaps: string[]; guestUsedCode: boolean } {
+  const rows: EvidenceRow[] = [];
+  const forBank: string[] = [];
+  const gaps: string[] = [];
+  const mine = guestEntriesForStay(proof.entries, checkIn, checkOut, proof.guestName);
+
+  if (!proof.monitored) {
+    gaps.push("This home has no smart lock Helm reads. Attach arrival proof: the check-in message, or the cleaner's turnover after checkout.");
+  } else if (mine.length === 0) {
+    gaps.push(
+      "The lock shows no entry with this guest's code during the stay. Check the lock in Seam (the guest may have used a lockbox or a key) and attach what shows they arrived.",
+    );
+  } else {
+    const first = mine[0];
+    const last = mine[mine.length - 1];
+    rows.push({
+      label: 'Guest door code',
+      value:
+        mine.length === 1
+          ? `Used once, ${easternWhen(first.at)}`
+          : `First used ${easternWhen(first.at)}, last used ${easternWhen(last.at)} (${mine.length} entries)`,
+    });
+    forBank.push(
+      mine.length === 1
+        ? `The guest's door code for this stay was used on ${easternWhen(first.at)}, from the home's smart-lock log.`
+        : `The guest's door code for this stay was used ${mine.length} times, first on ${easternWhen(first.at)} and last on ${easternWhen(last.at)}, from the home's smart-lock log.`,
+    );
+    gaps.push("Attach the lock's activity for these dates from Seam as the service record.");
+  }
+
+  const c = proof.cleaning;
+  if (c?.enteredAt && c.entrySource === 'seam_lock') {
+    rows.push({ label: 'Turnover after checkout', value: `Cleaner's code opened the door ${easternWhen(c.enteredAt)}` });
+    forBank.push(`After checkout our cleaner's code opened the door on ${easternWhen(c.enteredAt)} for the turnover.`);
+  } else if (c?.finishedAt && (c.finishSource === 'quo' || c.finishSource === 'manual')) {
+    rows.push({ label: 'Turnover after checkout', value: `Cleaning reported done ${easternWhen(c.finishedAt)}` });
+  }
+
+  return { rows, forBank, gaps, guestUsedCode: mine.length > 0 };
 }

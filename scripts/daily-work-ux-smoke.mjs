@@ -81,6 +81,7 @@ try {
  console.log('PASS follow-up date saves and clears independently of the visit date');
  assert.equal(await page.$eval('#match select',e=>e.value),'home-a');assert.equal(await page.$eval('#ambiguous select',e=>e.value),'');
  assert.match(await page.$eval('#match',e=>e.textContent),/text names this house/);
+ assert.equal(await page.$$eval('#ambiguous button',bs=>bs.filter(b=>/Attach|Confirm/.test(b.textContent)).length),0,'no greyed-out Attach before a house is picked');
  assert.equal((await calls()).filter(c=>c.kind==='attach').length,0);
  await click('#match','Confirm house');await page.waitForSelector('[role="alertdialog"]');await click('[role="alertdialog"]','Attach');await waitCalls(5);
  assert.deepEqual((await calls())[4],{kind:'attach',args:['message-a','home-a']});await finish(4,{ok:true});

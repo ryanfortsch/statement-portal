@@ -10,7 +10,7 @@ import {
   textDay,
   textLine,
   textWhen,
-  UNPLACED_FEED_LIMIT,
+  UNPLACED_PAGE_LIMIT,
   UNPLACED_WINDOW_DAYS,
   type AttachChoice,
   type AttachChoices,
@@ -18,6 +18,8 @@ import {
 
 export type UnplacedCleanerCard = {
   id: string;
+  /** The operating day the text arrived on, YYYY-MM-DD. */
+  day: string;
   /** "Tue, 10/20, 3:12 PM", Eastern. */
   when: string;
   cleanerName: string;
@@ -39,12 +41,13 @@ type Row = {
 
 /**
  * Open texts from the last two weeks, newest first, each with its house
- * picker. A text that has since been placed some other way (a replay after a
+ * picker. The home asks about the fresh ones (splitUnplacedForHome); the
+ * cleanings page lists them all. A text that has since been placed some other way (a replay after a
  * roster fix, the Quo sweep) drops off on its own: its message id already
  * carries a completion or a slip. Fails soft to nothing, so a missing table
  * or a slow read never costs the home page its feed.
  */
-export async function loadUnplacedCleanerTexts(): Promise<UnplacedCleanerCard[]> {
+export async function loadUnplacedCleanerTexts(limit: number = UNPLACED_PAGE_LIMIT): Promise<UnplacedCleanerCard[]> {
   try {
     const since = new Date(Date.now() - UNPLACED_WINDOW_DAYS * 86_400_000).toISOString();
     const { data, error } = await supabase
@@ -53,7 +56,7 @@ export async function loadUnplacedCleanerTexts(): Promise<UnplacedCleanerCard[]>
       .eq('status', 'open')
       .gte('message_at', since)
       .order('message_at', { ascending: false })
-      .limit(UNPLACED_FEED_LIMIT);
+      .limit(limit);
     if (error || !data || data.length === 0) return [];
     const rows = data as Row[];
 
@@ -91,6 +94,7 @@ export async function loadUnplacedCleanerTexts(): Promise<UnplacedCleanerCard[]>
       .filter((r) => !placed.has(r.quo_message_id))
       .map((r) => ({
         id: r.id,
+        day: textDay(r.message_at),
         when: textWhen(r.message_at),
         cleanerName: r.cleaner_name || 'A cleaner',
         line: textLine(r.message_body),

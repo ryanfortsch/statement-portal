@@ -1,5 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { decideListingRetirement, type ListingRowLite } from '@/lib/listing-retirement';
+import { listingTags } from '@/lib/guesty-listing-tags';
 import { NextRequest, NextResponse } from 'next/server';
 import { recordSyncFailure, recordSyncSuccess, recordSyncResult } from '@/lib/sync-status';
 import { syncCalendarDays } from '@/lib/calendar-days';
@@ -341,6 +342,24 @@ async function refreshListingMap(
       { onConflict: 'listing_id' },
     );
     if (error) throw new Error(`Failed to upsert guesty_listings: ${error.message}`);
+
+    // Listing tags ("Cleaning - Rosa" and the rest) ride a second write, off
+    // the listing objects already pulled above, so the launch checklist's
+    // guesty_rosa_tag step can tick itself. Best-effort and kept apart from
+    // the map upsert on purpose: until the guesty_listings.tags column
+    // exists on an env this write fails and the map must not fail with it.
+    const tagsByListing = new Map<string, string[]>();
+    for (const l of all) if (l?._id) tagsByListing.set(String(l._id), listingTags(l.tags));
+    const tagResults = await Promise.all(
+      rows.map((r) =>
+        getSupabase()
+          .from('guesty_listings')
+          .update({ tags: tagsByListing.get(r.listing_id) ?? [] })
+          .eq('listing_id', r.listing_id),
+      ),
+    );
+    const tagErr = tagResults.find((t) => t.error)?.error;
+    if (tagErr) console.warn('[sync-guesty] listing tags not stored:', tagErr.message);
 
     // Stamp the resolved id onto the property row itself, fill-empty-only.
     // properties.guesty_listing_id is what the SCA launch form prefills and

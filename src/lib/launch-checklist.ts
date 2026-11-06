@@ -32,6 +32,7 @@ import {
   pricingIsFlowing,
   scaIsLive,
 } from './property-facts.ts'; // relative: node:test loads this file (launch-checklist-scope.test.ts)
+import { hasRosaCleaningTag, ROSA_CLEANING_TAG } from './guesty-listing-tags.ts';
 
 export type LaunchStepStatus = 'todo' | 'in_progress' | 'done' | 'skipped' | 'n_a';
 
@@ -113,6 +114,7 @@ export type LaunchStep = {
     | 'open_quo'                // jump to Quo cleaner mapping
     | 'open_seam'               // jump to Seam lock mapping
     | 'open_guesty_automations' // jump to Guesty's message-automation list
+    | 'open_guesty_listing'     // jump to this home's listing in Guesty
     | 'open_pricelabs'          // jump to PriceLabs
     | 'generate_copy'           // AI listing-copy generator
     | 'caption_photos'          // AI Guesty photo-caption tool
@@ -314,6 +316,17 @@ export const LAUNCH_STEPS: ReadonlyArray<LaunchStep> = [
     action: 'open_quo',
   },
   {
+    key: 'guesty_rosa_tag',
+    phase: 'integrations',
+    title: `Tagged "${ROSA_CLEANING_TAG}" in Guesty`,
+    required: true,
+    who: 'ops',
+    description:
+      'In Guesty: open this listing, add the tag "Cleaning - Rosa" under Tags, and save. Cape Ann homes only; an out-of-region home is tagged for its own cleaner. Helm ticks this itself after the next Guesty sync sees the tag.',
+    why: 'Every home Rosa\'s crew cleans carries the tag, so it is how the Guesty listing list shows who cleans the house. A home without it drops out of anything in Guesty filtered by the tag.',
+    action: 'open_guesty_listing',
+  },
+  {
     key: 'guesty_cleaning_automation',
     phase: 'integrations',
     title: 'Added to the Guesty cleaning-updates automation',
@@ -457,6 +470,11 @@ export type LaunchDerivationContext = {
   invoiceNeedleMapped: boolean;
   /** src/lib/properties.ts PROPERTIES carries this id. */
   inCodeRoster: boolean;
+  /** Tags on this home's Guesty listing(s), stored by /api/sync-guesty on
+   *  guesty_listings.tags. Null or missing when they could not be read
+   *  (no synced listing yet, or the column is not on this env): the Rosa
+   *  tag step then asks instead of ticking. */
+  guestyListingTags?: string[] | null;
 };
 
 /**
@@ -473,6 +491,7 @@ export type LaunchDerivationContext = {
 const NOT_APPLICABLE_OFF_GUESTY_OR_OUT_OF_REGION: ReadonlySet<string> = new Set([
   'guesty_listing_match',
   'guesty_cleaning_automation',
+  'guesty_rosa_tag',
   'code_roster_entry',
   'sca_page_live',
 ]);
@@ -566,6 +585,8 @@ export function deriveStepResolved(
       return pricingIsFlowing(ctx.forwardDistinctPrices);
     case 'quo_cleaner_mapped':
       return ctx.hasQuoCleanerMapping;
+    case 'guesty_rosa_tag':
+      return hasRosaCleaningTag(ctx.guestyListingTags);
     case 'seam_lock_paired':
       return ctx.locksMapped > 0;
     case 'cape_ann_invoice_route':

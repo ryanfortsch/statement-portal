@@ -138,6 +138,29 @@ never key per-stay logic on `bookings.id`.
   `money_changed`, `feed_moved`, `note`) with `actor`, `before` and
   `after` jsonb. Written by the three RPCs and by the Channels actions.
   Read on the booking detail page. Service role only.
+- **`helm_airbnb_bookings` private schema**: production Channex scope, remote-to-canonical
+  booking links, sanitized revision receipts, and configuration-check status. Scope is
+  pinned to Calderwood's reviewed property/room/rate and starts **disabled**. No direct
+  service-role table access. `helm_airbnb_revision_commit` validates the active scope,
+  Helm calendar authority and inventory capture, then uses the canonical booking RPCs
+  and commits the receipt in the same transaction. Identical retries return the saved
+  receipt; older revisions are stale; changed identities and ambiguous ordering fail.
+  No current runtime calls the commit/ACK path. This is not another stay ledger or
+  proof of initial booking coverage. See the Channex production operations document.
+- **`helm_inventory_capture_scopes` / `helm_booking_inventory_events`**: disabled by
+  default; versioned, append-only availability invalidations. When enabled, canonical
+  booking changes, availability rules, dated closures, rental periods and authority
+  changes append events in the source transaction. Rates and minimum stays are excluded.
+  Events require full-window recomputation; they are not provider publish commands.
+  The app can read these tables but cannot activate capture or edit history.
+- **`helm_airbnb_bookings.inventory_scope` / `inventory_plans`**: dormant,
+  service-RPC-only availability planning. The scope holds coverage evidence,
+  configuration version and latest plan pointer; immutable plans contain only
+  500 dated availability values and source/version fingerprints. No prices,
+  minimum stays, guest fields or provider credentials. Atomic compare-and-save
+  rejects changed bookings/configuration, missing coverage and expired windows;
+  identical retries resolve to the same plan. No dispatch/publishing RPC exists.
+  `helm_channex_inventory_status()` exposes bounded configuration counts only.
 - **`guests`**: the Helm-native guest record (name, email, phone, notes,
   `source`). `bookings.guest_id` points here for direct and manual stays.
   It is NOT `audience_contacts` (the marketing list) and NOT `contacts`

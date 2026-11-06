@@ -403,7 +403,7 @@ function Row({
 /** The sentence under the pointer, and what a screen reader hears. */
 function cellText(home: string, cell: GridCell, today: string): string {
   const when = dayLong(cell.date);
-  const who = cell.badges.map((b) => (b.kind === 'walked' ? `walked by ${b.name}` : b.kind === 'walking' ? `${b.name} walking now` : b.kind === 'field' ? b.name : b.kind === 'unassigned' ? b.name : `${b.name}${b.late ? ', was due earlier' : ''}`));
+  const who = cell.badges.map((b) => (b.kind === 'walked' ? `walked by ${b.name}${b.on ? ` ${dayWord(b.on, today)}` : ''}` : b.kind === 'walking' ? (b.on ? `${b.name} started walking it ${dayWord(b.on, today)} and never finished` : `${b.name} walking now`) : b.kind === 'field' ? b.name : b.kind === 'unassigned' ? b.name : `${b.name}${b.late ? ', was due earlier' : ''}`));
   const lead = `${home} · ${when}`;
   if (cell.state === 'occupied') return `${lead}: guest in house${who.length ? ` · ${who.join(', ')}` : ''}`;
   if (cell.state === 'blocked') return `${lead}: owner / hold${cell.hold === 'long' ? ', no end in view' : ''}${who.length ? ` · ${who.join(', ')}` : ''}`;
@@ -441,11 +441,12 @@ function dayNumber(date: string): string {
 function dayLong(date: string): string {
   return new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' }).format(new Date(`${date}T12:00:00Z`));
 }
-/** "today", "tomorrow", "Thu" within the week, else "Nov 5". */
+/** "today", "tomorrow", "yesterday", "Thu" within the week, else "Nov 5". */
 function dayWord(date: string, today: string): string {
   const n = Math.round((Date.parse(`${date}T12:00:00Z`) - Date.parse(`${today}T12:00:00Z`)) / 86_400_000);
   if (n === 0) return 'today';
   if (n === 1) return 'tomorrow';
+  if (n === -1) return 'yesterday';
   if (n > 1 && n <= 6) return dow(date);
   return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(new Date(`${date}T12:00:00Z`));
 }

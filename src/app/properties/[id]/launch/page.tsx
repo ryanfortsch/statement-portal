@@ -220,6 +220,7 @@ export default async function PropertyLaunchPage({ params }: { params: Promise<P
                   key={step.key}
                   propertyId={p.id}
                   propertyName={p.name}
+                  guestyListingId={p.guesty_listing_id ?? null}
                   step={step}
                   row={byKey.get(step.key) ?? null}
                   autoResolved={effectiveByKey.get(step.key)?.auto ?? false}

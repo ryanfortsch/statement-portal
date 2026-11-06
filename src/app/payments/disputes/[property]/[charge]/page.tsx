@@ -148,6 +148,8 @@ export default async function DisputePacketPage({
   const flagged = allFlagged
     ? allFlagged.filter((l) => l.aboutCharge || l.mentionsRefund || (showsComplaints && l.complaint))
     : null;
+  // A refund request from the guest is a complaint for this count: claiming
+  // "no complaint" beside one would hand the bank the guest's case.
   const complaints = allFlagged ? allFlagged.filter((l) => l.complaint).length : 0;
 
   const stayEv =
@@ -164,6 +166,8 @@ export default async function DisputePacketPage({
           cardholderName: facts.cardholderName,
           guestName: stay.guestName,
           complaints,
+          threadComplete: !!allFlagged && threadCoverage?.complete !== false,
+          proof: record?.proof ?? null,
         })
       : null;
 
