@@ -138,6 +138,21 @@ never key per-stay logic on `bookings.id`.
   `money_changed`, `feed_moved`, `note`) with `actor`, `before` and
   `after` jsonb. Written by the three RPCs and by the Channels actions.
   Read on the booking detail page. Service role only.
+- **`helm_airbnb_bookings` private schema**: production Channex scope, remote-to-canonical
+  booking links, sanitized revision receipts, and configuration-check status. Scope is
+  pinned to Calderwood's reviewed property/room/rate and starts **disabled**. No direct
+  service-role table access. `helm_airbnb_revision_commit` validates the active scope,
+  Helm calendar authority and inventory capture, then uses the canonical booking RPCs
+  and commits the receipt in the same transaction. Identical retries return the saved
+  receipt; older revisions are stale; changed identities and ambiguous ordering fail.
+  No current runtime calls the commit/ACK path. This is not another stay ledger or
+  proof of initial booking coverage. See the Channex production operations document.
+- **`helm_inventory_capture_scopes` / `helm_booking_inventory_events`**: disabled by
+  default; versioned, append-only availability invalidations. When enabled, canonical
+  booking changes, availability rules, dated closures, rental periods and authority
+  changes append events in the source transaction. Rates and minimum stays are excluded.
+  Events require full-window recomputation; they are not provider publish commands.
+  The app can read these tables but cannot activate capture or edit history.
 - **`guests`**: the Helm-native guest record (name, email, phone, notes,
   `source`). `bookings.guest_id` points here for direct and manual stays.
   It is NOT `audience_contacts` (the marketing list) and NOT `contacts`

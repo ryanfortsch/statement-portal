@@ -1,0 +1,45 @@
+name: Channex production database
+on:
+  pull_request:
+    paths:
+      - 'src/lib/channex-bookings/**'
+      - 'src/lib/channex-production*'
+      - 'src/app/api/cron/channex-production/**'
+      - 'supabase/migrations/*channex*'
+      - 'scripts/test-channex-database.mjs'
+      - 'scripts/tests/channex*'
+      - '.github/workflows/channex-production.yml'
+permissions:
+  contents: read
+jobs:
+  channex-database:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: synthetic-only
+          POSTGRES_DB: helm_synthetic_channex
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: synthetic-only
+      PGDATABASE: helm_synthetic_channex
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - run: node scripts/test-channex-database.mjs
+      - run: bash scripts/tests/channex-concurrency.sh

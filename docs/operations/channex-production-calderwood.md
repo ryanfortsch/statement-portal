@@ -64,8 +64,8 @@ node --conditions=react-server scripts/check-channex-production.mts --property=6
 Required server secret: `CHANNEX_PRODUCTION_API_KEY`. The script deliberately does
 not load `.env` files, accept a key as an argument, use a staging key as fallback,
 or accept caller-supplied hosts, property IDs or URLs. Do not paste the key into
-chat or shell history. The two command arguments are mandatory. No cron, route,
-worker or environment flag starts this command automatically.
+chat or shell history. The two command arguments are mandatory. The CLI remains explicit. The separately gated production inspection route below
+uses this adapter, with no booking consumer or provider writer.
 
 The user created `Helm - Calderwood production` and explicitly authorized storage
 in Helm/Vercel. Reopening the saved key's settings confirmed **Only Selected**,
@@ -100,13 +100,13 @@ that PriceLabs has connected or populated this production rate.
 
 ## Work remaining before the Airbnb switch
 
-1. Integrate and deploy the certified durable booking/availability path against
-   the production mapping and real Helm property. The November 6 main tree has
-   an iCal cutover path, while the Channex worker is on the separate staging
-   branch/project. Neither is proof of a deployed production Channex consumer.
-   Keep staging credentials and worker isolated; changing a staging URL is not a
-   production deployment procedure. Credential provisioning and the GET-only
-   configuration inspection are complete.
+1. Wire the durable booking processor and availability publisher into a reviewed
+   production cutover. The receipt engine and disabled storage described below
+   are available, but the deployed mode only inspects configuration. It does not
+   read the revision feed, ACK bookings, publish dates or prove initial coverage.
+   Keep staging credentials and the staging worker isolated. The production
+   consumer still needs checkpointed recovery, complete canonical-input reads,
+   retry/lease handling and an operational failure surface before activation.
 2. Map PriceLabs to the actual production rate plan, preserving one price and
    minimum-stay writer. Verify daily rates, restrictions, fees, markups and the
    existing Airbnb listing identity. Do not copy the staging $100 test rate.
@@ -122,6 +122,51 @@ that PriceLabs has connected or populated this production rate.
 The recovery/Drive work is separate. The new Drive backup schedule remains off
 while the user has deferred 1Password recovery-key custody. No recovery keys or
 new backup schedules were created in this production configuration batch.
+
+## Production storage and inspection mode
+
+`src/lib/channex-bookings/` contains the server-only normalized revision parser,
+fixed-host reader, commit/readback/ACK engine and RPC store. The engine validates
+an entire batch before writing, preserves microsecond ordering and requires the
+independent durable receipt to exactly match the commit response before ACK.
+ACK is explicitly disabled by default. A provider failure after a committed
+write is recoverable by replaying the original receipt. No raw provider payload,
+guest contact data, price or payment data is stored in this receipt path.
+
+The three `20261106103000`–`20261106103200` migrations add the tables described in
+`SCHEMA.md`, a disabled Calderwood mapping and service-only RPCs. Import requires
+both an enabled mapping and canonical Helm authority plus enabled capture; there
+is no activation RPC. Canonical writes, audit events, availability invalidation
+and revision receipts commit atomically. Identical revisions are idempotent;
+changed revision contents, ambiguous timestamps, overlaps and unexpected edits
+to mapped canonical bookings fail for review. Capture takes no action while its
+scope is disabled. Existing Guesty and iCal paths retain their authority.
+
+`GET /api/cron/channex-production` runs every 15 minutes with normal cron bearer
+or an effective owner session. It requires `CHANNEX_PRODUCTION_MODE=inspect`,
+Vercel production, the exact production database, and both server credentials.
+Preview/staging or an unexpected enabled scope, authority, mapping or nonzero
+receipt/event count is refused. It verifies dormant storage, then reads only the
+reviewed property, room, rate and empty channels. It saves a bounded status code,
+last attempt/success time and consecutive failure count through service-only
+RPCs. Check `helm_channex_runtime_status()` for this configuration check; this
+is separate from `sync_status`, because no booking synchronization runs here.
+A successful result always says `readyForCutover: false`.
+
+This mode has no booking ingestion, ACK, availability/rate writes, messaging,
+channel attachment, authority flip or environment-based shortcut to enable them.
+`CHANNEX_PRODUCTION_MODE=consume` deliberately fails. Future activation must
+replace this inspection-only invariant with tested cutover state transitions;
+do not merely relax the checks or turn on the two database scopes.
+
+Synthetic integration tests use actual canonical functions extracted from
+`20260926200000_helm_pms_plumbing.sql` with a loopback-only disposable Postgres
+database named `helm_synthetic_channex`. `scripts/test-channex-database.mjs`
+checks transactions, replay, ordering, cancellation of pending automation,
+overlap rollback, source invalidations and permissions. The concurrent test
+checks manual creation and same-booking editing against import, plus two
+deliveries of the same revision. GitHub CI runs this against Postgres 16. These tests do not establish
+live OTA delivery, complete stay coverage or permission to disconnect Guesty.
 
 ## Implementation validation
 
@@ -141,6 +186,12 @@ deployment predates credential provisioning and does not establish that a runnin
 process loaded the new secret. This follow-up is documentation only: complete
 diff inspection, referenced-path checks and `git diff --check` apply; application
 tests need not be repeated for this evidence update.
+
+The subsequent runtime/storage batch, branch `codex/channex-production-runtime`,
+is based on `db84b6a3904e741dc0d4a2ad356009160eec76d0`. Local validation: 3,771
+application tests passed, seven optional tests skipped, zero failures; TypeScript,
+targeted ESLint and real Postgres 18 persistence/concurrency checks passed.
+Production application/deployment evidence is recorded separately after rollout.
 
 ## References
 
