@@ -42,6 +42,8 @@ type Props = {
   activatedAt?: string | null;
   /** Gate card only: label for the Activate button. */
   propertyName?: string;
+  /** The home's Guesty listing id, for the open_guesty_listing deep link. */
+  guestyListingId?: string | null;
 };
 
 /** The four steps whose action maps to a real property column. For these
@@ -67,6 +69,7 @@ const FIELD_ACTION_META: Record<
 function deepLinkFor(
   action: LaunchStep['action'],
   propertyId: string,
+  guestyListingId?: string | null,
 ): { href: string; label: string; external: boolean } | null {
   switch (action) {
     case 'edit_field':
@@ -97,6 +100,12 @@ function deepLinkFor(
       // automation). "Cleaning updates - Rosa" lives here; there is no API
       // for it, so the operator adds the listing by hand.
       return { href: 'https://app.guesty.com/workflows/messages', label: 'Open Guesty automations', external: true };
+    case 'open_guesty_listing':
+      // The listing's own page in Guesty, where Tags are edited. Without a
+      // listing id yet, the listing list is the closest place to start.
+      return guestyListingId
+        ? { href: `https://app.guesty.com/properties/${encodeURIComponent(guestyListingId)}/property/v2`, label: 'Open listing in Guesty', external: true }
+        : { href: 'https://app.guesty.com/properties', label: 'Open Guesty listings', external: true };
     case 'open_pricelabs':
       return { href: 'https://app.pricelabs.co/', label: 'Open PriceLabs', external: true };
     case 'send_welcome':
@@ -131,6 +140,7 @@ export function LaunchStepCard({
   canActivate,
   activatedAt,
   propertyName,
+  guestyListingId,
 }: Props) {
   const softRefresh = useSoftRefresh();
   const [pending, startTransition] = useTransition();
@@ -171,7 +181,7 @@ export function LaunchStepCard({
   const isDone = status === 'done';
   const isSkipped = status === 'n_a';
   const isResolved = isDone || isSkipped;
-  const link = deepLinkFor(step.action, propertyId);
+  const link = deepLinkFor(step.action, propertyId, guestyListingId);
 
   function changeStatus(next: LaunchStepStatus) {
     setError(null);

@@ -145,6 +145,32 @@ async function loadInvoiceMapped(): Promise<Set<string>> {
   }
 }
 
+/**
+ * Guesty listing tags per property, from guesty_listings.tags (written by
+ * /api/sync-guesty off the listing objects it already pulls). A home with
+ * several mapped listings gets the union. A failed read (the column not on
+ * this env yet) leaves the map empty, so the Rosa tag step asks.
+ */
+async function loadListingTags(ids: string[]): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  if (!isServiceConfigured || ids.length === 0) return out;
+  try {
+    const { data, error } = await supabase
+      .from('guesty_listings')
+      .select('property_id, tags')
+      .in('property_id', ids);
+    if (error) return out;
+    for (const r of (data ?? []) as Array<{ property_id: string | null; tags: string[] | null }>) {
+      if (!r.property_id || !Array.isArray(r.tags)) continue;
+      const merged = new Set([...(out.get(r.property_id) ?? []), ...r.tags]);
+      out.set(r.property_id, [...merged]);
+    }
+  } catch {
+    // degrade to no tags
+  }
+  return out;
+}
+
 /** Scope columns for the ids, so a caller's narrower select still gets a
  *  correct n_a derive. A failed read leaves the map empty: the derive then
  *  treats the home as a Guesty-run Cape Ann home, which asks, never lies. */
@@ -264,12 +290,13 @@ export async function loadLaunchForFleet(
       calendar_authority: p.calendar_authority !== undefined ? p.calendar_authority : read?.calendar_authority ?? null,
     };
   };
-  const [rowsById, scaById, cleanerMappings, locksById, invoiceMapped, perProperty] = await Promise.all([
+  const [rowsById, scaById, cleanerMappings, locksById, invoiceMapped, tagsById, perProperty] = await Promise.all([
     loadRows(ids),
     loadScaStatus(ids),
     loadCleanerMappings(),
     loadLockCounts(ids),
     loadInvoiceMapped(),
+    loadListingTags(ids),
     Promise.all(
       properties.map(async (p) => {
         const [forwardDistinctPrices, firstStayCheckIn, upcomingStays] = await Promise.all([
@@ -311,6 +338,7 @@ export async function loadLaunchForFleet(
       firstStayStarted: !!per?.firstStayCheckIn,
       invoiceNeedleMapped: invoiceMapped.has(p.id),
       inCodeRoster: !!PROPERTIES[p.id],
+      guestyListingTags: tagsById.get(p.id) ?? null,
     };
     const effective = resolveLaunchSteps(rows, ctx);
     out.set(p.id, {
