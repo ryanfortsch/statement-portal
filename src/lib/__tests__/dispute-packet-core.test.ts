@@ -212,6 +212,7 @@ const base: StayEvidenceInput = {
   cardholderName: 'Pat Guest',
   guestName: 'Pat Guest',
   complaints: 0,
+  threadComplete: true,
 };
 
 const signed = {
@@ -251,7 +252,9 @@ test('strict no-refund agreements read as such', () => {
 
 test('not as described: a full stay and a good review go to the bank; complaints are gaps', () => {
   const good = stayEvidence({ ...base, kind: 'not_as_described', review: { rating: 5, at: '2026-09-06', text: null } });
-  assert.ok(good.forBank.some((s) => s.includes('stayed the full booking')));
+  assert.ok(good.forBank.some((s) => s.includes('confirmed for its full dates')));
+  assert.ok(!good.forBank.some((s) => /stayed the full|leaving early/.test(s)), 'Helm never claims what it cannot see');
+  assert.ok(good.gaps.some((g) => g.includes('Confirm the guest stayed')));
   assert.ok(good.forBank.some((s) => s.includes('5 of 5')));
   assert.ok(good.forBank.some((s) => s.includes('raised no complaint')));
 
@@ -273,4 +276,20 @@ test('fraud: the cardholder is the guest, or the mismatch is a gap', () => {
   const other = stayEvidence({ ...base, kind: 'fraud', cardholderName: 'Someone Else' });
   assert.equal(other.forBank.length, 0);
   assert.ok(other.gaps.some((g) => g.includes('not the booking guest')));
+});
+
+test('a guest asking for a refund over safety is a complaint, so "no complaint" is never claimed', () => {
+  const msg =
+    'I found the exterior window in the garage unsecure and could not latch it. I am uncomfortable lodging here. I am requesting a full refund.';
+  const [f] = flagThread([{ at: '2026-10-09T21:12:00Z', who: 'G', body: msg }], { item: 'HA-x', amountsCents: [], guestWho: 'G' });
+  assert.equal(f.complaint, true);
+  for (const body of ['The door won\'t lock', 'Can we get our money back?', 'This is not secure']) {
+    assert.equal(flagThread([{ at: 'x', who: 'G', body }], { item: 'x', amountsCents: [], guestWho: 'G' })[0].complaint, true, body);
+  }
+});
+
+test('an incomplete thread never yields "no complaint"', () => {
+  const ev = stayEvidence({ ...base, kind: 'not_as_described', threadComplete: false });
+  assert.ok(!ev.forBank.some((s) => s.includes('raised no complaint')));
+  assert.ok(ev.gaps.some((g) => g.includes('not complete')));
 });
