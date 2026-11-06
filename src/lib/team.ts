@@ -32,10 +32,13 @@ export type TeamAccess = 'owner' | 'staff';
  * someone else off one, and creates, publishes or hands out a Field packet.
  * Ryan and Dotti (2026-10-30; Ryan runs the company, so he holds every
  * duty's authority); `hasDuty` is the gate, so moving it is one line here.
+ * `disputes`: answers card disputes; the daily dispute run files each one as
+ * their to-do, due the day Stripe stops taking evidence. Allie (2026-11-06;
+ * she answered every dispute before).
  * Notices resolve through `src/lib/team-recipients.ts`; nothing in the app
  * should name a teammate's inbox directly.
  */
-export type TeamDuty = 'field_pay' | 'creative' | 'countersign' | 'staff_copy' | 'dispatch';
+export type TeamDuty = 'field_pay' | 'creative' | 'countersign' | 'staff_copy' | 'dispatch' | 'disputes';
 
 export type TeamMember = {
   email: string;        // canonical id
@@ -91,7 +94,7 @@ export const TEAM_MEMBERS: TeamMember[] = [
     role: 'operations',
     access: 'owner',
     active: true,
-    duties: ['staff_copy'],
+    duties: ['staff_copy', 'disputes'],
   },
   {
     email: 'dotti@risingtidestr.com',

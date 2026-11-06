@@ -151,9 +151,22 @@ export const HELM_MODULES: HelmModule[] = [
     section: 'financials',
     group: 'money',
     access: 'owner',
-    // A charged-back row's dispute packet (2026-11-05): owners only, reached
-    // from the Stripe lookup row, no index page of its own.
-    routePrefixes: ['/payments/disputes'],
+  },
+  {
+    id: 'disputes',
+    href: '/payments/disputes',
+    number: '01',
+    title: 'Card disputes',
+    description:
+      "Every guest card dispute across the homes' own Stripe accounts, with its evidence deadline and packet, and whether each home's payment page asks the guest to accept terms. Read-only.",
+    status: 'active',
+    primary: false,
+    hidden: true,
+    section: 'financials',
+    group: 'money',
+    access: 'owner',
+    // The packet for one charge (2026-11-05) sits under it; the index and the
+    // daily dispute to-do came 2026-11-06.
   },
   {
     id: 'statements',

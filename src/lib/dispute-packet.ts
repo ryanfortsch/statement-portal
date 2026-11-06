@@ -27,7 +27,17 @@ import {
   type ThreadMessage,
 } from '@/lib/stay-concierge';
 import { loadDisputeFacts, type DisputeFacts } from '@/lib/dispute-stripe';
-import { folioLines, type FolioLine } from '@/lib/dispute-packet-core';
+import {
+  folioLines,
+  stayHintsFromDescription,
+  type FolioLine,
+  type StayAgreement,
+  type StayReview,
+} from '@/lib/dispute-packet-core';
+
+/** A loosely typed row from a Supabase or Stripe read. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type DbRow = Record<string, any>;
 
 export type PacketStay = {
   reservationId: string;
@@ -40,6 +50,16 @@ export type PacketStay = {
   folio: FolioLine[];
   /** Guesty's own figure: includes manual payments recorded in Guesty. */
   guestyTotalPaidCents: number | null;
+  status: string | null;
+  bookedAt: string | null;
+};
+
+/** What Helm holds about the stay itself, beyond the folio and the thread. */
+export type StayRecord = {
+  agreement: StayAgreement | null;
+  /** The home's own cancellation policy (house policy). */
+  housePolicy: string | null;
+  review: StayReview | null;
 };
 
 export type ThreadCoverage = {
@@ -58,6 +78,8 @@ export type DisputePacketData = {
   /** How much of the thread that is: Guesty serves only its newest 25 posts,
    *  and the concierge fills older ones from its own record. */
   threadCoverage: ThreadCoverage | null;
+  /** Agreement, policy and review for the stay; null when no stay was found. */
+  record: StayRecord | null;
   /** What could not be read, for the page to say. */
   unread: string[];
 };
@@ -79,18 +101,27 @@ export async function loadDisputePacket(
     reservationIdFromRequestKey(facts.requestKey || '') ||
     (facts.metadata.reservationId || '').trim() ||
     null;
-  const confirmationCode = (facts.metadata.confirmationCode || '').trim() || null;
+  // A charge with no metadata still names its stay in its description: a
+  // Guesty Payments charge by confirmation code, a Stay Cape Ann charge by
+  // its "<check-in> to <check-out>" range.
+  const hints = stayHintsFromDescription(facts.description);
+  const confirmationCode = (facts.metadata.confirmationCode || '').trim() || hints.confirmationCode;
 
   let stay: PacketStay | null = null;
-  if (reservationId || confirmationCode) {
-    const cols = 'guesty_reservation_id, confirmation_code, guest_name, check_in, check_out, nights, channel, folio_items, total_paid';
+  if (reservationId || confirmationCode || (hints.checkIn && hints.checkOut)) {
+    const cols =
+      'guesty_reservation_id, confirmation_code, guest_name, check_in, check_out, nights, channel, folio_items, total_paid, status, booked_at';
     const q = supabaseAdmin.from('guesty_reservations').select(cols).eq('property_id', propertyId);
     const { data, error } = await (reservationId
       ? q.eq('guesty_reservation_id', reservationId)
-      : q.eq('confirmation_code', confirmationCode as string)
-    ).limit(1);
+      : confirmationCode
+        ? q.eq('confirmation_code', confirmationCode)
+        : q.eq('check_in', hints.checkIn as string).eq('check_out', hints.checkOut as string)
+    ).limit(2);
     if (error) unread.push('the reservation');
-    const row = (data?.[0] ?? null) as Record<string, any> | null;
+    // A date range that matches two records is not a match.
+    const rows = (data ?? []) as DbRow[];
+    const row = rows.length === 1 || reservationId || confirmationCode ? (rows[0] ?? null) : null;
     if (row) {
       const paid = Number(row.total_paid);
       stay = {
@@ -103,6 +134,8 @@ export async function loadDisputePacket(
         channel: row.channel ?? null,
         folio: folioLines(row.folio_items),
         guestyTotalPaidCents: Number.isFinite(paid) && row.total_paid !== null ? Math.round(paid * 100) : null,
+        status: row.status ?? null,
+        bookedAt: row.booked_at ?? null,
       };
     } else if (!error) {
       unread.push('the reservation (no synced Guesty row matches this charge)');
@@ -114,7 +147,60 @@ export async function loadDisputePacket(
   const threadCoverage = threadRead?.messages ? threadRead.coverage : null;
   if (threadRead && !threadRead.messages) unread.push(`the guest conversation (${threadRead.why})`);
 
-  return { ok: true, data: { facts, link, stay, thread, threadCoverage, unread } };
+  const record = stay ? await loadStayRecord(propertyId, stay, unread) : null;
+
+  return { ok: true, data: { facts, link, stay, thread, threadCoverage, record, unread } };
+}
+
+/**
+ * The signed agreement for the stay (matched by home and check-in day), the
+ * home's cancellation policy and the guest's review. Each read is optional;
+ * a failed one is named in `unread`.
+ */
+async function loadStayRecord(propertyId: string, stay: PacketStay, unread: string[]): Promise<StayRecord> {
+  const [agreements, home, reviews] = await Promise.all([
+    stay.checkIn
+      ? supabaseAdmin
+          .from('guest_agreements')
+          .select('guest_signed_at, guest_signed_name, countersigned_at, cancel_cutoff_days, cancel_refund_pct, voided_at, drive_url')
+          .eq('property_id', propertyId)
+          .eq('stay_start', stay.checkIn)
+          .order('created_at', { ascending: false })
+          .limit(3)
+      : Promise.resolve({ data: [], error: null }),
+    supabaseAdmin.from('properties').select('cancellation_policy').eq('id', propertyId).maybeSingle(),
+    supabaseAdmin
+      .from('reviews')
+      .select('overall_rating, review_created_at, public_review')
+      .eq('reservation_id', stay.reservationId)
+      .not('overall_rating', 'is', null)
+      .limit(1),
+  ]);
+  if (agreements.error) unread.push('the rental agreement');
+  if (home.error) unread.push("the home's cancellation policy");
+  if (reviews.error) unread.push("the guest's review");
+
+  // A signed, unvoided agreement wins over a draft or a voided one.
+  const rows = (agreements.data ?? []) as DbRow[];
+  const a = rows.find((r) => r.guest_signed_at && !r.voided_at) ?? rows[0] ?? null;
+  const r = ((reviews.data ?? []) as DbRow[])[0] ?? null;
+  return {
+    agreement: a
+      ? {
+          signedAt: a.guest_signed_at ?? null,
+          signedName: a.guest_signed_name ?? null,
+          countersignedAt: a.countersigned_at ?? null,
+          cancelCutoffDays: a.cancel_cutoff_days ?? null,
+          cancelRefundPct: a.cancel_refund_pct ?? null,
+          voided: !!a.voided_at,
+          driveUrl: a.drive_url ?? null,
+        }
+      : null,
+    housePolicy: ((home.data as DbRow | null)?.cancellation_policy as string | null) ?? null,
+    review: r
+      ? { rating: Number(r.overall_rating), at: r.review_created_at ?? null, text: r.public_review ?? null }
+      : null,
+  };
 }
 
 /**

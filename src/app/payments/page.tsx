@@ -110,6 +110,8 @@ export default async function PaymentsPage({
           <div style={{ marginBottom: 16, fontSize: 12, color: 'var(--ink-3)' }}>
             Saved-card balances for far-future stays are charged from{' '}
             <Link href="/payments/balance-charges" style={{ color: 'var(--tide-deep)' }}>Balance charges</Link>.
+            Card disputes and their deadlines:{' '}
+            <Link href="/payments/disputes" style={{ color: 'var(--tide-deep)' }}>Disputes</Link>.
           </div>
         )}
         <PaymentsSearchForm
