@@ -7,6 +7,7 @@ import { HelmFooter } from '@/components/HelmFooter';
 import { isOwnerSession } from '@/lib/helm-access-server';
 import { getActivePropertiesForStatements } from '@/lib/properties-server';
 import { loadDisputePacket, type ThreadCoverage } from '@/lib/dispute-packet';
+import { PrintPacketButton } from '../../PrintPacketButton';
 import {
   PLAYBOOK,
   disputeKind,
@@ -14,6 +15,7 @@ import {
   money,
   parseOtherPayments,
   reconcileOtherMeans,
+  stayEvidence,
   type DisputeKind,
   type Strength,
 } from '@/lib/dispute-packet-core';
@@ -99,7 +101,7 @@ export default async function DisputePacketPage({
     );
   }
 
-  const { facts, link, stay, thread, threadCoverage, unread } = packet.data;
+  const { facts, link, stay, thread, threadCoverage, record, unread } = packet.data;
   const kindOverride = one(sp.kind) as DisputeKind;
   const kind: DisputeKind = kindOverride in PLAYBOOK ? kindOverride : disputeKind(facts.dispute?.reason, facts.dispute?.networkCode);
   const playbook = PLAYBOOK[kind];
@@ -123,11 +125,12 @@ export default async function DisputePacketPage({
       })
     : null;
 
-  const flagged = thread
+  const guestWho = stay?.guestName || 'Guest';
+  const allFlagged = thread
     ? flagThread(
         thread.map((m) => ({
           at: m.at,
-          who: m.who === 'guest' ? stay?.guestName || 'Guest' : 'Rising Tide',
+          who: m.who === 'guest' ? guestWho : 'Rising Tide',
           body: m.body,
           fromLog: m.source === 'log',
         })),
@@ -135,9 +138,37 @@ export default async function DisputePacketPage({
           item,
           guestName: stay?.guestName ?? facts.cardholderName,
           amountsCents: [facts.amountCents, disputedCents ?? 0, link?.base_cents ?? 0],
+          guestWho,
         },
-      ).filter((l) => l.aboutCharge || l.mentionsRefund)
+      )
     : null;
+  // A stay dispute turns on what the guest complained about; an add-on
+  // dispute on the messages about the charge.
+  const showsComplaints = !SEPARATE_PURCHASE.includes(kind);
+  const flagged = allFlagged
+    ? allFlagged.filter((l) => l.aboutCharge || l.mentionsRefund || (showsComplaints && l.complaint))
+    : null;
+  // A refund request from the guest is a complaint for this count: claiming
+  // "no complaint" beside one would hand the bank the guest's case.
+  const complaints = allFlagged ? allFlagged.filter((l) => l.complaint).length : 0;
+
+  const stayEv =
+    stay && !SEPARATE_PURCHASE.includes(kind)
+      ? stayEvidence({
+          kind,
+          checkIn: stay.checkIn,
+          checkOut: stay.checkOut,
+          bookedAt: stay.bookedAt,
+          reservationStatus: stay.status,
+          housePolicy: record?.housePolicy ?? null,
+          agreement: record?.agreement ?? null,
+          review: record?.review ?? null,
+          cardholderName: facts.cardholderName,
+          guestName: stay.guestName,
+          complaints,
+          threadComplete: !!allFlagged && threadCoverage?.complete !== false,
+        })
+      : null;
 
   return (
     <Shell home={home}>
@@ -146,7 +177,10 @@ export default async function DisputePacketPage({
       <div className="no-print" style={{ ...quiet, marginBottom: 20 }}>
         Read-only. Helm sends nothing to Stripe: print this page to PDF (Cmd+P) and upload it in the
         dispute in the Stripe dashboard{facts.dispute?.dueBy ? `, before ${facts.dispute.dueBy}` : ''}.{' '}
-        <Link href="/payments" style={{ color: 'var(--tide-deep)' }}>Back to the Stripe lookup</Link>
+        <Link href="/payments/disputes" style={{ color: 'var(--tide-deep)' }}>All disputes</Link>
+        <div style={{ marginTop: 10 }}>
+          <PrintPacketButton />
+        </div>
       </div>
 
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
@@ -299,6 +333,64 @@ export default async function DisputePacketPage({
         </>
       )}
 
+      {SEPARATE_PURCHASE.includes(kind) ? null : !stay ? (
+        <>
+          <h2 style={h2}>The stay</h2>
+          <p style={quiet}>
+            Helm could not tie this charge to a reservation. Find the stay in Guesty and attach its confirmation,
+            the policy the guest accepted and the thread.
+          </p>
+        </>
+      ) : stayEv && (
+        <>
+          <h2 style={h2}>The stay</h2>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+            <tbody>
+              {stayEv.rows.map((r) => (
+                <Row key={r.label} label={r.label}>
+                  {r.value}
+                </Row>
+              ))}
+              {record?.agreement?.driveUrl && (
+                <Row label="Signed copy">
+                  <a href={record.agreement.driveUrl} style={{ color: 'var(--tide-deep)' }}>
+                    In Helm Records
+                  </a>
+                  <span className="no-print" style={quiet}> (attach the PDF)</span>
+                </Row>
+              )}
+            </tbody>
+          </table>
+          {stayEv.forBank.length > 0 && (
+            <>
+              <h3 style={{ ...h2, fontSize: 17, margin: '24px 0 8px' }}>For the bank</h3>
+              <p className="no-print" style={{ ...quiet, margin: '0 0 8px' }}>
+                Paste into the explanation in Stripe.
+              </p>
+              <div style={{ border: '1px solid var(--rule)', padding: 14, fontSize: 14, lineHeight: 1.55 }}>
+                {stayEv.forBank.map((s) => (
+                  <p key={s} style={{ margin: '0 0 8px' }}>
+                    {s}
+                  </p>
+                ))}
+              </div>
+            </>
+          )}
+          {stayEv.gaps.length > 0 && (
+            <div className="no-print">
+              <h3 style={{ ...h2, fontSize: 17, margin: '24px 0 8px', color: 'var(--signal)' }}>Before you submit</h3>
+              <ul style={{ margin: 0, paddingLeft: 18, fontSize: 14 }}>
+                {stayEv.gaps.map((g) => (
+                  <li key={g} style={{ marginBottom: 4 }}>
+                    {g}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </>
+      )}
+
       <h2 style={h2}>How the charge was agreed</h2>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
         <tbody>
@@ -336,12 +428,16 @@ export default async function DisputePacketPage({
       {flagged === null ? (
         <p style={quiet}>The conversation could not be read. Export the thread from Guesty and attach it.</p>
       ) : flagged.length === 0 ? (
-        <p style={quiet}>No message names this charge, its amount or a refund. Search the thread by hand before submitting.</p>
+        <p style={quiet}>
+          No message names this charge, its amount or a refund{showsComplaints ? ', and the guest raised no complaint' : ''}.
+          Search the thread by hand before submitting.
+        </p>
       ) : (
         <>
           <p className="no-print" style={{ ...quiet, margin: '0 0 8px' }}>
-            Messages naming this charge or its amount, and every mention of a refund. Quote the guest&apos;s agreement;
-            make sure no message promised more than was refunded.
+            Messages naming this charge or its amount, every mention of a refund
+            {showsComplaints ? ', and every complaint or cancellation from the guest' : ''}. Quote the guest&apos;s
+            agreement; make sure no message promised more than was refunded.
           </p>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
             <tbody>
@@ -356,6 +452,11 @@ export default async function DisputePacketPage({
                     {m.fromLog && (
                       <div className="no-print" style={{ ...quiet, marginTop: 4 }}>
                         From the concierge&apos;s record; Guesty no longer serves this message
+                      </div>
+                    )}
+                    {m.complaint && showsComplaints && (
+                      <div className="no-print eyebrow" style={{ color: 'var(--signal)', marginTop: 4 }}>
+                        Complaint or cancellation
                       </div>
                     )}
                     {m.mentionsRefund && (

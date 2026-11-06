@@ -462,7 +462,15 @@ export type FlaggedLine = ThreadLine & {
   aboutCharge: boolean;
   /** Mentions a refund: the bank will ask whether we promised one. */
   mentionsRefund: boolean;
+  /** A complaint or a cancellation from the guest's side: what a "not as
+   *  described" or "credit not processed" claim is built on. */
+  complaint: boolean;
 };
+
+/** Words a guest uses when something was wrong or when they want out. Read
+ *  only on the guest's own messages. */
+const COMPLAINT =
+  /\b(broken|dirty|filthy|leak\w*|mold|mould|smell\w*|bugs?|mice|roach\w*|not working|doesn'?t work|didn'?t work|isn'?t working|no (?:heat|hot water|wifi|wi-fi|power)|misleading|not as (?:described|advertised|pictured)|disappoint\w*|unacceptable|unsafe|unsecured?|insecure|not secure|(?:can'?t|cannot|won'?t|unable to) (?:lock|latch|secure)|uncomfortable|refund\w*|money back|cancel\w*|complain\w*)\b/i;
 
 const STOP = new Set(['fee', 'fees', 'the', 'and', 'for', 'stay', 'at', 'charge', 'tax', 'occupancy']);
 
@@ -501,7 +509,7 @@ function amountTokens(cents: number[]): string[] {
  */
 export function flagThread(
   lines: ThreadLine[],
-  opts: { item: string; guestName?: string | null; amountsCents: number[] },
+  opts: { item: string; guestName?: string | null; amountsCents: number[]; guestWho?: string },
 ): FlaggedLine[] {
   const words = itemWords(opts.item, opts.guestName ?? null);
   const amounts = amountTokens(opts.amountsCents);
@@ -511,6 +519,203 @@ export function flagThread(
       words.some((w) => new RegExp(`\\b${w}`, 'i').test(text)) ||
       amounts.some((a) => new RegExp(`(^|[^\\d.,])\\$?${a.replace(/[.,]/g, (ch) => `\\${ch}`)}(?![\\d])`).test(text));
     const mentionsRefund = /\brefund/i.test(text);
-    return { ...l, aboutCharge, mentionsRefund };
+    const fromGuest = opts.guestWho === undefined || l.who === opts.guestWho;
+    const complaint = fromGuest && COMPLAINT.test(text);
+    return { ...l, aboutCharge, mentionsRefund, complaint };
   });
+}
+
+// ---------------------------------------------------------------------------
+// Finding the stay a charge paid for.
+// ---------------------------------------------------------------------------
+
+/**
+ * What a stay charge's description says about its stay. A Guesty Payments
+ * charge is described by its confirmation code alone ("HA-Ou0mq08"); a Stay
+ * Cape Ann charge by "<title> - <check-in> to <check-out>". Either finds the
+ * reservation when the charge carries no metadata.
+ */
+export function stayHintsFromDescription(description: string | null | undefined): {
+  confirmationCode: string | null;
+  checkIn: string | null;
+  checkOut: string | null;
+} {
+  const d = description || '';
+  const code = d.match(/\b(HA-[A-Za-z0-9]{5,}|GY-[A-Za-z0-9]{5,}|HM[A-Z0-9]{8})\b/);
+  const range = d.match(/(\d{4}-\d{2}-\d{2})\s+to\s+(\d{4}-\d{2}-\d{2})/);
+  return {
+    confirmationCode: code ? code[1] : null,
+    checkIn: range ? range[1] : null,
+    checkOut: range ? range[2] : null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Evidence about the stay itself, for the reason codes that are about the
+// stay rather than an add-on: a cancellation, "not as described", "not
+// received", an unrecognized charge.
+// ---------------------------------------------------------------------------
+
+export type StayAgreement = {
+  signedAt: string | null;
+  signedName: string | null;
+  countersignedAt: string | null;
+  /** Null renders the strict no-refund clause. */
+  cancelCutoffDays: number | null;
+  cancelRefundPct: number | null;
+  voided: boolean;
+  driveUrl: string | null;
+};
+
+export type StayReview = { rating: number | null; at: string | null; text: string | null };
+
+export type StayEvidenceInput = {
+  kind: DisputeKind;
+  checkIn: string | null;
+  checkOut: string | null;
+  /** When the guest booked (ISO). */
+  bookedAt: string | null;
+  /** Guesty's status for the reservation. */
+  reservationStatus: string | null;
+  /** The home's own cancellation policy text (house policy). */
+  housePolicy: string | null;
+  agreement: StayAgreement | null;
+  review: StayReview | null;
+  cardholderName: string | null;
+  guestName: string | null;
+  /** Guest messages flagged as a complaint, a refund request or a cancellation. */
+  complaints: number;
+  /** The whole thread was read. Without it, "no complaint" is never claimed. */
+  threadComplete: boolean;
+};
+
+export type EvidenceRow = { label: string; value: string };
+
+export type StayEvidence = { rows: EvidenceRow[]; forBank: string[]; gaps: string[] };
+
+function daysBetween(fromIso: string, toYmd: string): number | null {
+  const a = Date.parse(fromIso.slice(0, 10) + 'T12:00:00Z');
+  const b = Date.parse(toYmd.slice(0, 10) + 'T12:00:00Z');
+  return Number.isFinite(a) && Number.isFinite(b) ? Math.round((b - a) / 86_400_000) : null;
+}
+
+/** The cancellation terms an agreement printed, in its own words. */
+export function agreementCancellationWords(a: StayAgreement): string {
+  if (a.cancelCutoffDays === null) return 'no refund on cancellation';
+  return `${a.cancelRefundPct ?? 100}% refund when cancelled more than ${a.cancelCutoffDays} days before check-in, none after`;
+}
+
+function sameName(a: string | null, b: string | null): boolean | null {
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z ]/g, ' ').split(/\s+/).filter((w) => w.length > 1);
+  if (!a || !b) return null;
+  const x = norm(a);
+  const y = new Set(norm(b));
+  return x.length > 0 && x.some((w) => y.has(w));
+}
+
+/**
+ * What Helm can show a bank about the stay a charge paid for, by reason
+ * code, with a sentence for the bank where the record supports one and a gap
+ * where it does not. Nothing here is guessed: a fact Helm does not hold (the
+ * day a guest cancelled, the listing as it read at booking) is a gap.
+ */
+export function stayEvidence(input: StayEvidenceInput): StayEvidence {
+  const rows: EvidenceRow[] = [];
+  const forBank: string[] = [];
+  const gaps: string[] = [];
+  const { kind, agreement, review } = input;
+  const cancelled = /cancel/i.test(input.reservationStatus || '');
+
+  if (input.checkIn && input.checkOut) rows.push({ label: 'Stay', value: `${input.checkIn} to ${input.checkOut}` });
+  if (input.bookedAt && input.checkIn) {
+    const ahead = daysBetween(input.bookedAt, input.checkIn);
+    rows.push({
+      label: 'Booked',
+      value: `${input.bookedAt.slice(0, 10)}${ahead !== null && ahead >= 0 ? `, ${ahead} days before check-in` : ''}`,
+    });
+  }
+  if (input.reservationStatus) {
+    rows.push({ label: 'Reservation', value: cancelled ? 'Cancelled in Guesty' : `${input.reservationStatus} in Guesty` });
+  }
+
+  const signed = agreement && agreement.signedAt && !agreement.voided ? agreement : null;
+  if (signed) {
+    rows.push({
+      label: 'Rental agreement',
+      value: `Signed${signed.signedName ? ` by ${signed.signedName}` : ''} on ${signed.signedAt!.slice(0, 10)}${
+        signed.countersignedAt ? `, countersigned ${signed.countersignedAt.slice(0, 10)}` : ''
+      }`,
+    });
+  } else if (agreement?.voided) {
+    rows.push({ label: 'Rental agreement', value: 'Voided' });
+  }
+
+  const policy = signed ? agreementCancellationWords(signed) : (input.housePolicy || '').trim() || null;
+  if (policy && (kind === 'credit_not_processed' || kind === 'not_as_described' || kind === 'general')) {
+    rows.push({ label: signed ? 'Cancellation terms signed' : "The home's cancellation policy", value: policy });
+  }
+
+  if (review && review.rating !== null) {
+    rows.push({ label: "Guest's review", value: `${review.rating} of 5${review.at ? ` on ${review.at.slice(0, 10)}` : ''}` });
+  }
+
+  const stayed = !cancelled && !!input.checkIn;
+  switch (kind) {
+    case 'credit_not_processed': {
+      if (signed) {
+        forBank.push(
+          `The guest signed our rental agreement on ${signed.signedAt!.slice(0, 10)}, which sets the cancellation terms: ${agreementCancellationWords(signed)}. The refund the guest is claiming is not owed under those terms.`,
+        );
+      } else if (policy) {
+        gaps.push('No signed agreement for this stay in Helm. Attach proof the guest accepted the policy at booking (the channel confirmation or the booking checkbox), or the bank will treat the policy as unseen.');
+      } else {
+        gaps.push('Helm has no cancellation policy for this stay or home. Attach the policy the guest saw at booking.');
+      }
+      gaps.push('Helm does not record the day the guest cancelled. Add it from Guesty and count the days before check-in against the policy.');
+      break;
+    }
+    case 'not_as_described': {
+      if (stayed && input.checkOut) {
+        forBank.push(`Our booking record shows the reservation confirmed for its full dates, ${input.checkIn} to ${input.checkOut}, and never cancelled.`);
+      }
+      if (review && review.rating !== null && review.rating >= 4) {
+        forBank.push(`After the stay the guest reviewed it at ${review.rating} of 5.`);
+      } else if (review && review.rating !== null) {
+        gaps.push(`The guest's review rates the stay ${review.rating} of 5. Answer each complaint in it with what was done.`);
+      }
+      if (input.complaints > 0) {
+        gaps.push(`${input.complaints} guest message${input.complaints === 1 ? '' : 's'} raise a complaint. Show each one beside what we did and when.`);
+      } else if (input.threadComplete) {
+        forBank.push('The guest raised no complaint with us during the stay.');
+      } else {
+        gaps.push('The guest thread is not complete in Helm. Read the whole thread in Guesty for complaints before submitting.');
+      }
+      gaps.push("Confirm the guest stayed: door unlocks, the check-in message, or the cleaner's turnover after checkout.");
+      gaps.push('Attach the listing as it read when the guest booked (description and photos).');
+      if (!signed) gaps.push('No signed agreement for this stay in Helm. Attach the booking terms and house rules the guest accepted.');
+      break;
+    }
+    case 'not_received': {
+      if (stayed && input.checkOut) {
+        forBank.push(`Our booking record shows the reservation confirmed for ${input.checkIn} to ${input.checkOut} and never cancelled.`);
+      }
+      if (cancelled) gaps.push('Guesty shows this reservation cancelled. If the guest never arrived, check the refund owed under the policy before answering.');
+      gaps.push('Attach arrival proof: the check-in message, door code use, or the cleaner\'s turnover after checkout.');
+      break;
+    }
+    case 'fraud': {
+      const match = sameName(input.cardholderName, input.guestName);
+      if (match === true) {
+        rows.push({ label: 'Cardholder and guest', value: 'Same name' });
+        forBank.push(`The cardholder, ${input.cardholderName}, is the guest who booked and stayed.`);
+      } else if (match === false) {
+        gaps.push(`The cardholder (${input.cardholderName}) is not the booking guest (${input.guestName}). Find out who paid before answering.`);
+      }
+      break;
+    }
+    default:
+      break;
+  }
+
+  return { rows, forBank, gaps };
 }
