@@ -88,7 +88,7 @@ describe('one rule for both boxes, and nothing is capped away', () => {
   test('the card counts the recent rows and the fold offers the same controls', () => {
     const src = read('src/components/messaging/NumberTriage.tsx');
     assert.ok(src.includes('const recentCount = visibleUnknowns.length + visibleSuggestions.length;'));
-    assert.ok(src.includes('New numbers · {recentCount}'));
+    assert.ok(src.includes('Recent phone records · {recentCount}'));
     assert.ok(src.includes('visibleOlderUnknowns.slice(0, OLDER_SHOWN).map(renderUnknown)'), 'older numbers can still be attached');
     assert.ok(src.includes('visibleOlderSuggestions.slice(0, OLDER_SHOWN).map(renderSuggestion)'));
   });

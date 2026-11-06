@@ -366,9 +366,9 @@ export function conciergeAlertCopy(alert: Pick<ConciergeAlert, 'kind' | 'summary
       const said = grab(/wrote "(.+?)"\./i, s);
       return out(
         `${who ?? 'Someone'} texted the Owners line and matches no owner${said ? `: ${quoted(said, 80)}` : ''}; add their number to the owner it belongs to.`,
-        // The number triage card on the Inbox (Attach, New contact, Not
-        // ours) is where an unnamed number is filed since 2026-10-18.
-        { label: 'Open New numbers', href: '/messaging#new-numbers' },
+        // This specific sender needs matching before a draft can be made.
+        // The deep link opens the otherwise optional contact controls.
+        { label: 'Match this sender', href: '/messaging#new-numbers' },
         null,
       );
     }

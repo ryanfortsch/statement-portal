@@ -1,7 +1,7 @@
 'use client';
 
 import { suggestedContact } from '@/lib/matching-suggestions';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { ContactType, UnknownNumberRow } from '@/lib/crm';
@@ -34,6 +34,10 @@ import { useSoftRefresh } from '@/lib/use-soft-refresh';
  * It lived in two boxes on /crm with two verb sets (Attach / Add as new /
  * Dismiss, Add to Helm / Skip) until 2026-10-18. Each row owns its pending
  * state; a lost response keeps the row and says to check before retrying.
+ *
+ * Optional contact maintenance below Conversations, closed by default.
+ * The total is a filing backlog, not a count of messages needing a reply.
+ * Existing #new-numbers links still open the matching controls directly.
  *
  * A number Helm can name (knownByPhone, src/lib/known-numbers.ts) leads
  * with the name, picks the household it belongs to, and opens New contact
@@ -73,6 +77,19 @@ function defaultTypeForLine(line: UnknownNumberRow['quo_line'], known?: KnownFor
 export function NumberTriage({ unknownNumbers, olderUnknownNumbers = [], suggestions, olderSuggestions = [], guestByPhone, knownByPhone = {}, doNotHostByPhone = {}, contacts, properties }: Props) {
   const router = useRouter();
   const softRefresh = useSoftRefresh();
+  const matchingDetails = useRef<HTMLDetailsElement>(null);
+  // The card streams in after the shell. Handle both an arriving deep link
+  // and an alert clicked later, when the browser's initial anchor pass is over.
+  useEffect(() => {
+    const openLinkedMatching = () => {
+      if (window.location.hash !== '#new-numbers' || !matchingDetails.current) return;
+      matchingDetails.current.open = true;
+      matchingDetails.current.scrollIntoView({ block: 'start' });
+    };
+    openLinkedMatching();
+    window.addEventListener('hashchange', openLinkedMatching);
+    return () => window.removeEventListener('hashchange', openLinkedMatching);
+  }, []);
   const [promote, setPromote] = useState<UnknownNumberRow | null>(null);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const phoneLocks = useRef(new Set<string>());
@@ -306,9 +323,14 @@ export function NumberTriage({ unknownNumbers, olderUnknownNumbers = [], suggest
   if (recentCount + olderCount === 0 && Object.keys(acceptedSuggestions).length === 0) return null;
 
   return (
-    <section id="new-numbers" className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 8, paddingBottom: 24, width: '100%' }}>
-      <div style={{ border: '1px solid var(--signal)', padding: '16px 18px' }}>
-        <div className="eyebrow" style={{ color: 'var(--signal)', marginBottom: 12 }}>New numbers · {recentCount}</div>
+    <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 8, paddingBottom: 24, width: '100%' }}>
+      <details ref={matchingDetails} style={{ borderTop: '1px solid var(--rule)', color: 'var(--ink-3)' }}>
+        <summary style={{ padding: '14px 0', fontSize: 13, cursor: 'pointer' }}>Contact matching <span style={{ color: 'var(--ink-4)', marginLeft: 8 }}>Optional</span></summary>
+        {/* A target inside details also lets the browser reveal it when
+            the same fragment is clicked again after closing the panel. */}
+        <div id="new-numbers" style={{ paddingBottom: 16 }}>
+        <p style={{ fontSize: 13, lineHeight: 1.6, margin: '0 0 14px' }}>Link phone records or add details from the Quo address book when useful. This list tracks contact filing, not unread messages.</p>
+        <div className="eyebrow" style={{ color: 'var(--ink-3)', marginBottom: 12 }}>Recent phone records · {recentCount}</div>
         <input type="search" aria-label="Search contacts for matching" placeholder="Find a contact by name or phone" value={search} onChange={e => setSearch(e.target.value)} style={{ width: '100%', maxWidth: 360, fontSize: 14, padding: 10, marginBottom: 12, border: '1px solid var(--rule)', background: 'var(--paper)' }} />
         {Object.entries(acceptedSuggestions).map(([id, result]) => (
           <div key={id} role="status" style={{ paddingBottom: 10, fontSize: 12 }}>
@@ -340,7 +362,8 @@ export function NumberTriage({ unknownNumbers, olderUnknownNumbers = [], suggest
             )}
           </div>
         )}
-      </div>
+        </div>
+      </details>
 
       {promote && (
         <NewContactModal
