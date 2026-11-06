@@ -17,7 +17,9 @@ const sql = [read('scripts/tests/channex-fixture.sql'), functions,
   read('supabase/migrations/20261106103000_channex_inventory_capture.sql'),
   read('supabase/migrations/20261106103100_channex_booking_receipts.sql'),
   read('supabase/migrations/20261106103200_channex_runtime_status.sql'),
-  read('scripts/tests/channex-bookings.sql')].join('\n');
+  read('supabase/migrations/20261106110000_channex_inventory_plans.sql'),
+  read('scripts/tests/channex-bookings.sql'),
+  read('scripts/tests/channex-inventory.sql')].join('\n');
 const result = spawnSync(psql, ['-X', '-q', '-v', 'ON_ERROR_STOP=1'], { input: sql, encoding: 'utf8' });
 if (result.status) { process.stderr.write(result.stderr); process.exit(result.status); }
 console.log('PASS: real Postgres booking receipts, canonical writers, inventory invalidation, and permissions');

@@ -3,10 +3,15 @@ on:
   pull_request:
     paths:
       - 'src/lib/channex-bookings/**'
+      - 'src/lib/channex-inventory/**'
+      - 'src/lib/availability.ts'
+      - 'src/lib/rate-plan.ts'
+      - 'src/lib/rental-periods.ts'
       - 'src/lib/channex-production*'
       - 'src/app/api/cron/channex-production/**'
       - 'supabase/migrations/*channex*'
       - 'scripts/test-channex-database.mjs'
+      - 'scripts/test-channex-planner.mts'
       - 'scripts/tests/channex*'
       - '.github/workflows/channex-production.yml'
 permissions:
@@ -41,5 +46,8 @@ jobs:
         with:
           node-version: '24'
           package-manager-cache: false
+      - run: npm ci --no-audit --no-fund
       - run: node scripts/test-channex-database.mjs
+      - run: node --import ./scripts/server-only-test-hook.mjs scripts/test-channex-planner.mts
       - run: bash scripts/tests/channex-concurrency.sh
+      - run: bash scripts/tests/channex-inventory-concurrency.sh

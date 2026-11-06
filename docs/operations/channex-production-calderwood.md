@@ -105,8 +105,9 @@ that PriceLabs has connected or populated this production rate.
    are available, but the deployed mode only inspects configuration. It does not
    read the revision feed, ACK bookings, publish dates or prove initial coverage.
    Keep staging credentials and the staging worker isolated. The production
-   consumer still needs checkpointed recovery, complete canonical-input reads,
-   retry/lease handling and an operational failure surface before activation.
+   consumer still needs complete upstream coverage/recovery, provider dispatch and
+   reconciliation, retry/lease handling and an operational failure surface before
+   activation. Durable canonical-input planning is described below.
 2. Map PriceLabs to the actual production rate plan, preserving one price and
    minimum-stay writer. Verify daily rates, restrictions, fees, markups and the
    existing Airbnb listing identity. Do not copy the staging $100 test rate.
@@ -146,7 +147,9 @@ scope is disabled. Existing Guesty and iCal paths retain their authority.
 or an effective owner session. It requires `CHANNEX_PRODUCTION_MODE=inspect`,
 Vercel production, the exact production database, and both server credentials.
 Preview/staging or an unexpected enabled scope, authority, mapping or nonzero
-receipt/event count is refused. It verifies dormant storage, then reads only the
+receipt/event count is refused. It also verifies that availability planning and
+publishing are disabled, with no plans or source-coverage claims. It verifies
+dormant storage, then reads only the
 reviewed property, room, rate and empty channels. It saves a bounded status code,
 last attempt/success time and consecutive failure count through service-only
 RPCs. Check `helm_channex_runtime_status()` for this configuration check; this
@@ -167,6 +170,57 @@ overlap rollback, source invalidations and permissions. The concurrent test
 checks manual creation and same-booking editing against import, plus two
 deliveries of the same revision. GitHub CI runs this against Postgres 16. These tests do not establish
 live OTA delivery, complete stay coverage or permission to disconnect Guesty.
+
+## Availability planning
+
+`src/lib/channex-inventory/` adapts the staging availability calculation to the
+reviewed production mapping. It reuses Helm's canonical `buildAvailability`:
+confirmed/completed stays, independent holds, conservative OTA closures,
+duplicates, turnover buffers, closed dates, rental periods, advance notice and
+the 365-day booking window. It calculates exactly 500 days, including the closed
+remainder beyond that booking window. It reads only the availability fields;
+PriceLabs price and minimum-stay columns never enter a snapshot or saved plan.
+
+Migration `20261106110000_channex_inventory_plans.sql` adds private scope/head and
+immutable plan storage. It starts disabled, with **no coverage claims and no
+plans**. An inactive read returns only `status: disabled`. Preparing a plan
+requires enabled import/capture/planning, Helm authority, the exact production
+mapping and complete fresh observations for both `canonical-calendar` and
+`channex-bookings`, including buffer neighbours. Empty revision feeds are not
+coverage evidence. The coverage setter/initial reconciliation workflow is not
+implemented by this batch; do not seed optimistic observations to pass a gate.
+
+One SQL snapshot returns bounded canonical inputs, including one excess row
+where truncation must fail closed. Database check-in times are normalized to
+HH:MM. The planner's validity expires within 60 seconds and at the next Eastern
+midnight or advance-notice boundary. Clock ticks cannot renew upstream coverage.
+The database compares capture/configuration/head versions and an independent
+source fingerprint before saving. It validates all 500 dates, availability-only
+fields, source coverage, freshness and the exact content/identity digests.
+An identical retry returns the same version. A new snapshot of identical inputs
+may extend its validity within existing evidence; the immutable plan is retained.
+
+A booking writer can commit before a planner, causing the old plan to be refused,
+or after it, immediately invalidating the saved capture version. Simultaneous
+planners converge on one durable plan. No canonical booking locks are acquired
+by the planner, avoiding a reverse dependency on booking writers. Plans contain
+no guest details; source fingerprints are persisted instead of input snapshots.
+
+**There is no provider dispatcher in this batch.** A saved plan does not mean
+availability was sent. The future dispatcher must recheck scope, authority,
+source completeness, versions, clock and exact mapped destination atomically
+before IO, then preserve uncertain attempts until receipt/readback reconciliation.
+Do not turn a plan into a send by adding a bare fetch or merely enabling flags.
+
+Validation on branch `codex/channex-production-availability`, based on
+`f6628425b4d968a18430ec18748a2c60ecab6a66`: the Node tests cover canonical parity,
+independent holds after cancellation, buffer neighbours, incomplete/stale sources,
+malformed inputs, DST, midnight, notice boundaries and uncertain storage responses.
+`scripts/test-channex-planner.mts` runs the real TypeScript planner against the
+loopback synthetic database, proving SQL/TypeScript digest agreement and durable
+retry. The SQL and simultaneous-process tests exercise stale writes, lost-response
+retries, permissions and concurrent canonical writes. CI runs Postgres 16; local
+validation uses Postgres 18. These are synthetic checks, not live channel proof.
 
 ## Implementation validation
 
