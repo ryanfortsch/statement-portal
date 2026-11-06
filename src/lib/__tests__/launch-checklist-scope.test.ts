@@ -8,15 +8,15 @@ import {
 } from '../launch-checklist.ts';
 
 /**
- * Four launch steps presuppose a Guesty listing or a Cape Ann surface:
- * guesty_listing_match, guesty_cleaning_automation, code_roster_entry,
- * sca_page_live. A Helm-run home (calendar_authority = 'helm') or a home
+ * Five launch steps presuppose a Guesty listing or a Cape Ann surface:
+ * guesty_listing_match, guesty_cleaning_automation, guesty_rosa_tag,
+ * code_roster_entry, sca_page_live. A Helm-run home (calendar_authority = 'helm') or a home
  * outside Cape Ann (region != cape_ann) resolves them n_a instead of
  * asking the operator to tick a step with no object. A manual status
  * still wins, and everything else derives exactly as before.
  */
 
-const SCOPED = ['guesty_listing_match', 'guesty_cleaning_automation', 'code_roster_entry', 'sca_page_live'];
+const SCOPED = ['guesty_listing_match', 'guesty_cleaning_automation', 'guesty_rosa_tag', 'code_roster_entry', 'sca_page_live'];
 
 function ctx(over: Partial<LaunchDerivationContext['property']> = {}, rest: Partial<LaunchDerivationContext> = {}): LaunchDerivationContext {
   return {
@@ -52,7 +52,7 @@ test('a Guesty-run Cape Ann home: nothing is n_a, including when region is missi
   }
 });
 
-test('a Helm-run home resolves the four Guesty / Cape Ann steps n_a', () => {
+test('a Helm-run home resolves the Guesty / Cape Ann steps n_a', () => {
   const c = ctx({ region: 'cape_ann', calendar_authority: 'helm' });
   for (const key of SCOPED) assert.equal(deriveStepNotApplicable(key, c), true, key);
   const byKey = new Map(resolveLaunchSteps([], c).map((e) => [e.step.key, e]));
@@ -69,7 +69,7 @@ test('an out-of-region home resolves them n_a even while Guesty still runs it', 
   for (const key of SCOPED) assert.equal(deriveStepNotApplicable(key, c), true, key);
 });
 
-test('only those four steps are scoped; the rest derive as before', () => {
+test('only those steps are scoped; the rest derive as before', () => {
   const c = ctx({ region: 'bridgeport_ct', calendar_authority: 'helm', bank_last4: '1226' }, { locksMapped: 1 });
   for (const key of ['bank_last4', 'seam_lock_paired', 'pricing_flowing', 'quo_cleaner_mapped', 'activated', 'external_title']) {
     assert.equal(deriveStepNotApplicable(key, c), false, key);
