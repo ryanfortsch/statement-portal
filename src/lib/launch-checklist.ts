@@ -110,6 +110,7 @@ export type LaunchStep = {
     | 'set_bank_last4'          // inline editor for properties.bank_last4
     | 'set_external_title'      // inline editor for properties.title
     | 'set_tax_cert'            // inline editor for properties.tax_cert_id
+    | 'email_cleaner_bank'      // draft the bank-account email to Cape Ann Elite (owners)
     | 'open_quo'                // jump to Quo cleaner mapping
     | 'open_seam'               // jump to Seam lock mapping
     | 'open_guesty_automations' // jump to Guesty's message-automation list
@@ -159,6 +160,18 @@ export const LAUNCH_STEPS: ReadonlyArray<LaunchStep> = [
     who: 'ops',
     why: 'Cleaning attribution matches Chase ACH charges to the property by last4.',
     action: 'set_bank_last4',
+  },
+  {
+    key: 'cleaner_bank_sent',
+    phase: 'financial',
+    title: 'Bank account sent to Cape Ann Elite',
+    openTitle: 'Send the bank account to Cape Ann Elite',
+    required: true,
+    who: 'ops',
+    description:
+      "Andrew at Cape Ann Elite charges each home's cleanings to that home's own account, so he needs its account and routing number. An owner drafts the email here, to Rosa's address with Allie copied; Helm checks the number against the last 4 above and never stores it. Mark this Done once the email is sent.",
+    why: "Until Andrew has it, the home's cleaning invoices wait unpaid (4 Middle's did in September). Homes already taking guests before 2026-11-02 count as sent.",
+    action: 'email_cleaner_bank',
   },
   {
     key: 'stripe_auto_payouts',
@@ -451,6 +464,8 @@ export type LaunchDerivationContext = {
   forwardDistinctPrices: number;
   /** A confirmed, non-duplicate booking has already checked in. */
   firstStayStarted: boolean;
+  /** That first check-in's date (YYYY-MM-DD), when the loader read it. */
+  firstStayCheckIn?: string | null;
   /** The invoice registry yields at least one needle for this property. */
   invoiceNeedleMapped: boolean;
   /** src/lib/properties.ts PROPERTIES carries this id. */
@@ -486,15 +501,40 @@ const NOT_APPLICABLE_OFF_GUESTY_OR_OUT_OF_REGION: ReadonlySet<string> = new Set(
  * as n_a. Pure, and deliberately independent of deriveStepResolved so the
  * boolean derive keeps its shape.
  */
+/**
+ * Steps about a Cape Ann vendor: they apply to a Helm-run Cape Ann home
+ * too, and only a home outside Cape Ann (its own cleaner, its own billing)
+ * resolves them n_a.
+ */
+const NOT_APPLICABLE_OUT_OF_REGION: ReadonlySet<string> = new Set(['cleaner_bank_sent']);
+
 export function deriveStepNotApplicable(
   stepKey: string,
   ctx: LaunchDerivationContext,
 ): boolean {
-  if (!NOT_APPLICABLE_OFF_GUESTY_OR_OUT_OF_REGION.has(stepKey)) return false;
   const p = ctx.property;
-  const helmRun = p.calendar_authority === 'helm';
   const outOfRegion = (p.region ?? 'cape_ann') !== 'cape_ann';
+  if (NOT_APPLICABLE_OUT_OF_REGION.has(stepKey)) return outOfRegion;
+  if (!NOT_APPLICABLE_OFF_GUESTY_OR_OUT_OF_REGION.has(stepKey)) return false;
+  const helmRun = p.calendar_authority === 'helm';
   return helmRun || outOfRegion;
+}
+
+/**
+ * The day the Cape Ann Elite bank step joined the list. A home already
+ * taking guests before it is one Cape Ann Elite already invoices, so the
+ * step reads as sent there instead of reopening every live home as a loose
+ * end. A home that goes live after it sends the email like any other.
+ */
+export const CLEANER_BANK_STEP_SINCE = '2026-11-02';
+
+export function establishedBefore(
+  day: string,
+  activatedAt: string | null | undefined,
+  firstStayCheckIn: string | null | undefined,
+): boolean {
+  const dates = [activatedAt, firstStayCheckIn].filter((d): d is string => !!d).map((d) => d.slice(0, 10));
+  return dates.some((d) => d < day);
 }
 
 /**
@@ -527,6 +567,10 @@ export function deriveStepResolved(
       return (p.management_fee_pct ?? 0) > 0;
     case 'bank_last4':
       return hasBankLast4(p);
+    case 'cleaner_bank_sent':
+      // A sent email leaves no data Helm can read, so this is the operator's
+      // tick, except on a home live before the step existed.
+      return establishedBefore(CLEANER_BANK_STEP_SINCE, p.activated_at, ctx.firstStayCheckIn);
     case 'tax_cert':
       return hasTaxCert(p);
     case 'external_title':
