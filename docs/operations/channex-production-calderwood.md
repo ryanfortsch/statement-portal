@@ -105,9 +105,11 @@ that PriceLabs has connected or populated this production rate.
    are available, but the deployed mode only inspects configuration. It does not
    read the revision feed, ACK bookings, publish dates or prove initial coverage.
    Keep staging credentials and the staging worker isolated. The production
-   consumer still needs complete upstream coverage/recovery, provider dispatch and
-   reconciliation, retry/lease handling and an operational failure surface before
-   activation. Durable canonical-input planning is described below.
+   consumer still needs complete upstream coverage/recovery, provider task
+   settlement and an operational failure surface before activation. The dormant
+   dispatch ledger and transport below now preserve exact requests, leases,
+   ambiguous outcomes and retry pacing. They are not wired to a production worker.
+   Durable canonical-input planning is described below.
 2. Map PriceLabs to the actual production rate plan, preserving one price and
    minimum-stay writer. Verify daily rates, restrictions, fees, markups and the
    existing Airbnb listing identity. Do not copy the staging $100 test rate.
@@ -148,7 +150,7 @@ or an effective owner session. It requires `CHANNEX_PRODUCTION_MODE=inspect`,
 Vercel production, the exact production database, and both server credentials.
 Preview/staging or an unexpected enabled scope, authority, mapping or nonzero
 receipt/event count is refused. It also verifies that availability planning and
-publishing are disabled, with no plans or source-coverage claims. It verifies
+publishing are disabled, with no plans, delivery attempts or source-coverage claims. It verifies
 dormant storage, then reads only the
 reviewed property, room, rate and empty channels. It saves a bounded status code,
 last attempt/success time and consecutive failure count through service-only
@@ -253,3 +255,53 @@ Production application/deployment evidence is recorded separately after rollout.
 - [Room count and guest spaces](https://help.channex.io/en/articles/8463205-create-a-room)
 - [Rate-plan defaults and daily values](https://docs.channex.io/api-v.1-documentation/rate-plans-collection)
 - [Existing recovery implementation](channex-data-protection-and-recovery.md)
+
+## Availability delivery ledger
+
+Migration `20261106120000_channex_inventory_delivery.sql` installs a disabled
+send scope and private attempt history. The production inspection endpoint only
+checks its bounded status; it never claims, begins or sends an attempt.
+`src/lib/channex-inventory/delivery.ts` and `delivery-store.ts` provide the dormant
+worker composition. No scheduler or public route invokes this writer.
+
+The database builds the exact 500-day availability-only request from the saved
+plan. It stores those bytes and their SHA-256 before any provider call. A claim
+has a maximum 30-second lease; both claim and the one-use send checkpoint reuse
+the planner's complete validation. Concurrent workers cannot obtain two send
+permits. A lost checkpoint response does not authorize a POST. Source changes
+before the checkpoint fence the old plan; changes after it require a subsequent
+plan once the in-flight attempt has been settled.
+
+The transport is currently limited to the closed, unmapped production target.
+Its GET preflight verifies property/room/rate identities and no channels, then
+POSTs only the saved availability bytes. It never sends rates, minimum stays,
+stop-sell flags, bookings or messages. Live channel dispatch needs a separately
+reviewed channel-aware preflight. The API key is a server argument, never stored
+in an attempt or its error. Redirects, timeouts, 5xx responses, malformed replies,
+partial responses and warnings are uncertain outcomes, not automatic retries.
+
+A clean task receipt means **accepted**, not completed or delivered to Airbnb.
+Accepted and uncertain attempts block the lane, including across restarts and
+scope disable/enable. The ledger deliberately has no settlement/retirement RPC
+until production task evidence is established. Equality from a calendar GET is
+not evidence that an earlier request can no longer execute. The staging task
+parser was based on an observed staging response; it has not been silently
+promoted into a production delivery guarantee.
+
+Only an exact documented 429 rejection permits a new attempt after a persisted
+backoff (at least 60 seconds, up to 24 hours). A 401 stops further claims pending
+configuration review. There are at most five claims per 30 minutes and a
+60-second minimum spacing. Expired leases before the send checkpoint can be
+retired; expired in-flight attempts become uncertain. Outcome recording is
+idempotent and may capture a late response even after disabling dispatch.
+
+Provider contract reference, checked 6 November 2026:
+[Channex ARI documentation](https://docs.channex.io/api-v.1-documentation/ari).
+The documented POST accepts dated availability and returns task identifiers;
+this batch does not claim a documented task-completion or OTA-delivery contract.
+
+Tests cover exact saved bytes across the TypeScript/SQL boundary, concurrent
+send checkpoints, concurrent canonical writes, stale plans, expired workers,
+lost responses, 429 pacing, credential rejection, strict payload shapes and
+permissions. Provider tests use synthetic replies. No live inventory POST is
+needed or performed to deploy this dormant batch.
