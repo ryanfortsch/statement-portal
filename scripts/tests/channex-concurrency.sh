@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$PGHOST" == 127.0.0.1 && "$PGDATABASE" == helm_synthetic_channex ]]
+[[ "$(psql -X -Atc 'select current_database()')" == helm_synthetic_channex ]]
+# A manual writer owns the canonical advisory lock BEFORE touching captured rows.
+# A simultaneous importer must not hold a capture lock while waiting for it.
+PGAPPNAME=channex_synthetic_manual psql -X -q -v ON_ERROR_STOP=1 <<'SQL' >/dev/null &
+begin;
+set local statement_timeout='12s';
+select pg_advisory_xact_lock(hashtext('helm_bookings:65_calderwood'));
+select pg_sleep(2);
+select helm_create_booking('65_calderwood','direct','manual','block','2028-01-05','2028-01-07','{"hold_kind":"owner"}');
+commit;
+SQL
+first=$!
+ready=0
+for i in $(seq 1 30); do
+  if [[ "$(psql -X -Atc "select count(*) from pg_stat_activity where application_name='channex_synthetic_manual' and wait_event='PgSleep'")" == 1 ]]; then ready=1; break; fi
+  sleep 0.1
+done
+[[ $ready == 1 ]]
+psql -X -q -v ON_ERROR_STOP=1 <<'SQL' >/dev/null
+set statement_timeout='12s';
+select helm_airbnb_revision_commit(channex_synthetic_revision(10,'2026-11-06T15:00:10.000001Z','new',3)||'{"checkIn":"2028-01-01","checkOut":"2028-01-04"}'::jsonb);
+SQL
+wait "$first"
+# Two deliveries of the same revision must converge to one immutable receipt.
+for i in 1 2; do
+ psql -X -q -v ON_ERROR_STOP=1 <<'SQL' >/dev/null &
+set statement_timeout='12s';
+select helm_airbnb_revision_commit(channex_synthetic_revision(11,'2026-11-06T15:00:11.000001Z','new',4)||'{"checkIn":"2028-02-01","checkOut":"2028-02-04"}'::jsonb);
+SQL
+ if [[ $i == 1 ]]; then one=$!; else two=$!; fi
+done
+wait "$one"
+wait "$two"
+psql -X -q -v ON_ERROR_STOP=1 <<'SQL'
+do $$begin
+ if (select count(*) from helm_airbnb_bookings.receipts where revision_id='10000000-0000-4000-8000-000000000011')<>1
+ or (select count(*) from bookings where external_confirmation_code='SYNTHETIC4')<>1
+ then raise exception 'Concurrent duplicate created multiple records';end if;
+end$$;
+select 'PASS: concurrent manual and provider writes; concurrent duplicate delivery' as result;
+SQL
