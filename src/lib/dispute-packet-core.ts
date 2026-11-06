@@ -470,7 +470,7 @@ export type FlaggedLine = ThreadLine & {
 /** Words a guest uses when something was wrong or when they want out. Read
  *  only on the guest's own messages. */
 const COMPLAINT =
-  /\b(broken|dirty|filthy|leak\w*|mold|mould|smell\w*|bugs?|mice|roach\w*|not working|doesn'?t work|didn'?t work|isn'?t working|no (?:heat|hot water|wifi|wi-fi|power)|misleading|not as (?:described|advertised|pictured)|disappoint\w*|unacceptable|unsafe|cancel\w*|complain\w*)\b/i;
+  /\b(broken|dirty|filthy|leak\w*|mold|mould|smell\w*|bugs?|mice|roach\w*|not working|doesn'?t work|didn'?t work|isn'?t working|no (?:heat|hot water|wifi|wi-fi|power)|misleading|not as (?:described|advertised|pictured)|disappoint\w*|unacceptable|unsafe|unsecured?|insecure|not secure|(?:can'?t|cannot|won'?t|unable to) (?:lock|latch|secure)|uncomfortable|refund\w*|money back|cancel\w*|complain\w*)\b/i;
 
 const STOP = new Set(['fee', 'fees', 'the', 'and', 'for', 'stay', 'at', 'charge', 'tax', 'occupancy']);
 
@@ -583,8 +583,10 @@ export type StayEvidenceInput = {
   review: StayReview | null;
   cardholderName: string | null;
   guestName: string | null;
-  /** Guest messages flagged as a complaint or a cancellation. */
+  /** Guest messages flagged as a complaint, a refund request or a cancellation. */
   complaints: number;
+  /** The whole thread was read. Without it, "no complaint" is never claimed. */
+  threadComplete: boolean;
 };
 
 export type EvidenceRow = { label: string; value: string };
@@ -674,7 +676,7 @@ export function stayEvidence(input: StayEvidenceInput): StayEvidence {
     }
     case 'not_as_described': {
       if (stayed && input.checkOut) {
-        forBank.push(`The guest stayed the full booking, ${input.checkIn} to ${input.checkOut}, and was not moved or refunded for leaving early.`);
+        forBank.push(`Our booking record shows the reservation confirmed for its full dates, ${input.checkIn} to ${input.checkOut}, and never cancelled.`);
       }
       if (review && review.rating !== null && review.rating >= 4) {
         forBank.push(`After the stay the guest reviewed it at ${review.rating} of 5.`);
@@ -683,16 +685,19 @@ export function stayEvidence(input: StayEvidenceInput): StayEvidence {
       }
       if (input.complaints > 0) {
         gaps.push(`${input.complaints} guest message${input.complaints === 1 ? '' : 's'} raise a complaint. Show each one beside what we did and when.`);
-      } else {
+      } else if (input.threadComplete) {
         forBank.push('The guest raised no complaint with us during the stay.');
+      } else {
+        gaps.push('The guest thread is not complete in Helm. Read the whole thread in Guesty for complaints before submitting.');
       }
+      gaps.push("Confirm the guest stayed: door unlocks, the check-in message, or the cleaner's turnover after checkout.");
       gaps.push('Attach the listing as it read when the guest booked (description and photos).');
       if (!signed) gaps.push('No signed agreement for this stay in Helm. Attach the booking terms and house rules the guest accepted.');
       break;
     }
     case 'not_received': {
       if (stayed && input.checkOut) {
-        forBank.push(`The stay was provided: the guest checked in on ${input.checkIn} and out on ${input.checkOut}.`);
+        forBank.push(`Our booking record shows the reservation confirmed for ${input.checkIn} to ${input.checkOut} and never cancelled.`);
       }
       if (cancelled) gaps.push('Guesty shows this reservation cancelled. If the guest never arrived, check the refund owed under the policy before answering.');
       gaps.push('Attach arrival proof: the check-in message, door code use, or the cleaner\'s turnover after checkout.');
