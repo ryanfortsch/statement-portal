@@ -292,6 +292,82 @@ an authorized live Drive smoke test, scheduler/watchdog integration, retention
 controls, and a complete isolated application restore. This batch is transport
 evidence, not proof of database recoverability or a production RPO/RTO.
 
+## Source adapters — 6 November follow-up
+
+The follow-up branch `codex/channex-recovery-sources` starts from deployed main
+`130fc0dee9e26629ffa652151ca0e5bc63547e0b`. It adds worker-only source adapters;
+none are imported by a web route or scheduler and none execute at module import.
+
+- `src/lib/recovery-postgres.ts` streams a native `pg_dump --format=custom` into
+  the existing encryption pipeline. It includes all accessible database schemas,
+  data, policies and grants, without a guessed table list. A nonzero exit, any
+  diagnostic, invalid archive header, deadline or cancellation rejects completion,
+  even if stdout has already closed. The child gets explicit credentials and a
+  minimal environment, with no connection string in process arguments. Remote
+  connections require a pinned hostname, `verify-full` TLS and a root certificate.
+  Only an absolute local Unix-socket directory can use the local test mode.
+  Empty passwords are rejected so libpq cannot fall back to ambient password files.
+- `src/lib/recovery-storage.ts` writes a standard tar stream with safe hashed
+  entry paths and a final encrypted inventory mapping original object keys to
+  bytes, SHA-256, version, content type and access classification. It follows all
+  pages, bounds object count/size/metadata/time, rejects duplicates and repeated
+  cursors, measures actual bytes, and compares complete inventories before/after
+  copying. An empty store must still have an explicit scope. This is not an atomic
+  transaction with the database, nor protection against every transient mutation
+  that occurs between inventory observations.
+- `src/lib/recovery-storage-providers.ts` implements read-only Supabase S3 and
+  Vercel Blob adapters using pinned official SDKs. Supabase's endpoint is derived
+  from the expected project; credentials are explicit. Every bucket, including
+  empty ones, must match the reviewed configuration. Unknown/missing buckets fail.
+  The S3 listing does not expose public/private policy: that reviewed map must be
+  independently verified and retained in the configuration export. All object
+  pages are followed and reads use `If-Match` plus response ETag/length checks.
+  Vercel's token must identify the expected store; returned URLs must match its
+  exact origin. Reads request cache bypass (only supported for private blobs) and
+  validate returned content identity. HTTP modification times are compared at
+  second precision because headers omit milliseconds; ETags also have to match.
+
+S3 access keys bypass RLS and allow more operations than these adapters call.
+Provisioning and effective access review remain required; source code containing
+only reads does not make the underlying credential read-only. No real S3 key,
+Blob token, database password, destination grant or live data was used in this
+batch. The producer still needs a dedicated orchestration/activation step.
+
+### Restore evidence and limits
+
+The opt-in local PostgreSQL test creates a private temporary cluster, disables TCP,
+encrypts a native export and storage archive, decrypts them, and restores into a
+second synthetic database. It compares 5,001 rows, exact numeric totals, sequences,
+foreign keys, RLS/grants, functions, cancelled/sent receipts, hold/timing fields and
+document bytes; corrupt ciphertext fails authentication. Its temporary cluster and
+keys are removed afterwards. PostgreSQL 18.6 and age 1.3.2 were used locally.
+
+```sh
+RECOVERY_TEST_PG_BIN=/absolute/path/to/postgresql/bin \
+RECOVERY_TEST_AGE=/absolute/path/to/age \
+RECOVERY_TEST_AGE_KEYGEN=/absolute/path/to/age-keygen npm test
+```
+
+These variables opt in to local executables, not remote services. Without them,
+the real PostgreSQL/encryption tests explicitly skip; synthetic adapter failure
+tests still run in ordinary CI. The current GitHub workflow permission limitation
+described above still applies.
+
+**This is not yet a complete hosted Supabase recovery exporter.** PostgreSQL
+`pg_dump` omits cluster roles/passwords; the synthetic test provisions its roles
+before restoring. Supabase-managed schemas/extensions and custom roles need the
+supported hosted restore procedure and a separate drill. The conservative
+`snapshotNotBefore()` timestamp is the command start bound, not an exact database
+MVCC snapshot timestamp; do not substitute upload completion time. Required roles,
+secret-free configuration, migration inventory and key-recovery references still
+need the final producer integration before any bundle may be presented as meeting
+the full recovery contract above. Existing PITR/Drive/key-custody/scheduler and
+post-snapshot deletion-replay activation requirements remain open.
+
+Validation for this source-adapter batch: **3,711 tests passed, zero skipped**,
+with the real PostgreSQL and age variables enabled. TypeScript, focused ESLint and
+`git diff --check` passed. No production source export or storage access occurred.
+
 ## Recovery drill and operating procedure
 
 Proposed recovery-time objective: two hours, measured from incident declaration to
