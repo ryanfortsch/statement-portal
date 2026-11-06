@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { CALDERWOOD_PRODUCTION as m, inspectCalderwoodProduction } from '../channex-production-preflight.ts';
 import { nights } from '../channex-bookings/primitives.ts';
+import { todayInEastern } from '../sca-quotes-types.ts';
 import { inventoryDigest } from './planner.ts';
 
 const integer = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
@@ -27,7 +28,7 @@ export interface PreparedInventoryDelivery { send(): Promise<DeliveryOutcome> }
 export interface InventoryDeliveryTransport { prepare(attempt: DeliveryAttempt): Promise<PreparedInventoryDelivery> }
 function validAttempt(input: DeliveryAttempt, now: number) {
   const a = deliveryAttemptSchema.parse(input), days = nights(a.start, a.end);
-  if (!Number.isSafeInteger(now) || a.expiresAt <= now || a.expiresAt > now + 30000 || days.length !== 500 ||
+  if (!Number.isSafeInteger(now) || a.start !== todayInEastern(new Date(now)) || a.expiresAt <= now || a.expiresAt > now + 30000 || days.length !== 500 ||
     createHash('sha256').update(a.requestBody).digest('hex') !== a.requestDigest) throw Error('Invalid availability request lease');
   const row = z.object({ property_id: z.literal(m.propertyId), room_type_id: z.literal(m.roomTypeId),
     date: z.string(), availability: z.union([z.literal(0), z.literal(1)]) }).strict();

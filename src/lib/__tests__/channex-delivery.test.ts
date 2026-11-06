@@ -46,6 +46,7 @@ test('transport sends exact immutable availability-only bytes once, returning ac
 test('expired leases, mutated bytes, missing dates, wrong mapping and pricing fields fail before IO', async () => {
   for (const mutate of [
     (a: DeliveryAttempt) => { a.expiresAt = now; },
+    (a: DeliveryAttempt) => { a.start = shiftIsoDay(a.start, -1); a.end = shiftIsoDay(a.end, -1); },
     (a: DeliveryAttempt) => { a.requestDigest = 'b'.repeat(64); },
     (a: DeliveryAttempt) => { a.planDigest = 'b'.repeat(64); },
     (a: DeliveryAttempt) => { const b = JSON.parse(a.requestBody); b.values.pop(); a.requestBody = JSON.stringify(b); },
