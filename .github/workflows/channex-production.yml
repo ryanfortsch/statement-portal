@@ -12,6 +12,7 @@ on:
       - 'supabase/migrations/*channex*'
       - 'scripts/test-channex-database.mjs'
       - 'scripts/test-channex-planner.mts'
+      - 'scripts/test-channex-delivery.mts'
       - 'scripts/tests/channex*'
       - '.github/workflows/channex-production.yml'
 permissions:
@@ -49,5 +50,7 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: node scripts/test-channex-database.mjs
       - run: node --import ./scripts/server-only-test-hook.mjs scripts/test-channex-planner.mts
+      - run: node --import ./scripts/server-only-test-hook.mjs scripts/test-channex-delivery.mts
       - run: bash scripts/tests/channex-concurrency.sh
       - run: bash scripts/tests/channex-inventory-concurrency.sh
+      - run: bash scripts/tests/channex-delivery-concurrency.sh

@@ -159,8 +159,19 @@ never key per-stay logic on `bookings.id`.
   500 dated availability values and source/version fingerprints. No prices,
   minimum stays, guest fields or provider credentials. Atomic compare-and-save
   rejects changed bookings/configuration, missing coverage and expired windows;
-  identical retries resolve to the same plan. No dispatch/publishing RPC exists.
+  identical retries resolve to the same plan. The separate delivery gate below
+  is off; the deployed inspection mode never claims or sends a plan.
   `helm_channex_inventory_status()` exposes bounded configuration counts only.
+- **`helm_airbnb_bookings.delivery_scope` / `delivery_attempts`**: dormant,
+  service-RPC-only availability send ledger. Each attempt pins the immutable
+  plan, exact credential-free request bytes and SHA-256, configuration version,
+  lease and provider task receipt. Claim and one-use begin checkpoints recheck
+  the planner's source/coverage/authority/clock guards. At most one unresolved
+  attempt exists. Pre-send expiry is reclaimable; expiry after the send barrier,
+  timeouts and ambiguous responses quarantine the lane. Accepted task receipts
+  also remain unresolved, pending a separately reviewed settlement path. No
+  direct service table access, activation or settlement RPC is installed.
+  `helm_channex_delivery_status()` returns gate state and counts, not payloads.
 - **`guests`**: the Helm-native guest record (name, email, phone, notes,
   `source`). `bookings.guest_id` points here for direct and manual stays.
   It is NOT `audience_contacts` (the marketing list) and NOT `contacts`

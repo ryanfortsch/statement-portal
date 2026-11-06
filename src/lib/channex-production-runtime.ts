@@ -15,6 +15,8 @@ const storageSchema = z.object({
 const inventorySchema = z.object({ format: z.literal(1), planningEnabled: z.literal(false),
   publishingEnabled: z.literal(false), headVersion: z.literal(0), plans: z.literal(0),
   coverageSources: z.literal(0), maxDays: z.literal(500) }).strict();
+const deliverySchema = z.object({ format: z.literal(1), enabled: z.literal(false), attempts: z.literal(0),
+  unresolved: z.literal(0), settlementEnabled: z.literal(false) }).strict();
 export type ChannexRuntimeCode = 'CONFIGURATION_REQUIRED' | 'STORAGE_NOT_READY'
   | 'CHECKPOINT_FAILED' | 'PROVIDER_CHECK_FAILED' | ProductionPreflightError['code'];
 export class ChannexRuntimeError extends Error {
@@ -47,10 +49,15 @@ export async function inspectProductionRuntime(env: Env, rpc: Rpc, fetcher: type
     if (inventory.error || !inventorySchema.safeParse(inventory.data).success) {
       throw new ChannexRuntimeError('STORAGE_NOT_READY');
     }
+    const delivery = await rpc('helm_channex_delivery_status', {});
+    if (delivery.error || !deliverySchema.safeParse(delivery.data).success) {
+      throw new ChannexRuntimeError('STORAGE_NOT_READY');
+    }
     const provider = await inspectCalderwoodProduction(env.CHANNEX_PRODUCTION_API_KEY, fetcher);
     await checkpoint(true, 'OK');
     return { ok: true, mode: 'inspect', checkedAt: provider.checkedAt,
       property: m.helmPropertyId, mappingVerified: true, storageVerified: true, inventoryStorageVerified: true,
+      deliveryStorageVerified: true, deliveryAttempts: 0,
       planningEnabled: false, availabilityPublishingEnabled: false,
       channels: 0, importEnabled: false, captureEnabled: false,
       providerWrites: 0, bookingsChanged: 0, messagesSent: 0, readyForCutover: false };
