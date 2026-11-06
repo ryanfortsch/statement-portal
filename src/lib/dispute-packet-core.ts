@@ -684,7 +684,7 @@ export function stayEvidence(input: StayEvidenceInput): StayEvidence {
         gaps.push(`The guest's review rates the stay ${review.rating} of 5. Answer each complaint in it with what was done.`);
       }
       if (input.complaints > 0) {
-        gaps.push(`${input.complaints} guest message${input.complaints === 1 ? '' : 's'} raise a complaint. Show each one beside what we did and when.`);
+        gaps.push(`${input.complaints} guest message${input.complaints === 1 ? ' raises' : 's raise'} a complaint. Show each one beside what we did and when.`);
       } else if (input.threadComplete) {
         forBank.push('The guest raised no complaint with us during the stay.');
       } else {
