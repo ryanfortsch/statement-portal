@@ -121,14 +121,165 @@ exits 2. The report explicitly separates byte integrity, encryption
 authentication, and database restoration. The age header check is only a format
 screen: it does not prove encryption or completeness. The manifest/digest must
 come from a trusted producer/receipt; matching a maliciously rewritten manifest
-is not authenticity. Signed manifests/receipts and key management are in the next
-implementation slice. Never use this checker as an automatic cutover switch.
+is not authenticity. Signed manifests/receipts are now implemented below; real
+key custody and worker activation still need review. Never use this checker as
+an automatic cutover switch.
 
 Restore evidence is operator-supplied, bound to the exact manifest and application
 commit, and does not execute or independently attest the listed checks. Before
 launch, restore the exact candidate bundle. Routine daily integrity monitoring
 and weekly restore-drill freshness will be separate scheduler checks; this CLI
 does not require every daily copy to pass a full restore to be stored.
+
+## Encrypted packaging and Drive transport (6 November implementation)
+
+Implemented in `src/lib/recovery-export.ts`, `src/lib/recovery-drive.ts`,
+`src/lib/recovery-google-auth.ts`, and `scripts/upload-recovery-bundle.mts`.
+These are standalone worker building blocks, **not an enabled backup service**.
+They do not yet acquire a consistent PostgreSQL snapshot or enumerate object
+storage. No web route, cron job, database writer, or production integration was
+added. The existing document archive is unchanged.
+
+### Export contract and completion
+
+`createEncryptedRecoveryBundle` requires three streaming source adapters, the
+actual snapshot timestamp, a unique backup ID, an absolute `age` executable,
+one native age X25519 public recipient, and a byte limit/deadline. Each source
+must implement `open(signal)` and `assertComplete(signal)`. A future DB adapter
+must wait for successful dump-process exit, not just stdout EOF; object adapters
+must verify their inventories and detect changes. Sources must honor abort and
+stop their underlying work. The wrapper rejects a stalled completion check on
+deadline, but cannot itself cancel arbitrary external adapter activity.
+
+Plaintext goes directly into `age`; only ciphertext is written to the private
+run directory (0700; files 0600). The child inherits no application credentials.
+Encryption errors, source failures, changed inventories, timeouts, and byte-limit
+failures prevent manifest publication. Partial ciphertext is retained for
+investigation; it is never promoted or automatically deleted. A successful
+encryption run does not establish source completeness without working adapters.
+
+An Ed25519 signature binds the normalized manifest digest with a versioned domain
+and purpose. The signing private key and decryption private key are separate.
+The worker needs a signing key, but only the **public age recipient**. Keep the
+decryption identity outside this worker. Pin the trusted signing public key in
+the recovery environment from an independent source; never trust a key merely
+because it arrived alongside a backup. The signing identity authenticates the
+producer, not the correctness of its exports or an uncompromised host.
+
+### Upload, resume, and receipts
+
+The uploader verifies the signature, scope, expiry, and ciphertext locally, then
+checks the destination is the configured shared-drive folder with add permission.
+That capability check **does not audit effective membership**. It generates five
+Drive file IDs and persists/fsyncs `upload.journal.json` before uploading anything.
+It uses those same IDs across retries; it never overwrites an existing object or
+creates a replacement ID after an ambiguous response. It validates existing file
+identity, parent, drive, size and digest before accepting a prior upload.
+
+Uploads use bounded 1 MiB chunks. Lost responses trigger a resumable-session
+status query; the next byte comes from the server acknowledgement. Expired
+sessions restart with the same pre-generated file ID. Retries and stalled
+acknowledgements are bounded. Response-supplied session URLs must stay on the
+Google upload endpoint; redirects are not followed. API bodies, credentials,
+session URLs, and source diagnostics are not logged.
+
+After each file, the worker downloads the complete uploaded bytes and hashes
+them, rather than trusting local checksums or response metadata alone. The
+signed manifest is uploaded only after all three ciphertext artifacts verify.
+`receipt.signed.json` is created after those four files verify, signed separately,
+uploaded last, and itself read back. A receipt explicitly says database restore
+has **not** been verified. Remote receipt existence alone is insufficient: its
+signature and contents, and the referenced files, must be checked by recovery
+and future monitoring code. Drive is not immutable storage.
+
+Keep the private ciphertext spool and journal on persistent worker storage until
+upload succeeds. A normal failed run releases its local exclusive lock and can
+be retried with the same directory. A process/host crash can leave `.upload.lock`
+or an unpublished `*.pending` file. The next run fails closed: an operator must
+confirm the original process is gone before removing only that run's stale lock
+or unpublished temporary file. Do not delete a published journal or regenerate
+IDs for a partially uploaded bundle. Automatic stale-lock recovery is not yet
+implemented. Concurrent hosts must not share a spool or independently run the
+same backup ID. A fresh snapshot always gets a fresh UUID/directory.
+
+### Dedicated Drive access and activation
+
+Prefer a separate **Helm Recovery** shared drive. Before using an existing folder,
+review its effective shared-drive members, inherited grants, groups and external
+access; the existing `Helm Records` folder has not passed that review. Grant a
+new recovery service account only the minimum role needed on the selected
+destination. Do not reuse `GOOGLE_SERVICE_ACCOUNT_KEY` from the document archive,
+marketing, or other workers. Keep named recovery custodians separate from daily
+staff access. Do not enable domain-wide delegation.
+
+The worker uses Google's official authentication library with an explicitly
+configured service account and pinned email, fixed Google endpoints, and bounded
+token requests. It does not discover ambient credentials or honor credential-JSON
+token URLs/delegation fields. The OAuth `drive` scope is broad; actual isolation
+depends on the dedicated identity's grants. A Drive writer is not an append-only
+role, even though this code has no delete/update/permission operations. Review
+that residual risk before activation.
+
+Configure only on the dedicated worker, through its secret manager:
+
+| Setting | Purpose |
+|---|---|
+| `RECOVERY_GOOGLE_SERVICE_ACCOUNT_KEY` | Dedicated service-account credential JSON; never copied from the app archive identity. |
+| `RECOVERY_GOOGLE_SERVICE_ACCOUNT_EMAIL` | Independently approved identity to match against the credential. |
+| `RECOVERY_DRIVE_ID` / `RECOVERY_DRIVE_FOLDER_ID` | Reviewed shared drive and exact destination folder. |
+| `RECOVERY_SIGNING_PRIVATE_KEY` | Ed25519 signing key, separate from the recovery decryption identity. |
+| `RECOVERY_SIGNING_PUBLIC_KEY` | Pinned public verification key; also held independently by recovery custodians. |
+
+The export adapter additionally needs the public age recipient, trusted absolute
+age binary, snapshot metadata, and private persistent spool. Do not put secret
+values in a manifest or configuration archive. The CLI deliberately does not
+load an application `.env` file or accept credentials as command-line arguments.
+
+Once the destination and identity are configured for an authorized synthetic
+test, upload a previously produced signed bundle with:
+
+```sh
+node scripts/upload-recovery-bundle.mts \
+  --directory /private/recovery/BACKUP_UUID \
+  --project EXPECTED_PROJECT_REF --environment staging
+```
+
+Verify a downloaded signed bundle offline using the independently pinned public
+key (this performs no upload or restore):
+
+```sh
+node scripts/verify-recovery-bundle.mts \
+  --signed-manifest /private/recovery/downloaded/manifest.signed.json \
+  --trusted-signing-key /private/recovery-custody/signing-public.pem \
+  --directory /private/recovery/downloaded \
+  --project EXPECTED_PROJECT_REF --environment staging
+```
+
+### Validation and remaining work
+
+`src/lib/__tests__/recovery-worker.test.ts` uses a synthetic Drive transport to
+exercise partial writes, lost final acknowledgements, expired sessions, rate
+limits, restart identity, corrupt readback, destination mismatch, foreign
+session URLs, bounded stalls, and signature/source/journal failures. Real age
+roundtrip tests generate temporary test-only keys, decrypt every artifact and
+compare exact source bytes; they also test source/inventory failure, quotas,
+deadlines and a missing executable. The test keys and fixtures are removed.
+
+Enable the real encryption tests explicitly, pointing to trusted installed
+binaries (tested locally with age 1.3.2):
+
+```sh
+RECOVERY_TEST_AGE=/absolute/path/to/age \
+RECOVERY_TEST_AGE_KEYGEN=/absolute/path/to/age-keygen npm test
+```
+
+Without these variables, the real-age tests are reported as skipped; the
+synthetic transport and signature tests still run. No live Drive or customer DB
+is used by the test suite. Before launch we still need consistent database and
+object-storage adapters, destination membership review, real key custody,
+an authorized live Drive smoke test, scheduler/watchdog integration, retention
+controls, and a complete isolated application restore. This batch is transport
+evidence, not proof of database recoverability or a production RPO/RTO.
 
 ## Recovery drill and operating procedure
 
@@ -200,18 +351,26 @@ Targets are proposals, not a measured SLA.
 - [Supabase backup and restore](https://supabase.com/docs/guides/platform/migrating-within-supabase/backup-restore): supported export/restore procedure.
 - [Google shared drives](https://developers.google.com/workspace/drive/api/guides/about-shareddrives): organization ownership and inherited permissions.
 - [Drive revisions](https://developers.google.com/workspace/drive/api/guides/manage-revisions): older revisions may be purged.
+- [Drive upload protocol](https://developers.google.com/workspace/drive/api/guides/manage-uploads): resumable chunks, acknowledgement ranges and safe retries with pre-generated IDs.
+- [Drive download protocol](https://developers.google.com/workspace/drive/api/guides/manage-downloads): full blob download via `alt=media` for independent readback.
+- [Google auth library](https://github.com/googleapis/google-auth-library-nodejs): official dedicated service-account client.
 - [age](https://github.com/FiloSottile/age): established public-key file encryption.
 
 ## Handoff / verification
 
-No database migrations, exports of customer data, Drive uploads, permission
-changes, keys, paid features, production settings or deployments were performed.
-The verifier is intentionally standalone until producer and monitoring work lands.
-Local unit tests exercise synthetic bytes, not an actual encrypted DB export or
-restored application. Full restore and live disaster recovery remain unproven.
+No database migrations, exports of customer data, live Drive uploads, permission
+changes, production keys, paid features, production settings or deployments were
+performed. The local age binary was installed for the synthetic roundtrip drill;
+all generated keys were temporary test keys. Full application restoration and
+live disaster recovery remain unproven.
 
-Changed files are the three implementation/test paths listed above and this
-scope document. Validation on the branch: full `npm test` (3,642 passing),
-`npx tsc --noEmit`, focused ESLint, and whitespace/diff review. Dependencies were
-installed from the branch lockfile in its isolated worktree; no shared checkout
-dependency tree or environment file was changed.
+Branch: `codex/channex-recovery-foundation`, based on verified main
+`f3c559783c2e718edfdd5bd16abbb6df0f7084ac`. The initial verifier commit is
+`62d7f988`. This batch adds the three worker modules, upload CLI, worker tests,
+signed-manifest support in the existing verification CLI, and the pinned official
+Google auth dependency/lockfile. Validation results are recorded in the handoff.
+Validation: **3,662 tests passed, zero skipped**, including the real age roundtrip
+and synthetic Drive failure cases; `npx tsc --noEmit`, focused ESLint, and
+`git diff --check` passed. The real-age tests were explicitly enabled for this run.
+All work is in the owned isolated worktree; the shared checkout and its environment
+files were not changed. No branch was pushed or deployed.
