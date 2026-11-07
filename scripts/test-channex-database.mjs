@@ -20,8 +20,10 @@ const sql = [read('scripts/tests/channex-fixture.sql'), functions,
   read('supabase/migrations/20261106110000_channex_inventory_plans.sql'),
   read('supabase/migrations/20261106120000_channex_inventory_delivery.sql'),
   read('supabase/migrations/20261106130000_channex_booking_audit.sql'),
+  read('supabase/migrations/20261106140000_channex_existing_stay_guard.sql'),
   read('scripts/tests/channex-booking-audit.sql'),
   read('scripts/tests/channex-bookings.sql'),
+  read('scripts/tests/channex-existing-stays.sql'),
   read('scripts/tests/channex-inventory.sql'),
   read('scripts/tests/channex-delivery.sql')].join('\n');
 const result = spawnSync(psql, ['-X', '-q', '-v', 'ON_ERROR_STOP=1'], { input: sql, encoding: 'utf8' });
