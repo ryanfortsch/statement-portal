@@ -550,8 +550,69 @@ messages retain their original timestamps and are never replayed. Context change
 source identity changes, unequal scans and incomplete reads discard the report.
 Matching scans do not establish atomic source completeness or source stop/drain.
 
-The next implementation step remains exact template capture and the canonical
-relative-timing/renderer integration, followed by reviewed queue preparation.
+The next implementation step at that point was exact template capture and the
+canonical relative-timing/renderer integration, followed by reviewed queue preparation.
 Support ticket 2193130 still needs the human cleaner-SMS history/queue/drain answer;
 Evan's availability-task completion clarification is also outstanding. Neither
 support thread had a new reply at the start of this batch.
+
+## Six prepared canonical templates (2026-11-07)
+
+All six source bodies were captured privately from Guesty. The complete pre-arrival
+body required opening its editor because the list preview was truncated; no Guesty
+workflow was saved or changed. Customer text remains outside this public repository.
+
+`template-migration.ts` compiles that complete capture offline. It preserves literal
+wording, maps supported Guesty fields to the existing canonical renderer, replaces
+embedded Wi-Fi values with protected merge fields, and replaces the old Guesty
+cleaner report URL with `cleaner_schedule_url`. Missing/unknown tokens, incomplete
+captures and ambiguous credential/link substitutions fail without printing content.
+Dates map to canonical long-date fields and **still need rendered source comparison**;
+the cleaner link has no inferred destination or automatic context fallback. Literal
+arrival/checkout wording also needs review for a reservation with custom times.
+
+`20261107200000_channex_prepared_templates.sql` adds `migration_policy` to the
+existing `message_automations` rules. It records the captured-source SHA-256, compiled
+body SHA-256, capture instant and six exact offsets (+30 confirmation minutes,
+-1 arrival day, -60 arrival minutes, -1 departure day, -10 arrival days, -420 arrival
+minutes). Day offsets retain `verify_source_queue` semantics at DST. This is a
+versioned preparation record, not an alternate schedule or a send authorization.
+
+The service-only `helm_channex_prepare_templates` RPC requires Guesty authority,
+disabled property automation, no existing send history and no Channex message scope.
+It installs exactly six disabled property rules in one transaction; an identical
+retry reuses their IDs. Partial/conflicting bundles cannot overwrite existing work.
+Prepared rules cannot be changed, deleted, enabled, rerouted or inserted into the
+send ledger by legacy UI or workers, including fleet-rule bypasses. Releasing the
+preparation requires the later reviewed scheduling/delivery implementation.
+
+The legacy `delivery` and `offset_days` columns remain inert compatibility values:
+guest rules use `ota_manual`, cleaner rules `sms`, all disabled/covered/approval-mode.
+**This does not introduce a manual messaging fallback.** The intended rails remain
+automatic Channex booking-channel messages and automatic cleaner SMS. The owner
+review reads the preparation policy, explicitly says sending is off, and shows
+outstanding code/Wi-Fi, date-rendering and cleaner-link dependencies. It also sorts
+stays by check-in date. No messages, schedules, holds or source proofs are created.
+
+Offline operator command (capture and output must remain outside the repository):
+
+```
+node --import ./scripts/server-only-test-hook.mjs scripts/prepare-channex-templates.mts /private/path/capture.json /private/path/new-install.sql
+```
+
+The command creates a new mode-0600 SQL file and does not connect to a service. Apply
+the exact reviewed migration before the application reads the new column, then run
+the private install SQL through the existing authorized database connection. Verify
+six policy/body matches, disabled authority/automation/delivery guards and zero new
+ledger rows. Never commit the generated SQL, captured bodies or credential values.
+
+Validation includes the shared renderer's secret masking/missing fields, all-or-none
+capture validation, changed-policy rejection, disabled override behavior, real
+PostgreSQL installation/rollback/permission checks, old-UI and fleet bypass refusal,
+and two simultaneous installers creating exactly six rules. Existing worker hold,
+cancellation, unknown-response and concurrent-claim tests continue to run.
+
+Remaining work is the verified current-data renderer and canonical scheduling
+activation, rendered-date/credential/link checks, refreshed Guesty history and
+pending/hold/stop-drain evidence (including cleaner SMS), and end-to-end channel
+delivery. The new prepared rules must not be presented as launch-ready messaging.

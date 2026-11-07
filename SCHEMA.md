@@ -566,6 +566,12 @@ runs itself.
   `min_nights`, `subject`, `body` with merge fields, `enabled` (ships
   false), `configured_in_ota` (the operator says the OTA's own scheduled
   message already covers it, so Helm records rather than sends).
+  `migration_policy` is nullable; the Calderwood Guesty migration stores its
+  captured-source/body digests and exact relative offset on these same canonical
+  rows. Prepared rows are disabled, immutable and blocked from the send ledger
+  by SQL, including legacy/fleet paths. `helm_channex_prepare_templates` accepts
+  all six prepared rows atomically and only reuses an identical retry. It cannot
+  activate delivery. No source bodies or credentials are stored in the policy.
 - **`automation_sends`**: the per-stay send ledger, unique on
   `(booking_id, automation_id)` so a stay never gets the same message
   twice. `fire_at`, `status` (`scheduled`, `sending`, `awaiting_approval`,

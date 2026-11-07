@@ -6,6 +6,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { createChannexJobStore } from '../src/lib/channex-messaging/store.ts';
 import { ChannexMessageWorker } from '../src/lib/channex-messaging/worker.ts';
 import { ChannexMessageTransport } from '../src/lib/channex-messaging/transport.ts';
+import { compileCalderwoodTemplates } from '../src/lib/channex-messaging/template-migration.ts';
+import { syntheticCapture } from '../src/lib/__tests__/fixtures/channex-template-capture.ts';
 if (process.env.PGHOST!=='127.0.0.1'||process.env.PGDATABASE!=='helm_synthetic_channex') throw Error('Synthetic loopback database required');
 const psql=process.env.CHANNEX_TEST_PSQL||'psql';
 function sql(query:string) {
@@ -68,3 +70,61 @@ assert.equal((await worker().dispatch(send,render)).state,'blocked');assert.equa
 assert.equal(sql(`select helm_channex_message_set_hold(${str(send)},2,false,'synthetic-operator');`),'t');
 assert.equal((await worker().dispatch(send,render)).state,'accepted');assert.equal(posts,4);
 console.log('PASS: production SQL + adapter + worker + fake transport; acceptance/readback, restart, lost claims/receipts, unknown outcomes, context changes and hold/release');
+
+// Apply the real migration, then roll synthetic installs back so the subsequent
+// concurrency suite retains its original fixture. No hosted connection is allowed.
+sql(read('supabase/migrations/20261107200000_channex_prepared_templates.sql'));
+const bundle = compileCalderwoodTemplates(syntheticCapture, Date.now());
+const bundleJson = str(JSON.stringify(bundle)) + '::jsonb';
+sql(`create table channex_synthetic_template_input(payload jsonb); insert into channex_synthetic_template_input values(${bundleJson});`);
+const install = `select public.helm_channex_prepare_templates(${bundleJson})`;
+const badBundle = structuredClone(bundle); badBundle[5].body += 'changed without source proof';
+const changedBundle = structuredClone(bundle); changedBundle[0].migration_policy.sourceSha256 = '0'.repeat(64);
+sql(`begin;
+ delete from helm_channex_messages.hold_events; delete from helm_channex_messages.jobs;
+ delete from helm_channex_messages.scope; delete from public.automation_sends; delete from public.message_automations;
+ update public.properties set calendar_authority='guesty',automations_enabled=false where id='65_calderwood';
+ create function pg_temp.assert_ok(v boolean,label text) returns void language plpgsql as $$begin
+  if v is distinct from true then raise exception 'FAILED: %',label; end if; end$$;
+ create function pg_temp.assert_blocked(query text,expected text) returns void language plpgsql as $$
+ declare blocked boolean:=false; begin
+  begin execute query; exception when others then
+   if position(expected in sqlerrm)=0 then raise; end if; blocked:=true; end;
+  if not blocked then raise exception 'Expected blocked query'; end if;
+ end$$;
+ select pg_temp.assert_ok(not has_function_privilege('anon','helm_channex_prepare_templates(jsonb)','execute')
+  and not has_function_privilege('authenticated','helm_channex_prepare_templates(jsonb)','execute'),'public install denied');
+ select pg_temp.assert_ok(has_function_privilege('service_role','helm_channex_prepare_templates(jsonb)','execute'),'service install permitted');
+ select pg_temp.assert_blocked(${str(`select public.helm_channex_prepare_templates(${str(JSON.stringify(badBundle))}::jsonb)`)},'invalid_template_bundle');
+ select pg_temp.assert_ok((select count(*)=0 from public.message_automations),'invalid final row rolls back entire bundle');
+ select pg_temp.assert_blocked(${str(`select public.helm_channex_prepare_templates(${str(JSON.stringify(bundle.slice(0,5)))}::jsonb)`)},'invalid_template_bundle');
+ select pg_temp.assert_blocked(${str(`select public.helm_channex_prepare_templates(${str(JSON.stringify([...bundle.slice(0,5),bundle[0]]))}::jsonb)`)},'invalid_template_bundle');
+ update public.properties set automations_enabled=true where id='65_calderwood';
+ select pg_temp.assert_blocked(${str(install)},'template_preparation_not_dormant');
+ update public.properties set automations_enabled=false where id='65_calderwood';
+ set role service_role;
+ ${install};
+ reset role;
+ create temp table installed_ids as select id,key from public.message_automations;
+ select pg_temp.assert_ok((select count(*)=6 and bool_and(not enabled and configured_in_ota and migration_policy is not null)
+  from public.message_automations),'six immutable disabled rules');
+ select pg_temp.assert_ok((public.helm_channex_prepare_templates(${bundleJson})->>'reused')::boolean,'retry reuses');
+ select pg_temp.assert_ok((select count(*)=6 from installed_ids join public.message_automations using(id,key)),'retry retains canonical IDs');
+ select pg_temp.assert_ok((select count(*)=0 from public.automation_sends),'no jobs');
+ select pg_temp.assert_blocked(${str(`select public.helm_channex_prepare_templates(${str(JSON.stringify(changedBundle))}::jsonb)`)},'template_conflict');
+ select pg_temp.assert_blocked('update public.message_automations set enabled=true','prepared_template_frozen');
+ select pg_temp.assert_blocked('update public.message_automations set migration_policy=null','prepared_template_frozen');
+ select pg_temp.assert_blocked('update public.message_automations set body=''Changed''','prepared_template_frozen');
+ select pg_temp.assert_blocked('delete from public.message_automations','prepared_template_frozen');
+ select pg_temp.assert_blocked('update public.message_automations set delivery=''sms'',configured_in_ota=false','prepared_template_frozen');
+ select pg_temp.assert_blocked('insert into public.automation_sends(booking_id,automation_id,automation_key,property_id,fire_at,planned_check_in,planned_check_out)
+  select ''90000000-0000-4000-8000-000000000001'',id,key,''65_calderwood'',now()+interval ''1 day'',''2035-01-01'',''2035-01-03''
+  from public.message_automations where key=''checkin_day''','prepared_template_not_dispatchable');
+ insert into public.message_automations(id,key,audience,trigger,body,enabled) values('${id(99)}','checkin_day','guest','checkin_day','Synthetic fleet',true);
+ select pg_temp.assert_blocked('insert into public.automation_sends(booking_id,automation_id,automation_key,property_id,fire_at,planned_check_in,planned_check_out)
+  values(''90000000-0000-4000-8000-000000000001'',''${id(99)}'',''checkin_day'',''65_calderwood'',now()+interval ''1 day'',''2035-01-01'',''2035-01-03'')','prepared_template_not_dispatchable');
+ insert into public.message_automations(key,property_id,audience,trigger,body) values('checkin_day','other_home','guest','checkin_day','Synthetic other home');
+ update public.message_automations set enabled=true where property_id='other_home';
+ select pg_temp.assert_ok((select enabled from public.message_automations where property_id='other_home'),'unrelated home remains editable');
+ rollback;`);
+console.log('PASS: real template installation, atomic rejection, idempotence, immutable preparation, legacy/fleet bypass refusal and unrelated-home isolation');
