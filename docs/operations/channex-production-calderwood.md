@@ -394,3 +394,32 @@ new/modified/cancelled revisions, normalized aliases, past/cancelled and duplica
 records, unchanged original rows and sent-message ledger entries, cross-property
 isolation, mapped identity changes, and concurrent canonical creation. All use
 synthetic data. No live booking write, provider ACK or message is used for testing.
+
+## Existing-stay message review — November 6, 2026
+
+Owners can inspect `/api/channex/message-handoff` while production remains in
+`inspect` mode. This GET reads current/upcoming canonical Calderwood stays,
+discovers their Guesty IDs from the scoped mirror, and rechecks the exact account,
+listing, confirmation code, dates, status and Airbnb platform against Guesty.
+It then inventories conversation metadata twice and rechecks both stay sources.
+Ambiguous identities, incomplete pagination, shared conversations and changing
+observations never authorize a handoff. No guest text, contact details, door codes,
+raw provider response or credentials appear in the result. Token-cache refresh
+may occur through the existing Guesty client; no booking/message ledger is written.
+
+The reader adapts the previously rehearsed staging conversation collector. Its
+fixed destination is Guesty's Open API; all provider operations are GETs. The
+temporary reservation-detail read uses the still-supported [field-projected
+legacy detail endpoint](https://open-api-docs.guesty.com/reference/reservationsv2get)
+to avoid collecting financial/contact fields. That endpoint is deprecated; this
+bounded migration diagnostic is not a new long-term reservation sync.
+
+The [post endpoint](https://open-api-docs.guesty.com/reference/get_communication-conversations-conversationid-posts)
+provides records, not proof that a workflow was delivered. A record timestamp,
+an empty thread, or a successful read must never seed `automation_sends` as sent
+or unsent. Cleaner history, the four guest workflows' completion/pending states,
+recipient coverage and source queue stop/drain need their own evidence. The
+response stays `readyForAutomaticMessaging: false` and provides exact source
+conversation links for that review. Preserve the user's existing Guesty timing,
+including the 3 PM key-code send and its delay hold. This diagnostic has no
+scheduler, sender, import, authority switch or Channex connection action.
