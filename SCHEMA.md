@@ -147,6 +147,11 @@ never key per-stay logic on `bookings.id`.
   receipt; older revisions are stale; changed identities and ambiguous ordering fail.
   No current runtime calls the commit/ACK path. This is not another stay ledger or
   proof of initial booking coverage. See the Channex production operations document.
+  First revisions refuse any existing same-property Airbnb confirmation identity
+  across all dates, statuses and duplicate rows (`existing_airbnb_stay_requires_handoff`).
+  The normalized-code index supports conservative collision detection, not automatic
+  adoption or a uniqueness constraint. Mapped records also require unchanged code and
+  no hold identity. Existing-stay source conversion is not implemented or enabled.
 - **`helm_inventory_capture_scopes` / `helm_booking_inventory_events`**: disabled by
   default; versioned, append-only availability invalidations. When enabled, canonical
   booking changes, availability rules, dated closures, rental periods and authority

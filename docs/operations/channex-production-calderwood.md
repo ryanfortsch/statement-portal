@@ -350,3 +350,47 @@ and [pagination/filter contract](https://docs.channex.io/api-v.1-documentation/a
 checked 6 November 2026. It is distinct from revision-feed consumption. The
 remaining initial-link adoption and durable complete-source coverage mechanism
 must validate the final handoff; this report does not enable publishing.
+
+## Existing-stay handoff safeguards
+
+Migration `20261106140000_channex_existing_stay_guard.sql` closes an initial-import
+gap: the first observed revision can have changed dates or be a cancellation, so
+date-overlap rejection alone cannot protect an existing Guesty/iCal stay. Before
+creating anything, the receipt RPC now rejects an existing same-property Airbnb
+confirmation identity across every date, status and duplicate row. Case/whitespace
+normalization is used only to stop ambiguous creation. It never merges records.
+The collision raises `existing_airbnb_stay_requires_handoff`; the original booking,
+message history, inventory events and receipts remain unchanged. No receipt means
+the ingestion engine cannot ACK that revision. A mapped stay whose confirmation
+code or hold identity has changed also stops for review.
+
+The existing canonical property lock is acquired before the collision read. A
+concurrent canonical creator that commits while import is waiting is observed.
+This does **not** establish a fence against every legacy direct-SQL/iCal writer:
+the reviewed cutover must drain/retire those writers and implement deliberate
+source conversion before import is enabled. The new index is not a global unique
+constraint; Helm intentionally retains source duplicates. This migration does not
+convert the four observed iCal stays to manual bookings or attach a channel.
+
+The owner audit now includes `existingStayHandoff`, restricted to canonical stays
+overlapping today through the 500-day horizon. Completed historical stays,
+duplicates, cancelled stays and checkout-today stays are excluded from that count;
+they still participate in broader identity/conflict checks. It identifies missing
+provider records, mismatched or ambiguous identities, changed dates/cancellations,
+conflicting holds and other-channel stays. Exact matches still require an explicit
+handoff that preserves the canonical ID. The report contains IDs and states only,
+not confirmation codes, guest contact information or message content.
+
+`messageHistoryReviewRequired` remains true and `readyForAutomaticImport` remains
+false, even for an exact match. On 6 November the existing Helm mirror contained
+four current/upcoming Airbnb stays, all iCal imports with confirmation codes; no
+Helm automation rows or guest threads were attached to those stays, and property
+automations were disabled. That is not evidence that Guesty sent no messages.
+Guesty's delivered/scheduled message state must be reconciled before enabling
+automatic guest and cleaner delivery; keep the existing 3 PM key-code timing.
+
+Validation includes the whole application suite, real PostgreSQL tests for first
+new/modified/cancelled revisions, normalized aliases, past/cancelled and duplicate
+records, unchanged original rows and sent-message ledger entries, cross-property
+isolation, mapped identity changes, and concurrent canonical creation. All use
+synthetic data. No live booking write, provider ACK or message is used for testing.

@@ -4,6 +4,7 @@ import { inspectCalderwoodProduction } from '../channex-production-preflight.ts'
 import { createProductionBookingCollectionReader } from './collection.ts';
 import { BookingAuditError, compareBookingCollections, fingerprint, parseCanonicalSnapshot } from './reconciliation.ts';
 import { todayInEastern, shiftIsoDay } from '../sca-quotes-types.ts';
+import { buildExistingStayHandoff } from './handoff.ts';
 type Rpc = (name: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }>;
 
 /** Owner-triggered diagnostics. No checkpoint writes, import, ACK, coverage setter
@@ -38,6 +39,7 @@ export async function auditProductionBookings(env: Record<string, string | undef
       scans: 2, pages: first.pages + second.pages, paginationComplete: true, repeatedObservationsAgree: true,
       canonicalFingerprint: fingerprint(before), providerFingerprint: fingerprint(first.rows),
       availabilityWindow: { start, end },
+      existingStayHandoff: buildExistingStayHandoff(before, first.rows, { start, end }),
       ...compareBookingCollections(before, first.rows, { start: shiftIsoDay(start, -30), end: shiftIsoDay(end, 30) }) };
   } catch (e) {
     if (e instanceof BookingAuditError) throw e;
