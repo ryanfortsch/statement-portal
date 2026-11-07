@@ -86,6 +86,15 @@ test('unrelated incomplete historical mirror rows do not block discovery, but st
     [{ ...incomplete, confirmation_code: mirror[0].confirmation_code }], start, end));
 });
 
+test('legacy CSV identities remain collision candidates but can never become API destinations', () => {
+  const legacy = { ...mirror[0], guesty_reservation_id: 'csv:SYNTHETIC-OLD', confirmation_code: 'OLDER-STAY' };
+  assert.equal(resolveMessageStayIdentities(canonical, [...mirror, legacy], start, end).length, 1);
+  assert.throws(() => resolveMessageStayIdentities(canonical,
+    [...mirror, { ...legacy, confirmation_code: mirror[0].confirmation_code }], start, end));
+  for (const invalid of ['csv:SYNTHETIC-OLD', '../other', 'https://example.invalid/'])
+    assert.throws(() => resolveMessageStayIdentities(canonical, [{ ...mirror[0], guesty_reservation_id: invalid }], start, end));
+});
+
 test('environment, dormant gates and disabled automations are checked before token or provider access', async () => {
   const { deps, calls } = fixture(); let tokens = 0; deps.token = async () => { tokens++; return 'synthetic-token'; };
   await assert.rejects(auditMessageHandoff({ ...env, VERCEL_ENV: 'preview' }, deps));

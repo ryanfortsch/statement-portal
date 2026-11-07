@@ -423,3 +423,9 @@ response stays `readyForAutomaticMessaging: false` and provides exact source
 conversation links for that review. Preserve the user's existing Guesty timing,
 including the 3 PM key-code send and its delay hold. This diagnostic has no
 scheduler, sender, import, authority switch or Channex connection action.
+
+The first live inspection stopped before provider access because four historical
+mirror records have non-API identifiers from older imports. Those records remain
+in identity collision detection; only a uniquely matched, valid Guesty ObjectId
+may become an API destination. Synthetic IDs, URL-like IDs and ambiguous codes
+cannot be requested. Anonymous access to the deployed endpoint returned 401.
