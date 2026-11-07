@@ -501,3 +501,57 @@ we still need the reviewed source handoff, a current-data renderer and preparati
 flow, unchanged Guesty schedules, owner hold controls, cleaner SMS acceptance,
 and end-to-end channel delivery. Timing and dependency checks intentionally block
 stale jobs; there is no automatic rebind/retry or historical-message replay.
+
+## Owner message preparation review (2026-11-07)
+
+`/channels/65_calderwood/message-preparation` is linked from the owner's Calderwood
+hub. Its explicit read button calls `GET /api/channex/message-preparation`, behind
+the normal proxy and a second owner-session check. It has no save/send/activation
+control, is not scheduled, and returns private/no-store responses. There is no
+schema migration, scope seed, queue registration or renderer activation in this
+batch. The production queue above remains dormant.
+
+The read compares all six expected workflows against the effective property/fleet
+rules, including disabled property overrides. It reports missing templates,
+inheritance, delivery/mode, malformed or unsupported merge fields and current
+generic timing. It never returns template bodies, guest names, confirmation codes,
+contacts or access credentials, and never infers text parity from a matching key.
+Only recognized merge-field names, body lengths and SHA-256 digests leave the
+server. The production metadata check found four disabled fleet rules and zero
+property overrides; the separate key-code and two cleaner workflows were absent.
+Generic confirmation is immediate, pre-arrival is fixed at 10 AM, and checkout
+reminder is fixed at 5 PM. These are **not** the migration schedule.
+
+The live Guesty workflow previews were rechecked November 7: Calderwood Messaging
+has four enabled booking-channel messages (+30 minutes, -1 day arrival, -60 minutes
+arrival, -1 day departure). Cleaning updates - Luana has two enabled phone-book SMS
+messages (-10 days and -7 hours arrival). This confirms the relative offsets,
+not full template capture, message conditions or queued/delivered history. Native
+accessibility previews can truncate long bodies; never use them as full template
+evidence. The cleaner reminder's Guesty report link also needs a replacement at
+handover.
+
+Up to twelve exactly matched active/upcoming Airbnb stays enter a bounded two-pass
+observation (500-day window, maximum 28 GETs, 80 seconds). The projected legacy
+reservation detail endpoint supplies explicit local ETA/ETD and listing defaults;
+it is a temporary migration-review dependency, **not a production scheduler**.
+V3 detail in batches of ten supplies actual `confirmedAt`; unrelated raw V3
+guest/financial data stays inside the reader and is discarded. No created/import
+timestamp substitutes for confirmation. See the current Guesty documentation:
+
+- https://open-api-docs.guesty.com/reference/reservationsv2get
+- https://open-api-docs.guesty.com/reference/reservationsopenapicontroller_getreservationsbyids
+- https://help.guesty.com/hc/en-gb/articles/9365081186205-Managing-automated-messages-for-guests-owners-and-team-members
+
+Omitted overrides remain unknown; only explicit null permits the listing default.
+New York DST gaps/overlaps are withheld. If elapsed-day and calendar-day offsets
+disagree, both candidates are shown for Guesty queued-time verification. Past/due
+messages retain their original timestamps and are never replayed. Context changes,
+source identity changes, unequal scans and incomplete reads discard the report.
+Matching scans do not establish atomic source completeness or source stop/drain.
+
+The next implementation step remains exact template capture and the canonical
+relative-timing/renderer integration, followed by reviewed queue preparation.
+Support ticket 2193130 still needs the human cleaner-SMS history/queue/drain answer;
+Evan's availability-task completion clarification is also outstanding. Neither
+support thread had a new reply at the start of this batch.

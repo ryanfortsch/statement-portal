@@ -1,0 +1,100 @@
+'use client';
+import { useState } from 'react';
+import Link from 'next/link';
+import type { MessagePreparationReview } from '@/lib/channex-messaging/preparation';
+import { CALDERWOOD_MESSAGE_WORKFLOWS } from '@/lib/channex-messaging/preparation-timing';
+
+const stamp = (s: string | null) => s ? new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
+}).format(new Date(s)) : 'Time unverified';
+const day = (s: string) => new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(`${s}T12:00:00Z`));
+const errors: Record<string, string> = {
+  SOURCES_CHANGED: 'A reservation or rule changed during the review. Refresh to read the latest setup.',
+  SOURCE_READ_FAILED: 'Guesty could not confirm every reservation and time. No partial result is treated as verified.',
+  IDENTITY_REVIEW_REQUIRED: 'A reservation match needs review before its message schedule can be compared.',
+  READ_LIMIT_REACHED: 'The review reached its time or size limit. No partial result is treated as verified.',
+};
+const deliveryLabels = { sms: 'SMS', email: 'Email', sms_then_email: 'SMS, then email', ota_manual: 'Manual OTA route' };
+export function PreparationReview() {
+  const [review, setReview] = useState<MessagePreparationReview | null>(null);
+  const [busy, setBusy] = useState(false), [error, setError] = useState('');
+  async function refresh() {
+    setBusy(true); setError(''); setReview(null);
+    try {
+      const res = await fetch('/api/channex/message-preparation', { cache: 'no-store', signal: AbortSignal.timeout(110000) });
+      const body = await res.json();
+      if (!res.ok || body.ok !== true || body.format !== 1) {
+        setError(errors[body.code] ?? 'The review is unavailable. Check your owner sign-in and the Channex preparation status.');
+      } else setReview(body);
+    } catch { setError('The review could not finish. Try again when the connection is available.'); }
+    finally { setBusy(false); }
+  }
+  return <>
+    <section className="mt-6 rounded-xl border p-5 sm:p-6" style={{ borderColor: 'var(--rule)', background: 'var(--paper-2)' }}>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="max-w-2xl">
+          <p className="eyebrow mb-2" style={{ color: 'var(--signal)' }}>Preparation only</p>
+          <h2 className="text-xl font-semibold">Guesty continues handling messages</h2>
+          <p className="mt-2 text-sm leading-6" style={{ color: 'var(--ink-3)' }}>Compare Helm’s templates and proposed send times with the six Calderwood workflows. This review creates no messages and changes no schedules.</p>
+        </div>
+        <button type="button" onClick={refresh} disabled={busy} aria-busy={busy}
+          className="rounded-lg px-4 py-2.5 text-sm font-semibold disabled:opacity-60"
+          style={{ background: 'var(--ink)', color: 'var(--paper)' }}>{busy ? 'Checking current setup…' : review ? 'Refresh review' : 'Read current setup'}</button>
+      </div>
+      <p className="mt-3 text-xs" role="status" style={{ color: 'var(--ink-3)' }}>{busy ? 'Checking reservation identities and times twice. This can take up to 80 seconds.'
+        : review ? `Observed ${stamp(review.checkedAt)}. This is a point-in-time review.` : 'Uses current and upcoming Calderwood stays in the next 500 days.'}</p>
+    </section>
+    {error && <p role="alert" className="mt-5 border-l-4 p-4 text-sm" style={{ borderColor: 'var(--negative)', color: 'var(--negative)' }}>{error}</p>}
+    <section className="mt-8">
+      <div className="flex flex-wrap items-baseline justify-between gap-3 mb-4">
+        <h2 className="text-xl font-semibold">Six workflows to preserve</h2>
+        {review && <p className="text-sm" style={{ color: 'var(--ink-3)' }}>{review.propertySpecificWorkflows} property templates · {review.missingWorkflows} missing workflows</p>}
+      </div>
+      <div className="overflow-x-auto rounded-xl border" style={{ borderColor: 'var(--rule)' }}>
+        <table className="w-full text-left text-sm min-w-[620px]">
+          <thead style={{ background: 'var(--paper-2)', color: 'var(--ink-3)' }}><tr><th className="p-4 font-medium">Message</th><th className="p-4 font-medium">Guesty schedule to retain</th><th className="p-4 font-medium">Current Helm setup</th></tr></thead>
+          <tbody>{CALDERWOOD_MESSAGE_WORKFLOWS.map(flow => {
+            const current = review?.workflows.find(w => w.key === flow.key), r = current?.rule;
+            return <tr key={flow.key} className="border-t align-top" style={{ borderColor: 'var(--rule)' }}>
+              <th scope="row" className="p-4 font-medium">{flow.label}<span className="block text-xs font-normal mt-1" style={{ color: 'var(--ink-3)' }}>{flow.audience === 'guest' ? 'Guest · booking channel' : 'Cleaner · SMS'}</span></th>
+              <td className="p-4">{flow.offset}</td>
+              <td className="p-4 max-w-sm">{!current ? <span style={{ color: 'var(--ink-3)' }}>Run review to check</span> : !r ? <strong style={{ color: 'var(--signal)' }}>Template not set up</strong> : <>
+                <strong>{current.source === 'property' ? 'Property template' : 'Inherited fleet template'}</strong>
+                <p className="mt-1 text-xs leading-5" style={{ color: 'var(--ink-3)' }}>{r.enabled ? 'Rule enabled' : 'Rule disabled'} · {r.characterCount} characters · {r.sendMode === 'approve' ? 'Approval mode' : 'Automatic mode'}</p>
+                <p className="mt-1 text-xs leading-5" style={{ color: 'var(--ink-3)' }}>Current delivery: {deliveryLabels[r.delivery]}{r.configuredInOta ? ' · marked as covered by OTA' : ''}.</p>
+                <p className="mt-1 text-xs leading-5" style={{ color: 'var(--signal)' }}>Relative timing needs migration. Current: {r.timing}.</p>
+                <p className="mt-1 text-xs leading-5" style={{ color: 'var(--ink-3)' }}>Text parity with Guesty has not been verified.</p>
+                {(r.unsupportedFieldCount > 0 || r.malformedTemplate || r.emptyTemplate || !r.audienceMatches || !r.timezoneMatches) && <p className="mt-1 text-xs" style={{ color: 'var(--negative)' }}>Template configuration needs correction.</p>}
+              </>}</td>
+            </tr>;
+          })}</tbody>
+        </table>
+      </div>
+      {review && review.extraEffectiveKeys.length > 0 && <p className="mt-3 text-sm" style={{ color: 'var(--ink-3)' }}>Additional Helm rules require separate review: {review.extraEffectiveKeys.join(', ')}.</p>}
+    </section>
+    {review && <section className="mt-8">
+      <h2 className="text-xl font-semibold">Reservation timing review</h2>
+      <p className="text-sm mt-2 mb-5 leading-6" style={{ color: 'var(--ink-3)' }}>Times use the reservation’s arrival or departure override, or an explicitly confirmed listing default. Past times are never replayed. Daylight-saving differences require Guesty’s queued timestamp.</p>
+      {review.stays.length === 0 && <p className="rounded-lg border p-4 text-sm" style={{ borderColor: 'var(--rule)' }}>No current or upcoming stays were found in the review window. This does not establish handover readiness.</p>}
+      <div className="grid gap-4">{review.stays.map(stay => <article key={stay.canonicalId} className="rounded-xl border p-5" style={{ borderColor: 'var(--rule)' }}>
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <h3 className="font-semibold">{day(stay.checkIn)} – {day(stay.checkOut)}</h3>
+          <Link href={`/channels/bookings/${stay.canonicalId}`} className="text-sm underline underline-offset-4">Open reservation →</Link>
+        </div>
+        <ul className="divide-y" style={{ borderColor: 'var(--rule)' }}>{stay.timings.map(t => <li key={t.key} className="flex flex-wrap justify-between gap-x-5 gap-y-1 py-3 text-sm">
+          <span>{CALDERWOOD_MESSAGE_WORKFLOWS.find(f => f.key === t.key)?.label}</span>
+          <div className="sm:text-right">
+            <p>{t.status === 'dst_review' ? 'Daylight-saving review required' : stamp(t.at)}</p>
+            <p className="text-xs mt-1" style={{ color: t.status === 'future' ? 'var(--ink-3)' : 'var(--signal)' }}>{t.status === 'past_or_due' ? 'Past or due · history review required'
+              : t.status === 'future' ? 'Proposed time · queue and holds still need verification'
+              : t.status === 'dst_review' ? `Calendar: ${stamp(t.conflict?.calendarAt ?? null)} · Elapsed: ${stamp(t.conflict?.elapsedAt ?? null)}` : 'No default time has been assumed'}</p>
+          </div>
+        </li>)}</ul>
+      </article>)}</div>
+    </section>}
+    <aside className="mt-8 rounded-xl border p-5 text-sm leading-6" style={{ borderColor: 'var(--rule)', background: 'var(--paper-2)' }}>
+      <h2 className="font-semibold mb-2">Before messages can move to Helm</h2>
+      <p>Verify all six templates, the Guesty sent and pending queue, held messages, and the cleaner SMS handover. Then validate the Channex booking-channel delivery path. A matching time alone does not authorize a send.</p>
+    </aside>
+  </>;
+}

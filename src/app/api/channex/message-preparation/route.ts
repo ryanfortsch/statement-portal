@@ -1,0 +1,43 @@
+import { NextResponse } from 'next/server';
+import { isOwnerSession } from '@/lib/helm-access-server';
+import { supabaseAdmin } from '@/lib/supabase-admin';
+import { selectAllPaged } from '@/lib/paged-select';
+import { getGuestyToken } from '@/lib/guesty-client';
+import { ChannexRuntimeError, verifyDormantProductionStorage } from '@/lib/channex-production-runtime';
+import { MessageHandoffError } from '@/lib/channex-bookings/message-identity';
+import { MessagePreparationError, reviewMessagePreparation } from '@/lib/channex-messaging/preparation';
+import { MESSAGE_RULE_FIELDS } from '@/lib/channex-messaging/preparation-rules';
+
+export const dynamic = 'force-dynamic';
+export const maxDuration = 120;
+const headers = { 'Cache-Control': 'private, no-store' };
+/** Explicit owner read. No cron or proxy allowlist entry. */
+export async function GET() {
+  if (!await isOwnerSession()) return NextResponse.json({ error: 'Owners only' }, { status: 403, headers });
+  try {
+    const review = await reviewMessagePreparation(process.env, {
+      verifyDormant: () => verifyDormantProductionStorage(async (name, args) => {
+        const { data, error } = await supabaseAdmin.rpc(name, args); return { data, error };
+      }), token: getGuestyToken,
+      context: async () => {
+        const [snapshot, property, rules, mirror] = await Promise.all([
+          supabaseAdmin.rpc('helm_channex_booking_audit_snapshot', {}),
+          supabaseAdmin.from('properties').select('automations_enabled').eq('id', '65_calderwood').single(),
+          supabaseAdmin.from('message_automations').select(MESSAGE_RULE_FIELDS)
+            .or('property_id.is.null,property_id.eq.65_calderwood').order('id').limit(201),
+          selectAllPaged((from, to) => supabaseAdmin.from('guesty_reservations')
+            .select('guesty_reservation_id,property_id,listing_id,confirmation_code,check_in,check_out,channel,status')
+            .eq('property_id', '65_calderwood').order('guesty_reservation_id').range(from, to), { pageSize: 500, maxRows: 5000 }),
+        ]);
+        if (snapshot.error || property.error || rules.error || !rules.data)
+          throw new MessagePreparationError('PREPARATION_READ_FAILED');
+        return { canonical: snapshot.data, automationsEnabled: property.data.automations_enabled, rules: rules.data, mirror };
+      },
+    });
+    return NextResponse.json(review, { headers });
+  } catch (e) {
+    const code = e instanceof MessagePreparationError || e instanceof MessageHandoffError || e instanceof ChannexRuntimeError
+      ? e.code : 'PREPARATION_READ_FAILED';
+    return NextResponse.json({ ok: false, code, readyForAutomaticMessaging: false, jobsCreated: 0, messagesSent: 0 }, { status: 503, headers });
+  }
+}

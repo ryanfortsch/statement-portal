@@ -212,6 +212,7 @@ export default async function ChannelsPropertyPage({
           <Link href="/channels" style={ghostButton}>← Channels</Link>
           <Link href={`/properties/${propertyId}`} style={ghostButton}>Property record →</Link>
           <Link href={`/channels/${propertyId}/calendar?month=${monthKey(ym.year, ym.month)}`} style={ghostButton}>Month grid →</Link>
+          {owner && propertyId === '65_calderwood' && <Link href="/channels/65_calderwood/message-preparation" style={ghostButton}>Message handover →</Link>}
           <Link href={`/book/${propertyId}`} target="_blank" style={ghostButton}>Public booking page ↗</Link>
           {!helmRun && owner && !runbook && (
             <Link href={`/channels/${propertyId}?prepare=1#cutover`} style={ghostButton}>Prepare cutover</Link>
