@@ -19,6 +19,8 @@ const sql = [read('scripts/tests/channex-fixture.sql'), functions,
   read('supabase/migrations/20261106103200_channex_runtime_status.sql'),
   read('supabase/migrations/20261106110000_channex_inventory_plans.sql'),
   read('supabase/migrations/20261106120000_channex_inventory_delivery.sql'),
+  read('supabase/migrations/20261106130000_channex_booking_audit.sql'),
+  read('scripts/tests/channex-booking-audit.sql'),
   read('scripts/tests/channex-bookings.sql'),
   read('scripts/tests/channex-inventory.sql'),
   read('scripts/tests/channex-delivery.sql')].join('\n');

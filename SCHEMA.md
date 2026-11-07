@@ -172,6 +172,11 @@ never key per-stay logic on `bookings.id`.
   also remain unresolved, pending a separately reviewed settlement path. No
   direct service table access, activation or settlement RPC is installed.
   `helm_channex_delivery_status()` returns gate state and counts, not payloads.
+- **`helm_channex_booking_audit_snapshot()`**: service-only, read-only bounded
+  projection of all Calderwood calendar rows for the owner-triggered migration
+  comparison. IDs, dates, statuses, duplicate roots and confirmation codes only;
+  no guest contact or financial fields. It creates no table, link, coverage claim
+  or activation. A 5001st row causes the consumer to reject truncation.
 - **`guests`**: the Helm-native guest record (name, email, phone, notes,
   `source`). `bookings.guest_id` points here for direct and manual stays.
   It is NOT `audience_contacts` (the marketing list) and NOT `contacts`

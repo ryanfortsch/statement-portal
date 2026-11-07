@@ -9,10 +9,12 @@ on:
       - 'src/lib/rental-periods.ts'
       - 'src/lib/channex-production*'
       - 'src/app/api/cron/channex-production/**'
+      - 'src/app/api/channex/reconciliation/**'
       - 'supabase/migrations/*channex*'
       - 'scripts/test-channex-database.mjs'
       - 'scripts/test-channex-planner.mts'
       - 'scripts/test-channex-delivery.mts'
+      - 'scripts/test-channex-reconciliation.mts'
       - 'scripts/tests/channex*'
       - '.github/workflows/channex-production.yml'
 permissions:
@@ -51,6 +53,7 @@ jobs:
       - run: node scripts/test-channex-database.mjs
       - run: node --import ./scripts/server-only-test-hook.mjs scripts/test-channex-planner.mts
       - run: node --import ./scripts/server-only-test-hook.mjs scripts/test-channex-delivery.mts
+      - run: node --import ./scripts/server-only-test-hook.mjs scripts/test-channex-reconciliation.mts
       - run: bash scripts/tests/channex-concurrency.sh
       - run: bash scripts/tests/channex-inventory-concurrency.sh
       - run: bash scripts/tests/channex-delivery-concurrency.sh

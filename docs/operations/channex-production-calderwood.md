@@ -305,3 +305,48 @@ send checkpoints, concurrent canonical writes, stale plans, expired workers,
 lost responses, 429 pacing, credential rejection, strict payload shapes and
 permissions. Provider tests use synthetic replies. No live inventory POST is
 needed or performed to deploy this dormant batch.
+
+## Read-only booking comparison
+
+`GET /api/channex/reconciliation` is a manual, effective-owner-only diagnostic.
+It is not public, scheduled or called by the configuration cron. It requires
+production inspection mode and the same dormant storage, Guesty authority,
+closed rate and empty-channel preflight. It does not create canonical links,
+import/ACK revisions, grant source coverage, write checkpoints or send anything.
+
+The service-only `helm_channex_booking_audit_snapshot()` RPC reads one bounded
+SQL snapshot of Calderwood's calendar rows: IDs, source/channel, status, dates,
+duplicate root, hold kind and confirmation code. It excludes guest contact,
+financial and message fields. The 5001st row makes truncation observable and is
+rejected by TypeScript. Duplicate roots must be present, in scope and canonical.
+
+The provider reader traverses the documented booking collection twice, including
+all dates and statuses. Each page must agree on total/limit and have the exact
+expected size; duplicate identities, wrong mappings, partial pages, warnings and
+read errors fail. Each scan is capped at 50 pages / 5,000 bookings and both share
+a 90-second deadline. Only the small booking projection survives parsing. The
+booking's creation timestamp is never passed off as revision ordering evidence.
+
+The two normalized collections must agree and the canonical before/after
+fingerprints must agree. Differences use exact channel/confirmation identities;
+dates alone never match two stays. The report flags missing stays, ambiguous
+codes, differing dates/status, hold conflicts and other overlapping stays. The
+500-day availability horizon is reviewed with 30 days of buffer neighbours on
+each side. Other-channel stays and independent holds, including duplicate OTA
+closures, remain visible. Cancellations cannot delete holds through this audit.
+Only aggregate counts, IDs and fingerprints leave the endpoint; no confirmation
+codes, names, payment information or raw provider responses are returned.
+
+**Matching observations are not an atomic provider snapshot or a coverage grant.**
+A row may change and change back between scans, and the current Guesty mirror's
+upstream completeness/freshness is not established here. `paginationComplete`
+means traversal completed; `completeCoverage` and `readyForCutover` are always
+false. An empty Channex account is expected to show missing local Airbnb stays
+until the reviewed channel transition/import. Never cancel those stays based on
+absence. A changing source returns `SOURCES_CHANGED` and requires a fresh audit.
+
+This diagnostic uses the [booking collection](https://docs.channex.io/api-v.1-documentation/bookings-collection)
+and [pagination/filter contract](https://docs.channex.io/api-v.1-documentation/api-reference),
+checked 6 November 2026. It is distinct from revision-feed consumption. The
+remaining initial-link adoption and durable complete-source coverage mechanism
+must validate the final handoff; this report does not enable publishing.
