@@ -110,7 +110,7 @@ export async function reviewMessagePreparation(env: Record<string, string | unde
   return { ok: true as const, format: 1 as const, propertyId: '65_calderwood' as const,
     checkedAt: new Date(observedAt).toISOString(), contextRevision: before.revision,
     currentAndUpcomingStays: first.length, ...reviewPreparationRules(before.rules),
-    stays: first.map(r => ({ canonicalId: r.canonicalId, checkIn: r.clocks.start, checkOut: r.clocks.end,
+    stays: first.sort((a, b) => a.clocks.start.localeCompare(b.clocks.start) || a.canonicalId.localeCompare(b.canonicalId)).map(r => ({ canonicalId: r.canonicalId, checkIn: r.clocks.start, checkOut: r.clocks.end,
       timings: reviewCalderwoodTiming(r.clocks, observedAt) })),
     sourceReads: requests, readyForAutomaticMessaging: false as const,
     guestyQueueVerified: false as const, templateParityVerified: false as const,

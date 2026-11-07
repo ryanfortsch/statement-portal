@@ -378,6 +378,7 @@ export const MERGE_FIELDS = [
   'parking',
   'trash_day',
   'arrival_when',
+  'cleaner_schedule_url',
 ] as const;
 export type MergeField = (typeof MERGE_FIELDS)[number];
 
@@ -400,6 +401,7 @@ export const MERGE_FIELD_HELP: Record<MergeField, string> = {
   parking: 'The parking note on the property',
   trash_day: 'Collection day (Cape Ann only)',
   arrival_when: "'tomorrow', 'today', or 'on Friday, October 16', from when the message goes",
+  cleaner_schedule_url: 'Verified cleaner schedule link (must be configured before delivery)',
 };
 
 /** Values that go over the wire but never into a stored body. */

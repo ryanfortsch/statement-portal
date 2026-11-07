@@ -3,6 +3,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import type { MessagePreparationReview } from '@/lib/channex-messaging/preparation';
 import { CALDERWOOD_MESSAGE_WORKFLOWS } from '@/lib/channex-messaging/preparation-timing';
+import { Button } from '@/components/Button';
 
 const stamp = (s: string | null) => s ? new Intl.DateTimeFormat('en-US', {
   timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
@@ -37,9 +38,7 @@ export function PreparationReview() {
           <h2 className="text-xl font-semibold">Guesty continues handling messages</h2>
           <p className="mt-2 text-sm leading-6" style={{ color: 'var(--ink-3)' }}>Compare Helm’s templates and proposed send times with the six Calderwood workflows. This review creates no messages and changes no schedules.</p>
         </div>
-        <button type="button" onClick={refresh} disabled={busy} aria-busy={busy}
-          className="rounded-lg px-4 py-2.5 text-sm font-semibold disabled:opacity-60"
-          style={{ background: 'var(--ink)', color: 'var(--paper)' }}>{busy ? 'Checking current setup…' : review ? 'Refresh review' : 'Read current setup'}</button>
+        <Button type="button" onClick={refresh} pending={busy} watchdog={false}>{busy ? 'Checking current setup…' : review ? 'Refresh review' : 'Read current setup'}</Button>
       </div>
       <p className="mt-3 text-xs" role="status" style={{ color: 'var(--ink-3)' }}>{busy ? 'Checking reservation identities and times twice. This can take up to 80 seconds.'
         : review ? `Observed ${stamp(review.checkedAt)}. This is a point-in-time review.` : 'Uses current and upcoming Calderwood stays in the next 500 days.'}</p>
@@ -48,7 +47,7 @@ export function PreparationReview() {
     <section className="mt-8">
       <div className="flex flex-wrap items-baseline justify-between gap-3 mb-4">
         <h2 className="text-xl font-semibold">Six workflows to preserve</h2>
-        {review && <p className="text-sm" style={{ color: 'var(--ink-3)' }}>{review.propertySpecificWorkflows} property templates · {review.missingWorkflows} missing workflows</p>}
+        {review && <p className="text-sm" style={{ color: 'var(--ink-3)' }}>{review.preparedWorkflows} of 6 templates prepared · {review.missingWorkflows} missing workflows</p>}
       </div>
       <div className="overflow-x-auto rounded-xl border" style={{ borderColor: 'var(--rule)' }}>
         <table className="w-full text-left text-sm min-w-[620px]">
@@ -59,12 +58,20 @@ export function PreparationReview() {
               <th scope="row" className="p-4 font-medium">{flow.label}<span className="block text-xs font-normal mt-1" style={{ color: 'var(--ink-3)' }}>{flow.audience === 'guest' ? 'Guest · booking channel' : 'Cleaner · SMS'}</span></th>
               <td className="p-4">{flow.offset}</td>
               <td className="p-4 max-w-sm">{!current ? <span style={{ color: 'var(--ink-3)' }}>Run review to check</span> : !r ? <strong style={{ color: 'var(--signal)' }}>Template not set up</strong> : <>
-                <strong>{current.source === 'property' ? 'Property template' : 'Inherited fleet template'}</strong>
-                <p className="mt-1 text-xs leading-5" style={{ color: 'var(--ink-3)' }}>{r.enabled ? 'Rule enabled' : 'Rule disabled'} · {r.characterCount} characters · {r.sendMode === 'approve' ? 'Approval mode' : 'Automatic mode'}</p>
-                <p className="mt-1 text-xs leading-5" style={{ color: 'var(--ink-3)' }}>Current delivery: {deliveryLabels[r.delivery]}{r.configuredInOta ? ' · marked as covered by OTA' : ''}.</p>
-                <p className="mt-1 text-xs leading-5" style={{ color: 'var(--signal)' }}>Relative timing needs migration. Current: {r.timing}.</p>
-                <p className="mt-1 text-xs leading-5" style={{ color: 'var(--ink-3)' }}>Text parity with Guesty has not been verified.</p>
-                {(r.unsupportedFieldCount > 0 || r.malformedTemplate || r.emptyTemplate || !r.audienceMatches || !r.timezoneMatches) && <p className="mt-1 text-xs" style={{ color: 'var(--negative)' }}>Template configuration needs correction.</p>}
+                <strong>{r.migration ? 'Guesty template prepared' : current.source === 'property' ? 'Property template' : 'Inherited fleet template'}</strong>
+                {r.migration ? <>
+                  <p className="mt-1 text-xs leading-5" style={{ color: 'var(--ink-3)' }}>Source wording captured · relative schedule recorded · sending off.</p>
+                  <p className="mt-1 text-xs leading-5" style={{ color: 'var(--ink-3)' }}>Planned delivery: {flow.audience === 'guest' ? 'Automatic booking-channel message' : 'Automatic cleaner SMS'}.</p>
+                  {r.migration.credentialFields && <p className="mt-1 text-xs leading-5" style={{ color: 'var(--signal)' }}>Door code and Wi-Fi values must resolve from protected records.</p>}
+                  {r.migration.cleanerLinkRequired && <p className="mt-1 text-xs leading-5" style={{ color: 'var(--signal)' }}>Cleaner schedule link still needs replacement and access verification.</p>}
+                  {r.migration.dateFormatReview && <p className="mt-1 text-xs leading-5" style={{ color: 'var(--signal)' }}>Date display needs comparison with a rendered Guesty message.</p>}
+                </> : <>
+                  <p className="mt-1 text-xs leading-5" style={{ color: 'var(--ink-3)' }}>{r.enabled ? 'Rule enabled' : 'Rule disabled'} · {r.characterCount} characters · {r.sendMode === 'approve' ? 'Approval mode' : 'Automatic mode'}</p>
+                  <p className="mt-1 text-xs leading-5" style={{ color: 'var(--ink-3)' }}>Current delivery: {deliveryLabels[r.delivery]}{r.configuredInOta ? ' · marked as covered by OTA' : ''}.</p>
+                  <p className="mt-1 text-xs leading-5" style={{ color: 'var(--signal)' }}>Relative timing needs migration. Current: {r.timing}.</p>
+                </>}
+                <p className="mt-1 text-xs leading-5" style={{ color: 'var(--ink-3)' }}>Rendered message and delivery checks remain.</p>
+                {(r.invalidMigrationPolicy || r.unsupportedFieldCount > 0 || r.malformedTemplate || r.emptyTemplate || !r.audienceMatches || !r.timezoneMatches) && <p className="mt-1 text-xs" style={{ color: 'var(--negative)' }}>Template configuration needs correction.</p>}
               </>}</td>
             </tr>;
           })}</tbody>
