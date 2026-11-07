@@ -429,3 +429,43 @@ mirror records have non-API identifiers from older imports. Those records remain
 in identity collision detection; only a uniquely matched, valid Guesty ObjectId
 may become an API destination. Synthetic IDs, URL-like IDs and ambiguous codes
 cannot be requested. Anonymous access to the deployed endpoint returned 401.
+
+## Automatic message transport preparation — November 6, 2026
+
+The owner review succeeded against four current/upcoming stays and 22 conversation
+records, with both observations agreeing. A separate read-only browser review of
+each stay's Guest auto messages panel found six completed guest automations and
+ten enabled scheduled messages. The three future key-code messages remain at
+3 PM; the current stay's key-code history shows completion at 3:01 PM. These are
+Guesty's UI states at review time, not recipient delivery receipts or a cutover
+grant. Refresh them before switching senders. Cleaner recipient history remains
+unverified; an empty manually scheduled Inbox view is not an empty automation queue.
+
+`src/lib/channex-messaging/transport.ts` and `worker.ts` carry forward the isolated
+staging transport and execution protocol, with server-only imports and sends
+disabled by default. They are not imported by a route, cron, scheduler or the live
+automation dispatcher. No production ledger adapter or activation is installed by
+this change. The production durable store still needs to enforce atomic claim,
+current stay revision, due time, hold, recipient/thread binding and sender ownership.
+Synthetic concurrent-worker tests establish the caller protocol, not database
+concurrency guarantees.
+
+Before a single POST the transport reads the exact thread and verifies its
+property, channel, booking, provider and open state, including relationship types.
+The worker requires a matching rendered-body digest and current context revision,
+then a successful durable claim. Uncertain claim responses never reach POST.
+After the send barrier, a timeout, malformed response or lost receipt write stays
+unresolved and is never retried automatically. An accepted provider message ID may
+be checked with GET; an exact matching record is called `recorded`, not `delivered`.
+Keys and message bodies stay out of results and errors. Both dispatch and worker
+reconciliation require explicit enablement; transport-only receipt inspection is
+GET-only. There is no credential loader or automatic staging fallback.
+
+The production Applications screen for 65 Calderwood currently offers **Install**
+for Channex Messages & Reviews. Channex's [messaging documentation](https://docs.channex.io/api-v.1-documentation/messages-collection)
+requires that application before messaging works. Installation is still pending;
+support quoted USD 1/unit/month for vacation rentals. This batch does not install
+the paid add-on, attach Airbnb, change Guesty authority or send a guest/cleaner
+message. Production channel delivery and cleaner SMS acceptance remain launch
+requirements. The availability completion/recovery question sent to Evan still
+had no reply when checked on November 6.
