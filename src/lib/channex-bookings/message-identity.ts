@@ -5,7 +5,9 @@ export const GUESTY_CALDERWOOD = '66797ba7f51d72001388bc29';
 export const GUESTY_ACCOUNT = '666a36847fc6d5653142b08e';
 const ident = z.string().regex(/^[a-f0-9]{24}$/);
 const date = z.iso.date();
-const mirrorRow = z.object({ guesty_reservation_id: ident, property_id: z.literal('65_calderwood'),
+// CSV-era mirror records use synthetic IDs. Retain them for collision detection,
+// but only permit a verified Guesty ObjectId to become an API destination.
+const mirrorRow = z.object({ guesty_reservation_id: z.string().min(1).max(200), property_id: z.literal('65_calderwood'),
   listing_id: ident.nullable(), confirmation_code: z.string().max(160).nullable(),
   check_in: date.nullable(), check_out: date.nullable(), channel: z.string().max(80).nullable(),
   status: z.string().max(80).nullable() }).strict();
@@ -40,7 +42,7 @@ export function resolveMessageStayIdentities(snapshot: CanonicalSnapshot, mirror
         || s.confirmation_code !== b.code || !/^[A-Za-z0-9_-]+$/.test(b.code!)
         || s.listing_id !== GUESTY_CALDERWOOD || s.channel?.toLowerCase() !== 'airbnb' || s.status !== 'confirmed'
         || s.check_in !== b.checkIn || s.check_out !== b.checkOut) throw Error();
-      return { canonicalId: b.id, id: s.guesty_reservation_id, listingId: GUESTY_CALDERWOOD,
+      return { canonicalId: b.id, id: ident.parse(s.guesty_reservation_id), listingId: GUESTY_CALDERWOOD,
         accountId: GUESTY_ACCOUNT, code: b.code!, start: b.checkIn, end: b.checkOut, status: 'confirmed' as const };
     }).sort((a, b) => a.canonicalId.localeCompare(b.canonicalId));
   } catch { throw new MessageHandoffError('IDENTITY_REVIEW_REQUIRED'); }
