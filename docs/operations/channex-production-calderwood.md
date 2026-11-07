@@ -444,11 +444,9 @@ unverified; an empty manually scheduled Inbox view is not an empty automation qu
 `src/lib/channex-messaging/transport.ts` and `worker.ts` carry forward the isolated
 staging transport and execution protocol, with server-only imports and sends
 disabled by default. They are not imported by a route, cron, scheduler or the live
-automation dispatcher. No production ledger adapter or activation is installed by
-this change. The production durable store still needs to enforce atomic claim,
-current stay revision, due time, hold, recipient/thread binding and sender ownership.
-Synthetic concurrent-worker tests establish the caller protocol, not database
-concurrency guarantees.
+automation dispatcher. That initial transport change had no production ledger
+adapter or activation. The November 7 ledger work below adds database concurrency
+checks; neither batch enables a scheduler or permits live automatic sends.
 
 Before a single POST the transport reads the exact thread and verifies its
 property, channel, booking, provider and open state, including relationship types.
@@ -461,11 +459,45 @@ Keys and message bodies stay out of results and errors. Both dispatch and worker
 reconciliation require explicit enablement; transport-only receipt inspection is
 GET-only. There is no credential loader or automatic staging fallback.
 
-The production Applications screen for 65 Calderwood currently offers **Install**
-for Channex Messages & Reviews. Channex's [messaging documentation](https://docs.channex.io/api-v.1-documentation/messages-collection)
-requires that application before messaging works. Installation is still pending;
-support quoted USD 1/unit/month for vacation rentals. This batch does not install
-the paid add-on, attach Airbnb, change Guesty authority or send a guest/cleaner
-message. Production channel delivery and cleaner SMS acceptance remain launch
-requirements. The availability completion/recovery question sent to Evan still
-had no reply when checked on November 6.
+Channex Messages & Reviews was installed for 65 Calderwood on November 7 after
+Ryan authorized the displayed USD 0.50/month charge within the USD 1/month support
+quote. The production Applications screen confirmed Installed (1). This does not
+attach Airbnb or establish channel delivery. Guesty authority and all message
+timings remain unchanged. Guesty support ticket 2193130 has been escalated to a
+human for cleaner history/retention and queue stop/drain evidence; no human reply
+was present at the November 7 check. Evan's availability completion/recovery
+question also remained unanswered.
+
+## Persistent message queue — November 7, 2026
+
+`20261107090000_channex_message_queue.sql` adds an empty private schema and four
+service-only RPCs. `store.ts` supplies the strict production adapter: pinned
+Calderwood/Airbnb scope, narrow results and redacted failures. The job extends the
+existing canonical automation row; no second planner or schedule is created.
+Registration requires a future unsent canonical row and canonical Channex booking
+mapping. SQL reserves it from legacy SMS/email dispatch, including older
+deployments and replacement-rule inserts. Claim rechecks current stay dates and
+status, authority, effective rule, source stop/drain proof, route generation,
+due/expiry times, manual hold and the current renderer dependency digest.
+
+One successful claim permits one POST. A repeat, including the same attempt ID,
+cannot authorize another send. Receipts persist separately from the schedule so
+a cancellation cannot erase provider evidence or be revived by a late response.
+Unknown outcomes remain parked; accepted IDs can be reconciled with GET only.
+Hold/release is version checked and audited without changing the Guesty fire time.
+The hold RPC is service-only; a future owner action must supply an authenticated
+actor. Once a claim commits, later edits/holds cannot recall an in-flight POST.
+
+Synthetic PostgreSQL tests exercise the actual RPC adapter and worker against a
+fake provider, including lost claim/receipt replies, timeout/restart, access-code
+and template changes, hold/release, historical receipt rejection, legacy rail
+exclusion and simultaneous workers/canonical cancellation. CI runs these alongside
+the existing booking/inventory/delivery database checks. No live message is sent
+by tests or by this migration.
+
+This remains **inactive**: no source proof is minted, scope/job rows are not
+seeded, and no route/cron imports the production worker or store. Before activation
+we still need the reviewed source handoff, a current-data renderer and preparation
+flow, unchanged Guesty schedules, owner hold controls, cleaner SMS acceptance,
+and end-to-end channel delivery. Timing and dependency checks intentionally block
+stale jobs; there is no automatic rebind/retry or historical-message replay.

@@ -858,6 +858,8 @@ async function deliverCleanerSms(rendered: Rendered, bundle: PropertyBundle): Pr
  * out of here writes a terminal or parked status.
  */
 async function dispatchRow(row: AutomationSendRow, opts: DispatchOptions): Promise<string> {
+  // Reserved Channex rows belong exclusively to their durable worker.
+  if (row.delivery_used === 'channex') return row.status;
   const nowIso = opts.now.toISOString();
   const finish = async (patch: Record<string, unknown>): Promise<string> => {
     const { error } = await supabaseAdmin
@@ -994,7 +996,7 @@ export async function dispatchDue(opts: { now?: Date; propertyId?: string | null
   const nowIso = now.toISOString();
 
   if (dry) {
-    let q = supabaseAdmin.from('automation_sends').select('id', { count: 'exact', head: true }).eq('status', 'scheduled').lte('fire_at', nowIso);
+    let q = supabaseAdmin.from('automation_sends').select('id', { count: 'exact', head: true }).eq('status', 'scheduled').or('delivery_used.is.null,delivery_used.neq.channex').lte('fire_at', nowIso);
     if (opts.propertyId) q = q.eq('property_id', opts.propertyId);
     const { count } = await q;
     return { ...EMPTY_DISPATCH, claimed: count ?? 0, dry };
@@ -1009,7 +1011,8 @@ export async function dispatchDue(opts: { now?: Date; propertyId?: string | null
       .from('automation_sends')
       .update({ status: 'failed', error: 'stuck in sending for 30+ minutes; not retried', updated_at: nowIso })
       .eq('status', 'sending')
-      .lt('updated_at', stuckBefore);
+      .lt('updated_at', stuckBefore)
+      .or('delivery_used.is.null,delivery_used.neq.channex');
     if (opts.propertyId) stuck = stuck.eq('property_id', opts.propertyId);
     await stuck;
   }
@@ -1018,7 +1021,8 @@ export async function dispatchDue(opts: { now?: Date; propertyId?: string | null
     .from('automation_sends')
     .update({ status: 'sending', updated_at: nowIso })
     .eq('status', 'scheduled')
-    .lte('fire_at', nowIso);
+    .lte('fire_at', nowIso)
+    .or('delivery_used.is.null,delivery_used.neq.channex');
   if (opts.propertyId) claim = claim.eq('property_id', opts.propertyId);
   const { data, error } = await claim.select(SEND_COLS);
   if (error) throw new Error(`automation_sends claim: ${error.message}`);
@@ -1069,6 +1073,7 @@ export async function approveSend(id: string, actor: string, opts: { body?: stri
     .update({ status: 'sending', updated_at: now.toISOString() })
     .eq('id', id)
     .eq('status', 'awaiting_approval')
+    .or('delivery_used.is.null,delivery_used.neq.channex')
     .select(SEND_COLS);
   if (error) return { ok: false, error: error.message };
   const row = (data ?? [])[0] as AutomationSendRow | undefined;

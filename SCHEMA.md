@@ -579,6 +579,18 @@ runs itself.
   `/api/cron/automations` planner (every 15 minutes) only plans for homes
   with `automations_enabled` AND `calendar_authority = 'helm'`; fleet
   defaults never fire for a Guesty-run home.
+- **`helm_channex_messages` private schema** (dormant): Calderwood production
+  scope, per-send jobs and hold audit events. Jobs extend `automation_sends`,
+  with a second uniqueness fence on `(booking_id, automation_key)`; they store
+  body/context digests and provider IDs, never clear message bodies or keys.
+  The service-only `helm_channex_message_read/claim/finish/set_hold` RPCs bind
+  each one-use attempt to its canonical stay, reviewed source handoff, current
+  renderer dependencies and route generation. Unknown attempts cannot retry;
+  exact provider readback is `recorded`, not proof of recipient delivery.
+  Reserved rows are excluded from legacy dispatch and protected by SQL triggers,
+  including replacement-rule inserts. No route/job seeds, activation, scheduler
+  or source-proof creation RPC ships with this migration. See the Channex
+  production operations document for remaining handoff requirements.
 - **`guest_threads`**: one thread per stay per channel (`sms`, `email`,
   `airbnb`, `vrbo`, `booking_com`, `direct`), keyed to `booking_id`,
   `guest_id` and `property_id`, with `external_thread_key` (E.164 for
