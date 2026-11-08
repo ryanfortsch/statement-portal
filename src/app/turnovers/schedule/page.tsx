@@ -153,7 +153,7 @@ function headNotice(p: { err?: string; saved?: string; applied?: string; removed
     if (p.ownerhold === 'clean') return { tone: 'ok', text: 'Saved: the crew cleans after the owner leaves.' };
     if (p.ownerhold === 'no_clean') return { tone: 'ok', text: 'Saved: no cleaning after this owner stay. It is off the route.' };
     if (p.ownerhold === 'no_clean_sent') {
-      return { tone: 'ok', text: "Saved: no cleaning after this owner stay. That day's text already went out: send an update from the cleaner inbox." };
+      return { tone: 'ok', text: "Saved: no cleaning after this owner stay. That day's text already went out: send an update from the Team inbox." };
     }
     return { tone: 'bad', text: ERR_COPY[p.ownerhold] ?? `Error: ${p.ownerhold}` };
   }
@@ -668,7 +668,7 @@ export default async function CheckoutSchedulePage({
             right={
               digest && digest.status === 'pending' ? (
                 <Link href="/messaging/team#schedule-digest" style={{ fontSize: 12, color: 'var(--signal)', fontWeight: 600, textDecoration: 'underline', textUnderlineOffset: 3 }}>
-                  Approve on the cleaner inbox →
+                  Approve on the Team inbox →
                 </Link>
               ) : digest && digest.status === 'sent' ? (
                 <Link href={`/turnovers/schedule?digest=${day.date}#digest-${CAPE_ANN_REGION}`} style={{ fontSize: 12, color: 'var(--ink-3)', fontWeight: 600, textDecoration: 'underline', textUnderlineOffset: 3 }}>
@@ -738,11 +738,11 @@ export default async function CheckoutSchedulePage({
             right={
               region === CAPE_ANN_REGION && pending ? (
                 <Link href="/messaging/team#schedule-digest" style={{ fontSize: 12, color: 'var(--signal)', fontWeight: 600, textDecoration: 'underline', textUnderlineOffset: 3 }}>
-                  Edit and approve on the cleaner inbox →
+                  Edit and approve on the Team inbox →
                 </Link>
               ) : region === CAPE_ANN_REGION && sent ? (
                 <Link href="/messaging/team#schedule-digest" style={{ fontSize: 12, color: 'var(--ink-3)', fontWeight: 600, textDecoration: 'underline', textUnderlineOffset: 3 }}>
-                  Send an update on the cleaner inbox →
+                  Send an update on the Team inbox →
                 </Link>
               ) : undefined
             }
@@ -765,7 +765,7 @@ export default async function CheckoutSchedulePage({
                     {noteRenderingIsStale(digest) ? (
                       <span style={{ fontStyle: 'italic' }}>
                         Note riding with it, not translated yet (it is translated when sent; Save &amp; translate on the{' '}
-                        <Link href="/messaging/team#schedule-digest" style={{ color: 'inherit' }}>cleaner messaging card</Link> to see it first): &ldquo;{digest.operator_note}&rdquo;
+                        <Link href="/messaging/team#schedule-digest" style={{ color: 'inherit' }}>Team inbox card</Link> to see it first): &ldquo;{digest.operator_note}&rdquo;
                       </span>
                     ) : (
                       <>
@@ -868,7 +868,7 @@ export default async function CheckoutSchedulePage({
       </div>
 
       <div style={{ flex: 1 }} />
-      <HelmFooter left="Turnovers · Checkout schedule" right="Source: bookings + Helm adjustments" />
+      <HelmFooter left="Turnovers · Schedule" right="Source: bookings + Helm adjustments" />
     </div>
   );
 }

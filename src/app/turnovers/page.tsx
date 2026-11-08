@@ -181,7 +181,7 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
         <HelmMasthead />
         <TurnoverTabs current="pipeline" />
         <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56 }}>
-          <div className="eyebrow">Turnovers</div>
+          <div className="eyebrow">Board</div>
           <p style={{ marginTop: 14, color: 'var(--ink-3)' }}>
             Ask Ryan: this page is not set up.
           </p>
@@ -291,6 +291,8 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
           drop underneath as small dim text. Below the grid since 2026-10-30:
           the first thing on the page is who is going where. */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 56, width: '100%' }}>
+        {/* The tab's own word, so the page prints what the strip says. */}
+        <div className="eyebrow" style={{ marginBottom: 10 }}>Board</div>
         <div
           style={{
             borderTop: '1px solid var(--ink)',

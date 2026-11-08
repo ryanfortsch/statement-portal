@@ -359,7 +359,7 @@ export async function ScheduleDigestCard({
       getScheduleSettings(supabase),
     ]);
   } catch {
-    return <Section id="schedule-digest" title="Cleaner schedule">
+    return <Section id="schedule-digest" title="Schedule">
       <p role="status">Couldn’t load the schedule approval. <RetryDashboard /></p>
     </Section>;
   }
@@ -385,7 +385,7 @@ export async function ScheduleDigestCard({
 
   if (!digest) {
     return (
-      <Section id="schedule-digest" title="Cleaner schedule digest" eyebrow="Daily · day before">
+      <Section id="schedule-digest" title="Schedule digest" eyebrow="Daily · day before">
         <div style={{ borderTop: '1px solid var(--ink)', padding: '16px 0', fontSize: 13, color: 'var(--ink-3)', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
           <span>No digest yet.</span>
           <form action={ensureTomorrowDraft}>
@@ -446,7 +446,7 @@ export async function ScheduleDigestCard({
     <Section
       paddingBottom={20}
       id="schedule-digest"
-      title={`Cleaner schedule · ${fmtDay(digest.service_date)}`}
+      title={`Schedule · ${fmtDay(digest.service_date)}`}
       eyebrow={pending ? 'Waiting on your approval' : digest.status === 'sent' ? 'Sent' : 'Skipped'}
     >
       <MessagingCountsRefresh revision={`${digest.id}:${digest.status}`} />

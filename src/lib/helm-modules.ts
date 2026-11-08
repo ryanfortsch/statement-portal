@@ -214,7 +214,7 @@ export const HELM_MODULES: HelmModule[] = [
     id: 'checkout-schedule',
     href: '/turnovers/schedule',
     number: '02b',
-    title: 'Cleaner Schedule',
+    title: 'Schedule',
     description: 'Checkout schedule the cleaners can trust: Guesty bookings merged with late checkouts and extensions Helm knows about. Feeds the daily digest text to Rosa and her live mobile page.',
     status: 'active',
     primary: false,

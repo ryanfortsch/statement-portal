@@ -164,7 +164,7 @@ export function BoardLine({ row, today, myEmail, dispatcher = false }: { row: Bo
                 date move; the schedule's row links back here. */}
             {row.scheduleHref && (
               <Link href={row.scheduleHref} className="rt-tb-chip">
-                Checkout schedule →
+                Schedule →
               </Link>
             )}
             {t && !row.done && (
