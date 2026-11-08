@@ -12,7 +12,7 @@ Combined forecast reduction: $34.44/month, $413.28 per full year. November 2026 
 ## Remaining review
 
 - Claude and ChatGPT: Ryan confirms a $100/month paid plan for each, plus usage credits. Keep both. The $200 base is part of the existing allowance, not an additional expense. Credit purchases are variable; do not count usage-reset receipts as recurring subscriptions or assume the base plans cap spending.
-- AirDNA: latest invoice is $67.94 for October 9 to November 9. Ryan authorized cancellation because it is no longer needed. Cancellation is pending AirDNA sign-in; no savings booked until the end date is verified.
+- AirDNA: latest invoice is $67.94 for October 9 to November 9. Ryan authorized cancellation because it is no longer needed. Signed into both AirDNA and its Stripe billing portal; both show the November 9 renewal but neither offers a cancellation control. At Ryan's direction, emailed hello@airdna.co on November 7 requesting cancellation, no renewal, and confirmation of the effective end date without deleting the account. No savings booked until the end date is verified.
 - Adobe: an email confirms one Photography 1TB plan ended May 20. It does not establish that every Adobe plan ended. Ryan confirms Adobe is still paid. September's historical $69 across two plans still needs current billing reconciliation; no new savings booked.
 - Midjourney: historical June charge of $63.75 is not proof of a current recurring charge. Ryan is unsure whether it is still paid; await current usage/billing confirmation.
 - Hosting receipts: Vercel $41.25, Supabase $32.14, Render $6.53 and Tailscale $8.50 total $88.42 using the latest bills reviewed, before the Vercel seat reduction. These are observations, not fixed future totals. Keep production infrastructure pending a service-specific dependency review.
@@ -25,3 +25,5 @@ Combined forecast reduction: $34.44/month, $413.28 per full year. November 2026 
 - [Adobe Photography cancellation](https://mail.google.com/mail/u/?authuser=ryan%40risingtidestr.com#all/19e2e91ab55cd8c6)
 
 User confirmations are from the November 7 software-cost review. Check the next Vercel and Zoom billing cycle against these assumptions.
+
+- [AirDNA cancellation request sent November 7](https://mail.google.com/mail/u/?authuser=ryan%40risingtidestr.com#all/1a1b91e9c4193bc8)
