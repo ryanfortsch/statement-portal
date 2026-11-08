@@ -34,5 +34,7 @@ test('it is registered, owner-only, and wears the Financials strip', () => {
   const page = read('src/app/payments/balance-charges/page.tsx');
   assert.match(page, /<FinancialsTabs current="payments" \/>/);
   assert.ok(!/borderRadius/.test(page), 'the rounded card styling is back');
-  assert.match(read('src/app/payments/page.tsx'), /href="\/payments\/balance-charges"/);
+  // Reached from the Stripe sub-strip, which the lookup renders for owners.
+  assert.match(read('src/components/StripeTabs.tsx'), /href: '\/payments\/balance-charges'/);
+  assert.match(read('src/app/payments/page.tsx'), /\{owner && <StripeTabs current="lookup" \/>\}/);
 });
