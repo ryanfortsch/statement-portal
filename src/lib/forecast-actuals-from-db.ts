@@ -23,10 +23,12 @@
  *                   is projected on the Office line beside the rent through
  *                   November 2026, so the ACT month carries it there too;
  *                   the service ends 2026-11-30 and the final invoice still
- *                   lands here); exp_contractors for a Contractors row
- *                   (Lightshed Photography, the listing shoots, the one
- *                   contractor paid on the card; the bench line projects it
- *                   through CONTRACTOR_PHOTO_MONTHLY); exp_cc_ops for
+ *                   lands here); exp_onboard_new for a Lightshed
+ *                   Photography row (the listing shoots: part of bringing
+ *                   a home online since 2026-11-07, projected inside
+ *                   ONBOARDING_COST, so a measured month shows the shoot
+ *                   the card paid on the Onboarding line); exp_contractors
+ *                   for any other Contractors row; exp_cc_ops for
  *                   everything else,
  *                   itemised into `cc_detail` by routeCardRow so the six
  *                   Recurring rows read what the card actually carried.
@@ -59,9 +61,12 @@
  *                         and the one after it folded them into the
  *                         contractor line.)
  *     Contractors       → exp_contractors (the 1099 bench: field labor
- *                         through October 2026, Cooper's creative work,
- *                         and the one-off handymen. Paid direct from
- *                         ...5130, never through Gusto.)
+ *                         through October 2026 and the one-off handymen.
+ *                         Paid direct from ...5130, never through Gusto.)
+ *                         Except Cooper's content work (the "Basic Online
+ *                         Payroll" rail, isCreativeBench), which goes to
+ *                         the marketing bucket of exp_cc_ops since
+ *                         2026-11-07, where the projection carries it.
  *     Health benefits   → dropped (out of scope for the mgmt business)
  *     Professional      → exp_debt for MH Partners, exp_accounting for
  *                         MS Consultants, else exp_cc_ops
@@ -86,6 +91,7 @@ import { CARD_PROXY_CATEGORY, cardCompleteMonths, resolveCardSpendSource } from 
 import {
   CC_DETAIL_KEYS,
   emptyCardDetail,
+  isCreativeBench,
   routeCardRow,
   type CardDetail,
   type CardRoute,
@@ -289,6 +295,7 @@ export async function getActualsFromDb(
         else if (route === 'insurance') ma.exp_insurance += amt;
         else if (route === 'office') ma.exp_office += amt;
         else if (route === 'contractors') ma.exp_contractors += amt;
+        else if (route === 'onboarding') ma.exp_onboard_new += amt;
         else {
           ma.exp_cc_ops += amt;
           detail[route] += amt;
@@ -321,7 +328,12 @@ export async function getActualsFromDb(
           // Never the contractor line, where it sat until the operations
           // manager hire (2026-11-01) gave payroll its own row.
           case 'Payroll':         ma.exp_payroll += amt; break;
-          case 'Contractors':     ma.exp_contractors += amt; break;
+          // Cooper's content work is marketing (2026-11-07); the rest of the
+          // operating-account bench stays on the Contractors line.
+          case 'Contractors':
+            if (isCreativeBench(desc)) place('marketing');
+            else ma.exp_contractors += amt;
+            break;
           // Card payoff standing in for card spend. Only survives to here in
           // months whose card export does not reach month end; the rest were
           // removed by resolveCardSpendSource.
