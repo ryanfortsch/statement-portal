@@ -7,13 +7,17 @@ The Guesty exit budget remains a planning allowance, not a reconciled subscripti
 - Vercel: November invoice has one $20 additional team seat. Ryan confirmed Dotti now shows Viewer in the Rising Tide team settings. Budget $20/month less from December, the first renewal month after the change; no November refund or tax credit assumed.
 - Zoom: Ryan cancelled the active $14.44/month plan. The confirmation email says paid access ends December 2, 2026. Budget $14.44/month less from December. This applies only to the confirmed monthly plan, not any historical annual plan.
 
-Combined forecast reduction: $34.44/month, $413.28 per full year. November 2026 stays $2,850; December becomes $2,815.56. January through March 2027 become $2,565.56, $2,265.56 and $1,865.56. April onward, including 2028, becomes $1,615.56/month. Measured card spending continues to override projections.
+Adobe: Ryan subsequently confirmed cancellation at $75/month, with the next bill due November 29. Budget the avoided renewal from November; no refund or cancellation fee is assumed.
+
+Ryan also explicitly approved assuming AirDNA cancellation succeeds before the November 9 renewal. Include $67.94/month from November as a planning assumption, not a confirmed cancellation.
+
+Combined forecast reduction: $142.94 in November, then $177.38/month from December, $2,128.56 per full year. November 2026 becomes $2,707.06; December becomes $2,672.62. January through March 2027 become $2,422.62, $2,122.62 and $1,722.62. April onward, including 2028, becomes $1,472.62/month. Measured card spending continues to override projections.
 
 ## Remaining review
 
 - Claude and ChatGPT: Ryan confirms a $100/month paid plan for each, plus usage credits. Keep both. The $200 base is part of the existing allowance, not an additional expense. Credit purchases are variable; do not count usage-reset receipts as recurring subscriptions or assume the base plans cap spending.
-- AirDNA: latest invoice is $67.94 for October 9 to November 9. Ryan authorized cancellation because it is no longer needed. Signed into both AirDNA and its Stripe billing portal; both show the November 9 renewal but neither offers a cancellation control. At Ryan's direction, emailed hello@airdna.co on November 7 requesting cancellation, no renewal, and confirmation of the effective end date without deleting the account. No savings booked until the end date is verified.
-- Adobe: an email confirms one Photography 1TB plan ended May 20. It does not establish that every Adobe plan ended. Ryan confirms Adobe is still paid. September's historical $69 across two plans still needs current billing reconciliation; no new savings booked.
+- AirDNA: latest invoice is $67.94 for October 9 to November 9. Ryan authorized cancellation because it is no longer needed. Signed into both AirDNA and its Stripe billing portal; both show the November 9 renewal but neither offers a cancellation control. At Ryan's direction, emailed hello@airdna.co on November 7 requesting cancellation, no renewal, and confirmation of the effective end date without deleting the account. Cancellation is not yet confirmed. At Ryan's explicit direction, the projection assumes the November 9 renewal is avoided; any actual charge still overrides the forecast.
+- Adobe: the historical Photography cancellation was not evidence of all plans ending. Use Ryan's new $75/month cancellation confirmation above, not the older $69 estimate, for this cut.
 - Midjourney: historical June charge of $63.75 is not proof of a current recurring charge. Ryan is unsure whether it is still paid; await current usage/billing confirmation.
 - Hosting receipts: Vercel $41.25, Supabase $32.14, Render $6.53 and Tailscale $8.50 total $88.42 using the latest bills reviewed, before the Vercel seat reduction. These are observations, not fixed future totals. Keep production infrastructure pending a service-specific dependency review.
 

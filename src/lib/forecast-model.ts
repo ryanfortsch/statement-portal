@@ -345,6 +345,14 @@ export const SOFTWARE_MONTHLY = 2700;
  * No assumed November refunds or tax credits. Actual card spending still wins.
  */
 export const SOFTWARE_CONFIRMED_MONTHLY_SAVINGS = 20 + 14.44;
+/** Adobe cancelled Nov 7; operator confirms $75/mo and next bill Nov 29.
+ * Avoid that November renewal; no refund or cancellation fee assumed.
+ */
+export const ADOBE_MONTHLY_SAVINGS = 75;
+/** Operator-approved planning assumption: avoid AirDNA's Nov 9 renewal.
+ * Cancellation requested but not confirmed. Actual invoices still override.
+ */
+export const AIRDNA_PLANNED_MONTHLY_SAVINGS = 67.94;
 
 export function softwareCost(year: number, month: number): number {
   let budget = SOFTWARE_MONTHLY;
@@ -353,7 +361,9 @@ export function softwareCost(year: number, month: number): number {
   else if (year === 2026 && month >= 11) budget = 2850;
   const savings = year > 2026 || (year === 2026 && month >= 12)
     ? SOFTWARE_CONFIRMED_MONTHLY_SAVINGS : 0;
-  return Math.round((budget - savings) * 100) / 100;
+  const novemberSavings = year > 2026 || (year === 2026 && month >= 11)
+    ? ADOBE_MONTHLY_SAVINGS + AIRDNA_PLANNED_MONTHLY_SAVINGS : 0;
+  return Math.round((budget - savings - novemberSavings) * 100) / 100;
 }
 
 /**
