@@ -9,7 +9,6 @@ import { MessagingTabs } from '@/components/MessagingTabs';
 import { AiStatusBanner } from '@/components/AiStatusBanner';
 import { QueueSkeleton } from '@/components/QueueSkeleton';
 import { ProactiveRemindersPanel } from '@/components/ProactiveRemindersPanel';
-import { PropertyFactsToFile } from '@/components/PropertyFactsToFile';
 import { InboxHealth } from '@/components/InboxHealth';
 import { InboxBottomTools } from '@/components/InboxBottomTools';
 import {
@@ -308,9 +307,6 @@ export default async function TeamInboxPage({ searchParams }: { searchParams: Se
         </Suspense>
       )}
       <TeamProactiveSection audience={audience} />
-      <Suspense fallback={null}>
-        <PropertyFactsToFile />
-      </Suspense>
       <InboxBottomTools />
     </Shell>
   );

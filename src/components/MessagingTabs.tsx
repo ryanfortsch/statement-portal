@@ -1,6 +1,8 @@
 import Link from 'next/link';
+import { Suspense } from 'react';
 import { SectionTabs } from './SectionTabs';
 import { MessagingTabCount } from './MessagingTabCount';
+import { PropertyFactsToFile } from './PropertyFactsToFile';
 
 /**
  * Sub-navigation for the Messaging section, in two rows.
@@ -22,6 +24,10 @@ import { MessagingTabCount } from './MessagingTabCount';
  * A lens row appears only when there is more than one destination: Guests
  * has four, the other audiences have none. A single Inbox label would add
  * no navigation and waste the space.
+ *
+ * Two lenses carry a count pill: Guest reviews (its stop cards are
+ * time-bound) and Quality (the property facts waiting to be filed, which
+ * used to be a line of its own on three pages; UX audit 2026-11-07).
  *
  * Role-aware through SectionTabs: Owners (`/owner-messaging`) is an owner
  * page, so the strip drops that tab and its count pill for a staff login.
@@ -83,6 +89,7 @@ export function MessagingTabs({
                   {l.label}
                 </Link>
                 {l.id === 'reviews' && <MessagingTabCount category="reviews" />}
+                {l.id === 'quality' && <Suspense fallback={null}><PropertyFactsToFile /></Suspense>}
               </span>
             );
           })}

@@ -1,9 +1,10 @@
 /**
  * The Quality lens (2026-10-17): everything analytical and every "teach the
  * AI" surface lives at /messaging/quality, off the working page. The Inbox
- * ends at Conversations with one line, "N property facts to file", and the
- * owner, cleaner and contractor pages keep the same line. Reads the sources,
- * since each move is one import that comes back silently.
+ * ends at Conversations, and the count of property facts to file is the
+ * pill on the Quality lens label, not a line of its own on the queue pages
+ * (UX audit 2026-11-07). Reads the sources, since each move is one import
+ * that comes back silently.
  *
  * Run: npm test
  */
@@ -22,15 +23,23 @@ describe('the Quality lens', () => {
     for (const gone of ['PerformanceDropdown', 'TriagedPropertyUpdates', 'ReflectionProposals', 'getStats', 'getFacts', 'listProposedPropertyUpdates']) {
       assert.ok(!inbox.includes(gone), `the Inbox still carries ${gone}`);
     }
-    assert.ok(inbox.includes('<PropertyFactsToFile />'), 'the Inbox keeps the one-line count');
+    assert.ok(!inbox.includes('PropertyFactsToFile'), 'the Inbox carries no facts line of its own');
   });
 
-  test('the sibling queues keep the count line and lose the card', () => {
+  test('the sibling queues carry neither the card nor the count line', () => {
     for (const page of ['src/app/owner-messaging/page.tsx', 'src/app/messaging/team/page.tsx']) {
       const src = read(page);
       assert.ok(!src.includes('ProposedPropertyUpdatesCard'), `${page} still mounts the card`);
-      assert.ok(src.includes('<PropertyFactsToFile />'), `${page} lost the count line`);
+      assert.ok(!src.includes('PropertyFactsToFile'), `${page} still carries the count line`);
     }
+  });
+
+  test('the count is the pill on the Quality lens label', () => {
+    const tabs = read('src/components/MessagingTabs.tsx');
+    assert.ok(tabs.includes(`{l.id === 'quality' && <Suspense fallback={null}><PropertyFactsToFile /></Suspense>}`), 'the Quality lens carries the facts pill');
+    const pill = read('src/components/PropertyFactsToFile.tsx');
+    assert.ok(pill.includes('if (!n) return null;'), 'nothing at zero');
+    assert.ok(pill.includes('cache(async'), 'one concierge read per request');
   });
 
   test('the lens mounts all of it, and the owner slice only for an owner', () => {

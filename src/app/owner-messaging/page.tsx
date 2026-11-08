@@ -20,7 +20,6 @@ import {
 import { DecidedRecently } from '@/components/messaging/card/DecidedRecently';
 import { prettifySlug } from '@/app/messaging/format';
 import { ProactiveRemindersPanel } from '@/components/ProactiveRemindersPanel';
-import { PropertyFactsToFile } from '@/components/PropertyFactsToFile';
 import { InboxHealth } from '@/components/InboxHealth';
 import { InboxBottomTools } from '@/components/InboxBottomTools';
 import { OwnerMessagingQueue } from './OwnerMessagingQueue';
@@ -137,7 +136,7 @@ function OwnerProactive() {
 
 // The facts owners share ("Proposed property updates") are filed from the
 // Quality lens (/messaging/quality, owner sessions only) since 2026-10-17;
-// this page keeps the one-line count.
+// their count is the pill on that lens's label.
 
 // Below-the-fold boundary: contact history + curated owner facts editor.
 // The owner facts editor (rules the owner drafter applies) lives on the
@@ -169,7 +168,6 @@ export default function OwnerMessagingPage() {
         <OwnerDetailSection />
       </Suspense>
       <OwnerProactive />
-      <Suspense fallback={null}><PropertyFactsToFile /></Suspense>
       <InboxBottomTools />
     </Shell>
   );

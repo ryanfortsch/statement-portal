@@ -22,7 +22,6 @@ import {
 import { loadGuestQuoteContext } from '@/lib/guest-quote-context';
 import { listHelmConversations } from '@/lib/helm-inbox';
 import { mergeConversationLists } from '@/lib/helm-inbox-core';
-import { PropertyFactsToFile } from '@/components/PropertyFactsToFile';
 import { InboxHealth } from '@/components/InboxHealth';
 import { InboxBottomTools } from '@/components/InboxBottomTools';
 import { ConciergeAlertList } from '@/components/ConciergeAlerts';
@@ -205,8 +204,8 @@ async function ConversationsSection({ searchParams }: { searchParams: Promise<Re
 // Everything analytical and every "teach the AI" surface (Performance and
 // its learned-facts editor, the weekly reflection proposals, the property
 // facts to file) lives on the Quality lens (/messaging/quality) since
-// 2026-10-17. The Inbox is the working page: it ends at Conversations and
-// keeps one line pointing there.
+// 2026-10-17. The Inbox is the working page: it ends at Conversations; the
+// count of facts to file is the pill on the Quality lens label.
 
 export default function MessagingPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   if (!isStayConciergeConfigured()) {
@@ -236,7 +235,6 @@ export default function MessagingPage({ searchParams }: { searchParams: Promise<
       <Suspense fallback={null}>
         <ConversationsSection searchParams={searchParams} />
       </Suspense>
-      <Suspense fallback={null}><PropertyFactsToFile /></Suspense>
       <Suspense fallback={null}><RecentMessageOutcomesSection audience="guests" /></Suspense>
       <InboxBottomTools />
     </Shell>
