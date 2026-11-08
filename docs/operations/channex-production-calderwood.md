@@ -728,12 +728,9 @@ code, contact, note, money, credential or portal token. No new public route,
 recipient, access grant, schedule job or message is created, and this preview
 does not set the cleaner handover readiness flags or replace the Guesty URL.
 
-Guesty's signed-in phone book shows Luana Martins at Lu's Cleaning Crew, and
-the Calderwood cleaner workflow remains enabled. A read of Guesty's documented
-contacts endpoint returned one matching cleaning contact whose phone agrees with
-the signed-in phone book. The source stays private and no recipient was installed.
-The contact destination still
-needs to be matched to both workflow messages before configuring Helm delivery.
+Source cleaner routing was inspected without saving changes. Recipient and
+workflow evidence is retained privately, outside the repository. No recipient
+was installed. Helm delivery and cleaner access are not yet configured.
 The approved cleaner-queue support follow-up has no newer answer at this check.
 
 Validation: 3,976 local tests pass, seven optional checks skipped, TypeScript
@@ -764,7 +761,13 @@ source-verified counts and shows the check time in Eastern time.
 Read-only live verification matched all four current/future stays on eight
 Guesty reads, with the 15:00 ready-by deadline preserved. No bookings, recipients,
 access grants, message queues or automation settings changed. Cleaner delivery
-still needs the configured workflow-recipient match and source queue clearance;
+still needs Helm recipient/access setup and source queue clearance;
 the support follow-up remains unanswered at this check. Local validation:
 3,992 tests pass, seven optional checks skipped, TypeScript and changed-file
 lint pass, and the synthetic preview renders the verified/unknown count states.
+
+Release status: PR #2171 passed the application and database CI gates. Its Vercel
+preview was rejected because the signed-in team member has viewer-only access.
+This batch remains unmerged and undeployed until deployment permission is restored
+or a project owner completes the release. The previous production preview remains
+live; no permission or branch-protection settings were changed to bypass the gate.
