@@ -91,7 +91,7 @@ export function StopReceipt({
         </button>
         {added != null && (
           <span role="status" style={{ fontSize: 12.5, color: 'var(--positive, #2e7d4f)', alignSelf: 'center' }}>
-            ✓ {added > 0 ? money(added) : 'Receipt'} added to this trip&apos;s payout
+            ✓ {added > 0 ? money(added) : 'Receipt'} added to this job&apos;s payout
           </span>
         )}
       </>
@@ -110,10 +110,10 @@ export function StopReceipt({
       <fieldset disabled={pending || uncertain} style={{ border: 0, padding: 0, margin: 0, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
         {existing.length > 0 && (
           <div style={{ fontSize: 12.5, color: 'var(--ink-4)' }}>
-            Already on this trip here: {existing.map((r) => `${r.title.replace(/^Receipt: /, '')} ${money(r.cents)}`).join(' · ')}
+            Already on this job here: {existing.map((r) => `${r.title.replace(/^Receipt: /, '')} ${money(r.cents)}`).join(' · ')}
           </div>
         )}
-        <ReceiptAmountField required where="added to this trip's payout" />
+        <ReceiptAmountField required where="added to this job's payout" />
         <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>
           What was it for?
           <input

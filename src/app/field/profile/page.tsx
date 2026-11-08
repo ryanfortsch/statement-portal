@@ -202,13 +202,11 @@ export default async function FieldProfilePage({ searchParams }: { searchParams:
       <section style={{ marginBottom: 28 }}>
         <h2 style={{ ...eyebrow, marginBottom: 12 }}>Notifications</h2>
         <div style={{ border: '1px solid var(--rule)', borderRadius: 12, padding: '16px 18px', background: 'var(--paper-2, #fff)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 14, color: 'var(--ink)', fontWeight: 500 }}>Text me when new work is posted</div>
-            <div style={{ fontSize: 12.5, color: 'var(--ink-3)', marginTop: 3, lineHeight: 1.5 }}>
-              {contractor.phone
-                ? 'We text your phone the moment a packet opens near you. Turn it off anytime.'
-                : 'Add a mobile number under Edit details below and we text you the moment a packet opens near you.'}
-            </div>
+          {/* One line: what the switch does, or what it needs first. */}
+          <div style={{ minWidth: 0, fontSize: 14, color: 'var(--ink)', fontWeight: 500, lineHeight: 1.5 }}>
+            {contractor.phone
+              ? 'Text me the moment a job opens near you'
+              : 'Add a mobile number under Edit details below to get a text the moment a job opens near you'}
           </div>
           <SmsToggle initial={contractor.sms_opt_in} />
         </div>
@@ -486,30 +484,50 @@ function AccountCard({ contractor }: { contractor: ContractorRow }) {
   const pct = Math.round((done / items.length) * 100);
   const allSet = done === items.length;
 
+  const checklist = (
+    <div style={{ display: 'grid', gap: 9 }}>
+      {items.map((it) => (
+        <div key={it.label} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'baseline', fontSize: 13 }}>
+          <span style={{ color: it.done ? 'var(--ink-3)' : 'var(--ink-4)' }}>
+            <span style={{ color: it.tint, marginRight: 6 }}>{it.icon}</span>{it.label}
+            {it.note && <span style={{ display: 'block', marginLeft: 18, marginTop: 2, fontSize: 12.5, color: 'var(--ink-3)', lineHeight: 1.5 }}>{it.note}</span>}
+          </span>
+          {it.detail && <span className="font-mono" style={{ fontSize: 12, color: 'var(--ink-4)', textAlign: 'right' }}>{it.detail}</span>}
+        </div>
+      ))}
+    </div>
+  );
+
+  // A cleared contractor's meter would sit at 100% forever, so once every
+  // item is done the card is one line, "All set", that opens the checklist.
+  if (allSet) {
+    return (
+      <section style={{ marginBottom: 28 }}>
+        <details>
+          <summary className="rt-fold-summary" style={{ listStyle: 'none', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, userSelect: 'none' }}>
+            <h2 style={{ ...eyebrow, margin: 0 }}>Account</h2>
+            <span style={{ fontSize: 11, color: 'var(--positive)' }}>
+              All set <span className="rt-chev" style={{ display: 'inline-block', transition: 'transform .15s ease', marginLeft: 4 }}>▾</span>
+            </span>
+          </summary>
+          <div style={{ marginTop: 12 }}>{checklist}</div>
+        </details>
+      </section>
+    );
+  }
+
   return (
     <section style={{ marginBottom: 28 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, marginBottom: 12 }}>
         <h2 style={eyebrow}>Account</h2>
-        <span style={{ fontSize: 11, color: allSet ? 'var(--positive)' : 'var(--ink-4)' }}>
-          {allSet ? 'All set' : `${done} of ${items.length} complete`}
-        </span>
+        <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>{done} of {items.length} complete</span>
       </div>
 
       <div style={{ height: 6, borderRadius: 999, background: 'var(--rule)', overflow: 'hidden', marginBottom: 14 }}>
-        <div style={{ height: '100%', width: `${pct}%`, background: allSet ? 'var(--positive)' : 'var(--ink-3)', transition: 'width .3s ease' }} />
+        <div style={{ height: '100%', width: `${pct}%`, background: 'var(--ink-3)', transition: 'width .3s ease' }} />
       </div>
 
-      <div style={{ display: 'grid', gap: 9 }}>
-        {items.map((it) => (
-          <div key={it.label} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'baseline', fontSize: 13 }}>
-            <span style={{ color: it.done ? 'var(--ink-3)' : 'var(--ink-4)' }}>
-              <span style={{ color: it.tint, marginRight: 6 }}>{it.icon}</span>{it.label}
-              {it.note && <span style={{ display: 'block', marginLeft: 18, marginTop: 2, fontSize: 12.5, color: 'var(--ink-3)', lineHeight: 1.5 }}>{it.note}</span>}
-            </span>
-            {it.detail && <span className="font-mono" style={{ fontSize: 12, color: 'var(--ink-4)', textAlign: 'right' }}>{it.detail}</span>}
-          </div>
-        ))}
-      </div>
+      {checklist}
     </section>
   );
 }

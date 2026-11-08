@@ -276,7 +276,7 @@ export function FlagForm({ homes, windowHours }: { homes: HomeOption[]; windowHo
         value={details.expenseDollars}
         onChange={(v) => formDraft.set('expenseDollars', v)}
         disabled={!selected}
-        where={chosen && !chosen.visit ? 'rides your trip at this home, else your next payout' : 'added to your payout'}
+        where={chosen && !chosen.visit ? 'rides your job at this home, else your next payout' : 'added to your payout'}
       />
 
       </fieldset>

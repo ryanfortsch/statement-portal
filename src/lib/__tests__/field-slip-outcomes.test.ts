@@ -5,7 +5,7 @@ import { SLIP_OUTCOME_LABEL, SLIP_OUTCOME_HINT, alreadyHandledNote, slipVerdictL
 
 // One meaning of done on the contractor portal (audit Phase 3, Field): the
 // stepper's review screen offers the packet page's three outcomes in the
-// packet page's words, and "Done on this trip" says the office closes it on
+// packet page's words, and "Done on this job" says the office closes it on
 // approval. Before, a tap on the stepper meant "found it handled" while the
 // same tap on the packet page meant "I did it".
 
@@ -13,7 +13,7 @@ const read = (p: string) => readFileSync(new URL(`../../../${p}`, import.meta.ur
 const code = (p: string) => read(p).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
 test('three outcomes, one set of words, and done says when it closes', () => {
-  assert.deepEqual(SLIP_OUTCOME_LABEL, { done: 'Done on this trip', handled: 'Already handled', open: 'Still open' });
+  assert.deepEqual(SLIP_OUTCOME_LABEL, { done: 'Done on this job', handled: 'Already handled', open: 'Still open' });
   assert.match(SLIP_OUTCOME_HINT.done, /office closes it when they approve/);
   assert.match(SLIP_OUTCOME_HINT.handled, /not done by you/);
   assert.equal(alreadyHandledNote('Sam'), 'Already handled by the time Sam arrived (Field)');
@@ -43,5 +43,5 @@ test('both rails write the same outcome the same way', () => {
   assert.ok(field.includes('alreadyHandledNote(contractor.full_name, trimmed)'), 'the packet page writes the same handled note');
   const list = code('src/app/field/packet/[packetId]/StopWorkList.tsx');
   assert.ok(list.includes('SLIP_OUTCOME_LABEL.done') && list.includes('SLIP_OUTCOME_LABEL.handled'));
-  assert.ok(list.includes('The office closes each one when they approve the trip.'), 'a tick says when it closes');
+  assert.ok(list.includes('The office closes each one when they approve the job.'), 'a tick says when it closes');
 });
