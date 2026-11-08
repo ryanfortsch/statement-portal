@@ -42,6 +42,7 @@ function buildRoster(data: SmartForecast | null, year: ForecastYear): ManagedPro
       isRtOwned: p.property.isRtOwned,
       activatedAt: p.property.activatedAt,
       projectedMgmtFee: year === 2026 ? 0 : p.totals.projectedMgmtFee,
+      sharesInventoryWith: p.property.sharesInventoryWith,
     })),
     year,
     year === 2026 ? KNOWN_2026 : {},
