@@ -136,7 +136,7 @@ export default async function CleaningsPage({
         right={
           <form action={pullVendorTextsAction}>
             <SubmitButton
-              label="Re-read A-1's reminders"
+              label={`Re-read ${VENDOR_LABEL}'s reminders`}
               busyLabel="Reading..."
               spinnerTone="ink"
               style={{

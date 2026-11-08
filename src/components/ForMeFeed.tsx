@@ -289,7 +289,7 @@ export async function ForMeFeed() {
             href="/messaging/team#owner-holds"
             title="Owner blocks · clean after?"
             eyebrow={`${ownerHoldAsks.length} to answer`}
-            subline="On the cleaner schedule until you say otherwise."
+            subline="On the schedule until you say otherwise."
           />
           <div style={{ borderTop: '2px solid var(--signal)' }}>
             {ownerHoldAsks.map((c) => (
