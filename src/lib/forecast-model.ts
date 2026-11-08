@@ -324,12 +324,25 @@ export const OFFICE_START_MONTH = 3;
  * $68, and a second Zoom plan at $18 beside the annual one. The stack with
  * no usage at all is about $2,700, and that is the constant: the nine-month
  * 2026 mean is $2,598 and the Guesty line alone grows with every listing.
- * The way back down is the cancel list in the card review, not a lower
- * constant.
+ * This remains the baseline before the Guesty exit budget below.
  */
 export const SOFTWARE_MONTHLY = 2700;
 
-export function softwareCost(_year: number, _month: number): number {
+/**
+ * Guesty exit planning budget, approved 2026-11-07. Total software costs:
+ * overlap at $2,850 in Nov-Dec 2026; $2,600 / $2,300 / $1,900 in Jan-Mar
+ * 2027; $1,650 from April onward, including 2028. The rounded steady budget
+ * replaces the baseline's $1,323 Guesty line with about $150-$160 Channex
+ * and $100 extra operating allowance, retaining PriceLabs and other tools.
+ * Assumes a late-November Calderwood pilot, phased rollout and billing
+ * runoff through March-April, subject to channel readiness and Guesty terms.
+ * These are forecast allowances, not confirmed cancellations or invoices;
+ * calcYear's measured-month path continues to use actual card spending.
+ */
+export function softwareCost(year: number, month: number): number {
+  if (year >= 2028 || (year === 2027 && month >= 4)) return 1650;
+  if (year === 2027) return [2600, 2300, 1900][month - 1] ?? SOFTWARE_MONTHLY;
+  if (year === 2026 && month >= 11) return 2850;
   return SOFTWARE_MONTHLY;
 }
 
