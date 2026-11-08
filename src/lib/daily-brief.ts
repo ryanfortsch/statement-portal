@@ -38,6 +38,9 @@ function serviceSupabase(): SupabaseClient {
 export type BriefInboundTouch = {
   contactId: string;
   contactName: string | null;
+  /** The CRM contact's type ('owner', 'lead', 'vendor', 'other'); null when
+   *  the contact could not be read. A staff feed shows vendor and other only. */
+  contactType: string | null;
   channel: string;
   summary: string;
   touchedAt: string;
@@ -918,7 +921,7 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
   // contacts has one name column. It never had first_name / last_name:
   // asking for them failed the whole read, so every waiting reply printed
   // "Contact" (fixed 2026-11-06; contact-name-columns.test.ts holds it).
-  type ContactPick = { id: string; name: string | null; phone: string | null; emails: string[] | null };
+  type ContactPick = { id: string; name: string | null; phone: string | null; emails: string[] | null; type: string | null };
   type InboundTouchPick = {
     id: string;
     contact_id: string;
@@ -972,7 +975,7 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
   if (waitingIds.length > 0) {
     const { data: contacts, error: contactsError } = await supabase
       .from('contacts')
-      .select('id, name, phone, emails')
+      .select('id, name, phone, emails, type')
       .in('id', waitingIds);
     if (contactsError) console.error('[daily-brief] waiting contacts read failed', contactsError.code, contactsError.message);
     for (const c of (contacts ?? []) as ContactPick[]) contactById.set(c.id, c);
@@ -991,6 +994,7 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
     inboundWaiting.push({
       contactId,
       contactName: name,
+      contactType: contact?.type ?? null,
       channel: inbound.channel,
       summary: inbound.summary,
       touchedAt: inbound.touched_at,

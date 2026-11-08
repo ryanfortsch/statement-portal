@@ -2,7 +2,7 @@ import { collapseWorkIssues } from '@/lib/work-issues';
 import { loadWorkIssueLinks } from '@/lib/work-issues-server';
 import { workAssignedTo } from '@/lib/work-board-view';
 import { selectAllPaged } from '@/lib/paged-select';
-import { splitReplyUpdates } from '@/lib/home-reply-triage';
+import { splitReplyUpdates, staffMaySeeInbound } from '@/lib/home-reply-triage';
 import Link from 'next/link';
 import { auth } from '@/auth';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
@@ -131,6 +131,9 @@ export async function ForMeFeed() {
     needsReply = [];
     fyi = [];
   }
+  // A message from an owner or a prospect waits on the owners, not on the
+  // team: it never reaches a staff feed (staffMaySeeInbound).
+  if (!owner) inboundWaiting = inboundWaiting.filter((t) => staffMaySeeInbound(t.contactType));
   const [{ work: allWork, mode: workMode }, dismissed, plannedWalks, queueCards, paymentCards, ownerHolds] = await Promise.all([
     loadMyWork(email),
     loadDismissals(email),
