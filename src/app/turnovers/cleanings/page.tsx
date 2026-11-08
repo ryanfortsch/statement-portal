@@ -32,7 +32,7 @@ import { UnplacedCleanerTextRow } from '@/components/UnplacedCleanerTextRow';
  *     because our own schedule failed to load;
  *   - a day the vendor has not announced yet, with checkouts waiting on it.
  *
- * Reached from the home feed's "Cleanings to check" and the board's link.
+ * Reached from the home page's cleanings strip and the board's link.
  * Silence is honest: a day past the furthest text is "not announced yet",
  * never "nobody is coming".
  */

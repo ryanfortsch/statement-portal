@@ -7,7 +7,7 @@ import Link from 'next/link';
 import { auth } from '@/auth';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { ACTIVE_WORK_SLIP_STATUSES, ACTIVE_TASK_STATUSES, OFFICE_TODO_LABEL } from '@/lib/work-types';
-import { loadDailyBrief, type BriefEmail, type BriefInboundTouch, type BriefCleaningFlag, type BriefInspection, type BriefStay } from '@/lib/daily-brief';
+import { loadDailyBrief, type BriefEmail, type BriefInboundTouch, type BriefInspection, type BriefStay } from '@/lib/daily-brief';
 import { fieldDb, isFieldConfigured } from '@/lib/field-db';
 import { loadShootBoard, shootPaySummary } from '@/lib/creative-shoots';
 import { dollars } from '@/lib/field-types';
@@ -22,7 +22,6 @@ import { homeAgendaSpeaks } from '@/lib/appointment-agenda';
 import { todayET } from '@/lib/meetings-core';
 import { countLater, groupByDay, workDateLabel, workDay, type WeekDay, type WorkDateKind } from '@/lib/home-week';
 import { operatingDate } from '@/lib/operating-date';
-import { checkoutBoardHref } from '@/lib/turnover-board';
 import { roleMayOpen, type HelmRole } from '@/lib/helm-access';
 import { sessionView } from '@/lib/helm-access-server';
 import { canOpenMailbox, gmailUrl } from '@/lib/gmail-links';
@@ -33,10 +32,7 @@ import { HoldRow } from '@/app/cleaner-messaging/OwnerHoldQuestionsCard';
 import { homeFeedOrder, windowPayments, type FeedSection } from '@/lib/home-feed-order';
 import { EmptyState } from '@/components/EmptyState';
 import { seriousQueueText } from '@/lib/lease-leads-core';
-import { loadUnplacedCleanerTexts } from '@/lib/cleaner-unplaced-server';
-import { splitUnplacedForHome } from '@/lib/cleaner-unplaced';
 import { dropCarryOnStays } from '@/lib/home-houses';
-import { UnplacedCleanerTextRow } from '@/components/UnplacedCleanerTextRow';
 
 type MyWork = {
   id: string;
@@ -91,8 +87,7 @@ const GLANCE_WINDOW = 6;
  * The "For Me" home feed: the signed-in person's day, in the order it is
  * worked (lib/home-feed-order.ts). Upcoming appointments and source coverage,
  * then my walks and dated work for seven days (lib/home-week.ts); then the
- * clock-bound team items (an owner block's "clean after?", a cleaning to
- * check); then my work and what is waiting on my reply, or the team's
+ * clock-bound team items (an owner block's "clean after?"); then my work and what is waiting on my reply, or the team's
  * unassigned work; then the office queues; then guest payments. Owners keep
  * the "clean after?" card first. The mail is the daily-brief triage read
  * from cache, with no live classification on page load.
@@ -100,14 +95,13 @@ const GLANCE_WINDOW = 6;
  * One secondary action with one meaning: it hides a row from your own feed and changes
  * nothing else (recorded per user in home_feed_dismissals), and the next
  * from the pool backfills. A card that clears by being answered (an owner
- * block, a cleaning flag, a cleaner text to place, an office queue, a Stripe
+ * block, an office queue, a Stripe
  * key to fix) has no hide action.
  */
 export async function ForMeFeed() {
   let needsReply: BriefEmail[] = [];
   let fyi: BriefEmail[] = [];
   let inboundWaiting: BriefInboundTouch[] = [];
-  let cleaningFlags: BriefCleaningFlag[] = [];
   let houses: TodayAtTheHouses = { out: [], in: [], walked: [] };
   let gmailConfigured = true;
   let gmailMailbox: string | null = null;
@@ -117,7 +111,6 @@ export async function ForMeFeed() {
     needsReply = brief.unreadEmails.filter((e) => e.triage === 'needs_reply');
     fyi = brief.unreadEmails.filter((e) => e.triage === 'fyi');
     inboundWaiting = brief.inboundWaiting;
-    cleaningFlags = brief.cleaningFlags;
     houses = todayAtTheHouses(brief.checkoutsToday, brief.checkinsToday, brief.inspectionsCompletedToday);
     gmailConfigured = brief.gmailConfigured;
     gmailMailbox = brief.gmailMailbox;
@@ -141,7 +134,7 @@ export async function ForMeFeed() {
     needsReply = [];
     fyi = [];
   }
-  const [{ work: allWork, mode: workMode }, dismissed, plannedWalks, queueCards, paymentCards, ownerHolds, unplacedTexts] = await Promise.all([
+  const [{ work: allWork, mode: workMode }, dismissed, plannedWalks, queueCards, paymentCards, ownerHolds] = await Promise.all([
     loadMyWork(email),
     loadDismissals(email),
     loadPlannedWalks(email),
@@ -150,14 +143,8 @@ export async function ForMeFeed() {
     // Owner blocks nobody has answered "clean after?" for. No clear
     // button: answering is the clear, on the buttons right here.
     loadOwnerHoldQuestions(supabase).catch(() => null),
-    // A cleaner's "done" that named no house Helm could find. No ×:
-    // attaching it to a house, or setting it aside, is the clear.
-    loadUnplacedCleanerTexts(),
   ]);
   const ownerHoldAsks: OwnerHoldQuestionCard[] = ownerHolds?.pending ?? [];
-  // Today's and yesterday's texts ask here; older ones wait on the
-  // cleanings page, counted in one line.
-  const { home: unplacedHome, older: unplacedOlder } = splitUnplacedForHome(unplacedTexts, operatingDate());
   const ownerHoldToday = ownerHolds?.today ?? todayET();
 
   // Only payments needing action appear in the day. Received payments live
@@ -304,45 +291,6 @@ export async function ForMeFeed() {
             {ownerHoldAsks.map((c) => (
               <HoldRow key={`${c.propertyId}|${c.checkIn}`} card={c} today={ownerHoldToday} back="home" />
             ))}
-          </div>
-        </>
-      ) : null,
-
-    // CLEANINGS TO CHECK: a guest leaving and no cleaner booked, or a
-    // cleaner booked before the guest is out or after the next one is in.
-    // Today through the day after tomorrow, as far as the vendor announces.
-    // A flag clears itself once the vendor's schedule catches up. Above
-    // them, a cleaner's text Helm could not place on a house: pick the
-    // house and Attach, or Set aside (lib/cleaner-unplaced.ts).
-    cleanings:
-      cleaningFlags.length + unplacedTexts.length > 0 ? (
-        <>
-          <SectionHeaderLink
-            href="/turnovers/cleanings"
-            title="Cleanings to check"
-            eyebrow={`${cleaningFlags.length + unplacedTexts.length} to check`}
-          />
-          <div style={{ borderTop: '1px solid var(--ink)' }}>
-            {unplacedHome.map((t) => (
-              <UnplacedCleanerTextRow
-                key={t.id}
-                id={t.id}
-                when={t.when}
-                cleanerName={t.cleanerName}
-                line={t.line}
-                body={t.body}
-                choices={t.choices}
-              />
-            ))}
-            {cleaningFlags.map((f) => (
-              <CleaningFlagRow key={`${f.date}|${f.propertyId}`} flag={f} />
-            ))}
-            {unplacedOlder > 0 && (
-              <MoreRow
-                href="/turnovers/cleanings#cleaner-texts"
-                text={`${unplacedOlder} older cleaner text${unplacedOlder === 1 ? '' : 's'} to place`}
-              />
-            )}
           </div>
         </>
       ) : null,
@@ -1126,35 +1074,6 @@ async function loadStatementQueue(): Promise<QueueCard | null> {
   } catch {
     return null;
   }
-}
-
-function CleaningFlagRow({ flag }: { flag: BriefCleaningFlag }) {
-  // A flag about a checkout lands on that house's board row, where the
-  // verdict prints; a visit with nobody checking out has no row, so it lands
-  // on the From Cape Ann Elite list.
-  const href =
-    flag.status === 'no_checkout'
-      ? `/turnovers/cleanings#day-${flag.date}`
-      : checkoutBoardHref(flag.propertyId, flag.date, operatingDate());
-  return (
-    <Link
-      href={href}
-      style={{ ...feedRowStyle, alignItems: 'baseline', textDecoration: 'none', color: 'inherit' }}
-    >
-      <span aria-hidden style={{ ...dotStyle, background: 'var(--signal)' }} />
-      <span
-        className="font-mono"
-        style={{ flexShrink: 0, fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--ink-3)', minWidth: 78 }}
-      >
-        {flag.dayLabel}
-      </span>
-      <span style={{ flex: 1, minWidth: 0, fontSize: 14, color: 'var(--ink)' }}>
-        <span style={{ fontWeight: 600 }}>{flag.propertyName}</span>
-        <span style={{ color: 'var(--ink-3)' }}> · {flag.detail}</span>
-      </span>
-      <span className="eyebrow">→</span>
-    </Link>
-  );
 }
 
 function QueueRow({ card }: { card: QueueCard }) {
