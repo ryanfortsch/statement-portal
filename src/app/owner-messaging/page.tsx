@@ -10,7 +10,6 @@ import { QueueSkeleton } from '@/components/QueueSkeleton';
 import {
   isStayConciergeConfigured,
   listOwnerApprovals,
-  listOwnerHistory,
   listDecidedTeamApprovals,
   getAiStatus,
   explainError,
@@ -24,7 +23,7 @@ import { InboxHealth } from '@/components/InboxHealth';
 import { InboxBottomTools } from '@/components/InboxBottomTools';
 import { OwnerMessagingQueue } from './OwnerMessagingQueue';
 import { undoOwnerDecision } from './actions';
-import { OwnerContactsHistory } from './OwnerContactsHistory';
+import { loadOwnerCrmDirectory } from '@/lib/owner-crm-link-server';
 import {
   fetchProactiveReminders,
   fetchProactiveTargets,
@@ -89,16 +88,18 @@ function NotReachable({ message, retry = false }: { message: string; retry?: boo
   );
 }
 
-// Urgent boundary: the owner queue + recent strip. Awaits only the two fast
-// calls so the heavier contact history + curated facts never gate the queue.
-// The queue alone: it is the first thing on the page (2026-10-18). The "Last
-// 24 hours" strip is gone (the contact history below carries every reply),
-// and Proactive messages moved to the foot.
+// Urgent boundary: the owner queue. The queue alone: it is the first thing
+// on the page (2026-10-18). The "Last 24 hours" strip is gone, and so is the
+// per-owner Contacts history (UX audit 2026-11-07): each card links to the
+// owner's CRM contact, whose Activity carries every text and email.
+// Proactive messages sit at the foot.
 async function OwnerQueueSection() {
-  const [pending, ai] = await Promise.all([listOwnerApprovals(), getAiStatus().catch(() => null)]);
+  // The CRM directory is one contacts read that fails soft, so it never
+  // holds the queue back or keeps a card from approving.
+  const [pending, ai, crm] = await Promise.all([listOwnerApprovals(), getAiStatus().catch(() => null), loadOwnerCrmDirectory()]);
   if (!pending.ok) return <NotReachable message={explainError(pending.error)} retry />;
   const aiPaused = ai?.ok && !ai.data.ok ? { reason: ai.data.reason } : null;
-  return <OwnerMessagingQueue initialPending={pending.data.approvals} aiPaused={aiPaused} />;
+  return <OwnerMessagingQueue initialPending={pending.data.approvals} aiPaused={aiPaused} crm={crm} />;
 }
 
 // Handled owner cards from the last 12 hours that Undo can still reach, and
@@ -138,13 +139,8 @@ function OwnerProactive() {
 // Quality lens (/messaging/quality, owner sessions only) since 2026-10-17;
 // their count is the pill on that lens's label.
 
-// Below-the-fold boundary: contact history + curated owner facts editor.
 // The owner facts editor (rules the owner drafter applies) lives on the
 // Quality lens with the rest of what teaches the AI (2026-10-18).
-async function OwnerDetailSection() {
-  const history = await listOwnerHistory(60);
-  return <OwnerContactsHistory initialContacts={history.ok ? history.data.contacts : []} />;
-}
 
 export default function OwnerMessagingPage() {
   if (!isStayConciergeConfigured()) {
@@ -162,9 +158,6 @@ export default function OwnerMessagingPage() {
       </Suspense>
       <Suspense fallback={null}>
         <DecidedSection />
-      </Suspense>
-      <Suspense fallback={null}>
-        <OwnerDetailSection />
       </Suspense>
       <OwnerProactive />
       <InboxBottomTools />

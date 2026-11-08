@@ -19,7 +19,7 @@ const body = (src: string) => src.slice(src.indexOf('export default'));
 
 const PAGES: [string, string, string[]][] = [
   ['src/app/messaging/page.tsx', '<QueueSection />', ['<RecentDecisionsSection />', '<ConversationsSection', '<InboxBottomTools />']],
-  ['src/app/owner-messaging/page.tsx', '<OwnerQueueSection />', ['<DecidedSection />', '<OwnerDetailSection />', '<OwnerProactive />', '<InboxBottomTools />']],
+  ['src/app/owner-messaging/page.tsx', '<OwnerQueueSection />', ['<DecidedSection />', '<OwnerProactive />', '<InboxBottomTools />']],
   // The Team inbox (cleaners and contractors, 2026-10-18).
   ['src/app/messaging/team/page.tsx', '<QueueSection audience={audience} />', ['<DecidedSection audience={audience} />', '<OwnerHoldSection', '<ScheduleDigestSection', '<TeamProactiveSection', '<InboxBottomTools />']],
 ];
