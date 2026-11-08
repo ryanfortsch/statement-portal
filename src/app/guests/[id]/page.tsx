@@ -8,6 +8,7 @@ import { SubmitButton } from '@/components/SubmitButton';
 import { buttonClass } from '@/lib/button-class';
 import { doNotHostNote } from '@/lib/do-not-host';
 import { DoNotHostControl } from './DoNotHostControl';
+import { crmContactHrefForGuest } from '@/lib/person-record-link-server';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,14 +24,18 @@ export default async function ContactDetailPage({ params }: { params: Promise<{ 
 
   // Helm-native stays first (bookings.guest_id via the contact's email), then
   // the Guesty guest-id join for history a Guesty listing minted.
-  const stays = await listContactStays({ email: contact.email, guesty_guest_id: contact.guesty_guest_id });
+  // The CRM contact beside the stays: one exact-email read that fails quiet.
+  const [stays, crmHref] = await Promise.all([
+    listContactStays({ email: contact.email, guesty_guest_id: contact.guesty_guest_id }),
+    crmContactHrefForGuest(contact.email),
+  ]);
 
   return (
     <div className="flex-1 flex flex-col">
       {/* HEADER */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56, paddingBottom: 28, width: '100%' }}>
         <div className="eyebrow" style={{ marginBottom: 14 }}>
-          <Link href="/guests/contacts" style={{ color: 'var(--ink-3)', textDecoration: 'none' }}>← Contacts</Link>
+          <Link href="/guests/contacts" style={{ color: 'var(--ink-3)', textDecoration: 'none' }}>← Guest list</Link>
         </div>
         <h1 className="font-serif" style={{
           fontSize: 36,
@@ -58,6 +63,14 @@ export default async function ContactDetailPage({ params }: { params: Promise<{ 
               <input type="hidden" name="id" value={contact.id} />
               <SubmitButton label="Resubscribe" busyLabel="Resubscribing…" className={buttonClass('quiet')} spinnerTone="ink" />
             </form>
+          )}
+          {/* The same person's relationship record, when exactly one CRM
+              contact holds this email (src/lib/person-record-link.ts). */}
+          {crmHref && (
+            <>
+              <span aria-hidden="true">&middot;</span>
+              <Link href={crmHref} style={{ color: 'var(--ink-2)', textDecoration: 'none' }}>CRM contact →</Link>
+            </>
           )}
         </div>
         {/* Do not host again: the one red line, and the verb that sets or

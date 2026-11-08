@@ -10,12 +10,15 @@ import { CONTACT_TYPE_LABELS } from '@/lib/crm';
 import { displayNameForEmail } from '@/lib/team';
 import { categoryLabel, excerptFor, type PlaybookEntryRow } from '@/lib/playbook';
 import { operatingDate } from '@/lib/operating-date';
+import { searchGuests } from '@/lib/person-record-link-server';
+import { formatPhone, withoutListedContacts, type GuestMatch } from '@/lib/person-record-link';
 
 export const dynamic = 'force-dynamic';
 
 type SearchResults = {
   properties: HelmPropertyRow[];
   contacts: ContactRow[];
+  guests: GuestMatch[];
   slips: (WorkSlipRow & { property_name: string })[];
   tasks: TaskRow[];
   playbook: PlaybookEntryRow[];
@@ -23,13 +26,13 @@ type SearchResults = {
 
 async function search(q: string): Promise<SearchResults> {
   if (!isHelmConfigured || !q || q.length < 2) {
-    return { properties: [], contacts: [], slips: [], tasks: [], playbook: [] };
+    return { properties: [], contacts: [], guests: [], slips: [], tasks: [], playbook: [] };
   }
 
   const escaped = q.replace(/[%_,]/g, ' ').trim();
   const like = `%${escaped}%`;
 
-  const [propRes, contactRes, slipRes, taskRes, playbookRes, propMapRes] = await Promise.all([
+  const [propRes, contactRes, slipRes, taskRes, playbookRes, propMapRes, guestHits] = await Promise.all([
     supabase
       .from('properties')
       .select('*')
@@ -64,16 +67,21 @@ async function search(q: string): Promise<SearchResults> {
       .order('updated_at', { ascending: false })
       .limit(20),
     supabase.from('properties').select('id, name'),
+    // Fails quiet to no rows; both records it links are open to staff.
+    searchGuests(q, 20),
   ]);
 
   const propertyMap = new Map<string, string>(
     ((propMapRes.data ?? []) as Array<{ id: string; name: string }>).map((p) => [p.id, p.name])
   );
   const todayIso = operatingDate();
+  const contacts = (contactRes.data ?? []) as ContactRow[];
 
   return {
     properties: (propRes.data ?? []) as HelmPropertyRow[],
-    contacts: (contactRes.data ?? []) as ContactRow[],
+    contacts,
+    // A guest whose CRM contact is already in Contacts is listed once, there.
+    guests: withoutListedContacts(guestHits, contacts.map((c) => c.id)),
     slips: ((slipRes.data ?? []) as WorkSlipRow[])
       .filter((s) => !s.snoozed_until || s.snoozed_until <= todayIso)
       .slice(0, 20)
@@ -92,7 +100,7 @@ export default async function SearchPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const q = (params.q ?? '').trim();
   const results = await search(q);
-  const total = results.properties.length + results.contacts.length + results.slips.length + results.tasks.length + results.playbook.length;
+  const total = results.properties.length + results.contacts.length + results.guests.length + results.slips.length + results.tasks.length + results.playbook.length;
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -113,7 +121,7 @@ export default async function SearchPage({ searchParams }: PageProps) {
             name="q"
             defaultValue={q}
             autoFocus
-            placeholder="Properties, owners, slips, to-dos…"
+            placeholder="Properties, owners, guests, slips, to-dos…"
             style={{
               width: '100%',
               maxWidth: 640,
@@ -132,10 +140,11 @@ export default async function SearchPage({ searchParams }: PageProps) {
             {q.length < 2
               ? 'Type at least two characters.'
               : total === 0
-                ? 'No matches across properties, contacts, slips, office to-dos, or the playbook.'
+                ? 'No matches across properties, contacts, guests, slips, office to-dos, or the playbook.'
                 : `${total} result${total === 1 ? '' : 's'}: ${[
                     results.properties.length && `${results.properties.length} propert${results.properties.length === 1 ? 'y' : 'ies'}`,
                     results.contacts.length && `${results.contacts.length} contact${results.contacts.length === 1 ? '' : 's'}`,
+                    results.guests.length && `${results.guests.length} guest${results.guests.length === 1 ? '' : 's'}`,
                     results.slips.length && `${results.slips.length} slip${results.slips.length === 1 ? '' : 's'}`,
                     results.tasks.length && `${results.tasks.length} to-do${results.tasks.length === 1 ? '' : 's'}`,
                     results.playbook.length && `${results.playbook.length} playbook`,
@@ -163,6 +172,21 @@ export default async function SearchPage({ searchParams }: PageProps) {
                 secondary={[c.organization, c.emails && c.emails[0]].filter(Boolean).join(' · ') || ''}
                 pill={CONTACT_TYPE_LABELS[c.type]}
                 pillColor={contactTypeColor(c.type)}
+              />
+            ))}
+          </ResultGroup>
+        )}
+
+        {results.guests.length > 0 && (
+          <ResultGroup title="Guests" count={results.guests.length}>
+            {results.guests.map((g) => (
+              <Row
+                key={g.href}
+                href={g.href}
+                primary={g.name}
+                secondary={[g.email, g.phone && formatPhone(g.phone)].filter(Boolean).join(' · ')}
+                pill={g.record === 'crm' ? 'Contact' : 'Guest list'}
+                pillColor="var(--ink-4)"
               />
             ))}
           </ResultGroup>

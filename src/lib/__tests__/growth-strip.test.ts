@@ -64,7 +64,8 @@ describe('the Growth layouts own the chrome', () => {
   test('one strip, six tabs, in reading order, Quotes handed to SectionTabs', () => {
     const src = read('src/components/GrowthTabs.tsx');
     const labels = [...src.matchAll(/label: '([^']+)'/g)].map((m) => m[1]);
-    assert.deepEqual(labels, ['Marketing', 'Reviews', 'Contacts', 'Agreements', 'Quotes', 'Competitors']);
+    assert.deepEqual(labels, ['Marketing', 'Reviews', 'Guest list', 'Agreements', 'Quotes', 'Competitors']);
+    assert.ok(!src.includes("label: 'Contacts'"), 'Contacts is the CRM; the subscriber list is the Guest list');
     assert.ok(src.includes('<SectionTabs'), 'the strip is a SectionTabs wrapper, so the role filter applies');
     assert.ok(!src.includes("label: 'Guests'"), 'no tab is called Guests');
   });
@@ -97,6 +98,14 @@ describe('the Growth layouts own the chrome', () => {
       const src = read(page);
       assert.ok(!src.includes('HelmHero') && !src.includes('<h1'), `${page} still has a hero`);
     }
+  });
+
+  test('the subscriber list is the Guest list on its tab, its list head and the atlas', () => {
+    const page = read('src/app/guests/contacts/page.tsx');
+    assert.ok(/<h2[^>]*>\s*Guest list\s*<\/h2>/.test(page), 'the list head reads Guest list');
+    assert.ok(!/<h2[^>]*>\s*Contacts\s*<\/h2>/.test(page), 'Contacts is the CRM');
+    const atlas = read('src/lib/helm-modules.ts');
+    assert.ok(atlas.includes("href: '/guests/contacts',\n    number: '13a',\n    // \"Guest list\", so Contacts means the CRM only (UX audit 2026-11-07).\n    title: 'Guest list',"));
   });
 
   test('Reviews opens on 30 days, the window the Marketing five-star tile reads', () => {

@@ -59,7 +59,7 @@ export default async function GuestContactsPage({
           }}
         >
           <Stat label="Subscribers" value={stats.configured ? String(stats.subscribers) : '—'} sub={stats.configured ? 'opted in' : 'not set up'} />
-          <Stat label="Total Contacts" value={stats.configured ? String(stats.totalContacts) : '—'} sub={stats.unsubscribed > 0 ? `${stats.unsubscribed} unsubscribed` : ''} />
+          <Stat label="Total guests" value={stats.configured ? String(stats.totalContacts) : '—'} sub={stats.unsubscribed > 0 ? `${stats.unsubscribed} unsubscribed` : ''} />
           <Stat label="Last 30 Days" value={String(stats.recentSignups)} sub="new signups" />
           <Stat label="Bounced" value={String(stats.bounced)} sub={stats.bounced > 0 ? 'needs cleanup' : 'clean list'} accent={stats.bounced > 0} last />
         </div>
@@ -153,11 +153,11 @@ export default async function GuestContactsPage({
         )}
       </section>
 
-      {/* CONTACTS LIST */}
+      {/* THE LIST: "Guest list", so Contacts means the CRM only (UX audit 2026-11-07). */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 56, flex: 1, width: '100%' }}>
         <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
           <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-            Contacts
+            Guest list
           </h2>
           <span className="eyebrow">
             {contacts.length === 200 ? 'showing first 200' : `${contacts.length} ${contacts.length === 1 ? 'match' : 'matches'}`}
@@ -169,11 +169,11 @@ export default async function GuestContactsPage({
         ) : contacts.length === 0 ? (
           stats.totalContacts === 0 ? (
             <EmptyBlock
-              body="No contacts yet."
+              body="No guests yet."
               hint="Import a CSV or sync from Guesty, both under Manage list."
             />
           ) : (
-            <EmptyBlock body="No contacts match this filter." />
+            <EmptyBlock body="No guests match this filter." />
           )
         ) : (
           <div style={{ borderTop: '1px solid var(--ink)' }}>
@@ -193,7 +193,7 @@ export default async function GuestContactsPage({
           textTransform: 'uppercase',
           color: 'var(--ink-4)',
         }}>
-          <span>Rising Tide &middot; Contacts</span>
+          <span>Rising Tide &middot; Guest list</span>
           <span style={{ fontStyle: 'italic', textTransform: 'none', letterSpacing: 0, color: 'var(--ink-3)', fontSize: 11 }}>
             Source: Helm &middot; Delivery: Resend
           </span>

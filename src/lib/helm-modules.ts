@@ -753,8 +753,9 @@ export const HELM_MODULES: HelmModule[] = [
     id: 'guest-contacts',
     href: '/guests/contacts',
     number: '13a',
-    title: 'Guest Contacts',
-    description: 'The guest contact list: subscribers, campaigns, and each guest\'s record. Where The Weekly is sent from.',
+    // "Guest list", so Contacts means the CRM only (UX audit 2026-11-07).
+    title: 'Guest list',
+    description: 'Every guest who booked or signed up: subscribers, campaigns, and each guest\'s record. Where The Weekly is sent from.',
     status: 'active',
     primary: false,
     hidden: true,
