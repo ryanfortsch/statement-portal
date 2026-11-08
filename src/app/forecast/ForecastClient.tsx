@@ -1012,6 +1012,11 @@ function Assumptions({ yearKey }: { yearKey: ForecastYear }) {
   );
 }
 
+const SOFTWARE_BUDGET_ASSUMPTION: AssumptionItem = {
+  label: 'Software',
+  value: 'Projected total software: $2,700/mo through October 2026; $2,850/mo in November and December during the Guesty/Channex overlap; $2,600 in January 2027, $2,300 in February, $1,900 in March, and $1,650/mo from April onward, including 2028. The rounded steady budget replaces the $1,323 Guesty baseline with about $150-$160 for Channex and $100 of extra operating allowance; PriceLabs and the other subscriptions remain. This planning assumption allows a late-November Calderwood pilot, phased migration and billing winding down by March-April, subject to channel readiness and Guesty contract terms. Measured months show actual card spending.',
+};
+
 const SUPPLIES_BUDGET_ASSUMPTION: AssumptionItem = {
   label: 'Winter supplies budget',
   value: 'Projected guest supplies are reduced 25% from November 2026 through April 2027, after the supplies and repairs split. The normal seasonal budget resumes in May 2027. Measured spending, repairs and onboarding keep their existing amounts.',
@@ -1033,7 +1038,7 @@ const sections2026: AssumptionSection[] = [
     items: [
       SUPPLIES_BUDGET_ASSUMPTION,
       { label: 'Corporate card', value: 'Two parts, calibrated on 2026 card detail through October 7 and the Amazon Business export of October 15. Variable: guest supplies and small repairs at $2,950 per live home per year, on the Cape Ann turnover curve pulled one month earlier (a home is stocked before its guests arrive) and damped to 60%, with repairs at 12% of it. The rate is measured item by item: $1,805 of Amazon consumables per home per year, about $1,000 of replacement durables, and the non-Amazon stores. It was $8,360 until 2026-10-15, fitted with the summer outfitting orders left in; September, the first month after the onboarding wave, came in at a quarter of what that rate projected, so outfitting is now its own one-time charge (Onboarding, below). Fixed: GEICO $519, AT&T $114, travel $175, the rest of Other $185 (the van, card interest, the hiring run), marketing $680 through May 2026 and $225 from June (the step-down is measured on the card, not assumed), and two $199 Furnished Finder listings, one renewing in August and one in September. The Marketing & advertising row also carries Cooper\'s content work from the operating account: $1,300/mo per 16 homes from July 2026, scaled to the live fleet (filed here rather than on the bench since 2026-11-07). Projected months itemise the card by these terms; measured months read the card\'s own categories.' },
-      { label: 'Software', value: '$2,700/mo flat in projected months, the September 2026 stack with no API usage in it: Guesty $1,323 (per listing, up from $973 in January), PriceLabs $246, the Claude seats, OpenAI, Seam, Quo, Adobe, AirDNA, Squarespace, Vercel, Supabase and the smaller tools. Measured months show the real card figure: $3,420 in July and $3,804 in August on Anthropic API credits the operator ruled a one-off, then $2,952 in September with that reload stream stopped. The nine-month 2026 mean is $2,598; the constant was $2,300 until 2026-10-15.' },
+      SOFTWARE_BUDGET_ASSUMPTION,
       { label: 'Office', value: '$750/mo rent at 85 Eastern Ave from March 2026 when the lease began, plus $471/mo for the Republic Services dumpster through November 2026, the rate Republic has billed monthly since August. The dumpster was cancelled effective 2026-11-30 (notice sent 2026-10-05), so December is rent only.' },
       { label: 'Bank fees', value: '$10/mo. Real fee rows total $75 across 24 months; the old $100 figure counted bounced deposits, which are a wash, not a cost.' },
       { label: 'Contractors', value: 'The 1099 bench. Field labor (Delaney Jordan) at $33,700 a year per 16 homes, on Cape Ann seasonality and scaled to the live fleet, July to October 2026; from November it is her salary instead. Everyone else (handymen, one-off trades) $250/mo blended. Cooper\'s content work is on the Marketing & advertising row and Lightshed\'s listing shoots are in the Onboarding charge, both since 2026-11-07. The operating-account bench ran $8,288/mo over July 1 to August 25, 2026, with Cooper in it.' },
@@ -1074,7 +1079,7 @@ const sections2027: AssumptionSection[] = [
     items: [
       SUPPLIES_BUDGET_ASSUMPTION,
       { label: 'Corporate card', value: 'Same two-part model as 2026: $2,950 per live home per year on the turnover curve (repairs 12% of it; the rate is Amazon consumables plus replacements, measured item by item), plus the fixed floor (GEICO $519, AT&T $114, travel $175, the rest of Other $185, marketing $225 at the post-cut level measured on the card, Furnished Finder $199 in August and again in September). The Marketing & advertising row also carries Cooper\'s content work from the operating account, $1,300/mo per 16 homes scaled to the live fleet, full every month. Scales with the homes operating each month: the fourteen, plus rollovers, plus new ones as they start. Outfitting is the separate Onboarding charge, not part of the rate.' },
-      { label: 'Software', value: '$2,700/mo flat, the September 2026 stack with no API usage in it, carried forward. No cuts are assumed: none has shown up in the card data yet, and Guesty bills per listing.' },
+      SOFTWARE_BUDGET_ASSUMPTION,
       { label: 'Office', value: '$750/mo rent, full year. The Republic Services dumpster ended 2026-11-30 and is not projected.' },
       { label: 'Bank fees', value: '$10/mo.' },
       { label: 'Contractors', value: '$250/mo for the one-off handymen and trades, at half for January to April 2027 (ruling of 2026-10-21: the bench does half the work in the off-season). Cooper\'s content work is on the Marketing & advertising row, full every month, and the listing shoot is in the Onboarding charge, since 2026-11-07. Field labor is no longer on the bench: since November 2026 it is the operations manager\'s salary.' },
@@ -1114,7 +1119,7 @@ const sections2028: AssumptionSection[] = [
     heading: 'Recurring monthly',
     items: [
       { label: 'Corporate card', value: 'Same two-part model: $2,950 per live home per year on the turnover curve (repairs 12% of it), plus the fixed floor (GEICO $519, AT&T $114, travel $175, the rest of Other $185, marketing $225, Furnished Finder $199 in August and September). The Marketing & advertising row also carries Cooper\'s content work, $1,300/mo per 16 homes scaled to the live fleet. Scales with the homes operating each month. Outfitting is the separate Onboarding charge.' },
-      { label: 'Software', value: '$2,700/mo flat, the September 2026 stack carried forward. No cuts are assumed.' },
+      SOFTWARE_BUDGET_ASSUMPTION,
       { label: 'Office', value: '$750/mo rent, full year. The Republic Services dumpster ended 2026-11-30 and is not projected.' },
       { label: 'Bank fees', value: '$10/mo.' },
       { label: 'Contractors', value: '$250/mo for the one-off handymen and trades. Cooper\'s content work is on the Marketing & advertising row and the listing shoot is in the Onboarding charge. Field labor is the operations manager\'s salary, not the bench.' },
@@ -1646,7 +1651,7 @@ function ForecastTable({
       return { label: cat.label, info: cat.info, values: monthly.map(catValue), fy: sumOf(monthly, catValue) };
     }),
     { label: 'Office', info: '$750/mo rent at 85 Eastern Ave plus $471/mo for the Republic Services dumpster through November 2026: $165 a month April to June 2026, nothing in July, then $471 on 2026-08-14 and again on 2026-09-14, so $471 is the rate the last two months project. Lease started March 2026. The dumpster was cancelled effective 2026-11-30, so from December 2026 the line projects rent only. Measured months read the landlord ACHs from the operating account plus any Republic Services charge on the card.', values: monthly.map((r) => r.exp_office), fy: sumOf(monthly, (r) => r.exp_office) },
-    { label: 'Software', info: 'Software subscriptions on the corporate card: Guesty, Anthropic, PriceLabs, OpenAI, Seam, Quo, QuickBooks, Adobe, AirDNA, Squarespace, Vercel, Supabase and the smaller tools. Measured months show the real card figure ($2,740 Apr, $2,314 May, $1,272 Jun, $3,420 Jul, $3,804 Aug, $2,952 Sep 2026). Projected months carry a flat $2,700/mo, the September 2026 stack with no API usage in it; Guesty bills per listing and has grown from $973 to $1,323 this year. The subscription cuts an earlier version of this model assumed never showed up in the card data.', values: monthly.map((r) => r.exp_software), fy: sumOf(monthly, (r) => r.exp_software) },
+    { label: 'Software', info: SOFTWARE_BUDGET_ASSUMPTION.value, values: monthly.map((r) => r.exp_software), fy: sumOf(monthly, (r) => r.exp_software) },
     { label: 'Bank fees', info: '$10/mo. Real fee rows on Chase ...5130 total $75 across 24 months; the old $100 to $112 figures counted bounced deposits, which are a wash, not a cost.', values: monthly.map((r) => r.exp_bank), fy: sumOf(monthly, (r) => r.exp_bank) },
   ];
   const people: Line[] = [
