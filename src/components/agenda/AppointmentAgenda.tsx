@@ -27,6 +27,23 @@ export function AppointmentAgenda({ data, full = false }: { data: AgendaData; fu
       {agendaSourceGap(data.sources) && sourceDetails}
     </section>;
   }
+  // Home with appointments but none to preview (all awaiting review or a
+  // date, or owner-handled): one line that says how many and opens them, and
+  // the source line under it when a source is not feeding the agenda. The
+  // heading, the time zone, "All N" and an instruction sentence around zero
+  // rows read as noise (2026-11-08, Dotti).
+  if (!full && preview.length === 0 && overlaps.size === 0) {
+    const review = groups.review.length;
+    return <section aria-label="Upcoming appointments" className="rt-agenda rt-agenda-home">
+      <p className="rt-agenda-empty">
+        <Link href={review > 0 ? '/appointments#review' : '/appointments'}>
+          {review > 0 ? `${review} appointment${review === 1 ? '' : 's'} to review` : `${total} appointment${total === 1 ? '' : 's'} awaiting a date`} →
+        </Link>
+        {' · '}{addLink}
+      </p>
+      {agendaSourceGap(data.sources) && <div className="rt-agenda-home-footer">{sourceDetails}</div>}
+    </section>;
+  }
   return <section aria-label="Upcoming appointments" className={`rt-agenda${full ? '' : ' rt-agenda-home'}`}>
     <div className="rt-agenda-heading">
       {/* The full page's one title is the page's own; this row carries the
@@ -43,7 +60,6 @@ export function AppointmentAgenda({ data, full = false }: { data: AgendaData; fu
     {full && sourceDetails}
     {!full && <>
       {render(preview)}
-      {preview.length === 0 && <p className="rt-agenda-empty">Open the agenda for visits and plans awaiting a date.</p>}
       {overlaps.size > 0 && <Link className="rt-agenda-warning" href="/appointments#scheduled">{overlaps.size} appointments overlap →</Link>}
       <div className="rt-agenda-home-footer">
         {sourceDetails}
