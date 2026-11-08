@@ -25,7 +25,6 @@ import {
   listScheduleRecipients,
   portalLink,
   getOpenDigest,
-  getDigestByDate,
   previewRecipientBodies,
   regionsForDigests,
   describeRecipientScope,
@@ -57,8 +56,12 @@ import { houseDay, houseRange } from '@/lib/house-date';
  * The checkout-schedule workroom: the operator's view of the same merged
  * truth Rosa's page renders. Seven days out, every stay adjustable inline
  * (late checkout time, extension date, note), mined proposals to apply or
- * dismiss, and each region's digest preview. Recipients and per-property
- * default times live on /turnovers/settings (Cleaner settings).
+ * dismiss. Cape Ann's daily text is approved, skipped and updated on the
+ * Team inbox card; each day here says in one line whether it waits there.
+ * A region no card covers (any region other than Cape Ann with an enabled
+ * recipient) keeps its digest section below, since this is its only home.
+ * Recipients, automatic sending and per-property default times live on
+ * /turnovers/settings (Cleaner settings).
  *
  * The moment a change lands here it is live on the cleaner page and in
  * the next digest (or the current one: an unedited approve re-composes).
@@ -417,14 +420,6 @@ export default async function CheckoutSchedulePage({
   const sp = await searchParams;
   const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
   const err = first(sp.err);
-  // A specific day's digest, from a day section's chip. Without it the card
-  // shows the open digest (pending first, else the soonest from today), and
-  // on an evening after the 6 PM autosend that is TODAY's already-done text,
-  // with tomorrow's sent one unreachable for "Send an update" until morning.
-  // The schedule moved after the send is exactly when the update is wanted
-  // (225 Washington, 2026-10-08).
-  const digestDateRaw = first(sp.digest) || '';
-  const digestDate = /^\d{4}-\d{2}-\d{2}$/.test(digestDateRaw) ? digestDateRaw : null;
   // Where the outcome belongs: a region's digest section or the page head
   // (see the notice helpers above).
   const noticeRegion = first(sp.region) || null;
@@ -512,16 +507,16 @@ export default async function CheckoutSchedulePage({
   const propNames = new Map(timeProps.map((p) => [p.id, p.name]));
   const allPropNames = new Map(allProps.map((p) => [p.id, p.name]));
 
-  // One digest card per region: Cape Ann always, then every region with an
-  // enabled recipient. Each card previews exactly what each recipient will
-  // be texted, composed live from their scope in their language.
-  const digestRegions = await regionsForDigests(supabase).catch(() => [CAPE_ANN_REGION]);
+  // A digest section for each region the Team inbox card does not cover:
+  // every region other than Cape Ann with an enabled recipient. Cape Ann's
+  // text is the card's alone (2026-11-07 audit, finding 2); the day heads
+  // below say when it waits there. Each section previews exactly what each
+  // recipient will be texted, composed live from their scope in their language.
+  const digestRegions = (await regionsForDigests(supabase).catch(() => [CAPE_ANN_REGION])).filter((r) => r !== CAPE_ANN_REGION);
   const regionCards = await Promise.all(
     digestRegions.map(async (region) => {
-      const digest = digestDate
-        ? await getDigestByDate(supabase, digestDate, region).catch(() => null)
-        : await getOpenDigest(supabase, region).catch(() => null);
-      const serviceDate = digest?.service_date ?? (digestDate ?? tomorrowET());
+      const digest = await getOpenDigest(supabase, region).catch(() => null);
+      const serviceDate = digest?.service_date ?? tomorrowET();
       let preview: { bodies: RecipientBody[]; error: string | null } = { bodies: [], error: null };
       try {
         preview = { bodies: (await previewRecipientBodies(supabase, serviceDate, region)).bodies, error: null };
@@ -661,18 +656,14 @@ export default async function CheckoutSchedulePage({
                 ? digest.status === 'sent'
                   ? `Digest sent${digest.sent_at ? ` · ${fmtSentAt(digest.sent_at)}` : ''}`
                   : digest.status === 'pending'
-                    ? 'Digest waiting for approval'
+                    ? 'Digest waiting'
                     : `Digest ${digest.status}`
                 : undefined
             }
             right={
               digest && digest.status === 'pending' ? (
                 <Link href="/messaging/team#schedule-digest" style={{ fontSize: 12, color: 'var(--signal)', fontWeight: 600, textDecoration: 'underline', textUnderlineOffset: 3 }}>
-                  Approve on the Team inbox →
-                </Link>
-              ) : digest && digest.status === 'sent' ? (
-                <Link href={`/turnovers/schedule?digest=${day.date}#digest-${CAPE_ANN_REGION}`} style={{ fontSize: 12, color: 'var(--ink-3)', fontWeight: 600, textDecoration: 'underline', textUnderlineOffset: 3 }}>
-                  {digestDate === day.date ? 'Shown below' : 'Open this text →'}
+                  Team inbox →
                 </Link>
               ) : undefined
             }
@@ -735,17 +726,6 @@ export default async function CheckoutSchedulePage({
                 ? `${fmtDayHead(digest.service_date, today)} · ${pending ? 'waiting for approval' : status === 'sending' ? 'sending' : status}`
                 : 'No draft yet'
             }
-            right={
-              region === CAPE_ANN_REGION && pending ? (
-                <Link href="/messaging/team#schedule-digest" style={{ fontSize: 12, color: 'var(--signal)', fontWeight: 600, textDecoration: 'underline', textUnderlineOffset: 3 }}>
-                  Edit and approve on the Team inbox →
-                </Link>
-              ) : region === CAPE_ANN_REGION && sent ? (
-                <Link href="/messaging/team#schedule-digest" style={{ fontSize: 12, color: 'var(--ink-3)', fontWeight: 600, textDecoration: 'underline', textUnderlineOffset: 3 }}>
-                  Send an update on the Team inbox →
-                </Link>
-              ) : undefined
-            }
             paddingTop={8}
             paddingBottom={12}
           >
@@ -764,8 +744,7 @@ export default async function CheckoutSchedulePage({
                   <div style={{ marginTop: 4 }}>
                     {noteRenderingIsStale(digest) ? (
                       <span style={{ fontStyle: 'italic' }}>
-                        Note riding with it, not translated yet (it is translated when sent; Save &amp; translate on the{' '}
-                        <Link href="/messaging/team#schedule-digest" style={{ color: 'inherit' }}>Team inbox card</Link> to see it first): &ldquo;{digest.operator_note}&rdquo;
+                        Note riding with it, translated when sent: &ldquo;{digest.operator_note}&rdquo;
                       </span>
                     ) : (
                       <>
@@ -835,11 +814,7 @@ export default async function CheckoutSchedulePage({
                     />
                   </form>
                 )}
-                {/* One approval gate: the text is approved and sent, and an
-                    update after a change is sent, from the card on the
-                    cleaner inbox. This card is the preview; the link in its
-                    head goes to the gate. Skip stays here because it sends
-                    nothing. */}
+                {/* Skip sends nothing; this region has no Team inbox card. */}
                 {digest && pending && (
                   <form action={skipDigestAction}>
                     <input type="hidden" name="digestId" value={digest.id} />
