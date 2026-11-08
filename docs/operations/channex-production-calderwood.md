@@ -729,6 +729,14 @@ recipient, access grant, schedule job or message is created, and this preview
 does not set the cleaner handover readiness flags or replace the Guesty URL.
 
 Guesty's signed-in phone book shows Luana Martins at Lu's Cleaning Crew, and
-the Calderwood cleaner workflow remains enabled. The contact destination still
+the Calderwood cleaner workflow remains enabled. A read of Guesty's documented
+contacts endpoint returned one matching cleaning contact whose phone agrees with
+the signed-in phone book. The source stays private and no recipient was installed.
+The contact destination still
 needs to be matched to both workflow messages before configuring Helm delivery.
 The approved cleaner-queue support follow-up has no newer answer at this check.
+
+Validation: 3,976 local tests pass, seven optional checks skipped, TypeScript
+passes, and all 29 synthetic queue-action browser checks pass. The latter had
+two stale expectations for the previous "slips" label; only those expectations
+were updated to the current "work items" wording, preserving all action guards.
