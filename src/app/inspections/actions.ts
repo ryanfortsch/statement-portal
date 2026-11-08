@@ -19,6 +19,8 @@ import { openWorkSlipsForInspectionIssues } from '@/lib/inspection-issue-slips';
 import { sendInspectionReportEmail } from '@/lib/inspection-report-email';
 import { suppliesLabel } from '@/lib/inspection-supplies';
 import { alreadyHandledNote, doneOnTripNote, slipVerdictLists } from '@/lib/field-slip-outcomes';
+import { saveCleaningReview } from '@/lib/cleaning-reviews';
+import { etDateOf } from '@/lib/vendor-visit-dates';
 
 export async function startInspection(formData: FormData) {
   const session = await auth();
@@ -156,6 +158,9 @@ export async function completeInspection(
     slipsStillOpen?: string[];
     slipsHandled?: string[];
     slipsDone?: string[];
+    /** How was the clean? 1 to 5 stars with what was off and photos, or null
+     *  for "No clean to rate". Omitted by an old client: nothing is stored. */
+    cleaning?: { stars: number; reason?: string; photoUrls?: string[] } | null;
   } = {},
 ) {
   let actor = await resolveInspectionActor();
@@ -319,6 +324,27 @@ export async function completeInspection(
     .eq('id', inspectionId);
 
   if (updateError) throw new Error(updateError.message);
+
+  // HOW WAS THE CLEAN? Stored once per walk. Four stars or fewer also files
+  // the crew's note as a PENDING card on the Team inbox; nothing texts here
+  // (cleaning-reviews.ts holds the one sender, behind Approve). Best-effort
+  // like the fanouts below: the walk is complete whether or not this lands.
+  if (opts.cleaning && insp) {
+    try {
+      await saveCleaningReview({
+        inspectionId,
+        propertyId: (insp as { property_id: string }).property_id,
+        inspectorEmail: sessionEmail,
+        inspectorName: ((insp as { inspector_name?: string | null }).inspector_name || '').trim() || actor.name,
+        walkDate: etDateOf(new Date()),
+        stars: opts.cleaning.stars,
+        reason: opts.cleaning.reason,
+        photoUrls: opts.cleaning.photoUrls,
+      });
+    } catch (err) {
+      console.warn('[completeInspection] cleaning review not saved', err);
+    }
+  }
 
   // Fan out one Rising Tide restock work slip per low supply, attributed
   // to the property + this inspection so it threads back from the slip's

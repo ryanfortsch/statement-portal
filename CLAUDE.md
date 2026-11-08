@@ -99,7 +99,8 @@ as modules land, so read it as where the weight sits today.
 | `/turnovers/calendar` | The occupancy calendar, 7, 14 or 30 days. The only place it renders; the pipeline links to it |
 | `/turnovers/schedule` | Cleaner checkout schedule, merged with late checkouts and extensions. Each row links to its board row and back |
 | `/turnovers/cleanings` | From Cape Ann Elite: only what no board row can show (a visit booked where nobody checks out, unannounced days). Not a tab; reached from the board and the home feed. Every checkout's verdict prints on its board row; a three-day strip of the same data sits on the home page |
-| `/inspections` | Property inspection runs |
+| `/inspections` | Property inspection runs. The review screen ends on **How was the clean?** (1 to 5 stars, or "No clean to rate"); four or fewer asks what was off and for photos and files a Portuguese note to the crew as a pending Team inbox card (`docs/cleaning-reviews.md`) |
+| `/me` | My page, from the avatar menu: the signed-in person's own numbers. Their guest rating (the guests' stars on the stays they walked before, staff walks and old Field packets as one chain, `src/lib/inspector-reviews-core.ts`), the fleet's trailing 30 days, their open work (the board's "mine"), and the cleans they rated. Staff see only their own; an owner reads a teammate's with `?as=` |
 | `/fieldwork/*` | Contractor-facing ops: packets (one "Send a job" form at `/fieldwork/packets/new`; the maintenance bundler on the Handymen board), roster (hiring folded in as Applicants at the top; `/fieldwork/hiring` redirects there), shoots (creative pay ledger), trades (the outside vendor directory), close (the field's handoff before the statement close; staff add items, owners file them through the receipt path) |
 | `/field` | The external 1099 contractor portal. Separate auth plane, magic-link tokens |
 | `/work` | Work slips per property plus office to-dos (the `tasks` table). A slip belongs to a house; an office to-do does not. Both share one priority scale (Low / Normal / High), the close verbs (Mark done, Dismiss, Reopen) and a page where each field saves on its own. The strip is Board and Maintenance |
@@ -269,6 +270,19 @@ home, so a night booked since the card was drafted stops it), then the ticked sl
 unclear day or home is a question on the card. A home is matched by street number AND a street
 word with dates stripped, never by a bare number, because "Wed 10/21" is not 21 Horton.
 `vendor-visit-guard.test.ts` holds the never-write-before-approve rule.
+
+**A cleaning rating never texts by itself** (`docs/cleaning-reviews.md`, since 2026-11-07). Every
+walk ends on one question, How was the clean?, and `completeInspection` stores the answer once per
+walk in `cleaning_reviews` through `saveCleaningReview`. Five stars is stored and nothing more. Four
+or fewer (`CLEANING_FLAG_MAX` in `src/lib/cleaning-reviews-core.ts`) renders the crew note in
+Portuguese with the English beside it (our template around the inspector's reason, which goes
+through `cleaner-note.ts`'s model pass; the home, the day, the stars, the photo links, never a
+person's name) and files it `pending`. The Team inbox shows it under Cleaners as a Cleaning card
+on the one approval card. Only Approve sends, through `approveCleaningReview`: claim the row, read
+the cleaner schedule's enabled recipients for the home's region, one language per recipient, from
+the Rising Tide line. Edit stores the operator's words verbatim and remakes the English; Mark
+handled clears with a reason; Undo brings it back. `cleaning-review-guard.test.ts` keeps
+`sendMessage` inside approve and nowhere else.
 
 
 The home appointment agenda also has `/appointments` for capture, review,
