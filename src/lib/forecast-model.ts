@@ -620,7 +620,7 @@ export const CC_OPERATING_BREAKDOWN: ReadonlyArray<{
     key: 'marketing',
     label: 'Marketing & advertising',
     monthly: 1525,
-    info: 'Cooper\'s content work, $1,300/mo per 16 homes scaled to the live fleet (paid $300/wk on the Chase payroll rail from 2026-07-29; filed under marketing rather than the contractor bench since 2026-11-07, at half for January to April 2027 like the rest of the bench), plus Facebook and Meta, Seaside Graphics print and the Eagle Tribune, plus the $199 Furnished Finder listings (one renews in August, a second in September). The ads ran $680/mo through May 2026, then stepped down to roughly $225 from June ($333, $33, $164, $378 for June to September). The cut is real and measured, not assumed.',
+    info: 'Cooper\'s content work, $1,300/mo per 16 homes scaled to the live fleet (paid $300/wk on the Chase payroll rail from 2026-07-29; filed under marketing rather than the contractor bench since 2026-11-07, full every month: the off-season half stayed on the bench), plus Facebook and Meta, Seaside Graphics print and the Eagle Tribune, plus the $199 Furnished Finder listings (one renews in August, a second in September). The ads ran $680/mo through May 2026, then stepped down to roughly $225 from June ($333, $33, $164, $378 for June to September). The cut is real and measured, not assumed.',
   },
   {
     key: 'telecom',
@@ -692,10 +692,11 @@ export const MARKETING_CREATIVE_START_MONTH_2026 = 7;
  * 2027". A dated ruling, applied to the whole Contractors line for those
  * four months as it stood that day (creative, listing photography and the
  * misc blend; the field work is the operations manager's salary by then
- * and is not touched). Cooper's line keeps the factor where it now sits in
- * marketing, since the ruling was about the people and not the row; the
- * listing shoot is a one-time onboarding charge and no longer has a month
- * to halve. It is scoped to 2027 because that is what was asked; extending
+ * and is not touched). Since 2026-11-07 the factor applies to what is left
+ * on the Contractors line, the misc blend: Cooper's line in marketing runs
+ * full every month (Dotti, 2026-11-07: "Drop the half"), and the listing
+ * shoot is a one-time onboarding charge with no month to halve. It is
+ * scoped to 2027 because that is what was asked; extending
  * it to the off-season of every forward year is a one-line change here,
  * not an inference to make on her behalf.
  */
@@ -712,14 +713,16 @@ export function benchSeasonFactor(year: number, month: number): number {
 
 /**
  * Cooper's content work for a month, the marketing bucket's share of the
- * bench. Scales with the fleet, carries the off-season factor, starts July
- * 2026. Paid from the operating account, so a card-only ACT month adds it
- * to the measured card marketing rather than reading it as $0.
+ * bench. Scales with the fleet, starts July 2026, and runs full every
+ * month: the 2027 off-season half (benchSeasonFactor) stays on the
+ * Contractors line and does not follow him here (Dotti, 2026-11-07). Paid
+ * from the operating account, so a card-only ACT month adds it to the
+ * measured card marketing rather than reading it as $0.
  */
 export function creativeCost(year: number, month: number, activeCount: number): number {
   const start = year === 2026 ? MARKETING_CREATIVE_START_MONTH_2026 : 1;
   if (month < start) return 0;
-  return MARKETING_CREATIVE_MONTHLY * (activeCount / CONTRACTOR_FIELD_PROP_COUNT) * benchSeasonFactor(year, month);
+  return MARKETING_CREATIVE_MONTHLY * (activeCount / CONTRACTOR_FIELD_PROP_COUNT);
 }
 
 /**

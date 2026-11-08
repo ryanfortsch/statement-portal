@@ -118,7 +118,8 @@ for (const [year, rolled] of [[2026, 0], [2027, 3], [2028, 6]]) {
     if (year >= 2027 || m.month >= 6) {
       // The ads at the post-cut level, Furnished Finder in August and
       // September, and Cooper's content work scaled to the fleet (marketing
-      // since 2026-11-07; from July 2026, at half for January to April 2027).
+      // since 2026-11-07, from July 2026, full every month: the off-season
+      // half stayed on the Contractors line).
       const wantMkt =
         CC_MARKETING_POST_CUT_MONTHLY +
         (CC_LISTING_MONTHS.includes(m.month) ? CC_LISTING_ANNUAL : 0) +

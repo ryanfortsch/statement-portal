@@ -63,6 +63,8 @@ describe("Cooper's content work rides the marketing bucket", () => {
     assert.equal(creativeCost(2026, 7, 16), 1300);
     assert.equal(creativeCost(2027, 8, 8), 650);
     assert.equal(creativeCost(2028, 1, 16), 1300);
+    // No off-season half on his line: the 2027 ruling stays with the bench.
+    assert.equal(creativeCost(2027, 2, 16), 1300);
   });
 
   test('the projected marketing bucket is the ads, Furnished Finder and Cooper', () => {
