@@ -365,10 +365,12 @@ if (y26.monthly.some((m) => 'exp_hire' in m)) fail('exp_hire is back on MonthRow
     { id: '84_thatcher', name: '84 Thatcher', isRtOwned: false, activatedAt: '2026-06-15T00:00:00Z', projectedMgmtFee: 0 },
     { id: '4_middle', name: '4 Middle Road', isRtOwned: false, activatedAt: null, projectedMgmtFee: 0 },
     { id: 'next_year', name: 'Signed for 2027', isRtOwned: false, activatedAt: '2027-03-01', projectedMgmtFee: 0 },
+    { id: '17_beach_front', name: 'Front Unit', isRtOwned: false, activatedAt: '2026-09-28', projectedMgmtFee: 0, sharesInventoryWith: '17_beach_rd' },
   ];
   const r26 = rosterFromRegistry(homes, 2026, known, NEW_PROPERTY_FEE);
   const by = Object.fromEntries(r26.map((p) => [p.id, p]));
   if (by['3_locust']) fail('roster: RT-owned 3 Locust must stay off the cost lines');
+  if (by['17_beach_front']) fail('roster: a unit of a home already counted must not scale the card or Cooper (whole homes only, 2026-11-07)');
   if (by['next_year']) fail('roster: a home activated in 2027 must not be on the 2026 roster');
   if (!by['53_rocky_neck'] || by['53_rocky_neck'].start !== 5) fail('roster: 53 Rocky Neck keeps its statement-derived May start when activated_at is null');
   if (!by['53_rocky_neck'] || by['53_rocky_neck'].fee !== known['53_rocky_neck'].fee) fail('roster: 53 Rocky Neck keeps its known 2026 fee');
