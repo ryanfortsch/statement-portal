@@ -29,6 +29,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { isStatementMonth, previousCalendarMonth, statementsHref, statementsUploadHref, statementsReceiptsHref } from '@/lib/statements-month';
 import { buttonClass } from '@/lib/button-class';
+import { Button } from '@/components/Button';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { FinancialsTabs } from '@/components/FinancialsTabs';
 import { AddNoteModal } from '@/components/AddNoteModal';
@@ -40,6 +41,7 @@ import { CleaningEventCredit } from '@/components/CleaningEventCredit';
 import { ReceiptRowActions } from '@/components/ReceiptCapture';
 import { HandoffFileQueue } from '@/components/HandoffFileQueue';
 import { useConfirm } from '@/components/ConfirmDialog';
+import { StatementUploadForm, type IngestResult } from './upload/StatementUploadForm';
 import { partialSyncLine } from '@/lib/guesty-sync-plan';
 
 /* ─── Types ─── */
@@ -1648,6 +1650,7 @@ function PropertyCard({
   onCloseTaskField,
   onMarkSent,
   onPreview,
+  onReingested,
 }: {
   prop: PropertyStatement;
   month: string;
@@ -1666,6 +1669,9 @@ function PropertyCard({
   // unfreezes the statement and must leave a trace.
   onMarkSent: (next: boolean) => void;
   onPreview: () => void;
+  // Re-upload data, processed: the ingest rebuilt this statement under a
+  // new id, so the dashboard reloads the month and reopens this home's card.
+  onReingested: (result: IngestResult) => void;
   // Re-read THIS statement and the strip counts, in place. The card stays
   // mounted, so it stays open and the page stays where it was scrolled.
   onRefresh: () => void;
@@ -1709,6 +1715,9 @@ function PropertyCard({
   const [fillingGap, setFillingGap] = useState<DataGap | null>(null);
   const [resolvingGapId, setResolvingGapId] = useState<string | null>(null);
   const [refreshingStatement, setRefreshingStatement] = useState(false);
+  // Re-upload data opens the upload form here, under the card's verbs
+  // (UX audit 2026-11-07, finding 3): the card's month and home, no picker.
+  const [reuploading, setReuploading] = useState(false);
   // Bumped by an action that can change this card's bank rows (a bank CSV
   // patched through Fill Gap re-runs deposit matching), so the queue below
   // refetches along with the statement.
@@ -2789,19 +2798,27 @@ function PropertyCard({
             {pdfError && (
               <span style={{ fontSize: 11, color: 'var(--negative)' }}>{pdfError}</span>
             )}
-            <Link
-              href={statementsUploadHref(month, prop.property_id)}
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: 8,
-                background: 'transparent', color: 'var(--ink-3)',
-                fontSize: 11, fontWeight: 500, letterSpacing: '.08em', textTransform: 'uppercase',
-                padding: '10px 18px',
-                border: '1px solid var(--rule)',
-              }}
+            <Button
+              variant="quiet"
+              aria-expanded={reuploading}
+              onClick={() => setReuploading(v => !v)}
             >
               Re-upload Data
-            </Link>
+            </Button>
           </div>
+          {reuploading && (
+            <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--rule)' }}>
+              <StatementUploadForm
+                initialMonth={month}
+                initialPropertyId={prop.property_id}
+                embed={{
+                  propertyName: prop.property_name,
+                  onIngested: onReingested,
+                  onCancel: () => setReuploading(false),
+                }}
+              />
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -2961,6 +2978,17 @@ function DashboardContent() {
   const focusSections = useCallback((targets: Array<[propertyId: string, section: CardSection]>) => {
     if (targets.length === 0) return;
     setCardFocus(prev => ({ token: prev.token + 1, targets: Object.fromEntries(targets), first: targets[0][0] }));
+  }, []);
+  // A card's Re-upload data, processed. The statement came back under a new
+  // id, so its card remounts: reload the month quietly and reopen that card
+  // (no scroll; it is where it was). The result is one line in the toast.
+  const [reingestNotice, setReingestNotice] = useState<IngestResult | null>(null);
+  const onCardReingested = useCallback((propertyId: string, result: IngestResult) => {
+    setReingestNotice(result);
+    setCardFocus(prev => ({ token: prev.token + 1, targets: { [propertyId]: 'sources' }, first: null }));
+    const shown = shownMonthRef.current;
+    if (shown) void loadPeriod(shown, { quiet: true });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   // Month-level inputs live above the cards, not in one.
   const scrollToId = useCallback((id: string) => {
@@ -4305,6 +4333,21 @@ function DashboardContent() {
             action: { label: 'Retry', onClick: () => { void loadOwnerCfg(); } },
             body: <>Owner contacts did not load, so email previews show the built-in names and addresses. The Gmail draft reads the live ones.</>,
           },
+          // A card's Re-upload data: what the ingest wrote, in one line. The
+          // card itself, reopened, carries the rest.
+          !!reingestNotice && {
+            key: 'reingest',
+            tone: reingestNotice.wrong_property_pdf || reingestNotice.stripe_sync?.error ? 'negative' : 'positive',
+            autoDismiss: !reingestNotice.wrong_property_pdf && !reingestNotice.stripe_sync?.error,
+            onDismiss: () => setReingestNotice(null),
+            body: (
+              <>
+                {reingestNotice.property} processed for {monthLabel(reingestNotice.month)}: {reingestNotice.summary.reservations} reservation{reingestNotice.summary.reservations === 1 ? '' : 's'}, payout {fmt(reingestNotice.summary.owner_payout)}, {reingestNotice.summary.data_gaps} flag{reingestNotice.summary.data_gaps === 1 ? '' : 's'}.
+                {reingestNotice.wrong_property_pdf && <> The PDF covers {reingestNotice.wrong_property_pdf.listing}, so no reservations were taken from it.</>}
+                {reingestNotice.stripe_sync?.error && <> Stripe sync failed, so the fee estimates stand.</>}
+              </>
+            ),
+          },
           // Sync results
           !!syncResult && (
             typeof syncResult === 'string'
@@ -5313,6 +5356,7 @@ function DashboardContent() {
                 onCloseTaskField={(patch) => { void saveCloseTaskField(prop.property_id, patch); }}
                 onMarkSent={(next) => markStatementSent(prop, next)}
                 onPreview={() => setPreviewPropertyId(prop.property_id)}
+                onReingested={(r) => onCardReingested(prop.property_id, r)}
               />
             ))}
             <div style={{ borderTop: '1px solid var(--ink)' }} />

@@ -22,7 +22,8 @@ const read = (repoPath: string): string =>
 const code = (src: string): string => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
 
 const page = code(read('src/app/statements/page.tsx'));
-const upload = code(read('src/app/statements/upload/page.tsx'));
+// The upload form lives beside its page; the card opens the same component.
+const upload = code(read('src/app/statements/upload/StatementUploadForm.tsx'));
 const card = code(read('src/components/PlatformCSVUploadCard.tsx'));
 
 describe('the Guesty reservations CSV has one name and one door', () => {
