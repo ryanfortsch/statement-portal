@@ -25,6 +25,8 @@ import {
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { loadContractorApprovalContext } from '@/lib/contractor-approval-context';
 import { loadVendorVisitCards, type VendorVisitCardData } from '@/lib/vendor-visit-cards';
+import { loadCleaningReviewCards } from '@/lib/cleaning-reviews';
+import type { CleaningReviewCardData } from '@/lib/cleaning-reviews-core';
 import { parseTeamAudience, showsCleaners, showsContractors, type TeamAudience } from '@/lib/team-inbox';
 import { ScheduleDigestCard } from '@/app/cleaner-messaging/ScheduleDigestCard';
 import { OwnerHoldQuestionsCard } from '@/app/cleaner-messaging/OwnerHoldQuestionsCard';
@@ -117,6 +119,17 @@ async function loadVendorVisits(audience: TeamAudience): Promise<{ cards: Vendor
   }
 }
 
+// An inspector's rating of the clean, four stars or fewer, whose crew note
+// waits on Approve (docs/cleaning-reviews.md). Helm-native, with the cleaners.
+async function loadCleaningReviews(audience: TeamAudience): Promise<{ cards: CleaningReviewCardData[]; error: string | null }> {
+  if (!showsCleaners(audience)) return { cards: [], error: null };
+  try {
+    return { cards: await loadCleaningReviewCards(), error: null };
+  } catch (e) {
+    return { cards: [], error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 function VendorVisitsUnread({ error }: { error: string }) {
   return (
     <p className="max-w-[1100px] mx-auto px-10" role="alert" style={{ width: '100%', margin: '14px auto 0', fontSize: 12, color: 'var(--signal)' }}>
@@ -125,15 +138,24 @@ function VendorVisitsUnread({ error }: { error: string }) {
   );
 }
 
+function CleaningReviewsUnread({ error }: { error: string }) {
+  return (
+    <p className="max-w-[1100px] mx-auto px-10" role="alert" style={{ width: '100%', margin: '14px auto 0', fontSize: 12, color: 'var(--signal)' }}>
+      Cleaning review cards could not be read just now: {error}
+    </p>
+  );
+}
+
 // Urgent boundary: both feeds, merged on the client. One failing feed still
 // shows the other; both failing is the service being down.
 async function QueueSection({ audience }: { audience: TeamAudience }) {
-  const [cleaners, contractors, properties, ai, vendor] = await Promise.all([
+  const [cleaners, contractors, properties, ai, vendor, reviews] = await Promise.all([
     listCleanerApprovals(),
     listContractorApprovals(),
     loadProperties(),
     getAiStatus().catch(() => null),
     loadVendorVisits(audience),
+    loadCleaningReviews(audience),
   ]);
   const aiPaused = ai?.ok && !ai.data.ok ? { reason: ai.data.reason } : null;
   if (!cleaners.ok && !contractors.ok) {
@@ -141,8 +163,9 @@ async function QueueSection({ audience }: { audience: TeamAudience }) {
       <>
         <NotReachable message={explainError(cleaners.error)} retry />
         {vendor.error && <VendorVisitsUnread error={vendor.error} />}
-        {vendor.cards.length > 0 && (
-          <TeamInboxQueue initialCleaners={[]} initialContractors={[]} vendorVisits={vendor.cards} properties={properties} audience={audience} aiPaused={aiPaused} />
+        {reviews.error && <CleaningReviewsUnread error={reviews.error} />}
+        {(vendor.cards.length > 0 || reviews.cards.length > 0) && (
+          <TeamInboxQueue initialCleaners={[]} initialContractors={[]} vendorVisits={vendor.cards} cleaningReviews={reviews.cards} properties={properties} audience={audience} aiPaused={aiPaused} />
         )}
       </>
     );
@@ -155,6 +178,7 @@ async function QueueSection({ audience }: { audience: TeamAudience }) {
   return (
     <>
       {vendor.error && <VendorVisitsUnread error={vendor.error} />}
+      {reviews.error && <CleaningReviewsUnread error={reviews.error} />}
       <TeamInboxQueue
         initialCleaners={cleaners.ok ? cleaners.data.approvals : []}
         initialContractors={contractorRows}
@@ -163,6 +187,7 @@ async function QueueSection({ audience }: { audience: TeamAudience }) {
         audience={audience}
         aiPaused={aiPaused}
         vendorVisits={vendor.cards}
+        cleaningReviews={reviews.cards}
       />
     </>
   );

@@ -35,7 +35,7 @@ test('late pre-action count cannot overwrite a post-action count', async () => {
   } finally { globalThis.fetch = original; }
 });
 
-function route({ guestFailed = false, digestFailed = false, configured = true, ownerHolds = 0, role = 'owner', ownerPending = false, vendorVisits = 0, lensCards = [] } = {}) {
+function route({ guestFailed = false, digestFailed = false, configured = true, ownerHolds = 0, role = 'owner', ownerPending = false, vendorVisits = 0, cleaningReviews = 0, lensCards = [] } = {}) {
   const queries = [];
   const reads = { owner: 0 };
   const db = { from(table) { queries.push(['from',table]); return this; }, select(...a) { queries.push(['select',...a]); return this; }, eq(...a) { queries.push(['eq',...a]); return this; }, gte(...a) { queries.push(['gte',...a]); return this; }, order(...a) { queries.push(['order',...a]); return this; }, limit(...a) { queries.push(['limit',...a]); return this; }, then(done) { return Promise.resolve(digestFailed ? { error: {} } : { data: [{ id: 'visible' }] }).then(done); } };
@@ -54,6 +54,9 @@ function route({ guestFailed = false, digestFailed = false, configured = true, o
     // A trade vendor's confirmed day waiting on a hold rides on the
     // Contractors count (docs/vendor-visit-holds.md); null is unreadable.
     '@/lib/vendor-visit-cards': { countPendingVendorVisits: async () => vendorVisits },
+    // An inspector's rating of the clean, four stars or fewer, rides on the
+    // Cleaners count (docs/cleaning-reviews.md); null is unreadable.
+    '@/lib/cleaning-reviews': { countPendingCleaningReviews: async () => cleaningReviews },
     // The signed-in role: a staff login has no Owners tab, so the owner feed
     // is never read for it and counts as nothing.
     '@/lib/helm-access-server': { sessionRole: async () => role },

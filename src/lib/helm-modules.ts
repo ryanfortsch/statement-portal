@@ -208,6 +208,21 @@ export const HELM_MODULES: HelmModule[] = [
     group: 'operations',
     section: 'operations',
   },
+  // The signed-in person's own page: their guest rating, open work and the
+  // cleans they rated. Reached from the avatar menu; registered so Cmd+K
+  // finds it. An owner reads a teammate's with ?as=.
+  {
+    id: 'me',
+    href: '/me',
+    number: '02b',
+    title: 'My page',
+    description: 'Your numbers: the guests\' rating of the stays you walked, the fleet\'s last 30 days, your open work, and the cleans you rated.',
+    status: 'active',
+    primary: false,
+    hidden: true,
+    group: 'operations',
+    section: 'operations',
+  },
   // A Turnovers tab (TurnoverTabs), so no menu entry of its own. Registered
   // for search; the daily digest approval lives on the Team inbox.
   {

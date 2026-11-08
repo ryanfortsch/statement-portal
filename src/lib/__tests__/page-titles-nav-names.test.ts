@@ -79,6 +79,8 @@ const PAGES: Array<[string, string]> = [
   ['src/app/playbook/page.tsx', 'title="Playbook"'],
   ['src/app/crm/page.tsx', 'title="Contacts"'],
   ['src/app/inspections/[id]/page.tsx', 'title={property.name}'],
+  // A page about one person opens on their name, like a detail page.
+  ['src/app/me/page.tsx', 'title={person.short}'],
 ];
 
 for (const [page, title] of PAGES) {
