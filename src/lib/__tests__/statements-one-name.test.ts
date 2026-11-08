@@ -54,8 +54,8 @@ describe('a data gap is a flag', () => {
 describe('verbs say what they do', () => {
   test('Check sent emails says it can add flags', () => {
     assert.ok(!page.includes('Reconcile Sends'), '"Reconcile Sends" is back');
-    assert.match(page, /label=\{reconciling \? 'Checking…' : 'Check sent emails'\}/);
-    assert.match(page, /meta="flags a mismatch"/);
+    assert.match(page, /\{reconciling \? 'Checking…' : 'Check sent emails'\}/);
+    assert.match(page, /<ButtonMeta>&middot; flags a mismatch<\/ButtonMeta>/);
     assert.match(page, /A mismatch adds a flag to that property&apos;s card\./);
   });
 
