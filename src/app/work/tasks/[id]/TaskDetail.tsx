@@ -9,12 +9,11 @@ import {
   OFFICE_TODO_LABEL,
   TASK_CLOSED_STATUSES,
   TASK_DISMISSED_STATUS,
-  TASK_PICKER_STATUSES,
   TASK_STATUS_LABELS,
   WORK_PRIORITIES,
   WORK_PRIORITY_LABELS,
 } from '@/lib/work-types';
-import { updateTask, deleteTask, addTaskComment, deleteTaskComment } from '../../actions';
+import { updateTask, addTaskComment, deleteTaskComment } from '../../actions';
 import { BackToBoardLink } from '../../[id]/BackToBoardLink';
 import { chipHintStyle, chipStyle } from '../../[id]/slip-controls';
 import { TeamPicker } from '@/components/TeamPicker';
@@ -51,24 +50,19 @@ const FIELD_LABELS: Record<FieldKey, string> = {
 /** A pause in typing this long writes the description. */
 const DESCRIPTION_AUTOSAVE_MS = 1200;
 
-const STATUS_HINTS: Partial<Record<TaskStatus, string>> = {
-  open: 'Not started.',
-  in_progress: 'Someone is on it.',
-  blocked: 'Waiting on something outside the office. Say what in a comment.',
-};
-
 /**
  * One office to-do: desk work that belongs to no house (work at a house is
  * a work slip). The page works the way a slip's page does: every field
  * saves on its own (a chip on tap, the assignee and due date on pick, the
  * title on Save, the description as you type), closing is Mark done or
- * Dismiss in Wrap up, comments carry short names, and the back link
- * restores the board on the Office to-dos tab. There is no form-wide Save.
+ * Dismiss in Wrap up (there is no Delete: Dismiss is the answer), comments
+ * carry short names, and the back link restores the board on the Office
+ * to-dos tab. There is no form-wide Save.
  */
 export function TaskDetail({ task, comments, properties, myEmail }: Props) {
   const softRefresh = useSoftRefresh();
   const { ask } = useConfirm();
-  const [isPending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
 
   // The confirmed to-do: what the server last accepted, field by field.
   const [saved, setSaved] = useState<TaskRow>(task);
@@ -87,12 +81,6 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
   const [autosaveHeld, setAutosaveHeld] = useState(false);
   const descriptionDirty = description.trim() !== (saved.description ?? '').trim();
 
-  // Delete asks once, in words, on the page.
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
-  const deletingTask = useRef(false);
-
   // Comments
   const [commentList, setCommentList] = useState<TaskCommentRow[]>(comments);
   const [commentBody, setCommentBody] = useState('');
@@ -106,14 +94,14 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
   const titleDirty = editingTitle && titleDraft.trim() !== saved.title;
   useUnsavedWorkGuard(
     titleDirty || descriptionDirty || saving !== null || fieldError !== null ||
-    commentBody !== '' || commentSubmitting || commentDeletePending.length > 0 || deleting,
+    commentBody !== '' || commentSubmitting || commentDeletePending.length > 0,
   );
 
   const isClosed = TASK_CLOSED_STATUSES.includes(saved.status);
-  const busy = saving !== null || deleting;
+  const busy = saving !== null;
 
   async function saveField(key: FieldKey, value: FieldValue): Promise<boolean> {
-    if (lock.current || deletingTask.current) return false;
+    if (lock.current) return false;
     lock.current = true;
     setSaving(key);
     setFieldError(null);
@@ -180,15 +168,15 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
     saveDescriptionRef.current = saveDescription;
   });
   useEffect(() => {
-    if (!descriptionDirty || saving !== null || autosaveHeld || deleting) return;
+    if (!descriptionDirty || saving !== null || autosaveHeld) return;
     const timer = setTimeout(() => {
       void saveDescriptionRef.current();
     }, DESCRIPTION_AUTOSAVE_MS);
     return () => clearTimeout(timer);
-  }, [description, descriptionDirty, saving, autosaveHeld, deleting]);
+  }, [description, descriptionDirty, saving, autosaveHeld]);
 
   async function postComment() {
-    if (posting.current || deletingTask.current || !commentBody.trim()) return;
+    if (posting.current || !commentBody.trim()) return;
     posting.current = true;
     const body = commentBody.trim();
     setCommentError(null);
@@ -211,9 +199,9 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
   }
 
   async function removeComment(c: TaskCommentRow) {
-    if (deletingTask.current || deletingComments.current.has(c.id) || c.author_email !== myEmail) return;
+    if (deletingComments.current.has(c.id) || c.author_email !== myEmail) return;
     if (!(await ask({ title: 'Delete this comment?', confirmLabel: 'Delete comment', tone: 'danger', irreversible: true }))) return;
-    if (deletingTask.current || deletingComments.current.has(c.id)) return;
+    if (deletingComments.current.has(c.id)) return;
     deletingComments.current.add(c.id);
     setCommentDeletePending([...deletingComments.current]);
     setCommentDeleteErrors((prev) => ({ ...prev, [c.id]: '' }));
@@ -227,24 +215,6 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
       } finally {
         deletingComments.current.delete(c.id);
         setCommentDeletePending([...deletingComments.current]);
-      }
-    });
-  }
-
-  function handleDelete() {
-    if (deletingTask.current || lock.current || posting.current || deletingComments.current.size) return;
-    deletingTask.current = true;
-    // Dedicated flag: the shared transition also covers comment removal,
-    // and the Delete button shouldn't read "Deleting…" during those.
-    setDeleting(true);
-    setDeleteError(null);
-    startTransition(async () => {
-      try {
-        await deleteTask({ id: task.id });
-      } catch (e) {
-        setDeleteError(e instanceof Error ? e.message : 'Failed to delete');
-        setDeleting(false);
-        deletingTask.current = false;
       }
     });
   }
@@ -372,7 +342,7 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
           value={description}
           aria-label="Description"
           // An autosave must not lock the box mid-sentence; other saves do.
-          disabled={deleting || (saving !== null && saving !== 'description')}
+          disabled={saving !== null && saving !== 'description'}
           onChange={(e) => {
             setDescription(e.target.value);
             setDescriptionSaved(false);
@@ -417,22 +387,20 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
         {errorFor('priority')}
         {!isClosed && (
           <>
+            {/* One chip, pressed while someone is on it. Open is the chip
+                unpressed; closing is Wrap up's job. */}
             <div className="eyebrow" style={{ marginTop: 20, marginBottom: 8 }}>Status</div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {TASK_PICKER_STATUSES.map((st) => (
-                <button
-                  key={st}
-                  type="button"
-                  aria-pressed={saved.status === st}
-                  disabled={busy}
-                  onClick={() => { if (saved.status !== st) void saveField('status', st); }}
-                  style={chipStyle(saved.status === st, busy)}
-                >
-                  {TASK_STATUS_LABELS[st]}
-                </button>
-              ))}
+              <button
+                type="button"
+                aria-pressed={saved.status === 'in_progress'}
+                disabled={busy}
+                onClick={() => void saveField('status', saved.status === 'in_progress' ? 'open' : 'in_progress')}
+                style={chipStyle(saved.status === 'in_progress', busy)}
+              >
+                {TASK_STATUS_LABELS.in_progress}
+              </button>
             </div>
-            {STATUS_HINTS[saved.status] && <p style={chipHintStyle}>{STATUS_HINTS[saved.status]}</p>}
           </>
         )}
         {errorFor('status', 'chips')}
@@ -449,21 +417,15 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
               <Button onClick={() => void saveField('status', 'open')} disabled={busy && saving !== 'status'} pending={saving === 'status'} pendingLabel="Saving">
                 Reopen
               </Button>
-              <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>
-                {saved.status === TASK_DISMISSED_STATUS
-                  ? 'Dismissed: closed without doing it. Reopen puts it back on the list.'
-                  : 'Reopen puts it back on the list.'}
-              </span>
             </>
           ) : (
             <>
               <Button variant="primary" onClick={() => void saveField('status', 'done')} disabled={busy && saving !== 'status'} pending={saving === 'status'} pendingLabel="Saving">
-                Mark Done
+                Mark done
               </Button>
               <Button onClick={() => void saveField('status', TASK_DISMISSED_STATUS)} disabled={busy}>
                 Dismiss
               </Button>
-              <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>Dismiss closes it without doing it: a duplicate, or no longer needed.</span>
             </>
           )}
         </div>
@@ -485,7 +447,6 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
                   {c.author_email === myEmail && <Button
                     size="sm"
                     onClick={() => removeComment(c)}
-                    disabled={deleting}
                     pending={commentDeletePending.includes(c.id)}
                     pendingLabel="Deleting"
                     aria-label="Delete comment"
@@ -505,7 +466,7 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
             <div className="eyebrow" style={{ marginBottom: 6 }}>Add a comment</div>
             <textarea
               value={commentBody}
-              disabled={commentSubmitting || deleting}
+              disabled={commentSubmitting}
               onChange={(e) => setCommentBody(e.target.value)}
               rows={3}
               placeholder="What's the latest?"
@@ -513,11 +474,11 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
             />
           </label>
           <div className="flex justify-end" style={{ marginTop: 8, gap: 8 }}>
-            {commentBody && <Button variant="quiet" disabled={commentSubmitting || deleting} onClick={() => { setCommentBody(''); setCommentError(null); }}>Discard comment draft</Button>}
+            {commentBody && <Button variant="quiet" disabled={commentSubmitting} onClick={() => { setCommentBody(''); setCommentError(null); }}>Discard comment draft</Button>}
             <Button
               variant="primary"
               onClick={postComment}
-              disabled={deleting || !commentBody.trim()}
+              disabled={!commentBody.trim()}
               pending={commentSubmitting}
               pendingLabel="Posting"
             >
@@ -528,40 +489,6 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
         </div>
       </Section>
 
-      {/* DELETE: asks once, in words, and says it is for good. */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 48, width: '100%' }}>
-        <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 18 }}>
-          {confirmingDelete ? (
-            <div role="group" aria-label="Confirm delete" className="flex items-center gap-3 flex-wrap">
-              <span style={{ fontSize: 13, color: 'var(--ink)' }}>
-                Delete this to-do{commentList.length > 0 ? ` and its ${commentList.length} comment${commentList.length === 1 ? '' : 's'}` : ''}? This cannot be undone.
-              </span>
-              <Button
-                variant="danger"
-                data-armed=""
-                onClick={handleDelete}
-                disabled={isPending || saving !== null || commentSubmitting || commentDeletePending.length > 0}
-                pending={deleting}
-                pendingLabel="Deleting"
-              >
-                Delete for good
-              </Button>
-              <Button onClick={() => setConfirmingDelete(false)} disabled={deleting}>
-                Keep it
-              </Button>
-            </div>
-          ) : (
-            <Button
-              variant="danger"
-              onClick={() => setConfirmingDelete(true)}
-              disabled={busy || isPending || commentSubmitting || commentDeletePending.length > 0}
-            >
-              Delete to-do
-            </Button>
-          )}
-          {deleteError && <div role="alert" style={{ marginTop: 10, fontSize: 12, color: 'var(--negative)' }}>{deleteError}</div>}
-        </div>
-      </section>
     </>
   );
 }
