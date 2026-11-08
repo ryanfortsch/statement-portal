@@ -49,7 +49,7 @@ export function AppointmentForm({ initial, available }: { initial?: AgendaEntry;
   const field = (label: string, key: keyof AppointmentInput, type = 'text', required = false) => <label style={{ display: 'block', fontSize: 13 }}>{label}<input name={key} type={type} required={required} value={(details[key] as string) ?? ''} onChange={e => change(key, e.target.value)} style={inputStyle} /></label>;
   const select = (label: string, key: 'timeKind' | 'status' | 'attendance', options: Record<string, string>) => <label style={{ display: 'block', fontSize: 13 }}>{label}<select value={details[key]} onChange={e => change(key, e.target.value)} style={inputStyle}>{Object.entries(options).map(([v, text]) => <option key={v} value={v}>{text}</option>)}</select></label>;
   const twoUp = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))', gap: 14 };
-  return <form onSubmit={save} onInvalidCapture={() => setMoreOpen(true)} style={{ maxWidth: 720 }}>
+  return <form onSubmit={save} onInvalidCapture={e => { if ((e.target as HTMLElement).closest('details')) setMoreOpen(true); }} style={{ maxWidth: 720 }}>
     <p style={{ fontSize: 13, lineHeight: 1.6, color: 'var(--ink-3)' }}>Business appointments only, saved to your own agenda. Nobody is invited. Family and medical plans stay in your personal calendar.</p>
     {initial?.id.startsWith('meeting:') && <p style={{ color: 'var(--signal)', fontSize: 13 }}>This review updates your agenda only. The original CRM record and any reminder texts still need correction on <Link href={initial.href}>the contact page</Link>.</p>}
     {!!initial?.sourceUpdates?.length && <div style={{ padding: 14, background: 'var(--paper-2)', marginBottom: 18 }}>

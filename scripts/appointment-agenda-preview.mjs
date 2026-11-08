@@ -9,7 +9,7 @@ const root = process.cwd(), scratch = await mkdtemp(join(tmpdir(), 'helm-agenda-
 await writeFile(join(scratch,'loader.cjs'), `const ts=require(${JSON.stringify(require.resolve('typescript'))});module.exports=function(src){return ts.transpileModule(src,{fileName:this.resourcePath,compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext,jsx:ts.JsxEmit.ReactJSX}}).outputText;};`);
 await writeFile(join(scratch,'link.js'), `import React from 'react';export default function Link({children,href,...props}){return React.createElement('a',{...props,href},children);}`);
 await writeFile(join(scratch,'router.js'), `export const useRouter=()=>({push:path=>{window.navigation=path;document.getElementById('save-result').textContent='Saved successfully';},refresh:()=>{}});`);
-await writeFile(join(scratch,'actions.js'), `export const saveAppointment=async(args)=>{window.saveCalls=(window.saveCalls||[]).concat([args]);if(window.saveCalls.length===1)return {ok:false,error:'Synthetic save failed. Your entries are still here.'};return {ok:true,id:args.id};};`);
+await writeFile(join(scratch,'actions.js'), `export const saveAppointment=async(args)=>{window.saveCalls=(window.saveCalls||[]).concat([args]);if(window.saveCalls.length===1)return {ok:false,error:'Synthetic save failed. Your entries are still here.'};return {ok:true,id:args.id};};export const answerMeetingAttendance=async(args)=>{window.answerCalls=(window.answerCalls||[]).concat([args]);return {ok:true};};`);
 await writeFile(join(scratch,'entry.tsx'), `
 import React from 'react';import {createRoot} from 'react-dom/client';
 import {AppointmentAgenda} from '@/components/agenda/AppointmentAgenda';
