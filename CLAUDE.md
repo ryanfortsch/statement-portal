@@ -1210,3 +1210,10 @@ are defined in `AGENTS.md`.
     env var (`empty-state.test.ts`); when something is not set up, say "Ask Ryan: ...".
   A smoke fixture that compiles a component using them must register them; the alias list is in
   `scripts/confirm-dialog-smoke.mjs`, the controls fixture.
+- **A new page starts from the shell** (round two of the audit, 2026-11-07): `HelmMasthead` and
+  `HelmFooter` through the section's `layout.tsx`, `HelmHero plain` with the nav name as its
+  title, `SectionTabs` for its strip, `Button`, `EmptyState` and one of the existing date
+  helpers, with no eyebrow, chip or button style of its own, and an entry in `helm-modules.ts`
+  (hidden from nav when it must be) so Cmd+K can reach it. `atlas-coverage.test.ts` and
+  `section-masthead.test.ts` hold the last two. The never-sweep rule above stays as written:
+  an existing page adopts these when it is touched for another reason.
