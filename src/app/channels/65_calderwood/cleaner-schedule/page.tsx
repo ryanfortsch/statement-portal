@@ -25,7 +25,7 @@ export default async function CleanerSchedulePreview() {
   return <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
       <GuestyWritesNotice scope={writeScope} />
-    <HelmHero plain eyebrow="65 Calderwood · Cleaner handover" title="Cleaner schedule preview"
+    <HelmHero plain eyebrow="" title="Cleaner schedule preview"
       line="Review arrivals and departures together before replacing Luana’s Guesty report." />
     <main className="w-full max-w-[960px] mx-auto px-5 sm:px-10 pb-14">
       <Link href="/channels/65_calderwood/message-preparation" className="text-sm underline underline-offset-4">← Message handover</Link>

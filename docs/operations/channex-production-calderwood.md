@@ -740,3 +740,11 @@ Validation: 3,976 local tests pass, seven optional checks skipped, TypeScript
 passes, and all 29 synthetic queue-action browser checks pass. The latter had
 two stale expectations for the previous "slips" label; only those expectations
 were updated to the current "work items" wording, preserving all action guards.
+
+Live verification found all four expected stays. Their canonical guest counts
+are null, so the preview correctly displays "Not recorded" rather than inferring
+counts. The property's 15:00 check-in setting is the deliberate cleaner ready-by
+deadline (see the listing-sync fill-empty contract); Guesty's guest-facing
+arrival remains 16:00. The report labels this value "Ready by" explicitly. No
+stored times or automation timings were changed. The production route redirects
+anonymous requests to sign-in, and the owner check precedes the private reads.

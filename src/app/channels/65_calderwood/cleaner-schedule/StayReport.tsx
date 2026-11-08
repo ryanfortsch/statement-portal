@@ -18,11 +18,11 @@ export function StayReport({ report }: { report: CleanerStayReport }) {
         <p>Current stays and arrivals through {dateLabel(report.through)}.</p></div>
       <div className={styles.count}><strong>{report.stays.length}</strong><span>{report.stays.length === 1 ? 'stay' : 'stays'}</span></div>
     </header>
-    <p className={styles.explanation}>Arrival times are the home’s usual cleaning deadline. Departure times include confirmed checkout adjustments. Review any agreed exceptions before sharing.</p>
+    <p className={styles.explanation}>Ready by is the home’s cleaning deadline. Guest check-in times are reviewed in Message handover. Departure times include confirmed checkout adjustments. Review any agreed exceptions before sharing.</p>
     {report.stays.length === 0 ? <p className={styles.empty}>No confirmed guest stays in this window.</p> :
       <ol className={styles.list}>{report.stays.map(stay => <li key={stay.checkIn} className={styles.stay}>
         <div className={styles.dates}>
-          <div><span className={styles.label}>Arrival</span><time dateTime={stay.checkIn}>{dateLabel(stay.checkIn)}</time><span>{clock(stay.arrivalTime)} <small>usual</small></span></div>
+          <div><span className={styles.label}>Arrival day</span><time dateTime={stay.checkIn}>{dateLabel(stay.checkIn)}</time><span>{stay.arrivalTime ? `Ready by ${clock(stay.arrivalTime)}` : 'Ready-by time not set'}</span></div>
           <span className={styles.arrow} aria-hidden="true">→</span>
           <div><span className={styles.label}>Departure</span><time dateTime={stay.checkOut}>{dateLabel(stay.checkOut)}</time><span>{clock(stay.checkoutTime)}</span></div>
           <div className={styles.guests}><span className={styles.label}>Guests</span><strong>{stay.guests ?? '—'}</strong>{stay.guests === null && <small>Not recorded</small>}</div>
