@@ -451,6 +451,21 @@ export const CC_SUPPLY_ANNUAL_PER_PROP = 2950;
 const CC_SUPPLY_RAW = SEASON.CA.map((_, i) => 0.6 * SEASON.CA[(i + 1) % 12] + 0.4 / 12);
 export const CC_SUPPLY_SEASON: number[] = normalize(CC_SUPPLY_RAW);
 
+/**
+ * Supplies budget reduced 25% for November 2026 through April 2027.
+ * Applies to projected guest supplies after the repairs split; measured
+ * spend, repairs and new-home outfitting keep their existing amounts.
+ * This is the requested winter window, not a recurring annual reduction.
+ */
+export const CC_SUPPLY_WINTER_FACTOR = 0.75;
+
+export function supplyBudgetFactor(year: number, month: number): number {
+  return (year === 2026 && month >= 11 && month <= 12) ||
+    (year === 2027 && month >= 1 && month <= 4)
+    ? CC_SUPPLY_WINTER_FACTOR
+    : 1;
+}
+
 /** GEICO auto. $518.35 to $518.81 every month of 2026, unchanged since Mar 2025. */
 export const CC_VEHICLE_INSURANCE_MONTHLY = 519;
 /** AT&T. Five charges April onward, nothing before. */
@@ -553,7 +568,7 @@ export function ccOperatingDetail(
   const variable =
     CC_SUPPLY_ANNUAL_PER_PROP * (CC_SUPPLY_SEASON[month - 1] ?? 0) * activePropCount;
   return {
-    supplies: variable * (1 - CC_REPAIRS_SHARE),
+    supplies: variable * (1 - CC_REPAIRS_SHARE) * supplyBudgetFactor(year, month),
     repairs: variable * CC_REPAIRS_SHARE,
     vehicle_insurance: CC_VEHICLE_INSURANCE_MONTHLY,
     travel_other: CC_TRAVEL_MONTHLY + CC_ADMIN_MONTHLY,
@@ -596,7 +611,7 @@ export const CC_OPERATING_BREAKDOWN: ReadonlyArray<{
     key: 'supplies',
     label: 'Guest supplies & inventory',
     monthly: 4000,
-    info: 'What a settled home consumes and replaces: Amazon consumables (cleaning and dishwasher products, paper, bath refills, coffee pods, trash bags), replacement towels and small durables, Target and HomeGoods. Projected at $2,950 per live home per year on the turnover curve pulled a month early, because a house is stocked before its guests arrive: $1,805 of consumables measured item by item on the Amazon Business export of 2026-10-15, about $1,000 of replacements, and the non-Amazon stores. The summer 2026 peak ($16,925 in June) was eleven outfittings, which the Onboarding line carries; September, the first clean month after the wave, read $2,892 for sixteen homes. Measured months show the real card figure.',
+    info: 'What a settled home consumes and replaces: Amazon consumables (cleaning and dishwasher products, paper, bath refills, coffee pods, trash bags), replacement towels and small durables, Target and HomeGoods. Projected at $2,950 per live home per year on the turnover curve pulled a month early, because a house is stocked before its guests arrive: $1,805 of consumables measured item by item on the Amazon Business export of 2026-10-15, about $1,000 of replacements, and the non-Amazon stores. The summer 2026 peak ($16,925 in June) was eleven outfittings, which the Onboarding line carries; September, the first clean month after the wave, read $2,892 for sixteen homes. The projected supplies allocation is reduced 25% from November 2026 through April 2027; repairs and onboarding keep their existing amounts. Measured months show the real card figure.',
   },
   {
     key: 'repairs',
