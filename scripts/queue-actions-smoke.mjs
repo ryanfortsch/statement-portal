@@ -125,8 +125,8 @@ await reset('focus','&open=synthetic-home&filter=high');assert.deepEqual(await v
 assert.equal((await calls()).length,0);
 pass('next actions keeps urgent undated work and due follow-ups visible; Scheduled, Waiting, Backlog, All and older filter links remain usable');
 
-await reset('queue','&open=synthetic-home');await selectMixed();await waitText('Pick slips or office to-dos, not both.');
-assert.match(await body(),/1 slip and 1 to-do selected/);
+await reset('queue','&open=synthetic-home');await selectMixed();await waitText('Pick work items or office to-dos, not both.');
+assert.match(await body(),/1 work item and 1 to-do selected/);
 for(const label of ['Mark done','Assign to me','Unassign','High','Normal','Low'])assert.equal(await bulkOff(label),true,label+' is live on a mixed selection');
 assert.equal(await bulkOff('Clear'),false);await page.$$eval(bulk+' button',bs=>bs.find(b=>b.textContent.trim()==='Normal').click());assert.equal((await calls()).length,0);
 await click('#queue','Select to-do Task a');await page.waitForFunction(()=>!document.body.textContent.includes('not both'));assert.match(await body(),/1 selected/);assert.equal(await bulkOff('Normal'),false);

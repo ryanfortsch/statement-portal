@@ -1,0 +1,31 @@
+.report { margin-top: 28px; border: 1px solid var(--rule); border-radius: 16px; background: var(--paper); overflow: hidden; }
+.header { display:flex; align-items:center; justify-content:space-between; gap:24px; padding:26px 28px; background:var(--paper-2); }
+.header h2 { font-family:var(--font-fraunces),Georgia,serif; font-size:28px; font-weight:500; margin:4px 0; }
+.header p { color:var(--ink-3); font-size:13px; margin:4px 0; }
+.header .eyebrow,.label { font-size:11px; text-transform:uppercase; letter-spacing:.1em; color:var(--ink-3); }
+.count { display:flex; flex-direction:column; align-items:center; min-width:48px; color:var(--ink-3); font-size:12px; }
+.count strong { color:var(--ink); font-size:32px; line-height:1.2; font-variant-numeric:tabular-nums; }
+.explanation { font-size:13px; line-height:1.6; color:var(--ink-3); margin:0; padding:18px 28px; border-bottom:1px solid var(--rule); }
+.list { list-style:none; margin:0; padding:0 28px; }
+.stay { padding:22px 0; border-bottom:1px solid var(--rule); }
+.stay:last-child { border-bottom:0; }
+.dates { display:grid; grid-template-columns:1fr 24px 1fr 90px; align-items:center; gap:18px; }
+.dates>div { display:flex; flex-direction:column; gap:5px; }
+.dates time { font-size:18px; font-weight:600; font-variant-numeric:tabular-nums; }
+.dates span:not(.label) { font-size:14px; color:var(--ink-3); }
+.dates small { font-size:11px; color:var(--ink-4); }
+.arrow { text-align:center; }
+.guests { align-items:flex-end; }
+.guests strong { font-size:20px; }
+.badges { display:flex; flex-wrap:wrap; gap:6px; margin-top:14px; }
+.badges span { font-size:11px; padding:4px 8px; border-radius:5px; background:var(--paper-2); color:var(--ink-3); }
+.badges .review { border:1px solid var(--signal); color:var(--signal); }
+.footer { padding:16px 28px; border-top:1px solid var(--rule); font-size:12px; line-height:1.6; color:var(--ink-3); }
+.empty { padding:36px 28px; color:var(--ink-3); }
+@media(max-width:560px) {
+ .header { padding:20px; gap:12px; }.header h2 { font-size:24px; }
+ .explanation,.footer { padding:16px 20px; }.list { padding:0 20px; }
+ .dates { grid-template-columns:1fr 14px 1fr; gap:10px; }.dates time { font-size:15px; }
+ .dates .guests { grid-column:1 / -1; flex-direction:row; align-items:baseline; gap:8px; margin-top:6px; }
+ .guests strong { font-size:15px; }
+}

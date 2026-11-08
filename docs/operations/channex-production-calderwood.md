@@ -706,3 +706,37 @@ existing cleaner portal is checkout-oriented, so its arrival/checkout coverage
 must be reviewed before replacing the Guesty future-reservations report. No
 recipient, portal token, scope, queue, schedule or send was created. The Guesty
 cleaner queue follow-up remains unanswered at this observation.
+
+## Cleaner future-stay preview (2026-11-07 Eastern)
+
+`/channels/65_calderwood/cleaner-schedule` is an owner-only, read-only preview
+linked from Message handover. It pairs current and future guest stays' arrival
+and departure dates, guest counts (unknown stays unknown), usual home times and
+active checkout adjustments. A stay arriving at the one-year horizon remains
+visible even if its departure is later. Extensions whose base departure has
+already passed are refetched by exact property/stay keys; cancelled and duplicate
+rows cannot be reintroduced by an adjustment. Proposed changes, drift and
+conflicting source copies are flagged rather than silently applied. Cleaning
+skips remain visible without erasing the stay. Owner holds and actual cleaning
+assignments remain on the existing cleaning schedule.
+
+The reader uses bounded, ordered, property-scoped pagination, validates every
+input and reuses the checkout schedule's duplicate and two-witness ghost-stay
+guards. Null/failed reads show unavailable, never an empty successful calendar.
+Only the minimal report projection renders: no guest identity, confirmation
+code, contact, note, money, credential or portal token. No new public route,
+recipient, access grant, schedule job or message is created, and this preview
+does not set the cleaner handover readiness flags or replace the Guesty URL.
+
+Guesty's signed-in phone book shows Luana Martins at Lu's Cleaning Crew, and
+the Calderwood cleaner workflow remains enabled. A read of Guesty's documented
+contacts endpoint returned one matching cleaning contact whose phone agrees with
+the signed-in phone book. The source stays private and no recipient was installed.
+The contact destination still
+needs to be matched to both workflow messages before configuring Helm delivery.
+The approved cleaner-queue support follow-up has no newer answer at this check.
+
+Validation: 3,976 local tests pass, seven optional checks skipped, TypeScript
+passes, and all 29 synthetic queue-action browser checks pass. The latter had
+two stale expectations for the previous "slips" label; only those expectations
+were updated to the current "work items" wording, preserving all action guards.
