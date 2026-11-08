@@ -34,10 +34,14 @@ export async function GET() {
           selectAllPaged((from, to) => supabaseAdmin.from('bookings')
             .select('id,property_id,check_in,check_out,status,guest_name').eq('property_id', '65_calderwood')
             .in('status', ['confirmed', 'completed']).order('id').range(from, to), { pageSize: 500, maxRows: 5000 }),
-          selectAllPaged((from, to) => supabaseAdmin.from('cleaner_schedule_recipients')
-            .select('enabled,property_ids,region')
-            .or('property_ids.cs.{65_calderwood},region.eq.bridgeport_ct')
-            .order('phone').range(from, to), { pageSize: 100, maxRows: 200 }),
+          selectAllPaged(async (from, to) => {
+            const result = await supabaseAdmin.from('cleaner_schedule_recipients')
+              .select('enabled,property_ids,region')
+              .or('property_ids.cs.{65_calderwood},region.eq.bridgeport_ct')
+              .order('phone').range(from, to);
+            if (!Array.isArray(result.data)) throw new MessagePreparationError('PREPARATION_READ_FAILED');
+            return result;
+          }, { pageSize: 100, maxRows: 200 }),
         ]);
         if (snapshot.error || property.error || rules.error || !rules.data || locks.error || !locks.data)
           throw new MessagePreparationError('PREPARATION_READ_FAILED');
