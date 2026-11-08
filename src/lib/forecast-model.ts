@@ -342,9 +342,11 @@ export const SOFTWARE_MONTHLY = 2700;
 /** Confirmed Nov 7 cuts, budgeted from the next renewal month (December).
  * Vercel: Dotti switched to free Viewer, $20/mo paid seat removed.
  * Zoom: cancellation confirmed, paid access ends Dec 2, $14.44/mo renewal avoided.
+ * Dropbox: one $12.74/mo account cancelled Nov 8; budget from December
+ * because the final renewal date is not verified.
  * No assumed November refunds or tax credits. Actual card spending still wins.
  */
-export const SOFTWARE_CONFIRMED_MONTHLY_SAVINGS = 20 + 14.44;
+export const SOFTWARE_CONFIRMED_MONTHLY_SAVINGS = 20 + 14.44 + 12.74;
 /** Adobe cancelled Nov 7; operator confirms $75/mo and next bill Nov 29.
  * Avoid that November renewal; no refund or cancellation fee assumed.
  */
@@ -503,6 +505,15 @@ export function supplyBudgetFactor(year: number, month: number): number {
 export const CC_VEHICLE_INSURANCE_MONTHLY = 519;
 /** AT&T. Five charges April onward, nothing before. */
 export const CC_TELECOM_MONTHLY = 114;
+/** AT&T Extra active Nov 8, 2026. Quoted bills include taxes, fees and
+ * existing services: $69.54 next bill with partial-month credits, $82.96
+ * ongoing with eligible bank AutoPay. These are estimates; actuals win.
+ */
+export function telecomCost(year: number, month: number): number {
+  if (year > 2026 || (year === 2026 && month >= 12)) return 82.96;
+  if (year === 2026 && month === 11) return 69.54;
+  return CC_TELECOM_MONTHLY;
+}
 /**
  * Flights, car rental, fuel, meals. Averaged over the whole card record rather
  * than 2026 alone: November 2025 was $3,600 by itself and a 2026-only mean
@@ -606,7 +617,7 @@ export function ccOperatingDetail(
     vehicle_insurance: CC_VEHICLE_INSURANCE_MONTHLY,
     travel_other: CC_TRAVEL_MONTHLY + CC_ADMIN_MONTHLY,
     marketing: marketingCost(year, month) + listingCost(month) + creativeCost(year, month, activePropCount),
-    telecom: CC_TELECOM_MONTHLY,
+    telecom: telecomCost(year, month),
   };
 }
 
@@ -674,7 +685,7 @@ export const CC_OPERATING_BREAKDOWN: ReadonlyArray<{
     key: 'telecom',
     label: 'Telecom',
     monthly: 114,
-    info: 'AT&T. Five charges from April onward, nothing before it.',
+    info: 'AT&T: $114/mo historical allowance through October 2026. Extra activated November 8 with bank AutoPay: estimated November bill $69.54 after partial-month credits, then $82.96/mo including taxes, fees and existing services. Discounts can take two bill cycles; measured charges override estimates.',
   },
 ];
 

@@ -54,7 +54,7 @@ import {
   CC_OPERATING_BREAKDOWN,
   CC_SUPPLY_SEASON,
   CC_VEHICLE_INSURANCE_MONTHLY,
-  CC_TELECOM_MONTHLY,
+  telecomCost,
   CC_MARKETING_POST_CUT_MONTHLY,
   CC_LISTING_ANNUAL,
   CC_LISTING_MONTHS,
@@ -115,7 +115,7 @@ for (const [year, rolled] of [[2026, 0], [2027, 3], [2028, 6]]) {
     if (m.cc_detail.vehicle_insurance !== CC_VEHICLE_INSURANCE_MONTHLY) {
       fail(`${tag} vehicle insurance is ${m.cc_detail.vehicle_insurance}, the run rate is ${CC_VEHICLE_INSURANCE_MONTHLY}`);
     }
-    if (m.cc_detail.telecom !== CC_TELECOM_MONTHLY) fail(`${tag} telecom is ${m.cc_detail.telecom}`);
+    if (m.cc_detail.telecom !== telecomCost(year, m.month)) fail(`${tag} telecom is ${m.cc_detail.telecom}`);
     if (year >= 2027 || m.month >= 6) {
       // The ads at the post-cut level, Furnished Finder in August and
       // September, and Cooper's content work scaled to the fleet (marketing
