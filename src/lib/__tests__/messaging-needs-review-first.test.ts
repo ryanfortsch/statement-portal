@@ -18,10 +18,10 @@ const read = (repoPath: string): string =>
 const body = (src: string) => src.slice(src.indexOf('export default'));
 
 const PAGES: [string, string, string[]][] = [
-  ['src/app/messaging/page.tsx', '<QueueSection />', ['<RecentDecisionsSection />', '<ConversationsSection', '<RecentMessageOutcomesSection', '<InboxBottomTools />']],
-  ['src/app/owner-messaging/page.tsx', '<OwnerQueueSection />', ['<RecentMessageOutcomesSection', '<OwnerDetailSection />', '<OwnerProactive />', '<InboxBottomTools />']],
+  ['src/app/messaging/page.tsx', '<QueueSection />', ['<RecentDecisionsSection />', '<ConversationsSection', '<InboxBottomTools />']],
+  ['src/app/owner-messaging/page.tsx', '<OwnerQueueSection />', ['<DecidedSection />', '<OwnerProactive />', '<InboxBottomTools />']],
   // The Team inbox (cleaners and contractors, 2026-10-18).
-  ['src/app/messaging/team/page.tsx', '<QueueSection audience={audience} />', ['<OwnerHoldSection', '<ScheduleDigestSection', '<RecentMessageOutcomesSection', '<TeamProactiveSection', '<InboxBottomTools />']],
+  ['src/app/messaging/team/page.tsx', '<QueueSection audience={audience} />', ['<DecidedSection audience={audience} />', '<OwnerHoldSection', '<ScheduleDigestSection', '<TeamProactiveSection', '<InboxBottomTools />']],
 ];
 
 describe('needs review first', () => {

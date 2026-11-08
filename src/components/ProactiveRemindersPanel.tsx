@@ -11,18 +11,27 @@ import type {
   ProactiveTarget,
   RecurringMessage,
   CreateRecurringInput,
+  ReservationPick,
 } from '@/lib/stay-concierge';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
-import { houseDay } from '@/lib/house-date';
+import { houseDay, houseRange } from '@/lib/house-date';
 
 /**
- * Audience-parameterized generalization of the guest RemindersSection
- * (src/app/messaging/RemindersSection.tsx) for the cleaner and owner
- * messaging pages. Same collapsible Section + lazy first-expand load, but the
- * recipient is a fixed proactive target (a cleaner manager or an owner)
- * instead of a reservation, so there is no stay window: recurring messages
- * run until ended (or an optional end date), one-time messages fire on a
- * chosen date.
+ * The one Proactive messages panel, for every audience: guests on the Send
+ * lens, owners, and the Team inbox's cleaners and contractors. A collapsible
+ * Section with a lazy first-expand load.
+ *
+ * Cleaners, contractors and owners are fixed proactive targets, so there is
+ * no stay window: recurring messages run until ended (or an optional end
+ * date), one-time messages fire on a chosen date.
+ *
+ * A guest's recipient is a stay (its fetch returns `reservations`), and a
+ * recurring guest message runs the stay window. A one-time guest message
+ * fires on any date from today (not clamped to the stay, so a pre-arrival
+ * heads-up works), with Approve first or Auto-send. It overlaps the Send
+ * composer's Send later, which stops at 30 days and always sends; keeping
+ * both is the lesser cost, since without this panel a far-out or
+ * approve-first one-time message could not be made at all.
  *
  * The server actions are page-owned (each page's reminders-actions.ts
  * hardcodes its audience + revalidate path) and arrive via the `actions`
@@ -33,22 +42,42 @@ export type ProactiveReminderActions = {
   fetchReminders: () => Promise<
     { ok: true; recurring: RecurringMessage[] } | { ok: false; error: string }
   >;
+  /** Owners, cleaners and contractors answer with `targets`; guests with
+   *  the stays they can be written to (`reservations`). */
   fetchTargets: () => Promise<
-    { ok: true; targets: ProactiveTarget[] } | { ok: false; error: string }
+    | { ok: true; targets?: ProactiveTarget[]; reservations?: ReservationPick[] }
+    | { ok: false; error: string }
   >;
   create: (
     input: CreateRecurringInput,
   ) => Promise<{ ok: true } | { ok: false; error: string }>;
   end: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+  /** The first argument is the recipient's name, or for a guest the
+   *  reservation id (the engine reads that home's knowledge base). */
   polish: (
     targetName: string,
     roughText: string,
   ) => Promise<
-    { ok: true; polished: string; english: string } | { ok: false; error: string }
+    { ok: true; polished: string; english?: string } | { ok: false; error: string }
   >;
 };
 
-type Audience = 'cleaner' | 'owner' | 'contractor';
+type Audience = 'guest' | 'cleaner' | 'owner' | 'contractor';
+
+/** A recipient in the picker. A guest's carries its stay. */
+type Recipient = ProactiveTarget & { stay?: ReservationPick };
+
+function stayRecipient(r: ReservationPick): Recipient {
+  return {
+    contact: r.reservation_id,
+    name: r.guest_first || r.guest_full || 'Guest',
+    channel: r.channel,
+    property_id: r.listing_id,
+    property_name: r.property_name,
+    language: '',
+    stay: r,
+  };
+}
 
 type Props = {
   audience: Audience;
@@ -102,9 +131,11 @@ export function ProactiveRemindersPanel({ audience, actions, audienceSwitch }: P
     const result = await actions.fetchReminders();
     return result.ok ? { ok: true, items: result.recurring } : result;
   }, 'Could not load scheduled messages. Try again.');
-  const recipients = useReminderResource(async () => {
+  const recipients = useReminderResource<Recipient>(async () => {
     const result = await actions.fetchTargets();
-    return result.ok ? { ok: true, items: result.targets } : result;
+    if (!result.ok) return result;
+    const items: Recipient[] = result.targets ?? (result.reservations ?? []).map(stayRecipient);
+    return { ok: true, items };
   }, 'Could not load recipients. Try again.');
   const recurring = scheduled.items.filter((row) => !endedIds.has(row.id));
   const loadRecurring = scheduled.load;
@@ -293,7 +324,7 @@ function CreateForm({
 }: {
   audience: Audience;
   actions: ProactiveReminderActions;
-  targets: ProactiveTarget[];
+  targets: Recipient[];
   targetsLoaded: boolean;
   onCreated: () => void;
   onBusyChange: (busy: boolean) => void;
@@ -308,6 +339,7 @@ function CreateForm({
   const savedSettings = useRef({ atLocal: '09:00', sendMode: 'approve', mode: 'recurring' as Mode });
   const [done, setDone] = useState(false);
 
+  const isGuest = audience === 'guest';
   const [mode, setMode] = useState<Mode>('recurring');
   const [contact, setContact] = useState('');
   const [label, setLabel] = useState('');
@@ -349,14 +381,14 @@ function CreateForm({
     const requestedRevision = revision.current;
     startPolish(async () => {
       try {
-        const res = await actions.polish(picked?.name || '', body);
+        const res = await actions.polish((isGuest ? picked?.contact : picked?.name) || '', body);
         if (revision.current !== requestedRevision) return;
         if (!res.ok) {
           setError(res.error);
           return;
         }
         setBody(res.polished);
-        setEnglish(audience === 'cleaner' ? res.english : '');
+        setEnglish(audience === 'cleaner' ? res.english ?? '' : '');
         setPolished(true);
       } catch (err) {
         unstable_rethrow(err);
@@ -371,7 +403,9 @@ function CreateForm({
     setDone(false);
     if (!picked) {
       setError(
-        audience === 'cleaner'
+        isGuest
+          ? 'Pick a guest/reservation'
+          : audience === 'cleaner'
           ? 'Pick a cleaner'
           : audience === 'contractor'
             ? 'Pick a contractor'
@@ -379,8 +413,27 @@ function CreateForm({
       );
       return;
     }
+    const stay = picked.stay;
     action.run(async () => {
-      const res = await actions.create({
+      const res = await actions.create(stay ? {
+        // A guest message rides the stay's own thread, exactly as the guest
+        // panel always sent it (no audience field: the service defaults to guest).
+        label: label.trim() || `${mode === 'once' ? 'Message' : 'Reminder'} · ${stay.guest_first || stay.property_name}`,
+        conversation_id: stay.conversation_id,
+        listing_id: stay.listing_id,
+        module: stay.module || 'sms',
+        guest_first: stay.guest_first,
+        body: body.trim(),
+        kind: mode,
+        weekdays: mode === 'recurring' ? Array.from(days).sort().join(',') : '',
+        fire_date: mode === 'once' ? fireDate : '',
+        at_local: atLocal,
+        // For a guest already in-house, start from today (their check-in is in
+        // the past); for an upcoming guest, start at check-in.
+        start_date: stay.effective_start || stay.check_in,
+        end_date: stay.check_out,
+        send_mode: sendMode,
+      } : {
         label:
           label.trim() ||
           `${mode === 'once' ? 'Message' : 'Reminder'} · ${firstNameOf(picked.name) || picked.name}`,
@@ -436,9 +489,11 @@ function CreateForm({
     (mode === 'recurring' ? days.size > 0 : !!fireDate);
 
   const targetLabel =
-    audience === 'cleaner' ? 'Cleaner' : audience === 'contractor' ? 'Contractor' : 'Owner';
+    isGuest ? 'Guest / reservation' : audience === 'cleaner' ? 'Cleaner' : audience === 'contractor' ? 'Contractor' : 'Owner';
   const bodyPlaceholder =
-    audience === 'cleaner'
+    isGuest
+      ? "Type quick and dirty, e.g. 'trash day is tuesday, carts are on the side of the house, out monday night and back in tuesday'. Then hit Polish."
+      : audience === 'cleaner'
       ? "Type quick in English - e.g. 'ask if we're low on towels and paper goods anywhere'. Polish turns it into Portuguese."
       : audience === 'contractor'
         ? "Type quick and dirty - e.g. 'confirm you can make the walkthrough at 21 Horton Thursday'. Then hit Polish."
@@ -507,8 +562,31 @@ function CreateForm({
             disabled={!targetsLoaded}
             style={inputStyle}
           >
-            <option value="">{targetsLoaded ? 'Select…' : 'Loading…'}</option>
-            {targets.map((t) => (
+            <option value="">{targetsLoaded ? 'Select…' : isGuest ? 'Loading guests…' : 'Loading…'}</option>
+            {isGuest ? (
+              <>
+                {targets.some((t) => t.stay?.in_house) && (
+                  <optgroup label="Staying now">
+                    {targets.filter((t) => t.stay?.in_house).map((t) => (
+                      <option key={t.contact} value={t.contact} disabled={!t.stay?.conversation_id}>
+                        {t.stay?.guest_first || t.stay?.guest_full || 'Guest'} · {t.property_name} · here until {houseDay(t.stay?.check_out || '')}
+                        {t.stay?.conversation_id ? '' : ' (no thread)'}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {targets.some((t) => !t.stay?.in_house) && (
+                  <optgroup label="Upcoming">
+                    {targets.filter((t) => !t.stay?.in_house).map((t) => (
+                      <option key={t.contact} value={t.contact} disabled={!t.stay?.conversation_id}>
+                        {t.stay?.guest_first || t.stay?.guest_full || 'Guest'} · {t.property_name} · {houseRange(t.stay?.check_in || '', t.stay?.check_out || '')}
+                        {t.stay?.conversation_id ? '' : ' (no thread)'}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+              </>
+            ) : targets.map((t) => (
               <option key={t.contact} value={t.contact}>
                 {audience === 'owner' && t.property_name ? `${t.name} · ${t.property_name}` : t.name}
               </option>
@@ -523,7 +601,9 @@ function CreateForm({
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             placeholder={
-              audience === 'cleaner'
+              isGuest
+                ? 'Trash day'
+                : audience === 'cleaner'
                 ? 'Supply check'
                 : audience === 'contractor'
                   ? 'Walkthrough'
@@ -544,7 +624,9 @@ function CreateForm({
             onClick={handlePolish}
             disabled={isPending || polishing || !body.trim()}
             title={
-              audience === 'cleaner'
+              isGuest
+                ? "Rewrite your note in our voice using the property's knowledge base, the same engine that drafts guest replies."
+                : audience === 'cleaner'
                 ? 'Rewrite your note in our voice, in Portuguese, using the same engine that drafts cleaner replies.'
                 : 'Rewrite your note in our voice using the same engine that drafts owner replies.'
             }
@@ -625,6 +707,7 @@ function CreateForm({
                 })}
               </div>
             </div>
+            {!isGuest && (
             <label>
               <span className="eyebrow" style={{ color: 'var(--ink-4)', fontSize: 10, display: 'block', marginBottom: 6 }}>
                 End date (optional)
@@ -638,6 +721,7 @@ function CreateForm({
                 style={{ ...inputStyle, width: 160 }}
               />
             </label>
+            )}
           </>
         ) : (
           <label>
@@ -672,7 +756,11 @@ function CreateForm({
 
       {picked && (
         <div style={{ fontSize: 11, color: 'var(--ink-4)', marginBottom: 12 }}>
-          Sends by SMS via Quo to {picked.name}.
+          {picked.stay
+            ? `${mode === 'recurring'
+                ? `Runs ${houseRange(picked.stay.effective_start || picked.stay.check_in, picked.stay.check_out)}${picked.stay.in_house ? ' (from today through checkout)' : ' (the stay window)'}`
+                : 'Fires once on the chosen date'}${picked.stay.channel ? ` · sends via ${picked.stay.channel}` : ''}.`
+            : `Sends by SMS via Quo to ${picked.name}.`}
         </div>
       )}
 
