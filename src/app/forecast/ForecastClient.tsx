@@ -1014,7 +1014,7 @@ function Assumptions({ yearKey }: { yearKey: ForecastYear }) {
 
 const SOFTWARE_BUDGET_ASSUMPTION: AssumptionItem = {
   label: 'Software',
-  value: 'Projected total software: $2,700/mo through October 2026; $2,850/mo in November and December during the Guesty/Channex overlap; $2,600 in January 2027, $2,300 in February, $1,900 in March, and $1,650/mo from April onward, including 2028. The rounded steady budget replaces the $1,323 Guesty baseline with about $150-$160 for Channex and $100 of extra operating allowance; PriceLabs and the other subscriptions remain. This planning assumption allows a late-November Calderwood pilot, phased migration and billing winding down by March-April, subject to channel readiness and Guesty contract terms. Measured months show actual card spending.',
+  value: 'Projected software: $2,700/mo through October 2026; $2,850 in November; $2,815.56 in December; $2,565.56 in January 2027, $2,265.56 in February, $1,865.56 in March, and $1,615.56/mo from April onward, including 2028. From December, this includes $34.44/mo of confirmed cuts: the $20 Vercel seat moved to free Viewer and the $14.44 Zoom plan cancelled, with paid access ending December 2. No November refunds or tax credits are assumed. The Guesty exit allowance still assumes a late-November Calderwood pilot and phased migration through March-April, subject to channel readiness and contract terms, with about $150-$160/mo for Channex. Other subscriptions and usage allowances remain under review; Claude and ChatGPT base plans are $100/mo each plus usage credits. Measured months show actual card spending.',
 };
 
 const SUPPLIES_BUDGET_ASSUMPTION: AssumptionItem = {
