@@ -1012,6 +1012,11 @@ function Assumptions({ yearKey }: { yearKey: ForecastYear }) {
   );
 }
 
+const SUPPLIES_BUDGET_ASSUMPTION: AssumptionItem = {
+  label: 'Winter supplies budget',
+  value: 'Projected guest supplies are reduced 25% from November 2026 through April 2027, after the supplies and repairs split. The normal seasonal budget resumes in May 2027. Measured spending, repairs and onboarding keep their existing amounts.',
+};
+
 const sections2026: AssumptionSection[] = [
   {
     heading: 'Revenue',
@@ -1026,6 +1031,7 @@ const sections2026: AssumptionSection[] = [
   {
     heading: 'Recurring monthly (projected months; measured months show the bank)',
     items: [
+      SUPPLIES_BUDGET_ASSUMPTION,
       { label: 'Corporate card', value: 'Two parts, calibrated on 2026 card detail through October 7 and the Amazon Business export of October 15. Variable: guest supplies and small repairs at $2,950 per live home per year, on the Cape Ann turnover curve pulled one month earlier (a home is stocked before its guests arrive) and damped to 60%, with repairs at 12% of it. The rate is measured item by item: $1,805 of Amazon consumables per home per year, about $1,000 of replacement durables, and the non-Amazon stores. It was $8,360 until 2026-10-15, fitted with the summer outfitting orders left in; September, the first month after the onboarding wave, came in at a quarter of what that rate projected, so outfitting is now its own one-time charge (Onboarding, below). Fixed: GEICO $519, AT&T $114, travel $175, the rest of Other $185 (the van, card interest, the hiring run), marketing $680 through May 2026 and $225 from June (the step-down is measured on the card, not assumed), and two $199 Furnished Finder listings, one renewing in August and one in September. The Marketing & advertising row also carries Cooper\'s content work from the operating account: $1,300/mo per 16 homes from July 2026, scaled to the live fleet (filed here rather than on the bench since 2026-11-07). Projected months itemise the card by these terms; measured months read the card\'s own categories.' },
       { label: 'Software', value: '$2,700/mo flat in projected months, the September 2026 stack with no API usage in it: Guesty $1,323 (per listing, up from $973 in January), PriceLabs $246, the Claude seats, OpenAI, Seam, Quo, Adobe, AirDNA, Squarespace, Vercel, Supabase and the smaller tools. Measured months show the real card figure: $3,420 in July and $3,804 in August on Anthropic API credits the operator ruled a one-off, then $2,952 in September with that reload stream stopped. The nine-month 2026 mean is $2,598; the constant was $2,300 until 2026-10-15.' },
       { label: 'Office', value: '$750/mo rent at 85 Eastern Ave from March 2026 when the lease began, plus $471/mo for the Republic Services dumpster through November 2026, the rate Republic has billed monthly since August. The dumpster was cancelled effective 2026-11-30 (notice sent 2026-10-05), so December is rent only.' },
@@ -1066,6 +1072,7 @@ const sections2027: AssumptionSection[] = [
   {
     heading: 'Recurring monthly',
     items: [
+      SUPPLIES_BUDGET_ASSUMPTION,
       { label: 'Corporate card', value: 'Same two-part model as 2026: $2,950 per live home per year on the turnover curve (repairs 12% of it; the rate is Amazon consumables plus replacements, measured item by item), plus the fixed floor (GEICO $519, AT&T $114, travel $175, the rest of Other $185, marketing $225 at the post-cut level measured on the card, Furnished Finder $199 in August and again in September). The Marketing & advertising row also carries Cooper\'s content work from the operating account, $1,300/mo per 16 homes scaled to the live fleet, full every month. Scales with the homes operating each month: the fourteen, plus rollovers, plus new ones as they start. Outfitting is the separate Onboarding charge, not part of the rate.' },
       { label: 'Software', value: '$2,700/mo flat, the September 2026 stack with no API usage in it, carried forward. No cuts are assumed: none has shown up in the card data yet, and Guesty bills per listing.' },
       { label: 'Office', value: '$750/mo rent, full year. The Republic Services dumpster ended 2026-11-30 and is not projected.' },
