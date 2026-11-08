@@ -8,6 +8,8 @@ import { isOwnerSession } from '@/lib/helm-access-server';
 import { getActivePropertiesForStatements } from '@/lib/properties-server';
 import { loadDisputePacket, type ThreadCoverage } from '@/lib/dispute-packet';
 import { PrintPacketButton } from '../../PrintPacketButton';
+import { ReasonSelect } from './ReasonSelect';
+import { buttonClass } from '@/lib/button-class';
 import {
   PLAYBOOK,
   disputeKind,
@@ -172,7 +174,16 @@ export default async function DisputePacketPage({
       : null;
 
   return (
-    <Shell home={home}>
+    <Shell
+      home={home}
+      reason={
+        <ReasonSelect
+          kind={kind}
+          paid={paidText}
+          options={Object.values(PLAYBOOK).map((p) => ({ kind: p.kind, title: p.title }))}
+        />
+      }
+    >
       <style>{`@media print { .no-print { display: none !important; } body { background: #fff; } }`}</style>
 
       <div className="no-print" style={{ ...quiet, marginBottom: 20 }}>
@@ -215,7 +226,7 @@ export default async function DisputePacketPage({
         </p>
       )}
 
-      <h2 style={h2}>{playbook.title}</h2>
+      <h2 style={h2}>What to prove</h2>
       <p style={{ margin: '0 0 8px' }}>
         <strong>What the bank is asking:</strong> {playbook.bankAsks}
       </p>
@@ -230,18 +241,11 @@ export default async function DisputePacketPage({
         ))}
       </ul>
 
-      <form method="get" className="no-print" style={{ marginTop: 20, display: 'grid', gap: 10, maxWidth: 720 }}>
-        <label style={{ fontSize: 13 }}>
-          Reason
-          <select name="kind" defaultValue={kind} style={{ display: 'block', marginTop: 4, padding: 6 }}>
-            {Object.values(PLAYBOOK).map((p) => (
-              <option key={p.kind} value={p.kind}>
-                {p.title}
-              </option>
-            ))}
-          </select>
-        </label>
-        {SEPARATE_PURCHASE.includes(kind) && (
+      {/* The reason itself is picked on the hero line. Only the two reasons
+          that turn on other payments need anything typed here. */}
+      {SEPARATE_PURCHASE.includes(kind) && (
+        <form method="get" className="no-print" style={{ marginTop: 20, display: 'grid', gap: 10, maxWidth: 720 }}>
+          <input type="hidden" name="kind" value={kind} />
           <label style={{ fontSize: 13 }}>
             Other payments for this stay, one per line: method, amount, date, reference
             <textarea
@@ -256,20 +260,20 @@ export default async function DisputePacketPage({
               {stay?.guestyTotalPaidCents != null && ` Guesty records ${money(stay.guestyTotalPaidCents)} paid on this reservation.`}
             </span>
           </label>
-        )}
-        <div>
-          <button type="submit" className="eyebrow" style={{ padding: '8px 14px', border: '1px solid var(--ink)', background: 'var(--ink)', color: 'var(--paper)' }}>
-            Update packet
-          </button>
-        </div>
-        {other.errors.length > 0 && (
-          <ul style={{ color: 'var(--signal)', fontSize: 13, margin: 0, paddingLeft: 18 }}>
-            {other.errors.map((e) => (
-              <li key={e}>{e}</li>
-            ))}
-          </ul>
-        )}
-      </form>
+          <div>
+            <button type="submit" className={buttonClass('secondary', 'sm')}>
+              Apply
+            </button>
+          </div>
+          {other.errors.length > 0 && (
+            <ul style={{ color: 'var(--signal)', fontSize: 13, margin: 0, paddingLeft: 18 }}>
+              {other.errors.map((e) => (
+                <li key={e}>{e}</li>
+              ))}
+            </ul>
+          )}
+        </form>
+      )}
 
       {recon && (
         <>
@@ -487,14 +491,20 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-function Shell({ home, children }: { home: string; children: React.ReactNode }) {
+function Shell({ home, reason, children }: { home: string; reason?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <div className="no-print">
         <HelmMasthead />
         <FinancialsTabs current="payments" />
       </div>
-      <HelmHero plain eyebrow={`Dispute packet · ${home}`} title="Dispute evidence" line="What this dispute must prove, from Helm's own records." />
+      <HelmHero
+        plain
+        eyebrow={`Dispute packet · ${home}`}
+        title="Dispute evidence"
+        line="What this dispute must prove, from Helm's own records."
+        belowDescription={reason ? <div className="no-print" style={{ marginTop: 12 }}>{reason}</div> : null}
+      />
       <section className="max-w-[1100px] mx-auto px-10 w-full" style={{ paddingBottom: 56 }}>
         {children}
       </section>
