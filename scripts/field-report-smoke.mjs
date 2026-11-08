@@ -347,7 +347,7 @@ try{
     assert.equal(await page.$eval('[name=expense_dollars]',e=>e.matches(':disabled')),true);
     await click('Check / retry receipt');await waitCalls(2);
     assert.deepEqual(await page.evaluate(()=>window.calls[1].data),firstReceipt);
-    await finish({ok:true,cents:2760});await waitText('$27.60 added to this trip');
+    await finish({ok:true,cents:2760});await waitText("$27.60 added to this job's payout");
     assert.equal(await page.evaluate(()=>window.refreshes),1);assert.deepEqual(errors,[]);
     pass('a stop receipt states the cap on the field, refuses over it, and a retry after a lost response resends the first attempt exactly');
 
