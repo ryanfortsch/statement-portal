@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { calcYear, type ActualsByMonth, type ForecastYear } from '../forecast-model.ts';
 
 const budgets: Record<ForecastYear, number[]> = {
-  2026: [2700, 2700, 2700, 2700, 2700, 2700, 2700, 2700, 2700, 2700, 2850, 2815.56],
-  2027: [2565.56, 2265.56, 1865.56, 1615.56, 1615.56, 1615.56, 1615.56, 1615.56, 1615.56, 1615.56, 1615.56, 1615.56],
-  2028: [1615.56, 1615.56, 1615.56, 1615.56, 1615.56, 1615.56, 1615.56, 1615.56, 1615.56, 1615.56, 1615.56, 1615.56],
+  2026: [2700, 2700, 2700, 2700, 2700, 2700, 2700, 2700, 2700, 2700, 2775, 2740.56],
+  2027: [2490.56, 2190.56, 1790.56, 1540.56, 1540.56, 1540.56, 1540.56, 1540.56, 1540.56, 1540.56, 1540.56, 1540.56],
+  2028: [1540.56, 1540.56, 1540.56, 1540.56, 1540.56, 1540.56, 1540.56, 1540.56, 1540.56, 1540.56, 1540.56, 1540.56],
 };
 
 describe('Guesty exit software budget', () => {
@@ -15,8 +15,8 @@ describe('Guesty exit software budget', () => {
         assert.deepEqual(calcYear(newHomes, year).monthly.map(row => row.exp_software), budgets[year]);
       }
     }
-    assert.ok(Math.abs(calcYear(0, 2027).monthly.reduce((sum, row) => sum + row.exp_software, 0) - 21236.72) < 1e-6);
-    assert.ok(Math.abs(calcYear(0, 2028).monthly.reduce((sum, row) => sum + row.exp_software, 0) - 19386.72) < 1e-6);
+    assert.ok(Math.abs(calcYear(0, 2027).monthly.reduce((sum, row) => sum + row.exp_software, 0) - 20336.72) < 1e-6);
+    assert.ok(Math.abs(calcYear(0, 2028).monthly.reduce((sum, row) => sum + row.exp_software, 0) - 18486.72) < 1e-6);
   });
 
   test('keeps measured software spending in covered and card-only months, including zero spend', () => {
