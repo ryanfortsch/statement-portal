@@ -26,7 +26,7 @@ import { SaveQueue } from '@/lib/save-queue';
 import { readInspectionDrafts } from '@/lib/inspection-drafts';
 import { INSPECTION_SUPPLIES } from '@/lib/inspection-supplies';
 import { PULLOUT_BED_ITEM_ID, withSheetsLine } from '@/lib/pullout-beds';
-import { SLIP_OUTCOME_HINT, SLIP_OUTCOME_LABEL, type SlipOutcome } from '@/lib/field-slip-outcomes';
+import { SLIP_OUTCOME_LABEL, type SlipOutcome } from '@/lib/field-slip-outcomes';
 import { stepperForwardLabel, ISSUE_BECOMES_WORK_ORDER, ISSUE_HINT_SEEN_KEY } from '@/lib/stepper-words';
 
 /**
@@ -679,11 +679,8 @@ export function Stepper({
             <div style={{ marginTop: 22 }}>
               {/* The packet page's words for the same slips: Done on this
                   trip, Already handled, Still open. */}
-              <div style={{ fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 4 }}>
+              <div style={{ fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 10 }}>
                 Also open at this home
-              </div>
-              <div style={{ fontSize: 12.5, color: 'var(--ink-4)', marginBottom: 10, lineHeight: 1.5 }}>
-                Say which you did on this walk, and which were already taken care of.
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {verifySlips.map((w) => {
@@ -738,9 +735,6 @@ export function Stepper({
                             </button>
                           );
                         })}
-                      </div>
-                      <div style={{ fontSize: 11.5, color: verdict === 'open' ? 'var(--ink-4)' : 'var(--positive)', marginTop: 6 }}>
-                        {SLIP_OUTCOME_HINT[verdict]}
                       </div>
                     </div>
                   );

@@ -28,7 +28,8 @@ test('one answer per slip: done wins over handled, either over still open', () =
 test('the stepper offers all three and sends all three', () => {
   const stepper = code('src/app/inspections/[id]/Stepper.tsx');
   assert.ok(stepper.includes("(['done', 'handled', 'open'] as const).map((o) =>"), 'three choices per slip');
-  assert.ok(stepper.includes('{SLIP_OUTCOME_LABEL[o]}') && stepper.includes('{SLIP_OUTCOME_HINT[verdict]}'));
+  assert.ok(stepper.includes('{SLIP_OUTCOME_LABEL[o]}'), 'the pills carry the shared words');
+  assert.ok(!stepper.includes('SLIP_OUTCOME_HINT'), 'the three pills say it; no hint under the one just pressed (2026-11-07 audit)');
   for (const list of ['slipsDone:', 'slipsHandled:', 'slipsStillOpen:']) assert.ok(stepper.includes(list), `sends ${list}`);
   assert.doesNotMatch(stepper, /It's handled|Still needs doing|Still on the list/, 'the old one-toggle words are gone');
 });
