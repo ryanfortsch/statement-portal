@@ -1,6 +1,46 @@
 # Software and telecom cost review, November 7–8, 2026
 
-The Guesty exit budget remains a planning allowance, not a reconciled subscription inventory. Do not interpret the remaining allowance as verified recurring bills or count unverified cancellations as savings.
+November–March remain migration planning allowances. From April 2027, the itemized budget below supersedes the former $1,459.88 rounded allowance. Amounts explicitly marked as estimates or historical run rates are not verified future bills.
+
+## Itemized post-Guesty budget, November 8 revision
+
+Ryan authorized replacing the rounded allowance with named components and selected $150/month for AI usage credits, in addition to the two $100 base plans. This changes the forecast, not provider spending limits. The model and visible assumptions use the same item list.
+
+| Component | Monthly budget | Basis |
+| --- | ---: | --- |
+| Channex | $160.00 | Existing account/live-property planning estimate; November's $112.67 was a partial first bill |
+| PriceLabs | $253.70 | October 2 and November 2 successful payments, including tax |
+| Claude base | $100.00 | Ryan's current plan confirmation |
+| ChatGPT base | $100.00 | Ryan's current plan confirmation |
+| AI usage credits | $150.00 | Ryan's explicit budget choice; not an enforced cap |
+| Seam | $120.00 | October invoice: 24 devices × $5; excludes $0.91 proration |
+| Quo | $112.10 | Estimated renewal after October 20 seat change: 3 × $33 + $5 additional number + $1.50 A2P, with approximately 6.25% tax |
+| Vercel | $21.25 | $41.25 latest bill less cancelled $20 seat, retaining tax conservatively |
+| Supabase | $32.14 | October invoice |
+| Render | $6.53 | Latest November receipt |
+| Tailscale | $8.50 | Latest November receipt |
+| Resend | $20.00 | Historical May–September card run rate |
+| QuickBooks | $40.38 | Historical June–September card run rate, retained |
+| Remaining Dropbox | $12.74 | One of two historical accounts retained |
+| Squarespace | $53.12 | Both historical $26.56 streams retained pending confirmation |
+| **Monthly subtotal** | **$1,190.46** | No unnamed remainder or duplicate cancellation deduction |
+
+1Password adds **$57.28 in May only**, using the last paid annual renewal. Its family/business allocation and whether the 25% discount renews remain unresolved; do not claim a cancellation or guaranteed renewal price. May software is $1,247.74. 2027 software totals $17,001.06 including the unchanged January–March transition; 2028 totals $14,342.80.
+
+Compared with the previous $1,459.88 monthly allowance, the itemized full-year budget is $3,175.76 lower after retaining the annual renewal. This is a budget revision, not newly achieved subscription savings. Vendor prices, property/device counts and usage can change. The flat budget is a current-fleet snapshot. Base AI amounts follow Ryan's stated $100 each; future invoices determine actual tax-inclusive costs.
+
+Adobe, Zoom, the removed Vercel seat and one Dropbox are absent from the steady item list. AirDNA is absent under Ryan's explicit cancellation assumption. Guesty is absent only from April onward under the existing migration assumption; no new migration deadline or completed cancellation is implied. Eagle Tribune stays in Marketing and Gusto stays in payroll; AT&T stays in Telecom. Midjourney has no demonstrated recurring charge after June and remains an unresolved check rather than an invented monthly bill.
+
+Receipt evidence refreshed November 8:
+
+- [PriceLabs November payment](https://mail.google.com/mail/u/?authuser=ryan%40risingtidestr.com#all/1a19d8e705ae8d2b)
+- [Seam October receipt](https://mail.google.com/mail/u/?authuser=ryan%40risingtidestr.com#all/1a1655618aef13a4)
+- [Quo October monthly invoice](https://mail.google.com/mail/u/?authuser=ryan%40risingtidestr.com#all/1a1220fc3240306a), [third-seat change](https://mail.google.com/mail/u/?authuser=ryan%40risingtidestr.com#all/1a159cf41a18f74e), [additional-number change](https://mail.google.com/mail/u/?authuser=ryan%40risingtidestr.com#all/1a15b2f9f66410c9)
+- [1Password annual invoice](https://mail.google.com/mail/u/?authuser=ryan%40risingtidestr.com#all/19df8bb370752b0a)
+- [Channex subscription confirmation](https://mail.google.com/mail/u/?authuser=ryan%40risingtidestr.com#all/1a1ac31e4c2468ba)
+
+## Previous rounded-budget revision (superseded from April 2027)
+
 
 ## Confirmed changes
 

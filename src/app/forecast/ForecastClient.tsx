@@ -10,6 +10,8 @@ import {
   fmtNum,
   MONTH_LABELS,
   CC_OPERATING_BREAKDOWN,
+  SOFTWARE_BUDGET_ITEMS,
+  itemizedSoftwareCost,
   CURRENT_2026,
   NEW_PROPERTY_FEE,
   type ForecastYear,
@@ -970,7 +972,13 @@ function Assumptions({ yearKey }: { yearKey: ForecastYear }) {
         background: 'var(--paper)',
       }}
     >
-      {sections.map((sec, si) => (
+      {[...sections, {
+        heading: 'Software from April 2027 — itemized budget',
+        items: SOFTWARE_BUDGET_ITEMS.map(item => ({
+          label: item.label,
+          value: `$${item.amount.toFixed(2)} ${'billingMonth' in item ? 'in May only' : 'per month'}. ${item.note}`,
+        })),
+      }].map((sec, si) => (
         <div key={sec.heading}>
           <div
             style={{
@@ -1014,7 +1022,7 @@ function Assumptions({ yearKey }: { yearKey: ForecastYear }) {
 
 const SOFTWARE_BUDGET_ASSUMPTION: AssumptionItem = {
   label: 'Software',
-  value: 'Projected software: $2,700/mo through October 2026; $2,707.06 in November; $2,659.88 in December; $2,409.88 in January 2027, $2,109.88 in February, $1,709.88 in March, and $1,459.88/mo from April onward, including 2028. This includes the $75/mo Adobe cancellation from November (next bill was November 29), the assumed $67.94/mo AirDNA cancellation from its November 9 renewal (requested, confirmation pending), plus $47.18/mo from December: one $12.74 Dropbox subscription cancelled, the $20 Vercel seat moved to free Viewer and the $14.44 Zoom plan cancelled, with paid access ending December 2. Dropbox starts in December because its final renewal date is unverified. No November refunds or tax credits are assumed. The Guesty exit allowance still assumes a late-November Calderwood pilot and phased migration through March-April, subject to channel readiness and contract terms, with about $150-$160/mo for Channex. Other subscriptions and usage allowances remain under review; Claude and ChatGPT base plans are $100/mo each plus usage credits. Measured months show actual card spending.',
+  value: `Transition estimates remain $2,707.06 in November 2026, $2,659.88 in December, $2,409.88 in January 2027, $2,109.88 in February and $1,709.88 in March. From April 2027, the named subscriptions and allowances below sum to $${itemizedSoftwareCost(4).toFixed(2)}/mo, with $57.28 extra in May for 1Password. This replaces the rounded allowance; cancelled Adobe, Zoom, one Dropbox and the Vercel seat are not subtracted a second time. AirDNA is assumed cancelled, confirmation pending. Squarespace and the remaining Dropbox are retained pending verification. AI credits have a user-approved $150 monthly allowance on top of the two $100 base plans; this does not change account limits. Guesty exit timing still depends on channel readiness and contract terms. Prices reflect the current fleet snapshot, not a guaranteed future invoice. Actual card spending overrides every estimate.`,
 };
 
 const SUPPLIES_BUDGET_ASSUMPTION: AssumptionItem = {
