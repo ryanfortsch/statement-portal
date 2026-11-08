@@ -38,7 +38,7 @@ import { useOwnerEmailDraft } from '@/lib/use-owner-email-draft';
 import { CopiedEmailNotice } from '@/components/CopiedEmailNotice';
 import { operatingDate } from '@/lib/operating-date';
 import { houseDay } from '@/lib/house-date';
-import { compareWork, workAssignedTo, workDate, workMyWeek, workOverdue, workSignals, workThisWeek, workUnassigned, workNeedsAction, workWaiting, workScheduled, workBacklog } from '@/lib/work-board-view';
+import { compareWork, workAssignedTo, workDate, workMyWeek, workOverdue, workSignals, workThisWeek, workUnassigned, workNeedsAction, workWaiting, workScheduled, workBacklog, RETIRED_WORK_FILTERS } from '@/lib/work-board-view';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { groupSlipsByLane, LANE_LABELS, slipDetailLine, slipDisplayTitle, type WorkLane } from '@/lib/work-slip-lanes';
 import type { WorkBriefHeadline } from '@/lib/work-briefs';
@@ -97,12 +97,23 @@ const SLIP_ONLY_FILTERS: FilterId[] = ['no-coordinator', 'owner-action', 'snooze
  *  the pill never renders and the filter reads as All. */
 const TASK_ONLY_FILTERS: FilterId[] = ['blocked'];
 
-/** The filters behind the "More" select, in its order. */
-const MORE_FILTERS: FilterId[] = ['mine', 'my-week', 'week', 'high', 'overdue', 'due-today', 'blocked', 'unclaimed', 'no-coordinator', 'owner-action', 'snoozed'];
+/** The filters behind the "More" select, in its order. Four, and each tab
+ *  shows only its own: Blocked is a to-do status, the other three are slips'. */
+const MORE_FILTERS: FilterId[] = ['owner-action', 'snoozed', 'no-coordinator', 'blocked'];
+/** Views Home links to by name (On your plate, Unassigned work, Open work ·
+ *  this week). No control offers them; a pill lights while the URL names
+ *  one, so the count Home printed is the count the board shows. */
+const LINKED_ONLY_FILTERS: { id: FilterId; label: string }[] = [
+  { id: 'mine', label: 'My items' },
+  { id: 'week', label: 'This week' },
+  { id: 'unclaimed', label: 'Unassigned' },
+];
 
-/** No ?filter= is the role's default view; an unknown one reads as All. */
+/** No ?filter= is the role's default view; a retired one maps to the view
+ *  that covers it (RETIRED_WORK_FILTERS); an unknown one reads as All. */
 function parseFilter(value: string | null, fallback: FilterId = 'all'): FilterId {
   if (!value) return fallback;
+  if (Object.hasOwn(RETIRED_WORK_FILTERS, value)) return RETIRED_WORK_FILTERS[value];
   return (FILTER_IDS as string[]).includes(value) ? (value as FilterId) : 'all';
 }
 function parseTab(value: string | null): TabId {
@@ -512,24 +523,20 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
           <Pill active={activeFilter === 'scheduled'} onClick={() => setFilter('scheduled')} label="Scheduled" count={counts.scheduled} />
           <Pill active={activeFilter === 'waiting'} onClick={() => setFilter('waiting')} label="Waiting" count={counts.waiting} />
           <Pill active={activeFilter === 'backlog'} onClick={() => setFilter('backlog')} label="Backlog" count={counts.backlog} />
+          {(counts.overdue > 0 || activeFilter === 'overdue') && <Pill active={activeFilter === 'overdue'} onClick={() => setFilter('overdue')} label="Overdue" count={counts.overdue} accent="var(--signal)" />}
           <Pill active={activeFilter === 'all'} onClick={() => setFilter('all')} label="All" count={counts.all} />
+          {LINKED_ONLY_FILTERS.filter((f) => f.id === activeFilter).map((f) => (
+            <Pill key={f.id} active onClick={() => setFilter(f.id)} label={f.label} count={f.id === 'mine' ? counts.mine : f.id === 'week' ? counts.week : counts.unclaimed} />
+          ))}
           <select aria-label="More work filters" value={MORE_FILTERS.includes(activeFilter) ? activeFilter : ''}
             onChange={e => setFilter((e.target.value || 'all') as FilterId)} style={{ ...selectStyle(), width: MORE_FILTERS.includes(activeFilter) ? 'auto' : 96, padding: '8px', fontSize: 12, minHeight: 44 }}>
             <option value="">{MORE_FILTERS.includes(activeFilter) ? 'All' : 'More'}</option>
-            <option value="mine">My items ({counts.mine})</option>
-            <option value="my-week">My week ({counts.myWeek})</option>
-            <option value="week">This week ({counts.week})</option>
-            <option value="overdue">Overdue ({counts.overdue})</option>
-            <option value="due-today">Due today ({counts.dueToday})</option>
-            {!onSlips && <option value="blocked">Blocked ({counts.blocked})</option>}
-            <option value="unclaimed">Unassigned ({counts.unclaimed})</option>
-            {onSlips && <option value="no-coordinator">Needs coordinator ({workSlips.filter(w => !w.coordinator_email).length})</option>}
-            <option value="high">High priority ({counts.high})</option>
             {onSlips && <option value="owner-action">Owner decisions ({counts.ownerAction})</option>}
             {onSlips && <option value="snoozed">Snoozed ({counts.snoozed})</option>}
+            {onSlips && <option value="no-coordinator">Needs coordinator ({workSlips.filter(w => !w.coordinator_email).length})</option>}
+            {!onSlips && <option value="blocked">Blocked ({counts.blocked})</option>}
           </select>
         </div>
-        {(activeFilter === 'next' || activeFilter === 'my-next') && <p style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 12 }}>Due this week, overdue, high priority, and work in progress. Waiting items without a follow-up date also appear here.</p>}
       </section>
 
       {onSlips && (

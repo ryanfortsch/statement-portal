@@ -76,3 +76,12 @@ export function workNeedsAction(item: BoardItem, today: string): boolean {
 export function workBacklog(item: BoardItem, today: string): boolean {
   return !workNeedsAction(item, today) && !workWaiting(item) && !workScheduled(item, today);
 }
+
+/** Board filters retired from the More select (2026-11-08, the round-two
+ *  audit). An old URL still lands on a lit view: each maps to the view that
+ *  now covers it, Next actions or For me. */
+export const RETIRED_WORK_FILTERS: Readonly<Record<string, 'next' | 'my-next'>> = {
+  'my-week': 'my-next',
+  high: 'next',
+  'due-today': 'next',
+};
