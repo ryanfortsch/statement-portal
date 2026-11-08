@@ -25,7 +25,7 @@ export function PreparationReview() {
     try {
       const res = await fetch('/api/channex/message-preparation', { cache: 'no-store', signal: AbortSignal.timeout(110000) });
       const body = await res.json();
-      if (!res.ok || body.ok !== true || body.format !== 2) {
+      if (!res.ok || body.ok !== true || body.format !== 3) {
         setError(errors[body.code] ?? 'The review is unavailable. Check your owner sign-in and the Channex preparation status.');
       } else setReview(body);
     } catch { setError('The review could not finish. Try again when the connection is available.'); }
@@ -45,6 +45,33 @@ export function PreparationReview() {
         : review ? `Observed ${stamp(review.checkedAt)}. This is a point-in-time review.` : 'Uses current and upcoming Calderwood stays in the next 500 days.'}</p>
     </section>
     {error && <p role="alert" className="mt-5 border-l-4 p-4 text-sm" style={{ borderColor: 'var(--negative)', color: 'var(--negative)' }}>{error}</p>}
+    {review && <section className="mt-8" aria-labelledby="handover-inputs">
+      <h2 id="handover-inputs" className="text-xl font-semibold">What still needs attention</h2>
+      <p className="mt-2 text-sm leading-6" style={{ color: 'var(--ink-3)' }}>Stored details can be rehearsed below. Guesty’s pending queue and the cleaner handover still need separate verification.</p>
+      <div className="mt-4 grid gap-4 md:grid-cols-2">
+        <article className="rounded-xl border p-5" style={{ borderColor: 'var(--rule)' }}>
+          <h3 className="font-semibold">Guest access details</h3>
+          <dl className="mt-3 grid grid-cols-[1fr_auto] gap-x-4 gap-y-2 text-sm">
+            <dt>Door code</dt><dd>{review.inputs.entryCode === 'stored' ? 'Stored · masked' : review.inputs.entryCode === 'stay_code_review' ? 'Verify each stay’s code' : 'Missing'}</dd>
+            <dt>Wi-Fi network</dt><dd>{review.inputs.wifiName ? 'Stored · masked' : 'Missing'}</dd>
+            <dt>Wi-Fi password</dt><dd>{review.inputs.wifiPassword ? 'Stored · masked' : 'Missing'}</dd>
+          </dl>
+          <p className="mt-3 text-xs leading-5" style={{ color: 'var(--ink-3)' }}>Stored values are not proof that the lock or network works. Recheck source details before the switch.</p>
+          <Link href="/properties/65_calderwood" className="mt-3 inline-block text-sm underline underline-offset-4">Review property details →</Link>
+        </article>
+        <article className="rounded-xl border p-5" style={{ borderColor: 'var(--rule)' }}>
+          <h3 className="font-semibold">Cleaner reminders</h3>
+          <p className="mt-3 text-sm font-medium" style={{ color: 'var(--signal)' }}>{review.inputs.cleaner.status === 'not_configured'
+            ? 'No Calderwood cleaner recipient configured'
+            : review.inputs.cleaner.status === 'disabled' ? 'Cleaner recipients are disabled'
+            : review.inputs.cleaner.status === 'multiple_recipients' ? 'Multiple recipients need review'
+            : 'Recipient and schedule access need verification'}</p>
+          <p className="mt-2 text-sm leading-6" style={{ color: 'var(--ink-3)' }}>Confirm Luana’s destination, a Calderwood-only schedule link, and the arrival and checkout details she needs. The old Guesty report link has not been replaced.</p>
+          <p className="mt-3 text-xs leading-5" style={{ color: 'var(--ink-3)' }}>A configured recipient alone does not verify the phone number, schedule access or SMS delivery.</p>
+          <Link href="/turnovers/settings#schedule-recipients" className="mt-3 inline-block text-sm underline underline-offset-4">Review cleaner settings →</Link>
+        </article>
+      </div>
+    </section>}
     <section className="mt-8">
       <div className="flex flex-wrap items-baseline justify-between gap-3 mb-4">
         <h2 className="text-xl font-semibold">Six workflows to preserve</h2>

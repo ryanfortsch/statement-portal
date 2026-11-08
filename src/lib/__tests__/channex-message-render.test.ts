@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { formatGuestyMessageDate, parsePreparationRenderInputs, rehearsePreparedMessages } from '../channex-messaging/preparation-render.ts';
+import { formatGuestyMessageDate, parsePreparationRenderInputs, rehearsePreparedMessages, reviewPreparationInputs } from '../channex-messaging/preparation-render.ts';
 import { compileCalderwoodTemplates } from '../channex-messaging/template-migration.ts';
 import { parsePreparationRules } from '../channex-messaging/preparation-rules.ts';
 import { syntheticCapture } from './fixtures/channex-template-capture.ts';
@@ -14,7 +14,7 @@ const stay: GuestyHandoffStay = { canonicalId: uid(10), id: '0'.repeat(24), list
 const clocks: SourceClocks = { start: stay.start, end: stay.end, timezone: 'America/New_York',
   plannedArrival: null, plannedDeparture: null, defaultArrival: '16:00', defaultDeparture: '11:00', confirmedAt: null };
 const raw = () => ({ property: { id: '65_calderwood', name: 'Synthetic home', wifi_name: 'PRIVATE_NETWORK' },
-  access: { smart_lock_code: 'PRIVATE_DOOR', key_code_location: 'PRIVATE_LOCATION', wifi_password: 'PRIVATE_WIFI' }, lockMapped: false,
+  access: { smart_lock_code: 'PRIVATE_DOOR', key_code_location: 'PRIVATE_LOCATION', wifi_password: 'PRIVATE_WIFI' }, lockMapped: false, cleanerRecipients: [] as { enabled: boolean; property_ids: string[]; region: string }[],
   bookings: [{ id: stay.canonicalId, property_id: '65_calderwood', check_in: stay.start, check_out: stay.end,
     status: 'confirmed', guest_name: 'PrivateGuest FullName' }] });
 const rules = () => parsePreparationRules(compileCalderwoodTemplates(syntheticCapture, Date.now()).map((r, i) => ({ ...r, id: uid(i + 1),
@@ -86,4 +86,41 @@ test('known credentials accidentally repeated in template literals are also remo
   value[0].migration_policy = { ...(value[0].migration_policy as object), bodySha256: createHash('sha256').update(value[0].body).digest('hex') };
   const result = rehearsePreparedMessages(value, parsePreparationRenderInputs(raw(), [stay]), stay, clocks);
   for (const secret of ['PRIVATE_', 'PrivateGuest', 'FullName']) assert.equal(JSON.stringify(result).includes(secret), false);
+});
+
+
+test('handover inputs distinguish stored values, missing data and mapped-lock stay codes', () => {
+  const value = raw();
+  assert.deepEqual(reviewPreparationInputs(parsePreparationRenderInputs(value, [stay])), {
+    entryCode: 'stored', wifiName: true, wifiPassword: true,
+    cleaner: { configuredRecipients: 0, enabledRecipients: 0, status: 'not_configured', scheduleAccessVerified: false, recipientVerified: false },
+  });
+  value.lockMapped = true;
+  assert.equal(reviewPreparationInputs(parsePreparationRenderInputs(value, [stay])).entryCode, 'stay_code_review');
+  value.lockMapped = false; value.access.smart_lock_code = ' '; value.access.wifi_password = ''; value.property.wifi_name = ' ';
+  const missing = reviewPreparationInputs(parsePreparationRenderInputs(value, [stay]));
+  assert.equal(missing.entryCode, 'missing'); assert.equal(missing.wifiName, false); assert.equal(missing.wifiPassword, false);
+});
+test('cleaner review honors exact scope and region, without granting access or exposing recipients', () => {
+  const value = raw();
+  value.cleanerRecipients = [{ enabled: true, property_ids: [], region: 'cape_ann' },
+    { enabled: true, property_ids: ['other-home'], region: 'bridgeport_ct' }];
+  const check = () => reviewPreparationInputs(parsePreparationRenderInputs(value, [stay])).cleaner;
+  assert.equal(check().status, 'not_configured');
+  value.cleanerRecipients.push({ enabled: false, property_ids: ['65_calderwood'], region: 'bridgeport_ct' });
+  assert.equal(check().status, 'disabled');
+  value.cleanerRecipients[2].enabled = true;
+  assert.equal(check().status, 'access_review');
+  value.cleanerRecipients.push({ enabled: true, property_ids: [], region: 'bridgeport_ct' });
+  assert.equal(check().status, 'multiple_recipients');
+  assert.equal(check().enabledRecipients, 2); assert.equal(check().configuredRecipients, 2);
+  assert.equal(check().scheduleAccessVerified, false); assert.equal(check().recipientVerified, false);
+  assert.deepEqual(render(value).find(r => r.key === 'cleaner_reminder')!.missingFields, ['cleaner_schedule_url']);
+  assert.equal(JSON.stringify(check()).includes('other-home'), false);
+});
+test('missing or malformed cleaner metadata cannot look like an empty successful read', () => {
+  for (const cleanerRecipients of [undefined, null, [{ enabled: true, property_ids: null, region: 'bridgeport_ct' }],
+    [{ enabled: true, property_ids: [], region: null }], [{ enabled: true, property_ids: [], region: 'bridgeport_ct', portal_token: 'PRIVATE' }]]) {
+    assert.throws(() => parsePreparationRenderInputs({ ...raw(), cleanerRecipients }, [stay]), /Message render inputs unavailable/);
+  }
 });

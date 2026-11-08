@@ -673,3 +673,36 @@ canonical scheduling, verify entry/Wi-Fi/link/recipient inputs, obtain current
 Guesty sent/pending/hold and stop-drain evidence for both audiences, and prove
 automatic channel and cleaner-SMS delivery. Guesty remains authoritative; all
 production Channex booking, inventory and messaging writers stay off.
+
+## Message inputs and cleaner setup review (2026-11-07 Eastern)
+
+Format 3 adds an owner-only input summary beside the masked per-stay rehearsals.
+Door-code presence, mapped-lock stay-code review, and Wi-Fi field presence are
+shown separately. Cleaner metadata is read with a bounded, ordered query and
+checked twice with the other private inputs. An empty property list covers only
+the recipient's region; explicit lists cover only their named homes. Missing,
+disabled, multiple and unverified recipients remain distinct. The query never
+selects a cleaner phone, name or bearer portal token, and no schedule link is
+rendered or declared verified by this review. Read failures cannot look like an
+empty successful result. A concurrent scope/enablement change invalidates the
+whole review.
+
+A private, guarded one-time operation filled three previously blank Calderwood
+fields from existing source data: the current Guesty listing's `lockCode`, and
+the Wi-Fi network/password embedded in the captured Guesty check-in message.
+Guesty's corresponding Wi-Fi listing fields were empty; the template is their
+source. The code was read twice with matching listing/account identity, and the
+captured template hash had to match the installed disabled preparation. The
+transaction required Guesty authority, disabled home automation, no mapped active
+lock, blank destinations, and RLS-protected credential storage. Door code and
+password live only in `property_access`; no secret was added to source or tests.
+Readback matched all three source values. This did not change a physical lock or
+network, and is not a physical-access test.
+
+The same live review found no recipient explicitly scoped to Calderwood and no
+region-wide Bridgeport recipient. Luana's destination and an appropriate
+Calderwood-only schedule link therefore remain unconfigured/unverified. The
+existing cleaner portal is checkout-oriented, so its arrival/checkout coverage
+must be reviewed before replacing the Guesty future-reservations report. No
+recipient, portal token, scope, queue, schedule or send was created. The Guesty
+cleaner queue follow-up remains unanswered at this observation.
