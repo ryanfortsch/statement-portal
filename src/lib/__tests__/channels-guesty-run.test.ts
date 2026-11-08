@@ -87,6 +87,12 @@ describe('the hub on a Guesty-run home', () => {
     assert.ok(hub.includes('{runbook && recent.length > 0 && ('), 'recent stays');
     assert.ok(/\{runbook && <section className="max-w-\[1100px\] mx-auto px-10" style=\{\{ width: '100%', paddingBottom: 40 \}\}>/.test(hub), 'the stat strip');
   });
+  test('+ Booking and + Block go quiet and Property record is the exit; a Helm-run home keeps them primary', () => {
+    assert.ok(hub.includes("style={helmRun ? primaryButton : ghostButton}>+ Booking</Link>"));
+    assert.ok(hub.includes("style={helmRun ? secondaryButton : ghostButton}>+ Block</Link>"));
+    assert.ok(hub.includes('{!helmRun && <Link href={`/properties/${propertyId}`} style={secondaryButton}>Property record →</Link>}'));
+    assert.ok(hub.includes('{helmRun && <Link href={`/properties/${propertyId}`} style={ghostButton}>Property record →</Link>}'), 'Property record prints once');
+  });
   test('the feed rows, the export links and upcoming stays are always there', () => {
     const feeds = hub.indexOf('{orderedFeeds(feeds).map(');
     const before = hub.slice(Math.max(0, hub.lastIndexOf('{/* ── Feed health', feeds)), feeds);

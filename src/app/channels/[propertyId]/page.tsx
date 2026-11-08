@@ -210,7 +210,7 @@ export default async function ChannelsPropertyPage({
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 24 }}>
         <div className="flex items-center gap-3 flex-wrap">
           <Link href="/channels" style={ghostButton}>← Channels</Link>
-          <Link href={`/properties/${propertyId}`} style={ghostButton}>Property record →</Link>
+          {helmRun && <Link href={`/properties/${propertyId}`} style={ghostButton}>Property record →</Link>}
           <Link href={`/channels/${propertyId}/calendar?month=${monthKey(ym.year, ym.month)}`} style={ghostButton}>Month grid →</Link>
           {owner && propertyId === '65_calderwood' && <Link href="/channels/65_calderwood/message-preparation" style={ghostButton}>Message handover →</Link>}
           <Link href={`/book/${propertyId}`} target="_blank" style={ghostButton}>Public booking page ↗</Link>
@@ -221,8 +221,11 @@ export default async function ChannelsPropertyPage({
             <Link href={`/channels/${propertyId}`} style={ghostButton}>Close cutover</Link>
           )}
           <span style={{ flex: 1 }} />
-          <Link href={`/channels/bookings/new?property=${propertyId}`} style={primaryButton}>+ Booking</Link>
-          <Link href={`/channels/bookings/new?property=${propertyId}&type=block`} style={secondaryButton}>+ Block</Link>
+          {/* On a Guesty-run home nothing written here reaches an OTA, so the
+              writes go quiet and the property record is the way out. */}
+          <Link href={`/channels/bookings/new?property=${propertyId}`} style={helmRun ? primaryButton : ghostButton}>+ Booking</Link>
+          <Link href={`/channels/bookings/new?property=${propertyId}&type=block`} style={helmRun ? secondaryButton : ghostButton}>+ Block</Link>
+          {!helmRun && <Link href={`/properties/${propertyId}`} style={secondaryButton}>Property record →</Link>}
         </div>
       </section>
 
