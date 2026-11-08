@@ -249,8 +249,13 @@ export const ONBOARDING_COST = ONBOARDING_OUTFIT_COST + ONBOARDING_PHOTO_COST;
 /* (Apr 2025 → Apr 2026, 12-mo window). See forecast-actuals.ts.         */
 /* --------------------------------------------------------------------- */
 
-/** Office rent at 85 Eastern Ave. Confirmed: 3 ACHs of $750 in 2026. */
-export const OFFICE_RENT_MONTHLY = 750;
+/** 85 Eastern: downstairs $750/mo; Suite 107 adds $250/mo from July 2026.
+ * July's added room was billed at $80; August onward totals $1,000/mo.
+ * Both leases retained in October; continuation after Feb 2027 is assumed.
+ */
+export const OFFICE_BASE_RENT_MONTHLY = 750;
+export const OFFICE_ADDITIONAL_RENT_MONTHLY = 250;
+export const OFFICE_RENT_MONTHLY = OFFICE_BASE_RENT_MONTHLY + OFFICE_ADDITIONAL_RENT_MONTHLY;
 /**
  * The office dumpster: Republic Services, billed to the card and filed as
  * Rent & office. Nothing on the card before April 2026, when the office
@@ -962,8 +967,11 @@ export function dumpsterCost(year: number, month: number): number {
 }
 
 /** Rent alone for a month: the operating-account half of the Office line. */
-export function rentCost(month: number, startMonth: number): number {
-  return month < startMonth ? 0 : OFFICE_RENT_MONTHLY;
+export function rentCost(year: number, month: number, startMonth: number): number {
+  if (month < startMonth) return 0;
+  if (year < 2026 || (year === 2026 && month < 7)) return OFFICE_BASE_RENT_MONTHLY;
+  if (year === 2026 && month === 7) return OFFICE_BASE_RENT_MONTHLY + 80;
+  return OFFICE_RENT_MONTHLY;
 }
 
 /**
@@ -972,7 +980,7 @@ export function rentCost(month: number, startMonth: number): number {
  */
 export function officeCost(year: number, month: number, startMonth: number): number {
   if (month < startMonth) return 0;
-  return rentCost(month, startMonth) + dumpsterCost(year, month);
+  return rentCost(year, month, startMonth) + dumpsterCost(year, month);
 }
 
 /**
@@ -1316,7 +1324,7 @@ export function calcYear(
           else if (endings) opCount -= 1 - endings.keep(p.id, year, m);
         }
       }
-      const exp_office = cardOnly ? a.exp_office + rentCost(m, config.officeStartMonth) : a.exp_office;
+      const exp_office = cardOnly ? a.exp_office + rentCost(year, m, config.officeStartMonth) : a.exp_office;
       const exp_debt = cardOnly ? bookkeeperCost(m, config.bookkeeperLastMonth) : a.exp_debt;
       const exp_insurance = cardOnly
         ? a.exp_insurance + (m === INSURANCE_MONTH ? INSURANCE_ANNUAL : 0) + workersCompCost(year, m)
