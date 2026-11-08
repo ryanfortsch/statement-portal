@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { agendaGroups, homeAgendaPreview, appointmentClock, compactAppointmentClock, agendaSourceStatus, agendaSourceGap, ATTENDANCE_LABEL, overlappingAppointments, safeSourceUrl, type AgendaData, type AgendaEntry } from '@/lib/appointment-agenda';
 import { houseDay } from '@/lib/house-date';
+import { MeetingAttendance } from './MeetingAttendance';
 
 export function AppointmentAgenda({ data, full = false }: { data: AgendaData; full?: boolean }) {
   const groups = agendaGroups(data.entries, data.today, data.through);
@@ -96,7 +97,9 @@ function AppointmentRow({ entry: e, overlap, compact = false }: { entry: AgendaE
     <Link href={e.href} className="rt-agenda-title">{e.title}</Link>
     <span className="rt-agenda-context">
       {e.propertyName && <span>{e.propertyName} · </span>}
-      <span className={e.attendance === 'coverage_needed' ? 'rt-agenda-attention' : undefined}>{e.id.startsWith('meeting:') ? 'Attendance to confirm' : ATTENDANCE_LABEL[e.attendance]}</span>
+      {e.id.startsWith('meeting:')
+        ? <MeetingAttendance entry={e} />
+        : <span className={e.attendance === 'coverage_needed' ? 'rt-agenda-attention' : undefined}>{ATTENDANCE_LABEL[e.attendance]}</span>}
     </span>
     {overlap && <span className="rt-agenda-warning">Overlapping window · Separate coverage needed</span>}
   </>;

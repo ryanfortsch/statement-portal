@@ -2,7 +2,7 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { appointmentAddressConflict } from '../appointment-evidence.ts';
 import { checkOwnerAppointment } from '../owner-appointments-core.ts';
-import { homeAgendaPreview, agendaGroups, agendaWindow, appointmentClock, compactAppointmentClock, agendaSourceStatus, meetingToAgenda, mergeAgenda, overlappingAppointments, safeSourceUrl, sourceKeyFromUrl, validateAppointment, validDay, type AgendaEntry, type AppointmentInput, type SourceCoverage } from '../appointment-agenda.ts';
+import { homeAgendaPreview, agendaGroups, agendaWindow, appointmentClock, compactAppointmentClock, agendaSourceStatus, meetingAttendanceDetails, meetingToAgenda, mergeAgenda, overlappingAppointments, safeSourceUrl, sourceKeyFromUrl, validateAppointment, validDay, type AgendaEntry, type AppointmentInput, type SourceCoverage } from '../appointment-agenda.ts';
 
 const details: AppointmentInput = { title: 'Review with a business contact', date: '2026-11-02', time: '10:00', endTime: '10:30', timeKind: 'exact',
   status: 'confirmed', attendance: 'attending', propertyName: null, location: 'Video call', people: 'Alex Example', notes: null,
@@ -82,6 +82,38 @@ describe('input and evidence', () => {
     const m = meetingToAgenda({ id: 'm', contactId: 'c', contactName: 'Owner Example', propertyName: '4 Beach', title: 'Inspection at 21 Harbor', date: '2026-11-03', time: '10:00:00', location: '4 Beach', notes: null, important: true, kind: 'appointment' });
     assert.match(m.reviewReason!, /different street number/); assert.equal(m.propertyName, '4 Beach');
     assert.equal(m.attendance, 'coverage_needed'); assert.equal(m.status, 'tentative');
+  });
+  const card = { id: '0b8c2f2e-1d6a-4c55-9a51-2f4a8f1c0b11', contactId: 'c', contactName: 'Owner Example', propertyName: '4 Beach', title: 'Walk-through at 4 Beach', date: '2026-11-03', time: '10:00:00', location: '4 Beach', notes: null, important: true };
+  test('a CRM meeting or owner-booked record without a conflict is an ordinary row, still unconfirmed', () => {
+    for (const kind of ['meeting', 'appointment'] as const) {
+      const m = meetingToAgenda({ ...card, kind });
+      assert.equal(m.reviewReason, null, `${kind} is not a review item`);
+      assert.equal(m.status, 'tentative', 'no confirmation the CRM does not record');
+      assert.equal(m.attendance, 'coverage_needed', 'no inferred attendance');
+      const g = agendaGroups([m], '2026-10-31', '2026-11-29');
+      assert.deepEqual(g.scheduled.map(e => e.id), [m.id]); assert.equal(g.review.length, 0);
+    }
+  });
+  test('an attendance answer sets only that meeting row, without suppressing or copying it', () => {
+    const meeting = meetingToAgenda({ ...card, kind: 'meeting' });
+    const checked = validateAppointment(meetingAttendanceDetails(card.id, 'not_attending'));
+    assert.ok(checked.ok); assert.equal(checked.value.attendanceOnly, true);
+    assert.equal(checked.value.date, null); assert.equal(checked.value.location, null, 'nothing of the meeting is copied');
+    const answer = entry({ ...checked.value, id: 'ans', version: 2 });
+    const merged = mergeAgenda([answer], [meeting]);
+    assert.equal(merged.length, 1, 'the answer never renders as its own row');
+    assert.equal(merged[0].id, meeting.id); assert.equal(merged[0].date, '2026-11-03', 'date still from the CRM row');
+    assert.equal(merged[0].attendance, 'not_attending'); assert.equal(merged[0].status, 'tentative');
+    assert.deepEqual(merged[0].attendanceAnswer, { id: 'ans', version: 2 });
+    assert.deepEqual(agendaGroups(merged, '2026-10-31', '2026-11-29').other.map(e => e.id), [meeting.id]);
+    const other = meetingToAgenda({ ...card, id: '1b8c2f2e-1d6a-4c55-9a51-2f4a8f1c0b11', kind: 'meeting' });
+    assert.equal(mergeAgenda([answer], [other])[0].attendance, 'coverage_needed', 'an answer reaches only its own meeting');
+  });
+  test('an attendance answer names exactly one contact meeting', () => {
+    const d = meetingAttendanceDetails(card.id, 'attending');
+    assert.equal(validateAppointment({ ...d, sourceKeys: ['gcal:work:event'] }).ok, false);
+    assert.equal(validateAppointment({ ...d, sourceKeys: [d.sourceKeys[0], 'gcal:work:event'] }).ok, false);
+    assert.equal(validateAppointment({ ...d, attendanceOnly: 'yes' }).ok, false);
   });
 });
 describe('reconciliation and honest availability', () => {
