@@ -191,7 +191,7 @@ test('dashboard says a failed turnovers read, never a quiet week', async () => {
 });
 test('the signals are two numbers that say their window, plus payout for owners', async () => {
   const html = await dashboard();
-  assert.match(html, /Open work · this week/); assert.match(html, /Turnovers · next 7 days/);
+  assert.match(html, /Open work · next 7 days/); assert.match(html, /Turnovers · next 7 days/);
   assert.doesNotMatch(html, /Upcoming Inspections|Five-Star Reviews|Today&rsquo;s signals/);
 });
 

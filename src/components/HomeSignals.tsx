@@ -13,8 +13,10 @@ import { workWeekEnd } from '@/lib/work-week';
 
 /**
  * The home page's signals: the two numbers that change what you do today,
- * each saying its window ("Open work · this week", "Turnovers · next 7
- * days"), and the month's payout for owners.
+ * each saying the same window the same way ("Open work · next 7 days",
+ * "Turnovers · next 7 days"), and the month's payout for owners. The
+ * turnovers tile is itself the link; the cleanings strip under it carries
+ * the one "Turnovers →" verb, so the tile prints no second one.
  *
  * Its own async component so the page can stream: the masthead, title and
  * Ask Helm paint at once, and these counts load beside the feed instead of
@@ -240,7 +242,7 @@ export async function HomeSignals({ owner }: { owner: boolean }) {
         }}
       >
         <Stat
-          label="Open work · this week"
+          label="Open work · next 7 days"
           value={stats.weekWork != null ? String(stats.weekWork) : 'Unavailable'}
           sub={
             stats.overdueWork == null
@@ -256,7 +258,6 @@ export async function HomeSignals({ owner }: { owner: boolean }) {
         <Stat
           label="Turnovers · next 7 days"
           value={stats.turnovers != null ? String(stats.turnovers) : 'Unavailable'}
-          sub="All turnovers →"
           href="/turnovers?range=7d"
           size="hero"
           last={!owner}
