@@ -952,7 +952,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                 <details style={{ position: 'relative' }}>
                   <summary style={quietSummary}>Hand it off ▾</summary>
                   <div style={{ ...menuCard, display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-start' }}>
-                    {canAssign && (
+                    {dispatcher && (isAssignableStatus(packet.status)) && assignable.length > 0 && (
                       <details>
                         <summary style={quietSummary}>{packet.status === 'claimed' ? 'Reassign' : 'Assign directly'} ▾</summary>
                         <div style={subPanel}>
