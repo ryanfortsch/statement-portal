@@ -55,7 +55,7 @@ test("the owner's decision comes before what they found, the utilities and the s
   const approve = src.indexOf('<form action={approvePacket}', decision);
   const paid = src.indexOf('<form action={markPacketPaid}');
   assert.ok(decision > -1 && approve > decision && paid > decision);
-  for (const later of ['Inspection summary', '{owner && (homedReceipts.length', 'Preview as inspector', 'When ▾', '<StopList']) {
+  for (const later of ['Inspection summary', '{owner && (homedReceipts.length', 'Preview as contractor', 'When ▾', '<StopList']) {
     const at = src.indexOf(later);
     assert.ok(at > approve && at > paid, `${later} must follow the decision`);
   }

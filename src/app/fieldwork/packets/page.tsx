@@ -253,8 +253,7 @@ export default async function PacketsBoard({
           <h2 id="review-heading" style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', marginBottom: 8 }}>
             Needs review{visibleReviews ? ` · ${visibleReviews.length}` : ''}
           </h2>
-          <p style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 12 }}>Submitted jobs awaiting {owner ? 'your' : "Ryan's"} approval</p>
-          {visibleReviews === null ? <div role="status">Couldn’t load packets awaiting review. <RetryDashboard /></div>
+          {visibleReviews === null ? <div role="status">Couldn’t load jobs awaiting review. <RetryDashboard /></div>
             : visibleReviews.length === 0 ? <p style={{ fontSize: 13, color: 'var(--ink-3)' }}>No {TRADE_META[trade].singular} jobs awaiting approval.</p>
             : <div style={{ border: '1px solid var(--rule)', borderRadius: 10, overflow: 'hidden' }}>
               {visibleReviews.map(p => <div key={p.id} style={{ padding: '14px 18px', borderBottom: '1px solid var(--rule)', display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
@@ -382,7 +381,7 @@ export default async function PacketsBoard({
           </details>
         )}
       </section>
-      <HelmFooter module="Field" right={`${TRADE_META[trade].singular.charAt(0).toUpperCase()}${TRADE_META[trade].singular.slice(1)} packets`} />
+      <HelmFooter module="Field" right={`${TRADE_META[trade].singular.charAt(0).toUpperCase()}${TRADE_META[trade].singular.slice(1)} jobs`} />
     </div>
   );
 }
@@ -393,8 +392,8 @@ export default async function PacketsBoard({
 function releaseConfirm(name: string | null, visitPassed: boolean): string {
   const whose = name ? `${name.split(' ')[0]}'s claim` : 'this claim';
   return visitPassed
-    ? `Release ${whose}? The visit day has passed, so the packet lands in Drafts to re-date. Nobody is texted.`
-    : `Release ${whose}? The packet goes back on the board and the roster is texted again.`;
+    ? `Release ${whose}? The visit day has passed, so the job lands in Drafts to re-date. Nobody is texted.`
+    : `Release ${whose}? The job goes back on the board and the roster is texted again.`;
 }
 
 function DraftRow({ p }: { p: PacketRow }) {
@@ -441,11 +440,6 @@ function LiveRow({ p, who, dim, assigned = false, owner = false }: { p: PacketRo
     >
       <Link href={`/fieldwork/packets/${p.id}`} style={{ flex: 1, minWidth: 200, textDecoration: 'none', color: 'var(--ink)' }}>
         <span className="font-serif" style={{ fontSize: 17 }}>{p.title}</span>
-        {p.trade !== 'inspection' && (
-          <span style={{ fontSize: 9, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--tide-deep)', border: '1px solid var(--rule)', borderRadius: 999, padding: '1px 6px', marginLeft: 8, verticalAlign: 'middle' }}>
-            {TRADE_META[parseTrade(p.trade)].singular}
-          </span>
-        )}
         {p.kind === 'setup' && (
           <span style={{ fontSize: 9, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--signal)', border: '1px solid var(--rule)', borderRadius: 999, padding: '1px 6px', marginLeft: 8, verticalAlign: 'middle' }}>
             setup
