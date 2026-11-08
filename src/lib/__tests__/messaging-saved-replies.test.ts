@@ -14,8 +14,11 @@ const read = (repoPath: string): string =>
 describe('saved replies', () => {
   const src = read('src/app/messaging/blurbs/BlurbsLibrary.tsx');
 
-  test('Retire asks once and lands on a Retired tab with Restore', () => {
-    assert.ok(src.includes("confirmRetire ? 'Sure? Retire it' : 'Retire'"), 'Retire is two taps');
+  test('Retire asks through ConfirmDialog and lands on a Retired tab with Restore', () => {
+    assert.ok(src.includes("import { useConfirm } from '@/components/ConfirmDialog';"), 'the house dialog asks');
+    assert.ok(src.includes('await ask({ title: `Retire "${blurb.title}"?`'), 'Retire asks once, by name');
+    assert.ok(!src.includes('confirmRetire'), 'no second-tap timer');
+    assert.ok(!src.includes('window.confirm('), 'no native confirm');
     assert.ok(src.includes("retired: 'retired'"), 'a Retired tab exists');
     assert.ok(src.includes("setBlurbStatusAction(blurb.id, 'unapprove'), () => onRestored(blurb.id)"), 'Restore puts it back as a draft');
     assert.ok(src.includes('setRetiredHere'), 'a reply retired this session stays restorable after the refresh');

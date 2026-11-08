@@ -38,8 +38,6 @@ const ALLOWED: Record<string, { count: number; why: string }> = {
   'src/app/crm/NewContactModal.tsx': { count: 1, why: 'discard an unfinished contact' },
   'src/app/field/shoot/[shootId]/AnswerPanel.tsx': { count: 1, why: 'discard a typed reason' },
   'src/app/messaging/RemindersSection.tsx': { count: 1, why: 'discard an unsent draft' },
-  'src/components/ProactiveRemindersPanel.tsx': { count: 1, why: 'discard an unsent draft' },
-  'src/app/messaging/blurbs/BlurbsLibrary.tsx': { count: 2, why: 'discard saved-reply edits' },
   'src/app/properties/[id]/TaxCertEditor.tsx': { count: 1, why: 'discard a certificate ID edit' },
   'src/components/OwnerRequestsPanel.tsx': { count: 1, why: 'discard a request draft' },
   // Clipboard fallbacks: the prompt shows the link to copy by hand.
@@ -103,6 +101,7 @@ test('no listed file grows, and a converted one comes off the list', () => {
 
 test('the total only goes down', () => {
   const total = [...counts.values()].reduce((a, b) => a + b, 0);
-  // 65 on main before Phase 4 (2026-10-18), 24 after.
-  assert.ok(total <= 24, `${total} native dialog calls in src/`);
+  // 65 on main before Phase 4 (2026-10-18), 24 after, 21 after the
+  // messaging cluster moved to ConfirmDialog (2026-11-07).
+  assert.ok(total <= 21, `${total} native dialog calls in src/`);
 });

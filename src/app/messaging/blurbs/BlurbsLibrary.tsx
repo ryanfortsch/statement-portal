@@ -5,6 +5,7 @@ import { useRecoverableAction } from '@/lib/use-recoverable-action';
 import { useDraftNavigationGuard } from '@/lib/use-draft-navigation-guard';
 import { useRouter } from 'next/navigation';
 import { Section } from '@/components/Section';
+import { useConfirm } from '@/components/ConfirmDialog';
 import type { SavedBlurb } from '@/lib/stay-concierge';
 import { saveBlurbAction, setBlurbStatusAction, createBlurbAction } from './blurbs-actions';
 
@@ -16,7 +17,7 @@ import { saveBlurbAction, setBlurbStatusAction, createBlurbAction } from './blur
  *
  * 2026-10-17: a card reads as a saved reply, not a form. The title is text
  * with a pencil, the body is text with Edit; Save / Discard edits appear
- * only once something changed. Retire asks once and lands the reply on a
+ * only once something changed. Retire asks (ConfirmDialog) and lands the reply on a
  * Retired tab with Restore. The concierge's list carries retired rows since
  * stay-concierge #91, so the tab survives a reload; a reply retired in this
  * session shows there at once, before the next list. Restore is unapprove,
@@ -46,7 +47,6 @@ const TAB_STATUS: Record<Tab, SavedBlurb['status']> = { review: 'draft', live: '
  *  area a saved reply already uses is offered too. */
 const AREAS = ['gloucester', 'rockport', 'beverly'];
 
-const CONFIRM_MS = 5000;
 
 const chip = (bg: string, fg: string): React.CSSProperties => ({
   fontSize: 9,
@@ -222,8 +222,8 @@ function BlurbCard({
   const [body, setBody] = useState(blurb.body);
   const [editingTitle, setEditingTitle] = useState(false);
   const [editingBody, setEditingBody] = useState(false);
-  const [confirmRetire, setConfirmRetire] = useState(false);
   const action = useRecoverableAction();
+  const { ask } = useConfirm();
   const { error, setError, pending } = action;
   const [saved, setSaved] = useState({ title: blurb.title, body: blurb.body });
   const [notice, setNotice] = useState('');
@@ -238,12 +238,6 @@ function BlurbCard({
     // Only new server text should trigger this, never a local save baseline change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [blurb.title, blurb.body]);
-  // Retire asks once: the second tap within a few seconds does it.
-  useEffect(() => {
-    if (!confirmRetire) return;
-    const t = setTimeout(() => setConfirmRetire(false), CONFIRM_MS);
-    return () => clearTimeout(t);
-  }, [confirmRetire]);
   const isLive = blurb.status === 'approved';
   const isRetired = blurb.status === 'retired';
 
@@ -259,8 +253,10 @@ function BlurbCard({
     }, 'Could not confirm the change. Your edits are kept. Refresh to check the saved reply before trying again.');
   };
 
-  const discard = () => {
-    if (action.busy.current || !window.confirm('Discard these unsaved reply edits?')) return;
+  const discard = async () => {
+    if (action.busy.current) return;
+    if (!(await ask({ title: 'Discard these unsaved reply edits?', body: 'The saved wording stays as it was.', confirmLabel: 'Discard', tone: 'danger' }))) return;
+    if (action.busy.current) return;
     setTitle(saved.title); setBody(saved.body); setError(null); setNotice('');
     setEditingTitle(false); setEditingBody(false);
   };
@@ -381,15 +377,16 @@ function BlurbCard({
             <button
               disabled={pending || dirty}
               title="Stops the AI quoting it. It lands on the Retired tab, with Restore."
-              onClick={() => (confirmRetire ? run(() => setBlurbStatusAction(blurb.id, 'retire'), () => onRetired(blurb)) : setConfirmRetire(true))}
-              style={{
-                ...btn(),
-                border: `1px solid ${confirmRetire ? 'var(--signal)' : 'var(--rule)'}`,
-                color: confirmRetire ? 'var(--paper)' : 'var(--ink-4)',
-                background: confirmRetire ? 'var(--signal)' : 'transparent',
+              onClick={async () => {
+                // One question through the house dialog, not a second tap
+                // on a timer (UX audit 2026-11-07, Messaging finding 11).
+                if (action.busy.current) return;
+                if (!(await ask({ title: `Retire "${blurb.title}"?`, body: 'The AI stops quoting it. It lands on the Retired tab, with Restore.', confirmLabel: 'Retire', tone: 'danger' }))) return;
+                run(() => setBlurbStatusAction(blurb.id, 'retire'), () => onRetired(blurb));
               }}
+              style={btn()}
             >
-              {confirmRetire ? 'Sure? Retire it' : 'Retire'}
+              Retire
             </button>
           </>
         )}
@@ -416,6 +413,7 @@ function AddBlurbForm({
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const action = useRecoverableAction();
+  const { ask } = useConfirm();
   const { pending, error, setError } = action;
   const dirty = !!(title || body || scope !== 'fleet' || category !== 'other');
   useReportDraft('new-reply', open && dirty, pending, reportDraft);
@@ -509,8 +507,10 @@ function AddBlurbForm({
         <button disabled={pending || !title.trim() || !body.trim()} onClick={submit} style={btn(true)}>
           {pending ? 'Adding…' : 'Add as draft'}
         </button>
-        <button disabled={pending} onClick={() => {
-          if (action.busy.current || (dirty && !window.confirm('Discard this new saved reply?'))) return;
+        <button disabled={pending} onClick={async () => {
+          if (action.busy.current) return;
+          if (dirty && !(await ask({ title: 'Discard this new saved reply?', body: 'Nothing was added to the library.', confirmLabel: 'Discard', tone: 'danger' }))) return;
+          if (action.busy.current) return;
           setTitle(''); setBody(''); setScope('fleet'); setCategory('other'); setError(null); setOpen(false);
         }} style={btn()}>
           Cancel
