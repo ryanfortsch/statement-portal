@@ -30,7 +30,7 @@ export function ShowToChips({
             type="button"
             onClick={() => onToggle(c.id)}
             aria-pressed={on}
-            title={on ? `Only these ${noun} will see it` : `Limit this packet to ${c.name}`}
+            title={on ? `Only these ${noun} will see it` : `Limit this job to ${c.name}`}
             style={{
               font: 'inherit',
               fontSize: 12.5,

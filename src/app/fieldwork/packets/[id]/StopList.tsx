@@ -77,13 +77,13 @@ export function StopList({ packetId, items, canReorder }: { packetId: string; it
         if (!mounted.current) return;
         if (!result.ok) {
           if (currentKey.current === source) changeOrder(previous);
-          setError(result.error || 'Could not save the visit order. Please check the trip before retrying.');
+          setError(result.error || 'Could not save the visit order. Please check the job before retrying.');
         }
         softRefresh();
       } catch {
         if (!mounted.current) return;
         if (currentKey.current === source) changeOrder(previous);
-        setError('Could not confirm the visit order. Check the refreshed trip before retrying.');
+        setError('Could not confirm the visit order. Check the refreshed job before retrying.');
         softRefresh();
       } finally { lock.current = false; }
     });

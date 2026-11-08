@@ -51,7 +51,7 @@ export const metadata: Metadata = {
 
 function windowSummary(p: PacketDetail): string {
   if (p.kind === 'setup') return 'new-property setup · 2 to 4 hours on site';
-  if (p.trade === 'maintenance') return `${p.stop_count} ${p.stop_count === 1 ? 'job' : 'jobs'} to fix`;
+  if (p.trade === 'maintenance') return `${p.stop_count} ${p.stop_count === 1 ? 'repair' : 'repairs'} to fix`;
   // The real working window, not a slogan: when they can start (the first
   // stop's own checkout hour, or 9:30 if that home is already empty) through
   // the earliest guest arrival. Homes differ — a few check out at 10.
@@ -89,7 +89,7 @@ const NARRATIVE: Record<
     role:
       'You are the on-site hands for it. Inspect and stage each home to the standard, restock it, and catch issues before a guest does. The turnover runs on you being the last set of eyes before check-in.',
     steps: [
-      ['Claim a packet', 'Pick up a route of nearby homes, priced up front. First come, first served.'],
+      ['Claim a job', 'Pick up a route of nearby homes, priced up front. First come, first served.'],
       ['Bring your kit', 'Your Rising Tide kit has the essentials to restock and touch up at every stop.'],
       ['Make it guest-ready', 'Walk every room the way a guest will. Set it right, restock what is thin, and get every detail to flawless. Photos document your work.'],
       ['Submit and get paid', 'Send it in. Once the office reviews it, your payout is on the way.'],
@@ -100,8 +100,8 @@ const NARRATIVE: Record<
       <>keep them <span style={{ color: 'var(--signal-soft)' }}>running like new</span></>
     ),
     role:
-      "You are the fix-it hands for it. When a home needs a repair we bundle the jobs, price them up front, and hand you everything: what's wrong, where it sits in the home, what to bring, and how to get in. Fix it right and the next guest never knows anything was broken.",
-    steps: [['Claim a packet'], ['Read the jobs'], ['Fix it and photo it'], ['Submit and get paid']],
+      "You are the fix-it hands for it. When a home needs a repair we bundle the repairs, price them up front, and hand you everything: what's wrong, where it sits in the home, what to bring, and how to get in. Fix it right and the next guest never knows anything was broken.",
+    steps: [['Claim a job'], ['Read the repairs'], ['Fix it and photo it'], ['Submit and get paid']],
   },
 };
 
@@ -222,7 +222,7 @@ function PreviewBar({ trade, stage, sampled }: { trade: ContractorTrade; stage: 
     <div style={{ border: '1px solid var(--tide-deep)', background: 'rgba(58,107,138,0.08)', borderRadius: 10, padding: '12px 14px', marginBottom: 24 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
         <span style={{ fontSize: 13, color: 'var(--tide-deep)', lineHeight: 1.5 }}>
-          <strong>Office preview</strong>: exactly what {TRADE_META[trade].singular === 'inspector' ? 'an' : 'a'}{' '}
+          <strong>Preview as contractor</strong>: exactly what {TRADE_META[trade].singular === 'inspector' ? 'an' : 'a'}{' '}
           {TRADE_META[trade].singular} sees at this stage. Buttons are disabled, nothing is live
           {sampled ? ', and the work shown is sample data' : ''}. No invite goes out from here.
         </span>
@@ -586,7 +586,7 @@ export default async function FieldHome({
             Your work lives in Helm now, <span style={{ color: 'var(--signal-soft)' }}>{first}</span>
           </h1>
           <p style={{ fontSize: 14, color: 'rgba(245,239,226,0.78)', lineHeight: 1.6, margin: '24px 0 0' }}>
-            You&apos;re on payroll, so paid packets no longer come through this portal and nothing here pays.
+            You&apos;re on payroll, so paid jobs no longer come through this portal and nothing here pays.
             {contractor.work_board_access ? ' The property board and Flag something still work here.' : ' Flag something still works here.'}
             {' '}Everything else is in Helm with your Rising Tide sign-in.
           </p>
@@ -741,7 +741,7 @@ export default async function FieldHome({
                   phone and the profile switch on (notifyContractorsOfPacket). */}
               No routes are open this minute, but new ones post all the time.
               {contractor.phone && contractor.sms_opt_in
-                ? ' Once you can claim, we text you the moment a packet near you goes up.'
+                ? ' Once you can claim, we text you the moment a job near you goes up.'
                 : ' Once you can claim, they show up right here.'}
             </p>
           )}
@@ -777,7 +777,6 @@ export default async function FieldHome({
   const samples = preview && available.length === 0 && mine.length === 0 ? samplePackets(contractor.trade) : [];
   const sampled = samples.length > 0;
   const board = sampled ? samples : available;
-  const jobNoun = contractor.trade === 'maintenance' ? 'jobs' : 'packets';
 
   return (
     <FieldShell contractorName={contractor.full_name} showSignOut={!preview} showNav={!preview}>
@@ -818,7 +817,7 @@ export default async function FieldHome({
         const showGroupLabels = live.length > 0 && recent.length > 0;
         return (
           <section style={{ marginBottom: 40 }}>
-            <SectionHeader title="Your packets" count={live.length + finished.length} />
+            <SectionHeader title="Your jobs" count={live.length + finished.length} />
             {showGroupLabels && <GroupLabel text="Up next" />}
             {live.map((p) => (
               <PacketCard key={p.id} p={p} href={`/field/packet/${p.id}`} />
@@ -844,7 +843,7 @@ export default async function FieldHome({
                   }}
                 >
                   <span className="rt-chev" style={{ display: 'inline-block', transition: 'transform .15s ease', marginRight: 6 }}>▾</span>
-                  Earlier packets · {older.length}
+                  Earlier jobs · {older.length}
                 </summary>
                 {older.map((p) => (
                   <PacketCard key={p.id} p={p} href={`/field/packet/${p.id}`} />
@@ -876,7 +875,7 @@ export default async function FieldHome({
         <section>
           <SectionHeader title="Available now" />
           <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, margin: 0 }}>
-            No open {jobNoun} right now. New work posts all the time
+            No open jobs right now. New work posts all the time
             {contractor.phone && contractor.sms_opt_in
               ? ", and we'll text you the moment something goes up near you."
               : '. Turn on new-work texts on your Profile to hear the moment something goes up near you.'}

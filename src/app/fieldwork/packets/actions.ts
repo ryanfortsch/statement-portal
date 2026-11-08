@@ -537,7 +537,7 @@ function describeDrops(dropped: PacketDroppedProperty[]): string {
         case 'occupied':
           return `${d.name} has a guest in house that day`;
         case 'covered':
-          return `${d.name}'s next turnover is already on a packet or assigned`;
+          return `${d.name}'s next turnover is already on a job or assigned`;
         case 'no_coords':
           return `${d.name} has no map coordinates yet`;
         default:
@@ -933,7 +933,7 @@ export async function reorderPacketStops(packetId: string, orderedIds: string[])
   if (!packetId || !Array.isArray(orderedIds) || orderedIds.length === 0) return { ok: false, error: 'No stops to reorder.' };
   const { data: pkt, error: packetError } = await fieldDb().from('inspection_packets').select('status').eq('id', packetId).maybeSingle();
   if (packetError) return { ok: false, error: 'Could not load the trip. Please try again.' };
-  if (!pkt || !['draft', 'published', 'claimed', 'in_progress'].includes((pkt as { status: string }).status)) return { ok: false, error: 'This trip can no longer be reordered.' };
+  if (!pkt || !['draft', 'published', 'claimed', 'in_progress'].includes((pkt as { status: string }).status)) return { ok: false, error: 'This job can no longer be reordered.' };
 
   const { data: sData, error: stopsError } = await fieldDb().from('packet_stops').select('id, walk_order').eq('packet_id', packetId);
   if (stopsError) return { ok: false, error: 'Could not load the stops. Please try again.' };
@@ -943,7 +943,7 @@ export async function reorderPacketStops(packetId: string, orderedIds: string[])
     orderedIds.length === rows.length &&
     new Set(orderedIds).size === orderedIds.length &&
     orderedIds.every((id) => live.has(id));
-  if (!isPermutation) return { ok: false, error: 'The stops changed. Refresh the trip before reordering.' };
+  if (!isPermutation) return { ok: false, error: 'The stops changed. Refresh the job before reordering.' };
 
   const currentOrder = new Map(rows.map((r) => [r.id, r.walk_order]));
   const updates = orderedIds
@@ -954,7 +954,7 @@ export async function reorderPacketStops(packetId: string, orderedIds: string[])
   const results = await Promise.all(updates);
   if (results.some((r) => r.error || !r.data)) {
     revalidatePath(`/fieldwork/packets/${packetId}`);
-    return { ok: false, error: 'Some stops could not be saved. Refresh the trip to check its order before retrying.' };
+    return { ok: false, error: 'Some stops could not be saved. Refresh the job to check its order before retrying.' };
   }
   await fieldDb().from('packet_events').insert({ packet_id: packetId, actor_email: email, event_type: 'stops_reordered' });
   revalidatePath(`/fieldwork/packets/${packetId}`);
@@ -1517,7 +1517,7 @@ export async function approvePacket(formData: FormData): Promise<void> {
   const awardedId = (awarded as { awarded_contractor_id: string | null } | null)?.awarded_contractor_id ?? null;
   if (awardedId) {
     const { data: who } = await fieldDb().from('contractors').select('email').eq('id', awardedId).maybeSingle();
-    if (isOwnWork(email, (who as { email: string | null } | null)?.email)) throw new Error('This packet is your own work; an owner approves it.');
+    if (isOwnWork(email, (who as { email: string | null } | null)?.email)) throw new Error('This job is your own work; an owner approves it.');
   }
 
   // Optional above-and-beyond bonus, set right in the approve form. Clamped to

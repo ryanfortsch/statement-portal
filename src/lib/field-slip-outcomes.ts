@@ -16,15 +16,15 @@
 export type SlipOutcome = 'done' | 'handled' | 'open';
 
 export const SLIP_OUTCOME_LABEL: Record<SlipOutcome, string> = {
-  done: 'Done on this trip',
+  done: 'Done on this job',
   handled: 'Already handled',
   open: 'Still open',
 };
 
 /** One line under the choice, saying what it does. */
 export const SLIP_OUTCOME_HINT: Record<SlipOutcome, string> = {
-  done: 'The office closes it when they approve the trip.',
-  handled: 'Found done, not done by you. The office closes it when they approve the trip.',
+  done: 'The office closes it when they approve the job.',
+  handled: 'Found done, not done by you. The office closes it when they approve the job.',
   open: 'It stays on the list for the next visit.',
 };
 
@@ -35,11 +35,11 @@ export function alreadyHandledNote(name: string, extra?: string): string {
 
 /** The resolution note for a slip done during the walk, from the stepper. */
 export function doneOnTripNote(name: string): string {
-  return `Done on this trip by ${name} (Field)`;
+  return `Done on this job by ${name} (Field)`;
 }
 
 /** The stepper's answers as three disjoint id lists, one answer per slip:
- *  Done on this trip wins over Already handled (it is the claim of work),
+ *  Done on this job wins over Already handled (it is the claim of work),
  *  and either wins over Still open. Blank and repeated ids drop out. */
 export function slipVerdictLists(raw: { done?: string[]; handled?: string[]; open?: string[] }): {
   done: string[];
