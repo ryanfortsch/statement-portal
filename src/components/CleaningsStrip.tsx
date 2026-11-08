@@ -5,6 +5,8 @@ import { loadCleaningOutlook } from '@/lib/cleaning-schedule';
 import { ATTENTION_STATUSES, type CleaningDay, type CleaningStatus } from '@/lib/cleaning-days';
 import { VENDOR_LABEL } from '@/lib/vendor-schedule';
 import { loadUnplacedCleanerTexts } from '@/lib/cleaner-unplaced-server';
+import { loadTodayAtTheHouses } from '@/lib/home-houses-server';
+import { todayExtras, type TodayExtraRow } from '@/lib/home-houses';
 
 /**
  * Home-page strip: the cleaning crew's next three days, one column each,
@@ -46,7 +48,63 @@ function shortDate(date: string): string {
   );
 }
 
-function DayColumn({ day, today, last }: { day: CleaningDay; today: string; last: boolean }) {
+const EXTRA_REASON: Record<'no_cleaning' | 'other_cleaner', string> = {
+  no_cleaning: 'no cleaning',
+  other_cleaner: 'other cleaner',
+};
+
+const tagStyle: React.CSSProperties = {
+  fontFamily: 'var(--font-mono), monospace',
+  fontSize: 10,
+  letterSpacing: '.08em',
+  textTransform: 'uppercase',
+  flex: '0 0 auto',
+  minWidth: 62,
+  color: 'var(--ink-3)',
+};
+
+function Guest({ name }: { name: string | null }) {
+  return name ? <span style={{ color: 'var(--ink-3)', fontWeight: 400 }}> · {name}</span> : null;
+}
+
+function Tick() {
+  return <span aria-label="walked today" title="Walked today" style={{ color: 'var(--signal)', fontSize: 11 }}>✓</span>;
+}
+
+/** Today's houses the route cannot show: an off-route checkout, an
+ *  arrival, a home walked with no stay. */
+function ExtraRow({ row, walked }: { row: TodayExtraRow; walked: ReadonlySet<string> }) {
+  const tag = row.kind === 'out' ? 'Out' : row.kind === 'in' ? 'In' : 'Walked';
+  return (
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: 13, minWidth: 0 }}>
+      <span style={tagStyle}>{tag}</span>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: '2px 8px', flex: '1 1 auto', minWidth: 0 }}>
+        <span style={{ fontWeight: 600, color: 'var(--ink)', minWidth: 0, overflowWrap: 'anywhere' }}>
+          {row.propertyName}
+          {row.kind !== 'walked' && <Guest name={row.guestName} />}
+        </span>
+        {row.kind !== 'walked' && walked.has(row.propertyId) && <Tick />}
+        {row.kind === 'out' && (
+          <span style={{ fontSize: 11, color: 'var(--ink-4)', whiteSpace: 'nowrap' }}>{EXTRA_REASON[row.reason]}</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DayColumn({
+  day,
+  today,
+  last,
+  extras = [],
+  walked = new Set<string>(),
+}: {
+  day: CleaningDay;
+  today: string;
+  last: boolean;
+  extras?: TodayExtraRow[];
+  walked?: ReadonlySet<string>;
+}) {
   const quiet: React.CSSProperties = { fontSize: 13, color: 'var(--ink-4)' };
   return (
     <div
@@ -111,7 +169,9 @@ function DayColumn({ day, today, last }: { day: CleaningDay; today: string; last
                     }}
                   >
                     {item.propertyName}
+                    {!item.ownerStay && <Guest name={item.guestName} />}
                   </span>
+                  {walked.has(item.propertyId) && <Tick />}
                   {item.sameDayTurnover && (
                     <span
                       style={{
@@ -137,6 +197,13 @@ function DayColumn({ day, today, last }: { day: CleaningDay; today: string; last
           })}
         </div>
       )}
+      {extras.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
+          {extras.map((r) => (
+            <ExtraRow key={`${r.kind}|${r.propertyId}`} row={r} walked={walked} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -145,21 +212,35 @@ export async function CleaningsStrip() {
   if (!isServiceConfigured) return null;
   let sched: Awaited<ReturnType<typeof loadCleaningOutlook>>;
   let unplaced = 0;
+  let houses: Awaited<ReturnType<typeof loadTodayAtTheHouses>> = { checkouts: [], checkins: [], walks: [] };
   try {
     // Shared with the morning brief on this same page (React cache). The
-    // unplaced-texts read fails soft to none on its own.
-    const [outlook, texts] = await Promise.all([loadCleaningOutlook(supabase), loadUnplacedCleanerTexts()]);
+    // unplaced-texts and today's-houses reads fail soft to none on their own.
+    const [outlook, texts, today] = await Promise.all([loadCleaningOutlook(supabase), loadUnplacedCleanerTexts(), loadTodayAtTheHouses()]);
     sched = outlook;
     unplaced = texts.length;
+    houses = today;
   } catch {
     return null;
   }
   const { today, days, scheduleError } = sched;
+  // Today at the houses lives in the Today column: guest names on the
+  // route's lines, a tick where the home was walked, and one line each for
+  // what the route cannot show (2026-11-08, Dotti: one place, said once).
+  const todayDay = days.find((d) => d.date === today);
+  const { rows: extras, walked } = todayExtras({
+    routeHomes: new Set((todayDay?.items ?? []).map((i) => i.propertyId)),
+    skippedHomes: new Set((todayDay?.skipped ?? []).map((k) => k.propertyId)),
+    sameDayHomes: new Set((todayDay?.items ?? []).filter((i) => i.sameDayTurnover).map((i) => i.propertyId)),
+    checkouts: houses.checkouts,
+    checkins: houses.checkins,
+    walks: houses.walks,
+  });
 
   return (
     <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 56 }}>
       <div className="flex items-baseline justify-between flex-wrap" style={{ gap: 12, marginBottom: 14 }}>
-        <div className="eyebrow">Cleanings · {VENDOR_LABEL}</div>
+        <div className="eyebrow">At the houses · cleaner times from {VENDOR_LABEL}</div>
         <Link
           href="/turnovers?range=3d"
           style={{
@@ -189,7 +270,14 @@ export async function CleaningsStrip() {
         }}
       >
         {days.map((day, i) => (
-          <DayColumn key={day.date} day={day} today={today} last={i === days.length - 1} />
+          <DayColumn
+            key={day.date}
+            day={day}
+            today={today}
+            last={i === days.length - 1}
+            extras={day.date === today ? extras : undefined}
+            walked={day.date === today ? walked : undefined}
+          />
         ))}
       </div>
       {/* A cleaner's text Helm could not put on a house waits on the

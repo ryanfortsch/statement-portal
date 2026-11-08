@@ -7,7 +7,7 @@ import Link from 'next/link';
 import { auth } from '@/auth';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { ACTIVE_WORK_SLIP_STATUSES, ACTIVE_TASK_STATUSES, OFFICE_TODO_LABEL } from '@/lib/work-types';
-import { loadDailyBrief, type BriefEmail, type BriefInboundTouch, type BriefInspection, type BriefStay } from '@/lib/daily-brief';
+import { loadDailyBrief, type BriefEmail, type BriefInboundTouch } from '@/lib/daily-brief';
 import { fieldDb, isFieldConfigured } from '@/lib/field-db';
 import { loadShootBoard, shootPaySummary } from '@/lib/creative-shoots';
 import { dollars } from '@/lib/field-types';
@@ -32,7 +32,6 @@ import { HoldRow } from '@/app/cleaner-messaging/OwnerHoldQuestionsCard';
 import { homeFeedOrder, windowPayments, type FeedSection } from '@/lib/home-feed-order';
 import { EmptyState } from '@/components/EmptyState';
 import { seriousQueueText } from '@/lib/lease-leads-core';
-import { dropCarryOnStays } from '@/lib/home-houses';
 
 type MyWork = {
   id: string;
@@ -102,7 +101,6 @@ export async function ForMeFeed() {
   let needsReply: BriefEmail[] = [];
   let fyi: BriefEmail[] = [];
   let inboundWaiting: BriefInboundTouch[] = [];
-  let houses: TodayAtTheHouses = { out: [], in: [], walked: [] };
   let gmailConfigured = true;
   let gmailMailbox: string | null = null;
 
@@ -111,7 +109,6 @@ export async function ForMeFeed() {
     needsReply = brief.unreadEmails.filter((e) => e.triage === 'needs_reply');
     fyi = brief.unreadEmails.filter((e) => e.triage === 'fyi');
     inboundWaiting = brief.inboundWaiting;
-    houses = todayAtTheHouses(brief.checkoutsToday, brief.checkinsToday, brief.inspectionsCompletedToday);
     gmailConfigured = brief.gmailConfigured;
     gmailMailbox = brief.gmailMailbox;
   } catch {
@@ -379,11 +376,6 @@ export async function ForMeFeed() {
         ))
       )}
 
-      {/* TODAY AT THE HOUSES: who leaves and who arrives today, and the
-          homes walked today. The one block of the retired /today page the
-          home did not already have; under the feed, because it is the
-          day's backdrop rather than something waiting on you. */}
-      <TodayAtTheHousesSection houses={houses} />
     </section>
   );
 }
@@ -1130,117 +1122,6 @@ const sectionHeadingStyle: React.CSSProperties = {
   color: 'var(--ink)',
   margin: 0,
 };
-
-
-// ── Today at the houses ───────────────────────────────────────────
-
-type HouseRow = { kind: 'out' | 'in'; stay: BriefStay; walked: boolean };
-type TodayAtTheHouses = { out: HouseRow[]; in: HouseRow[]; walked: BriefInspection[] };
-
-/** Today's checkouts, then check-ins, each ticked when the home was walked
- *  today; a home walked with no stay today gets its own row. */
-function todayAtTheHouses(checkoutRows: BriefStay[], checkinRows: BriefStay[], walks: BriefInspection[]): TodayAtTheHouses {
-  // A guest out and back in at the same house is one stay carrying on.
-  const { out: checkouts, in: checkins } = dropCarryOnStays(checkoutRows, checkinRows);
-  const walkedHomes = new Set(walks.map((w) => w.propertyId));
-  const stayHomes = new Set([...checkouts, ...checkins].map((s) => s.propertyId));
-  const byName = (a: HouseRow, b: HouseRow) => a.stay.propertyName.localeCompare(b.stay.propertyName);
-  return {
-    out: checkouts.map((stay): HouseRow => ({ kind: 'out', stay, walked: walkedHomes.has(stay.propertyId) })).sort(byName),
-    in: checkins.map((stay): HouseRow => ({ kind: 'in', stay, walked: walkedHomes.has(stay.propertyId) })).sort(byName),
-    walked: walks.filter((w) => !stayHomes.has(w.propertyId)),
-  };
-}
-
-function TodayAtTheHousesSection({ houses }: { houses: TodayAtTheHouses }) {
-  const total = houses.out.length + houses.in.length + houses.walked.length;
-  if (total === 0) return null;
-  const eyebrow = [
-    houses.out.length > 0 ? `${houses.out.length} out` : null,
-    houses.in.length > 0 ? `${houses.in.length} in` : null,
-    houses.walked.length > 0 ? `${houses.walked.length} walked` : null,
-  ]
-    .filter(Boolean)
-    .join(' · ');
-  return (
-    <div data-feed-section="houses" style={{ marginTop: 12 }}>
-      <SectionHeaderLink href="/turnovers?range=today" title="Today at the houses" eyebrow={eyebrow} />
-      <div style={{ borderTop: '1px solid var(--ink)' }}>
-        {[...houses.out, ...houses.in].map((r, i) => (
-          <HouseStayRow key={`${r.kind}-${r.stay.propertyId}-${i}`} row={r} />
-        ))}
-        {houses.walked.map((w) => (
-          <Link
-            key={w.id}
-            href={`/inspections/${w.id}/summary`}
-            style={{ ...feedRowStyle, alignItems: 'baseline', textDecoration: 'none', color: 'inherit' }}
-          >
-            <span className="font-mono" style={houseTagStyle('var(--ink-3)')}>
-              Walked
-            </span>
-            <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 500, color: 'var(--ink)' }}>
-              {w.propertyName}
-              <WalkedTick />
-            </span>
-            <span style={{ flexShrink: 0, fontSize: 11, color: 'var(--ink-4)' }}>
-              {w.completedAt
-                ? new Date(w.completedAt).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })
-                : ''}
-            </span>
-          </Link>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function HouseStayRow({ row }: { row: HouseRow }) {
-  const { stay } = row;
-  return (
-    <Link
-      href={`/properties/${stay.propertyId}`}
-      style={{ ...feedRowStyle, alignItems: 'baseline', textDecoration: 'none', color: 'inherit' }}
-    >
-      <span className="font-mono" style={houseTagStyle(row.kind === 'out' ? 'var(--signal)' : 'var(--ink-3)')}>
-        {row.kind === 'out' ? 'Out' : 'In'}
-      </span>
-      <span style={{ flex: 1, minWidth: 0, fontSize: 14, color: 'var(--ink)' }}>
-        <span style={{ fontWeight: 500 }}>{stay.propertyName}</span>
-        {row.walked && <WalkedTick />}
-        {stay.guestName && <span style={{ color: 'var(--ink-3)' }}> · {stay.guestName}</span>}
-      </span>
-    </Link>
-  );
-}
-
-function WalkedTick() {
-  return (
-    <span
-      aria-label="walked today"
-      title="Walked today"
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        width: 16,
-        height: 16,
-        marginLeft: 8,
-        background: 'var(--signal)',
-        color: 'var(--paper)',
-        borderRadius: 999,
-        fontSize: 10,
-        lineHeight: 1,
-        verticalAlign: 'middle',
-      }}
-    >
-      ✓
-    </span>
-  );
-}
-
-function houseTagStyle(color: string): React.CSSProperties {
-  return { flexShrink: 0, minWidth: 44, fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color };
-}
 
 // ── Payments ──────────────────────────────────────────────────────
 
