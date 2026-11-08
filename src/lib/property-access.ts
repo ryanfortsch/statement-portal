@@ -95,6 +95,19 @@ export async function getPropertyAccess(propertyId: string): Promise<PropertyAcc
   }
 }
 
+/** Migration inspection needs to distinguish a missing row from a failed read.
+ * Caller must keep these values server-side; this reads only the needed fields. */
+export async function readMessageAccess(propertyId: string): Promise<Pick<PropertyAccess,
+  'smart_lock_code' | 'key_code_location' | 'wifi_password'> | null> {
+  try {
+    if (!propertyId || !isPropertyAccessConfigured) throw Error();
+    const { data, error } = await accessDb().from('property_access')
+      .select('smart_lock_code,key_code_location,wifi_password').eq('property_id', propertyId).maybeSingle();
+    if (error) throw Error();
+    return data;
+  } catch { throw Error('Message access read unavailable'); }
+}
+
 /** Batched variant for list/packet views. Missing ids simply aren't in the map. */
 export async function getPropertyAccessMap(
   propertyIds: string[],

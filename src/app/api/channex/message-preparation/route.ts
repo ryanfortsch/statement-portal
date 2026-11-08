@@ -7,6 +7,7 @@ import { ChannexRuntimeError, verifyDormantProductionStorage } from '@/lib/chann
 import { MessageHandoffError } from '@/lib/channex-bookings/message-identity';
 import { MessagePreparationError, reviewMessagePreparation } from '@/lib/channex-messaging/preparation';
 import { MESSAGE_RULE_FIELDS } from '@/lib/channex-messaging/preparation-rules';
+import { readMessageAccess } from '@/lib/property-access';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -20,18 +21,25 @@ export async function GET() {
         const { data, error } = await supabaseAdmin.rpc(name, args); return { data, error };
       }), token: getGuestyToken,
       context: async () => {
-        const [snapshot, property, rules, mirror] = await Promise.all([
+        const [snapshot, property, rules, mirror, access, locks, bookings] = await Promise.all([
           supabaseAdmin.rpc('helm_channex_booking_audit_snapshot', {}),
-          supabaseAdmin.from('properties').select('automations_enabled').eq('id', '65_calderwood').single(),
+          supabaseAdmin.from('properties').select('id,name,wifi_name,automations_enabled').eq('id', '65_calderwood').single(),
           supabaseAdmin.from('message_automations').select(MESSAGE_RULE_FIELDS)
             .or('property_id.is.null,property_id.eq.65_calderwood').order('id').limit(201),
           selectAllPaged((from, to) => supabaseAdmin.from('guesty_reservations')
             .select('guesty_reservation_id,property_id,listing_id,confirmation_code,check_in,check_out,channel,status')
             .eq('property_id', '65_calderwood').order('guesty_reservation_id').range(from, to), { pageSize: 500, maxRows: 5000 }),
+          readMessageAccess('65_calderwood'),
+          supabaseAdmin.from('lock_devices').select('device_id').eq('property_id', '65_calderwood').eq('active', true).limit(1),
+          selectAllPaged((from, to) => supabaseAdmin.from('bookings')
+            .select('id,property_id,check_in,check_out,status,guest_name').eq('property_id', '65_calderwood')
+            .in('status', ['confirmed', 'completed']).order('id').range(from, to), { pageSize: 500, maxRows: 5000 }),
         ]);
-        if (snapshot.error || property.error || rules.error || !rules.data)
+        if (snapshot.error || property.error || rules.error || !rules.data || locks.error || !locks.data)
           throw new MessagePreparationError('PREPARATION_READ_FAILED');
-        return { canonical: snapshot.data, automationsEnabled: property.data.automations_enabled, rules: rules.data, mirror };
+        const { id, name, wifi_name } = property.data;
+        return { canonical: snapshot.data, automationsEnabled: property.data.automations_enabled, rules: rules.data, mirror,
+          renderInputs: { property: { id, name, wifi_name }, access, lockMapped: locks.data.length > 0, bookings } };
       },
     });
     return NextResponse.json(review, { headers });

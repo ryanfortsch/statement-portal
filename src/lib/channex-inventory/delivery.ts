@@ -42,7 +42,7 @@ const accepted = z.object({ data: z.array(z.object({ id: z.string().uuid(), type
   meta: z.object({ message: z.literal('Success'), warnings: z.array(z.unknown()).length(0) }).strict() }).strict();
 const rejected = z.object({ errors: z.object({ code: z.enum(['unauthorized', 'http_too_many_requests']), title: z.string() }).strict() }).strict();
 /** Fixed production host, closed/unmapped property only. Deliberately unsuitable
- * for live cutover until channel-aware preflight and task settlement are reviewed.
+ * for live cutover until channel-aware preflight and acceptance/recovery are reviewed.
  * A 200 task receipt is acceptance only, never proof of completion or OTA delivery. */
 export function createUnmappedInventoryTransport(key: string, fetcher: typeof fetch = fetch, clock = Date.now): InventoryDeliveryTransport {
   if (typeof window !== 'undefined' || !key || key !== key.trim() || key.length > 4096 || /[\x00-\x20\x7f]/.test(key)) throw Error('Explicit production credential required');

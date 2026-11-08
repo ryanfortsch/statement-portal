@@ -5,12 +5,13 @@ import { resolveMessageStayIdentities, type GuestyHandoffStay } from '../channex
 import { todayInEastern, shiftIsoDay } from '../sca-quotes-types.ts';
 import { parsePreparationRules, reviewPreparationRules } from './preparation-rules.ts';
 import { confirmationInstant, reviewCalderwoodTiming, type SourceClocks } from './preparation-timing.ts';
+import { parsePreparationRenderInputs, rehearsePreparedMessages } from './preparation-render.ts';
 
 export class MessagePreparationError extends Error {
   readonly code: 'PREPARATION_READ_FAILED' | 'SOURCE_READ_FAILED' | 'SOURCES_CHANGED' | 'READ_LIMIT_REACHED';
   constructor(code: MessagePreparationError['code']) { super(code); this.code = code; }
 }
-export type PreparationContext = { canonical: unknown; mirror: unknown; rules: unknown; automationsEnabled: boolean };
+export type PreparationContext = { canonical: unknown; mirror: unknown; rules: unknown; automationsEnabled: boolean; renderInputs: unknown };
 type Deps = { context: () => Promise<PreparationContext>; verifyDormant: () => Promise<void>;
   token: () => Promise<string>; fetcher?: typeof fetch; clock?: () => number };
 function record(value: unknown): Record<string, unknown> {
@@ -74,7 +75,10 @@ export async function reviewMessagePreparation(env: Record<string, string | unde
     if (c.automationsEnabled !== false) throw new MessagePreparationError('PREPARATION_READ_FAILED');
     const canonical = parseCanonicalSnapshot(c.canonical), rules = parsePreparationRules(c.rules);
     const stays = resolveMessageStayIdentities(canonical, c.mirror, start, end);
-    return { revision: fingerprint({ canonical, mirror: c.mirror, rules }), stays, rules };
+    const renderInputs = parsePreparationRenderInputs(c.renderInputs, stays);
+    return { revision: fingerprint({ canonical, mirror: c.mirror, rules }), stays, rules, renderInputs,
+      // This private digest must never be returned: access codes can have low entropy.
+      privateRenderRevision: fingerprint(renderInputs) };
   };
   await deps.verifyDormant();
   const before = await context(); remaining();
@@ -105,13 +109,15 @@ export async function reviewMessagePreparation(env: Record<string, string | unde
     if (fingerprint(first) !== fingerprint(second)) throw new MessagePreparationError('SOURCES_CHANGED');
   }
   const after = await context(); await deps.verifyDormant(); remaining();
-  if (before.revision !== after.revision) throw new MessagePreparationError('SOURCES_CHANGED');
+  if (before.revision !== after.revision || before.privateRenderRevision !== after.privateRenderRevision)
+    throw new MessagePreparationError('SOURCES_CHANGED');
   const observedAt = clock();
-  return { ok: true as const, format: 1 as const, propertyId: '65_calderwood' as const,
+  return { ok: true as const, format: 2 as const, propertyId: '65_calderwood' as const,
     checkedAt: new Date(observedAt).toISOString(), contextRevision: before.revision,
     currentAndUpcomingStays: first.length, ...reviewPreparationRules(before.rules),
     stays: first.sort((a, b) => a.clocks.start.localeCompare(b.clocks.start) || a.canonicalId.localeCompare(b.canonicalId)).map(r => ({ canonicalId: r.canonicalId, checkIn: r.clocks.start, checkOut: r.clocks.end,
-      timings: reviewCalderwoodTiming(r.clocks, observedAt) })),
+      timings: reviewCalderwoodTiming(r.clocks, observedAt),
+      messages: rehearsePreparedMessages(before.rules, before.renderInputs, before.stays.find(s => s.canonicalId === r.canonicalId)!, r.clocks) })),
     sourceReads: requests, readyForAutomaticMessaging: false as const,
     guestyQueueVerified: false as const, templateParityVerified: false as const,
     jobsCreated: 0 as const, messagesSent: 0 as const };

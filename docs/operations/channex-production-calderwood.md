@@ -105,8 +105,8 @@ that PriceLabs has connected or populated this production rate.
    are available, but the deployed mode only inspects configuration. It does not
    read the revision feed, ACK bookings, publish dates or prove initial coverage.
    Keep staging credentials and the staging worker isolated. The production
-   consumer still needs complete upstream coverage/recovery, provider task
-   settlement and an operational failure surface before activation. The dormant
+   consumer still needs complete upstream coverage/recovery, provider acceptance
+   and latest-state recovery handling, and an operational failure surface before activation. The dormant
    dispatch ledger and transport below now preserve exact requests, leases,
    ambiguous outcomes and retry pacing. They are not wired to a production worker.
    Durable canonical-input planning is described below.
@@ -552,9 +552,9 @@ Matching scans do not establish atomic source completeness or source stop/drain.
 
 The next implementation step at that point was exact template capture and the
 canonical relative-timing/renderer integration, followed by reviewed queue preparation.
-Support ticket 2193130 still needs the human cleaner-SMS history/queue/drain answer;
-Evan's availability-task completion clarification is also outstanding. Neither
-support thread had a new reply at the start of this batch.
+Support ticket 2193130 still needed the human cleaner-SMS history/queue/drain answer;
+Evan's availability-task completion clarification had not yet been located at the
+start of that batch. The provider-reply update below supersedes this status.
 
 ## Six prepared canonical templates (2026-11-07)
 
@@ -616,3 +616,60 @@ Remaining work is the verified current-data renderer and canonical scheduling
 activation, rendered-date/credential/link checks, refreshed Guesty history and
 pending/hold/stop-drain evidence (including cleaner SMS), and end-to-end channel
 delivery. The new prepared rules must not be presented as launch-ready messaging.
+
+## Masked current-data rehearsal and provider replies (2026-11-07)
+
+The owner preparation endpoint now returns format 2: all six prepared templates
+can be expanded for each exactly matched current/upcoming stay. The private
+server read includes only the property label, Wi-Fi name, required protected
+access fields, active-lock presence and matched canonical guest names/dates.
+Names and credentials are replaced with labels **before** rendering; known
+literal repeats are masked as well. Missing values remain visible as missing.
+Both context reads must agree, including a private render-input fingerprint that
+is never returned. Read errors, duplicate/changed identities and changed inputs
+discard the whole review. No new send body, queue row or schedule is persisted.
+
+An available static code is only a field-presence observation, not proof that it
+opens the door. An active lock mapping requires a separately verified stay code;
+a key-location note cannot fill that field. Wi-Fi values still require source
+comparison. The cleaner schedule URL remains missing until its replacement and
+recipient access are verified. Custom or unknown arrival/departure times flag
+messages containing standard-time wording for review. Every rehearsal returns
+`canSend: false`; fields present must not be interpreted as delivery readiness.
+
+Guesty's support export was downloaded privately with explicit permission. Its
+guest conversation records support source-wording comparisons and an English
+date display with short month, ordinal day and year. The rehearsal uses this
+scoped date formatter; generic Helm dates and the dormant production sender are
+unchanged. The export's conversation status is **not** an individual delivery
+receipt, and its post timestamps are not source scheduled-send timestamps.
+Guesty explicitly said cleaner messages are unsupported in this report. The
+approved follow-up on ticket 2193130 was sent asking whether disabling the
+workflow cancels already queued SMS and how their agent can verify queue drain
+and cleaner history. No automation change was requested. The CSV and captured
+customer text remain outside the repository.
+
+Evan's reply, sent at 2026-11-07T03:10:32Z and located in a separate conversation,
+clarifies the production availability contract:
+
+- Task status is available in the property UI/log, but
+  `GET /api/v1/tasks/{id}` is **not a supported PMS contract**, even if present
+  in OpenAPI. A successful availability POST means accepted into Channex;
+  delivery to channels is asynchronous.
+- There is no availability request/idempotency key. Serialize by property,
+  retain the latest intended absolute availability, and after a timeout resend
+  the latest absolute state, never an old payload.
+
+This resolves the contract question; it does not retrofit that behavior into the
+current dormant ledger. Accepted/uncertain attempts still block its lane and
+there is no settlement RPC or task poller. Before enabling it, replace that
+incomplete lifecycle with reviewed acceptance/latest-state recovery, preserve
+serialization and freshness fencing, and expose uncertain channel state for
+operations. Historical calendar equality must not be called OTA delivery proof.
+Do not add a production task-status poller or simply unpark old attempts.
+
+Remaining launch work: connect this source-compatible renderer to reviewed
+canonical scheduling, verify entry/Wi-Fi/link/recipient inputs, obtain current
+Guesty sent/pending/hold and stop-drain evidence for both audiences, and prove
+automatic channel and cleaner-SMS delivery. Guesty remains authoritative; all
+production Channex booking, inventory and messaging writers stay off.
