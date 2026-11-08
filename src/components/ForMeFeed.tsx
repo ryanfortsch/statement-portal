@@ -17,6 +17,8 @@ import { listRecentPaymentLinks, type PaymentLinkRow } from '@/lib/payment-links
 import { ageLabel, LINK_LOOKBACK_DAYS, money, paymentLinkStatus, stripeKeyFixUrl } from '@/lib/payment-links-text';
 import { PaymentLinkActions } from '@/app/messaging/send/PaymentLinkActions';
 import { AppointmentAgendaSection } from '@/components/agenda/AppointmentAgendaSection';
+import { loadAppointmentAgenda } from '@/lib/appointment-agenda-server';
+import { homeAgendaSpeaks } from '@/lib/appointment-agenda';
 import { todayET } from '@/lib/meetings-core';
 import { countLater, groupByDay, workDateLabel, workDay, type WeekDay, type WorkDateKind } from '@/lib/home-week';
 import { operatingDate } from '@/lib/operating-date';
@@ -193,6 +195,10 @@ export async function ForMeFeed() {
   const myWork = pickForFeed(plate, workMode, WORK_WINDOW);
   const weekCount = weekDays.reduce((n, d) => n + d.items.length, 0);
   const walksLater = countLater(plannedWalks.map((w) => ({ date: w.plannedFor })), weekToday);
+  // The 30-day appointment agenda, loaded here so the feed knows whether the
+  // block has anything to say; with nothing on it and no dated work the week
+  // section is null and the All clear below can show.
+  const agenda = await loadAppointmentAgenda();
 
   const emailsFiltered = needsReply.filter((e) => !dismissed.has(`email:${e.id}`));
   const visibleInbound = inboundWaiting.filter((t) => !dismissed.has(`inbound:${inboundId(t)}`));
@@ -226,11 +232,13 @@ export async function ForMeFeed() {
         </>
       ) : null,
 
-    // Appointments always render, including unavailable-source coverage.
-    // Walks and dated work keep their existing seven-day window underneath.
+    // Appointments render whenever the agenda has something to say (a row,
+    // or a source that should be syncing and is not). Walks and dated work
+    // keep their seven-day window underneath.
     week:
+      homeAgendaSpeaks(agenda) || weekDays.length > 0 ? (
       <>
-        <AppointmentAgendaSection />
+        <AppointmentAgendaSection data={agenda} />
         {weekDays.length > 0 ? (
           <>
             <SectionHeader title="Scheduled work" eyebrow={`${weekCount} · Next 7 days`} />
@@ -242,7 +250,8 @@ export async function ForMeFeed() {
             </div>
           </>
         ) : null}
-      </>,
+      </>
+      ) : null,
 
     // NEEDS YOUR REPLY: triaged mail flagged for a reply and texts or
     // emails from a contact still waiting on us; then, with no heading, the

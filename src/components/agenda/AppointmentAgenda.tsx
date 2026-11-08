@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { agendaGroups, homeAgendaPreview, appointmentClock, compactAppointmentClock, agendaSourceStatus, ATTENDANCE_LABEL, overlappingAppointments, safeSourceUrl, STATUS_LABEL, type AgendaData, type AgendaEntry } from '@/lib/appointment-agenda';
+import { agendaGroups, homeAgendaPreview, appointmentClock, compactAppointmentClock, agendaSourceStatus, agendaSourceGap, ATTENDANCE_LABEL, overlappingAppointments, safeSourceUrl, type AgendaData, type AgendaEntry } from '@/lib/appointment-agenda';
 import { houseDay } from '@/lib/house-date';
 
 export function AppointmentAgenda({ data, full = false }: { data: AgendaData; full?: boolean }) {
@@ -8,31 +8,45 @@ export function AppointmentAgenda({ data, full = false }: { data: AgendaData; fu
   const total = groups.scheduled.length + groups.review.length + groups.other.length;
   const preview = homeAgendaPreview(groups, data.today, data.through);
   const render = (items: AgendaEntry[]) => items.map(e => <AppointmentRow key={e.id} entry={e} overlap={overlaps.has(e.id)} compact={!full} />);
+  const addLink = <Link href="/appointments/new" className="rt-agenda-add">+ Add<span className="sr-only"> appointment</span></Link>;
   const sourceDetails = <details id={full ? 'sources' : undefined} className="rt-agenda-coverage">
     <summary><span role="status">{agendaSourceStatus(data.sources)}</span></summary>
     <div className="rt-agenda-details-body">
-      {data.sources.some(s => !s.excluded && s.state !== 'available') && <p>New or changed appointments from sources that are not syncing may be missing.</p>}
+      {agendaSourceGap(data.sources) && <p>New or changed appointments from sources that are not syncing may be missing.</p>}
       <ul>{data.sources.map(s => <li key={s.name}><strong>{s.name}{s.excluded ? ' (not included)' : s.state !== 'available' ? ` (${s.state.replaceAll('_', ' ')})` : ''}: </strong>{s.detail}</li>)}</ul>
       <Link href="/turnovers">Walks and turnovers</Link> · <Link href="/turnovers/cleanings">Vendor cleanings</Link>
     </div>
   </details>;
+  // Home with nothing on the agenda: one line and the add verb, plus the
+  // source line only when a source that should be feeding the agenda is not
+  // (that one stays visible by the agenda's rules). No heading, no "All →".
+  if (!full && total === 0) {
+    return <section aria-label="Upcoming appointments" className="rt-agenda rt-agenda-home">
+      <p className="rt-agenda-empty">No appointments in the next 30 days · {addLink}</p>
+      {agendaSourceGap(data.sources) && sourceDetails}
+    </section>;
+  }
   return <section aria-label="Upcoming appointments" className={`rt-agenda${full ? '' : ' rt-agenda-home'}`}>
     <div className="rt-agenda-heading">
-      <h2>{full ? 'Upcoming appointments' : 'Upcoming'}</h2>
+      {/* The full page's one title is the page's own; this row carries the
+          window and the add verb. The home block keeps its heading. */}
+      {full
+        ? <p className="rt-agenda-window">Next 30 days · through {houseDay(data.through)} · Eastern time</p>
+        : <h2>Upcoming</h2>}
       <div className="rt-agenda-heading-actions">
-        {!full && <Link href="/appointments">All{total ? ` ${total}` : ''}<span className="sr-only"> appointments</span> →</Link>}
-        <Link href="/appointments/new" className="rt-agenda-add">+ Add<span className="sr-only"> appointment</span></Link>
+        {!full && <span className="eyebrow">Eastern time</span>}
+        {!full && <Link href="/appointments">All {total}<span className="sr-only"> appointments</span> →</Link>}
+        {addLink}
       </div>
     </div>
-    {full && <><p className="rt-agenda-window">Next 30 days · through {houseDay(data.through)} · Eastern time</p>{sourceDetails}</>}
+    {full && sourceDetails}
     {!full && <>
       {render(preview)}
-      {preview.length === 0 && <p className="rt-agenda-empty">{total > 0 ? 'Open the agenda for visits and plans awaiting a date.' : 'No upcoming appointments to show.'}</p>}
+      {preview.length === 0 && <p className="rt-agenda-empty">Open the agenda for visits and plans awaiting a date.</p>}
       {overlaps.size > 0 && <Link className="rt-agenda-warning" href="/appointments#scheduled">{overlaps.size} appointments overlap →</Link>}
       <div className="rt-agenda-home-footer">
         {sourceDetails}
         {groups.review.length > 0 && <Link href="/appointments#review">{groups.review.length} to review →</Link>}
-        <span>Eastern time</span>
       </div>
     </>}
     {full && <>
@@ -71,10 +85,13 @@ function AppointmentRow({ entry: e, overlap, compact = false }: { entry: AgendaE
       <span className="rt-agenda-brief-arrow" aria-hidden="true">→</span>
     </Link>;
   }
+  // The group heading already says the status once; the row's right-hand
+  // slot is its one verb.
+  const verbHref = e.editable || e.id.startsWith('capture:') ? e.href : `/appointments/new?meeting=${encodeURIComponent(e.id.slice('meeting:'.length))}`;
   const heading = <>
     <span className="rt-agenda-when">
       <strong>{e.date ? houseDay(e.date) : 'Date to arrange'} · {appointmentClock(e)}</strong>
-      <span>{review && e.status === 'confirmed' ? 'Needs confirmation' : STATUS_LABEL[e.status]}</span>
+      <Link href={verbHref}>{e.editable ? 'Edit / reschedule' : 'Review for my agenda'}</Link>
     </span>
     <Link href={e.href} className="rt-agenda-title">{e.title}</Link>
     <span className="rt-agenda-context">
@@ -102,8 +119,6 @@ function AppointmentDetails({ entry: e }: { entry: AgendaEntry }) {
     {e.notes && <p style={{ whiteSpace: 'pre-line' }}>{e.notes}</p>}
     <div className="rt-agenda-links">
       {sourceUrl ? <a href={sourceUrl} target="_blank" rel="noopener noreferrer">{e.sourceLabel} ↗</a> : <span>{e.sourceLabel}</span>}
-      {e.updatedAt && <span>Reviewed {new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' }).format(new Date(e.updatedAt))}</span>}
-      <Link href={e.editable || e.id.startsWith('capture:') ? e.href : `/appointments/new?meeting=${encodeURIComponent(e.id.slice('meeting:'.length))}`}>{e.editable ? 'Edit / reschedule' : 'Review for my agenda'}</Link>
     </div>
   </div>;
 }

@@ -823,6 +823,21 @@ export const HELM_MODULES: HelmModule[] = [
     primary: false,
     group: 'relationships',
   },
+  // The signed-in person's business appointments (#2084 to #2092): the
+  // agenda behind the home's Upcoming block, private to each login. Reached
+  // from Home and Cmd+K; hidden from the menus (it is one page and two
+  // forms, not a section anyone browses to) and lights no masthead tab.
+  {
+    id: 'appointments',
+    href: '/appointments',
+    number: '07a',
+    title: 'Appointments',
+    description: 'Your business appointments for the next 30 days: meetings, inspections, team coverage, and what still needs a date. Private to your login.',
+    status: 'active',
+    primary: false,
+    hidden: true,
+    group: 'relationships',
+  },
   // Channels is the Helm-native PMS, and until a Cape Ann home is Helm-run
   // (calendar_authority is guesty for every one; 65 Calderwood is a
   // read-only pilot) a write there reaches no OTA. So it is off the More

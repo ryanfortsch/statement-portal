@@ -1194,7 +1194,6 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
 .rt-agenda-brief-arrow { font-size: 13px; color: var(--ink-3); }
 .rt-agenda-home-footer { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 16px; font-size: 11px; color: var(--ink-3); }
 .rt-agenda-home-footer > a { display: inline-flex; align-items: center; min-height: 44px; }
-.rt-agenda-home-footer > span { margin-left: auto; }
 .rt-agenda-home-footer .rt-agenda-coverage { border: 0; margin: 0; font-size: 11px; }
 .rt-agenda-home-footer .rt-agenda-coverage[open] { flex-basis: 100%; }
 .rt-agenda-home-footer .rt-agenda-coverage > summary { padding: 12px 0; }
