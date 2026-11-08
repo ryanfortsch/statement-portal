@@ -25,7 +25,7 @@ import { PropertyFactsToFile } from './PropertyFactsToFile';
  * has four, the other audiences have none. A single Inbox label would add
  * no navigation and waste the space.
  *
- * Two lenses carry a count pill: Guest reviews (its stop cards are
+ * Two lenses carry a count pill: Review cards (its stop cards are
  * time-bound) and Quality (the property facts waiting to be filed, which
  * used to be a line of its own on three pages; UX audit 2026-11-07).
  *
@@ -50,8 +50,9 @@ export function MessagingTabs({
       ? [
           { id: 'inbox', label: 'Inbox', href: '/messaging' },
           // Our reviews of guests and replies to theirs (2026-10-30): a
-          // stop card is time-bound, so this lens carries a count pill.
-          { id: 'reviews', label: 'Guest reviews', href: '/messaging/reviews' },
+          // stop card is time-bound, so this lens carries a count pill. Named
+          // for its work, so "Reviews" means the Growth tab (/guests) only.
+          { id: 'reviews', label: 'Review cards', href: '/messaging/reviews' },
           { id: 'send', label: 'Send', href: '/messaging/send' },
           { id: 'blurbs', label: 'Saved replies', href: '/messaging/blurbs' },
           { id: 'quality', label: 'Quality', href: '/messaging/quality' },

@@ -592,16 +592,18 @@ export const HELM_MODULES: HelmModule[] = [
     group: 'relationships',
     section: 'messaging',
   },
-  // The Guest reviews lens of the Guests tab (2026-10-30): our reviews OF
-  // guests (stop Guesty's automatic 5-star review on a red stay, post our own
-  // on day 13) and our public replies to their below-five reviews. Hidden
-  // from the nav lists like the other lenses; the lens row and search reach it.
+  // The Review cards lens of the Guests tab (2026-10-30; "Guest reviews"
+  // until 2026-11-07, so that "Reviews" means the Growth tab only): our
+  // reviews OF guests (stop Guesty's automatic 5-star review on a red stay,
+  // post our own on day 13) and our public replies to their below-five
+  // reviews. Hidden from the nav lists like the other lenses; the lens row
+  // and search reach it.
   {
     id: 'messaging-reviews',
     href: '/messaging/reviews',
     number: '08i',
-    title: 'Guest Reviews',
-    description: "Reviews in both directions: stop Guesty's automatic 5-star review of a guest whose stay went red, post our own review of them before the window closes, and reply publicly to a review under five stars. The Guest reviews lens of the Messaging Guests tab.",
+    title: 'Review Cards',
+    description: "Reviews in both directions: stop Guesty's automatic 5-star review of a guest whose stay went red, post our own review of them before the window closes, and reply publicly to a review under five stars. The Review cards lens of the Messaging Guests tab; their reviews of us are the Reviews tab on Growth.",
     status: 'active',
     primary: false,
     hidden: true,
