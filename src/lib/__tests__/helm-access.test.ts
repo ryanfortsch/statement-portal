@@ -461,17 +461,16 @@ describe('the section strips never offer a tab the proxy would bounce', () => {
     });
   }
 
-  test('FieldTabs lands staff on the Roster for creative and never offers Shoots & Pay', () => {
+  test('FieldTabs offers Shoots & Pay to owners only, and staff reach creative through the Roster', () => {
     const src = read('src/components/FieldTabs.tsx');
     assert.ok(src.startsWith("'use client';"), 'FieldTabs reads the role on the client');
     assert.ok(src.includes("const owner = useHelmRole() === 'owner';"));
-    assert.ok(src.includes('const hasShoots = (t: ContractorTrade) => TRADE_META[t].hasShoots && owner;'));
-    assert.ok(
-      src.includes("TRADE_META[t].hasPackets ? 'packets' : hasShoots(t) ? 'shoots' : 'contractors'"),
-      'the creative home lens must consult the role',
-    );
-    assert.ok(src.includes("hasShoots(trade) ? { id: 'shoots', label: 'Shoots & Pay' } : null"), 'the Shoots & Pay lens must consult the role');
-    assert.ok(!src.includes("TRADE_META[t].hasShoots ? 'shoots'"), 'no path to the pay ledger may skip the role');
+    assert.ok(src.includes("owner ? { id: 'shoots', label: 'Shoots & Pay' } : null"), 'the Shoots & Pay tab must consult the role');
+    assert.ok(src.includes('return <SectionTabs current={current} tabs={tabs} />;'), 'every tab goes through SectionTabs, which filters by the gate list');
+    assert.ok(!src.includes('secondRow'), 'one row: no lens row printing links of its own');
+    // The trade chip that replaced the Creative tab is a Roster link, which staff may open.
+    const roster = read('src/app/fieldwork/roster/page.tsx');
+    assert.ok(roster.includes('href={`/fieldwork/roster?trade=${t}`}'), 'the Roster carries a chip per trade');
   });
 
   test('PropertiesTabBar reads the session and drops Prospects and Contracts for staff', () => {

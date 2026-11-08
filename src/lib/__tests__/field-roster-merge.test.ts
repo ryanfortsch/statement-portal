@@ -41,7 +41,7 @@ test('the applicants lead each roster, with the one invite door', () => {
   const roster = read('src/app/fieldwork/roster/page.tsx');
   const at = roster.indexOf('<Applicants apps={applications} trade={trade} base={base} />');
   assert.ok(at > 0, 'the roster renders the Applicants section');
-  assert.ok(at < roster.indexOf('working.map((c) => ('), 'above the people');
+  assert.ok(at < roster.indexOf('(w9Only ? needsW9 : working).map((c) => ('), 'above the people');
   assert.doesNotMatch(roster, /fieldwork\/hiring/, 'no link to the retired page');
   assert.doesNotMatch(roster, /action=\{inviteContractor\}/, 'the roster has no second invite form');
   const section = read('src/app/fieldwork/roster/Applicants.tsx');
