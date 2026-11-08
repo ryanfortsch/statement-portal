@@ -37,7 +37,7 @@ import { BookingDepositsUploadCard } from '@/components/BookingDepositsUploadCar
 import { PeriodNotesCard } from '@/components/PeriodNotesCard';
 import { BankDepositReview } from '@/components/BankDepositReview';
 import { CleaningEventCredit } from '@/components/CleaningEventCredit';
-import { ReceiptCapture, ReceiptRowActions } from '@/components/ReceiptCapture';
+import { ReceiptRowActions } from '@/components/ReceiptCapture';
 import { HandoffFileQueue } from '@/components/HandoffFileQueue';
 import { useConfirm } from '@/components/ConfirmDialog';
 import { partialSyncLine } from '@/lib/guesty-sync-plan';
@@ -1709,7 +1709,6 @@ function PropertyCard({
   const [fillingGap, setFillingGap] = useState<DataGap | null>(null);
   const [resolvingGapId, setResolvingGapId] = useState<string | null>(null);
   const [refreshingStatement, setRefreshingStatement] = useState(false);
-  const [addingReceipt, setAddingReceipt] = useState(false);
   // Bumped by an action that can change this card's bank rows (a bank CSV
   // patched through Fill Gap re-runs deposit matching), so the queue below
   // refetches along with the statement.
@@ -2275,37 +2274,12 @@ function PropertyCard({
 
           {/* The field handoff: what the operations manager sent for this
               home and month. Filed through the same /api/receipts path as the
-              button below, or noted on the period, never written straight to
-              the statement. Renders nothing when there is nothing waiting. */}
+              receipts page, or noted on the period, never written straight to
+              the statement. Renders nothing when there is nothing waiting.
+              A receipt of your own is filed on /statements/receipts (the
+              strip's Add receipt): the card no longer carries a second
+              capture form (UX audit 2026-11-07, finding 5). */}
           <HandoffFileQueue propertyId={prop.property_id} propertyName={prop.property_name} month={month} onFiled={onRefresh} />
-
-          {/* Receipt capture -- photograph a Home Depot run (or drag the
-              photo in) and bill it to this month's Repairs & Maintenance.
-              Rides under section 05 when repairs exist; stands alone as a
-              slim affordance when the month has none yet. */}
-          <div style={{ marginTop: repairs.length > 0 || attributedDebits.length > 0 ? 12 : 28 }}>
-            {addingReceipt ? (
-              <ReceiptCapture
-                propertyId={prop.property_id}
-                propertyName={prop.property_name}
-                defaultMonth={month}
-                onDone={onRefresh}
-                onCancel={() => setAddingReceipt(false)}
-              />
-            ) : (
-              <button
-                type="button"
-                onClick={() => setAddingReceipt(true)}
-                style={{
-                  fontSize: 9, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase',
-                  color: 'var(--ink-3)', border: '1px solid var(--rule)', background: 'transparent',
-                  padding: '5px 10px', cursor: 'pointer',
-                }}
-              >
-                + Add receipt
-              </button>
-            )}
-          </div>
 
           {/* Unattributed bank deposits -- operator review queue. Shows
               nothing if there are no pending deposits for this property+month. */}
@@ -2826,19 +2800,6 @@ function PropertyCard({
               }}
             >
               Re-upload Data
-            </Link>
-            <Link
-              href={`/properties/${prop.property_id}`}
-              title="Open the installment splitter on the property page. It lists upcoming 30-night-plus bookings that span statement months."
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: 8,
-                background: 'transparent', color: 'var(--ink-3)',
-                fontSize: 11, fontWeight: 500, letterSpacing: '.08em', textTransform: 'uppercase',
-                padding: '10px 18px',
-                border: '1px solid var(--rule)',
-              }}
-            >
-              Multi-month bookings →
             </Link>
           </div>
         </div>
