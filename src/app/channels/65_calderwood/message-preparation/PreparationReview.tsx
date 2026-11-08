@@ -4,6 +4,7 @@ import Link from 'next/link';
 import type { MessagePreparationReview } from '@/lib/channex-messaging/preparation';
 import { CALDERWOOD_MESSAGE_WORKFLOWS } from '@/lib/channex-messaging/preparation-timing';
 import { Button } from '@/components/Button';
+import { EmptyState } from '@/components/EmptyState';
 
 const stamp = (s: string | null) => s ? new Intl.DateTimeFormat('en-US', {
   timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
@@ -24,7 +25,7 @@ export function PreparationReview() {
     try {
       const res = await fetch('/api/channex/message-preparation', { cache: 'no-store', signal: AbortSignal.timeout(110000) });
       const body = await res.json();
-      if (!res.ok || body.ok !== true || body.format !== 1) {
+      if (!res.ok || body.ok !== true || body.format !== 2) {
         setError(errors[body.code] ?? 'The review is unavailable. Check your owner sign-in and the Channex preparation status.');
       } else setReview(body);
     } catch { setError('The review could not finish. Try again when the connection is available.'); }
@@ -64,7 +65,7 @@ export function PreparationReview() {
                   <p className="mt-1 text-xs leading-5" style={{ color: 'var(--ink-3)' }}>Planned delivery: {flow.audience === 'guest' ? 'Automatic booking-channel message' : 'Automatic cleaner SMS'}.</p>
                   {r.migration.credentialFields && <p className="mt-1 text-xs leading-5" style={{ color: 'var(--signal)' }}>Door code and Wi-Fi values must resolve from protected records.</p>}
                   {r.migration.cleanerLinkRequired && <p className="mt-1 text-xs leading-5" style={{ color: 'var(--signal)' }}>Cleaner schedule link still needs replacement and access verification.</p>}
-                  {r.migration.dateFormatReview && <p className="mt-1 text-xs leading-5" style={{ color: 'var(--signal)' }}>Date display needs comparison with a rendered Guesty message.</p>}
+                  {r.migration.dateFormatReview && <p className="mt-1 text-xs leading-5" style={{ color: 'var(--ink-3)' }}>The rehearsal uses Guesty’s observed date display, including the year.</p>}
                 </> : <>
                   <p className="mt-1 text-xs leading-5" style={{ color: 'var(--ink-3)' }}>{r.enabled ? 'Rule enabled' : 'Rule disabled'} · {r.characterCount} characters · {r.sendMode === 'approve' ? 'Approval mode' : 'Automatic mode'}</p>
                   <p className="mt-1 text-xs leading-5" style={{ color: 'var(--ink-3)' }}>Current delivery: {deliveryLabels[r.delivery]}{r.configuredInOta ? ' · marked as covered by OTA' : ''}.</p>
@@ -82,13 +83,15 @@ export function PreparationReview() {
     {review && <section className="mt-8">
       <h2 className="text-xl font-semibold">Reservation timing review</h2>
       <p className="text-sm mt-2 mb-5 leading-6" style={{ color: 'var(--ink-3)' }}>Times use the reservation’s arrival or departure override, or an explicitly confirmed listing default. Past times are never replayed. Daylight-saving differences require Guesty’s queued timestamp.</p>
-      {review.stays.length === 0 && <p className="rounded-lg border p-4 text-sm" style={{ borderColor: 'var(--rule)' }}>No current or upcoming stays were found in the review window. This does not establish handover readiness.</p>}
+      <p className="text-sm mb-5 leading-6" style={{ color: 'var(--ink-3)' }}>Open a message below to rehearse the prepared wording with this stay’s dates. Names and access details are masked. A stored value still needs verification against Guesty; a linked lock needs a verified stay code. No preview can be sent.</p>
+      {review.stays.length === 0 && <EmptyState>No current or upcoming stays were found in the review window.</EmptyState>}
       <div className="grid gap-4">{review.stays.map(stay => <article key={stay.canonicalId} className="rounded-xl border p-5" style={{ borderColor: 'var(--rule)' }}>
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <h3 className="font-semibold">{day(stay.checkIn)} – {day(stay.checkOut)}</h3>
           <Link href={`/channels/bookings/${stay.canonicalId}`} className="text-sm underline underline-offset-4">Open reservation →</Link>
         </div>
-        <ul className="divide-y" style={{ borderColor: 'var(--rule)' }}>{stay.timings.map(t => <li key={t.key} className="flex flex-wrap justify-between gap-x-5 gap-y-1 py-3 text-sm">
+        <ul className="divide-y" style={{ borderColor: 'var(--rule)' }}>{stay.timings.map(t => <li key={t.key} className="py-3 text-sm">
+          <div className="flex flex-wrap justify-between gap-x-5 gap-y-1">
           <span>{CALDERWOOD_MESSAGE_WORKFLOWS.find(f => f.key === t.key)?.label}</span>
           <div className="sm:text-right">
             <p>{t.status === 'dst_review' ? 'Daylight-saving review required' : stamp(t.at)}</p>
@@ -96,12 +99,23 @@ export function PreparationReview() {
               : t.status === 'future' ? 'Proposed time · queue and holds still need verification'
               : t.status === 'dst_review' ? `Calendar: ${stamp(t.conflict?.calendarAt ?? null)} · Elapsed: ${stamp(t.conflict?.elapsedAt ?? null)}` : 'No default time has been assumed'}</p>
           </div>
+          </div>
+          {stay.messages.filter(m => m.key === t.key).map(message => <details key={message.key} className="mt-3 rounded-lg border p-3" style={{ borderColor: 'var(--rule)' }}>
+            <summary className="cursor-pointer font-medium">{message.status === 'template_unavailable' ? 'Template needs preparation'
+              : message.missingFields.length ? `${message.missingFields.length} missing ${message.missingFields.length === 1 ? 'field' : 'fields'} · Review message`
+              : 'Fields present · Review masked message'}</summary>
+            {message.missingFields.length > 0 && <p className="mt-3 text-xs" style={{ color: 'var(--negative)' }}>Missing: {message.missingFields.join(', ')}.</p>}
+            {message.timeWordingReview && <p className="mt-3 text-xs" style={{ color: 'var(--negative)' }}>The arrival or departure time differs from the standard wording. Review the time stated in this message.</p>}
+            {message.preview && <p className="mt-3 whitespace-pre-wrap rounded-lg p-4 text-sm leading-6" style={{ background: 'var(--paper-2)' }}>{message.preview}</p>}
+            <p className="mt-3 text-xs" style={{ color: 'var(--ink-3)' }}>Sending remains off. Source queue, holds, recipient and delivery checks are separate.</p>
+          </details>)}
         </li>)}</ul>
       </article>)}</div>
     </section>}
     <aside className="mt-8 rounded-xl border p-5 text-sm leading-6" style={{ borderColor: 'var(--rule)', background: 'var(--paper-2)' }}>
       <h2 className="font-semibold mb-2">Before messages can move to Helm</h2>
       <p>Verify all six templates, the Guesty sent and pending queue, held messages, and the cleaner SMS handover. Then validate the Channex booking-channel delivery path. A matching time alone does not authorize a send.</p>
+      <Link href="/properties/65_calderwood" className="mt-3 inline-block underline underline-offset-4">Review Calderwood’s property and access details →</Link>
     </aside>
   </>;
 }

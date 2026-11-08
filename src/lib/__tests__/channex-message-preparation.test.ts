@@ -116,7 +116,9 @@ const v3 = { _id: id(1), status: 'confirmed', confirmedAt: clocks.confirmedAt,
   stay: [{ unitId: GUESTY_CALDERWOOD, unitTypeId: GUESTY_CALDERWOOD, checkInDateLocalized: clocks.start, checkOutDateLocalized: clocks.end }] };
 function fixture() {
   const calls: string[] = []; let guards = 0;
-  const context = { canonical, mirror, rules: [rule], automationsEnabled: false };
+  const context = { canonical, mirror, rules: [rule], automationsEnabled: false,
+    renderInputs: { property: { id: '65_calderwood', name: 'Synthetic home', wifi_name: null }, access: null, lockMapped: false,
+      bookings: [{ id: uid(1), property_id: '65_calderwood', status: 'confirmed', check_in: clocks.start, check_out: clocks.end, guest_name: 'PRIVATE_GUEST' }] } };
   const deps = { clock: () => now, context: async () => structuredClone(context),
     verifyDormant: async () => { guards++; }, token: async () => 'synthetic-token',
     fetcher: (async (input, init) => {
@@ -181,6 +183,14 @@ test('changed template content invalidates the review even with unchanged rule i
   f.deps.context = async () => { const c = await read(); if (++reads === 2) c.rules[0].body = 'Changed'; return c; };
   await assert.rejects(reviewMessagePreparation(env, f.deps), /SOURCES_CHANGED/);
 });
+test('changed render data discards the review and its private comparison digest never leaves the server', async () => {
+  const f = fixture(); const read = f.deps.context; let reads = 0;
+  f.deps.context = async () => { const c = await read(); if (++reads === 2) c.renderInputs.bookings[0].guest_name = 'CHANGED'; return c; };
+  await assert.rejects(reviewMessagePreparation(env, f.deps), /SOURCES_CHANGED/);
+  const clean = await reviewMessagePreparation(env, fixture().deps);
+  assert.equal(clean.format, 2);
+  assert.equal('privateRenderRevision' in clean, false); assert.equal('renderInputs' in clean, false);
+});
 test('environment and dormant boundaries are checked before token and network access', async () => {
   const f = fixture(); let tokens = 0; f.deps.token = async () => { tokens++; return 'synthetic-token'; };
   await assert.rejects(reviewMessagePreparation({ ...env, VERCEL_ENV: 'preview' }, f.deps));
@@ -220,6 +230,7 @@ test('the maximum 12-stay review splits V3 batches at ten and stays within 28 GE
     const c = await source();
     c.canonical.rows = Array.from({ length: 12 }, (_, i) => ({ ...canonical.rows[0], id: uid(i + 1), code: `SYNTH-${i + 1}` }));
     c.mirror = Array.from({ length: 12 }, (_, i) => ({ ...mirror[0], guesty_reservation_id: id(i + 1), confirmation_code: `SYNTH-${i + 1}` }));
+    c.renderInputs.bookings = Array.from({ length: 12 }, (_, i) => ({ ...c.renderInputs.bookings[0], id: uid(i + 1) }));
     return c;
   };
   const batches: number[] = []; let requests = 0;
