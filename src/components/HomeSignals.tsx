@@ -257,7 +257,7 @@ export async function HomeSignals({ owner }: { owner: boolean }) {
           label="Turnovers · next 7 days"
           value={stats.turnovers != null ? String(stats.turnovers) : 'Unavailable'}
           sub="All turnovers →"
-          href="/turnovers"
+          href="/turnovers?range=7d"
           size="hero"
           last={!owner}
         />
