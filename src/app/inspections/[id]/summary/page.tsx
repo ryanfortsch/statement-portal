@@ -3,7 +3,6 @@ import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
 import { Section } from '@/components/Section';
-import { Stat } from '@/components/Stat';
 import { PhotoThumbs } from '@/components/PhotoUploader';
 import { TurnoverTabs } from '@/components/TurnoverTabs';
 import { DeleteInspectionButton } from '../../DeleteInspectionButton';
@@ -292,13 +291,18 @@ export default async function InspectionSummaryPage({
           {property.name}
         </h1>
         <p style={{ marginTop: 8, fontSize: 14, color: 'var(--ink-3)' }}>
-          {property.city} &middot; {inspection.inspector_name} &middot; Completed {formatDateTime(inspection.completed_at)}
+          {property.city} &middot; {inspection.inspector_name} &middot; {formatDate(inspection.completed_at)}
         </p>
-        {(onSite || visit) && (
+        {/* One clock line: the span on site, then how long. */}
+        {(clockStart || clockEnd || visit) && (
           <div style={{ marginTop: 10, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'baseline', fontSize: 13, color: 'var(--ink-3)' }}>
-            {clockStart && <span>Started {fmtTime(clockStart)}</span>}
-            {clockStart && clockEnd && <span style={{ color: 'var(--ink-4)' }}>·</span>}
-            {clockEnd && <span>Finished {fmtTime(clockEnd)}</span>}
+            {clockStart && clockEnd ? (
+              <span>{fmtTime(clockStart)} to {fmtTime(clockEnd)}</span>
+            ) : clockStart ? (
+              <span>Started {fmtTime(clockStart)}</span>
+            ) : clockEnd ? (
+              <span>Finished {fmtTime(clockEnd)}</span>
+            ) : null}
             {onSite && (
               <>
                 <span style={{ color: 'var(--ink-4)' }}>·</span>
@@ -324,24 +328,6 @@ export default async function InspectionSummaryPage({
         </div>
       </section>
 
-      {/* STAT GRID */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 48, width: '100%' }}>
-        <div
-          className="rt-helm-stat-strip"
-          style={{
-            borderTop: '1px solid var(--ink)',
-            borderBottom: '1px solid var(--ink)',
-            display: 'grid',
-            gridTemplateColumns: 'repeat(4, 1fr)',
-          }}
-        >
-          <Stat label="Total" value={String(inspection.total_items)} size="hero" />
-          <Stat label="Pass" value={String(inspection.pass_count)} size="hero" valueColor="var(--positive)" />
-          <Stat label="Issue" value={String(inspection.issue_count)} size="hero" valueColor="var(--signal)" />
-          <Stat label="N/A" value={String(inspection.na_count)} size="hero" valueColor="var(--ink-4)" last />
-        </div>
-      </section>
-
       {/* ISSUES */}
       <Section
         title="Issues"
@@ -356,24 +342,20 @@ export default async function InspectionSummaryPage({
         </div>
       </Section>
 
-      {/* SUPPLIES CHECK — each "low" item already became a Rising Tide
-          restock work slip on completion (visible in the section below). */}
+      {/* SUPPLIES CHECK: each "low" item already became a Rising Tide
+          restock work slip on completion (visible in the section below).
+          Nothing low folds to one line, like Passed. */}
+      {(inspection.supplies_low ?? []).length === 0 ? (
+        <FoldedResults title="Supplies" count={0} />
+      ) : (
       <Section
         title="Supplies"
-        eyebrow={
-          (inspection.supplies_low ?? []).length === 0
-            ? 'all stocked'
-            : `${inspection.supplies_low.length} low`
-        }
+        eyebrow={`${inspection.supplies_low.length} low`}
         empty={false}
         emptyMessage=""
       >
         <div style={{ borderTop: '1px solid var(--ink)' }}>
-          {(inspection.supplies_low ?? []).length === 0 ? (
-            <div style={{ padding: '18px 0', color: 'var(--ink-3)', fontSize: 13 }}>
-              All supplies marked OK. No restocks needed.
-            </div>
-          ) : (
+          {
             inspection.supplies_low.map((key) => (
               <div
                 key={key}
@@ -405,9 +387,10 @@ export default async function InspectionSummaryPage({
                 </span>
               </div>
             ))
-          )}
+          }
         </div>
       </Section>
+      )}
 
       {/* WORK SLIPS CREATED THIS INSPECTION */}
       {workSlips.length > 0 && (
@@ -597,7 +580,7 @@ export default async function InspectionSummaryPage({
 
 /** A results list that opens on demand: the serif title and the count stay
  *  in the section's head grammar; the rows wait behind the summary. */
-function FoldedResults({ title, count, children }: { title: string; count: number; children: React.ReactNode }) {
+function FoldedResults({ title, count, children }: { title: string; count: number; children?: React.ReactNode }) {
   return (
     <section className="max-w-[1100px] mx-auto px-10 rt-helm-section" style={{ paddingTop: 24, paddingBottom: 24, width: '100%' }}>
       <details>
@@ -608,10 +591,12 @@ function FoldedResults({ title, count, children }: { title: string; count: numbe
           <span className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)' }}>
             {title}
           </span>
-          <span className="eyebrow">{count === 0 ? 'none' : `${count} · show`}</span>
+          <span className="eyebrow">{count === 0 ? (title === 'Supplies' ? 'all stocked' : 'none') : `${count} · show`}</span>
         </summary>
         {count === 0 ? (
-          <div style={{ borderTop: '1px solid var(--ink)', padding: '20px 0', fontSize: 12, color: 'var(--ink-4)' }}>Nothing here.</div>
+          <div style={{ borderTop: '1px solid var(--ink)', padding: '20px 0', fontSize: 12, color: 'var(--ink-4)' }}>
+            {title === 'Supplies' ? 'All supplies marked OK.' : 'Nothing here.'}
+          </div>
         ) : (
           <div style={{ borderTop: '1px solid var(--rule)' }}>{children}</div>
         )}
@@ -710,6 +695,16 @@ function CompactRow({ row, statusColor }: { row: ResultWithItem; statusColor: st
       </span>
     </div>
   );
+}
+
+/** The day alone; the clock line under it carries the times. */
+function formatDate(value: string | null): string {
+  if (!value) return '-';
+  try {
+    return new Date(value).toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric' });
+  } catch {
+    return value;
+  }
 }
 
 function formatDateTime(value: string | null): string {

@@ -70,7 +70,7 @@ function mapsUrl(s: PacketStopDetail): string | null {
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = {
-  title: 'Packet · Rising Tide Field',
+  title: 'Job · Rising Tide Field',
   robots: { index: false, follow: false, googleBot: { index: false, follow: false } },
 };
 
@@ -687,7 +687,7 @@ export default async function PacketPage({
     return (
       <FieldShell contractorName={contractor.full_name}>
         <Alert tone="info">
-          This packet was just claimed by another inspector. Here are others near you on the{' '}
+          This job was just claimed by another inspector. Here are others near you on the{' '}
           <Link href="/field" style={{ color: 'var(--signal)' }}>home page</Link>.
         </Alert>
       </FieldShell>
@@ -942,12 +942,12 @@ export default async function PacketPage({
       )}
       {sp.stale && (
         <Alert tone="warn">
-          A guest moved into one of these homes since this packet posted, so it was updated. Review the new details and pay before claiming.
+          A guest moved into one of these homes since this job posted, so it was updated. Review the new details and pay before claiming.
         </Alert>
       )}
       {(sp.expired || (!isMine && packet.status === 'published' && visitPassed)) && (
         <Alert tone="warn">
-          This packet&apos;s visit day has passed, so it can&apos;t be claimed. Current work near you is on the{' '}
+          This job&apos;s visit day has passed, so it can&apos;t be claimed. Current work near you is on the{' '}
           <Link href="/field" style={{ color: 'var(--signal)' }}>home page</Link>.
         </Alert>
       )}
@@ -1349,7 +1349,7 @@ export default async function PacketPage({
             <form action={claimPacket}>
               <input type="hidden" name="packet_id" value={packet.id} />
               <PendingButton
-                label={`Claim this packet · est. ${dollars(packet.posted_price_cents)}`}
+                label={`Claim this job · est. ${dollars(packet.posted_price_cents)}`}
                 busyLabel="Claiming…"
                 style={{
                   width: '100%',
@@ -1374,14 +1374,14 @@ export default async function PacketPage({
               // closed to paid packets for good, whatever its check says.
               <p style={{ color: 'var(--signal)', fontSize: 14, margin: 0 }}>
                 {isEmployee(contractor)
-                  ? "You're on payroll, so paid packets aren't claimed here."
+                  ? "You're on payroll, so paid jobs aren't claimed here."
                   : bgCheck.tone === 'waiting'
-                    ? `${bgCheck.line} You can claim this packet once it's running.`
+                    ? `${bgCheck.line} You can claim this job once it's running.`
                     : bgCheck.line}
               </p>
             ) : (
               <Link href="/field/onboarding" style={{ color: 'var(--signal)', fontSize: 14 }}>
-                Finish your account setup to claim this packet →
+                Finish your account setup to claim this job →
               </Link>
             )
           )}
@@ -1389,7 +1389,7 @@ export default async function PacketPage({
             <form action={submitPacket}>
               <input type="hidden" name="packet_id" value={packet.id} />
               <PendingButton
-                label={changesRequested ? 'Resubmit packet' : 'Submit completed packet'}
+                label={changesRequested ? 'Resubmit job' : 'Submit completed job'}
                 busyLabel="Submitting…"
                 style={{
                   width: '100%',

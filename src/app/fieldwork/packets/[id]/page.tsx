@@ -705,7 +705,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
             rel="noopener noreferrer"
             style={{ fontSize: 12, color: 'var(--tide-deep)', fontWeight: 600, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6, border: '1px solid var(--rule)', borderRadius: 999, padding: '7px 14px', background: 'var(--paper-2, #fff)' }}
           >
-            Preview as inspector ↗
+            Preview as contractor ↗
           </Link>
         </div>
 
@@ -746,12 +746,12 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                       that does rides in the confirm, not a caption. */}
                   <PendingButton
                     label={readyToClose ? `Submit for ${inspectorFirst}` : `Wrap up & submit for ${inspectorFirst}`}
-                    busyLabel="Closing out the trip…"
+                    busyLabel="Closing out the job…"
                     className={buttonClass('primary')}
                     confirm={
                       readyToClose
-                        ? `Submit for ${inspectorFirst}? Every stop is done but they never tapped Submit. This closes the trip out like their own tap: stops the clock, pulls the door codes, and moves it to ${owner ? 'your review' : 'review'}.`
-                        : `Wrap up for ${inspectorFirst}? ${packet.stops.length - doneCount} stop${packet.stops.length - doneCount === 1 ? ' is' : 's are'} still open. This marks ${packet.stops.length - doneCount === 1 ? 'it' : 'them'} complete, closes the trip out (stops the clock, pulls the door codes), and moves it to ${owner ? 'your review' : 'review'}.`
+                        ? `Submit for ${inspectorFirst}? Every stop is done but they never tapped Submit. This closes the job out like their own tap: stops the clock, pulls the door codes, and moves it to ${owner ? 'your review' : 'review'}.`
+                        : `Wrap up for ${inspectorFirst}? ${packet.stops.length - doneCount} stop${packet.stops.length - doneCount === 1 ? ' is' : 's are'} still open. This marks ${packet.stops.length - doneCount === 1 ? 'it' : 'them'} complete, closes the job out (stops the clock, pulls the door codes), and moves it to ${owner ? 'your review' : 'review'}.`
                     }
                   />
                 </form>
@@ -779,7 +779,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                   <summary style={quietSummary}>{packet.status === 'claimed' ? 'Reassign' : 'Assign directly'} ▾</summary>
                   <div style={menuCard}>
                     <div style={{ fontSize: 10.5, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-4)', fontWeight: 600, padding: '2px 0 6px' }}>
-                      Hand this trip to
+                      Hand this job to
                     </div>
                     {assignable.map((c, i) => (
                       <form key={c.id} action={assignPacket} style={{ margin: 0, borderTop: i ? '1px solid var(--rule)' : 'none' }}>
@@ -936,7 +936,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
               {packet.status === 'published' && (
                 <form action={unpublishPacket} style={{ margin: 0 }}>
                   <input type="hidden" name="packet_id" value={packet.id} />
-                  <PendingButton label="Unpublish" busyLabel="Unpublishing…" style={quietCtl} spinnerTone="ink" confirm="Unpublish this packet? It leaves the contractors' boards and goes back to a draft. Nobody is texted." />
+                  <PendingButton label="Unpublish" busyLabel="Unpublishing…" style={quietCtl} spinnerTone="ink" confirm="Unpublish this job? It leaves the contractors' boards and goes back to a draft. Nobody is texted." />
                 </form>
               )}
               {packet.status === 'claimed' && (
@@ -949,8 +949,8 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                     spinnerTone="ink"
                     confirm={
                       packet.visit_date < todayET()
-                        ? `Release ${inspectorFirst}'s claim? The visit day has passed, so the packet lands in Drafts to re-date. Nobody is texted.`
-                        : `Release ${inspectorFirst}'s claim? The packet goes back on the board and the roster is texted again.`
+                        ? `Release ${inspectorFirst}'s claim? The visit day has passed, so the job lands in Drafts to re-date. Nobody is texted.`
+                        : `Release ${inspectorFirst}'s claim? The job goes back on the board and the roster is texted again.`
                     }
                   />
                 </form>
@@ -959,14 +959,14 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                 <form action={cancelPacket} style={{ margin: 0 }}>
                   <input type="hidden" name="packet_id" value={packet.id} />
                   <PendingButton
-                    label="Cancel packet"
+                    label="Cancel job"
                     busyLabel="Cancelling…"
                     style={{ ...quietCtl, color: 'var(--signal)' }}
                     spinnerTone="ink"
                     confirm={
                       isWorkingStatus(packet.status)
-                        ? `Cancel this packet? It comes off ${inspectorFirst}'s board and the door codes are pulled. This cannot be undone.`
-                        : 'Cancel this packet? It comes off the board. This cannot be undone.'
+                        ? `Cancel this job? It comes off ${inspectorFirst}'s board and the door codes are pulled. This cannot be undone.`
+                        : 'Cancel this job? It comes off the board. This cannot be undone.'
                     }
                   />
                 </form>

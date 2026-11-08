@@ -63,7 +63,7 @@ try{
  await page.waitForFunction(()=>document.body.textContent.includes('Augusta Earlier'));
  assert.match(await text(),/Check-ins Apr 21 to Dec 17, 2026\./);
  pass('Show earlier stays steps back 120 days and search finds the guest it brought in');
- await type('input[type=search]','');await click('Dates');
+ await type('input[type=search]','');await click('Pick dates');
  await page.$eval('input[aria-label="Check-ins from"]',e=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'2026-01-01');e.dispatchEvent(new Event('input',{bubbles:true}));});
  await page.$eval('input[aria-label="Check-ins to"]',e=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'2026-09-01');e.dispatchEvent(new Event('input',{bubbles:true}));});
  assert.match(await text(),/Pick 120 days or fewer at a time\./);
@@ -74,7 +74,7 @@ try{
  const picked=await text();assert.match(picked,/No conversations match in check-ins Jan 1 to Mar 31, 2026/);assert.match(picked,/held more stays than Helm lists at once\. Older conversations are in Guesty/);
  assert.equal(await page.$eval('#conversations a[href="https://app.guesty.com/"]',a=>a.textContent.trim()),'open Guesty ↗');
  await click('Back to recent stays');await page.waitForFunction(()=>document.body.textContent.includes('Nora Now'));
- pass('Dates replaces the list with the window asked for; a full window points to Guesty; Back to recent restores it');
+ pass('Pick dates replaces the list with the window asked for; a full window points to Guesty; Back to recent restores it');
  await page.goto(origin+'/?floor=1');await page.waitForSelector('#conversations');
  const floorText=await text();assert.ok(!floorText.includes('Show earlier stays'),'no step back past the floor');assert.match(floorText,/Older conversations are in Guesty/);
  pass('past two years the list hands off to Guesty instead of ending');

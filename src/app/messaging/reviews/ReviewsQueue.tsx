@@ -30,7 +30,7 @@ import {
 import { editReviewDraft, markReviewHandled, postReply, undoReviewDecision } from './actions';
 
 /**
- * The Guest reviews lens (2026-10-30): the cards the concierge files for
+ * The Review cards lens (2026-10-30): the cards the concierge files for
  * reviews in both directions, on the one approval card.
  *
  *   hostreview:<rid>:stop   stop Guesty's 5-star auto review of a red stay,

@@ -1124,6 +1124,55 @@ function Toast({ tone, onDismiss, action, children }: {
   );
 }
 
+type ToastSpec = {
+  key: string;
+  tone: 'positive' | 'tide' | 'negative';
+  /** A result that needs no reading twice leaves on its own after a few seconds. */
+  autoDismiss?: boolean;
+  onDismiss?: () => void;
+  action?: { label: string; onClick: () => void };
+  body: React.ReactNode;
+};
+
+/**
+ * One toast slot (UX audit 2026-11-07): of everything with something to
+ * say, the one that arrived last shows; dismissing it uncovers the one
+ * before, so a read failure under a sync result is never lost, only
+ * queued. A success auto-dismisses; an error or a Retry waits for a hand.
+ * Arrival order is derived in render from which specs are present (the
+ * "adjust state when props change" pattern), never set from an effect.
+ */
+function ToastSlot({ toasts }: { toasts: Array<ToastSpec | null | false> }) {
+  const present = toasts.filter((t): t is ToastSpec => !!t);
+  const [order, setOrder] = useState<string[]>([]);
+  const keys = new Set(present.map((t) => t.key));
+  const next = [...order.filter((k) => keys.has(k)), ...present.map((t) => t.key).filter((k) => !order.includes(k))];
+  if (next.join('|') !== order.join('|')) setOrder(next);
+  const shownKey = next[next.length - 1];
+  const shown = present.find((t) => t.key === shownKey) ?? null;
+  const dismissRef = useRef<(() => void) | undefined>(undefined);
+  useEffect(() => {
+    dismissRef.current = shown?.onDismiss;
+  });
+  const auto = !!shown?.autoDismiss && !!shown?.onDismiss;
+  useEffect(() => {
+    if (!auto) return;
+    const t = setTimeout(() => dismissRef.current?.(), 7000);
+    return () => clearTimeout(t);
+  }, [auto, shownKey]);
+  if (!shown) return null;
+  return (
+    <Toast tone={shown.tone} onDismiss={shown.onDismiss} action={shown.action}>
+      {shown.body}
+      {present.length > 1 && shown.onDismiss && (
+        <span style={{ color: 'var(--ink-4)', marginLeft: 8 }}>
+          {present.length - 1} more behind this
+        </span>
+      )}
+    </Toast>
+  );
+}
+
 function MiniMetric({ label, value, hide }: { label: string; value: string; hide?: 'sm' | 'md' }) {
   const hideClass = hide === 'sm' ? 'hidden sm:block' : hide === 'md' ? 'hidden md:block' : '';
   return (
@@ -1777,7 +1826,9 @@ function PropertyCard({
                     Drafted
                   </span>
                 ) : null}
-                {ownerActionCount > 0 && (
+                {/* Collapsed only: open, the count lives on the Send tick
+                    and the figures in 01 Financials (UX audit 2026-11-07). */}
+                {!expanded && ownerActionCount > 0 && (
                   <Link
                     href="/work?filter=owner-action"
                     onClick={(e) => e.stopPropagation()}
@@ -1803,9 +1854,13 @@ function PropertyCard({
             </div>
           </div>
           <div className="flex items-baseline gap-10">
-            <MiniMetric label="Revenue" value={fmtCompact(prop.rental_revenue)} hide="sm" />
-            <MiniMetric label="Stays" value={String(prop.num_stays)} hide="md" />
-            <MiniMetric label="Cleaning" value={fmtCompact(prop.cleaning_total)} hide="md" />
+            {!expanded && (
+              <>
+                <MiniMetric label="Revenue" value={fmtCompact(prop.rental_revenue)} hide="sm" />
+                <MiniMetric label="Stays" value={String(prop.num_stays)} hide="md" />
+                <MiniMetric label="Cleaning" value={fmtCompact(prop.cleaning_total)} hide="md" />
+              </>
+            )}
             <div style={{ textAlign: 'right' }}>
               <div className="eyebrow">Owner Payout</div>
               <div className="font-serif tabular-nums" style={{ fontSize: 22, fontWeight: 500, color: 'var(--ink)', marginTop: 3 }}>
@@ -2970,6 +3025,28 @@ function DashboardContent() {
     | string
     | null
   >(null);
+  // The last sync's detail, for the Sync menu's meta (the toast is one line).
+  const guestySyncDetail =
+    guestySyncResult && typeof guestySyncResult !== 'string' && guestySyncResult.waiting.length > 0
+      ? partialSyncLine(guestySyncResult.waiting)
+      : undefined;
+  const stripeSyncFlags: string[] =
+    stripeSyncResult && typeof stripeSyncResult !== 'string'
+      ? [
+          stripeSyncResult.refunds > 0 && `${stripeSyncResult.refunds} refund${stripeSyncResult.refunds === 1 ? '' : 's'} flagged`,
+          stripeSyncResult.gross_reconstructions > 0 &&
+            `${stripeSyncResult.gross_reconstructions} stay${stripeSyncResult.gross_reconstructions === 1 ? '' : 's'} rebuilt from Stripe actuals (+${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(stripeSyncResult.reconstructed_gain)} net recovered; Guesty TOTAL_PAID under-reported an installment plan)`,
+          stripeSyncResult.gross_mismatches > 0 && `${stripeSyncResult.gross_mismatches} gross mismatch${stripeSyncResult.gross_mismatches === 1 ? '' : 'es'}`,
+          stripeSyncResult.missing_charges > 0 && `${stripeSyncResult.missing_charges} expected charge${stripeSyncResult.missing_charges === 1 ? '' : 's'} missing`,
+          stripeSyncResult.orphan_charges > 0 &&
+            `${stripeSyncResult.orphan_charges} unmatched charge${stripeSyncResult.orphan_charges === 1 ? '' : 's'} found; one-off payment links land in the review queue on each property card`,
+          stripeSyncResult.fee_unreadable > 0 &&
+            `${stripeSyncResult.fee_unreadable} matched charge${stripeSyncResult.fee_unreadable === 1 ? '' : 's'} returned no fee from Stripe; those stays are still on the 3.9% estimate`,
+          stripeSyncResult.truncated_rebuilds > 0 &&
+            `${stripeSyncResult.truncated_rebuilds} stay${stripeSyncResult.truncated_rebuilds === 1 ? '' : 's'} rebuilt from less money than Guesty recorded as collected; check for an earlier charge`,
+        ].filter((s): s is string => typeof s === 'string')
+      : [];
+  const stripeSyncDetail = stripeSyncFlags.length > 0 ? stripeSyncFlags.join(' · ') : undefined;
   const [fundsSentDate, setFundsSentDate] = useState<string>('');
   const [closeTasks, setCloseTasks] = useState<Record<string, CloseTask>>({});
   const [previewPropertyId, setPreviewPropertyId] = useState<string | null>(null);
@@ -4139,14 +4216,16 @@ function DashboardContent() {
                               meta={inv.text} metaAlert={inv.alert} metaDetail={inv.detail}
                               onClick={() => { setSyncMenuOpen(false); syncInvoices(); }}
                             />
+                            {/* The last run's detail rides here (the title), so
+                                the toast can stay one line. */}
                             <SyncMenuItem
                               label="Sync Bookings"
-                              meta={bk.text} metaAlert={bk.alert} metaDetail={bk.detail}
+                              meta={bk.text} metaAlert={bk.alert} metaDetail={bk.detail ?? guestySyncDetail}
                               onClick={() => { setSyncMenuOpen(false); syncGuesty(); }}
                             />
                             <SyncMenuItem
                               label="Sync Stripe"
-                              meta={st.text} metaAlert={st.alert} metaDetail={st.detail}
+                              meta={st.text} metaAlert={st.alert} metaDetail={st.detail ?? stripeSyncDetail}
                               onClick={() => { setSyncMenuOpen(false); syncStripe(); }}
                             />
                           </>
@@ -4223,169 +4302,207 @@ function DashboardContent() {
         </div>
       </section>
 
-      {missingMonth && (
-        <Toast
-          tone="tide"
-          onDismiss={() => setMissingMonth(null)}
-          action={{ label: `Upload ${monthLong(missingMonth)}`, onClick: () => window.location.assign(statementsUploadHref(missingMonth)) }}
-        >
-          There are no statements for {monthLabel(missingMonth)} yet, so this is {monthLabel(selectedMonth)}.
-        </Toast>
-      )}
-
-      {/* ─── Read failures ─── each says what it costs and offers a Retry;
-           none of them takes the rest of the page down. */}
-      {refreshNotice && (
-        <Toast
-          tone="negative"
-          onDismiss={() => setRefreshNotice(null)}
-          action={{
-            label: 'Retry',
-            onClick: () => {
-              const r = refreshNotice.retry;
-              if (r.kind === 'month') void loadPeriod(r.month, { quiet: true });
-              else void refreshStatement(r.id, r.name);
+      {/* ─── The one toast slot ─── the latest result shows; a success
+           leaves on its own; a read failure keeps its Retry and resurfaces
+           when what covered it is dismissed. Every action and every error
+           text is unchanged; only the sync successes are cut to counts, with
+           the detail in the Sync menu's meta. */}
+      <ToastSlot
+        toasts={[
+          !!missingMonth && {
+            key: 'missing-month',
+            tone: 'tide',
+            onDismiss: () => setMissingMonth(null),
+            action: { label: `Upload ${monthLong(missingMonth)}`, onClick: () => window.location.assign(statementsUploadHref(missingMonth)) },
+            body: <>There are no statements for {monthLabel(missingMonth)} yet, so this is {monthLabel(selectedMonth)}.</>,
+          },
+          // Read failures: each says what it costs and offers a Retry; none
+          // of them takes the rest of the page down.
+          !!refreshNotice && {
+            key: 'refresh',
+            tone: 'negative',
+            onDismiss: () => setRefreshNotice(null),
+            action: {
+              label: 'Retry',
+              onClick: () => {
+                const r = refreshNotice.retry;
+                if (r.kind === 'month') void loadPeriod(r.month, { quiet: true });
+                else void refreshStatement(r.id, r.name);
+              },
             },
-          }}
-        >
-          {refreshNotice.text}
-        </Toast>
-      )}
-      {closeStateError && (
-        <Toast tone="negative" action={{ label: 'Retry', onClick: () => { void reloadCloseState(period.id, period.month); } }}>
-          The close-out ticks did not load ({closeStateError}), so Drafted and Sent below are unknown. Draft All and Finalize wait until they load.
-        </Toast>
-      )}
-      {ownerCfgError && (
-        <Toast tone="tide" action={{ label: 'Retry', onClick: () => { void loadOwnerCfg(); } }}>
-          Owner contacts did not load, so email previews show the built-in names and addresses. The Gmail draft reads the live ones.
-        </Toast>
-      )}
-
-      {/* ─── Sync toasts ─── */}
-      {syncResult && (
-        typeof syncResult === 'string' ? (
-          <Toast tone="negative" onDismiss={() => setSyncResult(null)}>
-            Invoice sync failed: {syncResult}. Cleaning attribution did NOT run for this month.
-          </Toast>
-        ) : (
-          <Toast tone="positive" onDismiss={() => setSyncResult(null)}>
-            Matched <strong>{syncResult.matched}</strong> of <strong>{syncResult.total}</strong> cleaning invoices to bank charges (<strong>{syncResult.inserted}</strong> new, <strong>{syncResult.skipped}</strong> skipped). The dashboard has refreshed automatically.
-          </Toast>
-        )
-      )}
-      {guestySyncResult && (
-        typeof guestySyncResult === 'string' ? (
-          <Toast tone="negative" onDismiss={() => setGuestySyncResult(null)}>
-            Guesty sync failed: {guestySyncResult}. If it is urgent, upload the <strong>Guesty reservations CSV</strong> from its card under the close strip instead.
-          </Toast>
-        ) : (
-          <Toast tone="tide" onDismiss={() => setGuestySyncResult(null)}>
-            {!guestySyncResult.reviews?.skipped_reason && <><strong>{guestySyncResult.reviews?.upserted ?? 0}</strong> reviews and </>}
-            <strong>{guestySyncResult.reservations?.upserted ?? 0}</strong> bookings synced from Guesty
-            {guestySyncResult.reviews?.error && <span style={{ color: 'var(--signal)' }}> (reviews failed: {guestySyncResult.reviews.error})</span>}
-            {guestySyncResult.reservations?.error && <span style={{ color: 'var(--signal)' }}> (reservations failed: {guestySyncResult.reservations.error})</span>}
-            {'. '}
-            {guestySyncResult.waiting.length > 0
-              ? partialSyncLine(guestySyncResult.waiting)
-              : <>These feed guest ratings and <em>On the horizon</em>. Open any statement (or regenerate a Gmail draft) to see them; no dashboard refresh needed.</>}
-          </Toast>
-        )
-      )}
-      {stripeSyncResult && (
-        typeof stripeSyncResult === 'string' ? (
-          <Toast tone="negative" onDismiss={() => setStripeSyncResult(null)}>Stripe sync failed: {stripeSyncResult}</Toast>
-        ) : (
-          <Toast
-            tone={(stripeSyncResult.keyless > 0 || stripeSyncResult.errors.length > 0) ? 'negative' : (stripeSyncResult.refunds > 0 || stripeSyncResult.fee_unreadable > 0 || stripeSyncResult.truncated_rebuilds > 0) ? 'tide' : 'positive'}
-            onDismiss={() => setStripeSyncResult(null)}
-          >
-            Stripe synced across <strong>{stripeSyncResult.properties}</strong> propert{stripeSyncResult.properties === 1 ? 'y' : 'ies'}
-            {stripeSyncResult.fee_updates > 0 && <>: <strong>{stripeSyncResult.fee_updates}</strong> fee{stripeSyncResult.fee_updates === 1 ? '' : 's'} corrected to the real Stripe number</>}
-            {stripeSyncResult.refunds > 0 && <span style={{ color: 'var(--signal)' }}> &middot; {stripeSyncResult.refunds} refund{stripeSyncResult.refunds === 1 ? '' : 's'} flagged</span>}
-            {stripeSyncResult.gross_reconstructions > 0 && <span style={{ color: 'var(--positive, #2e6b4f)' }}> &middot; {stripeSyncResult.gross_reconstructions} stay{stripeSyncResult.gross_reconstructions === 1 ? '' : 's'} rebuilt from Stripe actuals (+{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(stripeSyncResult.reconstructed_gain)} net recovered; Guesty TOTAL_PAID under-reported an installment plan)</span>}
-            {stripeSyncResult.gross_mismatches > 0 && <span style={{ color: 'var(--signal)' }}> &middot; {stripeSyncResult.gross_mismatches} gross mismatch{stripeSyncResult.gross_mismatches === 1 ? '' : 'es'}</span>}
-            {stripeSyncResult.missing_charges > 0 && <span style={{ color: 'var(--ink-4)' }}> &middot; {stripeSyncResult.missing_charges} expected charge{stripeSyncResult.missing_charges === 1 ? '' : 's'} missing</span>}
-            {stripeSyncResult.orphan_charges > 0 && <span style={{ color: 'var(--signal)' }}> &middot; {stripeSyncResult.orphan_charges} unmatched charge{stripeSyncResult.orphan_charges === 1 ? '' : 's'} found; one-off payment links land in the review queue on each property card</span>}
-            {stripeSyncResult.keyless > 0 && <span style={{ color: 'var(--negative)' }}> &middot; {stripeSyncResult.keyless} propert{stripeSyncResult.keyless === 1 ? 'y has' : 'ies have'} VRBO/Direct stays but NO Stripe key configured, so their fees were never verified</span>}
-            {stripeSyncResult.fee_unreadable > 0 && <span style={{ color: 'var(--signal)' }}> &middot; {stripeSyncResult.fee_unreadable} matched charge{stripeSyncResult.fee_unreadable === 1 ? '' : 's'} returned no fee from Stripe; those stays are still on the 3.9% estimate</span>}
-            {stripeSyncResult.truncated_rebuilds > 0 && <span style={{ color: 'var(--signal)' }}> &middot; {stripeSyncResult.truncated_rebuilds} stay{stripeSyncResult.truncated_rebuilds === 1 ? '' : 's'} rebuilt from less money than Guesty recorded as collected; check for an earlier charge</span>}
-            {stripeSyncResult.errors.length === 0 && stripeSyncResult.fee_updates === 0 && stripeSyncResult.refunds === 0 && stripeSyncResult.gross_mismatches === 0 && stripeSyncResult.gross_reconstructions === 0 && stripeSyncResult.missing_charges === 0 && stripeSyncResult.fee_unreadable === 0 && stripeSyncResult.truncated_rebuilds === 0 && stripeSyncResult.keyless === 0 && <>: no discrepancies. All estimates match Stripe within $1.</>}
-            {stripeSyncResult.errors.length > 0 && (
-              <span style={{ display: 'block', marginTop: 4, color: 'var(--signal)', fontSize: 11 }}>
-                {stripeSyncResult.errors.length} account{stripeSyncResult.errors.length === 1 ? '' : 's'} errored: {stripeSyncResult.errors.slice(0, 2).join(' · ')}
-              </span>
-            )}
-          </Toast>
-        )
-      )}
-      {draftResult && (
-        typeof draftResult === 'string' ? (
-          <Toast tone="negative" onDismiss={() => setDraftResult(null)}>Gmail draft failed: {draftResult}</Toast>
-        ) : (
-          <Toast tone={draftResult.warnings.length > 0 ? 'tide' : 'positive'} onDismiss={() => setDraftResult(null)}>
-            Gmail draft created for <strong>{draftResult.property}</strong>
-            {draftResult.attachedPdf
-              ? <> with the statement PDF attached. </>
-              : <> (no PDF attached, see warnings). </>}
-            {canOpenMailbox(sessionEmail, draftResult.mailbox) ? (
-              <a href={draftResult.url} target="_blank" rel="noopener" style={{ color: 'var(--tide-deep)', textDecoration: 'underline' }}>
-                Open in Gmail →
-              </a>
-            ) : (
-              <>It is in {mailboxOwnerLabel(draftResult.mailbox)} Gmail drafts.</>
-            )}
-            {draftResult.warnings.length > 0 && (
-              <span style={{ display: 'block', marginTop: 4, color: 'var(--signal)', fontSize: 11 }}>
-                {draftResult.warnings.join(' · ')}
-              </span>
-            )}
-          </Toast>
-        )
-      )}
-      {bulkDraftResult && (
-        typeof bulkDraftResult === 'string' ? (
-          <Toast tone="tide" onDismiss={() => setBulkDraftResult(null)}>{bulkDraftResult}</Toast>
-        ) : (
-          <Toast
-            tone={bulkDraftResult.failed.length > 0 ? 'tide' : 'positive'}
-            onDismiss={() => setBulkDraftResult(null)}
-          >
-            <strong>{bulkDraftResult.drafted}</strong> Gmail draft{bulkDraftResult.drafted === 1 ? '' : 's'} created
-            {bulkDraftResult.skipped.length > 0 && (
-              <span style={{ display: 'block', marginTop: 4, color: 'var(--ink-3)', fontSize: 11 }}>
-                {bulkDraftResult.skipped.length} skipped:{' '}
-                {['already drafted', 'red confidence', 'in a combined owner email']
-                  .map(why => {
-                    const names = bulkDraftResult.skipped.filter(x => x.why === why).map(x => x.property);
-                    return names.length > 0 ? `${names.join(', ')} (${why})` : null;
-                  })
-                  .filter(Boolean)
-                  .join('; ')}
-              </span>
-            )}
-            {bulkDraftResult.failed.length > 0 && (
-              <span style={{ display: 'block', marginTop: 4, color: 'var(--signal)', fontSize: 11 }}>
-                {bulkDraftResult.failed.length} failed: {bulkDraftResult.failed.slice(0, 3).map(f => `${f.property} (${f.error})`).join(' · ')}
-                {bulkDraftResult.failed.length > 3 && ` +${bulkDraftResult.failed.length - 3} more`}
-              </span>
-            )}
-            {bulkDraftResult.drafted > 0 && canOpenMailbox(sessionEmail, draftMailbox) && (
-              <a
-                href={gmailUrl(draftMailbox, 'drafts')}
-                target="_blank"
-                rel="noopener"
-                style={{ display: 'inline-block', marginLeft: 8, color: 'var(--tide-deep)', textDecoration: 'underline' }}
-              >
-                Open Gmail drafts →
-              </a>
-            )}
-            {bulkDraftResult.drafted > 0 && !canOpenMailbox(sessionEmail, draftMailbox) && (
-              <span style={{ marginLeft: 8 }}>They are in {mailboxOwnerLabel(draftMailbox)} Gmail drafts.</span>
-            )}
-          </Toast>
-        )
-      )}
+            body: refreshNotice.text,
+          },
+          !!closeStateError && {
+            key: 'close-state',
+            tone: 'negative',
+            action: { label: 'Retry', onClick: () => { void reloadCloseState(period.id, period.month); } },
+            body: <>The close-out ticks did not load ({closeStateError}), so Drafted and Sent below are unknown. Draft All and Finalize wait until they load.</>,
+          },
+          ownerCfgError && {
+            key: 'owner-cfg',
+            tone: 'tide',
+            action: { label: 'Retry', onClick: () => { void loadOwnerCfg(); } },
+            body: <>Owner contacts did not load, so email previews show the built-in names and addresses. The Gmail draft reads the live ones.</>,
+          },
+          // Sync results
+          !!syncResult && (
+            typeof syncResult === 'string'
+              ? {
+                  key: 'invoices',
+                  tone: 'negative',
+                  onDismiss: () => setSyncResult(null),
+                  body: <>Invoice sync failed: {syncResult}. Cleaning attribution did NOT run for this month.</>,
+                }
+              : {
+                  key: 'invoices',
+                  tone: 'positive',
+                  autoDismiss: true,
+                  onDismiss: () => setSyncResult(null),
+                  body: <><strong>{syncResult.matched}</strong> of <strong>{syncResult.total}</strong> cleaning invoices matched to bank charges ({syncResult.inserted} new, {syncResult.skipped} skipped).</>,
+                }
+          ),
+          !!guestySyncResult && (
+            typeof guestySyncResult === 'string'
+              ? {
+                  key: 'guesty',
+                  tone: 'negative',
+                  onDismiss: () => setGuestySyncResult(null),
+                  body: <>Guesty sync failed: {guestySyncResult}. If it is urgent, upload the <strong>Guesty reservations CSV</strong> from its card under the close strip instead.</>,
+                }
+              : {
+                  key: 'guesty',
+                  tone: guestySyncResult.reviews?.error || guestySyncResult.reservations?.error ? 'negative' : guestySyncResult.waiting.length > 0 ? 'tide' : 'positive',
+                  autoDismiss: !guestySyncResult.reviews?.error && !guestySyncResult.reservations?.error && guestySyncResult.waiting.length === 0,
+                  onDismiss: () => setGuestySyncResult(null),
+                  body: (
+                    <>
+                      <strong>{guestySyncResult.reservations?.upserted ?? 0}</strong> reservations
+                      {!guestySyncResult.reviews?.skipped_reason && <>, <strong>{guestySyncResult.reviews?.upserted ?? 0}</strong> reviews</>}
+                      {guestySyncResult.reviews?.error && <span style={{ color: 'var(--signal)' }}> (reviews failed: {guestySyncResult.reviews.error})</span>}
+                      {guestySyncResult.reservations?.error && <span style={{ color: 'var(--signal)' }}> (reservations failed: {guestySyncResult.reservations.error})</span>}
+                      {guestySyncResult.waiting.length > 0 && (
+                        <> &middot; {guestySyncResult.waiting.length} step{guestySyncResult.waiting.length === 1 ? '' : 's'} waiting (detail under Sync)</>
+                      )}
+                    </>
+                  ),
+                }
+          ),
+          !!stripeSyncResult && (
+            typeof stripeSyncResult === 'string'
+              ? {
+                  key: 'stripe',
+                  tone: 'negative',
+                  onDismiss: () => setStripeSyncResult(null),
+                  body: <>Stripe sync failed: {stripeSyncResult}</>,
+                }
+              : {
+                  key: 'stripe',
+                  tone: (stripeSyncResult.keyless > 0 || stripeSyncResult.errors.length > 0) ? 'negative' : stripeSyncFlags.length > 0 ? 'tide' : 'positive',
+                  autoDismiss: stripeSyncResult.keyless === 0 && stripeSyncResult.errors.length === 0 && stripeSyncFlags.length === 0,
+                  onDismiss: () => setStripeSyncResult(null),
+                  body: (
+                    <>
+                      Stripe: <strong>{stripeSyncResult.fee_updates}</strong> fee{stripeSyncResult.fee_updates === 1 ? '' : 's'} corrected across{' '}
+                      <strong>{stripeSyncResult.properties}</strong> propert{stripeSyncResult.properties === 1 ? 'y' : 'ies'}
+                      {stripeSyncFlags.length > 0 && <> &middot; {stripeSyncFlags.length} thing{stripeSyncFlags.length === 1 ? '' : 's'} to look at (detail under Sync)</>}
+                      {stripeSyncResult.keyless > 0 && <span style={{ color: 'var(--negative)' }}> &middot; {stripeSyncResult.keyless} propert{stripeSyncResult.keyless === 1 ? 'y has' : 'ies have'} VRBO/Direct stays but NO Stripe key configured, so their fees were never verified</span>}
+                      {stripeSyncResult.errors.length > 0 && (
+                        <span style={{ display: 'block', marginTop: 4, color: 'var(--signal)', fontSize: 11 }}>
+                          {stripeSyncResult.errors.length} account{stripeSyncResult.errors.length === 1 ? '' : 's'} errored: {stripeSyncResult.errors.slice(0, 2).join(' · ')}
+                        </span>
+                      )}
+                    </>
+                  ),
+                }
+          ),
+          !!draftResult && (
+            typeof draftResult === 'string'
+              ? {
+                  key: 'draft',
+                  tone: 'negative',
+                  onDismiss: () => setDraftResult(null),
+                  body: <>Gmail draft failed: {draftResult}</>,
+                }
+              : {
+                  key: 'draft',
+                  tone: draftResult.warnings.length > 0 ? 'tide' : 'positive',
+                  autoDismiss: draftResult.warnings.length === 0,
+                  onDismiss: () => setDraftResult(null),
+                  body: (
+                    <>
+                      Gmail draft created for <strong>{draftResult.property}</strong>
+                      {draftResult.attachedPdf
+                        ? <> with the statement PDF attached. </>
+                        : <> (no PDF attached, see warnings). </>}
+                      {canOpenMailbox(sessionEmail, draftResult.mailbox) ? (
+                        <a href={draftResult.url} target="_blank" rel="noopener" style={{ color: 'var(--tide-deep)', textDecoration: 'underline' }}>
+                          Open in Gmail →
+                        </a>
+                      ) : (
+                        <>It is in {mailboxOwnerLabel(draftResult.mailbox)} Gmail drafts.</>
+                      )}
+                      {draftResult.warnings.length > 0 && (
+                        <span style={{ display: 'block', marginTop: 4, color: 'var(--signal)', fontSize: 11 }}>
+                          {draftResult.warnings.join(' · ')}
+                        </span>
+                      )}
+                    </>
+                  ),
+                }
+          ),
+          !!bulkDraftResult && (
+            typeof bulkDraftResult === 'string'
+              ? {
+                  key: 'bulk-draft',
+                  tone: 'tide',
+                  onDismiss: () => setBulkDraftResult(null),
+                  body: bulkDraftResult,
+                }
+              : {
+                  key: 'bulk-draft',
+                  tone: bulkDraftResult.failed.length > 0 ? 'tide' : 'positive',
+                  autoDismiss: bulkDraftResult.failed.length === 0 && bulkDraftResult.skipped.length === 0,
+                  onDismiss: () => setBulkDraftResult(null),
+                  body: (
+                    <>
+                      <strong>{bulkDraftResult.drafted}</strong> Gmail draft{bulkDraftResult.drafted === 1 ? '' : 's'} created
+                      {bulkDraftResult.skipped.length > 0 && (
+                        <span style={{ display: 'block', marginTop: 4, color: 'var(--ink-3)', fontSize: 11 }}>
+                          {bulkDraftResult.skipped.length} skipped:{' '}
+                          {['already drafted', 'red confidence', 'in a combined owner email']
+                            .map(why => {
+                              const names = bulkDraftResult.skipped.filter(x => x.why === why).map(x => x.property);
+                              return names.length > 0 ? `${names.join(', ')} (${why})` : null;
+                            })
+                            .filter(Boolean)
+                            .join('; ')}
+                        </span>
+                      )}
+                      {bulkDraftResult.failed.length > 0 && (
+                        <span style={{ display: 'block', marginTop: 4, color: 'var(--signal)', fontSize: 11 }}>
+                          {bulkDraftResult.failed.length} failed: {bulkDraftResult.failed.slice(0, 3).map(f => `${f.property} (${f.error})`).join(' · ')}
+                          {bulkDraftResult.failed.length > 3 && ` +${bulkDraftResult.failed.length - 3} more`}
+                        </span>
+                      )}
+                      {bulkDraftResult.drafted > 0 && canOpenMailbox(sessionEmail, draftMailbox) && (
+                        <a
+                          href={gmailUrl(draftMailbox, 'drafts')}
+                          target="_blank"
+                          rel="noopener"
+                          style={{ display: 'inline-block', marginLeft: 8, color: 'var(--tide-deep)', textDecoration: 'underline' }}
+                        >
+                          Open Gmail drafts →
+                        </a>
+                      )}
+                      {bulkDraftResult.drafted > 0 && !canOpenMailbox(sessionEmail, draftMailbox) && (
+                        <span style={{ marginLeft: 8 }}>They are in {mailboxOwnerLabel(draftMailbox)} Gmail drafts.</span>
+                      )}
+                    </>
+                  ),
+                }
+          ),
+        ]}
+      />
 
       {/* ─── INSIGHTS STRIP (replaces KPI cards) ─── */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 28, paddingBottom: 20 }}>

@@ -532,6 +532,17 @@ describe('no card or link on a staff page lands on /not-available', () => {
     assert.ok(roster.includes(": 'Everyone who shoots for us. To send someone to a home, ask Ryan.'"), 'the staff sentence must not send them to Shoots & pay');
   });
 
+  test('the Stripe sub-strip (Balance charges, Disputes) renders on the lookup for owners only', () => {
+    const lookup = read('src/app/payments/page.tsx');
+    assert.ok(lookup.includes('const owner = await isOwnerSession();'), 'the lookup page reads the role on the server');
+    assert.ok(lookup.includes('{owner && <StripeTabs current="lookup" />}'), 'staff keep the lookup alone');
+    const strip = read('src/components/StripeTabs.tsx');
+    for (const href of ['/payments/balance-charges', '/payments/disputes']) {
+      assert.ok(strip.includes(`href: '${href}'`), `${href} is on the strip`);
+      assert.ok(pathRequiresOwner(href), `${href} is gated, so SectionTabs drops it for staff too`);
+    }
+  });
+
   test('/not-available names every area the gate list covers', () => {
     const src = read('src/app/not-available/page.tsx').toLowerCase();
     for (const word of ['statements', 'revenue', 'forecast', 'cost analysis', 'books', 'payments', 'contracts', 'prospects', 'projections', 'owner messaging', 'quotes', 'airdna', 'competitors', 'creative pay', 'rate card']) {

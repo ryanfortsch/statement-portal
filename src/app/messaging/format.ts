@@ -45,14 +45,14 @@ export function proactiveKind(
   if (id.startsWith('sched:')) return 'scheduled';
   if (id.startsWith('review:') || t === 'review_request') return 'review';
   // Our review OF the guest (stop Guesty's auto review on a red stay, then
-  // post our own) and our public reply to THEIR review: the Guest reviews
+  // post our own) and our public reply to THEIR review: the Review cards
   // lens owns both (concierge host_reviews.py, review_replies.py).
   if (id.startsWith('hostreview:') || t === 'host_review' || t === 'host_review_stop') return 'hostreview';
   if (id.startsWith('reviewreply:') || t === 'review_reply') return 'reviewreply';
   return null;
 }
 
-/** The two kinds the Guest reviews lens shows (/messaging/reviews). The Inbox
+/** The two kinds the Review cards lens shows (/messaging/reviews). The Inbox
  *  and the guests count leave them out, so a badge count still matches the
  *  page it points at. */
 export function isReviewLensKind(kind: ProactiveKind): boolean {

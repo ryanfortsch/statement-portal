@@ -112,19 +112,6 @@ export default async function PropertiesPage() {
 
       <PropertiesTabBar active="properties" />
 
-      {/* Every home's Stay Cape Ann launcher, one list (read-only). */}
-      <div
-        className="max-w-[1100px] mx-auto px-10 w-full"
-        style={{ paddingBottom: 18, display: 'flex', gap: 20, flexWrap: 'wrap' }}
-      >
-        <Link
-          href="/properties/stay-cape-ann"
-          style={{ fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'none', letterSpacing: '.03em' }}
-        >
-          Stay Cape Ann listings →
-        </Link>
-      </div>
-
       {/* MAP — geographic portfolio view above the list. Click a pin to
           surface a card with property name + slip count + Open link. */}
       {!error && active.length > 0 && (
@@ -293,19 +280,6 @@ function PropertyRow({
             whiteSpace: 'nowrap',
           }}
         >
-          {ownerActionWork > 0 && (
-            <span
-              title={`${ownerActionWork} open work slip${ownerActionWork === 1 ? '' : 's'} flagged for owner input`}
-              style={{
-                fontSize: 9, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase',
-                color: 'var(--paper)',
-                background: 'var(--signal)',
-                padding: '2px 7px',
-              }}
-            >
-              {ownerActionWork} owner
-            </span>
-          )}
           {/* Readiness. Only shown while a home is still being set up: a
               live property wearing a progress chip forever is the habit the
               old 27%% badge taught, and the whole point of retiring Setup
@@ -328,17 +302,20 @@ function PropertyRow({
               {launch.requiredRemaining > 0 ? `launch ${launch.done}/${launch.total}` : 'ready'}
             </span>
           )}
+          {/* One quiet count. The owner-flagged slips are a subset of the
+              open slips, so they read as a clause of the same number rather
+              than a second chip; the launch chip is the row's only colored
+              mark. */}
           {totalWork > 0 && (
             <span
-              title={`${totalWork} active work slip${totalWork === 1 ? '' : 's'}`}
+              title={`${totalWork} active work slip${totalWork === 1 ? '' : 's'}${ownerActionWork > 0 ? `, ${ownerActionWork} flagged for owner input` : ''}`}
               style={{
-                fontSize: 9, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase',
+                fontSize: 10, letterSpacing: '.16em', textTransform: 'uppercase',
                 color: 'var(--ink-3)',
-                border: '1px solid var(--rule)',
-                padding: '2px 7px',
               }}
             >
               {totalWork} {totalWork === 1 ? 'slip' : 'slips'}
+              {ownerActionWork > 0 ? ` · ${ownerActionWork} for owner` : ''}
             </span>
           )}
         </span>

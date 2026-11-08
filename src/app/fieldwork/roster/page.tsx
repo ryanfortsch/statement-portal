@@ -177,7 +177,7 @@ export default async function ContractorsPage({
             {/* What the invitee's portal looks like at each stage — workshop it
                 here before any invite goes out. */}
             <Link href={`/field?office=1&trade=${trade}`} target="_blank" style={{ fontSize: 13, color: 'var(--tide-deep)', textDecoration: 'none' }}>
-              Preview their portal →
+              Preview as contractor →
             </Link>
             {/* The pay ledger is an owner page: no link to it for staff. */}
             {trade === 'creative' && owner && (
@@ -410,9 +410,6 @@ function ContractorCard({
           <div style={{ minWidth: 0 }}>
             <div className="font-serif" style={{ fontSize: 17, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               {c.full_name}
-              {c.trade && c.trade !== 'inspection' && (
-                <span style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--tide-deep)', border: '1px solid var(--rule)', borderRadius: 999, padding: '1px 7px' }}>{c.trade}</span>
-              )}
             </div>
             <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 2 }}>{c.email}{c.phone ? ` · ${c.phone}` : ''}</div>
           </div>

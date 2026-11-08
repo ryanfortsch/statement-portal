@@ -10,6 +10,7 @@ import type { ContactReconcileSuggestionRow } from '@/lib/quo-reconcile';
 import type { KnownForRow } from '@/lib/number-triage';
 import type { DoNotHostNote } from '@/lib/do-not-host';
 import { DoNotHostLine } from '@/components/DoNotHostLine';
+import { Button } from '@/components/Button';
 import {
   addUnknownAsContact,
   dismissUnknownNumber,
@@ -219,12 +220,12 @@ export function NumberTriage({ unknownNumbers, olderUnknownNumbers = [], suggest
               <option value="other">Other</option>
             </select>
           )}
-          <button type="button" disabled={busy} onClick={() => onAcceptSuggestion(s)} style={smallBtn(true)}>
+          <Button size="sm" variant="primary" disabled={busy} onClick={() => onAcceptSuggestion(s)}>
             {busy ? '…' : isNew ? 'New contact' : 'Attach'}
-          </button>
-          <button type="button" disabled={busy} onClick={() => onNotOursSuggestion(s.id)} style={smallBtn(false)}>
+          </Button>
+          <Button size="sm" disabled={busy} onClick={() => onNotOursSuggestion(s.id)}>
             Not ours
-          </button>
+          </Button>
         </div>
         </div>
         {suggestionErr[s.id] && <div role="alert" style={{ fontSize: 11, color: 'var(--negative)', paddingLeft: 2 }}>{suggestionErr[s.id]}</div>}
@@ -283,15 +284,15 @@ export function NumberTriage({ unknownNumbers, olderUnknownNumbers = [], suggest
               <option key={c.id} value={c.id}>{c.name}{c.phone ? '' : ' · no #'}</option>
             ))}
           </select>
-          <button type="button" disabled={busy || !target} onClick={() => onAttach(u.phone)} style={smallBtn(!!target)}>
+          <Button size="sm" variant={target ? 'primary' : 'secondary'} disabled={busy || !target} onClick={() => onAttach(u.phone)}>
             {busy ? '…' : suggestion?.contact.id === target || known?.contactId === target ? 'Confirm match' : 'Attach'}
-          </button>
-          <button type="button" disabled={busy} onClick={() => { if (!phoneLocks.current.has(u.phone)) setPromote(u); }} style={smallBtn(false)}>
+          </Button>
+          <Button size="sm" disabled={busy} onClick={() => { if (!phoneLocks.current.has(u.phone)) setPromote(u); }}>
             New contact
-          </button>
-          <button type="button" disabled={busy} onClick={() => onNotOurs(u.phone)} style={smallBtn(false)}>
+          </Button>
+          <Button size="sm" disabled={busy} onClick={() => onNotOurs(u.phone)}>
             {busy ? '…' : 'Not ours'}
-          </button>
+          </Button>
         </div>
         </div>
         {/* A guest Helm will not host again, texting again: say so before
@@ -413,17 +414,3 @@ function formatPhone(p: string): string {
   return p;
 }
 
-function smallBtn(primary: boolean): React.CSSProperties {
-  return {
-    background: primary ? 'var(--ink)' : 'transparent',
-    color: primary ? 'var(--paper)' : 'var(--ink-3)',
-    border: `1px solid ${primary ? 'var(--ink)' : 'var(--rule)'}`,
-    padding: '5px 10px',
-    fontSize: 10,
-    letterSpacing: '.14em',
-    textTransform: 'uppercase',
-    fontWeight: 600,
-    cursor: 'pointer',
-    whiteSpace: 'nowrap',
-  };
-}

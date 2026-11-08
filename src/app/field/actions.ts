@@ -308,7 +308,7 @@ export type StopReceiptState = { ok: boolean; error?: string; uncertain?: boolea
 
 async function findStopReceipt(contractorId: string, attempt: string, packetId: string): Promise<StopReceiptState & { missing?: boolean }> {
   const id = fieldSubmissionId(contractorId, attempt);
-  if (!id) return { ok: false, error: 'Reopen the packet before adding a receipt.' };
+  if (!id) return { ok: false, error: 'Reopen the job before adding a receipt.' };
   const { data, error } = await fieldDb().from('work_slips')
     .select('id, expense_cents')
     .eq('id', id).eq('receipt_contractor_id', contractorId).eq('receipt_packet_id', packetId).maybeSingle();
@@ -333,7 +333,7 @@ export async function addStopReceipt(_prev: StopReceiptState, formData: FormData
   const stopId = String(formData.get('stop_id') || '');
   const attempt = String(formData.get('submission_id') || '');
   const submissionId = fieldSubmissionId(contractor.id, attempt);
-  if (!submissionId || !packetId || !stopId) return { ok: false, error: 'Reopen the packet before adding a receipt.' };
+  if (!submissionId || !packetId || !stopId) return { ok: false, error: 'Reopen the job before adding a receipt.' };
   const prior = await findStopReceipt(contractor.id, attempt, packetId);
   if (!prior.missing) return prior;
 
@@ -358,7 +358,7 @@ export async function addStopReceipt(_prev: StopReceiptState, formData: FormData
   const packet = pk as { id: string; status: string; paid_at: string | null; awarded_contractor_id: string | null } | null;
   if (!stop || !packet || packet.awarded_contractor_id !== contractor.id) return { ok: false, error: 'This stop is not on one of your trips.' };
   if (packet.paid_at || !['claimed', 'in_progress', 'submitted', 'approved'].includes(packet.status)) {
-    return { ok: false, error: 'This trip is already paid. Text the office about a late receipt.' };
+    return { ok: false, error: 'This job is already paid. Text the office about a late receipt.' };
   }
 
   const now = new Date().toISOString();

@@ -26,6 +26,6 @@ export default function MessagingStatusPage() {
     <Suspense fallback={null}><SyncFeedsSection /></Suspense>
     <Suspense fallback={null}><HelmRunHomesSection /></Suspense>
     <div style={{ flex: 1 }} />
-    <MessagingFooter self />
+    <MessagingFooter />
   </div>;
 }

@@ -5,6 +5,7 @@ import { displayName, formatTagLabel, GUEST_EVENT_LABEL, GUEST_SOURCE_LABEL, GUE
 import { listReviewsForContact, type ReviewRow } from '@/lib/reviews';
 import { unsubscribeContact, resubscribeContact } from '../actions';
 import { SubmitButton } from '@/components/SubmitButton';
+import { buttonClass } from '@/lib/button-class';
 import { doNotHostNote } from '@/lib/do-not-host';
 import { DoNotHostControl } from './DoNotHostControl';
 
@@ -40,9 +41,25 @@ export default async function ContactDetailPage({ params }: { params: Promise<{ 
         }}>
           {displayName(contact)}
         </h1>
-        <p style={{ marginTop: 8, fontSize: 14, color: 'var(--ink-3)' }}>
-          {contact.email}
-        </p>
+        {/* The email is the mailto; the list verb sits beside it as text
+            (one face in the header, no Actions row: UX audit 2026-11-07). */}
+        <div style={{ marginTop: 8, fontSize: 14, color: 'var(--ink-3)', display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+          <a href={`mailto:${contact.email}`} style={{ color: 'var(--ink-2)', textDecoration: 'underline', textUnderlineOffset: 3 }}>
+            {contact.email}
+          </a>
+          <span aria-hidden="true">&middot;</span>
+          {contact.status === 'subscribed' ? (
+            <form action={unsubscribeContact} style={{ display: 'inline' }}>
+              <input type="hidden" name="id" value={contact.id} />
+              <SubmitButton label="Unsubscribe" busyLabel="Unsubscribing…" className={buttonClass('quiet')} spinnerTone="ink" />
+            </form>
+          ) : (
+            <form action={resubscribeContact} style={{ display: 'inline' }}>
+              <input type="hidden" name="id" value={contact.id} />
+              <SubmitButton label="Resubscribe" busyLabel="Resubscribing…" className={buttonClass('quiet')} spinnerTone="ink" />
+            </form>
+          )}
+        </div>
         {/* Do not host again: the one red line, and the verb that sets or
             undoes it. Owners and staff alike (src/lib/do-not-host.ts). */}
         <DoNotHostControl contactId={contact.id} name={displayName(contact)} flag={doNotHostNote(contact)} />
@@ -88,27 +105,6 @@ export default async function ContactDetailPage({ params }: { params: Promise<{ 
           </div>
         </section>
       )}
-
-      {/* ACTIONS */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 36, width: '100%' }}>
-        <div className="eyebrow" style={{ marginBottom: 12 }}>Actions</div>
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-          {contact.status === 'subscribed' ? (
-            <form action={unsubscribeContact}>
-              <input type="hidden" name="id" value={contact.id} />
-              <SubmitButton label="Unsubscribe" busyLabel="Unsubscribing…" style={dangerButtonStyle} spinnerTone="ink" />
-            </form>
-          ) : (
-            <form action={resubscribeContact}>
-              <input type="hidden" name="id" value={contact.id} />
-              <SubmitButton label="Resubscribe" busyLabel="Resubscribing…" style={primaryButtonStyle} />
-            </form>
-          )}
-          <a href={`mailto:${contact.email}`} style={secondaryButtonStyle}>
-            Send 1:1 email
-          </a>
-        </div>
-      </section>
 
       {/* STAYS - past + upcoming reservations joined from
           guesty_reservations via guesty_guest_id. Internal Helm UI, so
@@ -335,35 +331,3 @@ function formatDateTime(iso: string): string {
     minute: '2-digit',
   });
 }
-
-const primaryButtonStyle: React.CSSProperties = {
-  background: 'var(--ink)',
-  color: 'var(--paper)',
-  fontSize: 11,
-  fontWeight: 600,
-  letterSpacing: '.18em',
-  textTransform: 'uppercase',
-  padding: '10px 18px',
-  border: 'none',
-  cursor: 'pointer',
-  textDecoration: 'none',
-};
-
-const secondaryButtonStyle: React.CSSProperties = {
-  background: 'transparent',
-  color: 'var(--ink)',
-  fontSize: 11,
-  fontWeight: 500,
-  letterSpacing: '.18em',
-  textTransform: 'uppercase',
-  padding: '10px 18px',
-  border: '1px solid var(--ink)',
-  cursor: 'pointer',
-  textDecoration: 'none',
-};
-
-const dangerButtonStyle: React.CSSProperties = {
-  ...secondaryButtonStyle,
-  borderColor: 'var(--signal)',
-  color: 'var(--signal)',
-};

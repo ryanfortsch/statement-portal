@@ -58,7 +58,7 @@ export function BoardLine({ row, today, myEmail, dispatcher = false }: { row: Bo
           </span>
         )}
         {battery && (
-          <span className="rt-tb-flag" data-tone="bad">
+          <span className="rt-tb-flag" data-tone="bad" title={`Lock battery ${t!.lockBattery!.pct != null ? `${t!.lockBattery!.pct}%` : 'low'} · bring batteries`}>
             Batteries
           </span>
         )}
@@ -139,23 +139,17 @@ export function BoardLine({ row, today, myEmail, dispatcher = false }: { row: Bo
                 dispatcher={dispatcher}
               />
             )}
-            {battery && t?.lockBattery && (
-              <span style={{ color: 'var(--negative)', fontSize: 12, fontWeight: 600 }}>
-                Lock battery {t.lockBattery.pct != null ? `${t.lockBattery.pct}%` : 'low'} · bring batteries
-              </span>
-            )}
-            {!row.done &&
-              t?.prepSlips.map((s) => (
-                <Link key={s.id} href={`/work/${s.id}`} className="rt-tb-chip" data-tone="warn">
-                  {truncate(s.actionSummary || s.title, 90)} →
-                </Link>
-              ))}
+            {/* The Prep and Batteries flags on the line already say it (the
+                battery level and the prep slips ride their titles); the
+                print sheet below carries every open slip. */}
             {t && t.openWorkSlipsCount > 0 && (
               <Link href={`/properties/${t.propertyId}/work-slips/print`} className="rt-tb-chip">
                 {t.openWorkSlipsCount} {t.openWorkSlipsCount === 1 ? 'slip' : 'slips'} · print →
               </Link>
             )}
-            {fp && (
+            {/* The Field chip only when the line's walk slot does not already
+                link the packet. */}
+            {fp && !fieldHref && (
               <Link href={`/fieldwork/packets/${fp.packetId}`} className="rt-tb-chip" style={{ color: fieldChipColor(fp.status), fontWeight: 600 }}>
                 {fieldChipLabel(fp)} →
               </Link>
@@ -164,7 +158,7 @@ export function BoardLine({ row, today, myEmail, dispatcher = false }: { row: Bo
                 date move; the schedule's row links back here. */}
             {row.scheduleHref && (
               <Link href={row.scheduleHref} className="rt-tb-chip">
-                Checkout schedule →
+                Schedule →
               </Link>
             )}
             {t && !row.done && (
@@ -285,9 +279,4 @@ function TurnoverSteps({ row, today }: { row: BoardRow; today: string }) {
       )}
     </div>
   );
-}
-
-/** Keep prep-slip chip labels short enough to scan at a glance. */
-function truncate(s: string, max: number): string {
-  return s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s;
 }
