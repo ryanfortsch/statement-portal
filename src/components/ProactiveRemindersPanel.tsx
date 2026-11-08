@@ -26,10 +26,12 @@ import { houseDay, houseRange } from '@/lib/house-date';
  * date), one-time messages fire on a chosen date.
  *
  * A guest's recipient is a stay (its fetch returns `reservations`), and a
- * recurring guest message runs the stay window. Guests get Recurring only:
- * a one-time guest message is the Send composer's Send later, the one
- * "later" on that tab (audit 2026-11-07). One-time guest rows made before
- * that still list here with End.
+ * recurring guest message runs the stay window. A one-time guest message
+ * fires on any date from today (not clamped to the stay, so a pre-arrival
+ * heads-up works), with Approve first or Auto-send. It overlaps the Send
+ * composer's Send later, which stops at 30 days and always sends; keeping
+ * both is the lesser cost, since without this panel a far-out or
+ * approve-first one-time message could not be made at all.
  *
  * The server actions are page-owned (each page's reminders-actions.ts
  * hardcodes its audience + revalidate path) and arrive via the `actions`
@@ -151,7 +153,7 @@ export function ProactiveRemindersPanel({ audience, actions, audienceSwitch }: P
   return (
     <Section
       title="Proactive messages"
-      eyebrow={recurring.length > 0 ? `${recurring.length} scheduled` : audience === 'guest' ? 'recurring, through the stay' : 'recurring + one-time'}
+      eyebrow={recurring.length > 0 ? `${recurring.length} scheduled` : 'recurring + one-time'}
       paddingTop={36}
       right={
         <>
@@ -338,7 +340,6 @@ function CreateForm({
   const [done, setDone] = useState(false);
 
   const isGuest = audience === 'guest';
-  const modes: Mode[] = isGuest ? ['recurring'] : ['recurring', 'once'];
   const [mode, setMode] = useState<Mode>('recurring');
   const [contact, setContact] = useState('');
   const [label, setLabel] = useState('');
@@ -513,11 +514,9 @@ function CreateForm({
         <div className="eyebrow" style={{ color: 'var(--ink-4)' }}>
           New proactive message
         </div>
-        {/* Mode toggle: the "slightly different UI" per mode. A guest has
-            Recurring only; Send later on the composer is the one-time. */}
-        {modes.length > 1 && (
+        {/* Mode toggle: the "slightly different UI" per mode */}
         <div style={{ display: 'inline-flex', border: '1px solid var(--ink)' }} role="tablist">
-          {modes.map((m) => {
+          {(['recurring', 'once'] as Mode[]).map((m) => {
             const active = mode === m;
             return (
               <button
@@ -550,7 +549,6 @@ function CreateForm({
             );
           })}
         </div>
-        )}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
@@ -759,7 +757,9 @@ function CreateForm({
       {picked && (
         <div style={{ fontSize: 11, color: 'var(--ink-4)', marginBottom: 12 }}>
           {picked.stay
-            ? `Runs ${houseRange(picked.stay.effective_start || picked.stay.check_in, picked.stay.check_out)}${picked.stay.in_house ? ' (from today through checkout)' : ' (the stay window)'}${picked.stay.channel ? ` · sends via ${picked.stay.channel}` : ''}.`
+            ? `${mode === 'recurring'
+                ? `Runs ${houseRange(picked.stay.effective_start || picked.stay.check_in, picked.stay.check_out)}${picked.stay.in_house ? ' (from today through checkout)' : ' (the stay window)'}`
+                : 'Fires once on the chosen date'}${picked.stay.channel ? ` · sends via ${picked.stay.channel}` : ''}.`
             : `Sends by SMS via Quo to ${picked.name}.`}
         </div>
       )}

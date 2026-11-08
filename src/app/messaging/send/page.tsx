@@ -120,9 +120,9 @@ export default async function MessagingSendPage({
           <PaymentLinksLedger />
         </Suspense>
       ) : (
-        // Repeating guest messages ride with the compose surface: both are
-        // "things we start". The one-time "later" is the composer's own
-        // Send later, so the panel offers Recurring only for guests.
+        // Scheduled + repeating guest messages ride with the compose
+        // surface: both are "things we start". The panel's One-time reaches
+        // past Send later's 30 days and can wait for approval.
         <ProactiveRemindersPanel
           audience="guest"
           actions={{

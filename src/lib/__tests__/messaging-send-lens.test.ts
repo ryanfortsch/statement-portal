@@ -30,13 +30,13 @@ describe('the Send lens', () => {
     }
   });
 
-  test('one way to send later: the guest Proactive panel is the shared one, Recurring only', () => {
+  test('the guest Proactive panel is the shared one, with Recurring and One-time', () => {
     const page = read('src/app/messaging/send/page.tsx');
     assert.ok(!existsSync(new URL('../../../src/app/messaging/RemindersSection.tsx', import.meta.url)), 'the twin guest panel is gone');
     assert.ok(!page.includes('RemindersSection'), 'Send renders the twin');
     assert.ok(page.includes('<ProactiveRemindersPanel\n          audience="guest"'), 'Send renders the shared panel for guests');
     const panel = read('src/components/ProactiveRemindersPanel.tsx');
-    assert.ok(panel.includes("const modes: Mode[] = isGuest ? ['recurring'] : ['recurring', 'once'];"), 'guests get Recurring only; the composer has Send later');
+    assert.ok(panel.includes("(['recurring', 'once'] as Mode[]).map((m) =>"), 'every audience, guests included, keeps One-time');
     assert.ok(panel.includes('start_date: stay.effective_start || stay.check_in'), 'a guest reminder still runs the stay window');
   });
 
