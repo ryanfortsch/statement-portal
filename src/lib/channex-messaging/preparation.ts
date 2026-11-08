@@ -5,7 +5,7 @@ import { resolveMessageStayIdentities, type GuestyHandoffStay } from '../channex
 import { todayInEastern, shiftIsoDay } from '../sca-quotes-types.ts';
 import { parsePreparationRules, reviewPreparationRules } from './preparation-rules.ts';
 import { confirmationInstant, reviewCalderwoodTiming, type SourceClocks } from './preparation-timing.ts';
-import { parsePreparationRenderInputs, rehearsePreparedMessages } from './preparation-render.ts';
+import { parsePreparationRenderInputs, rehearsePreparedMessages, reviewPreparationInputs } from './preparation-render.ts';
 
 export class MessagePreparationError extends Error {
   readonly code: 'PREPARATION_READ_FAILED' | 'SOURCE_READ_FAILED' | 'SOURCES_CHANGED' | 'READ_LIMIT_REACHED';
@@ -112,9 +112,10 @@ export async function reviewMessagePreparation(env: Record<string, string | unde
   if (before.revision !== after.revision || before.privateRenderRevision !== after.privateRenderRevision)
     throw new MessagePreparationError('SOURCES_CHANGED');
   const observedAt = clock();
-  return { ok: true as const, format: 2 as const, propertyId: '65_calderwood' as const,
+  return { ok: true as const, format: 3 as const, propertyId: '65_calderwood' as const,
     checkedAt: new Date(observedAt).toISOString(), contextRevision: before.revision,
     currentAndUpcomingStays: first.length, ...reviewPreparationRules(before.rules),
+    inputs: reviewPreparationInputs(before.renderInputs),
     stays: first.sort((a, b) => a.clocks.start.localeCompare(b.clocks.start) || a.canonicalId.localeCompare(b.canonicalId)).map(r => ({ canonicalId: r.canonicalId, checkIn: r.clocks.start, checkOut: r.clocks.end,
       timings: reviewCalderwoodTiming(r.clocks, observedAt),
       messages: rehearsePreparedMessages(before.rules, before.renderInputs, before.stays.find(s => s.canonicalId === r.canonicalId)!, r.clocks) })),

@@ -11,6 +11,10 @@ const snapshot = z.object({
   property: z.object({ id: z.literal('65_calderwood'), name: text, wifi_name: text }).strict(),
   access: z.object({ smart_lock_code: text, key_code_location: text, wifi_password: text }).strict().nullable(),
   lockMapped: z.boolean(),
+  // Read only the recipient metadata needed to expose setup gaps. No phone or
+  // bearer portal token is needed by a rehearsal, even on the server.
+  cleanerRecipients: z.array(z.object({ enabled: z.boolean(), property_ids: z.array(z.string()).max(500),
+    region: z.string().min(1).max(100) }).strict()).max(200),
   bookings: z.array(z.object({ id: z.uuid(), property_id: z.literal('65_calderwood'),
     check_in: z.iso.date(), check_out: z.iso.date(), status: z.string(), guest_name: text }).strict()).max(5000),
 }).strict();
@@ -43,6 +47,22 @@ export function formatGuestyMessageDate(value: string) {
   return `${month} ${n}${ordinal}, ${date.getUTCFullYear()}`;
 }
 const present = (value: string | null | undefined) => Boolean(value?.trim());
+
+/** Presence is useful to an operator, but never a delivery/access attestation. */
+export function reviewPreparationInputs(input: PreparationRenderInputs) {
+  const covering = input.cleanerRecipients.filter(r => r.property_ids.includes('65_calderwood')
+    || (r.property_ids.length === 0 && r.region === 'bridgeport_ct'));
+  const enabled = covering.filter(r => r.enabled);
+  return {
+    entryCode: input.lockMapped ? 'stay_code_review' as const
+      : present(input.access?.smart_lock_code) ? 'stored' as const : 'missing' as const,
+    wifiName: present(input.property.wifi_name), wifiPassword: present(input.access?.wifi_password),
+    cleaner: { configuredRecipients: covering.length, enabledRecipients: enabled.length,
+      status: covering.length === 0 ? 'not_configured' as const : enabled.length === 0 ? 'disabled' as const
+        : enabled.length > 1 ? 'multiple_recipients' as const : 'access_review' as const,
+      scheduleAccessVerified: false as const, recipientVerified: false as const },
+  };
+}
 
 /** Render rehearsal only. It deliberately never constructs a sendable body:
  * guest names, Wi-Fi name/password and codes use labels before rendering.

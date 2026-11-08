@@ -117,7 +117,7 @@ const v3 = { _id: id(1), status: 'confirmed', confirmedAt: clocks.confirmedAt,
 function fixture() {
   const calls: string[] = []; let guards = 0;
   const context = { canonical, mirror, rules: [rule], automationsEnabled: false,
-    renderInputs: { property: { id: '65_calderwood', name: 'Synthetic home', wifi_name: null }, access: null, lockMapped: false,
+    renderInputs: { property: { id: '65_calderwood', name: 'Synthetic home', wifi_name: null }, access: null, lockMapped: false, cleanerRecipients: [] as { enabled: boolean; property_ids: string[]; region: string }[],
       bookings: [{ id: uid(1), property_id: '65_calderwood', status: 'confirmed', check_in: clocks.start, check_out: clocks.end, guest_name: 'PRIVATE_GUEST' }] } };
   const deps = { clock: () => now, context: async () => structuredClone(context),
     verifyDormant: async () => { guards++; }, token: async () => 'synthetic-token',
@@ -188,7 +188,7 @@ test('changed render data discards the review and its private comparison digest 
   f.deps.context = async () => { const c = await read(); if (++reads === 2) c.renderInputs.bookings[0].guest_name = 'CHANGED'; return c; };
   await assert.rejects(reviewMessagePreparation(env, f.deps), /SOURCES_CHANGED/);
   const clean = await reviewMessagePreparation(env, fixture().deps);
-  assert.equal(clean.format, 2);
+  assert.equal(clean.format, 3);
   assert.equal('privateRenderRevision' in clean, false); assert.equal('renderInputs' in clean, false);
 });
 test('environment and dormant boundaries are checked before token and network access', async () => {
@@ -255,4 +255,15 @@ test('larger scope, invalid tokens and mid-review midnight never produce a parti
   const midnight = fixture(); let reads = 0;
   midnight.deps.clock = () => Date.parse(++reads === 1 ? '2026-11-08T04:59:59Z' : '2026-11-08T05:00:01Z');
   await assert.rejects(reviewMessagePreparation(env, midnight.deps), /READ_LIMIT_REACHED/);
+});
+
+
+test('cleaner scope changes during a review invalidate the entire result', async () => {
+  const f = fixture(), read = f.deps.context; let reads = 0;
+  f.deps.context = async () => {
+    const c = await read();
+    if (++reads === 2) c.renderInputs.cleanerRecipients.push({ enabled: true, property_ids: ['65_calderwood'], region: 'bridgeport_ct' });
+    return c;
+  };
+  await assert.rejects(reviewMessagePreparation(env, f.deps), /SOURCES_CHANGED/);
 });

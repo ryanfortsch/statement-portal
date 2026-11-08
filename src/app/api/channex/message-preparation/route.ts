@@ -21,7 +21,7 @@ export async function GET() {
         const { data, error } = await supabaseAdmin.rpc(name, args); return { data, error };
       }), token: getGuestyToken,
       context: async () => {
-        const [snapshot, property, rules, mirror, access, locks, bookings] = await Promise.all([
+        const [snapshot, property, rules, mirror, access, locks, bookings, cleanerRecipients] = await Promise.all([
           supabaseAdmin.rpc('helm_channex_booking_audit_snapshot', {}),
           supabaseAdmin.from('properties').select('id,name,wifi_name,automations_enabled').eq('id', '65_calderwood').single(),
           supabaseAdmin.from('message_automations').select(MESSAGE_RULE_FIELDS)
@@ -34,12 +34,20 @@ export async function GET() {
           selectAllPaged((from, to) => supabaseAdmin.from('bookings')
             .select('id,property_id,check_in,check_out,status,guest_name').eq('property_id', '65_calderwood')
             .in('status', ['confirmed', 'completed']).order('id').range(from, to), { pageSize: 500, maxRows: 5000 }),
+          selectAllPaged(async (from, to) => {
+            const result = await supabaseAdmin.from('cleaner_schedule_recipients')
+              .select('enabled,property_ids,region')
+              .or('property_ids.cs.{65_calderwood},region.eq.bridgeport_ct')
+              .order('phone').range(from, to);
+            if (!Array.isArray(result.data)) throw new MessagePreparationError('PREPARATION_READ_FAILED');
+            return result;
+          }, { pageSize: 100, maxRows: 200 }),
         ]);
         if (snapshot.error || property.error || rules.error || !rules.data || locks.error || !locks.data)
           throw new MessagePreparationError('PREPARATION_READ_FAILED');
         const { id, name, wifi_name } = property.data;
         return { canonical: snapshot.data, automationsEnabled: property.data.automations_enabled, rules: rules.data, mirror,
-          renderInputs: { property: { id, name, wifi_name }, access, lockMapped: locks.data.length > 0, bookings } };
+          renderInputs: { property: { id, name, wifi_name }, access, lockMapped: locks.data.length > 0, bookings, cleanerRecipients } };
       },
     });
     return NextResponse.json(review, { headers });
