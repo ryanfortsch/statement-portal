@@ -8,6 +8,7 @@ import { ForMeFeed, RecentPayments } from '@/components/ForMeFeed';
 import { HomeSignals } from '@/components/HomeSignals';
 import { AskHelm } from '@/components/AskHelm';
 import { CleaningsStrip } from '@/components/CleaningsStrip';
+import { OpsScorecard } from '@/components/OpsScorecard';
 import { AiStatusBanner } from '@/components/AiStatusBanner';
 import { ConciergeAlertsLine } from '@/components/ConciergeAlerts';
 import { isOwnerSession } from '@/lib/helm-access-server';
@@ -58,6 +59,16 @@ export default async function HelmHome({
       {/* The signed-in person's day leads; activity is one tab away and
           loads only when opened. */}
       <HomeFeedTabs active={activity ? 'activity' : 'forme'} />
+
+      {/* GOALS: the operations manager's standards from her offer letter,
+          measured live, above her day so they are the first thing she sees.
+          Operations seat and owners only; renders nothing for anyone else. */}
+      {!activity && (
+        <Suspense fallback={null}>
+          <OpsScorecard />
+        </Suspense>
+      )}
+
       <Suspense fallback={<FeedPlaceholder />}>
         {activity ? <><RecentPayments /><TeamActivity limit={20} hideHeading /></> : <ForMeFeed />}
       </Suspense>
