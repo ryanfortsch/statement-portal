@@ -23,3 +23,15 @@ test('the views Home links to by name still light a pill', () => {
     assert.ok(id === 'overdue' ? board.includes('label="Overdue"') : board.includes(`{ id: '${id}', label:`), id);
   }
 });
+
+test('Plan now shares the Organize watcher and says what it planned', () => {
+  const rail = readFileSync('src/app/work/RunsRail.tsx', 'utf8');
+  const code = rail.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  assert.ok(code.includes('usePassWatch()') && board.includes('usePassWatch()'), 'one watcher for both buttons');
+  assert.ok(code.includes('await planPendingCount()'), 'the planner polls its own count');
+  assert.ok(!/check back|triaging|no one decided/i.test(code), 'developer words are back');
+  assert.ok(code.includes('`Planned ${runs(res.created)}.`'));
+  assert.ok(code.includes("const HANDYMAN_LANE_HREF = '/work?filter=all&lane=handyman';"));
+  assert.ok(!code.includes('Waiting for enough work or an empty day'), 'the backlog is one count, not a list of homes');
+  assert.ok(board.includes('if (lane && slipLane(w) !== lane) return false;'), 'the board reads ?lane=');
+});

@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { after } from 'next/server';
 import { auth } from '@/auth';
 import { fieldDb } from '@/lib/field-db';
-import { planMaintenanceRuns, drainClassificationBacklog } from '@/lib/maintenance-runs';
+import { planMaintenanceRuns, drainClassificationBacklog, SUGGESTION_PREFIX } from '@/lib/maintenance-runs';
 import { draftWorkOrderEmail, type WorkOrderResult } from '@/lib/work-order-email';
 import { sessionMailbox } from '@/lib/gmail-draft';
 import { getTeamMember } from '@/lib/team';
@@ -55,6 +55,40 @@ export async function planRunsNow(): Promise<
       noVacancy: res.noVacancy.length,
       classifying,
     };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** What Plan now's background pass still has to sort, and how many
+ *  suggested runs are ready to publish. The planner's button polls this
+ *  after a click (usePassWatch, the same watcher as Organize) and then says
+ *  what was planned, instead of asking the operator to check back. Reads
+ *  only; the two counts are the queries planRunsNow and the board use. */
+export async function planPendingCount(): Promise<
+  | { ok: true; pending: number; suggested: number }
+  | { ok: false; error: string }
+> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+  try {
+    const [unsorted, drafts] = await Promise.all([
+      fieldDb()
+        .from('work_slips')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'open')
+        .eq('category', 'maintenance')
+        .is('run_scope', null),
+      fieldDb()
+        .from('inspection_packets')
+        .select('id', { count: 'exact', head: true })
+        .eq('trade', 'maintenance')
+        .eq('status', 'draft')
+        .like('suggestion_key', `${SUGGESTION_PREFIX}%`),
+    ]);
+    if (unsorted.error) return { ok: false, error: unsorted.error.message };
+    if (drafts.error) return { ok: false, error: drafts.error.message };
+    return { ok: true, pending: unsorted.count ?? 0, suggested: drafts.count ?? 0 };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
