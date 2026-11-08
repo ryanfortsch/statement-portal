@@ -192,8 +192,10 @@ function OwnerCard({
       // Where the reply goes, read before approving, not after.
       between={<Envelope envelope={approval.envelope} />}
       reply={{ text: approval.draft }}
+      // The block reads twice already, on the Also line ("Block before the
+      // approved reply sends") and on the button; no paragraph repeats it
+      // (UX audit 2026-11-07, Messaging finding 10).
       approveLabel={plan?.label}
-      approveSummary={plan?.summary}
       approvePendingLabel={plan?.pending}
       afterColumns={
         checking && (
