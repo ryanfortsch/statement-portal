@@ -93,38 +93,32 @@ export default async function MarketingPage({ searchParams }: { searchParams: Se
         >
           <Stat
             label="Sessions"
-            info="A visit to the site. One person visiting in the morning and again at night counts as two sessions. Google Analytics' default session timeout is 30 minutes of inactivity."
             value={current.sessions}
             delta={deltaPct(current.sessions, previous.sessions)}
           />
           <Stat
             label="Users"
-            info="Distinct visitors over the date range. A person returning multiple times counts once. Identified by an anonymous cookie, so a guest in private browsing or on a new device counts as a separate user."
             value={current.users}
             delta={deltaPct(current.users, previous.users)}
           />
           <Stat
             label="New users"
-            info="Visitors Google Analytics hasn't seen before in the date range. First time landing on the site (no prior cookie). Subset of Users."
             value={current.new_users}
             delta={deltaPct(current.new_users, previous.new_users)}
           />
           <Stat
             label="Conversions"
-            info="Sum of the key events fired during the window. Stay Cape Ann tracks book_started, book_completed, and email_clicked. Rising Tide tracks contact_form_submit, email_clicked, phone_clicked, and income_estimator_used. Which events count as 'key' is configured in Google Analytics → Admin → Events."
             value={current.conversions}
             delta={deltaPct(current.conversions, previous.conversions)}
             accent
           />
           <Stat
             label="Avg LCP"
-            info="Largest Contentful Paint, p75. Time until the largest visible piece of content paints in the viewport. Google's Core Web Vital thresholds: ≤2.5s good, ≤4s needs work, >4s poor. Pulled from Vercel Speed Insights (real-user measurements)."
             value={lcpDisplay(speed)}
             sub={lcpStatus(speed)}
           />
           <Stat
             label="Five-star reviews"
-            info="Rated reviews of the homes Helm manages, across every channel, in the selected window. Same count as the Reviews tab."
             value={!reviews ? 'Unavailable' : reviews.total > 0 ? `${reviews.fiveStar}/${reviews.total}` : '0'}
             sub={
               !reviews
