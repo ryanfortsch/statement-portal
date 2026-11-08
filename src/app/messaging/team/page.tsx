@@ -1,4 +1,3 @@
-import { RecentMessageOutcomesSection } from '@/components/RecentMessageOutcomesSection';
 import { Suspense } from 'react';
 import type { ReactNode } from 'react';
 import { HelmMasthead } from '@/components/HelmMasthead';
@@ -31,6 +30,7 @@ import * as cleanerReminders from '@/app/cleaner-messaging/reminders-actions';
 import * as contractorReminders from '@/app/contractor-messaging/reminders-actions';
 import { TeamInboxQueue } from './TeamInboxQueue';
 import { TeamDecidedRecently } from './TeamDecidedRecently';
+import { loadFollowupFeed } from '@/components/messaging/card/followup-feed';
 import { TeamQueueSummary } from './TeamQueueSummary';
 import { TeamProactive } from './TeamProactive';
 
@@ -168,11 +168,17 @@ async function QueueSection({ audience }: { audience: TeamAudience }) {
 }
 
 // Handled cards from the last 12 hours that Undo can still reach, a quiet
-// ledger under the queue. Nothing when there is nothing to undo.
+// ledger under the queue, with the past week's resolved messages that filed
+// work or a note (one ledger for both audiences, never a second history).
+// Nothing when there is nothing to show.
 async function DecidedSection({ audience }: { audience: TeamAudience }) {
-  const [cleaners, contractors] = await Promise.all([
+  const [cleaners, contractors, followups] = await Promise.all([
     showsCleaners(audience) ? listDecidedTeamApprovals<CleanerApproval>('cleaner', 12) : Promise.resolve(null),
     showsContractors(audience) ? listDecidedTeamApprovals<ContractorApproval>('contractor', 12) : Promise.resolve(null),
+    loadFollowupFeed([
+      ...(showsCleaners(audience) ? ['cleaners' as const] : []),
+      ...(showsContractors(audience) ? ['contractors' as const] : []),
+    ]),
   ]);
   const items = [
     ...(cleaners?.ok ? cleaners.data.approvals : [])
@@ -199,7 +205,7 @@ async function DecidedSection({ audience }: { audience: TeamAudience }) {
         audience: 'contractor',
       })),
   ].sort((a, b) => (b.at || '').localeCompare(a.at || ''));
-  return <TeamDecidedRecently items={items} />;
+  return <TeamDecidedRecently items={items} followups={followups} />;
 }
 
 // "Owner block: clean after?" A question with a date on it. Helm-native,
@@ -295,16 +301,6 @@ export default async function TeamInboxPage({ searchParams }: { searchParams: Se
             <ScheduleDigestSection searchParams={searchParams} />
           </Suspense>
         </>
-      )}
-      {cleaners && (
-        <Suspense fallback={null}>
-          <RecentMessageOutcomesSection audience="cleaners" title={contractors ? 'Follow-up history · Cleaners' : undefined} />
-        </Suspense>
-      )}
-      {contractors && (
-        <Suspense fallback={null}>
-          <RecentMessageOutcomesSection audience="contractors" title={cleaners ? 'Follow-up history · Contractors' : undefined} />
-        </Suspense>
       )}
       <TeamProactiveSection audience={audience} />
       <InboxBottomTools />
