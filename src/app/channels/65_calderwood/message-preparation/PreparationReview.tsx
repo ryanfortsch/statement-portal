@@ -69,6 +69,7 @@ export function PreparationReview() {
           <p className="mt-2 text-sm leading-6" style={{ color: 'var(--ink-3)' }}>Confirm Luana’s destination, a Calderwood-only schedule link, and the arrival and checkout details she needs. The old Guesty report link has not been replaced.</p>
           <p className="mt-3 text-xs leading-5" style={{ color: 'var(--ink-3)' }}>A configured recipient alone does not verify the phone number, schedule access or SMS delivery.</p>
           <Link href="/turnovers/settings#schedule-recipients" className="mt-3 inline-block text-sm underline underline-offset-4">Review cleaner settings →</Link>
+          <Link href="/channels/65_calderwood/cleaner-schedule" className="mt-3 block text-sm underline underline-offset-4">Preview arrivals and departures →</Link>
         </article>
       </div>
     </section>}

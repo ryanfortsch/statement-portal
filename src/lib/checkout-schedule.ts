@@ -273,7 +273,7 @@ export function adjustmentSourceLabel(source: AdjustmentSource): string {
  *     misses a turnover), so the loser's date is carried forward as a
  *     conflict for a human to settle rather than being dropped.
  */
-function collapseStays(rows: BookingLite[]): Map<string, BookingLite> {
+export function collapseStays(rows: BookingLite[]): Map<string, BookingLite> {
   const byStay = new Map<string, BookingLite>();
   const seenAt = (b: BookingLite) => {
     const ms = b.last_seen_at ? Date.parse(b.last_seen_at) : NaN;
@@ -331,7 +331,7 @@ const MIRROR_FRESH_HOURS = 36;
  * that is booked/unavailable all keep the stay -- a missed cleaning is far
  * worse than a redundant one.
  */
-async function findGhostStays(
+export async function findGhostStays(
   supabase: SupabaseClient,
   stays: BookingLite[],
 ): Promise<Set<string>> {
