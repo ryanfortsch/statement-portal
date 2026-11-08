@@ -1293,24 +1293,32 @@ export default async function PropertyDetailPage({
         )}
       </CollapsibleSection>
 
-      <CollapsibleSection
-        title="Climate automation"
-        summary={climateProfile?.enabled ? 'on' : 'not set up'}
-      >
-        {/* The Seam thermostat list is a fleet-wide external call. It used
-            to run in this page's Promise.all, so every arrival at every
-            property waited on Seam to fill a device picker inside a section
-            that renders collapsed. Streamed instead. */}
-        <Suspense
-          fallback={
-            <div style={{ padding: '4px 0 16px', color: 'var(--ink-3)', fontSize: 13 }}>
-              Loading thermostats…
-            </div>
-          }
+      {/* Only a home with something to automate gets the fold: a climate
+          profile on file, or a smart thermostat recorded on its fact sheet
+          (the door to the first profile). Every other home used to open a
+          fold that read "No thermostats connected" while thermostats wait
+          on Ecobee, and paid a fleet-wide Seam call to say so. The gate
+          reads what the page already loaded; Seam is asked only inside. */}
+      {(climateProfile || p.thermostat_brand || p.thermostat_code) && (
+        <CollapsibleSection
+          title="Climate automation"
+          summary={climateProfile?.enabled ? 'on' : 'not set up'}
         >
-          <ClimatePanelLoader propertyId={p.id} profile={climateProfile} />
-        </Suspense>
-      </CollapsibleSection>
+          {/* The Seam thermostat list is a fleet-wide external call. It used
+              to run in this page's Promise.all, so every arrival at every
+              property waited on Seam to fill a device picker inside a section
+              that renders collapsed. Streamed instead. */}
+          <Suspense
+            fallback={
+              <div style={{ padding: '4px 0 16px', color: 'var(--ink-3)', fontSize: 13 }}>
+                Loading thermostats…
+              </div>
+            }
+          >
+            <ClimatePanelLoader propertyId={p.id} profile={climateProfile} />
+          </Suspense>
+        </CollapsibleSection>
+      )}
 
       <CollapsibleSection
         title="Rental season"
@@ -1323,53 +1331,6 @@ export default async function PropertyDetailPage({
         />
       </CollapsibleSection>
 
-      <CollapsibleSection title="Reference" summary="IDs · timestamps · external links">
-        <dl style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px 64px', fontSize: 13, marginBottom: 24 }}>
-          <Detail term="Helm ID" definition={p.id} mono />
-          <Detail term="Code" definition={p.code || '—'} />
-          <Detail term="Title" definition={p.title || '—'} />
-          <Detail term="Type" definition={p.type_of_unit || '—'} />
-          <Detail term="Tags" definition={p.tags || '—'} />
-          <Detail term="Timezone" definition={p.timezone || '—'} />
-          <Detail
-            term="Coordinates"
-            definition={
-              p.latitude != null && p.longitude != null
-                ? `${Number(p.latitude).toFixed(4)}°, ${Number(p.longitude).toFixed(4)}°`
-                : '—'
-            }
-          />
-          <Detail term="Guesty Listing ID" definition={p.guesty_listing_id || '—'} mono />
-          <Detail term="Activated" definition={formatDate(p.activated_at)} />
-          <Detail term="Created" definition={formatDate(p.created_at)} />
-          <Detail term="Last Synced" definition={formatRelative(p.last_synced_at)} />
-          <Detail term="Perfection ID" definition={p.perfection_id || '—'} mono />
-        </dl>
-        <div style={{ paddingTop: 14, borderTop: '1px dotted var(--rule)' }}>
-          <a
-            href="https://inspect.risingtidestr.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 8,
-              border: '1px solid var(--rule)',
-              padding: '8px 14px',
-              fontSize: 11,
-              letterSpacing: '.16em',
-              textTransform: 'uppercase',
-              fontWeight: 500,
-              color: 'var(--ink)',
-              textDecoration: 'none',
-            }}
-          >
-            Open Perfection ↗
-          </a>
-        </div>
-      </CollapsibleSection>
-
-
       {/* TOOLS: the launchers, as one quiet line at the foot of the tab.
           They are navigation, not content, and as tiles they pushed the
           first fact below the fold. */}
@@ -1381,9 +1342,16 @@ export default async function PropertyDetailPage({
             hang off two Setup catalog items and vanished with the tab. */}
         <ToolLink href={`/properties/${p.id}/order-checklist`}>Outfitting order</ToolLink>
         <ToolLink href={`/properties/${p.id}/launch`}>Launch</ToolLink>
-        {/* A helm-run home has no live Guesty listing to compare with. */}
-        {!helmRun && <ToolLink href={`/properties/${p.id}/sync-guesty`}>Guesty fields</ToolLink>}
       </ToolsLine>
+
+      {/* REFERENCE: the ids a sync or a bug report needs, one quiet line.
+          It was a twelve-term fold with an "Open Perfection" button;
+          inspections are native at /inspections now. */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 30, width: '100%' }}>
+        <p className="font-mono" style={{ margin: 0, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.02em' }}>
+          Helm ID {p.id} · Guesty ID {p.guesty_listing_id || 'none'} · Last synced {formatRelative(p.last_synced_at)}
+        </p>
+      </section>
 
         </TabSection>
 
@@ -1393,10 +1361,11 @@ export default async function PropertyDetailPage({
       <CollapsibleSection title="Owner" summary={ownerSummary} defaultOpen>
         {/* The deal terms that used to lead every visit as four stat tiles.
             They are owner facts, not live state, so they belong beside the
-            owner rather than above the tab strip. Cleaning Est is a manual
-            fallback that revenue snapshots override with a real rolling
-            figure once the property has closed statements, so it is labelled
-            as the estimate it is rather than presented as a measured cost. */}
+            owner rather than above the tab strip. The cleaning figure is a
+            manual estimate that revenue snapshots override with a real
+            rolling figure once the property has closed statements, so it is
+            labelled as the estimate it is rather than presented as a
+            measured cost. */}
         <div
           style={{
             display: 'grid',
@@ -1408,9 +1377,8 @@ export default async function PropertyDetailPage({
         >
           {owner && <Stat label="Mgmt Fee" value={p.is_rising_tide_owned ? 'RT owned' : `${p.management_fee_pct}%`} />}
           <Stat
-            label="Cleaning Est"
+            label="Cleaning per turn (estimate)"
             value={p.cleaning_cost_estimate != null ? `$${p.cleaning_cost_estimate}` : 'Not set'}
-            sub={p.cleaning_cost_estimate != null ? 'manual fallback' : undefined}
             href={`/properties/${p.id}/edit#cleaning`}
           />
           {owner && (
