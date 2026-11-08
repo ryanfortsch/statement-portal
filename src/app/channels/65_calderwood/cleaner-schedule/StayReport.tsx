@@ -19,13 +19,18 @@ export function StayReport({ report }: { report: CleanerStayReport }) {
       <div className={styles.count}><strong>{report.stays.length}</strong><span>{report.stays.length === 1 ? 'stay' : 'stays'}</span></div>
     </header>
     <p className={styles.explanation}>Ready by is the home’s cleaning deadline. Guest check-in times are reviewed in Message handover. Departure times include confirmed checkout adjustments. Review any agreed exceptions before sharing.</p>
+    {report.guestCountCheck && <p className={styles.explanation} role="status">
+      {report.guestCountCheck.status === 'verified' && report.guestCountCheck.checkedAt
+        ? <>Missing guest counts verified with Guesty at {new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York', timeZoneName: 'short' }).format(new Date(report.guestCountCheck.checkedAt))}. This preview does not change booking records.</>
+        : <>Some guest counts could not be verified with Guesty. Unknown counts stay blank; reload to try again.</>}
+    </p>}
     {report.stays.length === 0 ? <p className={styles.empty}>No confirmed guest stays in this window.</p> :
       <ol className={styles.list}>{report.stays.map(stay => <li key={stay.checkIn} className={styles.stay}>
         <div className={styles.dates}>
           <div><span className={styles.label}>Arrival day</span><time dateTime={stay.checkIn}>{dateLabel(stay.checkIn)}</time><span>{stay.arrivalTime ? `Ready by ${clock(stay.arrivalTime)}` : 'Ready-by time not set'}</span></div>
           <span className={styles.arrow} aria-hidden="true">→</span>
           <div><span className={styles.label}>Departure</span><time dateTime={stay.checkOut}>{dateLabel(stay.checkOut)}</time><span>{clock(stay.checkoutTime)}</span></div>
-          <div className={styles.guests}><span className={styles.label}>Guests</span><strong>{stay.guests ?? '—'}</strong>{stay.guests === null && <small>Not recorded</small>}</div>
+          <div className={styles.guests}><span className={styles.label}>Guests</span><strong>{stay.guests ?? '—'}</strong>{stay.guests === null && <small>Not verified</small>}{stay.guestCountSource === 'guesty' && <small>Guesty verified</small>}</div>
         </div>
         {(stay.staying || stay.adjusted || stay.noCleaning || stay.needsReview) && <div className={styles.badges}>
           {stay.staying && <span>Current stay</span>}
