@@ -4,7 +4,7 @@
  * The strip renders from the Growth layouts (/marketing, /guests,
  * /competitors), so no page names its own tab. Pathname prefixes alone
  * cannot decide it: Reviews lives at the bare /guests, and every other
- * /guests page (a guest's record, campaigns) belongs to Contacts, so
+ * /guests page (a guest's record, campaigns) belongs to the Guest list, so
  * longest-prefix would light Reviews on all of them.
  *
  * `null` means no chrome at all: the agreement document preview is a sheet
@@ -26,7 +26,7 @@ export function growthTabFor(pathname: string): GrowthTabId | null | undefined {
   if (p === '/guests') return 'reviews';
   if (under(p, '/guests/agreements')) return 'agreements';
   if (under(p, '/guests/quotes')) return 'quotes';
-  // Contacts, a guest's record, campaigns: the list and what is sent to it.
+  // The Guest list, a guest's record, campaigns: the list and what is sent to it.
   if (under(p, '/guests')) return 'contacts';
   return undefined;
 }

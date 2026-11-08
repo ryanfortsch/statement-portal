@@ -64,7 +64,8 @@ describe('the Growth layouts own the chrome', () => {
   test('one strip, six tabs, in reading order, Quotes handed to SectionTabs', () => {
     const src = read('src/components/GrowthTabs.tsx');
     const labels = [...src.matchAll(/label: '([^']+)'/g)].map((m) => m[1]);
-    assert.deepEqual(labels, ['Marketing', 'Reviews', 'Contacts', 'Agreements', 'Quotes', 'Competitors']);
+    assert.deepEqual(labels, ['Marketing', 'Reviews', 'Guest list', 'Agreements', 'Quotes', 'Competitors']);
+    assert.ok(!src.includes("label: 'Contacts'"), 'Contacts is the CRM; the subscriber list is the Guest list');
     assert.ok(src.includes('<SectionTabs'), 'the strip is a SectionTabs wrapper, so the role filter applies');
     assert.ok(!src.includes("label: 'Guests'"), 'no tab is called Guests');
   });
