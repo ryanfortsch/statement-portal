@@ -145,8 +145,7 @@ export default async function BookingDetailPage({ params, searchParams }: { para
       <section className="max-w-[900px] mx-auto px-10" style={{ width: '100%', paddingBottom: 20 }}>
         <div className="flex items-center gap-3 flex-wrap">
           <Link href="/channels/bookings" style={ghostButton}>← Bookings</Link>
-          <Link href={`/channels/${booking.property_id}`} style={ghostButton}>{property?.name ?? 'Property'} hub →</Link>
-          <Link href={`/channels/${booking.property_id}/calendar?month=${booking.check_in.slice(0, 7)}`} style={ghostButton}>Month grid →</Link>
+          <Link href={`/channels/${booking.property_id}?month=${booking.check_in.slice(0, 7)}#calendar`} style={ghostButton}>{property?.name ?? 'Property'} hub →</Link>
           {guest && <Link href={`/channels/bookings?guest=${guest.id}`} style={ghostButton}>Guest&apos;s stays →</Link>}
           {lookupHref && <Link href={lookupHref} style={ghostButton}>Stripe lookup →</Link>}
         </div>

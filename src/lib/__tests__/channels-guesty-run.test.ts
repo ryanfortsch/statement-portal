@@ -67,6 +67,9 @@ describe('every Channels page says it once, at the top', () => {
   for (const page of pages) {
     test(page, () => {
       const src = read(page);
+      // A route kept only so old links land (the per-home month grid since
+      // 2026-11-08) renders nothing: it redirects to a page that says it.
+      if (/\n\s*redirect\(/.test(src) && !/return\s*[(<]/.test(src) && !src.includes('<HelmMasthead')) return;
       assert.equal(src.split('<GuestyWritesNotice scope=').length - 1, 1, `${page} must render the notice exactly once`);
       const masthead = src.indexOf('<HelmMasthead />\n      <GuestyWritesNotice');
       assert.ok(masthead > 0, `${page}: the notice sits directly under the masthead`);
