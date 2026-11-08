@@ -936,33 +936,8 @@ function PropertyGroup({
             </div>
           )}
         </div>
-        {expanded && highCount > 0 && (
-          <span
-            style={{
-              fontSize: 10,
-              letterSpacing: '.16em',
-              textTransform: 'uppercase',
-              color: 'var(--negative)',
-              fontWeight: 700,
-            }}
-          >
-            {highCount} HIGH
-          </span>
-        )}
-        {expanded && ownerActionCount > 0 && (
-          <span
-            title="Open items flagged for owner input"
-            style={{
-              fontSize: 10,
-              letterSpacing: '.16em',
-              textTransform: 'uppercase',
-              color: 'var(--signal)',
-              fontWeight: 700,
-            }}
-          >
-            {ownerActionCount} OWNER DECISIONS
-          </span>
-        )}
+        {/* The summary line above already says high priority and the owner
+            email button says owner decisions; neither repeats here in caps. */}
         <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>{slips.length} open</span>
         {expanded && ownerActionCount > 0 && propertyId && (
           <Button
@@ -988,24 +963,15 @@ function PropertyGroup({
           </Link>
         )}
         {expanded && propertyId && (
-          <button
-            type="button"
+          <Button
+            size="sm"
             onClick={printPropertyWork}
             className="rt-no-print"
             title={`Print ${propName} work list`}
             aria-label={`Print ${propName} work list`}
-            style={{
-              background: 'none',
-              border: '1px solid var(--rule)',
-              padding: '4px 8px',
-              fontSize: 12,
-              color: 'var(--ink-3)',
-              cursor: 'pointer',
-              lineHeight: 1,
-            }}
           >
-            🖨
-          </button>
+            Print
+          </Button>
         )}
         {expanded && <Button
           size="sm"
@@ -1162,7 +1128,7 @@ function WorkSlipRowItem({
       >
         <div style={{ flex: '1 1 180px', minWidth: 0 }}>
           <div style={{ fontSize: 14, color: 'var(--ink)' }}>{slipDisplayTitle(slip.title, propertyName)}</div>
-          {slip.linked_report_ids && <span style={{ fontSize: 13, color: 'var(--tide-deep)' }}>{slip.linked_report_ids.length} linked reports · one issue</span>}
+          {slip.linked_report_ids && <span style={{ fontSize: 13, color: 'var(--tide-deep)' }}>{slip.linked_report_ids.length} linked reports · one work item</span>}
           {doneError && <div role="alert" style={{ marginTop: 4, fontSize: 12, color: 'var(--negative)' }}>{doneError}</div>}
           {/* The detail is what you triage on — surface it right on the row
               (one clamped line, full text on hover) so you don't have to
@@ -1233,7 +1199,7 @@ function WorkSlipRowItem({
         {slip.organize_group_label && (
           <span
             className="rt-no-print"
-            title={`Grouped with other slips about this: ${slip.organize_group_label}`}
+            title={`Grouped with other work items about this: ${slip.organize_group_label}`}
             style={pillTinyStyle('var(--ink-4)')}
           >
             {slip.organize_group_label}
@@ -1946,7 +1912,7 @@ function OrganizeButton({ onReviewStale }: { onReviewStale?: () => void }) {
   useUnsavedWorkGuard(pending);
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
-  const plural = (n: number) => `${n} slip${n === 1 ? '' : 's'}`;
+  const plural = (n: number) => `${n} work item${n === 1 ? '' : 's'}`;
 
   /** The pass runs after the action returns. Rather than "check back", the
    *  button watches the pending count fall and, when it reaches zero (or
@@ -1986,7 +1952,7 @@ function OrganizeButton({ onReviewStale }: { onReviewStale?: () => void }) {
           return;
         }
         if (res.pending === 0) {
-          setNote('Every open slip is already in a lane.');
+          setNote('Every open work item is already in a lane.');
         } else {
           setNote(`Filing ${plural(res.pending)} into lanes…`);
           setWatching(true);
@@ -2012,31 +1978,22 @@ function OrganizeButton({ onReviewStale }: { onReviewStale?: () => void }) {
         pending={pending || watching}
         pendingLabel="Organizing"
         watchdog={false}
-        title="File new slips into lanes (this visit, handyman, pro, owner, office) and synthesize pasted reviews. Runs nightly on its own."
+        title="File new work items into lanes (this visit, handyman, pro, owner, office) and synthesize pasted reviews. Runs nightly on its own."
       >
         Organize
       </Button>
       {/* The Organize menu: owner decisions about the board itself. */}
       {onReviewStale && (
         <span style={{ position: 'relative', display: 'inline-flex' }}>
-          <button
-            type="button"
+          <Button
+            size="sm"
             aria-haspopup="menu"
             aria-expanded={menuOpen}
             aria-label="More ways to organize"
             onClick={() => setMenuOpen((v) => !v)}
-            style={{
-              background: 'none',
-              border: '1px solid var(--rule)',
-              color: 'var(--ink-3)',
-              padding: '8px 10px',
-              fontSize: 11,
-              cursor: 'pointer',
-              marginLeft: -11,
-            }}
           >
             ▾
-          </button>
+          </Button>
           {menuOpen && (
             <span
               role="menu"
@@ -2125,7 +2082,7 @@ function StaleReviewList({ load }: { load: Promise<StaleLoad> }) {
       }
       setGone((prev) => new Set([...prev, ...r.dismissedIds]));
       if (r.skipped > 0) {
-        setNote(`${r.skipped} ${r.skipped === 1 ? 'slip was' : 'slips were'} touched since this list loaded and stayed open.`);
+        setNote(`${r.skipped} ${r.skipped === 1 ? 'work item was' : 'work items were'} touched since this list loaded and stayed open.`);
       }
       softRefresh();
     } catch {
@@ -2141,7 +2098,7 @@ function StaleReviewList({ load }: { load: Promise<StaleLoad> }) {
       <div style={{ fontSize: 13, color: 'var(--ink-3)', marginBottom: 14, lineHeight: 1.5 }}>
         {total === 0
           ? `Nothing open has gone ${res.days} days without someone touching it.`
-          : `${total} open ${total === 1 ? 'slip' : 'slips'} nobody has touched in ${res.days} days. Dismiss closes one without work; Reopen on the slip brings it back.`}
+          : `${total} open ${total === 1 ? 'work item' : 'work items'} nobody has touched in ${res.days} days. Dismiss closes one without work; Reopen on the work item brings it back.`}
       </div>
       {note && <div role="status" style={{ fontSize: 12, color: 'var(--ink-2)', marginBottom: 12 }}>{note}</div>}
       {homes.map((h) => {
@@ -2302,7 +2259,7 @@ function BulkActionBar({
   // instead of being sent to two tables with two meanings.
   const mixed = slipCount > 0 && taskCount > 0;
   const summary = mixed
-    ? `${slipCount} slip${slipCount === 1 ? '' : 's'} and ${taskCount} to-do${taskCount === 1 ? '' : 's'} selected`
+    ? `${slipCount} work item${slipCount === 1 ? '' : 's'} and ${taskCount} to-do${taskCount === 1 ? '' : 's'} selected`
     : `${total} selected`;
   const off = pending || mixed;
 
@@ -2337,44 +2294,25 @@ function BulkActionBar({
         <span style={{ fontSize: 12, letterSpacing: '.06em' }}>{summary}</span>
       </div>
 
+      {/* The house button's small face, which reads as paper on the dark
+          bar. The verbs are equal choices here, so none is primary. */}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        <BulkBtn label="Mark done" onClick={onMarkDone} disabled={off} />
-        <BulkBtn
-          label="Assign to me"
-          onClick={onAssignToMe}
-          disabled={off || !myEmail}
-        />
-        {onCoordinate && <BulkBtn label="I’ll coordinate" onClick={onCoordinate} disabled={off || !myEmail} />}
-        <BulkBtn label="Unassign" onClick={onUnassign} disabled={off} />
-        <BulkBtn label="High" onClick={() => onSetPriority('high')} disabled={off} accent="var(--negative)" />
-        <BulkBtn label="Normal" onClick={() => onSetPriority('normal')} disabled={off} />
-        <BulkBtn label="Low" onClick={() => onSetPriority('low')} disabled={off} muted />
+        <Button size="sm" onClick={onMarkDone} disabled={off}>Mark done</Button>
+        <Button size="sm" onClick={onAssignToMe} disabled={off || !myEmail}>Assign to me</Button>
+        {onCoordinate && <Button size="sm" onClick={onCoordinate} disabled={off || !myEmail}>I’ll coordinate</Button>}
+        <Button size="sm" onClick={onUnassign} disabled={off}>Unassign</Button>
+        <Button size="sm" onClick={() => onSetPriority('high')} disabled={off}>High</Button>
+        <Button size="sm" onClick={() => onSetPriority('normal')} disabled={off}>Normal</Button>
+        <Button size="sm" onClick={() => onSetPriority('low')} disabled={off}>Low</Button>
       </div>
 
       {mixed && (
         <div role="status" style={{ flexBasis: '100%', fontSize: 12, color: 'var(--paper)' }}>
-          Pick slips or office to-dos, not both. Untick one kind, or Clear.
+          Pick work items or office to-dos, not both. Untick one kind, or Clear.
         </div>
       )}
 
-      <button
-        type="button"
-        onClick={onClear}
-        disabled={pending}
-        style={{
-          background: 'transparent',
-          border: '1px solid var(--paper)',
-          color: 'var(--paper)',
-          padding: '6px 12px',
-          fontSize: 10,
-          letterSpacing: '.18em',
-          textTransform: 'uppercase',
-          cursor: pending ? 'wait' : 'pointer',
-          opacity: pending ? 0.6 : 1,
-        }}
-      >
-        Clear
-      </button>
+      <Button size="sm" onClick={onClear} disabled={pending}>Clear</Button>
 
       {err && (
         <div
@@ -2394,38 +2332,3 @@ function BulkActionBar({
   );
 }
 
-function BulkBtn({
-  label,
-  onClick,
-  disabled,
-  accent,
-  muted,
-}: {
-  label: string;
-  onClick: () => void;
-  disabled?: boolean;
-  accent?: string;
-  muted?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      style={{
-        background: accent ? accent : 'var(--paper)',
-        color: accent ? 'var(--paper)' : 'var(--ink)',
-        border: `1px solid ${accent ?? 'var(--paper)'}`,
-        padding: '6px 10px',
-        fontSize: 10,
-        letterSpacing: '.16em',
-        textTransform: 'uppercase',
-        fontWeight: 500,
-        cursor: disabled ? 'wait' : 'pointer',
-        opacity: disabled ? 0.6 : muted ? 0.75 : 1,
-      }}
-    >
-      {label}
-    </button>
-  );
-}

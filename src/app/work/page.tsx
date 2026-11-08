@@ -135,7 +135,7 @@ export default async function WorkQueuePage() {
         myMailbox={mine?.address ?? null}
       />
 
-      <HelmFooter module="Work Queue" right="Source: Helm" />
+      <HelmFooter module="Work" right="Source: Helm" />
     </>
   );
 }

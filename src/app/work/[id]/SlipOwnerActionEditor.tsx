@@ -6,6 +6,7 @@ import type { WorkSlipOwnerActionType, WorkSlipOwnerStatus } from '@/lib/work-ty
 import { canOpenMailbox, draftSavedNotice } from '@/lib/gmail-links';
 import { copiedEmailText, parseCopiedEmail, writeClipboard } from '@/lib/copy-email';
 import { CopiedEmailNotice } from '@/components/CopiedEmailNotice';
+import { Button } from '@/components/Button';
 import { updateWorkSlipOwnerAction, updateWorkSlipOwnerStatus } from '../actions';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
@@ -206,8 +207,8 @@ export function SlipOwnerActionEditor({
       {err && <ErrorStrip message={err} />}
       {attempt && (
         <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-          <button type="button" disabled={pending || drafting} onClick={() => attempt.kind === 'notes' ? saveNotes() : saveChange(attempt)} style={ghostBtnStyle}>Retry save</button>
-          <button type="button" disabled={pending || drafting} onClick={() => { setAttempt(null); setErr(null); }} style={ghostBtnStyle}>Dismiss error</button>
+          <Button size="sm" disabled={pending || drafting} onClick={() => attempt.kind === 'notes' ? saveNotes() : saveChange(attempt)}>Retry save</Button>
+          <Button size="sm" disabled={pending || drafting} onClick={() => { setAttempt(null); setErr(null); }}>Dismiss error</Button>
         </div>
       )}
     </div>
@@ -276,8 +277,8 @@ export function SlipOwnerActionEditor({
               style={{ width: '100%', font: 'inherit', fontSize: 14, color: 'var(--ink)', background: 'var(--paper)', border: '1px solid var(--rule)', borderRadius: 6, padding: '8px 10px', outline: 'none', resize: 'vertical', lineHeight: 1.5 }}
             />
             <div className="flex items-center gap-2" style={{ marginTop: 8 }}>
-              <button type="button" onClick={saveNotes} style={solidBtnStyle}>{pending && attempt?.kind === 'notes' ? 'Saving…' : 'Save'}</button>
-              <button type="button" onClick={cancelNotes} style={ghostBtnStyle}>Cancel</button>
+              <Button variant="primary" size="sm" onClick={saveNotes} pending={pending && attempt?.kind === 'notes'} pendingLabel="Saving">Save</Button>
+              <Button size="sm" onClick={cancelNotes}>Cancel</Button>
               <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>⌘+Enter to save</span>
             </div>
           </div>
@@ -285,14 +286,13 @@ export function SlipOwnerActionEditor({
           <div>
             <div className="flex items-center justify-between" style={{ marginBottom: 6 }}>
               <div className="eyebrow">Context for the email</div>
-              <button
-                type="button"
+              <Button
+                size="sm"
                 onClick={() => { setDraft(notes); setEditingNotes(true); setTimeout(() => notesRef.current?.focus(), 0); }}
                 disabled={pending}
-                style={ghostBtnStyle}
               >
                 Edit
-              </button>
+              </Button>
             </div>
             <p style={{ fontSize: 14, color: 'var(--ink)', lineHeight: 1.5, margin: 0, whiteSpace: 'pre-wrap' }}>{notes}</p>
           </div>
@@ -314,14 +314,16 @@ export function SlipOwnerActionEditor({
       {/* THE LOOP — draft the ask, then log what came back. */}
       <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 14 }}>
         <div className="flex items-center gap-3 flex-wrap">
-          <button
-            type="button"
+          <Button
+            variant="primary"
+            size="sm"
             onClick={draftOwnerEmail}
-            disabled={drafting || pending || notesDirty || attempt !== null}
-            style={solidBtnStyle}
+            disabled={pending || notesDirty || attempt !== null}
+            pending={drafting}
+            pendingLabel={copyMode ? 'Copying' : 'Drafting'}
           >
-            {copyMode ? (drafting ? 'Copying…' : 'Copy owner email') : (drafting ? 'Drafting…' : 'Draft owner email')}
-          </button>
+            {copyMode ? 'Copy owner email' : 'Draft owner email'}
+          </Button>
           <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>
             {status === 'sent' && ownerLastContactedAt
               ? `Asked ${formatDate(ownerLastContactedAt)}, awaiting reply. ${copyMode ? 'Copying' : 'Drafting'} again re-bundles.`
@@ -377,29 +379,6 @@ export function SlipOwnerActionEditor({
     </fieldset>
   );
 }
-
-const solidBtnStyle: React.CSSProperties = {
-  background: 'var(--ink)',
-  color: 'var(--paper)',
-  border: '1px solid var(--ink)',
-  padding: '5px 14px',
-  fontSize: 10,
-  letterSpacing: '.16em',
-  textTransform: 'uppercase',
-  fontWeight: 600,
-  cursor: 'pointer',
-};
-
-const ghostBtnStyle: React.CSSProperties = {
-  background: 'none',
-  border: '1px solid var(--rule)',
-  padding: '4px 10px',
-  fontSize: 10,
-  letterSpacing: '.16em',
-  textTransform: 'uppercase',
-  color: 'var(--ink-3)',
-  cursor: 'pointer',
-};
 
 function quietLinkStyle(pending: boolean): React.CSSProperties {
   return {

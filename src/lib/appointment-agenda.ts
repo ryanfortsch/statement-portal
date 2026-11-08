@@ -60,6 +60,19 @@ export function agendaSourceStatus(sources: SourceCoverage[]): string {
   if (gaps.some(s => s.state === 'not_connected')) return 'Some sources not connected';
   return 'Source updates need review';
 }
+/** A source that should be feeding the agenda and is not. A deliberate
+ *  exclusion (a personal calendar) is information, not a gap. */
+export function agendaSourceGap(sources: SourceCoverage[]): boolean {
+  return sources.some(s => !s.excluded && s.state !== 'available');
+}
+/** Whether the home's Upcoming block has anything to print: an appointment
+ *  in the window (dated or awaiting a date), or a source gap, which stays
+ *  visible by the agenda's rules. With neither the feed leaves the block
+ *  out, so its All clear can show. */
+export function homeAgendaSpeaks(data: AgendaData): boolean {
+  const groups = agendaGroups(data.entries, data.today, data.through);
+  return groups.scheduled.length + groups.review.length + groups.other.length > 0 || agendaSourceGap(data.sources);
+}
 export type AgendaData = {
   entries: AgendaEntry[];
   sources: SourceCoverage[];

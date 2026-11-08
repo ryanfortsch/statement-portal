@@ -114,19 +114,6 @@ export default async function WorkSlipDetailPage({
       : null;
   const receiptPaidOut = !!receiptPacket?.paid_at && slip.receipt_packet_id === receiptPacket?.id;
 
-  const priorityColor =
-    slip.priority === 'high' ? 'var(--negative)' :
-    slip.priority === 'low' ? 'var(--ink-4)' :
-    'var(--ink-3)';
-
-  const statusColor =
-    slip.status === 'done'        ? 'var(--positive)' :
-    slip.status === 'in_progress' ? 'var(--signal)'   :
-    slip.status === 'scheduled'   ? 'var(--tide-deep)' :
-    slip.status === 'blocked'     ? 'var(--negative)' :
-    slip.status === 'dismissed'   ? 'var(--ink-4)' :
-    'var(--ink-3)';
-
   // Cold-load back target: open this property's group on the board. A
   // snoozed slip's group only renders under the Snoozed pill, so carry
   // that filter too or the anchor would point at nothing.
@@ -152,14 +139,11 @@ export default async function WorkSlipDetailPage({
         />
       </div>
 
-      {/* HERO */}
+      {/* HERO: the title alone. Status reads once in the Status cell and
+          Wrap up's eyebrow, the lane in Work type's eyebrow, and a high
+          priority on the Status cell's line. */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 24, paddingBottom: 28, width: '100%' }}>
         <SlipTitleEditor slipId={slip.id} initialTitle={slip.title} />
-        <div className="flex items-center gap-3 flex-wrap" style={{ marginTop: 14 }}>
-          <Pill color={statusColor} label={slip.status.replace('_', ' ').toUpperCase()} solid />
-          <Pill color={priorityColor} label={`${slip.priority.toUpperCase()} priority`} />
-          <Pill color="var(--ink-4)" label={LANE_LABELS[lane]} />
-        </div>
       </section>
 
       <div className="max-w-[1100px] mx-auto px-10" style={{ width: '100%' }}>
@@ -188,13 +172,14 @@ export default async function WorkSlipDetailPage({
             <Stat
               label={slip.completed_at ? 'Completed' : 'Status'}
               value={slip.completed_at ? formatDate(slip.completed_at) : slip.status.replace('_', ' ')}
-              sub={
+              sub={[
+                slip.priority === 'high' && !slip.completed_at ? 'high priority' : null,
                 slip.scheduled_date && !slip.completed_at
                   ? `due ${formatDate(slip.scheduled_date)}`
                   : !slip.completed_at && slip.last_verified_open_at
                     ? `still needed ${formatDate(slip.last_verified_open_at)} · ${slip.last_verified_open_by ?? 'inspector'}`
-                    : undefined
-              }
+                    : null,
+              ].filter(Boolean).join(' · ') || undefined}
             />
             <StatCell label="Coordinator">
               <SlipAssignEditor slipId={slip.id} initialAssignedToEmail={slip.coordinator_email ?? null} myEmail={myEmail} coordinator />
@@ -207,7 +192,6 @@ export default async function WorkSlipDetailPage({
       </section>
 
       <Section title="Who does the work" eyebrow="Worker & visit">
-        <p style={{ fontSize: 13, color: 'var(--ink-3)', marginBottom: 12 }}>The coordinator follows through. The worker and work type below describe how it gets done.</p>
         <div>
           <div>
             <StatCell label={slip.assigned_to_label ? `Worker: ${slip.assigned_to_label}` : "Worker"} last>
@@ -330,7 +314,7 @@ export default async function WorkSlipDetailPage({
         )}
         {slip.organize_group_label && (
           <p style={{ marginTop: 8, fontSize: 12, color: 'var(--ink-4)', margin: '8px 0 0' }}>
-            Grouped with other slips about this: {slip.organize_group_label}
+            Grouped with other work items about this: {slip.organize_group_label}
           </p>
         )}
       </Section>
@@ -532,25 +516,6 @@ function Stat({
     );
   }
   return inner;
-}
-
-function Pill({ color, label, solid = false }: { color: string; label: string; solid?: boolean }) {
-  return (
-    <span
-      style={{
-        background: solid ? color : 'transparent',
-        color: solid ? 'var(--paper)' : color,
-        border: `1.5px solid ${color}`,
-        padding: '4px 12px',
-        fontSize: 10,
-        letterSpacing: '.18em',
-        textTransform: 'uppercase',
-        fontWeight: 700,
-      }}
-    >
-      {label}
-    </span>
-  );
 }
 
 function formatDate(value: string | null): string {
