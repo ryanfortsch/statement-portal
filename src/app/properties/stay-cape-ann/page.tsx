@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
-import { HelmBreadcrumb } from '@/components/HelmBreadcrumb';
 import { HelmHero } from '@/components/HelmHero';
+import { PropertiesTabBar } from '../PropertiesTabBar';
 import { auth } from '@/auth';
 import * as gh from '@/lib/github';
 import { supabaseAdmin as supabase, isServiceConfigured } from '@/lib/supabase-admin';
@@ -149,8 +149,8 @@ export default async function StayCapeAnnIndexPage({ searchParams }: { searchPar
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
-      <HelmBreadcrumb trail={[{ label: 'Stay Cape Ann listings' }]} />
-      <HelmHero plain eyebrow="Helm · Properties" title="Stay Cape Ann listings" paddingTop={24} />
+      <HelmHero plain eyebrow="Helm · Properties" title="Stay Cape Ann listings" />
+      <PropertiesTabBar active="stay-cape-ann" />
 
       <main className="max-w-[1100px] mx-auto px-10 w-full" style={{ paddingBottom: 80, flex: 1 }}>
         <nav aria-label="Filter" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>

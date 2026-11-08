@@ -406,10 +406,10 @@ export const HELM_MODULES: HelmModule[] = [
     primary: true,
     group: 'relationships',
   },
-  // Every home's Stay Cape Ann launcher on one read-only list, reached from
-  // the Properties surface. It replaced the Listing Copy Studio and the
-  // fleet Bedroom Photos page (2026-10-18), which both redirect here.
-  // Registered here for search, surfaced in-context (hidden from menus).
+  // Every home's Stay Cape Ann launcher on one read-only list, a tab on the
+  // Properties strip. It replaced the Listing Copy Studio and the fleet
+  // Bedroom Photos page (2026-10-18), which both redirect here. Registered
+  // here for search, hidden from menus.
   {
     id: 'stay-cape-ann-listings',
     href: '/properties/stay-cape-ann',
