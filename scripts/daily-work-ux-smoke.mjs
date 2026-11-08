@@ -20,8 +20,7 @@ import {PropertyMasthead} from '@/app/properties/[id]/PropertyMasthead';
 import {SlipAssignEditor} from '@/app/work/[id]/SlipAssignEditor';
 import {SlipFollowUpEditor} from '@/app/work/[id]/SlipFollowUpEditor';
 import {UnplacedCleanerTextRow} from '@/components/UnplacedCleanerTextRow';
-import {ProposedPropertyUpdatesCard} from '@/app/owner-messaging/ProposedPropertyUpdatesCard';
-import {TriagedPropertyUpdates} from '@/app/messaging/TriagedPropertyUpdates';
+import {ProposedFacts} from '@/app/messaging/ProposedFacts';
 import {ConfirmProvider} from '@/components/ConfirmDialog';
 import {LinkedWorkReports} from '@/app/work/[id]/LinkedWorkReports';
 import {StatementSentReview} from '@/components/StatementSentReview';
@@ -39,8 +38,8 @@ createRoot(document.getElementById('root')).render(<ConfirmProvider><main>
 <section id="follow"><h2>Next follow-up</h2><SlipFollowUpEditor slipId="slip-a" initialDate={null} /></section>
 <section id="match"><h2>Place a cleaner text</h2><UnplacedCleanerTextRow id="message-a" when="Today" cleanerName="Synthetic Cleaner" line="4 Beach is done" body="4 Beach is done" choices={choices} /></section>
 <section id="ambiguous"><UnplacedCleanerTextRow id="message-b" when="Today" cleanerName="Synthetic Cleaner" line="Both homes done" body="4 Beach and 21 Harbor are done" choices={choices} /></section>
-<section id="facts"><ProposedPropertyUpdatesCard initial={[fact]} initialError={null} properties={choices.likely} source="cleaner" /></section>
-<section id="uncertain"><TriagedPropertyUpdates initial={[{...fact,id:'fact-b',triage:{group_id:'g',property_id:'home-a',statement:'Two parking spaces',evidence:'One space',confidence:'medium',needs_ruling:false,verdict:'add',kb_section:'Parking',reason:'Review the difference'}}]} initialError={null} properties={choices.likely} /></section>
+<section id="facts"><ProposedFacts rows={[{...fact,audience:'cleaner'}]} errors={[]} properties={choices.likely} /></section>
+<section id="uncertain"><ProposedFacts rows={[{...fact,audience:'guest',id:'fact-b',triage:{group_id:'g',property_id:'home-a',statement:'Two parking spaces',evidence:'One space',confidence:'medium',needs_ruling:false,verdict:'add',kb_section:'Parking',reason:'Review the difference'}}]} errors={[]} properties={choices.likely} /></section>
 <section id="repair"><LinkedWorkReports current={repair} reports={reports} links={[]} available /></section>
 <section id="linked"><LinkedWorkReports current={repair} reports={reports} links={links} available /></section>
 <section id="unavailable"><LinkedWorkReports current={repair} reports={[]} links={[]} available={false} /></section>
@@ -96,7 +95,7 @@ try {
  assert.equal((await calls()).filter(c=>c.kind==='apply-fact').length,0);
  await click('#facts','Apply 1 change');await waitCalls(7);assert.equal((await calls())[6].kind,'apply-fact');
  await finish(6,{ok:true,columns:1,notes:0,skipped:[]});
- const uncertain=await page.$eval('#uncertain',e=>e.textContent);assert.match(uncertain,/1 to decide/);assert.match(uncertain,/Source:/);
+ const uncertain=await page.$eval('#uncertain',e=>e.textContent);assert.match(uncertain,/1 to decide/);assert.match(uncertain,/Source:/);assert.match(uncertain,/Your reply/);assert.match(review,/Cleaner/);
  assert.equal(await page.$('#uncertain input[type="checkbox"]'),null);
  console.log('PASS facts group by home, show current/proposed/source before apply, and keep uncertain changes out of bulk filing');
  // Linked reports are suggestions until an explicit selection and confirmation.
