@@ -339,11 +339,21 @@ export const SOFTWARE_MONTHLY = 2700;
  * These are forecast allowances, not confirmed cancellations or invoices;
  * calcYear's measured-month path continues to use actual card spending.
  */
+/** Confirmed Nov 7 cuts, budgeted from the next renewal month (December).
+ * Vercel: Dotti switched to free Viewer, $20/mo paid seat removed.
+ * Zoom: cancellation confirmed, paid access ends Dec 2, $14.44/mo renewal avoided.
+ * No assumed November refunds or tax credits. Actual card spending still wins.
+ */
+export const SOFTWARE_CONFIRMED_MONTHLY_SAVINGS = 20 + 14.44;
+
 export function softwareCost(year: number, month: number): number {
-  if (year >= 2028 || (year === 2027 && month >= 4)) return 1650;
-  if (year === 2027) return [2600, 2300, 1900][month - 1] ?? SOFTWARE_MONTHLY;
-  if (year === 2026 && month >= 11) return 2850;
-  return SOFTWARE_MONTHLY;
+  let budget = SOFTWARE_MONTHLY;
+  if (year >= 2028 || (year === 2027 && month >= 4)) budget = 1650;
+  else if (year === 2027) budget = [2600, 2300, 1900][month - 1] ?? SOFTWARE_MONTHLY;
+  else if (year === 2026 && month >= 11) budget = 2850;
+  const savings = year > 2026 || (year === 2026 && month >= 12)
+    ? SOFTWARE_CONFIRMED_MONTHLY_SAVINGS : 0;
+  return Math.round((budget - savings) * 100) / 100;
 }
 
 /**
