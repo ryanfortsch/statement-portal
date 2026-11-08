@@ -1,4 +1,4 @@
-# Software cost review, November 7, 2026
+# Software and telecom cost review, November 7–8, 2026
 
 The Guesty exit budget remains a planning allowance, not a reconciled subscription inventory. Do not interpret the remaining allowance as verified recurring bills or count unverified cancellations as savings.
 
@@ -11,7 +11,29 @@ Adobe: Ryan subsequently confirmed cancellation at $75/month, with the next bill
 
 Ryan also explicitly approved assuming AirDNA cancellation succeeds before the November 9 renewal. Include $67.94/month from November as a planning assumption, not a confirmed cancellation.
 
-Combined forecast reduction: $142.94 in November, then $177.38/month from December, $2,128.56 per full year. November 2026 becomes $2,707.06; December becomes $2,672.62. January through March 2027 become $2,422.62, $2,122.62 and $1,722.62. April onward, including 2028, becomes $1,472.62/month. Measured card spending continues to override projections.
+Dropbox: Ryan confirmed one $12.74/month account cancelled November 8. Budget the reduction from December because the final renewal date was not verified. A second historical $12.74 stream remains a review candidate.
+
+Combined software forecast reduction: $142.94 in November, then $190.12/month from December, $2,281.44 per full year. November 2026 becomes $2,707.06; December becomes $2,659.88. January through March 2027 become $2,409.88, $2,109.88 and $1,709.88. April onward, including 2028, becomes $1,459.88/month. Measured card spending continues to override projections.
+
+## AT&T change, November 8
+
+AT&T confirmed Extra active November 8 after Ryan authorized the plan and bank AutoPay. The review quoted a $69.54 upcoming bill including partial-month credits, then $82.96 ongoing including taxes, fees and existing services. Budget these in November and December onward respectively, replacing the historical $114 telecom allowance. Keep WorldConnect because the bill shows international calling. AutoPay discounts may take two billing cycles; estimates are not actual charges, and measured spending wins.
+
+The ongoing telecom budget falls $31.04/month. Combined with software, the ongoing model reduction is $221.16/month ($2,653.92/year) against the prior Guesty-transition allowances. The actual AT&T base plan falls $30/month, from $100 to $70; do not confuse that cash-plan reduction with the $31.04 model adjustment.
+
+## Further opportunities from uploaded Helm statements
+
+Card data reviewed runs through October 7, 2026; these historical charges do not prove a November subscription is still active.
+
+- QuickBooks: $40.38 monthly June–September (May was $122.19). Confirm the bookkeeper's dependency before considering cancellation.
+- Eagle Tribune: $32.99 monthly May–September, filed under Marketing. Identify its purpose and whether it is still needed.
+- Remaining Dropbox stream: $12.74 monthly; two such streams appeared June–September, and only one cancellation is confirmed.
+- These three candidates total $86.11/month ($1,033.32/year), not yet deducted from the forecast.
+- Squarespace: usually two $26.56 streams June–August, one visible in September. Ryan says it should be done; verify which plans ended before reducing the allowance.
+- Indeed: Ryan confirms paused. July–October 7 charges total $509.26; these variable ads are not a fixed monthly subscription. No arbitrary reduction to the blended operating allowance.
+- AI usage credits: September Anthropic charges were $722.51; user confirms current Claude and ChatGPT bases of $100 each plus usage. Agree a usage-credit cap separately; keep the approved base plans.
+- Card interest: $584.67 across May, July and August. Review cash timing and statement payment practices; do not annualize intermittent charges or assume they disappear.
+
 
 ## Remaining review
 

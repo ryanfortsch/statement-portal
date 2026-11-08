@@ -11,13 +11,13 @@ const winterMonths = [[2026, 11], [2026, 12], [2027, 1], [2027, 2], [2027, 3], [
 const close = (actual: number, expected: number) => assert.ok(Math.abs(actual - expected) < 1e-6, `${actual} vs ${expected}`);
 
 describe('November 2026 to April 2027 supplies budget', () => {
-  test('reduces only supplies by 25%, including fractional expected home counts', () => {
+  test('reduces supplies by 25% independently of the telecom plan change', () => {
     for (const count of [0, 13.74, 17, 24]) {
       for (const [year, month] of winterMonths) {
         const baseline = ccOperatingDetail(count, 2028, month);
         const reduced = ccOperatingDetail(count, year, month);
         close(reduced.supplies, baseline.supplies * 0.75);
-        assert.deepEqual({ ...reduced, supplies: baseline.supplies }, baseline);
+        assert.deepEqual({ ...reduced, supplies: baseline.supplies, telecom: baseline.telecom }, baseline);
       }
     }
   });
@@ -68,7 +68,26 @@ describe('November 2026 to April 2027 supplies budget', () => {
       assert.equal(november.is_actual, true);
       assert.equal(november.cc_detail?.supplies, 2400);
       assert.equal(november.cc_detail?.repairs, 350);
+      assert.equal(november.cc_detail?.telecom, 114, 'measured telecom overrides the cheaper plan estimate');
       assert.equal(november.exp_onboard_new, 400);
+    }
+  });
+});
+
+
+describe('AT&T Extra forecast', () => {
+  test('uses the quoted partial bill once and ongoing total thereafter across fleet sizes', () => {
+    for (const homes of [0, 3, 8]) {
+      const rows = calcYear(homes, 2026).monthly;
+      assert.equal(rows[9].cc_detail?.telecom, 114);
+      assert.equal(rows[10].cc_detail?.telecom, 69.54);
+      assert.equal(rows[11].cc_detail?.telecom, 82.96);
+      for (const year of [2027, 2028] as const) {
+        for (const row of calcYear(homes, year).monthly) {
+          assert.equal(row.cc_detail?.telecom, 82.96);
+          close(row.exp_cc_ops, Object.values(row.cc_detail!).reduce((sum, value) => sum + value, 0));
+        }
+      }
     }
   });
 });
