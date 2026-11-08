@@ -107,7 +107,6 @@ test('home says each thing once: no empty Upcoming frame, no repeated overdue co
   assert.ok(agenda.includes('agendaSourceGap(data.sources) && <div className="rt-agenda-home-footer">{sourceDetails}</div>'), 'the one-line Upcoming lost its source line');
   const signals = read('src/components/HomeSignals.tsx');
   assert.ok(signals.includes("stats.overdueWork === stats.weekWork ? 'all overdue'"), 'the work tile repeats its own number as the overdue count');
-  const feed = read('src/components/ForMeFeed.tsx');
-  const row = feed.slice(feed.indexOf('function HouseStayRow'), feed.indexOf('function WalkedTick'));
-  assert.ok(!row.includes('stay.channel'), 'a house row prints the booking channel again');
+  const strip = read('src/components/CleaningsStrip.tsx');
+  assert.ok(!strip.includes('channel'), 'a house line prints the booking channel again');
 });
