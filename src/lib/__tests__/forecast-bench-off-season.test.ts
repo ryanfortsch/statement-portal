@@ -8,7 +8,8 @@
  *
  * Since 2026-11-07 the line is only the misc blend (Cooper is marketing,
  * the listing shoot is onboarding), so the factor is checked on the row it
- * still owns and on Cooper's term where it now sits.
+ * still owns, and Cooper's term is checked NOT to carry it: Dotti dropped
+ * the half from his line the same day ("Drop the half").
  *
  * Run: npm test   (node --test, native TypeScript, no bundler, no database)
  */
@@ -55,12 +56,13 @@ describe('the 2027 off-season bench', () => {
     assert.ok(contractorCost(2026, 7, fleet, SEASON.CA[6]) > fullBench);
   });
 
-  test("Cooper's term keeps the factor where it now sits, in marketing", () => {
-    assert.equal(creativeCost(2027, 2, fleet), MARKETING_CREATIVE_MONTHLY * 0.5);
-    assert.equal(creativeCost(2027, 6, fleet), MARKETING_CREATIVE_MONTHLY);
+  test("Cooper's term in marketing runs full every month, off-season included", () => {
+    for (const m of [1, 2, 3, 4, 6, 11]) {
+      assert.equal(creativeCost(2027, m, fleet), MARKETING_CREATIVE_MONTHLY, `2027-${m}`);
+    }
     assert.equal(creativeCost(2028, 2, fleet), MARKETING_CREATIVE_MONTHLY);
     const feb = ccOperatingDetail(fleet, 2027, 2).marketing;
-    assert.ok(Math.abs(feb - (marketingCost(2027, 2) + listingCost(2) + MARKETING_CREATIVE_MONTHLY * 0.5)) < 1e-9);
+    assert.ok(Math.abs(feb - (marketingCost(2027, 2) + listingCost(2) + MARKETING_CREATIVE_MONTHLY)) < 1e-9);
   });
 
   test('calcYear carries it into the 2027 rows and foots them', () => {
