@@ -4,7 +4,6 @@ import { displayName, formatTagLabel, type GuestContact, type GuestStatus } from
 import { getLastGuestySyncStatus } from '@/lib/guests-guesty-sync';
 import { AddGuestContactForm } from './AddGuestContactForm';
 import { ManageListMenu } from './ManageListMenu';
-import { HelmHero } from '@/components/HelmHero';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,9 +47,6 @@ export default async function GuestContactsPage({
 
   return (
     <div className="flex-1 flex flex-col">
-      {/* "Guest list", so Contacts means the CRM only (UX audit 2026-11-07). */}
-      <HelmHero plain eyebrow="Helm · Guest list" title="Guest list" />
-
       {/* STATS STRIP */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 36 }}>
         <div
@@ -157,11 +153,11 @@ export default async function GuestContactsPage({
         )}
       </section>
 
-      {/* THE LIST */}
+      {/* THE LIST: "Guest list", so Contacts means the CRM only (UX audit 2026-11-07). */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 56, flex: 1, width: '100%' }}>
         <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
           <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-            Guests
+            Guest list
           </h2>
           <span className="eyebrow">
             {contacts.length === 200 ? 'showing first 200' : `${contacts.length} ${contacts.length === 1 ? 'match' : 'matches'}`}

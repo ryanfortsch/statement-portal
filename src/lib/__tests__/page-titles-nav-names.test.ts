@@ -77,8 +77,6 @@ const PAGES: Array<[string, string]> = [
   ['src/app/revenue/page.tsx', 'title="Revenue"'],
   ['src/app/playbook/page.tsx', 'title="Playbook"'],
   ['src/app/crm/page.tsx', 'title="Contacts"'],
-  // The subscriber list is the Guest list, so Contacts means the CRM only.
-  ['src/app/guests/contacts/page.tsx', 'title="Guest list"'],
   ['src/app/inspections/[id]/page.tsx', 'title={property.name}'],
   // A page about one person opens on their name, like a detail page.
   ['src/app/me/page.tsx', 'title={person.short}'],
