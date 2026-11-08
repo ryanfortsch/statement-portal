@@ -93,7 +93,7 @@ export const ACTUALS_TRAILING_12MO: ExpenseLine[] = [
     label: 'Office rent (85 Eastern)',
     total12mo: -5250.00,
     avgMonthly: -437.50,
-    note: 'Lease started Mar 2026, so the window holds only six payments. $750/mo recurring going forward, plus one $1,500 two-month catch-up.',
+    note: 'Historical window: downstairs lease began March 2026 at $750/mo, including a $1,500 two-month catch-up. Suite 107 later added $250/mo ($80 partial July); ongoing projected rent is $1,000/mo. Historical payment totals are unchanged.',
     inScope: true,
   },
   {

@@ -141,8 +141,8 @@ describe('a month the operating export has not reached', () => {
     const sep = r.monthly[8];
     assert.equal(sep.is_actual, true);
     assert.equal(sep.actual_card_only, true);
-    assert.equal(sep.exp_office, 471 + rentCost(9, OFFICE_START_MONTH));
-    assert.equal(rentCost(9, OFFICE_START_MONTH), OFFICE_RENT_MONTHLY);
+    assert.equal(sep.exp_office, 471 + rentCost(2026, 9, OFFICE_START_MONTH));
+    assert.equal(rentCost(2026, 9, OFFICE_START_MONTH), OFFICE_RENT_MONTHLY);
     const n = sep.active_count;
     const wantBench = contractorCost(2026, 9, n, SEASON.CA[8]);
     assert.ok(Math.abs(sep.exp_contractors - wantBench) < 1e-6, `${sep.exp_contractors} vs ${wantBench}`);
