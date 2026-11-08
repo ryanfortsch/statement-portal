@@ -336,6 +336,8 @@ export const SOFTWARE_MONTHLY = 2700;
  * and $100 extra operating allowance, retaining PriceLabs and other tools.
  * Assumes a late-November Calderwood pilot, phased rollout and billing
  * runoff through March-April, subject to channel readiness and Guesty terms.
+ * November–March retain those transition allowances. From April 2027 the
+ * itemized budget below supersedes the old $1,650 less cancellations total.
  * These are forecast allowances, not confirmed cancellations or invoices;
  * calcYear's measured-month path continues to use actual card spending.
  */
@@ -356,10 +358,39 @@ export const ADOBE_MONTHLY_SAVINGS = 75;
  */
 export const AIRDNA_PLANNED_MONTHLY_SAVINGS = 67.94;
 
+/** Itemized post-Guesty cash budget, reviewed November 8, 2026.
+ * Receipt evidence and unresolved items: docs/finance/software-cost-audit-2026-11-07.md.
+ * AI credits are an operator-approved planning allowance, not a provider spending limit.
+ * Fixed fleet snapshot: property/device growth and vendor price changes need review.
+ */
+export const SOFTWARE_BUDGET_ITEMS = [
+  { key: 'channex', label: 'Channex', amount: 160, note: 'Planning estimate for account and live-property fees; not the partial November invoice.' },
+  { key: 'pricelabs', label: 'PriceLabs', amount: 253.70, note: 'October and November payment receipts, including tax.' },
+  { key: 'claude', label: 'Claude base plan', amount: 100, note: 'Operator-confirmed monthly budget; usage credits separate.' },
+  { key: 'chatgpt', label: 'ChatGPT base plan', amount: 100, note: 'Operator-confirmed monthly budget; usage credits separate.' },
+  { key: 'ai_credits', label: 'AI usage credits', amount: 150, note: 'Operator-approved monthly allowance across AI providers; not an enforced cap or observed run rate.' },
+  { key: 'seam', label: 'Seam', amount: 120, note: 'October invoice: 24 managed devices at $5 each; excludes one-time proration.' },
+  { key: 'quo', label: 'Quo', amount: 112.10, note: 'Estimated renewal after October seat change: 3 × $33, $5 extra number, $1.50 A2P, plus approximately 6.25% tax.' },
+  { key: 'vercel', label: 'Vercel', amount: 21.25, note: 'Latest $41.25 receipt less the cancelled $20 seat; tax retained conservatively.' },
+  { key: 'supabase', label: 'Supabase', amount: 32.14, note: 'October invoice; usage may vary.' },
+  { key: 'render', label: 'Render', amount: 6.53, note: 'Latest November receipt; usage may vary.' },
+  { key: 'tailscale', label: 'Tailscale', amount: 8.50, note: 'Latest November receipt.' },
+  { key: 'resend', label: 'Resend', amount: 20, note: 'May–September card run rate; retained pending current bill review.' },
+  { key: 'quickbooks', label: 'QuickBooks', amount: 40.38, note: 'June–September card run rate; no cancellation confirmed.' },
+  { key: 'dropbox', label: 'Remaining Dropbox', amount: 12.74, note: 'One of two historical subscriptions remains budgeted; only one cancellation confirmed.' },
+  { key: 'squarespace', label: 'Squarespace pending verification', amount: 53.12, note: 'Two historical $26.56 streams retained until cancellation is verified.' },
+  { key: 'onepassword', label: '1Password annual renewal', amount: 57.28, billingMonth: 5, note: 'May only, at the last paid annual amount; family/business allocation and renewal discount remain unverified.' },
+] as const;
+
+export function itemizedSoftwareCost(month: number): number {
+  return Math.round(SOFTWARE_BUDGET_ITEMS.reduce((sum, item) =>
+    sum + (!('billingMonth' in item) || item.billingMonth === month ? item.amount : 0), 0) * 100) / 100;
+}
+
 export function softwareCost(year: number, month: number): number {
+  if (year >= 2028 || (year === 2027 && month >= 4)) return itemizedSoftwareCost(month);
   let budget = SOFTWARE_MONTHLY;
-  if (year >= 2028 || (year === 2027 && month >= 4)) budget = 1650;
-  else if (year === 2027) budget = [2600, 2300, 1900][month - 1] ?? SOFTWARE_MONTHLY;
+  if (year === 2027) budget = [2600, 2300, 1900][month - 1] ?? SOFTWARE_MONTHLY;
   else if (year === 2026 && month >= 11) budget = 2850;
   const savings = year > 2026 || (year === 2026 && month >= 12)
     ? SOFTWARE_CONFIRMED_MONTHLY_SAVINGS : 0;
