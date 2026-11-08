@@ -128,7 +128,7 @@ export const HELM_MODULES: HelmModule[] = [
     id: 'payments',
     href: '/payments',
     number: '01',
-    title: 'Stripe lookup',
+    title: 'Stripe',
     description:
       "Did this guest pay? Guest payments read live from the property's own Stripe account (Guesty reports $0 on every direct booking). Read-only. Balance charges live under it.",
     status: 'active',

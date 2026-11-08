@@ -43,9 +43,9 @@ export function FinancialsTabs({
         { id: 'revenue', label: 'Revenue', href: m ? `/revenue?range=${m}` : '/revenue' },
         { id: 'forecast', label: 'Forecast', href: '/forecast' },
         { id: 'books', label: 'LLC Accounting', href: '/books' },
-        // The Stripe lookup and, under it, balance charges. Not "Payments":
+        // Stripe: the lookup and, under it, balance charges and disputes. Not "Payments":
         // that word is the payment links and the home feed's cards.
-        { id: 'payments', label: 'Stripe lookup', href: '/payments' },
+        { id: 'payments', label: 'Stripe', href: '/payments' },
       ]}
     />
   );
