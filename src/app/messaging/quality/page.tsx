@@ -20,8 +20,9 @@ import {
 } from '@/lib/stay-concierge';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { sessionRole } from '@/lib/helm-access-server';
-import { TriagedPropertyUpdates } from '../TriagedPropertyUpdates';
-import { ProposedPropertyUpdatesCard } from '@/app/owner-messaging/ProposedPropertyUpdatesCard';
+import { factSourcesFor } from '@/lib/property-facts-to-file';
+import { listAudienceArg, type AudienceUpdate, type FactAudience } from '@/lib/proposed-facts';
+import { ProposedFacts } from '../ProposedFacts';
 import { ReflectionProposals } from '../ReflectionProposals';
 import { PerformanceDropdown } from '../PerformanceDropdown';
 import { OwnerFactsEditor } from '@/app/owner-messaging/OwnerFactsEditor';
@@ -30,12 +31,20 @@ import { OwnerFactsEditor } from '@/app/owner-messaging/OwnerFactsEditor';
  * /messaging/quality, the Quality lens of the Guests tab (2026-10-17).
  *
  * How the AI is doing and what it is being taught, in one place and off the
- * working page: the property facts waiting to be filed (from the operator's
- * own replies, from cleaners, from contractors, and for an owner login from
- * owners), the rules the weekly reflection pass keeps seeing coached, and
- * Performance with its learned-facts editor. The Inbox ends at Conversations
- * and keeps a one-line count pointing here; the owner, cleaner and
- * contractor pages keep the same line.
+ * working page. Read top to bottom it is the page's job, decisions first:
+ *
+ *   1. Property facts to file: one list for every audience (the operator's
+ *      own replies, cleaners, contractors, and for an owner login owners),
+ *      since 2026-11-08. Nothing reaches a home's knowledge base until a
+ *      person files it here.
+ *   2. Reflection proposals: rules the weekly pass keeps seeing coached.
+ *   3. Performance: one number and its trend; the tiles, tiers, the last
+ *      24 hours and the learned-facts editor sit behind Learning.
+ *   4. Owner facts (owner login): the rules the owner drafter applies.
+ *
+ * The count of facts waiting is the pill on this lens's label
+ * (PropertyFactsToFile), read from the same sources: both ask
+ * factSourcesFor(role).
  */
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -76,41 +85,27 @@ async function loadProperties(): Promise<{ id: string; name: string }[] | null> 
   }
 }
 
-// Facts mined from the operator's own guest replies, already checked against
-// each home's knowledge base by the concierge's kb_triage pass. Always
-// rendered: this is the lens for it, and its empty state says so.
-async function GuestFactsSection() {
-  const [proposed, properties] = await Promise.all([listProposedPropertyUpdates('guest'), loadProperties()]);
-  return (
-    <TriagedPropertyUpdates
-      initial={proposed.ok ? proposed.data.updates : []}
-      initialError={proposed.ok ? null : explainError(proposed.error)}
-      properties={properties}
-      source="guest"
-    />
-  );
-}
-
-// Facts a cleaner, a contractor or an owner shared, on the older
-// one-fact-at-a-time card. Rendered only with something to file (or an
-// error to show): three empty cards under the one above would be noise.
-async function SharedFactsSection({ source }: { source: 'cleaner' | 'contractor' | 'owner' }) {
-  // Owner correspondence is an owner page: a staff login never reads it,
-  // not even as a fact to file.
-  if (source === 'owner' && (await sessionRole()) !== 'owner') return null;
-  const [proposed, properties] = await Promise.all([
-    listProposedPropertyUpdates(source === 'owner' ? undefined : source),
+// Every audience's proposed facts, in one list. Guest-reply facts arrive
+// already checked against each home's knowledge base by the concierge's
+// kb_triage pass; the rest are reviewed one at a time. Which path a row takes
+// is src/lib/proposed-facts.ts. Always rendered: this is the lens for it, and
+// its empty state says so.
+async function FactsSection() {
+  // Owner correspondence is an owner page: a staff login never reads it, not
+  // even as a fact to file. The same helper decides the lens pill's count.
+  const sources: FactAudience[] = factSourcesFor(await sessionRole());
+  const [reads, properties] = await Promise.all([
+    Promise.all(sources.map((audience) => listProposedPropertyUpdates(listAudienceArg(audience)))),
     loadProperties(),
   ]);
-  if (proposed.ok && proposed.data.updates.length === 0) return null;
-  return (
-    <ProposedPropertyUpdatesCard
-      initial={proposed.ok ? proposed.data.updates : []}
-      initialError={proposed.ok ? null : explainError(proposed.error)}
-      properties={properties ?? []}
-      source={source}
-    />
-  );
+  const rows: AudienceUpdate[] = [];
+  const errors: { audience: FactAudience; message: string }[] = [];
+  reads.forEach((res, i) => {
+    const audience = sources[i];
+    if (res.ok) rows.push(...res.data.updates.map((u) => ({ ...u, audience })));
+    else errors.push({ audience, message: explainError(res.error) });
+  });
+  return <ProposedFacts rows={rows} errors={errors} properties={properties} />;
 }
 
 // The weekly reflection pass, as decisions. It mines the coaching log and the
@@ -145,8 +140,9 @@ async function OwnerFactsSection() {
   );
 }
 
-// The tabbed Performance section (score / last-24h activity / learning +
-// weekly fact audit). Slow calls; they stream in after the facts.
+// Performance: the one number and its trend chart, then the Learning
+// disclosure (tiles, tiers, the last 24 hours, learned facts and the weekly
+// fact audit). Slow calls; they stream in after the facts.
 async function AnalyticsSection() {
   const [stats, facts, ts, audit, recent, rollup] = await Promise.all([
     // All-time (hours=0) by default: that is where the honest signal lives.
@@ -185,11 +181,8 @@ export default function MessagingQualityPage() {
     <Shell>
       <div id="facts">
         <Suspense fallback={<QueueSkeleton title="Property facts to file" />}>
-          <GuestFactsSection />
+          <FactsSection />
         </Suspense>
-        <Suspense fallback={null}><SharedFactsSection source="cleaner" /></Suspense>
-        <Suspense fallback={null}><SharedFactsSection source="contractor" /></Suspense>
-        <Suspense fallback={null}><SharedFactsSection source="owner" /></Suspense>
       </div>
       <Suspense fallback={null}>
         <ReflectionSection />

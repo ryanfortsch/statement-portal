@@ -44,10 +44,19 @@ describe('the Quality lens', () => {
 
   test('the lens mounts all of it, and the owner slice only for an owner', () => {
     const page = read('src/app/messaging/quality/page.tsx');
-    for (const part of ['<TriagedPropertyUpdates', '<ProposedPropertyUpdatesCard', '<ReflectionSection />', '<AnalyticsSection />', '<PerformanceDropdown']) {
+    for (const part of ['<ProposedFacts', '<ReflectionSection />', '<AnalyticsSection />', '<PerformanceDropdown']) {
       assert.ok(page.includes(part), `the Quality lens does not mount ${part}`);
     }
-    assert.ok(page.includes("if (source === 'owner' && (await sessionRole()) !== 'owner') return null;"), 'a staff login must not read owner-sourced facts');
+    // One proposed-facts design (2026-11-08): the two older cards are gone.
+    for (const gone of ['TriagedPropertyUpdates', 'ProposedPropertyUpdatesCard', 'SharedFactsSection']) {
+      assert.ok(!page.includes(gone), `the Quality lens still mounts ${gone}`);
+    }
+    // The page reads exactly the sources the lens pill counts, and a staff
+    // login never reads owner-sourced facts: both ask factSourcesFor(role).
+    assert.ok(page.includes('const sources: FactAudience[] = factSourcesFor(await sessionRole());'), 'a staff login must not read owner-sourced facts');
+    assert.ok(page.includes('sources.map((audience) => listProposedPropertyUpdates(listAudienceArg(audience)))'), 'the list reads each allowed source');
+    assert.equal((page.match(/listProposedPropertyUpdates\(/g) ?? []).length, 1, 'one read per source, through factSourcesFor');
+    assert.ok(read('src/components/PropertyFactsToFile.tsx').includes('factSourcesFor(role).map('), 'the pill counts the same sources');
     assert.deepEqual(factSourcesFor('staff'), ['guest', 'cleaner', 'contractor']);
     assert.deepEqual(factSourcesFor('owner'), ['guest', 'cleaner', 'contractor', 'owner']);
     assert.equal(factsToFileLabel(1), '1 property fact to file');

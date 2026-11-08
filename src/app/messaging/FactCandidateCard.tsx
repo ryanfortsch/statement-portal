@@ -1,122 +1,44 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import { Section } from '@/components/Section';
+import { Button } from '@/components/Button';
 import { captureColumn, type CaptureItem } from '@/lib/property-capture-catalog';
-import type { ProposedPropertyUpdate } from '@/lib/stay-concierge';
+import { AUDIENCE_LABEL, type AudienceUpdate } from '@/lib/proposed-facts';
 import {
   parseProposedUpdate,
   applyProposedUpdate,
   dismissProposedUpdate,
-} from './proposed-updates-actions';
+} from '../owner-messaging/proposed-updates-actions';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
 /**
- * "Proposed property updates" — durable property facts owners shared in their
- * messages (a new wifi password, a gate code, a trash day), detected by the
- * stay-concierge owner extractor. The operator reviews each one and, in one
- * pass, applies it to the property record. Applying routes the text through
- * Helm's existing Quick Capture parse + apply, so a wifi password lands in the
- * RLS-locked property_access table and a wifi name on the properties table,
- * exactly as a hand-dictated note would. Nothing writes until the operator
- * approves the routing.
+ * One proposed fact reviewed on its own: a cleaner's, a contractor's or an
+ * owner's (a new wifi password, a gate code, a trash day), or a guest-reply
+ * fact kb_triage has not reached. A row of the one proposed-facts list on
+ * /messaging/quality (ProposedFacts.tsx), in the same face as the triaged
+ * rows beside it.
+ *
+ * Applying routes the text through Helm's existing Quick Capture parse +
+ * apply, so a wifi password lands in the RLS-locked property_access table and
+ * a wifi name on the properties table, exactly as a hand-dictated note would.
+ * Nothing writes until the operator approves the routing.
+ *
+ * Moved here from owner-messaging/ProposedPropertyUpdatesCard.tsx on
+ * 2026-11-08 when the two proposed-facts designs became one. The three
+ * server actions and their payloads are unchanged.
  */
-
-type Props = {
-  initial: ProposedPropertyUpdate[];
-  initialError: string | null;
-  properties: { id: string; name: string }[];
-  /** Who shared these facts; drives the card copy only. The owner page
-   * omits it (default 'owner'); the cleaner page passes 'cleaner'; the
-   * contractor page passes 'contractor'; the guest-messaging page passes
-   * 'guest' (facts mined from the operator's own replies, not from guests). */
-  source?: 'owner' | 'cleaner' | 'contractor' | 'guest';
-};
-
-export function ProposedPropertyUpdatesCard({ initial, initialError, properties, source = 'owner' }: Props) {
-  const [houseFilter, setHouseFilter] = useState('');
-  const items = initial ?? [];
-  const grouped = new Map<string, ProposedPropertyUpdate[]>();
-  for (const item of items) {
-    const key = item.property_id || '(unknown)';
-    grouped.set(key, [...(grouped.get(key) ?? []), item]);
-  }
-  const right =
-    items.length > 0 ? (
-      <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
-        {items.length} waiting
-      </span>
-    ) : undefined;
-
-  return (
-    <Section
-      title="Property facts to file"
-      eyebrow={
-        source === 'guest'
-          ? 'From your own replies'
-          : source === 'owner'
-            ? "From owners' messages"
-            : `From ${source}s' texts`
-      }
-      paddingTop={36}
-      right={right}
-    >
-      {initialError ? (
-        <div
-          style={{
-            borderTop: '1px solid var(--rule)',
-            paddingTop: 18,
-            fontSize: 13,
-            color: 'var(--ink-3)',
-            lineHeight: 1.6,
-          }}
-        >
-          {initialError}
-        </div>
-      ) : items.length === 0 ? (
-        <div
-          style={{
-            borderTop: '1px solid var(--rule)',
-            paddingTop: 18,
-            fontSize: 13,
-            color: 'var(--ink-4)',
-            lineHeight: 1.6,
-          }}
-        >
-          Nothing to review.
-        </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, borderTop: '1px solid var(--rule)', paddingTop: 18 }}>
-          {properties.length === 0 && (
-            <div style={{ fontSize: 12, color: 'var(--signal)', lineHeight: 1.6 }}>
-              Property list unavailable, so filing is disabled. Reload the page or check access; you can still dismiss.
-            </div>
-          )}
-          <input type="search" aria-label="Find a home in property facts" placeholder="Find a home" value={houseFilter} onChange={e => setHouseFilter(e.target.value)} style={{ padding: 10, border: '1px solid var(--rule)', fontSize: 14, background: 'var(--paper)' }} />
-          {[...grouped].filter(([, rows]) => !houseFilter || (rows[0].property_name || rows[0].property_id).toLowerCase().includes(houseFilter.toLowerCase())).map(([pid, rows]) => (
-            <details key={pid} style={{ borderBottom: '1px solid var(--rule)', paddingBottom: 12 }}>
-              <summary style={{ cursor: 'pointer', padding: '12px 0', fontSize: 16 }}>{rows[0].property_name || pid} <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>· {rows.length} to review</span></summary>
-              <div style={{ display: 'grid', gap: 12 }}>{rows.map(u => <CandidateCard key={u.id} candidate={u} properties={properties} source={source} />)}</div>
-            </details>
-          ))}
-        </div>
-      )}
-    </Section>
-  );
-}
 
 type EditItem = CaptureItem & { include: boolean; _id: number };
 type Phase = 'idle' | 'review' | 'done';
 
-function CandidateCard({
+export function CandidateCard({
   candidate,
   properties,
-  source,
 }: {
-  candidate: ProposedPropertyUpdate;
+  candidate: AudienceUpdate;
   properties: { id: string; name: string }[];
-  source: 'owner' | 'cleaner' | 'contractor' | 'guest';
 }) {
+  const source = candidate.audience;
   const softRefresh = useSoftRefresh();
   const known = properties.some((p) => p.id === candidate.property_id);
   const [propertyId, setPropertyId] = useState(known ? candidate.property_id : '');
@@ -201,7 +123,7 @@ function CandidateCard({
 
   if (phase === 'done') {
     return (
-      <div style={{ border: '1px solid var(--rule)', background: 'var(--paper-2)', padding: '14px 16px' }}>
+      <div style={ROW_FACE}>
         <span style={{ fontSize: 13, color: 'var(--ink)' }}>
           {doneSummary ? (
             <>
@@ -225,10 +147,17 @@ function CandidateCard({
   }
 
   return (
-    <div style={{ border: '1px solid var(--rule)', background: 'var(--paper-2)', padding: '14px 16px' }}>
-      {/* Header: owner + property + category */}
+    <div style={ROW_FACE}>
+      {/* Header: whose words (the audience column), who, the category. The
+          home is the block's header, so the row does not print it again. */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
         <span style={{ width: 7, height: 7, borderRadius: '50%', background: dot, flexShrink: 0 }} title={`${candidate.confidence} confidence`} />
+        <span className="eyebrow" style={{ color: 'var(--tide-deep)', fontWeight: 600 }}>
+          {AUDIENCE_LABEL[source]}
+        </span>
+        {candidate.owner_name && (
+          <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>{candidate.owner_name}</span>
+        )}
         <span
           style={{
             fontSize: 9,
@@ -242,17 +171,6 @@ function CandidateCard({
           }}
         >
           {candidate.category.replace(/_/g, ' ')}
-        </span>
-        <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
-          {candidate.owner_name ||
-            (source === 'cleaner'
-              ? 'A cleaner'
-              : source === 'contractor'
-                ? 'A contractor'
-                : source === 'guest'
-                  ? 'Your own reply'
-                  : 'An owner')}
-          {candidate.property_name ? ` · ${candidate.property_name}` : ''}
         </span>
       </div>
 
@@ -305,17 +223,18 @@ function CandidateCard({
       {/* Actions */}
       {phase === 'idle' && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 14 }}>
-          <button
-            type="button"
+          <Button
+            variant="secondary"
+            size="sm"
             onClick={onReview}
             disabled={pending || !propertyId}
-            style={{ ...primaryBtn, opacity: pending || !propertyId ? 0.5 : 1, cursor: pending ? 'wait' : 'pointer' }}
+            watchdog={false}
           >
             {pending ? 'Sorting…' : 'Review & file'}
-          </button>
-          <button type="button" onClick={onDismiss} disabled={pending} style={linkBtn}>
+          </Button>
+          <Button variant="quiet" size="sm" onClick={onDismiss} disabled={pending}>
             Dismiss
-          </button>
+          </Button>
         </div>
       )}
 
@@ -338,17 +257,18 @@ function CandidateCard({
             </div>
           )}
           <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 14 }}>
-            <button
-              type="button"
+            <Button
+              variant="primary"
+              size="sm"
               onClick={onApply}
               disabled={pending || includedCount === 0}
-              style={{ ...primaryBtn, opacity: pending || includedCount === 0 ? 0.5 : 1, cursor: pending ? 'wait' : 'pointer' }}
+              watchdog={false}
             >
               {pending ? 'Saving…' : `Apply ${includedCount} change${includedCount === 1 ? '' : 's'}`}
-            </button>
-            <button type="button" onClick={() => setPhase('idle')} style={linkBtn} disabled={pending}>
+            </Button>
+            <Button variant="quiet" size="sm" onClick={() => setPhase('idle')} disabled={pending}>
               Back
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -508,25 +428,11 @@ const fieldInput: React.CSSProperties = {
   boxSizing: 'border-box',
 };
 
-const primaryBtn: React.CSSProperties = {
-  fontSize: 11,
-  letterSpacing: '.16em',
-  textTransform: 'uppercase',
-  color: 'var(--paper)',
-  background: 'var(--ink)',
-  border: '1px solid var(--ink)',
-  padding: '9px 16px',
-  fontWeight: 600,
-};
-
-const linkBtn: React.CSSProperties = {
-  background: 'transparent',
-  border: 'none',
-  fontSize: 11,
-  letterSpacing: '.14em',
-  textTransform: 'uppercase',
-  color: 'var(--ink-3)',
-  cursor: 'pointer',
-  fontWeight: 500,
-  padding: 0,
+/** The one row face of the proposed-facts list, shared with the triaged
+ *  rulings in ProposedFacts.tsx. */
+export const ROW_FACE: React.CSSProperties = {
+  marginTop: 14,
+  borderLeft: '3px solid var(--rule)',
+  background: 'var(--paper-2)',
+  padding: '12px 14px',
 };
