@@ -181,7 +181,7 @@ export default async function AgreementDetailPage({ params }: { params: Promise<
             {a.guest_signed_at && !a.countersigned_at && !a.voided_at && (owner ? (
               <form action={countersignAgreement}>
                 <input type="hidden" name="id" value={a.id} />
-                <SubmitButton label="Countersign as Allie" busyLabel="Executing…" style={actionPrimary} />
+                <SubmitButton label="Countersign" busyLabel="Executing…" style={actionPrimary} />
               </form>
             ) : (
               <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>An owner countersigns it.</span>
