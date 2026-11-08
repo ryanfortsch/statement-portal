@@ -82,3 +82,49 @@ test('view-as mutation and invalid inputs fail before database access', async ()
   assert.equal((await mod.saveAppointment({ id: '00000000-0000-4000-a000-000000000001', expectedVersion: 0, details: d })).ok, false);
   assert.equal(reads, 0);
 });
+function answerSetup({ role = 'owner', viewAs = false, found = true } = {}) {
+  const calls: unknown[] = [], reads: Array<{ table: string; filters: Record<string, string> }> = [];
+  const db = {
+    rpc: async (...args: unknown[]) => { calls.push(args); return { data: { id: 'saved' }, error: null }; },
+    from(table: string) {
+      const query = { table, filters: {} as Record<string, string> }; reads.push(query);
+      const chain: any = { select: () => chain, eq(key: string, value: string) { query.filters[key] = value; return chain; },
+        maybeSingle: async () => ({ data: found ? { id: query.filters.id } : null, error: null }),
+        update() { throw Error('the shared meeting must never be written'); }, upsert() { throw Error('never written'); }, insert() { throw Error('never written'); } };
+      return chain;
+    },
+  };
+  const mod = load('app/appointments/actions.ts', {
+    '@/auth': { auth: async () => ({ user: { email: 'Ryan@risingtidestr.com' } }) },
+    '@/lib/helm-access-server': { sessionView: async () => ({ role, viewingAsStaff: viewAs }) },
+    '@/lib/supabase-admin': { supabaseAdmin: db }, 'next/cache': { revalidatePath() {} }, '@/lib/appointment-agenda': core,
+  });
+  return { mod, calls, reads };
+}
+const meetingId = '00000000-0000-4000-a000-0000000000aa';
+test('a one-tap attendance answer is a private record naming only the meeting; the CRM row is only read', async () => {
+  const s = answerSetup();
+  assert.equal((await s.mod.answerMeetingAttendance({ meetingId, attendance: 'attending' })).ok, true);
+  assert.deepEqual(s.reads.map(r => r.table), ['contact_meetings']);
+  const [name, args] = s.calls[0] as [string, Record<string, any>];
+  assert.equal(name, 'save_agenda_appointment'); assert.equal(args.p_user_email, 'ryan@risingtidestr.com'); assert.equal(args.p_expected_version, 0);
+  assert.deepEqual(args.p_details, core.meetingAttendanceDetails(meetingId, 'attending'));
+  assert.equal(core.validateAppointment(args.p_details).ok, true);
+});
+test('changing an answer updates the same private record at its version', async () => {
+  const s = answerSetup(); const answer = { id: '00000000-0000-4000-a000-0000000000bb', version: 3 };
+  await s.mod.answerMeetingAttendance({ meetingId, attendance: 'not_attending', answer });
+  const [, args] = s.calls[0] as [string, Record<string, any>];
+  assert.equal(args.p_id, answer.id); assert.equal(args.p_expected_version, 3); assert.equal(args.p_details.attendance, 'not_attending');
+});
+test('staff answer only meetings they created; view-as and bad answers never write', async () => {
+  const staff = answerSetup({ role: 'staff' });
+  await staff.mod.answerMeetingAttendance({ meetingId, attendance: 'attending' });
+  assert.equal(staff.reads[0].filters.created_by_email, 'ryan@risingtidestr.com');
+  const unseen = answerSetup({ role: 'staff', found: false });
+  assert.equal((await unseen.mod.answerMeetingAttendance({ meetingId, attendance: 'attending' })).ok, false); assert.equal(unseen.calls.length, 0);
+  const viewAs = answerSetup({ viewAs: true });
+  assert.equal((await viewAs.mod.answerMeetingAttendance({ meetingId, attendance: 'attending' })).ok, false); assert.equal(viewAs.reads.length + viewAs.calls.length, 0);
+  const bad = answerSetup();
+  assert.equal((await bad.mod.answerMeetingAttendance({ meetingId, attendance: 'owner_handled' })).ok, false); assert.equal(bad.calls.length, 0);
+});
