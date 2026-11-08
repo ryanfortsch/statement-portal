@@ -47,6 +47,7 @@ describe('one confirm style', () => {
     for (const file of [
       'src/app/statements/page.tsx',
       'src/app/statements/upload/page.tsx',
+      'src/app/statements/upload/StatementUploadForm.tsx',
       'src/components/BankDepositReview.tsx',
       'src/components/ReceiptCapture.tsx',
       'src/components/PeriodNotesCard.tsx',
@@ -64,7 +65,7 @@ describe('one confirm style', () => {
     // (the root layout), so a second, page-level provider is not needed.
     assert.match(read('src/components/Providers.tsx'), /<ConfirmProvider>\{children\}<\/ConfirmProvider>/);
     assert.match(page, /const \{ ask[^}]*\} = useConfirm\(\);/);
-    assert.match(read('src/app/statements/upload/page.tsx'), /const \{ ask \} = useConfirm\(\);/);
+    assert.match(read('src/app/statements/upload/StatementUploadForm.tsx'), /const \{ ask \} = useConfirm\(\);/);
   });
 
   test('the freeze override asks through the page modal when given one', () => {
@@ -81,7 +82,7 @@ describe('the irreversible verbs say so', () => {
   test('Remove from statement, Void and Replace statement carry "cannot be undone"', () => {
     assert.match(askFor(page, 'Remove from statement'), /irreversible: true/);
     assert.match(askFor(read('src/components/ReceiptCapture.tsx'), 'Void receipt'), /irreversible: true/);
-    const upload = read('src/app/statements/upload/page.tsx');
+    const upload = read('src/app/statements/upload/StatementUploadForm.tsx');
     assert.match(upload, /confirmLabel: current\?\.exists === true \? 'Replace statement' : 'Process anyway',\s*tone: 'danger',\s*irreversible: true,/);
     assert.match(read('src/components/ConfirmDialog.tsx'), /This cannot be undone\./);
   });

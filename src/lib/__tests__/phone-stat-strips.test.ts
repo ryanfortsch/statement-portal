@@ -19,7 +19,7 @@ const STRIPS: Array<[string, number]> = [
   ['src/app/guests/contacts/page.tsx', 1],
   ['src/app/channels/page.tsx', 2],
   ['src/app/channels/[propertyId]/page.tsx', 1],
-  ['src/app/statements/upload/page.tsx', 1],
+  ['src/app/statements/upload/StatementUploadForm.tsx', 1],
   ['src/app/competitors/[id]/page.tsx', 1],
   ['src/app/guests/[id]/page.tsx', 1],
   ['src/app/guests/quotes/[id]/page.tsx', 1],
