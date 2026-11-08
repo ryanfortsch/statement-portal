@@ -87,9 +87,12 @@ describe('a slip category has one vocabulary', () => {
     }
   });
 
-  test('the slip page header pill names the lane, the word its Whose hands chips use', () => {
+  test('the slip page names the lane once, in Work type\'s eyebrow, the word its chips use', () => {
     const page = read('src/app/work/[id]/page.tsx');
-    assert.ok(page.includes('label={LANE_LABELS[lane]}'), 'the header pill no longer prints the lane');
+    // The hero pill row went in the 2026-11-07 audit (status, priority and
+    // lane each printed twice); the lane now reads in the one eyebrow.
+    assert.ok(page.includes('`${LANE_LABELS[lane]} · '), 'the Work type eyebrow no longer prints the lane');
+    assert.ok(!page.includes('<Pill '), 'the hero pill row is back');
     assert.ok(!page.includes('WORK_SLIP_CATEGORY_LABELS'), 'the slip page prints a second vocabulary for the same slip');
   });
 });
