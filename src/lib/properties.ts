@@ -54,7 +54,8 @@ export type Property = {
    * routing, notes, channels and a /book page like any other home. It just
    * never reaches the owner-statement surfaces. (Ryan's out-of-market homes,
    * 65 Calderwood and 3246 NE 27th, are excluded from this map entirely
-   * because they are in neither pipeline. See the note below the map.)
+   * because the Cape Ann ops pipeline never touches them; both are
+   * `properties` rows with their own region. See the note below the map.)
    */
   is_rising_tide_owned?: boolean;
   /**
@@ -266,8 +267,13 @@ export const PROPERTIES: Record<string, Property> = {
   },
 };
 
-// 65 Calderwood Ln and 3246 NE 27th Ave are Ryan's personal properties and
-// intentionally excluded from the portal.
+// 65 Calderwood and 3246 NE 27th are Rising Tide's out-of-market homes
+// (Bridgeport CT, Lighthouse Point FL). They are `properties` rows, not
+// entries here: 65 Calderwood since 20260926210000_calderwood_registry.sql,
+// 3246 NE 27th since 20261107120000_3246_ne_27th_registry.sql. Each carries
+// its own `region`, which is what keeps it off the Cape Ann crew surfaces
+// (src/lib/property-scope.ts), and is_rising_tide_owned, which keeps it out
+// of the statement flows. They appear on Revenue and Forecast like 3 Locust.
 
 export const PROPERTY_IDS = Object.keys(PROPERTIES);
 

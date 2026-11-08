@@ -35,10 +35,11 @@ const GUESTY_API = 'https://open-api.guesty.com';
 // an ordinary new property needs no entry here: stamping the column when the
 // property is created is enough.
 //
-// This object is still required, because two mapped listings have no
-// properties row at all (65 Calderwood and 3246 NE 27th, both RT-owned and
-// out of the management fleet). Without them the DB-only map would drop
-// listings that are mapped today.
+// This object is still required as the floor: when the properties read fails
+// the DB-only map would be empty, and until 20261107120000_3246_ne_27th_
+// registry.sql is applied 3246 NE 27th has no row to carry its needle (65
+// Calderwood got its row on 2026-09-26). Both are RT-owned and out of the
+// management fleet.
 //
 // Keep this in sync with PROPERTY_DETAILS[*].listing_match in statements/render/page.tsx
 //
