@@ -13,7 +13,7 @@ export type PendingCounts = {
   owners?: number | null;
   cleaners?: number | null;
   contractors?: number | null;
-  /** The Guest reviews lens: host-review and review-reply cards waiting. */
+  /** The Review cards lens: host-review and review-reply cards waiting. */
   reviews?: number | null;
 };
 

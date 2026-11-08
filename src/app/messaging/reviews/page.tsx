@@ -1,5 +1,6 @@
 import { Suspense } from 'react';
 import type { ReactNode } from 'react';
+import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { MessagingFooter } from '@/components/MessagingFooter';
 import { MessagingTabs } from '@/components/MessagingTabs';
@@ -21,7 +22,10 @@ import { ReviewsQueue } from './ReviewsQueue';
 import { undoReviewDecision } from './actions';
 
 /**
- * /messaging/reviews, the Guest reviews lens of the Guests tab (2026-10-30).
+ * /messaging/reviews, the Review cards lens of the Guests tab (2026-10-30;
+ * "Guest reviews" until 2026-11-07, renamed so that "Reviews" means the
+ * Growth tab at /guests, their reviews of us, and this lens is named for its
+ * work).
  *
  * Reviews in both directions, as cards: stop Guesty's automatic 5-star review
  * of a guest whose stay went red, post our own review of them before the
@@ -75,6 +79,11 @@ async function RulesSection() {
           {l}
         </p>
       ))}
+      {/* Their reviews of us, the testimonials and Recent stays live on the
+          Growth tab; a public reply here answers a row there. */}
+      <p style={{ marginTop: 10 }}>
+        <Link href="/guests" className="rt-inline-action">Reviews ledger →</Link>
+      </p>
     </div>
   );
 }
@@ -106,7 +115,7 @@ export default function MessagingReviewsPage() {
   }
   return (
     <Shell>
-      <Section title="Guest reviews" eyebrow="Ours of them · replies to theirs">
+      <Section title="Review cards" eyebrow="Ours of them · replies to theirs">
         <Suspense fallback={<QueueSkeleton />}>
           <QueueSection />
         </Suspense>

@@ -28,9 +28,12 @@ describe('Delivery & sync', () => {
   test('the page has the messaging shell: tabs and footer, no back link', () => {
     const page = read('src/app/messaging/status/page.tsx');
     assert.ok(page.includes('<MessagingTabs current="none" />'));
-    assert.ok(page.includes('<MessagingFooter self />'));
+    assert.ok(page.includes('<MessagingFooter />'));
     assert.ok(!page.includes('← Messaging'));
+    // The disclosure at the foot of each inbox page is the one door to
+    // Delivery & sync; the footer carries no link (UX audit 2026-11-07).
     const footer = read('src/components/MessagingFooter.tsx');
-    assert.ok(footer.includes('if (self) return'), 'the footer never links the page to itself');
+    assert.ok(!footer.includes('/messaging/status'), 'the footer links nowhere');
+    assert.ok(!footer.includes('self'), 'no self flag is left');
   });
 });

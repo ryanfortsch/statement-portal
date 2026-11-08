@@ -83,7 +83,7 @@ export async function GET() {
   // pending cards. If those numbers ever diverge again, the fix is to mirror
   // whatever filter the page added -- not to invent a new definition here.
   const notScheduled = (a: { status: string }) => a.status !== 'scheduled';
-  // The Guest reviews lens (/messaging/reviews) shows the host-review and
+  // The Review cards lens (/messaging/reviews) shows the host-review and
   // review-reply cards and the Inbox leaves them out, so each count mirrors
   // its own page, same rule as above.
   const onReviewLens = (a: { guesty_message_id: string; topic: string }) =>

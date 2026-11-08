@@ -1,5 +1,5 @@
 /**
- * The Guest reviews lens's words (2026-10-30), pure and under test: what a
+ * The Review cards lens's words (2026-10-30), pure and under test: what a
  * host-review card and a review-reply card say, which verbs they carry, and
  * when they are due.
  *

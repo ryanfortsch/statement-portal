@@ -6,6 +6,7 @@ import { useRecoverableAction } from '@/lib/use-recoverable-action';
 import { useReminderResource } from '@/lib/use-reminder-resource';
 import { useDraftNavigationGuard } from '@/lib/use-draft-navigation-guard';
 import { Section } from '@/components/Section';
+import { useConfirm } from '@/components/ConfirmDialog';
 import type {
   ProactiveTarget,
   RecurringMessage,
@@ -298,6 +299,7 @@ function CreateForm({
   onBusyChange: (busy: boolean) => void;
 }) {
   const softRefresh = useSoftRefresh();
+  const { ask } = useConfirm();
   const action = useRecoverableAction();
   const { pending: isPending, error, setError } = action;
   const [polishing, startPolish] = useTransition();
@@ -703,8 +705,10 @@ function CreateForm({
       >
         {isPending ? 'Scheduling…' : mode === 'once' ? 'Schedule message' : 'Create reminder'}
       </button>
-      {dirty && <button type="button" className="rt-quiet-btn" style={{ marginLeft: 14 }} disabled={isPending || polishing} onClick={() => {
-        if (action.busy.current || polishBusy.current || !window.confirm('Discard this unsaved message?')) return;
+      {dirty && <button type="button" className="rt-quiet-btn" style={{ marginLeft: 14 }} disabled={isPending || polishing} onClick={async () => {
+        if (action.busy.current || polishBusy.current) return;
+        if (!(await ask({ title: 'Discard this unsaved message?', body: 'The wording typed here goes; nothing was scheduled.', confirmLabel: 'Discard', tone: 'danger' }))) return;
+        if (action.busy.current || polishBusy.current) return;
         revision.current++; setContact(''); setLabel(''); setBody(''); setDays(new Set()); setFireDate('');
         setEndDate(''); setEnglish('');
         setMode(savedSettings.current.mode); setAtLocal(savedSettings.current.atLocal); setSendMode(savedSettings.current.sendMode);
