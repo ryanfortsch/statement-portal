@@ -98,3 +98,16 @@ test('a packet row says its stop count once', () => {
   const feed = read('src/components/ForMeFeed.tsx');
   assert.ok(feed.includes('p.stop_count && !/\\bstops?\\b/i.test(p.title)'), 'a title that already counts its stops is not counted again');
 });
+
+test('home says each thing once: no empty Upcoming frame, no repeated overdue count, no channel label', () => {
+  // 2026-11-08 (Dotti): simplify the home page.
+  const agenda = read('src/components/agenda/AppointmentAgenda.tsx');
+  assert.ok(agenda.includes('if (!full && preview.length === 0 && overlaps.size === 0)'), 'an Upcoming with nothing to preview prints its full frame again');
+  assert.ok(!agenda.includes('Open the agenda for visits'), 'the instruction sentence came back');
+  assert.ok(agenda.includes('agendaSourceGap(data.sources) && <div className="rt-agenda-home-footer">{sourceDetails}</div>'), 'the one-line Upcoming lost its source line');
+  const signals = read('src/components/HomeSignals.tsx');
+  assert.ok(signals.includes("stats.overdueWork === stats.weekWork ? 'all overdue'"), 'the work tile repeats its own number as the overdue count');
+  const feed = read('src/components/ForMeFeed.tsx');
+  const row = feed.slice(feed.indexOf('function HouseStayRow'), feed.indexOf('function WalkedTick'));
+  assert.ok(!row.includes('stay.channel'), 'a house row prints the booking channel again');
+});

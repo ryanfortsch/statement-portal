@@ -248,7 +248,9 @@ export async function HomeSignals({ owner }: { owner: boolean }) {
             stats.overdueWork == null
               ? 'could not count'
               : stats.overdueWork > 0
-                ? `${stats.overdueWork} overdue`
+                // When every item is overdue, the number above already
+                // says how many; the line only says which.
+                ? stats.overdueWork === stats.weekWork ? 'all overdue' : `${stats.overdueWork} overdue`
                 : 'nothing overdue'
           }
           href={stats.overdueWork != null && stats.overdueWork > 0 ? '/work?filter=overdue' : '/work?filter=week'}

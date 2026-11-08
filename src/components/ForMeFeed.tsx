@@ -1209,7 +1209,6 @@ function HouseStayRow({ row }: { row: HouseRow }) {
         {row.walked && <WalkedTick />}
         {stay.guestName && <span style={{ color: 'var(--ink-3)' }}> · {stay.guestName}</span>}
       </span>
-      <span style={{ flexShrink: 0, fontSize: 11, color: 'var(--ink-4)' }}>{stay.channel ?? ''}</span>
     </Link>
   );
 }
