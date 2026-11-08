@@ -80,6 +80,25 @@ describe('the Quality lens', () => {
     assert.ok(tabs.includes("{ id: 'quality', label: 'Quality', href: '/messaging/quality' }"));
   });
 
+  test('Performance is one number and its chart; the rest sits behind Learning', () => {
+    const perf = read('src/app/messaging/PerformanceDropdown.tsx');
+    assert.ok(!perf.includes('aria-label="Performance panels"') && !perf.includes('<TabBar'), 'the three tabs are gone');
+    assert.ok(!perf.includes('const [open, setOpen] = useState(true);'), 'no fold around the whole block');
+    const headline = perf.indexOf('<Headline');
+    const chart = perf.indexOf('<TrendChart');
+    const learning = perf.indexOf('<details className="rt-msg-learning"');
+    const breakdown = perf.indexOf('<Breakdown');
+    const recent = perf.indexOf('<RecentList');
+    const facts = perf.indexOf('<LearningSection');
+    assert.ok(headline > 0 && headline < chart && chart < learning, 'the number, then its chart, then Learning');
+    for (const [name, at] of [['Breakdown', breakdown], ['RecentList', recent], ['LearningSection', facts]] as const) {
+      assert.ok(at > learning, `${name} sits inside Learning`);
+    }
+    // The one number is still the substantive one-shot rate, falling back to
+    // the overall rate on a concierge build that does not send it.
+    assert.ok(perf.includes('const heroPct = sub ? subPct : oneShotPct;'));
+  });
+
   test('a decision on the lens revalidates the lens', () => {
     for (const actions of ['src/app/messaging/facts-actions.ts', 'src/app/messaging/reflection-actions.ts', 'src/app/messaging/fact-audit-actions.ts', 'src/app/owner-messaging/proposed-updates-actions.ts']) {
       assert.ok(read(actions).includes("revalidatePath('/messaging/quality')"), `${actions} does not revalidate the Quality lens`);
