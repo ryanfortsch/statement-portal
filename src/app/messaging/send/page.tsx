@@ -8,7 +8,14 @@ import { MessagingTabs } from '@/components/MessagingTabs';
 import { AiStatusBanner } from '@/components/AiStatusBanner';
 import { isStayConciergeConfigured, listConversations, explainError } from '@/lib/stay-concierge';
 import { todayET } from '@/lib/checkout-schedule';
-import { RemindersSection } from '../RemindersSection';
+import { ProactiveRemindersPanel } from '@/components/ProactiveRemindersPanel';
+import {
+  fetchRecurringReminders,
+  fetchReservationPicks,
+  createReminderAction,
+  endReminderAction,
+  polishProactiveAction,
+} from '../reminders-actions';
 import { SendPanel, type SendTab } from './SendPanel';
 import { PaymentLinksLedger } from './PaymentLinksLedger';
 
@@ -113,9 +120,19 @@ export default async function MessagingSendPage({
           <PaymentLinksLedger />
         </Suspense>
       ) : (
-        // Scheduled + repeating messages ride with the compose surface: both
-        // are "things we start", so they belong on the Message tab.
-        <RemindersSection />
+        // Repeating guest messages ride with the compose surface: both are
+        // "things we start". The one-time "later" is the composer's own
+        // Send later, so the panel offers Recurring only for guests.
+        <ProactiveRemindersPanel
+          audience="guest"
+          actions={{
+            fetchReminders: fetchRecurringReminders,
+            fetchTargets: fetchReservationPicks,
+            create: createReminderAction,
+            end: endReminderAction,
+            polish: polishProactiveAction,
+          }}
+        />
       )}
     </Shell>
   );
