@@ -377,8 +377,8 @@ async function ingestInboundMessage(
       await mirrorQuoFinish(supabase, { propertyId, completedAt: msg.createdAt });
       return { touch: false, cleaning: !r.error };
     }
-    // No house. The same queue the webhook files into (the home feed's
-    // "Cleanings to check"), so a "done" whose webhook delivery was missed
+    // No house. The same queue the webhook files into (the cleaner texts
+    // on /turnovers/cleanings), so a "done" whose webhook delivery was missed
     // still reaches a person instead of being dropped a second time by the
     // net meant to catch it. Completions and problems only; one row per
     // message, so a text the webhook already filed, or someone already

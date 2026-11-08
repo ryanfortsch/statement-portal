@@ -4,6 +4,7 @@ import { addDays, formatTime12 } from '@/lib/checkout-schedule';
 import { loadCleaningOutlook } from '@/lib/cleaning-schedule';
 import { ATTENTION_STATUSES, type CleaningDay, type CleaningStatus } from '@/lib/cleaning-days';
 import { VENDOR_LABEL } from '@/lib/vendor-schedule';
+import { loadUnplacedCleanerTexts } from '@/lib/cleaner-unplaced-server';
 
 /**
  * Home-page strip: the cleaning crew's next three days, one column each,
@@ -17,6 +18,9 @@ import { VENDOR_LABEL } from '@/lib/vendor-schedule';
  *
  * Same loader as the turnover board and /turnovers/cleanings
  * (lib/cleaning-schedule.ts), so the strip and the board cannot disagree.
+ * It is the home page's one place for cleanings: a missing or mistimed
+ * cleaner prints in its day column, and a cleaner text Helm could not place
+ * is one count line under it.
  * Its link opens the board on the same three days. Renders nothing at all, rather than
  * an empty box, when Helm's service client is not configured or the read
  * throws: a blank strip on the home page would read as "no cleanings".
@@ -140,9 +144,13 @@ function DayColumn({ day, today, last }: { day: CleaningDay; today: string; last
 export async function CleaningsStrip() {
   if (!isServiceConfigured) return null;
   let sched: Awaited<ReturnType<typeof loadCleaningOutlook>>;
+  let unplaced = 0;
   try {
-    // Shared with the morning brief on this same page (React cache).
-    sched = await loadCleaningOutlook(supabase);
+    // Shared with the morning brief on this same page (React cache). The
+    // unplaced-texts read fails soft to none on its own.
+    const [outlook, texts] = await Promise.all([loadCleaningOutlook(supabase), loadUnplacedCleanerTexts()]);
+    sched = outlook;
+    unplaced = texts.length;
   } catch {
     return null;
   }
@@ -184,6 +192,18 @@ export async function CleaningsStrip() {
           <DayColumn key={day.date} day={day} today={today} last={i === days.length - 1} />
         ))}
       </div>
+      {/* A cleaner's text Helm could not put on a house waits on the
+          cleanings page with its house picker; here it is one line, never
+          the texts themselves (2026-11-08, Dotti: the feed section that
+          printed them read as noise). */}
+      {unplaced > 0 && (
+        <Link
+          href="/turnovers/cleanings#cleaner-texts"
+          style={{ display: 'inline-block', marginTop: 10, fontSize: 13, color: 'var(--ink-3)', textDecoration: 'none' }}
+        >
+          {unplaced} cleaner text{unplaced === 1 ? '' : 's'} to put on a house →
+        </Link>
+      )}
       {scheduleError && (
         <div style={{ marginTop: 8, fontSize: 11, color: 'var(--ink-4)' }}>
           Checkout cross-check unavailable right now; times above are the crew&rsquo;s bookings alone.

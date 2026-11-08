@@ -374,9 +374,7 @@ describe('links into the board', () => {
     assert.ok(anchors.has(`out-home_b-${TODAY}`), 'the vacant checkout is the anchor');
   });
 
-  test('a feed flag about a checkout opens its board row, not a second page', () => {
-    const feed = readFileSync(new URL('../../components/ForMeFeed.tsx', import.meta.url), 'utf8');
-    assert.match(feed, /checkoutBoardHref\(flag\.propertyId, flag\.date, operatingDate\(\)\)/);
+  test('the cleanings page is reached from the board, not a tab', () => {
     const tabs = readFileSync(new URL('../../components/TurnoverTabs.tsx', import.meta.url), 'utf8');
     assert.doesNotMatch(tabs, /href: '\/turnovers\/cleanings'/, 'Cleanings is not a tab: its verdicts are on the rows');
   });

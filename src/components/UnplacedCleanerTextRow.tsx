@@ -10,8 +10,8 @@ import {
 import type { AttachChoices } from '@/lib/cleaner-unplaced';
 
 /**
- * One cleaner text Helm could not place on a house, on the home feed's
- * "Cleanings to check": when, who and what they said, a house picker
+ * One cleaner text Helm could not place on a house, on the cleanings
+ * page (/turnovers/cleanings): when, who and what they said, a house picker
  * (the homes that checked out that day first), Attach, and Set aside.
  * Attach logs the clean on that house exactly as if the text had named it;
  * the row leaves once the page re-renders. A failure is printed, never
