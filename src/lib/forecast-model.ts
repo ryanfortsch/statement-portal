@@ -232,8 +232,17 @@ export const SEASON: Record<SeasonType, number[]> = {
  * Amazon item detail arrived the same day. Prospects from the pipeline
  * carry no onboarding charge until they become a property, as they carry
  * no other cost either.
+ *
+ * Plus the listing shoot. Lightshed Photography shot five homes between
+ * 2026-07-31 and 2026-09-30 at $342 to $415, $2,002 in all, $400 a shoot,
+ * paid on the card. It was projected as a $1,000/mo contractor bench line
+ * from 2026-10-15 to 2026-11-07, when Dotti ruled it belongs to onboarding:
+ * a shoot happens once, when a home comes online, and does not recur with
+ * the month. So it is charged here, with the linens, in the start month.
  */
-export const ONBOARDING_COST = 3000;
+export const ONBOARDING_OUTFIT_COST = 3000;
+export const ONBOARDING_PHOTO_COST = 400;
+export const ONBOARDING_COST = ONBOARDING_OUTFIT_COST + ONBOARDING_PHOTO_COST;
 
 /* --------------------------------------------------------------------- */
 /* Recurring monthly expenses, calibrated to Chase ...5130 actuals       */
@@ -522,10 +531,12 @@ export const CC_REPAIRS_SHARE = 0.12;
  *
  * Consumables and repairs scale with the fleet and the season; insurance,
  * telecom, travel and marketing are the fixed floor. Furnished Finder's
- * annual listing fee rides the marketing bucket in August. The six keys are
- * the six Recurring Monthly rows on /forecast, so a projected month and a
- * measured one describe the same shape and the table has no seam between
- * them.
+ * annual listing fee rides the marketing bucket in August, and so does
+ * Cooper's content work (creativeCost below), the one operating-account
+ * payment in here: Dotti filed it under marketing on 2026-11-07, and the
+ * ACT mapping puts his rows in the same bucket. The six keys are the six
+ * Recurring Monthly rows on /forecast, so a projected month and a measured
+ * one describe the same shape and the table has no seam between them.
  *
  * Elasticity is structural rather than a tuned coefficient: the variable
  * term is fully elastic by construction and the fixed term is not elastic
@@ -546,7 +557,7 @@ export function ccOperatingDetail(
     repairs: variable * CC_REPAIRS_SHARE,
     vehicle_insurance: CC_VEHICLE_INSURANCE_MONTHLY,
     travel_other: CC_TRAVEL_MONTHLY + CC_ADMIN_MONTHLY,
-    marketing: marketingCost(year, month) + listingCost(month),
+    marketing: marketingCost(year, month) + listingCost(month) + creativeCost(year, month, activePropCount),
     telecom: CC_TELECOM_MONTHLY,
   };
 }
@@ -608,8 +619,8 @@ export const CC_OPERATING_BREAKDOWN: ReadonlyArray<{
   {
     key: 'marketing',
     label: 'Marketing & advertising',
-    monthly: 225,
-    info: 'Facebook and Meta, plus Seaside Graphics print and the Eagle Tribune, plus the $199 Furnished Finder listings (one renews in August, a second in September). Ran $680/mo through May 2026, then stepped down to roughly $225 from June ($333, $33, $164, $378 for June to September). The cut is real and measured, not assumed.',
+    monthly: 1525,
+    info: 'Cooper\'s content work, $1,300/mo per 16 homes scaled to the live fleet (paid $300/wk on the Chase payroll rail from 2026-07-29; filed under marketing rather than the contractor bench since 2026-11-07, at half for January to April 2027 like the rest of the bench), plus Facebook and Meta, Seaside Graphics print and the Eagle Tribune, plus the $199 Furnished Finder listings (one renews in August, a second in September). The ads ran $680/mo through May 2026, then stepped down to roughly $225 from June ($333, $33, $164, $378 for June to September). The cut is real and measured, not assumed.',
   },
   {
     key: 'telecom',
@@ -656,39 +667,37 @@ export const CONTRACTOR_FIELD_PROP_COUNT = 16;
 export const CONTRACTOR_FIELD_START_MONTH_2026 = 7;
 
 /**
- * Creative bench (Cooper). Paid $300/wk on the Chase "Basic Online Payroll"
+ * Content work (Cooper). Paid $300/wk on the Chase "Basic Online Payroll"
  * rail from 2026-07-29, with occasional larger weeks, $2,300 through 08/25.
  * $1,300/mo at the 16-home calibration fleet, scaled to the live count:
  * content is per listing, so a bigger fleet is more shoots. It does not
  * ride the seasonality curve, because shoots are scheduled against the
  * content calendar rather than turnover volume.
+ *
+ * It sat on the Contractors line until 2026-11-07, when Dotti moved it to
+ * marketing: the run rate was right, the row was wrong. So it rides the
+ * card's Marketing & advertising bucket (ccOperatingDetail) in a projected
+ * month, and an ACT month puts his operating-account rows in the same
+ * bucket (isCreativeBench in forecast-card-detail.ts). The bench
+ * calibration below ($8,288/mo) was measured with him in it, so the
+ * harness takes him back out when it checks the Contractors line.
  */
-export const CONTRACTOR_CREATIVE_MONTHLY = 1300;
-export const CONTRACTOR_CREATIVE_START_MONTH_2026 = 7;
-
-/**
- * Listing photography (Lightshed Photography), the one contractor paid on
- * the card rather than out of the operating account. Five shoots at $342 to
- * $415 between 2026-07-31 and 2026-09-30, $2,002 over August and September:
- * $1,000/mo at the 16-home calibration fleet, scaled to the live count like
- * the creative line, from August 2026. It was filed as Other and sat in the
- * card's Travel & other row until 2026-10-15. The operating-account bench
- * calibration below ($8,288/mo) was measured without it, so the harness
- * adds the two shoots inside that window back in when it checks the sum.
- */
-export const CONTRACTOR_PHOTO_MONTHLY = 1000;
-export const CONTRACTOR_PHOTO_START_MONTH_2026 = 8;
+export const MARKETING_CREATIVE_MONTHLY = 1300;
+export const MARKETING_CREATIVE_START_MONTH_2026 = 7;
 
 /**
  * The bench runs at half for January to April 2027.
  *
  * Dotti, 2026-10-21: "reduce the contractor expense by 50% from Jan-Apr of
  * 2027". A dated ruling, applied to the whole Contractors line for those
- * four months (creative, listing photography and the misc blend; the field
- * work is the operations manager's salary by then and is not touched). It
- * is scoped to 2027 because that is what was asked; extending it to the
- * off-season of every forward year is a one-line change here, not an
- * inference to make on her behalf.
+ * four months as it stood that day (creative, listing photography and the
+ * misc blend; the field work is the operations manager's salary by then
+ * and is not touched). Cooper's line keeps the factor where it now sits in
+ * marketing, since the ruling was about the people and not the row; the
+ * listing shoot is a one-time onboarding charge and no longer has a month
+ * to halve. It is scoped to 2027 because that is what was asked; extending
+ * it to the off-season of every forward year is a one-line change here,
+ * not an inference to make on her behalf.
  */
 export const CONTRACTOR_OFF_SEASON_FACTOR = 0.5;
 export const CONTRACTOR_OFF_SEASON_YEAR = 2027;
@@ -701,11 +710,16 @@ export function benchSeasonFactor(year: number, month: number): number {
     : 1;
 }
 
-/** The photography part of the bench for a month: the card-paid contractor. */
-export function photoCost(year: number, month: number, activeCount: number): number {
-  const start = year === 2026 ? CONTRACTOR_PHOTO_START_MONTH_2026 : 1;
+/**
+ * Cooper's content work for a month, the marketing bucket's share of the
+ * bench. Scales with the fleet, carries the off-season factor, starts July
+ * 2026. Paid from the operating account, so a card-only ACT month adds it
+ * to the measured card marketing rather than reading it as $0.
+ */
+export function creativeCost(year: number, month: number, activeCount: number): number {
+  const start = year === 2026 ? MARKETING_CREATIVE_START_MONTH_2026 : 1;
   if (month < start) return 0;
-  return CONTRACTOR_PHOTO_MONTHLY * (activeCount / CONTRACTOR_FIELD_PROP_COUNT) * benchSeasonFactor(year, month);
+  return MARKETING_CREATIVE_MONTHLY * (activeCount / CONTRACTOR_FIELD_PROP_COUNT) * benchSeasonFactor(year, month);
 }
 
 /**
@@ -717,7 +731,9 @@ export function photoCost(year: number, month: number, activeCount: number): num
 export const CONTRACTOR_MISC_MONTHLY = 250;
 
 /**
- * Total contractor cost for a month.
+ * Total contractor cost for a month: field labor through October 2026,
+ * then the misc blend alone. Cooper is creativeCost (marketing) and the
+ * listing shoot is ONBOARDING_PHOTO_COST (onboarding) since 2026-11-07.
  *
  * @param month        1-12
  * @param year         forecast year
@@ -732,7 +748,6 @@ export function contractorCost(
 ): number {
   // 2026 is the ramp year: nothing before the bench actually started.
   const fieldStart = year === 2026 ? CONTRACTOR_FIELD_START_MONTH_2026 : 1;
-  const creativeStart = year === 2026 ? CONTRACTOR_CREATIVE_START_MONTH_2026 : 1;
 
   // The field contractor joined payroll on 2026-11-01 (see payrollCost): the
   // per-job line ends in October 2026 and never returns.
@@ -741,14 +756,8 @@ export function contractorCost(
     const scale = activeCount / CONTRACTOR_FIELD_PROP_COUNT;
     field = CONTRACTOR_FIELD_ANNUAL * seasonShare * scale;
   }
-  const creative =
-    month >= creativeStart
-      ? CONTRACTOR_CREATIVE_MONTHLY * (activeCount / CONTRACTOR_FIELD_PROP_COUNT)
-      : 0;
   const misc = CONTRACTOR_MISC_MONTHLY;
-  // photoCost carries the off-season factor itself, so a card-only ACT month
-  // (contractorCost minus photoCost) nets the right operating bench.
-  return (field + creative + misc) * benchSeasonFactor(year, month) + photoCost(year, month, activeCount);
+  return (field + misc) * benchSeasonFactor(year, month);
 }
 
 /* --------------------------------------------------------------------- */
@@ -1022,7 +1031,12 @@ export type MonthRow = {
    * then splits exp_cc_ops by the CC_OPERATING_BREAKDOWN weights).
    */
   cc_detail: CardDetail | null;
-  /** 1099 contractor bench: field labor through 2026-10, creative + misc throughout. */
+  /**
+   * 1099 contractor bench: field labor through 2026-10, then the misc blend
+   * (handymen, one-off trades). Cooper's content work is in the marketing
+   * bucket of cc_detail and the listing shoot is in the onboarding charge,
+   * both since 2026-11-07.
+   */
   exp_contractors: number;
   /**
    * The salaried operations manager from 2026-11: salary, employer taxes,
@@ -1030,9 +1044,13 @@ export type MonthRow = {
    * $0 before the hire. Flat; it does not scale with the fleet.
    */
   exp_payroll: number;
-  /** Onboarding cost for pre-signed contracts — $0 (folded into supplies). */
+  /** ONBOARDING_COST for each pre-signed contract in its start month (2026 only). */
   exp_onboard_presigned: number;
-  /** Onboarding cost for slider-added properties — $0 (folded into supplies). */
+  /**
+   * ONBOARDING_COST for each slider home in its start month: outfitting plus
+   * the listing shoot. A measured month carries the shoot the card paid
+   * (Lightshed); its linens and durables sit in Guest supplies.
+   */
   exp_onboard_new: number;
   /** Sum of all the above. */
   exp_total: number;
@@ -1213,9 +1231,16 @@ export function calcYear(
       const exp_accounting = cardOnly ? accountingCost(year, m) : a.exp_accounting;
       const exp_bank = cardOnly ? BANK_FEES_MONTHLY : a.exp_bank;
       const exp_contractors = cardOnly
-        ? a.exp_contractors + contractorCost(year, m, opCount, SEASON.CA[m - 1]) - photoCost(year, m, opCount)
+        ? a.exp_contractors + contractorCost(year, m, opCount, SEASON.CA[m - 1])
         : a.exp_contractors;
       const exp_payroll = cardOnly ? payrollCost(year, m) : a.exp_payroll;
+      // Cooper is paid from the operating account and filed under marketing,
+      // so a card-only month adds his projected term to the measured card
+      // marketing, in the bucket and in the total it sums to.
+      const creative = cardOnly ? creativeCost(year, m, opCount) : 0;
+      const exp_cc_ops = a.exp_cc_ops + creative;
+      const cc_detail: CardDetail | null =
+        a.cc_detail && creative ? { ...a.cc_detail, marketing: a.cc_detail.marketing + creative } : (a.cc_detail ?? null);
 
       const exp_total =
         exp_office +
@@ -1224,7 +1249,7 @@ export function calcYear(
         exp_insurance +
         exp_accounting +
         exp_bank +
-        a.exp_cc_ops +
+        exp_cc_ops +
         exp_contractors +
         exp_payroll +
         a.exp_onboard_presigned +
@@ -1243,8 +1268,8 @@ export function calcYear(
         exp_insurance,
         exp_accounting,
         exp_bank,
-        exp_cc_ops: a.exp_cc_ops,
-        cc_detail: a.cc_detail ?? null,
+        exp_cc_ops,
+        cc_detail,
         exp_contractors,
         exp_payroll,
         exp_onboard_presigned: a.exp_onboard_presigned,

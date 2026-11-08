@@ -20,12 +20,19 @@
  * that belongs on the Insurance line beside Phillips, not in the monthly
  * run rate, Republic Services (the office dumpster, filed as Rent &
  * office) rides the Office line beside the rent, and a contractor paid on
- * the card (Lightshed Photography, the listing shoots) rides the
- * Contractors line with the rest of the bench, where the projection carries
- * it. The projection carries the dumpster through November 2026 (service
- * ends 2026-11-30); the route is not dated, so the final invoice and any
- * later Republic charge still land on the Office line and an ACT month
- * reads what the card paid.
+ * the card rides the Contractors line, except Lightshed Photography: a
+ * listing shoot is part of bringing a home online, so since 2026-11-07 it
+ * rides the Onboarding line, where the projection charges it
+ * (ONBOARDING_PHOTO_COST) in a new home's start month. The projection
+ * carries the dumpster through November 2026 (service ends 2026-11-30);
+ * the route is not dated, so the final invoice and any later Republic
+ * charge still land on the Office line and an ACT month reads what the
+ * card paid.
+ *
+ * One operating-account payee crosses the other way: Cooper's content work
+ * (the Chase "Basic Online Payroll" rail) is categorised Contractors and
+ * filed here under marketing (isCreativeBench), where the projection
+ * carries it since 2026-11-07.
  *
  * Deliberately dependency-free so `scripts/forecast_rerack_check.mjs` can
  * import it on its own.
@@ -106,10 +113,29 @@ export function isTelecom(descUpper: string): boolean {
 }
 
 /**
- * Where a card-shaped overhead row lands: its own row (software, a one-time
- * insurance premium) or one of the six Recurring buckets.
+ * Cooper, the content contractor. The operating account pays him on the
+ * Chase "Basic Online Payroll" rail ("Basic Online Payroll Payment ... to
+ * #######4113"), which the categoriser files as Contractors; the forecast
+ * files him under marketing (Dotti, 2026-11-07) and the projection carries
+ * him there (creativeCost in forecast-model.ts).
  */
-export type CardRoute = 'software' | 'insurance' | 'office' | 'contractors' | CardDetailKey;
+export function isCreativeBench(descUpper: string): boolean {
+  return descUpper.includes('COOPER') || descUpper.includes('BASIC ONLINE PAYROLL');
+}
+
+/**
+ * Lightshed Photography, the listing shoots. Part of bringing a home online,
+ * so it rides the Onboarding line (ONBOARDING_PHOTO_COST), not the bench.
+ */
+export function isListingShoot(descUpper: string): boolean {
+  return descUpper.includes('LIGHTSHED');
+}
+
+/**
+ * Where a card-shaped overhead row lands: its own row (software, a one-time
+ * insurance premium, onboarding) or one of the six Recurring buckets.
+ */
+export type CardRoute = 'software' | 'insurance' | 'office' | 'contractors' | 'onboarding' | CardDetailKey;
 
 export function routeCardRow(category: string, descUpper: string): CardRoute {
   switch (category) {
@@ -118,11 +144,14 @@ export function routeCardRow(category: string, descUpper: string): CardRoute {
     case 'Insurance':
       return isVehicleInsurance(descUpper) ? 'vehicle_insurance' : 'insurance';
     case 'Contractors':
-      // Lightshed Photography: listing shoots paid on the card, the one
-      // contractor that does not come out of the operating account. The
-      // bench line projects it (CONTRACTOR_PHOTO_MONTHLY), so an ACT month
-      // carries it there too. Until 2026-10-15 it was filed as Other and
-      // read as Travel & other.
+      // Lightshed Photography: listing shoots paid on the card. A shoot is
+      // part of onboarding a home (ruling of 2026-11-07), so an ACT month
+      // carries it on the Onboarding line where the projection charges it.
+      // It was a $1,000/mo bench line from 2026-10-15, and Travel & other
+      // before that. Cooper's rows come from the operating account, never
+      // the card, but the rule holds wherever his payment shows up.
+      if (isListingShoot(descUpper)) return 'onboarding';
+      if (isCreativeBench(descUpper)) return 'marketing';
       return 'contractors';
     case 'Rent & office':
       // Republic Services, the office dumpster, bills the card. The Office
