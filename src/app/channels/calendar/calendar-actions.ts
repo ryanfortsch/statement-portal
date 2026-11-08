@@ -288,7 +288,9 @@ export async function bulkSetRateDaysForm(formData: FormData) {
       : await saveRateDaysAction(input);
   const q = new URLSearchParams();
   if (month) q.set('month', month);
-  if (result.ok) q.set('saved', result.message);
-  else q.set('error', result.error);
-  redirect(`/channels/${propertyId}/calendar?${q.toString()}#bulk`);
+  if (result.ok) q.set('range_saved', result.message);
+  else q.set('range_error', result.error);
+  // Set a range lives under the hub calendar since the per-home month grid
+  // folded into it (2026-11-08).
+  redirect(`/channels/${propertyId}?${q.toString()}#bulk`);
 }

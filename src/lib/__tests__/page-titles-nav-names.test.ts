@@ -64,7 +64,6 @@ const PAGES: Array<[string, string]> = [
   ['src/app/channels/bookings/new/page.tsx', "title={isBlock ? 'New block' : 'New booking'}"],
   ['src/app/channels/bookings/[id]/page.tsx', 'title={title}'],
   ['src/app/channels/[propertyId]/page.tsx', 'title={property.name}'],
-  ['src/app/channels/[propertyId]/calendar/page.tsx', 'title={property.name}'],
   ['src/app/marketing/page.tsx', 'title="Marketing"'],
   ['src/app/marketing/airdna/page.tsx', 'title="AirDNA market data"'],
   ['src/app/competitors/page.tsx', 'title="Competitors"'],
