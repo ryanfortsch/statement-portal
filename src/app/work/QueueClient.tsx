@@ -38,13 +38,14 @@ import { useOwnerEmailDraft } from '@/lib/use-owner-email-draft';
 import { CopiedEmailNotice } from '@/components/CopiedEmailNotice';
 import { operatingDate } from '@/lib/operating-date';
 import { houseDay } from '@/lib/house-date';
-import { compareWork, workAssignedTo, workDate, workMyWeek, workOverdue, workSignals, workThisWeek, workUnassigned, workNeedsAction, workWaiting, workScheduled, workBacklog } from '@/lib/work-board-view';
+import { compareWork, workAssignedTo, workDate, workMyWeek, workOverdue, workSignals, workThisWeek, workUnassigned, workNeedsAction, workWaiting, workScheduled, workBacklog, RETIRED_WORK_FILTERS } from '@/lib/work-board-view';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
-import { groupSlipsByLane, LANE_LABELS, slipDetailLine, slipDisplayTitle, type WorkLane } from '@/lib/work-slip-lanes';
+import { groupSlipsByLane, LANE_LABELS, LANE_ORDER, slipDetailLine, slipDisplayTitle, slipLane, type WorkLane } from '@/lib/work-slip-lanes';
 import type { WorkBriefHeadline } from '@/lib/work-briefs';
 import { dismissStaleSlips, loadStaleSlips, organizePendingCount, organizeWorkNow, type StaleHomeView } from './organize-actions';
 import { GLOUCESTER_TZ } from '@/lib/stable-time';
 import { EmptyState } from '@/components/EmptyState';
+import { usePassWatch } from '@/lib/use-pass-watch';
 
 type PropertyForPicker = {
   id: string;
@@ -97,13 +98,29 @@ const SLIP_ONLY_FILTERS: FilterId[] = ['no-coordinator', 'owner-action', 'snooze
  *  the pill never renders and the filter reads as All. */
 const TASK_ONLY_FILTERS: FilterId[] = ['blocked'];
 
-/** The filters behind the "More" select, in its order. */
-const MORE_FILTERS: FilterId[] = ['mine', 'my-week', 'week', 'high', 'overdue', 'due-today', 'blocked', 'unclaimed', 'no-coordinator', 'owner-action', 'snoozed'];
+/** The filters behind the "More" select, in its order. Four, and each tab
+ *  shows only its own: Blocked is a to-do status, the other three are slips'. */
+const MORE_FILTERS: FilterId[] = ['owner-action', 'snoozed', 'no-coordinator', 'blocked'];
+/** Views Home links to by name (On your plate, Unassigned work, Open work ·
+ *  this week). No control offers them; a pill lights while the URL names
+ *  one, so the count Home printed is the count the board shows. */
+const LINKED_ONLY_FILTERS: { id: FilterId; label: string }[] = [
+  { id: 'mine', label: 'My items' },
+  { id: 'week', label: 'This week' },
+  { id: 'unclaimed', label: 'Unassigned' },
+];
 
-/** No ?filter= is the role's default view; an unknown one reads as All. */
+/** No ?filter= is the role's default view; a retired one maps to the view
+ *  that covers it (RETIRED_WORK_FILTERS); an unknown one reads as All. */
 function parseFilter(value: string | null, fallback: FilterId = 'all'): FilterId {
   if (!value) return fallback;
+  if (Object.hasOwn(RETIRED_WORK_FILTERS, value)) return RETIRED_WORK_FILTERS[value];
   return (FILTER_IDS as string[]).includes(value) ? (value as FilterId) : 'all';
+}
+/** ?lane= narrows Property Work to one lane (the maintenance planner links
+ *  its backlog to the Handyman lane). Anything else reads as no lane. */
+function parseLane(value: string | null): WorkLane | null {
+  return (LANE_ORDER as string[]).includes(value ?? '') ? (value as WorkLane) : null;
 }
 function parseTab(value: string | null): TabId {
   return value === 'tasks' ? 'tasks' : 'slips';
@@ -135,6 +152,7 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
   const initialTab = parseTab(searchParams.get('tab'));
   const [tab, setTabState] = useState<TabId>(initialTab);
   const [filter, setFilterState] = useState<FilterId>(initialFilter);
+  const [lane, setLaneState] = useState<WorkLane | null>(() => parseLane(searchParams.get('lane')));
   // Which property groups are expanded, mirrored to ?open= so the state
   // survives the trip into a slip and back, a browser refresh, and any
   // board remount — mid-triage you land back on the property you had open.
@@ -154,6 +172,8 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
     setFilterState((curr) => (curr === nextFilter ? curr : nextFilter));
     const nextTab = parseTab(live.get('tab'));
     setTabState((curr) => (curr === nextTab ? curr : nextTab));
+    const nextLane = parseLane(live.get('lane'));
+    setLaneState((curr) => (curr === nextLane ? curr : nextLane));
     const nextOpen = parseOpen(live.get('open'));
     setOpenProps((curr) => (sameSet(curr, nextOpen) ? curr : nextOpen));
   }, [searchParams, defaultFilter]);
@@ -196,6 +216,13 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
   function setTab(next: TabId) {
     setTabState(next);
     writeUrl(filter, next);
+  }
+  function clearLane() {
+    setLaneState(null);
+    const params = new URLSearchParams(window.location.search);
+    params.delete('lane');
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   }
   // Mirrors the expanded set to ?open=, same idiom as writeUrl above.
   // Deliberately router.replace and NOT window.history.replaceState: a raw
@@ -333,9 +360,10 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
       if (activeFilter === 'unclaimed' && !workUnassigned(w)) return false;
       if (activeFilter === 'no-coordinator' && w.coordinator_email) return false;
       if (activeFilter === 'owner-action' && !w.owner_action_required) return false;
+      if (lane && slipLane(w) !== lane) return false;
       return true;
     });
-  }, [workSlips, snoozedSlips, activeFilter, myEmail, todayIso]);
+  }, [workSlips, snoozedSlips, activeFilter, myEmail, todayIso, lane]);
 
   const filteredTasks = useMemo(() => {
     return tasks.filter((t) => {
@@ -512,24 +540,21 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
           <Pill active={activeFilter === 'scheduled'} onClick={() => setFilter('scheduled')} label="Scheduled" count={counts.scheduled} />
           <Pill active={activeFilter === 'waiting'} onClick={() => setFilter('waiting')} label="Waiting" count={counts.waiting} />
           <Pill active={activeFilter === 'backlog'} onClick={() => setFilter('backlog')} label="Backlog" count={counts.backlog} />
+          {(counts.overdue > 0 || activeFilter === 'overdue') && <Pill active={activeFilter === 'overdue'} onClick={() => setFilter('overdue')} label="Overdue" count={counts.overdue} accent="var(--signal)" />}
           <Pill active={activeFilter === 'all'} onClick={() => setFilter('all')} label="All" count={counts.all} />
+          {onSlips && lane && <Pill active onClick={clearLane} label={`${LANE_LABELS[lane]} ×`} count={filteredSlips.length} />}
+          {LINKED_ONLY_FILTERS.filter((f) => f.id === activeFilter).map((f) => (
+            <Pill key={f.id} active onClick={() => setFilter(f.id)} label={f.label} count={f.id === 'mine' ? counts.mine : f.id === 'week' ? counts.week : counts.unclaimed} />
+          ))}
           <select aria-label="More work filters" value={MORE_FILTERS.includes(activeFilter) ? activeFilter : ''}
             onChange={e => setFilter((e.target.value || 'all') as FilterId)} style={{ ...selectStyle(), width: MORE_FILTERS.includes(activeFilter) ? 'auto' : 96, padding: '8px', fontSize: 12, minHeight: 44 }}>
             <option value="">{MORE_FILTERS.includes(activeFilter) ? 'All' : 'More'}</option>
-            <option value="mine">My items ({counts.mine})</option>
-            <option value="my-week">My week ({counts.myWeek})</option>
-            <option value="week">This week ({counts.week})</option>
-            <option value="overdue">Overdue ({counts.overdue})</option>
-            <option value="due-today">Due today ({counts.dueToday})</option>
-            {!onSlips && <option value="blocked">Blocked ({counts.blocked})</option>}
-            <option value="unclaimed">Unassigned ({counts.unclaimed})</option>
-            {onSlips && <option value="no-coordinator">Needs coordinator ({workSlips.filter(w => !w.coordinator_email).length})</option>}
-            <option value="high">High priority ({counts.high})</option>
             {onSlips && <option value="owner-action">Owner decisions ({counts.ownerAction})</option>}
             {onSlips && <option value="snoozed">Snoozed ({counts.snoozed})</option>}
+            {onSlips && <option value="no-coordinator">Needs coordinator ({workSlips.filter(w => !w.coordinator_email).length})</option>}
+            {!onSlips && <option value="blocked">Blocked ({counts.blocked})</option>}
           </select>
         </div>
-        {(activeFilter === 'next' || activeFilter === 'my-next') && <p style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 12 }}>Due this week, overdue, high priority, and work in progress. Waiting items without a follow-up date also appear here.</p>}
       </section>
 
       {onSlips && (
@@ -1888,12 +1913,10 @@ function selectStyle(): React.CSSProperties {
   };
 }
 
-/** How often the Organize button asks how many slips the background pass
- *  still has to file, and how long it keeps asking. The pass itself runs
- *  under a 230-second budget (lib/organize-work-slips.ts), then rewrites
- *  the briefs. */
-const ORGANIZE_POLL_MS = 10_000;
-const ORGANIZE_WATCH_MS = 5 * 60_000;
+// The Organize button asks every PASS_POLL_MS how many slips the background
+// pass still has to file, for up to PASS_WATCH_MS (lib/use-pass-watch.ts).
+// The pass itself runs under a 230-second budget (lib/organize-work-slips.ts),
+// then rewrites the briefs.
 
 /** Run the organize pass now instead of waiting for the night. The action
  *  answers at once with how many slips the pass has not seen and the model
@@ -1906,37 +1929,29 @@ function OrganizeButton({ onReviewStale }: { onReviewStale?: () => void }) {
   const [pending, startTransition] = useTransition();
   const [note, setNote] = useState('');
   const [error, setError] = useState('');
-  const [watching, setWatching] = useState(false);
+  const { watching, watch: watchPass } = usePassWatch();
   const lock = useRef(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useUnsavedWorkGuard(pending);
-  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
   const plural = (n: number) => `${n} work item${n === 1 ? '' : 's'}`;
 
   /** The pass runs after the action returns. Rather than "check back", the
-   *  button watches the pending count fall and, when it reaches zero (or
-   *  the pass's budget is spent), says what was filed and refreshes the
-   *  board so the lanes show it. */
-  function watch(started: number, startedAt: number) {
-    timer.current = setTimeout(async () => {
-      let left = started;
-      try {
+   *  button watches the pending count fall (usePassWatch, shared with the
+   *  maintenance planner) and, when it reaches zero or the pass's budget is
+   *  spent, says what was filed and refreshes the board so the lanes show it. */
+  function watch(started: number) {
+    watchPass({
+      started,
+      poll: async () => {
         const res = await organizePendingCount();
-        if (res.ok) left = res.pending;
-      } catch {
-        // A failed poll is not a failed pass; ask again next tick.
-      }
-      const filed = Math.max(0, started - left);
-      if (left === 0 || Date.now() - startedAt > ORGANIZE_WATCH_MS) {
-        setWatching(false);
+        return res.ok ? res : null;
+      },
+      onProgress: (filed) => { if (filed > 0) setNote(`Filing… ${filed} of ${started} in lanes.`); },
+      onDone: (filed, left) => {
         setNote(left === 0 ? `Filed ${plural(filed)} into lanes.` : `Filed ${filed} of ${plural(started)} into lanes. The nightly pass takes the rest.`);
         softRefresh();
-        return;
-      }
-      if (filed > 0) setNote(`Filing… ${filed} of ${started} in lanes.`);
-      watch(started, startedAt);
-    }, ORGANIZE_POLL_MS);
+      },
+    });
   }
 
   function run() {
@@ -1955,8 +1970,7 @@ function OrganizeButton({ onReviewStale }: { onReviewStale?: () => void }) {
           setNote('Every open work item is already in a lane.');
         } else {
           setNote(`Filing ${plural(res.pending)} into lanes…`);
-          setWatching(true);
-          watch(res.pending, Date.now());
+          watch(res.pending);
         }
         softRefresh();
       } catch {

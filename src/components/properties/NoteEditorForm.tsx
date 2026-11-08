@@ -3,7 +3,7 @@ import { RetainedPropertyForm } from './RetainedPropertyForm';
 /**
  * Shared form for creating + editing a property note. Server content with a
  * recoverable client form wrapper. The action prop is wired by the caller
- * (createPropertyNote for /notes/new, updatePropertyNote.bind(null, id) for
+ * (createPropertyNote inline on the property page, updatePropertyNote.bind(null, id) for
  * the edit page).
  *
  * A note is a FACT (what we know: What we know on Facts, and the Guest KB
@@ -16,15 +16,20 @@ export function NoteEditorForm({
   propertyId,
   initial,
   submitLabel,
+  inline = false,
 }: {
   action: (formData: FormData) => Promise<void> | void;
   propertyId: string;
   initial?: { title?: string | null; body?: string | null; tag?: string | null; guest_facing?: boolean | null; kind?: 'fact' | 'issue' | null };
   submitLabel: string;
+  /** On the property page itself (InlineNoteDisclosure): no Cancel link,
+   *  the disclosure's Close is the way out. */
+  inline?: boolean;
 }) {
   const kind = initial?.kind ?? 'fact';
+  const cancelHref = inline ? undefined : kind === 'issue' ? `/properties/${propertyId}?tab=now` : `/properties/${propertyId}?tab=facts`;
   return (
-    <RetainedPropertyForm action={action} submitLabel={submitLabel} buttonStyle={primaryButtonStyle} cancelHref={kind === 'issue' ? `/properties/${propertyId}?tab=now` : `/properties/${propertyId}?tab=facts`} style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
+    <RetainedPropertyForm action={action} submitLabel={submitLabel} buttonStyle={primaryButtonStyle} cancelHref={cancelHref} style={{ display: 'flex', flexDirection: 'column', gap: inline ? 16 : 22 }}>
       <fieldset style={{ border: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
         <legend
           className="eyebrow"
@@ -56,7 +61,7 @@ export function NoteEditorForm({
       >
         <textarea
           name="body"
-          rows={6}
+          rows={inline ? 3 : 6}
           maxLength={4000}
           defaultValue={initial?.body ?? ''}
           placeholder={'Wiggle the handle a few times to seat it. Don\'t force it.'}

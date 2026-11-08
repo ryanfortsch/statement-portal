@@ -83,6 +83,9 @@ import { getAutomationsPanelView } from '@/lib/automations';
 import { isHelmRun, isCapeAnnOps } from '@/lib/property-scope';
 import { shiftIsoDay, todayInEastern } from '@/lib/sca-quotes-types';
 import type { OwnerCard } from '@/app/properties/actions';
+import { createPropertyNote } from '@/app/properties/actions';
+import { NoteEditorForm } from '@/components/properties/NoteEditorForm';
+import { InlineNoteDisclosure } from '@/components/properties/InlineNoteDisclosure';
 import { isOwnerSession } from '@/lib/helm-access-server';
 import { sessionMailbox } from '@/lib/gmail-draft';
 
@@ -895,14 +898,19 @@ export default async function PropertyDetailPage({
                   ? ` · showing ${propertyFlags.flags.length}`
                   : ''}
               </span>
-              <Link
-                href={`/properties/${p.id}/notes/new?kind=issue`}
+              {/* A plain anchor, not Link: the hash opens the inline form
+                  (InlineNoteDisclosure listens for hashchange). */}
+              <a
+                href="#new-issue"
                 style={{ fontSize: 11, color: 'var(--tide-deep)', textDecoration: 'none', letterSpacing: '.04em' }}
               >
                 + Flag an issue
-              </Link>
+              </a>
             </span>
           </div>
+          <InlineNoteDisclosure id="new-issue" key={`issue-${propertyFlags.total ?? 'x'}-${propertyFlags.flags.length}`}>
+            <NoteEditorForm action={createPropertyNote.bind(null, p.id)} propertyId={p.id} initial={{ kind: 'issue' }} submitLabel="Flag the issue" inline />
+          </InlineNoteDisclosure>
           {propertyFlags.total === null && (
             <p role="status" style={{ margin: '0 0 14px', fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.5 }}>
               We couldn&rsquo;t load all flags for this house.{' '}
@@ -1227,20 +1235,23 @@ export default async function PropertyDetailPage({
           return `${total} ${total === 1 ? 'fact' : 'facts'}${kb ? ` · ${kb} in the Guest KB` : ''}`;
         })()}
         headerAction={
-          <Link href={`/properties/${p.id}/notes/new?kind=fact`} style={primaryActionStyle}>
+          <a href="#new-fact" style={primaryActionStyle}>
             + Add a fact
-          </Link>
+          </a>
         }
       >
+        <InlineNoteDisclosure id="new-fact" key={`fact-${knownFacts.length}`}>
+          <NoteEditorForm action={createPropertyNote.bind(null, p.id)} propertyId={p.id} initial={{ kind: 'fact' }} submitLabel="Add the fact" inline />
+        </InlineNoteDisclosure>
         {knownFacts.length === 0 ? (
           <div style={{ padding: '14px 0', color: 'var(--ink-3)', fontSize: 13 }}>
             Nothing written down for {p.name} yet: a thermostat quirk, a sticky door, a neighbor, a vendor.{' '}
-            <Link
-              href={`/properties/${p.id}/notes/new?kind=fact`}
+            <a
+              href="#new-fact"
               style={{ color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}
             >
               Add the first fact
-            </Link>
+            </a>
           </div>
         ) : (
           <div style={{ borderTop: '1px solid var(--ink)' }}>
