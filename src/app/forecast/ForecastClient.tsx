@@ -1104,7 +1104,7 @@ const sections2027: AssumptionSection[] = [
       { label: 'Workers comp', value: 'AmTrust, $1,966 a policy year: $188 on the 1st of January to September, then the $274 down payment at the November renewal, assumed at the same price. The insurer re-rates it on actual payroll at the year-end audit, and adds the pay of any 1099 subcontractor without a workers comp certificate on file.' },
       { label: 'Onboarding', value: '$3,400 per slider home in its start month (linens, the Amazon durables and the $400 listing shoot). Homes rolled forward from the 2026 slider were outfitted and shot in 2026 and carry none.' },
       { label: 'Bookkeeper', value: '$0. The engagement ended May 2026.' },
-      { label: 'Accounting', value: '$0. MS Consultants was a one-off.' },
+      { label: 'Accounting', value: 'CPA year-end fee, $4,450 each April from 2027 (Lee & Crowley; placeholder until the invoice).' },
     ],
   },
   {
@@ -1674,7 +1674,7 @@ function ForecastTable({
     { label: 'Onboarding', info: 'Bringing a new home online, charged once in the month a slider home starts: $3,400. The linen order is $2,156 (Fix Linens billed $23,719 across the eleven 2026 onboardings), the Amazon durables bought for a new home beyond a settled home\'s replacement trickle are about $850 (towels, bedclothes, rugs, a Schlage lock, soap dispensers, a hair dryer, a coffee maker, shelving, measured item by item on the Amazon Business export of 2026-10-15), and the listing shoot is $400 (Lightshed Photography, five shoots at $342 to $415 in 2026, on the card; a bench line until 2026-11-07). The supplies left over once the per-home run rate is taken out agree with the outfitting figure ($3,020 each). The card shows what Rising Tide paid; whether an owner should fund outfitting instead is an open decision. Measured months carry the linens and durables inside Guest supplies, where the card put them, and the shoots here. Outfitting was $0 until 2026-10-15, which is why the summer read as a supplies run rate.', values: monthly.map(onboarding), fy: sumOf(monthly, onboarding) },
     { label: 'Bookkeeper', info: 'MH Partners outside bookkeeper. ~$1,000/mo Jan-Apr 2026, $1,800 final wrap-up payment in May, then $0 once the engagement ends.', values: monthly.map((r) => r.exp_debt), fy: sumOf(monthly, (r) => r.exp_debt) },
     { label: 'Insurance', info: 'Premiums on their own schedule, not monthly. Phillips commercial liability, $5,263.92 by ACH on 2026-03-02, assumed to renew each March. Workers comp for the operations manager (AmTrust, $1,966 a policy year from 2026-11-01): $274 down each November and $188 on the 1st of January to September. Arbella, $3,188.57 on the card on 2026-04-15, is treated as a one-time hit and is not projected forward. GEICO auto is monthly and lives on the Vehicle & other insurance row above.', values: monthly.map((r) => r.exp_insurance), fy: sumOf(monthly, (r) => r.exp_insurance) },
-    { label: 'Accounting', info: 'MS Consultants $4,442.96 paid 4/15/2026 was a one-time engagement, not recurring. $0 going forward.', values: monthly.map((r) => r.exp_accounting), fy: sumOf(monthly, (r) => r.exp_accounting) },
+    { label: 'Accounting', info: 'MS Consultants $4,442.96 paid 4/15/2026 was a one-time engagement. From 2027, the CPA year-end fee (Lee & Crowley) each April, $4,450 until the invoice says otherwise.', values: monthly.map((r) => r.exp_accounting), fy: sumOf(monthly, (r) => r.exp_accounting) },
   ];
 
   // One disclosure under the table instead of a hover popover per row, so
