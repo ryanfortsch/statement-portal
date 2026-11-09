@@ -65,7 +65,10 @@ export function annualBasisFor(input: {
   paceAnnual: number;
   ownAnnual: number;
   sharesInventory: boolean;
+  /** Four or more closed months: the record is the year, whatever the pace says. */
+  settled?: boolean;
 }): AnnualBasis {
+  if (input.settled && input.floorAnnual > 0) return 'statements';
   if (input.floorAnnual > input.paceAnnual) return 'statements';
   if (input.ownAnnual > 0) return 'pacing';
   return input.sharesInventory ? 'unit' : 'portfolio';

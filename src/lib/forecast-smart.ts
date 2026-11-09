@@ -64,8 +64,11 @@
  * still ramping (two or three closed full months), the larger of its latest
  * closed full month annualized on its share and its whole closed record;
  * from four closed full months, the whole record alone, so one strong month
- * cannot set the year (2026-10-15). A floor only raises; with no statements
- * the model runs exactly as before.
+ * cannot set the year (2026-10-15). While a home is ramping the floor only
+ * raises; from four closed full months the record IS the annual gross and the
+ * forward pace no longer raises it (2026-11-09: two winter months of bookings
+ * were setting settled homes' years 20% to 60% above their own records). With
+ * no statements the model runs exactly as before.
  *
  * OFF-SEASON. Outside June to September Part B's curve share is scaled to the
  * home's own shoulder month (forecast-off-season.ts), except January to March,
@@ -81,7 +84,7 @@ import {
   daysInMonth,
 } from './forecast-occupancy';
 import { isOperating, operatingFactor } from './forecast-operating-windows';
-import { statementFloor } from './forecast-statement-floor';
+import { annualGrossFor, isSettled, statementFloor } from './forecast-statement-floor';
 import {
   annualBasisFor,
   paceAnnualFor,
@@ -661,19 +664,22 @@ export function computeSmartForecast(
     const sharesInventory = p.sharesInventoryWith != null;
     const paceAnnual = paceAnnualFor(ownAnnual, fallbackAnnual, sharesInventory);
     // Hold the forward pace to what the closed statements already proved.
-    // The floor only raises: a property pacing toward a bigger year keeps it.
+    // While ramping the floor only raises; once settled the record is the year.
     const floor = statementFloor({
       grossByMonth: statementGrossByProp?.get(p.id) ?? new Map<string, number>(),
       revenueShare,
       activatedAt: p.activatedAt,
       operatingFactor: (ym) => operatingFactor(p.id, ym),
     });
-    const annualGross = Math.max(paceAnnual, floor.annual);
+    // A settled home (four or more closed months) is projected on its record
+    // alone; forward pace cannot raise it (forecast-statement-floor.ts).
+    const annualGross = annualGrossFor(paceAnnual, floor);
     const annualBasis: AnnualBasis = annualBasisFor({
       floorAnnual: floor.annual,
       paceAnnual,
       ownAnnual,
       sharesInventory,
+      settled: isSettled(floor),
     });
     const feeFraction = (p.mgmtFeePct ?? 0) / 100;
 
