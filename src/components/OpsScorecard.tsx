@@ -30,7 +30,7 @@ export async function OpsScorecard() {
   if (!tiles) return null;
 
   return (
-    <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 40 }}>
+    <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingTop: 20, paddingBottom: 40 }}>
       <div className="eyebrow" style={{ marginBottom: 12 }}>Operations goals · May 2027</div>
       <div
         className="rt-helm-stat-strip rt-ops-scorecard"
