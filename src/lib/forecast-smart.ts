@@ -66,6 +66,11 @@
  * from four closed full months, the whole record alone, so one strong month
  * cannot set the year (2026-10-15). A floor only raises; with no statements
  * the model runs exactly as before.
+ *
+ * OFF-SEASON. Outside June to September Part B's curve share is scaled to the
+ * home's own shoulder month (forecast-off-season.ts), except January to March,
+ * which carry Rising Tide's measured winter instead: about a quarter of the
+ * curve's, from the six homes run all of last winter (2026-11-09).
  */
 
 import { supabaseAdmin as supabase } from './supabase-admin';
@@ -86,8 +91,10 @@ import {
 
 export type { AnnualBasis } from './forecast-shared-inventory';
 import {
-  isOffSeasonMonth,
+  deepWinterFactor,
+  isDeepWinterMonth,
   offSeasonFactor,
+  partBSeasonFactor,
   previousMonth,
   realizedForShoulder,
   shoulderMonthFor,
@@ -524,6 +531,9 @@ export function computeSmartForecast(
 
   // Part B seasonality: share of annual revenue per month-of-year.
   const revenueShare = GLOUCESTER_REVENUE_SEASONALITY;
+  // January to March carry Rising Tide's own measured winter, about a
+  // quarter of the curve's (forecast-off-season.ts, 2026-11-09).
+  const winterFactor = deepWinterFactor(revenueShare);
 
   // Per-month inputs: portfolio-level pacing computation.
   const monthInputs: SmartMonthInputs[] = forwardMonthList.map((ym) => {
@@ -683,7 +693,13 @@ export function computeSmartForecast(
       const booked = cell?.revenue ?? 0;
       const realized = realizedForShoulder({ booked, paceA: partA.get(shoulder.month) ?? null, remaining: shoulderRemaining });
       const [, sm] = shoulder.month.split('-').map((s) => parseInt(s, 10));
-      const expected = annualGross * (revenueShare[sm - 1] ?? 0) * operatingFactor(p.id, shoulder.month);
+      // A January-to-March shoulder is read against Rising Tide's own winter,
+      // not the market's, or every home would read as weak in February.
+      const expected =
+        annualGross *
+        (revenueShare[sm - 1] ?? 0) *
+        operatingFactor(p.id, shoulder.month) *
+        (isDeepWinterMonth(shoulder.month) ? winterFactor : 1);
       offFactor = offSeasonFactor(realized, expected);
       offMonth = shoulder.month;
     }
@@ -711,8 +727,9 @@ export function computeSmartForecast(
       {
         const a = partA.get(ym) ?? null;
         // Outside June to September the curve's share is scaled to what this
-        // home's own shoulder month showed (offFactor, 1 when unknown).
-        const partB = annualGross * (revenueShare[monthIdx] ?? 0) * (isOffSeasonMonth(ym) ? offFactor : 1);
+        // home's own shoulder month showed (offFactor, 1 when unknown), except
+        // January to March, which carry the measured winter factor.
+        const partB = annualGross * (revenueShare[monthIdx] ?? 0) * partBSeasonFactor(ym, offFactor, winterFactor);
         // 50/50 when the month has bookings; 100% Part B when it doesn't.
         projectedGross = a != null ? 0.5 * a + 0.5 * partB : partB;
 
