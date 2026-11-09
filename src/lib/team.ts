@@ -35,10 +35,13 @@ export type TeamAccess = 'owner' | 'staff';
  * `disputes`: answers card disputes; the daily dispute run files each one as
  * their to-do, due the day Stripe stops taking evidence. Allie (2026-11-06;
  * she answered every dispute before).
+ * `weekly_brief`: receives the Tuesday 6 AM brief, the printable PDF of the
+ * operations goals, the week's check-ins and each home's open work
+ * (/api/cron/weekly-brief). Dotti (2026-11-09).
  * Notices resolve through `src/lib/team-recipients.ts`; nothing in the app
  * should name a teammate's inbox directly.
  */
-export type TeamDuty = 'field_pay' | 'creative' | 'countersign' | 'staff_copy' | 'dispatch' | 'disputes';
+export type TeamDuty = 'field_pay' | 'creative' | 'countersign' | 'staff_copy' | 'dispatch' | 'disputes' | 'weekly_brief';
 
 export type TeamMember = {
   email: string;        // canonical id
@@ -105,7 +108,7 @@ export const TEAM_MEMBERS: TeamMember[] = [
     role: 'principal',
     access: 'owner',
     active: true,
-    duties: ['creative', 'dispatch'],
+    duties: ['creative', 'dispatch', 'weekly_brief'],
     walks: false,
   },
   // Operations Manager from 2026-11-01. Staff access: operations, not

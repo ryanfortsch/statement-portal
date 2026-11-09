@@ -87,6 +87,7 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     '/api/draft-email': ['./node_modules/@sparticuz/chromium/**/*'],
     '/api/statement-pdf': ['./node_modules/@sparticuz/chromium/**/*'],
+    '/api/cron/weekly-brief': ['./node_modules/@sparticuz/chromium/**/*'],
   },
 
   async redirects() {
