@@ -1,16 +1,18 @@
 /**
- * The operations manager's scorecard: four numbers Dotti picked for
- * Delaney on 2026-11-08, each measured from what Helm already stores. Pure,
- * so `npm test` pins every rule; the reads are in ops-scorecard-server.ts
- * and the band is components/OpsScorecard.tsx.
+ * The operations manager's scorecard: three numbers Dotti picked for
+ * Delaney (2026-11-08, cut to three on 11-09), each measured from what Helm
+ * already stores. Pure, so `npm test` pins every rule; the reads are in
+ * ops-scorecard-server.ts and the band is components/OpsScorecard.tsx.
  *
- *   Guest rating            the 90-day average against the letter's 4.98
- *   Work board              under 120 open slips, none older than 60 days,
- *                           each closed with a clear note
- *   Perfection inspections  walks completed this week (Monday to today),
- *                           Helm's and the Field crew's, and what is planned
- *   Missing information     blank facts on the homes we manage, from the
- *                           property page's own Facts rows
+ *   Guest rating         the 90-day average against the letter's 4.98; the
+ *                        lead tile
+ *   Work board           under 120 open slips, none older than 60 days,
+ *                        each closed with a clear note
+ *   Missing information  blank facts on the homes we manage, from the
+ *                        property page's own Facts rows
+ *
+ * Each tile prints its goal beside the number (`goal`) and one quiet line
+ * under it (`detail`): the fact that says where the number stands.
  *
  * A tile whose read failed says so ("Unavailable") and is never counted as
  * met: absence is not a fact.
@@ -23,16 +25,16 @@ export const OPEN_SLIPS_GOAL = 120;
 export const OLDEST_SLIP_GOAL_DAYS = 60;
 export const NOTE_WINDOW_DAYS = 30;
 
-/** 'plain' is a count with no standard behind it (walks this week): it
- *  prints in ink, neither met nor missed. */
-export type TileState = 'met' | 'off' | 'unknown' | 'idle' | 'plain';
+export type TileState = 'met' | 'off' | 'unknown' | 'idle';
 
 export type ScorecardTile = {
-  key: 'rating' | 'work' | 'inspections' | 'missing';
+  key: 'rating' | 'work' | 'missing';
   label: string;
   value: string;
-  /** The one quiet line under the number: the goal, and the fact that
-   *  says why it is met or missed. Never more than that. */
+  /** The standard, printed beside the number ("goal 4.98"). */
+  goal: string;
+  /** The one quiet line under the number: the fact that says where it
+   *  stands. Never more than that. */
   detail: string | null;
   state: TileState;
   href: string;
@@ -41,45 +43,33 @@ export type ScorecardTile = {
 const UNAVAILABLE = 'Unavailable';
 
 export function ratingTile(r: { avg: number | null; total: number } | null): ScorecardTile {
-  const base = { key: 'rating' as const, label: 'Guest rating', href: '/guests' };
+  const base = { key: 'rating' as const, label: 'Guest rating', goal: `goal ${RATING_GOAL}`, href: '/guests' };
   if (!r) return { ...base, value: UNAVAILABLE, detail: null, state: 'unknown' };
-  if (r.avg == null || r.total === 0) return { ...base, value: 'No reviews', detail: `goal ${RATING_GOAL} · ${RATING_WINDOW_DAYS} days`, state: 'idle' };
+  if (r.avg == null || r.total === 0) return { ...base, value: 'No reviews', detail: `last ${RATING_WINDOW_DAYS} days`, state: 'idle' };
   // Two decimals, rounded down, so 4.979 never reads as the 4.98 it missed.
   const shown = Math.floor(r.avg * 100 + 1e-9) / 100;
   return {
     ...base,
     value: shown.toFixed(2),
-    detail: `goal ${RATING_GOAL} · ${r.total} review${r.total === 1 ? '' : 's'}`,
+    detail: `${r.total} review${r.total === 1 ? '' : 's'}, ${RATING_WINDOW_DAYS} days`,
     state: shown >= RATING_GOAL ? 'met' : 'off',
   };
 }
 
 export function workTile(w: { open: number; oldestDays: number | null; closed: number; closedWithNote: number } | null): ScorecardTile {
-  const base = { key: 'work' as const, label: 'Work board', href: '/work' };
+  const base = { key: 'work' as const, label: 'Work board', goal: `goal under ${OPEN_SLIPS_GOAL}`, href: '/work' };
   if (!w) return { ...base, value: UNAVAILABLE, detail: null, state: 'unknown' };
   const tooOld = w.oldestDays != null && w.oldestDays > OLDEST_SLIP_GOAL_DAYS;
   const notesMissing = w.closedWithNote < w.closed;
   const met = w.open < OPEN_SLIPS_GOAL && !tooOld && !notesMissing;
-  // One line: the standard that decides the tile today. The count first,
-  // because it is the number above; then the oldest slip; then the notes.
+  // One line: the fact that decides the tile today, the count being the
+  // number above. The oldest slip, then the notes, then all clear.
   const detail =
-    w.open >= OPEN_SLIPS_GOAL ? `goal under ${OPEN_SLIPS_GOAL}`
-    : tooOld ? `oldest ${w.oldestDays} days, goal ${OLDEST_SLIP_GOAL_DAYS}`
+    tooOld ? `oldest ${w.oldestDays} days, goal ${OLDEST_SLIP_GOAL_DAYS}`
     : notesMissing ? `notes on ${w.closedWithNote} of ${w.closed}`
-    : `under ${OPEN_SLIPS_GOAL}, none over ${OLDEST_SLIP_GOAL_DAYS}`;
+    : w.oldestDays != null ? `oldest ${w.oldestDays} day${w.oldestDays === 1 ? '' : 's'}`
+    : 'nothing open';
   return { ...base, value: `${w.open} open`, detail, state: met ? 'met' : 'off' };
-}
-
-/**
- * Walks completed this week, Monday through today (Eastern), from the one
- * `inspections` table Helm's walks and the Field crew's Perfection stops
- * both land in; `planned` is the week's remaining inspection_plans rows.
- */
-export function inspectionsTile(i: { done: number; planned: number } | null): ScorecardTile {
-  const base = { key: 'inspections' as const, label: 'Perfection inspections', href: '/inspections' };
-  if (!i) return { ...base, value: UNAVAILABLE, detail: null, state: 'unknown' };
-  const planned = i.planned > 0 ? ` · ${i.planned} planned` : '';
-  return { ...base, value: String(i.done), detail: `this week${planned}`, state: 'plain' };
 }
 
 /**
@@ -120,7 +110,7 @@ export function countMissingInfo(homes: ReadonlyArray<Partial<Record<MissingInfo
 }
 
 export function missingInfoTile(m: { blanks: number; homes: number; homesWithBlanks: number } | null): ScorecardTile {
-  const base = { key: 'missing' as const, label: 'Missing information', href: '/properties' };
+  const base = { key: 'missing' as const, label: 'Missing information', goal: 'goal none', href: '/properties' };
   if (!m) return { ...base, value: UNAVAILABLE, detail: null, state: 'unknown' };
   if (m.blanks === 0) return { ...base, value: 'None', detail: `every fact on ${m.homes} homes`, state: 'met' };
   return {
@@ -129,14 +119,6 @@ export function missingInfoTile(m: { blanks: number; homes: number; homesWithBla
     detail: `on ${m.homesWithBlanks} of ${m.homes} homes`,
     state: 'off',
   };
-}
-
-/** The Monday of the week holding `today` (YYYY-MM-DD). */
-export function mondayOf(today: string): string {
-  const d = new Date(`${today}T12:00:00Z`);
-  const back = (d.getUTCDay() + 6) % 7;
-  d.setUTCDate(d.getUTCDate() - back);
-  return d.toISOString().slice(0, 10);
 }
 
 /** Whole days from an ISO timestamp's date to `today` (YYYY-MM-DD). */

@@ -18,7 +18,7 @@
 import Link, { LinkProps } from 'next/link';
 import type { ReactNode } from 'react';
 
-type Size = 'default' | 'hero';
+type Size = 'default' | 'hero' | 'lead';
 
 type Props = {
   label: string;
@@ -45,7 +45,8 @@ type Props = {
   href?: LinkProps['href'];
   /**
    * Visual size. "default" = 22px serif value. "hero" = 28px (used on the
-   * home dashboard at-a-glance strip).
+   * home dashboard at-a-glance strip). "lead" = 44px, the one cell a strip
+   * is for (the operations goals' guest rating).
    */
   size?: Size;
 };
@@ -61,8 +62,8 @@ export function Stat({
   href,
   size = 'default',
 }: Props) {
-  const valueSize = size === 'hero' ? 28 : 22;
-  const padding = size === 'hero' ? '20px 22px' : '20px 16px';
+  const valueSize = size === 'lead' ? 44 : size === 'hero' ? 28 : 22;
+  const padding = size === 'lead' ? '20px 22px' : size === 'hero' ? '20px 22px' : '20px 16px';
 
   const inner = (
     <div

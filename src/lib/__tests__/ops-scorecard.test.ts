@@ -2,13 +2,13 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  MISSING_INFO_COLUMNS, ageDays, countMissingInfo, hasClearNote, inspectionsTile, isBlankFact, missingInfoTile, mondayOf,
+  MISSING_INFO_COLUMNS, ageDays, countMissingInfo, hasClearNote, isBlankFact, missingInfoTile,
   ratingTile, seesScorecard, workTile,
 } from '../ops-scorecard.ts';
 
 const read = (p: string) => readFileSync(new URL(`../../../${p}`, import.meta.url), 'utf8');
 
-describe("the operations scorecard: Delaney's four numbers", () => {
+describe("the operations scorecard: Delaney's three numbers", () => {
   test('rating: 4.98 is met, 4.979 is not, and it never rounds up', () => {
     assert.equal(ratingTile({ avg: 4.98, total: 40 }).state, 'met');
     const near = ratingTile({ avg: 4.979, total: 40 });
@@ -23,21 +23,12 @@ describe("the operations scorecard: Delaney's four numbers", () => {
     assert.equal(workTile({ open: 120, oldestDays: 10, closed: 0, closedWithNote: 0 }).state, 'off', '120 is not under 120');
     assert.equal(workTile({ open: 50, oldestDays: 61, closed: 0, closedWithNote: 0 }).state, 'off');
     assert.equal(workTile({ open: 50, oldestDays: 5, closed: 3, closedWithNote: 2 }).state, 'off');
-    // The line names the standard that decides the tile: count, then age, then notes.
-    assert.equal(workTile({ open: 346, oldestDays: 74, closed: 9, closedWithNote: 6 }).detail, 'goal under 120');
-    assert.equal(workTile({ open: 50, oldestDays: 74, closed: 9, closedWithNote: 6 }).detail, 'oldest 74 days, goal 60');
+    // The goal rides beside the number; the line is the fact that decides the rest: age, then notes.
+    assert.equal(workTile({ open: 346, oldestDays: 74, closed: 9, closedWithNote: 6 }).goal, 'goal under 120');
+    assert.equal(workTile({ open: 346, oldestDays: 74, closed: 9, closedWithNote: 6 }).detail, 'oldest 74 days, goal 60');
     assert.equal(workTile({ open: 50, oldestDays: 5, closed: 3, closedWithNote: 2 }).detail, 'notes on 2 of 3');
-    assert.equal(workTile({ open: 50, oldestDays: 5, closed: 3, closedWithNote: 3 }).detail, 'under 120, none over 60');
-  });
-
-  test('inspections: a plain count for the week, with what is still planned', () => {
-    assert.equal(inspectionsTile({ done: 3, planned: 2 }).detail, 'this week · 2 planned');
-    assert.equal(inspectionsTile({ done: 0, planned: 0 }).detail, 'this week');
-    assert.equal(inspectionsTile({ done: 3, planned: 0 }).state, 'plain', 'no standard, so never met or missed');
-    assert.equal(inspectionsTile(null).state, 'unknown');
-    assert.equal(mondayOf('2026-11-08'), '2026-11-02', 'a Sunday belongs to the week that started the Monday before');
-    assert.equal(mondayOf('2026-11-09'), '2026-11-09');
-    assert.equal(mondayOf('2026-11-14'), '2026-11-09');
+    assert.equal(workTile({ open: 50, oldestDays: 5, closed: 3, closedWithNote: 3 }).detail, 'oldest 5 days');
+    assert.equal(workTile({ open: 0, oldestDays: null, closed: 3, closedWithNote: 3 }).detail, 'nothing open');
   });
 
   test('missing information: blank facts counted across the managed homes', () => {
@@ -50,6 +41,9 @@ describe("the operations scorecard: Delaney's four numbers", () => {
     assert.deepEqual(counted, { blanks: 3, homes: 3, homesWithBlanks: 2 });
     assert.equal(missingInfoTile(counted).value, '3 blanks');
     assert.equal(missingInfoTile(counted).detail, 'on 2 of 3 homes');
+    assert.equal(missingInfoTile(counted).goal, 'goal none');
+    assert.equal(ratingTile({ avg: 4.95, total: 174 }).goal, 'goal 4.98');
+    assert.equal(ratingTile({ avg: 4.95, total: 174 }).detail, '174 reviews, 90 days');
     assert.equal(missingInfoTile(counted).state, 'off');
     assert.equal(missingInfoTile({ blanks: 0, homes: 24, homesWithBlanks: 0 }).value, 'None');
     assert.equal(missingInfoTile(null).state, 'unknown');
@@ -78,11 +72,13 @@ test('every tile is one line under the number, never a paragraph', () => {
     workTile({ open: 350, oldestDays: 142, closed: 210, closedWithNote: 167 }),
     workTile({ open: 50, oldestDays: 74, closed: 9, closedWithNote: 6 }),
     workTile({ open: 50, oldestDays: 5, closed: 3, closedWithNote: 3 }),
-    inspectionsTile({ done: 12, planned: 14 }),
     missingInfoTile({ blanks: 141, homes: 24, homesWithBlanks: 22 }),
     missingInfoTile({ blanks: 0, homes: 24, homesWithBlanks: 0 }),
   ];
-  for (const t of tiles) assert.ok((t.detail ?? '').length <= 24, `${t.key}: "${t.detail}" is too long for the strip`);
+  for (const t of tiles) {
+    assert.ok((t.detail ?? '').length <= 24, `${t.key}: "${t.detail}" is too long for the strip`);
+    assert.ok(t.goal.length <= 16, `${t.key}: "${t.goal}" does not fit beside the number`);
+  }
 });
 
 test('the band sits at the top of the For Me home, and holds no money', () => {
