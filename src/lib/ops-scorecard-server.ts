@@ -12,6 +12,7 @@ import { loadWorkIssueLinks } from '@/lib/work-issues-server';
 import { getReviewWindowStats } from '@/lib/reviews';
 import { operatingDate } from '@/lib/operating-date';
 import { CAPE_ANN_REGION } from '@/lib/property-scope';
+import { ACCESS_COLUMNS, getPropertyAccessMap } from '@/lib/property-access';
 import {
   MISSING_INFO_COLUMNS, NOTE_WINDOW_DAYS, RATING_WINDOW_DAYS,
   ageDays, countMissingInfo, hasClearNote, inspectionsTile, missingInfoTile, mondayOf, ratingTile, workTile,
@@ -72,11 +73,15 @@ async function readInspections(today: string) {
 }
 
 /** The managed Cape Ann homes (active, not Rising Tide's own), with the
- *  facts the property page shows; blanks are what it shows as empty. */
+ *  facts the property page shows; blanks are what it shows as empty. The
+ *  credentials (key location, Wi-Fi password) live in property_access since
+ *  20260620b, so they are read there and merged back, as the page does. */
 async function readMissingInfo() {
+  const accessCols = new Set<string>(ACCESS_COLUMNS);
+  const propertyCols = MISSING_INFO_COLUMNS.filter((c) => !accessCols.has(c));
   const { data, error } = await supabase
     .from('properties')
-    .select(['id', 'region', 'is_rising_tide_owned', ...MISSING_INFO_COLUMNS].join(', '))
+    .select(['id', 'region', 'is_rising_tide_owned', ...propertyCols].join(', '))
     .eq('is_active', true)
     .limit(500);
   if (error) throw new Error(error.message);
@@ -84,7 +89,8 @@ async function readMissingInfo() {
   const homes = ((data ?? []) as unknown as Row[]).filter(
     (p) => (p.region ?? CAPE_ANN_REGION) === CAPE_ANN_REGION && !p.is_rising_tide_owned,
   );
-  return countMissingInfo(homes);
+  const access = await getPropertyAccessMap(homes.map((h) => h.id));
+  return countMissingInfo(homes.map((h) => ({ ...h, ...(access.get(h.id) ?? {}) })));
 }
 
 export async function loadOpsScorecard(): Promise<ScorecardTile[] | null> {
