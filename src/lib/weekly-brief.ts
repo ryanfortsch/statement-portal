@@ -3,8 +3,11 @@
  * (Dotti, 2026-11-09). Page one is the week: Delaney's three goals on top
  * (the same tiles as the home page's Operations goals band,
  * ops-scorecard.ts) and the check-ins for the seven days starting that
- * Tuesday, by day. Every page after it is one home: its open work slips in
- * priority order and the issues flagged at the house.
+ * Tuesday, by day. Page two is what guests told us: every review that
+ * landed in the week before the send rated below five stars, then the
+ * five-star ones that carried a private note or a category below five.
+ * Every page after it is one home: its open work slips in priority order and
+ * the issues flagged at the house.
  *
  * Pure, so `npm test` pins the ordering and the week. The reads are in
  * weekly-brief-server.ts, the HTML in weekly-brief-html.ts, the PDF in
@@ -110,6 +113,28 @@ export function daysBetween(fromIso: string, toIso: string): number {
   const a = Date.UTC(Number(fromIso.slice(0, 4)), Number(fromIso.slice(5, 7)) - 1, Number(fromIso.slice(8, 10)));
   const b = Date.UTC(Number(toIso.slice(0, 4)), Number(toIso.slice(5, 7)) - 1, Number(toIso.slice(8, 10)));
   return Math.round((b - a) / 86_400_000);
+}
+
+/**
+ * Page two's window: the seven days before the send day, so each Tuesday's
+ * brief picks up where the last one left off and a review prints once.
+ */
+export function feedbackWindow(today: string): { from: string; to: string } {
+  return { from: addDays(today, -BRIEF_DAYS), to: addDays(today, -1) };
+}
+
+/**
+ * Midnight Eastern on a day, as a UTC instant: where page two's window
+ * starts and stops, so a review that lands at 9 PM Monday is last week's
+ * either side of daylight saving.
+ */
+export function easternMidnightIso(day: string): string {
+  for (const offset of [4, 5]) {
+    const t = new Date(`${day.slice(0, 10)}T0${offset}:00:00Z`);
+    const hour = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', hourCycle: 'h23' }).format(t);
+    if (Number(hour) === 0) return t.toISOString();
+  }
+  return new Date(`${day.slice(0, 10)}T05:00:00Z`).toISOString();
 }
 
 /** The brief's window: the send day and the six after it, inclusive. */
@@ -220,6 +245,222 @@ export function groupCheckIns(args: {
     days.push({ date: d, checkIns });
   }
   return days;
+}
+
+// ── Page two: what guests told us ───────────────────────────────────
+
+/**
+ * A review as the brief reads it: a Guesty review (public.reviews, every
+ * score already in stars, reviews-normalize) or a direct guest's
+ * testimonial from staycapeann.com mapped onto the same shape.
+ */
+export type BriefReview = {
+  id: string;
+  property_id: string | null;
+  guest_name: string | null;
+  channel: string | null;
+  overall_rating: number | null;
+  public_review: string | null;
+  private_feedback: string | null;
+  category_cleanliness?: number | null;
+  category_accuracy?: number | null;
+  category_checkin?: number | null;
+  category_communication?: number | null;
+  category_location?: number | null;
+  category_value?: number | null;
+  review_created_at: string;
+  /** The slip reviews-to-slips filed from it, if any: its status. */
+  slip_status?: string | null;
+};
+
+const CATEGORY_WORDS: Array<[keyof BriefReview, string]> = [
+  ['category_cleanliness', 'Cleanliness'],
+  ['category_accuracy', 'Accuracy'],
+  ['category_checkin', 'Check-in'],
+  ['category_communication', 'Communication'],
+  ['category_location', 'Location'],
+  ['category_value', 'Value'],
+];
+
+/** How much of a review's words print; the rest is on the Reviews tab. */
+export const REVIEW_TEXT_MAX = 420;
+export const FEEDBACK_BUDGET_PX = 1400;
+export const FEEDBACK_COST = {
+  header: 200,       // masthead, title, the window, the tally
+  section: 40,
+  item: 50,          // the item's name line and its quiet line
+  textLine: 16,      // each wrapped line of a review's words
+  label: 14,         // "Private feedback" above the guest's private words
+  more: 24,
+  empty: 30,
+} as const;
+const REVIEW_CHARS_PER_LINE = 110;
+/** Items that always print, whatever the estimate says. */
+const FEEDBACK_MIN_ITEMS = 4;
+
+export type FeedbackItem = {
+  id: string;
+  home: string;
+  guest: string | null;
+  channel: string | null;
+  /** "Nov 6", when the review landed. */
+  landed: string;
+  /** Stars, null when the channel sent none. */
+  rating: number | null;
+  /** "Cleanliness 3", every category below five. */
+  lowCategories: string[];
+  publicText: string | null;
+  privateText: string | null;
+  /** "Private feedback", or Booking.com's own words for it. */
+  privateLabel: string;
+  /** Where its work slip stands, when one was filed. */
+  slip: string | null;
+};
+
+export type FeedbackPage = {
+  /** The reviews could not be read this morning: the page says so, not "none". */
+  unreadable: boolean;
+  /** The window, YYYY-MM-DD, inclusive. */
+  from: string;
+  to: string;
+  /** Rated reviews that landed in the window, and how many were five stars. */
+  total: number;
+  fiveStar: number;
+  avg: number | null;
+  belowFive: FeedbackItem[];
+  moreBelowFive: number;
+  /** Five stars, with a private note or a category below five. */
+  notes: FeedbackItem[];
+  moreNotes: number;
+};
+
+/** "4", "4.5": stars as a person says them. */
+export function starWords(n: number): string {
+  const r = Math.round(n * 10) / 10;
+  return `${Number.isInteger(r) ? r : r.toFixed(1)} star${r === 1 ? '' : 's'}`;
+}
+
+function slipWords(status: string | null | undefined): string | null {
+  if (!status) return null;
+  if (status === 'done') return 'work slip done';
+  if (status === 'dismissed') return 'work slip dismissed';
+  return 'on the Work board';
+}
+
+function feedbackItem(r: BriefReview, homes: ReadonlyMap<string, BriefHome>): FeedbackItem {
+  const low: string[] = [];
+  for (const [key, word] of CATEGORY_WORDS) {
+    const v = r[key] as number | null | undefined;
+    if (typeof v === 'number' && v > 0 && v < 5) low.push(`${word} ${Math.round(v * 10) / 10}`);
+  }
+  const pub = r.public_review?.trim() ? clip(r.public_review, REVIEW_TEXT_MAX) : null;
+  const priv = r.private_feedback?.trim() ? clip(r.private_feedback, REVIEW_TEXT_MAX) : null;
+  const channel = channelLabel(r.channel);
+  return {
+    id: r.id,
+    home: homes.get(r.property_id ?? '')?.name ?? 'A home',
+    guest: r.guest_name?.trim() || null,
+    channel,
+    landed: monthDay(r.review_created_at.slice(0, 10)),
+    rating: typeof r.overall_rating === 'number' ? r.overall_rating : null,
+    lowCategories: low,
+    publicText: pub,
+    privateText: priv,
+    privateLabel: /booking/i.test(r.channel ?? '') ? 'What could be better' : 'Private feedback',
+    slip: slipWords(r.slip_status),
+  };
+}
+
+export function feedbackItemCost(i: FeedbackItem): number {
+  return (
+    FEEDBACK_COST.item +
+    lines(i.publicText, REVIEW_CHARS_PER_LINE) * FEEDBACK_COST.textLine +
+    (i.privateText ? FEEDBACK_COST.label + lines(i.privateText, REVIEW_CHARS_PER_LINE) * FEEDBACK_COST.textLine : 0)
+  );
+}
+
+/**
+ * Page two. Below five stars first, the lowest leading, then the five-star
+ * reviews whose guest still said something to us (a private note, a
+ * category below five), newest first. A review with no rating counts as
+ * feedback only when it carries words. Homes outside `homes` are left out,
+ * as everywhere in Helm's review stats. The page is one sheet: items past
+ * the budget are counted, and the below-five ones are never crowded out by
+ * the notes.
+ */
+export function buildFeedbackPage(args: {
+  from: string;
+  to: string;
+  /** null: the read failed. */
+  reviews: BriefReview[] | null;
+  homes: ReadonlyMap<string, BriefHome>;
+}): FeedbackPage {
+  const unreadable = args.reviews === null;
+  const ours = (args.reviews ?? []).filter((r) => r.property_id && args.homes.has(r.property_id));
+  const rated = ours.filter((r) => typeof r.overall_rating === 'number');
+  const fiveStar = rated.filter((r) => (r.overall_rating as number) >= 5).length;
+  const avg = rated.length ? rated.reduce((n, r) => n + (r.overall_rating as number), 0) / rated.length : null;
+
+  const newest = (a: BriefReview, b: BriefReview) => b.review_created_at.localeCompare(a.review_created_at) || a.id.localeCompare(b.id);
+  const below = ours
+    .filter((r) => typeof r.overall_rating === 'number' && r.overall_rating < 5)
+    .sort((a, b) => (a.overall_rating as number) - (b.overall_rating as number) || newest(a, b))
+    .map((r) => feedbackItem(r, args.homes));
+  const noted = ours
+    .filter((r) => !(typeof r.overall_rating === 'number' && r.overall_rating < 5))
+    .map((r) => feedbackItem(r, args.homes))
+    .filter((i) => i.privateText || i.lowCategories.length || (i.rating === null && i.publicText));
+  const notedOrder = new Map(ours.map((r) => [r.id, r]));
+  noted.sort((a, b) => newest(notedOrder.get(a.id)!, notedOrder.get(b.id)!));
+
+  let spent = FEEDBACK_COST.header + FEEDBACK_COST.section;
+  if (!below.length) spent += FEEDBACK_COST.empty;
+  const keptBelow: FeedbackItem[] = [];
+  for (const [i, item] of below.entries()) {
+    const cost = feedbackItemCost(item);
+    const left = below.length - i - 1;
+    if (i >= FEEDBACK_MIN_ITEMS && spent + cost + (left ? FEEDBACK_COST.more : 0) > FEEDBACK_BUDGET_PX) break;
+    spent += cost;
+    keptBelow.push(item);
+  }
+  if (keptBelow.length < below.length) spent += FEEDBACK_COST.more;
+
+  const keptNotes: FeedbackItem[] = [];
+  if (noted.length) {
+    spent += FEEDBACK_COST.section;
+    for (const [i, item] of noted.entries()) {
+      const cost = feedbackItemCost(item);
+      const left = noted.length - i - 1;
+      if (spent + cost + (left ? FEEDBACK_COST.more : 0) > FEEDBACK_BUDGET_PX) break;
+      spent += cost;
+      keptNotes.push(item);
+    }
+  }
+
+  return {
+    unreadable,
+    from: args.from,
+    to: args.to,
+    total: rated.length,
+    fiveStar,
+    avg,
+    belowFive: keptBelow,
+    moreBelowFive: below.length - keptBelow.length,
+    notes: keptNotes,
+    moreNotes: noted.length - keptNotes.length,
+  };
+}
+
+/** The estimated printed height of page two, for the test that holds it to one sheet. */
+export function feedbackPageCost(p: FeedbackPage): number {
+  let spent = FEEDBACK_COST.header + FEEDBACK_COST.section;
+  if (!p.belowFive.length) spent += FEEDBACK_COST.empty;
+  for (const i of p.belowFive) spent += feedbackItemCost(i);
+  if (p.moreBelowFive) spent += FEEDBACK_COST.more;
+  if (p.notes.length || p.moreNotes) spent += FEEDBACK_COST.section;
+  for (const i of p.notes) spent += feedbackItemCost(i);
+  if (p.moreNotes) spent += FEEDBACK_COST.more;
+  return spent;
 }
 
 // ── The home pages: work in priority order ──────────────────────────
@@ -432,6 +673,8 @@ export type WeeklyBrief = {
   window: { from: string; to: string };
   scorecard: ScorecardTile[] | null;
   days: BriefDay[];
+  /** Page two: what guests told us in the week before the send. */
+  feedback: FeedbackPage;
   pages: HomePage[];
   /** Active homes with no open work and no flagged issue: named on page one, no page. */
   quietHomes: string[];
@@ -450,6 +693,8 @@ export function buildWeeklyBrief(args: {
   arrivals: BriefStay[];
   departures: BriefStay[];
   headlines: Record<string, string>;
+  /** Reviews that landed in the week before the send (feedbackWindow); null when the read failed. */
+  reviews?: BriefReview[] | null;
 }): WeeklyBrief {
   const { today } = args;
   const homes = [...args.homes].sort((a, b) => compareHomeNames(a.name, b.name));
@@ -475,7 +720,9 @@ export function buildWeeklyBrief(args: {
       }),
     );
   }
-  return { today, window: briefWindow(today), scorecard: args.scorecard, days, pages, quietHomes };
+  const fw = feedbackWindow(today);
+  const feedback = buildFeedbackPage({ ...fw, reviews: args.reviews === undefined ? [] : args.reviews, homes: byId });
+  return { today, window: briefWindow(today), scorecard: args.scorecard, days, feedback, pages, quietHomes };
 }
 
 /** "Helm weekly · Tue, Nov 10". */
