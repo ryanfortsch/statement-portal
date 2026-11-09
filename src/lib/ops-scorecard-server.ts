@@ -2,7 +2,7 @@
  * Reads for the operations scorecard (ops-scorecard.ts has the rules). One
  * read per tile, each failing soft to null so one bad table costs its own
  * tile ("Unavailable"), never the band or the home page. Nothing here reads
- * money: the standards are about guests, work, walks and records.
+ * money: the standards are about guests, work and records.
  */
 import 'server-only';
 import { supabaseAdmin as supabase, isServiceConfigured } from '@/lib/supabase-admin';
@@ -15,17 +15,11 @@ import { CAPE_ANN_REGION } from '@/lib/property-scope';
 import { ACCESS_COLUMNS, getPropertyAccessMap } from '@/lib/property-access';
 import {
   MISSING_INFO_COLUMNS, NOTE_WINDOW_DAYS, RATING_WINDOW_DAYS,
-  ageDays, countMissingInfo, hasClearNote, inspectionsTile, missingInfoTile, mondayOf, ratingTile, workTile,
+  ageDays, countMissingInfo, hasClearNote, missingInfoTile, ratingTile, workTile,
   type MissingInfoColumn, type ScorecardTile,
 } from '@/lib/ops-scorecard';
 
 const ACTIVE = ['open', 'in_progress', 'scheduled'];
-
-function shiftDay(day: string, by: number): string {
-  const d = new Date(`${day}T12:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + by);
-  return d.toISOString().slice(0, 10);
-}
 
 async function soft<T>(p: Promise<T>): Promise<T | null> {
   try {
@@ -55,23 +49,6 @@ async function readWork(today: string) {
   };
 }
 
-/** Monday through today, Eastern: walks completed, and plans still ahead
- *  this week (today through Sunday). */
-async function readInspections(today: string) {
-  const monday = mondayOf(today);
-  const sunday = shiftDay(monday, 6);
-  // Midnight Monday Eastern; in summer this is an hour early, at 11 PM
-  // Sunday, when no walk is ever being completed.
-  const [done, planned] = await Promise.all([
-    supabase.from('inspections').select('id', { count: 'exact', head: true }).gte('completed_at', `${monday}T00:00:00-05:00`),
-    supabase.from('inspection_plans').select('id', { count: 'exact', head: true }).is('inspection_id', null)
-      .gte('planned_for_date', today).lte('planned_for_date', sunday),
-  ]);
-  if (done.error) throw new Error(done.error.message);
-  if (planned.error) throw new Error(planned.error.message);
-  return { done: done.count ?? 0, planned: planned.count ?? 0 };
-}
-
 /** The managed Cape Ann homes (active, not Rising Tide's own), with the
  *  facts the property page shows; blanks are what it shows as empty. The
  *  credentials (key location, Wi-Fi password) live in property_access since
@@ -96,11 +73,10 @@ async function readMissingInfo() {
 export async function loadOpsScorecard(): Promise<ScorecardTile[] | null> {
   if (!isServiceConfigured) return null;
   const today = operatingDate();
-  const [rating, work, inspections, missing] = await Promise.all([
+  const [rating, work, missing] = await Promise.all([
     soft(getReviewWindowStats(RATING_WINDOW_DAYS, { strict: true })),
     soft(readWork(today)),
-    soft(readInspections(today)),
     soft(readMissingInfo()),
   ]);
-  return [ratingTile(rating), workTile(work), inspectionsTile(inspections), missingInfoTile(missing)];
+  return [ratingTile(rating), workTile(work), missingInfoTile(missing)];
 }
