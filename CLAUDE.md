@@ -68,12 +68,20 @@ supabase/migrations/   302 migrations
 scripts/               parity harnesses and one-off tools (see Testing below)
 ```
 
-**36 cron routes, 35 schedules, and that is correct.** `/api/cron/reviews-to-slips` is a manual
+**37 cron routes, 36 schedules, and that is correct.** `/api/cron/reviews-to-slips` is a manual
 and backfill trigger on purpose; the recurring work runs at the end of `/api/cron/sync-guesty`.
 Do not "fix" it by adding a schedule.
 `/api/cron/channex-production` checks the disabled production Channex configuration
 every 15 minutes. It does not ingest or acknowledge bookings, publish availability,
 change Guesty authority or send messages. See `docs/operations/channex-production-calderwood.md`.
+`/api/cron/weekly-brief` is the Tuesday brief (since 2026-11-09): a printable PDF emailed to
+whoever holds the `weekly_brief` duty in `team.ts` (Dotti). Page one is Delaney's three goals (the
+home band's own read) and the check-ins for Tuesday through Monday by day; then one page per home
+with open work, its slips in priority order (high, then overdue, then this week, then oldest) and
+its open "Flagged at the house" notes (`src/lib/weekly-brief.ts`). Vercel crons are UTC-only, so
+it fires at 10:00 and 11:00 UTC and only the run at 6 AM Eastern sends. `?format=pdf` previews it
+without sending; `?force=1` sends now. Chromium prints the HTML string directly, so the document
+has no URL to guard. It reads no money.
 
 Load-bearing `src/lib` modules by importing files outside tests, 2026-10-22: `supabase-admin`
 (253), `properties` (73), `stay-concierge` (71), `helm-access-server` (58), `field-db` (51),
