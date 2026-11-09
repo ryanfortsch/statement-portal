@@ -707,13 +707,6 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
   .rt-insights-6 > div:nth-child(3) { border-right: none; }
   .rt-insights-6 > div:nth-child(n+4) { border-top: 1px solid var(--rule); }
 }
-/* The home's six-up operations goals strip: two rows of three on a tablet,
-   where six columns leave no room for a number. Stat's rules sit on the
-   inner .rt-helm-stat inside its Link, so the patches descend one level. */
-@media (min-width: 641px) and (max-width: 1024px) {
-  .rt-ops-scorecard { grid-template-columns: repeat(3, 1fr) !important; }
-  .rt-ops-scorecard > *:nth-child(3) .rt-helm-stat { border-right: none !important; }
-  .rt-ops-scorecard > *:nth-child(n+4) .rt-helm-stat { border-top: 1px solid var(--rule); }
 }
 
 /* ─── Mobile menu (trigger + full-screen overlay) ─────────────────────

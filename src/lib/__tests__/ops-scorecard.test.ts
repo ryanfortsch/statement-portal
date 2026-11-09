@@ -2,12 +2,13 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  ageDays, closeMonthFor, closeTile, hasClearNote, isWinter, ratingTile, recordsTile, scheduleTile, seesScorecard, winterTile, workTile,
+  MISSING_INFO_COLUMNS, ageDays, countMissingInfo, hasClearNote, inspectionsTile, isBlankFact, missingInfoTile, mondayOf,
+  ratingTile, seesScorecard, workTile,
 } from '../ops-scorecard.ts';
 
 const read = (p: string) => readFileSync(new URL(`../../../${p}`, import.meta.url), 'utf8');
 
-describe("the operations scorecard reads the offer letter's standards", () => {
+describe("the operations scorecard: Delaney's four numbers", () => {
   test('rating: 4.98 is met, 4.979 is not, and it never rounds up', () => {
     assert.equal(ratingTile({ avg: 4.98, total: 40 }).state, 'met');
     const near = ratingTile({ avg: 4.979, total: 40 });
@@ -29,33 +30,36 @@ describe("the operations scorecard reads the offer letter's standards", () => {
     assert.equal(workTile({ open: 50, oldestDays: 5, closed: 3, closedWithNote: 3 }).detail, 'under 120, none over 60');
   });
 
-  test('cleaner schedule: every day with cleanings sent', () => {
-    assert.equal(scheduleTile({ days: 5, sent: 5 }).state, 'met');
-    assert.equal(scheduleTile({ days: 5, sent: 4 }).state, 'off');
-    assert.equal(scheduleTile({ days: 0, sent: 0 }).state, 'idle');
+  test('inspections: a plain count for the week, with what is still planned', () => {
+    assert.equal(inspectionsTile({ done: 3, planned: 2 }).detail, 'this week · 2 planned');
+    assert.equal(inspectionsTile({ done: 0, planned: 0 }).detail, 'this week');
+    assert.equal(inspectionsTile({ done: 3, planned: 0 }).state, 'plain', 'no standard, so never met or missed');
+    assert.equal(inspectionsTile(null).state, 'unknown');
+    assert.equal(mondayOf('2026-11-08'), '2026-11-02', 'a Sunday belongs to the week that started the Monday before');
+    assert.equal(mondayOf('2026-11-09'), '2026-11-09');
+    assert.equal(mondayOf('2026-11-14'), '2026-11-09');
   });
 
-  test('statement close: open before the due date waits, after it is late; a send after the due date is late', () => {
-    const c = { month: '2026-11', monthName: 'November', due: '2026-11-27', dueLabel: 'Nov 27', today: '2026-11-20', open: 3, sent: 0, lastSentDay: null };
-    assert.equal(closeTile(c).state, 'idle');
-    assert.equal(closeTile({ ...c, today: '2026-11-28' }).state, 'off');
-    assert.equal(closeTile({ ...c, open: 0, sent: 3, lastSentDay: '2026-11-26' }).value, 'On time');
-    assert.equal(closeTile({ ...c, open: 0, sent: 3, lastSentDay: '2026-11-28' }).state, 'off');
-    assert.equal(closeMonthFor('2026-12-05', 10), '2026-11', 'early December still follows November');
-    assert.equal(closeMonthFor('2026-12-11', 10), '2026-12');
-    assert.equal(closeMonthFor('2027-01-03', 10), '2026-12');
+  test('missing information: blank facts counted across the managed homes', () => {
+    assert.equal(isBlankFact(null), true);
+    assert.equal(isBlankFact('  '), true);
+    assert.equal(isBlankFact(0), false, 'a number is an answer');
+    assert.equal(isBlankFact('Casella carts beside the garage'), false);
+    const full = Object.fromEntries(MISSING_INFO_COLUMNS.map((c) => [c, 'x']));
+    const counted = countMissingInfo([full, { ...full, wifi_password: '', parking: null }, { ...full, heating: null }]);
+    assert.deepEqual(counted, { blanks: 3, homes: 3, homesWithBlanks: 2 });
+    assert.equal(missingInfoTile(counted).value, '3 blanks');
+    assert.equal(missingInfoTile(counted).detail, 'on 2 of 3 homes');
+    assert.equal(missingInfoTile(counted).state, 'off');
+    assert.equal(missingInfoTile({ blanks: 0, homes: 24, homesWithBlanks: 0 }).value, 'None');
+    assert.equal(missingInfoTile(null).state, 'unknown');
   });
 
-  test('home records and winter care', () => {
-    assert.equal(recordsTile({ homes: 20, complete: 20 }).state, 'met');
-    assert.equal(recordsTile({ homes: 20, complete: 9 }).value, '9 of 20');
-    assert.equal(isWinter('2026-11-30'), false);
-    assert.equal(isWinter('2026-12-01'), true);
-    assert.equal(isWinter('2027-04-30'), true);
-    assert.equal(isWinter('2027-05-01'), false);
-    assert.equal(winterTile('2026-11-08', null).value, 'Starts Dec 1', 'outside winter it never reads as a failure');
-    assert.equal(winterTile('2026-12-08', { empty: 6, checked: 5 }).state, 'off');
-    assert.equal(winterTile('2026-12-08', null).state, 'unknown');
+  test('every missing-information column is a Facts row on the property page', () => {
+    const page = read('src/app/properties/[id]/page.tsx');
+    for (const col of MISSING_INFO_COLUMNS) {
+      assert.ok(page.includes(`col: '${col}'`), `${col} is not a row the property page shows and edits`);
+    }
   });
 
   test('small helpers', () => {
@@ -72,15 +76,13 @@ test('every tile is one line under the number, never a paragraph', () => {
   const tiles = [
     ratingTile({ avg: 4.95, total: 175 }),
     workTile({ open: 350, oldestDays: 142, closed: 210, closedWithNote: 167 }),
-    scheduleTile({ days: 4, sent: 4 }),
-    closeTile({ month: '2026-10', monthName: 'October', due: '2026-10-29', dueLabel: 'Oct 29', today: '2026-11-08', open: 0, sent: 0, lastSentDay: null }),
-    recordsTile({ homes: 24, complete: 3 }),
-    winterTile('2026-11-08', null),
-    winterTile('2027-01-08', { empty: 6, checked: 5 }),
     workTile({ open: 50, oldestDays: 74, closed: 9, closedWithNote: 6 }),
     workTile({ open: 50, oldestDays: 5, closed: 3, closedWithNote: 3 }),
+    inspectionsTile({ done: 12, planned: 14 }),
+    missingInfoTile({ blanks: 141, homes: 24, homesWithBlanks: 22 }),
+    missingInfoTile({ blanks: 0, homes: 24, homesWithBlanks: 0 }),
   ];
-  for (const t of tiles) assert.ok((t.detail ?? '').length <= 24, `${t.key}: "${t.detail}" is too long for a six-up strip`);
+  for (const t of tiles) assert.ok((t.detail ?? '').length <= 24, `${t.key}: "${t.detail}" is too long for the strip`);
 });
 
 test('the band sits at the top of the For Me home, and holds no money', () => {

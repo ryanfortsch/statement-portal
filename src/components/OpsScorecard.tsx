@@ -6,12 +6,13 @@ import { seesScorecard } from '@/lib/ops-scorecard';
 import { Stat } from '@/components/Stat';
 
 /**
- * The operations goals, first on the home page: the day-to-day standards
- * from the operations manager's offer letter ("What success looks like"),
- * each measured from the records Helm already keeps and linked to the page
- * where the work happens. Reviewed together in May 2027.
+ * The operations goals, first on the home page: the four numbers Dotti
+ * picked for the operations manager (reviews, work slips, Perfection
+ * inspections this week, missing information on the homes we manage), each
+ * measured from the records Helm already keeps and linked to the page where
+ * the work happens. Reviewed together in May 2027.
  *
- * One eyebrow and the house stat strip, six across: label, number, one
+ * One eyebrow and the house stat strip, four across: label, number, one
  * quiet line. A missed standard prints its number in the signal color; a
  * read that failed, or a standard not yet in season, prints grey. Nothing
  * else, so the band reads at a glance and stays quieter than the day it
