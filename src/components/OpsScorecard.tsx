@@ -1,18 +1,24 @@
-import Link from 'next/link';
 import { auth } from '@/auth';
 import { sessionView } from '@/lib/helm-access-server';
 import { getTeamMember } from '@/lib/team';
 import { loadOpsScorecard } from '@/lib/ops-scorecard-server';
-import { seesScorecard, type ScorecardTile } from '@/lib/ops-scorecard';
+import { seesScorecard } from '@/lib/ops-scorecard';
+import { Stat } from '@/components/Stat';
 
 /**
- * The operations goals, prominent on the home page: the day-to-day standards
+ * The operations goals, first on the home page: the day-to-day standards
  * from the operations manager's offer letter ("What success looks like"),
  * each measured from the records Helm already keeps and linked to the page
- * where the work happens. They are reviewed together in May.
+ * where the work happens. Reviewed together in May 2027.
  *
- * Shown to the operations seat and to owners (so an owner sees what she
- * sees, View as staff included). Nobody else's home carries it.
+ * One eyebrow and the house stat strip, six across: label, number, one
+ * quiet line. A missed standard prints its number in the signal color; a
+ * read that failed, or a standard not yet in season, prints grey. Nothing
+ * else, so the band reads at a glance and stays quieter than the day it
+ * sits above (Dotti, 2026-11-08: the first cut was boxed, three lines deep
+ * and orphaned two tiles on a second row).
+ *
+ * Shown to the operations seat and to owners (View as staff included).
  */
 export async function OpsScorecard() {
   const [session, view] = await Promise.all([auth(), sessionView()]);
@@ -24,56 +30,30 @@ export async function OpsScorecard() {
   if (!tiles) return null;
 
   return (
-    <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 28 }}>
-      <div className="flex items-baseline justify-between flex-wrap" style={{ gap: 12, marginBottom: 14 }}>
-        <div className="eyebrow">Operations goals · by May 1, 2027</div>
-        <div style={{ fontSize: 12, color: 'var(--ink-4)' }}>Toward a 4.98 portfolio and homes better with every visit</div>
-      </div>
+    <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 40 }}>
+      <div className="eyebrow" style={{ marginBottom: 12 }}>Operations goals · May 2027</div>
       <div
-        className="rt-ops-scorecard"
+        className="rt-helm-stat-strip rt-ops-scorecard"
         style={{
           borderTop: '1px solid var(--ink)',
           borderBottom: '1px solid var(--ink)',
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+          gridTemplateColumns: `repeat(${tiles.length}, 1fr)`,
         }}
       >
-        {tiles.map((t) => <Tile key={t.key} tile={t} />)}
+        {tiles.map((t, i) => (
+          <Stat
+            key={t.key}
+            label={t.label}
+            value={t.value}
+            sub={t.detail ?? undefined}
+            href={t.href}
+            accent={t.state === 'off'}
+            valueColor={t.state === 'unknown' || t.state === 'idle' ? 'var(--ink-4)' : undefined}
+            last={i === tiles.length - 1}
+          />
+        ))}
       </div>
     </section>
-  );
-}
-
-function Tile({ tile }: { tile: ScorecardTile }) {
-  const valueColor =
-    tile.state === 'off' ? 'var(--signal)' : tile.state === 'unknown' || tile.state === 'idle' ? 'var(--ink-4)' : 'var(--ink)';
-  return (
-    <Link
-      href={tile.href}
-      style={{
-        display: 'block',
-        padding: '18px 20px',
-        borderBottom: '1px solid var(--rule)',
-        borderRight: '1px solid var(--rule)',
-        color: 'inherit',
-        textDecoration: 'none',
-        minWidth: 0,
-      }}
-    >
-      <div style={{ fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase', fontWeight: 500, color: 'var(--ink-3)' }}>
-        {tile.label}
-      </div>
-      <div
-        className="font-serif"
-        style={{ fontSize: 30, lineHeight: 1.1, marginTop: 8, color: valueColor, fontVariantNumeric: 'tabular-nums' }}
-      >
-        {tile.value}
-        {tile.state === 'met' && (
-          <span aria-label="on standard" title="On standard" style={{ fontSize: 14, marginLeft: 8, color: 'var(--ink-3)' }}>✓</span>
-        )}
-      </div>
-      <div style={{ fontSize: 13, marginTop: 6, color: 'var(--ink-2)' }}>{tile.goal}</div>
-      {tile.detail && <div style={{ fontSize: 12, marginTop: 4, color: 'var(--ink-4)' }}>{tile.detail}</div>}
-    </Link>
   );
 }

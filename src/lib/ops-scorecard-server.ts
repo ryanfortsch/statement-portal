@@ -78,7 +78,8 @@ async function readClose(today: string) {
     month,
     monthName: monthName(month),
     due,
-    dueLabel: fmtDay(due),
+    // 'Thu, Oct 29' without the weekday: the line has room for one fact.
+    dueLabel: fmtDay(due).replace(/^[A-Za-z]+, /, ''),
     today,
     open: items.filter((i) => i.status === 'open').length,
     sent: items.filter((i) => i.status !== 'open').length,
