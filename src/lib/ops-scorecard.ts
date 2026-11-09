@@ -32,9 +32,8 @@ export type ScorecardTile = {
   key: 'rating' | 'work' | 'schedule' | 'close' | 'records' | 'winter';
   label: string;
   value: string;
-  /** The standard, in the letter's words. */
-  goal: string;
-  /** One line of what is behind the number. */
+  /** The one quiet line under the number: the goal, and the fact that
+   *  says why it is met or missed. Never more than that. */
   detail: string | null;
   state: TileState;
   href: string;
@@ -43,45 +42,43 @@ export type ScorecardTile = {
 const UNAVAILABLE = 'Unavailable';
 
 export function ratingTile(r: { avg: number | null; total: number } | null): ScorecardTile {
-  const base = { key: 'rating' as const, label: 'Guest rating', goal: `${RATING_GOAL} average`, href: '/guests' };
+  const base = { key: 'rating' as const, label: 'Guest rating', href: '/guests' };
   if (!r) return { ...base, value: UNAVAILABLE, detail: null, state: 'unknown' };
-  if (r.avg == null || r.total === 0) return { ...base, value: 'No reviews', detail: `last ${RATING_WINDOW_DAYS} days`, state: 'idle' };
+  if (r.avg == null || r.total === 0) return { ...base, value: 'No reviews', detail: `goal ${RATING_GOAL} · ${RATING_WINDOW_DAYS} days`, state: 'idle' };
   // Two decimals, rounded down, so 4.979 never reads as the 4.98 it missed.
   const shown = Math.floor(r.avg * 100 + 1e-9) / 100;
   return {
     ...base,
     value: shown.toFixed(2),
-    detail: `${r.total} review${r.total === 1 ? '' : 's'}, last ${RATING_WINDOW_DAYS} days`,
+    detail: `goal ${RATING_GOAL} · ${r.total} review${r.total === 1 ? '' : 's'}`,
     state: shown >= RATING_GOAL ? 'met' : 'off',
   };
 }
 
 export function workTile(w: { open: number; oldestDays: number | null; closed: number; closedWithNote: number } | null): ScorecardTile {
-  const base = {
-    key: 'work' as const,
-    label: 'Work board',
-    goal: `Under ${OPEN_SLIPS_GOAL} open, none over ${OLDEST_SLIP_GOAL_DAYS} days`,
-    href: '/work',
-  };
+  const base = { key: 'work' as const, label: 'Work board', href: '/work' };
   if (!w) return { ...base, value: UNAVAILABLE, detail: null, state: 'unknown' };
-  const parts: string[] = [];
-  if (w.oldestDays != null) parts.push(`oldest ${w.oldestDays} day${w.oldestDays === 1 ? '' : 's'}`);
-  if (w.closed > 0) parts.push(`${w.closedWithNote} of ${w.closed} closed with a note`);
-  const met =
-    w.open < OPEN_SLIPS_GOAL &&
-    (w.oldestDays == null || w.oldestDays <= OLDEST_SLIP_GOAL_DAYS) &&
-    w.closedWithNote === w.closed;
-  return { ...base, value: `${w.open} open`, detail: parts.join(' · ') || null, state: met ? 'met' : 'off' };
+  const tooOld = w.oldestDays != null && w.oldestDays > OLDEST_SLIP_GOAL_DAYS;
+  const notesMissing = w.closedWithNote < w.closed;
+  const met = w.open < OPEN_SLIPS_GOAL && !tooOld && !notesMissing;
+  // One line: the standard that decides the tile today. The count first,
+  // because it is the number above; then the oldest slip; then the notes.
+  const detail =
+    w.open >= OPEN_SLIPS_GOAL ? `goal under ${OPEN_SLIPS_GOAL}`
+    : tooOld ? `oldest ${w.oldestDays} days, goal ${OLDEST_SLIP_GOAL_DAYS}`
+    : notesMissing ? `notes on ${w.closedWithNote} of ${w.closed}`
+    : `under ${OPEN_SLIPS_GOAL}, none over ${OLDEST_SLIP_GOAL_DAYS}`;
+  return { ...base, value: `${w.open} open`, detail, state: met ? 'met' : 'off' };
 }
 
 export function scheduleTile(s: { days: number; sent: number } | null): ScorecardTile {
-  const base = { key: 'schedule' as const, label: 'Cleaner schedule', goal: 'Checked every workday', href: '/turnovers/schedule' };
+  const base = { key: 'schedule' as const, label: 'Cleaner schedule', href: '/turnovers/schedule' };
   if (!s) return { ...base, value: UNAVAILABLE, detail: null, state: 'unknown' };
   if (s.days === 0) return { ...base, value: 'No cleanings', detail: `last ${SCHEDULE_WINDOW_DAYS} days`, state: 'idle' };
   return {
     ...base,
     value: `${s.sent} of ${s.days}`,
-    detail: `days sent, last ${SCHEDULE_WINDOW_DAYS} days`,
+    detail: `days sent, last ${SCHEDULE_WINDOW_DAYS}`,
     state: s.sent >= s.days ? 'met' : 'off',
   };
 }
@@ -90,7 +87,7 @@ export type CloseInput = {
   /** The month whose field handoff is in play, YYYY-MM. */
   month: string;
   monthName: string;
-  /** Its due date, YYYY-MM-DD, and how it prints ("Fri, Nov 27"). */
+  /** Its due date, YYYY-MM-DD, and how it prints ("Nov 27"). */
   due: string;
   dueLabel: string;
   today: string;
@@ -101,7 +98,7 @@ export type CloseInput = {
 };
 
 export function closeTile(c: CloseInput | null): ScorecardTile {
-  const base = { key: 'close' as const, label: 'Statement close', goal: 'Field data on time every month', href: '/fieldwork/close' };
+  const base = { key: 'close' as const, label: 'Statement close', href: '/fieldwork/close' };
   if (!c) return { ...base, value: UNAVAILABLE, detail: null, state: 'unknown' };
   const href = `/fieldwork/close?month=${c.month}`;
   if (c.open > 0) {
@@ -110,15 +107,15 @@ export function closeTile(c: CloseInput | null): ScorecardTile {
       ...base,
       href,
       value: `${c.open} to send`,
-      detail: `${c.monthName}, ${late ? 'was due' : 'due'} ${c.dueLabel}`,
+      detail: `${c.monthName} · ${late ? 'was due' : 'due'} ${c.dueLabel}`,
       state: late ? 'off' : 'idle',
     };
   }
   if (c.sent > 0 && c.lastSentDay) {
     const onTime = c.lastSentDay <= c.due;
-    return { ...base, href, value: onTime ? 'On time' : 'Late', detail: `${c.monthName} sent`, state: onTime ? 'met' : 'off' };
+    return { ...base, href, value: onTime ? 'On time' : 'Late', detail: `${c.monthName} · due ${c.dueLabel}`, state: onTime ? 'met' : 'off' };
   }
-  return { ...base, href, value: 'Nothing yet', detail: `${c.monthName}, due ${c.dueLabel}`, state: 'idle' };
+  return { ...base, href, value: 'Nothing yet', detail: `${c.monthName} · due ${c.dueLabel}`, state: 'idle' };
 }
 
 /** Which month's handoff the tile follows: the previous month until its
@@ -132,12 +129,12 @@ export function closeMonthFor(today: string, closeWindowDay: number): string {
 }
 
 export function recordsTile(r: { homes: number; complete: number } | null): ScorecardTile {
-  const base = { key: 'records' as const, label: 'Home records', goal: 'Rooms and guest notes, every home', href: '/properties' };
+  const base = { key: 'records' as const, label: 'Home records', href: '/properties' };
   if (!r) return { ...base, value: UNAVAILABLE, detail: null, state: 'unknown' };
   return {
     ...base,
     value: `${r.complete} of ${r.homes}`,
-    detail: 'homes with rooms and guest notes',
+    detail: 'rooms and guest notes',
     state: r.homes > 0 && r.complete >= r.homes ? 'met' : 'off',
   };
 }
@@ -149,14 +146,14 @@ export function isWinter(today: string): boolean {
 }
 
 export function winterTile(today: string, w: { empty: number; checked: number } | null): ScorecardTile {
-  const base = { key: 'winter' as const, label: 'Winter care', goal: 'Every empty home checked weekly', href: '/turnovers' };
-  if (!isWinter(today)) return { ...base, value: 'Starts Dec 1', detail: 'December to April', state: 'idle' };
+  const base = { key: 'winter' as const, label: 'Winter care', href: '/turnovers' };
+  if (!isWinter(today)) return { ...base, value: 'Starts Dec 1', detail: 'weekly, Dec to Apr', state: 'idle' };
   if (!w) return { ...base, value: UNAVAILABLE, detail: null, state: 'unknown' };
-  if (w.empty === 0) return { ...base, value: 'No empty homes', detail: 'today', state: 'met' };
+  if (w.empty === 0) return { ...base, value: 'No empty homes', detail: 'nothing to check', state: 'met' };
   return {
     ...base,
     value: `${w.checked} of ${w.empty}`,
-    detail: `empty homes walked, last ${WINTER_CHECK_DAYS} days`,
+    detail: `empty homes, ${WINTER_CHECK_DAYS} days`,
     state: w.checked >= w.empty ? 'met' : 'off',
   };
 }

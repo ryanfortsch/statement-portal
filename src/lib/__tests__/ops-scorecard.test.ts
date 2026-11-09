@@ -22,7 +22,11 @@ describe("the operations scorecard reads the offer letter's standards", () => {
     assert.equal(workTile({ open: 120, oldestDays: 10, closed: 0, closedWithNote: 0 }).state, 'off', '120 is not under 120');
     assert.equal(workTile({ open: 50, oldestDays: 61, closed: 0, closedWithNote: 0 }).state, 'off');
     assert.equal(workTile({ open: 50, oldestDays: 5, closed: 3, closedWithNote: 2 }).state, 'off');
-    assert.equal(workTile({ open: 346, oldestDays: 74, closed: 9, closedWithNote: 6 }).detail, 'oldest 74 days · 6 of 9 closed with a note');
+    // The line names the standard that decides the tile: count, then age, then notes.
+    assert.equal(workTile({ open: 346, oldestDays: 74, closed: 9, closedWithNote: 6 }).detail, 'goal under 120');
+    assert.equal(workTile({ open: 50, oldestDays: 74, closed: 9, closedWithNote: 6 }).detail, 'oldest 74 days, goal 60');
+    assert.equal(workTile({ open: 50, oldestDays: 5, closed: 3, closedWithNote: 2 }).detail, 'notes on 2 of 3');
+    assert.equal(workTile({ open: 50, oldestDays: 5, closed: 3, closedWithNote: 3 }).detail, 'under 120, none over 60');
   });
 
   test('cleaner schedule: every day with cleanings sent', () => {
@@ -32,7 +36,7 @@ describe("the operations scorecard reads the offer letter's standards", () => {
   });
 
   test('statement close: open before the due date waits, after it is late; a send after the due date is late', () => {
-    const c = { month: '2026-11', monthName: 'November', due: '2026-11-27', dueLabel: 'Fri, Nov 27', today: '2026-11-20', open: 3, sent: 0, lastSentDay: null };
+    const c = { month: '2026-11', monthName: 'November', due: '2026-11-27', dueLabel: 'Nov 27', today: '2026-11-20', open: 3, sent: 0, lastSentDay: null };
     assert.equal(closeTile(c).state, 'idle');
     assert.equal(closeTile({ ...c, today: '2026-11-28' }).state, 'off');
     assert.equal(closeTile({ ...c, open: 0, sent: 3, lastSentDay: '2026-11-26' }).value, 'On time');
@@ -62,6 +66,21 @@ describe("the operations scorecard reads the offer letter's standards", () => {
     assert.equal(seesScorecard({ teamRole: null, ownerLogin: false }), false, 'other staff do not see her goals');
     assert.equal(seesScorecard({ teamRole: null, ownerLogin: true }), true);
   });
+});
+
+test('every tile is one line under the number, never a paragraph', () => {
+  const tiles = [
+    ratingTile({ avg: 4.95, total: 175 }),
+    workTile({ open: 350, oldestDays: 142, closed: 210, closedWithNote: 167 }),
+    scheduleTile({ days: 4, sent: 4 }),
+    closeTile({ month: '2026-10', monthName: 'October', due: '2026-10-29', dueLabel: 'Oct 29', today: '2026-11-08', open: 0, sent: 0, lastSentDay: null }),
+    recordsTile({ homes: 24, complete: 3 }),
+    winterTile('2026-11-08', null),
+    winterTile('2027-01-08', { empty: 6, checked: 5 }),
+    workTile({ open: 50, oldestDays: 74, closed: 9, closedWithNote: 6 }),
+    workTile({ open: 50, oldestDays: 5, closed: 3, closedWithNote: 3 }),
+  ];
+  for (const t of tiles) assert.ok((t.detail ?? '').length <= 24, `${t.key}: "${t.detail}" is too long for a six-up strip`);
 });
 
 test('the band sits at the top of the For Me home, and holds no money', () => {
