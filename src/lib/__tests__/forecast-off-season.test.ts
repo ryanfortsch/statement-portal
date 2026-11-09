@@ -6,9 +6,15 @@
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   OFF_SEASON_FACTOR_MIN,
+  RT_SUMMER_FEES_JUL_AUG,
+  RT_WINTER_FEES_JAN_MAR,
+  deepWinterFactor,
+  isDeepWinterMonth,
   isOffSeasonMonth,
+  partBSeasonFactor,
   offSeasonFactor,
   previousMonth,
   realizedForShoulder,
@@ -62,5 +68,51 @@ describe('the factor', () => {
     assert.equal(offSeasonFactor(1000, 10000), OFF_SEASON_FACTOR_MIN);
     assert.equal(offSeasonFactor(0, 14015), 1, 'nothing booked is a gap, not a fact');
     assert.equal(offSeasonFactor(5000, 0), 1);
+  });
+});
+
+describe('January to March follow Rising Tide\'s own winter (2026-11-09)', () => {
+  // The Gloucester revenue curve as forecast-occupancy.ts computes it, to two
+  // decimals (that module reads the AirDNA table and cannot load here).
+  const CURVE = [3.95, 4.56, 5.16, 5.87, 7.17, 10.64, 15.46, 15.73, 9.5, 11.83, 5.45, 4.68].map((v) => v / 100);
+
+  test('the six homes run all winter: January to March was 11% of July plus August', () => {
+    assert.ok(Math.abs(RT_WINTER_FEES_JAN_MAR / RT_SUMMER_FEES_JUL_AUG - 0.1106) < 0.0005);
+  });
+  test('against the curve\'s 44%, that is about a quarter', () => {
+    const f = deepWinterFactor(CURVE);
+    assert.ok(Math.abs(f - 0.2524) < 0.002, `${f}`);
+  });
+  test('only lowers, and learns nothing from nothing', () => {
+    assert.equal(deepWinterFactor(CURVE, 50000, 50000), 1, 'a winter as strong as summer is capped at the curve');
+    assert.equal(deepWinterFactor(CURVE, 0, 50000), 1);
+    assert.equal(deepWinterFactor(CURVE, 1000, 0), 1);
+    assert.equal(deepWinterFactor([], 1000, 10000), 1);
+  });
+  test('January, February and March only', () => {
+    for (const m of ['2027-01', '2027-02', '2027-03', '2028-02']) assert.equal(isDeepWinterMonth(m), true, m);
+    for (const m of ['2026-11', '2026-12', '2027-04', '2027-05', '2027-07', '2027-10']) assert.equal(isDeepWinterMonth(m), false, m);
+  });
+  test('each month takes the right factor', () => {
+    const off = 0.69; // 17 Beach's October reading
+    const w = 0.25;
+    assert.equal(partBSeasonFactor('2027-07', off, w), 1, 'summer is the curve');
+    assert.equal(partBSeasonFactor('2027-09', off, w), 1);
+    assert.equal(partBSeasonFactor('2027-01', off, w), w, 'January is the measured winter, not October\'s reading');
+    assert.equal(partBSeasonFactor('2027-03', off, w), w);
+    assert.equal(partBSeasonFactor('2027-04', off, w), off, 'April keeps the home\'s own reading');
+    assert.equal(partBSeasonFactor('2026-12', off, w), off);
+    assert.equal(partBSeasonFactor('2027-02', 1, w), w, 'a home reading at 100% still gets the measured winter');
+  });
+});
+
+describe('the smart forecast uses the winter rule', () => {
+  const src = readFileSync(new URL('../forecast-smart.ts', import.meta.url), 'utf8');
+  test('Part B takes its season factor from partBSeasonFactor', () => {
+    assert.match(src, /const partB = annualGross \* \(revenueShare\[monthIdx\] \?\? 0\) \* partBSeasonFactor\(ym, offFactor, winterFactor\);/);
+  });
+  test('a January-to-March shoulder is read against the measured winter', () => {
+    assert.match(src, /\(isDeepWinterMonth\(shoulder\.month\) \? winterFactor : 1\)/);
+    assert.match(src, /const winterFactor = deepWinterFactor\(revenueShare\);/);
   });
 });
