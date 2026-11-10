@@ -299,8 +299,9 @@ person's name). It files the `cleaning_review_reports` row `pending` as a Cleani
 Cleaners on the Team inbox. Only Approve sends, through `approveCleaningReview`: claim the report,
 email each enabled schedule recipient covering those homes who has an email on file
 (`cleaner_schedule_recipients.email`, set on Cleaner settings and read apart from
-`RECIPIENT_COLS` so the daily text never depends on it), one language per recipient, the
-`cleaning_review` duty on copy (Ryan, Allie, Delaney), replies to the office. Edit stores the operator's words verbatim; Mark handled clears the
+`RECIPIENT_COLS` so the daily text never depends on it), one language per recipient, from
+`cleaning@risingtidestr.com` (`cleaningReviewSender`), the `cleaning_review` duty on copy (Ryan,
+Allie, Delaney), replies to the office. Edit stores the operator's words verbatim; Mark handled clears the
 week with a reason; Undo brings it back. `cleaning-review-guard.test.ts` keeps the send inside
 approve and the cron to drafting.
 
@@ -1102,7 +1103,7 @@ counted 2026-10-22).
   defaulted), `SUPPLY_CLOSET_CODE` (prints on a claimed packet; unset hides the line; never in
   source)
 - **Email routing**, all defaulted: `STAFF_NOTIFY_EMAILS` (agreement, contract and quote notices),
-  `AUTOMATIONS_REPLY_TO`, `FIELD_FROM_EMAIL`, `READINESS_FROM_EMAIL`, `READINESS_REVIEW_TO`,
+  `AUTOMATIONS_REPLY_TO`, `FIELD_FROM_EMAIL`, `CLEANING_FROM_EMAIL`, `READINESS_FROM_EMAIL`, `READINESS_REVIEW_TO`,
   `READINESS_REVIEW_CC`
 - **Direct guest testimonials**: `GOOGLE_REVIEW_URL`, optional. The Google Business Profile
   review link the staycapeann.com testimonial form's thank-you page offers; unset, the page

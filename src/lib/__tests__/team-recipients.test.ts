@@ -17,6 +17,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   cleaningReviewCopy,
+  cleaningReviewSender,
   creativeLeadEmail,
   dutyEmails,
   fieldPayNotice,
@@ -128,9 +129,19 @@ describe("Friday's cleaning review email copy (2026-11-10)", () => {
   test('Ryan, Allie and Delaney are copied, in roster order', () => {
     assert.deepEqual(cleaningReviewCopy('2026-11-13'), ['ryan@risingtidestr.com', 'allie@risingtidestr.com', 'delaney@risingtidestr.com']);
   });
-  test('the sender takes its copy from the duty', () => {
+  test('it sends from the cleaning role address', () => {
+    const saved = process.env.CLEANING_FROM_EMAIL;
+    delete process.env.CLEANING_FROM_EMAIL;
+    try {
+      assert.equal(cleaningReviewSender(), 'cleaning@risingtidestr.com');
+    } finally {
+      if (saved !== undefined) process.env.CLEANING_FROM_EMAIL = saved;
+    }
+  });
+  test('the sender takes its copy from the duty and its address from the role', () => {
     const src = read('src/lib/cleaning-reviews.ts');
     assert.ok(src.includes('const cc = cleaningReviewCopy();'));
+    assert.ok(src.includes('fromEmail: cleaningReviewSender(),'));
     assert.ok(!/@risingtidestr\.com/.test(src), 'no teammate inbox named in the sender');
   });
 });
