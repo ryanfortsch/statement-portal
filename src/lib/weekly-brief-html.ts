@@ -68,6 +68,8 @@ h1 { font-family: 'Fraunces', Georgia, serif; font-weight: 300; font-size: 34px;
 .ix { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; border-bottom: 1px dotted #d9dcdc; break-inside: avoid; }
 .ix-counts { color: #5b6a70; white-space: nowrap; }
 .ix-high { color: #c85a3a; font-weight: 600; }
+.ix-group { font-size: 8.5px; letter-spacing: .18em; text-transform: uppercase; font-weight: 700; color: #5b6a70; margin: 12px 0 4px; }
+.ix-group:first-child { margin-top: 0; }
 .quiet { margin-top: 12px; font-size: 10.5px; color: #7a878c; }
 .headline { font-family: 'Fraunces', Georgia, serif; font-size: 14.5px; line-height: 1.45; margin-top: 12px; color: #2b3c42; }
 .facts { margin-top: 8px; font-size: 10.5px; color: #5b6a70; }
@@ -154,11 +156,15 @@ function pageOne(b: WeeklyBrief): string {
     : below ? `<span class="ix-high">${below} below five</span>`
     : `${fb.total} review${fb.total === 1 ? '' : 's'}`
   } · p.2</span></div>`;
-  const index = `<div class="index">${feedbackIx}${b.pages
-    .map(
-      (p, i) => `<div class="ix"><span>${esc(p.home.name)}</span><span class="ix-counts">${p.openCount} open${p.highCount ? ` · <span class="ix-high">${p.highCount} high</span>` : ''}${p.notes.length ? ` · ${p.notes.length} flagged` : ''} · p.${i + FIRST_HOME_PAGE}</span></div>`,
-    )
-    .join('')}</div>${b.pages.length ? '' : '<div class="none">No open work at any home.</div>'}`;
+  const ix = (p: HomePage, i: number) =>
+    `<div class="ix"><span>${esc(p.home.name)}</span><span class="ix-counts">${p.openCount} open${p.highCount ? ` · <span class="ix-high">${p.highCount} high</span>` : ''}${p.notes.length ? ` · ${p.notes.length} flagged` : ''} · p.${i + FIRST_HOME_PAGE}</span></div>`;
+  const arriving = b.pages.slice(0, b.arrivingPages).map((p, i) => ix(p, i)).join('');
+  const rest = b.pages.slice(b.arrivingPages).map((p, i) => ix(p, i + b.arrivingPages)).join('');
+  const index = `<div class="index">${feedbackIx}</div>${
+    arriving ? `<div class="ix-group">Check-ins this week</div><div class="index">${arriving}</div>` : ''
+  }${rest ? `<div class="ix-group">${arriving ? 'The rest of the homes' : 'The homes'}</div><div class="index">${rest}</div>` : ''}${
+    b.pages.length ? '' : '<div class="none">No open work at any home.</div>'
+  }`;
   return `<section class="sheet">
     <div class="mast"><span>Rising Tide · Helm weekly</span><span>${esc(longDay(b.today))}</span></div>
     <h1>The week of ${esc(monthDay(b.window.from))}</h1>
@@ -285,6 +291,13 @@ function homeHtml(p: HomePage, pageNumber: number, today: string): string {
       </div>`
     : '';
 
+  const past = p.pastAppointments.length
+    ? `<div class="section">
+        <div class="section-head"><span class="section-title">Past dates, to close out</span><span class="section-note">the day has gone; mark it done or rebook on the Work board</span></div>
+        ${p.pastAppointments.map((a) => `<div class="note"><span class="note-title">${esc(a.title)}</span> <span class="note-date">· ${esc(a.date)}</span></div>`).join('')}
+      </div>`
+    : '';
+
   const sub = [p.home.address, p.home.owner_last].filter((s) => s && s.trim()).join(' · ');
   return `<section class="sheet">
     <div class="mast"><span>Rising Tide · Helm weekly · ${esc(shortDay(today))}</span><span>Page ${pageNumber}</span></div>
@@ -295,6 +308,7 @@ function homeHtml(p: HomePage, pageNumber: number, today: string): string {
     ${notes}
     ${work}
     ${bring}
+    ${past}
   </section>`;
 }
 
