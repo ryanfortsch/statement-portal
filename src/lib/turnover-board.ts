@@ -420,8 +420,21 @@ export function walkSlot(
   return { label: 'Not walked', tone: 'mute', key: null };
 }
 
+/**
+ * Someone is down to walk this arrival today, or was on a day that has
+ * passed, and the house is empty: the walk can start now, however far off
+ * the guest is. Without it a walk planned on the week grid for a quiet
+ * house a week out had no Start anywhere (3 South, 2026-11-10: cleaned
+ * 11/9, guest 11/17, Delaney could not walk it).
+ */
+export function planDayCame(t: Turnover, today: string): boolean {
+  const day = t.plan?.planned_for_date;
+  if (!day || day > today || !t.plan?.assigned_to_email?.trim()) return false;
+  return t.previousCheckout === null || t.previousCheckout <= today;
+}
+
 /** The one verb a row offers. Mark ready and Undo live in the opened row. */
-export function walkVerb(t: Turnover, lc: BoardLifecycle): BoardVerb | null {
+export function walkVerb(t: Turnover, lc: BoardLifecycle, today?: string): BoardVerb | null {
   if (t.inspectionStatus === 'complete') return t.inspection ? 'summary' : null;
   if (t.manuallyCompleted) return null;
   if (t.inspection) return 'resume';
@@ -429,7 +442,7 @@ export function walkVerb(t: Turnover, lc: BoardLifecycle): BoardVerb | null {
   // A live Field packet covers the walk: a staff Start would walk the house
   // twice. A draft is not published to anyone, so it never blocks Start.
   if (fp && fp.status !== 'draft') return fp.status === 'submitted' ? 'review' : null;
-  return lc.due ? 'start' : 'plan';
+  return lc.due || (!!today && planDayCame(t, today)) ? 'start' : 'plan';
 }
 
 // ── the board ─────────────────────────────────────────────────────────
@@ -571,6 +584,8 @@ export function composeBoard(input: BoardInput): Board {
     let day: string;
     if (outBase && outBase.date >= today && outBase.date <= rangeEnd) day = outBase.date;
     else if (live && (!outBase || outBase.date < today)) day = today;
+    // A walk planned for today (or slipped) sits on today, where its Start is.
+    else if (planDayCame(t, today) && !lc.inspected) day = today;
     else day = arriveBase.date;
     if (day < today || day > rangeEnd) continue;
 
@@ -611,7 +626,7 @@ export function composeBoard(input: BoardInput): Board {
       pair: pairText(day, out, arrive),
       cleaner,
       walk: walkSlot(t, lc, today, nameFor),
-      verb: walkVerb(t, lc),
+      verb: walkVerb(t, lc, today),
       done: t.inspectionStatus === 'complete' || t.manuallyCompleted,
       lockMonitored: t.lockMonitored,
       cleanedAt,
