@@ -140,10 +140,10 @@ never key per-stay logic on `bookings.id`.
   Read on the booking detail page. Service role only.
 - **`helm_airbnb_bookings` private schema**: production Channex scope, remote-to-canonical
   booking links, allowlisted revision receipts, and configuration-check status. The
-  proposed pre-ACK migration adds a strict guest contact/address/notes projection
+  November compatibility migration adds a strict guest contact/address/notes projection
   inside the private receipt, not public booking fields; raw provider/payment data
   remain excluded. See `docs/operations/channex-preack-persistence-review.md` for
-  rollout gates and retention review. Scope is
+  activation gates and retention review. Scope is
   pinned to Calderwood's reviewed property/room/rate and starts **disabled**. No direct
   service-role table access. `helm_airbnb_revision_commit` validates the active scope,
   Helm calendar authority and inventory capture, then uses the canonical booking RPCs

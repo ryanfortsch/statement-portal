@@ -29,4 +29,13 @@ const sql = [read('scripts/tests/channex-fixture.sql'), functions,
   read('scripts/tests/channex-delivery.sql')].join('\n');
 const result = spawnSync(psql, ['-X', '-q', '-v', 'ON_ERROR_STOP=1'], { input: sql, encoding: 'utf8' });
 if (result.status) { process.stderr.write(result.stderr); process.exit(result.status); }
+// A release must refuse to replace the contract on an active importer. This
+// fixture has enabled the synthetic import scope; the failed transaction must
+// leave the existing function untouched.
+const guard = spawnSync(psql, ['-X', '-q', '-v', 'ON_ERROR_STOP=1'], {
+  input: read('supabase/migrations/20261110150000_channex_preack_guest_details.sql'), encoding: 'utf8',
+});
+if (guard.status === 0 || !guard.stderr.includes('disable_channex_ingestion_before_migration')) {
+  throw Error('Pre-ACK migration did not refuse the active synthetic importer');
+}
 console.log('PASS: real Postgres booking receipts, canonical writers, inventory invalidation, and permissions');

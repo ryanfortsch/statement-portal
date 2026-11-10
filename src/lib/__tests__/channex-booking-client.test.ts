@@ -29,7 +29,7 @@ test('client checks mapping, reads bounded first page and rechecks revision befo
   await h.client.acknowledge(normalizeAirbnbBookingRevision(row(), mapping));
   assert.equal(h.calls.filter(c => c.method === 'POST').length, 1);
   assert.match(h.calls.at(-2)!.url, new RegExp(id(4) + '$')); assert.match(h.calls.at(-1)!.url, /\/ack$/);
-  const feed = new URL(h.calls[3].url); assert.equal(feed.searchParams.get('filter[property_id]'), id(1)); assert.equal(feed.searchParams.get('pagination[page]'), '1');
+  const feed = new URL(h.calls[3].url); assert.equal(feed.searchParams.has('filter[property_id]'), false); assert.equal(feed.searchParams.get('pagination[page]'), '1');
 });
 test('ACK disabled by default and changed revisions or mapping never POST', async () => {
   const disabled = harness(false); await assert.rejects(() => disabled.client.acknowledge(normalizeAirbnbBookingRevision(row(), mapping))); assert.equal(disabled.calls.length, 0);
@@ -62,5 +62,16 @@ test('changed or masked guest contact at pre-ACK refetch never POSTs', async () 
     h.replies['/booking_revisions/' + id(4)] = { data: changed };
     await assert.rejects(() => h.client.acknowledge(expected));
     assert.equal(h.calls.some(c => c.method === 'POST'), false);
+  }
+});
+test('rate limiting and authentication failures make one request and expose no provider body', async () => {
+  for (const status of [401, 403, 429]) {
+    let calls = 0;
+    const client = createAirbnbRevisionReader({ mapping, apiKey: 'chx_SYNTHETIC_NOT_A_REAL_KEY' }, async () => {
+      calls++;
+      return new Response('PRIVATE_SENTINEL', { status, headers: { 'Retry-After': '60' } });
+    });
+    await assert.rejects(() => client.feed(), e => e instanceof Error && !e.message.includes('PRIVATE_SENTINEL'));
+    assert.equal(calls, 1);
   }
 });

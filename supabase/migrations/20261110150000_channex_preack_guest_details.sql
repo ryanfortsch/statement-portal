@@ -1,8 +1,14 @@
--- Offline proposal: apply only after review and synthetic database validation.
+-- November 2026 compatibility: deploy with the import gate disabled.
 -- Existing private service-only receipt stores the allowlisted guest projection
 -- atomically with the canonical mutation; no new grants or runtime activation.
 begin;
 set local lock_timeout = '5s';
+-- Do not replace the receipt contract while a live importer is running.
+do $$begin
+ perform 1 from helm_airbnb_bookings.scope where singleton for update;
+ if exists(select 1 from helm_airbnb_bookings.scope where enabled)
+ then raise exception 'disable_channex_ingestion_before_migration'; end if;
+end $$;
 create or replace function public.helm_airbnb_revision_commit(p_revision jsonb)
 returns jsonb language plpgsql security definer set search_path=pg_catalog,public,pg_temp as $$
 declare
@@ -31,7 +37,10 @@ begin
  or exists(select 1 from jsonb_each(p_revision->'guestDetails') where
    jsonb_typeof(value) not in ('string','null') or length(value #>> '{}')>2000
    or (value #>> '{}') like '%***%'
-   or (value #>> '{}') ~ '[0-9]([ -]?[0-9]){12,18}'
+   or (key <> 'phone' and (value #>> '{}') ~ '[0-9]([ -]?[0-9]){12,18}')
+   or (key = 'phone' and (length(value #>> '{}')>64
+     or (value #>> '{}') !~ '^\+?[0-9 ().-]*$'
+     or length(regexp_replace(value #>> '{}','[^0-9]','','g'))>15))
    or (value #>> '{}') ~* '\m(cvv|cvc|card.?number|security.?code|password|passport|social.?security)\M')
  then raise exception 'invalid_guest_details'; end if;
  rid:=(p_revision->>'revisionId')::uuid; remote:=(p_revision->>'bookingId')::uuid;

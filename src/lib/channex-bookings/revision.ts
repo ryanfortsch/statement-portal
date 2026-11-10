@@ -11,9 +11,13 @@ import { nights, record, revisionTime } from './primitives.ts';
 const guestText = z.string().max(2000).refine(v => !v.includes('***') &&
   !/(?:\d[ -]?){13,19}/.test(v) &&
   !/\b(?:cvv|cvc|card.?number|security.?code|password|passport|social.?security)\b/i.test(v));
+// A telephone may legitimately contain 13–15 digits. Validate that field as a
+// phone, preserving its exact formatting, instead of treating it as free text.
+const guestPhone = z.string().max(64).regex(/^\+?[0-9 ().-]*$/)
+  .refine(v => v.replace(/[^0-9]/g, '').length <= 15);
 export const guestDetailsSchema = z.object({
   name: guestText.nullable(), surname: guestText.nullable(), mail: guestText.nullable(),
-  phone: guestText.nullable(), address: guestText.nullable(), city: guestText.nullable(),
+  phone: guestPhone.nullable(), address: guestText.nullable(), city: guestText.nullable(),
   state: guestText.nullable().optional(), country: guestText.nullable(), zip: guestText.nullable(), notes: guestText.nullable(),
 }).strict();
 function guestDetails(a: Record<string, unknown>) {

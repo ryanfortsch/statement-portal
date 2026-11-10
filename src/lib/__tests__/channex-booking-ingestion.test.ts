@@ -111,3 +111,14 @@ test('masked replay preserves the original unmasked receipt and does not ACK aga
   assert.deepEqual(h.receipts.get(id(4)), original);
   assert.equal(h.events.filter(e => e.startsWith('ack:')).length, 1);
 });
+test('legacy receipt without guest projection cannot satisfy the new acknowledgment gate', async () => {
+  const h = harness(), commit = h.store.commit;
+  h.store.commit = async revision => {
+    const receipt = await commit(revision) as AirbnbBookingReceipt;
+    const legacy = { ...receipt.revision } as Record<string, unknown>;
+    delete legacy.guestDetails;
+    return { ...receipt, revision: legacy };
+  };
+  await assert.rejects(() => ingestAirbnbBookingRevisions(h.client, h.store, mapping));
+  assert.equal(h.events.some(e => e.startsWith('ack:')), false);
+});

@@ -115,6 +115,8 @@ do $$declare before_receipt jsonb; bad jsonb; begin
    jsonb_set(channex_synthetic_revision(1,'2026-11-06T15:00:00.000001Z'),'{guestDetails,unexpected}','null'),
    jsonb_set(channex_synthetic_revision(1,'2026-11-06T15:00:00.000001Z'),'{guestDetails,mail}','"***"'),
    jsonb_set(channex_synthetic_revision(1,'2026-11-06T15:00:00.000001Z'),'{guestDetails,notes}','"4111 1111 1111 1111"'),
+   jsonb_set(channex_synthetic_revision(1,'2026-11-06T15:00:00.000001Z'),'{guestDetails,phone}','"+1234567890123456"'),
+   jsonb_set(channex_synthetic_revision(1,'2026-11-06T15:00:00.000001Z'),'{guestDetails,phone}','"***"'),
    jsonb_set(channex_synthetic_revision(1,'2026-11-06T15:00:00.000001Z'),'{guestDetails}','{}')] loop
   begin perform helm_airbnb_revision_commit(bad); raise exception 'expected guest rejection';
   exception when others then if sqlerrm<>'invalid_guest_details' then raise;end if;end;
@@ -123,6 +125,9 @@ do $$declare before_receipt jsonb; bad jsonb; begin
 end$$;
 
 begin;
+select pg_temp.assert_true(helm_airbnb_revision_commit(
+ jsonb_set(channex_synthetic_revision(989,'2026-11-06T14:00:00.000000Z'),'{guestDetails,phone}','"+123456789012345"')
+ )#>>'{revision,guestDetails,phone}'='+123456789012345','international phone retained without alteration');
 select pg_temp.assert_true(helm_airbnb_revision_commit(
  jsonb_set(channex_synthetic_revision(990,'2026-11-06T14:00:00.000001Z'),'{guestDetails,state}','"MA"')
  )#>>'{revision,guestDetails,state}'='MA','populated state retained');

@@ -69,3 +69,15 @@ test('notice null semantics and optional state are preserved without guessing AC
   const allNull = { ...raw, attributes: { ...raw.attributes, customer: Object.fromEntries(Object.keys(raw.attributes.customer).map(k => [k, null])) } };
   assert.ok(Object.values(normalizeAirbnbBookingRevision(allNull, mapping).guestDetails).every(v => v === null));
 });
+test('international phone formatting survives retention; masked and oversized phones do not', () => {
+  for (const phone of ['+123456789012345', '+1 (202) 555-0100', '', null]) {
+    const raw = fixture();
+    const withPhone = { ...raw, attributes: { ...raw.attributes, customer: { ...raw.attributes.customer, phone } } };
+    assert.equal(normalizeAirbnbBookingRevision(withPhone, mapping).guestDetails.phone, phone);
+  }
+  for (const phone of ['***', '+1234567890123456', 'CVV 123', '1'.repeat(65)]) {
+    const raw = fixture();
+    const withPhone = { ...raw, attributes: { ...raw.attributes, customer: { ...raw.attributes.customer, phone } } };
+    assert.throws(() => normalizeAirbnbBookingRevision(withPhone, mapping));
+  }
+});
