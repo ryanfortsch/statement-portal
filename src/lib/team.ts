@@ -37,7 +37,7 @@ export type TeamAccess = 'owner' | 'staff';
  * she answered every dispute before).
  * `weekly_brief`: receives the Tuesday 6 AM brief, the printable PDF of the
  * operations goals, the week's check-ins and each home's open work
- * (/api/cron/weekly-brief). Dotti (2026-11-09).
+ * (/api/cron/weekly-brief). Dotti (2026-11-09) and Ryan (2026-11-10).
  * Notices resolve through `src/lib/team-recipients.ts`; nothing in the app
  * should name a teammate's inbox directly.
  */
@@ -86,7 +86,7 @@ export const TEAM_MEMBERS: TeamMember[] = [
     role: 'principal',
     access: 'owner',
     active: true,
-    duties: ['field_pay', 'countersign', 'dispatch'],
+    duties: ['field_pay', 'countersign', 'dispatch', 'weekly_brief'],
   },
   {
     email: 'allie@risingtidestr.com',
