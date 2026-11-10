@@ -7,12 +7,13 @@ import { defaultPricingPolicy, previewPricing, pricingPolicySchema, type Pricing
 import type { PricingProfile, PricingRunSummary } from '@/lib/dynamic-pricing-store';
 import PricingInsights from './PricingInsights';
 import PricingHistory from './PricingHistory';
+import PricingCalendar from './PricingCalendar';
+import {etStamp} from '@/lib/stable-time';
 import type {PricingObservationRecord,PricingTracking} from '@/lib/dynamic-pricing-observations';
 import { capturePricingObservationAction,setPricingTrackingAction,savePricingEvidenceAction, publishPricingAction, refreshPricingAction, reviewPricingAction, savePricingAction, undoPricingAction } from './actions';
 
 export const livePricingServices={save:savePricingAction,refresh:refreshPricingAction,review:reviewPricingAction,publish:publishPricingAction,undo:undoPricingAction,evidence:savePricingEvidenceAction,observe:capturePricingObservationAction,tracking:setPricingTrackingAction};
 export type PricingServices=typeof livePricingServices;
-const money=(n:number|null)=>n===null?'—':new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:2}).format(n/100);
 const months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const weekdays=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const inputClass='mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm';
@@ -31,9 +32,10 @@ export default function PricingWorkbench({propertyId,name,authority,initialPolic
   const [evidenceVersion,setEvidenceVersion]=useState(initialEvidenceVersion);
   const [observations,setObservations]=useState(initialObservations),[tracking,setTracking]=useState(initialTracking),[collectorEnabled,setCollectorEnabled]=useState(scheduledCaptureEnabled);
   const captureRequest=useRef<string|null>(null);
-  const [view,setView]=useState('all');const {ask}=useConfirm();
-  const dirty=!profile||JSON.stringify(policy)!==JSON.stringify(profile.policy)||mode!==profile.mode;
-  useUnsavedWorkGuard(dirty);
+  const [section,setSection]=useState<'prices'|'occupancy'|'history'|'rules'|'data'>('prices');const {ask}=useConfirm();
+  const changed=JSON.stringify(policy)!==JSON.stringify(profile?.policy??initialPolicy)||mode!==(profile?.mode??'shadow');
+  const dirty=!profile||changed;
+  useUnsavedWorkGuard(changed);
   const computed=useMemo(()=>{const parsed=pricingPolicySchema.safeParse(policy);
     return parsed.success?{preview:previewPricing(parsed.data,snapshot,new Date(snapshot.observedAt)),errors:[]}:
       {preview:null,errors:parsed.error.issues.map(i=>`${i.path.join('.')}: ${i.message}`)};
@@ -51,47 +53,58 @@ export default function PricingWorkbench({propertyId,name,authority,initialPolic
     setObservations(r.value.observations);setTracking(r.value.tracking);setCollectorEnabled(r.value.scheduledCaptureEnabled);
     setEvidenceVersion(r.value.evidenceVersion);setSnapshot(r.value.snapshot);setProfile(r.value.profile);setPolicy(r.value.policy);setMode(r.value.profile?.mode??'shadow');setRuns(r.value.runs);setReview(null);
   }
-  const filtered=preview?.days.filter(d=>view==='all'||(view==='eligible'?d.eligible:!d.eligible))??[];
-  return <div className="space-y-6">
-    <section className="rounded-2xl border border-teal-200 bg-teal-50 p-5">
-      <div className="flex flex-wrap items-start justify-between gap-4"><div><h2 className="font-semibold text-teal-950">{name}</h2>
-        <p className="mt-1 text-sm text-teal-900">{profile?.mode==='helm_direct'?'Connected to Helm direct rates · manual publishing':'Comparison mode · existing prices stay in control'}</p></div>
-        <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-teal-800">Model v3 · prototype</span></div>
-      <p className="mt-3 text-sm text-teal-900">Helm combines your calendar, reviewed evidence and explicit pricing rules. Market data can be imported for comparison; automatic market feeds and OTA publishing are not connected.</p>
-    </section>
-    {error&&<p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{error}</p>}
-    {message&&<p role="status" className="rounded-xl bg-emerald-50 p-4 text-sm text-emerald-900">{message}</p>}
-    <PricingInsights propertyId={propertyId} snapshot={snapshot} preview={preview} policy={policy} busy={busy}
-      onUseLearned={base=>{setPolicy(p=>({...p,baseCents:Math.max(p.floorCents,Math.min(p.ceilingCents,base)),priceShape:'history'}));setReview(null);}}
-      onSave={async data=>{return perform(async()=>{const r=await services.evidence({propertyId,data,version:evidenceVersion});if(!r.ok)throw Error(r.error);
-        setSnapshot(r.value.snapshot);setEvidenceVersion(r.value.evidenceVersion);setReview(null);setMessage('Evidence saved. No live rates changed.');});}}/>
-    <PricingHistory observations={observations} tracking={tracking} scheduledCaptureEnabled={collectorEnabled} busy={busy} canCapture={!dirty}
+  async function saveRules() {return perform(async()=>{
+    const r=await services.save({propertyId,policy,mode,version:profile?.version??0});if(!r.ok)throw Error(r.error);
+    setProfile(r.value);setReview(null);setMessage('Rules saved. Rates unchanged.');
+  });}
+  return <div className="space-y-5 rounded-xl border bg-white p-4 sm:p-6">
+    <header className="flex flex-wrap items-start justify-between gap-3">
+      <div><h2 className="text-xl font-semibold">{name}</h2><p className="mt-1 text-xs text-slate-500">{profile?.mode==='helm_direct'?'Helm direct · manual publishing':'Compare only · no rate sync'} · {authority==='helm'?'Helm':'Guesty'} calendar · {etStamp(snapshot.observedAt)}</p></div>
+      <div className="flex items-center gap-3">
+        {busy&&<span role="status" className="text-xs text-slate-500">Updating…</span>}
+        <Button size="sm" variant="quiet" disabled={busy} onClick={()=>perform(async()=>{if(changed&&!await ask({title:'Discard unsaved rules?',body:'Reload the saved rules and current calendar.',confirmLabel:'Discard and refresh'}))return;await refresh();setMessage('Calendar refreshed.');})}>Refresh</Button>
+        {dirty&&<Button variant="primary" size="sm" disabled={busy||!preview} onClick={()=>void saveRules()}>{busy?'Working…':changed?'Save changes':'Save rules'}</Button>}
+      </div>
+    </header>
+    <div role="group" aria-label="Pricing views" className="flex gap-1 overflow-x-auto border-b pb-3">{([
+      ['prices','Prices'],['occupancy','Occupancy'],['history','History'],['rules','Rules'],['data','Data'],
+    ] as const).map(([id,label])=><Button key={id} size="sm" variant={section===id?'primary':'quiet'} className="shrink-0 !px-2 !py-2 !text-xs !normal-case !tracking-normal sm:!text-sm" aria-pressed={section===id} onClick={()=>setSection(id)}>{label}{id==='rules'&&changed?' *':''}</Button>)}</div>
+    {error&&<p role="alert" className="border-l-2 border-red-600 pl-3 text-sm text-red-800">{error}</p>}
+    {message&&<p role="status" className="text-sm text-slate-600">{message}</p>}
+    {changed&&section!=='rules'&&<p className="text-sm text-amber-800">Previewing unsaved rules.</p>}
+    {computed.errors.length>0&&<div role="alert" className="text-sm text-red-700"><p>{computed.errors.join(' · ')}</p><Button variant="quiet" size="sm" onClick={()=>setSection('rules')}>Fix rules</Button></div>}
+    <div hidden={section!=='prices'}><PricingCalendar key={review?.id??'draft'} snapshot={snapshot} preview={preview} policy={policy} onRules={()=>setSection('rules')}/></div>
+    <PricingInsights view={section==='occupancy'?'occupancy':section==='data'?'data':section==='prices'?'prices':'hidden'} propertyId={propertyId} snapshot={snapshot} preview={preview} policy={policy} busy={busy}
+      onUseLearned={base=>{setPolicy(p=>({...p,baseCents:Math.max(p.floorCents,Math.min(p.ceilingCents,base)),priceShape:'history'}));setReview(null);setSection('rules');}}
+      onSave={async data=>perform(async()=>{const r=await services.evidence({propertyId,data,version:evidenceVersion});if(!r.ok)throw Error(r.error);
+        setSnapshot(r.value.snapshot);setEvidenceVersion(r.value.evidenceVersion);setReview(null);setMessage('Data updated. Prepare a new review before publishing.');})}/>
+    <div hidden={section!=='history'}><PricingHistory observations={observations} tracking={tracking} scheduledCaptureEnabled={collectorEnabled} busy={busy} canCapture={!dirty}
       onCapture={()=>void perform(async()=>{const requestId=captureRequest.current??crypto.randomUUID();captureRequest.current=requestId;
         const r=await services.observe({propertyId,requestId});if(!r.ok)throw Error(r.error);
-        await refresh();captureRequest.current=null;setMessage('Dated comparison recorded. No rates changed.');})}
+        await refresh();captureRequest.current=null;setMessage('Snapshot saved.');})}
       onTracking={enabled=>void perform(async()=>{const r=await services.tracking({propertyId,enabled,version:tracking.version});if(!r.ok)throw Error(r.error);
-        setTracking(r.value.tracking);setObservations(r.value.observations);setCollectorEnabled(r.value.scheduledCaptureEnabled);setMessage(enabled?'Daily comparison preference saved. This does not publish rates.':'Daily comparison preference stopped.');})}/>
-    <fieldset disabled={busy} className="rounded-2xl border bg-white p-5 sm:p-6">
-      <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-semibold">1. Set the policy</h2>
-        <p className="mt-1 text-sm text-slate-500">Draft values need your review. All prices are per night before taxes, fees and length-of-stay discounts.</p></div>
-        {propertyId==='65_calderwood'&&<Button size="sm" onClick={()=>{setPolicy(defaultPricingPolicy(44500,22500,120000));setReview(null);}}>Use Calderwood starting bounds</Button>}</div>
+        setTracking(r.value.tracking);setObservations(r.value.observations);setCollectorEnabled(r.value.scheduledCaptureEnabled);setMessage(enabled?'Daily history requested.':'Daily history stopped.');})}/></div>
+    <fieldset disabled={busy} hidden={section!=='rules'} className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-semibold">Pricing rules</h2>
+        <p className="mt-1 text-sm text-slate-500">Nightly rates before taxes and fees.</p></div>
+        {propertyId==='65_calderwood'&&<Button size="sm" onClick={()=>{setPolicy(defaultPricingPolicy(44500,22500,120000));setReview(null);}}>Reset starting prices</Button>}</div>
       <div className="mt-5 grid gap-4 sm:grid-cols-3">
         <NumberField label="Minimum nightly price ($)" value={policy.floorCents/100} step={0.01} onChange={n=>modify('floorCents',Math.round(n*100))}/>
         <NumberField label="Base nightly price ($)" value={policy.baseCents/100} step={0.01} onChange={n=>modify('baseCents',Math.round(n*100))}/>
         <NumberField label="Maximum nightly price ($)" value={policy.ceilingCents/100} step={0.01} onChange={n=>modify('ceilingCents',Math.round(n*100))}/>
       </div>
-      <div className="mt-5 grid gap-4 sm:grid-cols-2"><label className="text-sm">Price shape<select className={inputClass} value={policy.priceShape} onChange={e=>modify('priceShape',e.target.value as PricingPolicy['priceShape'])}>
-        <option value="manual">My monthly / weekday assumptions</option><option value="history">Learn from historical booked rates</option><option value="market">Normalize market asking prices to my base</option></select></label>
+      <div className="mt-5 grid gap-4 sm:grid-cols-2"><label className="text-sm">Seasonal pricing<select className={inputClass} value={policy.priceShape} onChange={e=>modify('priceShape',e.target.value as PricingPolicy['priceShape'])}>
+        <option value="manual">Manual monthly and weekday factors</option><option value="history">Historical booked rates</option><option value="market">Market asking prices, scaled to my base</option></select></label>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={policy.marketPacingEnabled} onChange={e=>modify('marketPacingEnabled',e.target.checked)}/>Adjust for market pace and seven-day pickup</label></div>
-      <p className="mt-2 text-xs text-slate-500">Market shape needs at least 180 future priced dates and evidence no older than 36 hours. Shape options replace the manual seasonal factors; they do not stack them. Market pace is a bounded Helm heuristic.</p>
-      <details className="mt-6 border-t pt-4" open><summary className="cursor-pointer font-medium">Seasonality and weekday assumptions</summary>
-        <p className="my-3 text-sm text-slate-500">1.00 keeps the base price; 1.20 adds 20%. These are your assumptions. Neutral values do not capture Cape Ann’s summer demand.</p>
+      <p className="mt-2 text-xs text-slate-500">Market pricing requires 180 priced dates updated within 36 hours.</p>
+      <details className="mt-6 border-t pt-4"><summary className="cursor-pointer font-medium">Monthly and weekday factors</summary>
+        <p className="my-3 text-sm text-slate-500">1.00 keeps the base price; 1.20 adds 20%. Used with manual seasonal pricing.</p>
         <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">{months.map((label,i)=><NumberField key={label} label={label} step={0.05} value={policy.monthlyFactors[i]}
           onChange={n=>modify('monthlyFactors',policy.monthlyFactors.map((v,j)=>j===i?n:v))}/>)}</div>
         <div className="mt-4 grid grid-cols-4 gap-3 sm:grid-cols-7">{weekdays.map((label,i)=><NumberField key={label} label={label} step={0.05} value={policy.weekdayFactors[i]}
           onChange={n=>modify('weekdayFactors',policy.weekdayFactors.map((v,j)=>j===i?n:v))}/>)}</div>
       </details>
-      <details className="mt-5 border-t pt-4"><summary className="cursor-pointer font-medium">Lead time, occupancy and discount limits</summary>
+      <details className="mt-5 border-t pt-4"><summary className="cursor-pointer font-medium">Discounts and premiums</summary>
         <div className="my-4 grid gap-4 sm:grid-cols-3">
           <NumberField label="Same-day discount (%)" value={policy.lastMinuteDiscountPct} onChange={n=>modify('lastMinuteDiscountPct',n)}/>
           <NumberField label="Discount fades over (days)" value={policy.lastMinuteDays} onChange={n=>modify('lastMinuteDays',n)}/>
@@ -102,7 +115,7 @@ export default function PricingWorkbench({propertyId,name,authority,initialPolic
           <NumberField label="Maximum change for publishing (%)" value={policy.maxChangePct} onChange={n=>modify('maxChangePct',n)}/>
         </div>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={policy.occupancyEnabled} onChange={e=>modify('occupancyEnabled',e.target.checked)}/>Adjust for booked occupancy versus my targets</label>
-        <p className="my-2 text-sm text-slate-500">Booked ÷ sellable nights. Owner blocks are excluded. This is on-the-books occupancy, not a forecast or a market comparison. Each percentage point off target changes price by 0.5%, up to the limit.</p>
+        <p className="my-2 text-sm text-slate-500">Uses booked occupancy, excluding blocks. Each point off target adjusts price by 0.5%, up to your limit.</p>
         <div className="my-4 grid gap-4 sm:grid-cols-4">{['Next 15 nights target (%)','Nights 16–30 target (%)','Nights 31–60 target (%)'].map((label,i)=><NumberField key={label} label={label} value={policy.occupancyTargets[i]}
           onChange={n=>modify('occupancyTargets',policy.occupancyTargets.map((v,j)=>j===i?n:v))}/>)}
           <NumberField label="Occupancy adjustment limit (%)" value={policy.occupancyMaxAdjustmentPct} onChange={n=>modify('occupancyMaxAdjustmentPct',n)}/></div>
@@ -120,7 +133,7 @@ export default function PricingWorkbench({propertyId,name,authority,initialPolic
           <NumberField label="Minimum booking value ($; 0 disables)" value={policy.minimumBookingCents/100} onChange={n=>modify('minimumBookingCents',Math.round(n*100))}/>
           <NumberField label="Minimum after booked/block night (0 disables)" value={policy.adjacentMinNights} onChange={n=>modify('adjacentMinNights',n)}/>
         </div>
-        <p className="my-2 text-xs text-slate-500">Booking-value minimum divides the desired accommodation value by this night’s rate. It is a stay-length heuristic, not a quote guarantee. Event overrides, gap relaxation and the lowest permitted minimum then apply.</p>
+        <p className="my-2 text-xs text-slate-500">Booking-value rules set a minimum stay, not a guaranteed booking total.</p>
         <label className="my-3 flex items-center gap-2 text-sm"><input type="checkbox" checked={policy.orphanPreservesEvents} onChange={e=>modify('orphanPreservesEvents',e.target.checked)}/>Preserve event minimums even inside short gaps</label>
         {policy.lastMinStays.map((r,i)=><div key={i} className="my-3 grid grid-cols-4 gap-3"><NumberField label={`Last minute ${i+1}: within days`} value={r.withinDays} onChange={n=>modify('lastMinStays',policy.lastMinStays.map((v,j)=>j===i?{...v,withinDays:n}:v))}/><NumberField label={`Last minute ${i+1}: weekdays`} value={r.weekday} onChange={n=>modify('lastMinStays',policy.lastMinStays.map((v,j)=>j===i?{...v,weekday:n}:v))}/><NumberField label={`Last minute ${i+1}: Fri/Sat`} value={r.weekend} onChange={n=>modify('lastMinStays',policy.lastMinStays.map((v,j)=>j===i?{...v,weekend:n}:v))}/><Button onClick={()=>modify('lastMinStays',policy.lastMinStays.filter((_,j)=>i!==j))}>Remove</Button></div>)}
         <Button disabled={policy.lastMinStays.length>=3} onClick={()=>modify('lastMinStays',[...policy.lastMinStays,{withinDays:7+policy.lastMinStays.length*7,weekday:1,weekend:2}])}>Add last-minute stay rule</Button>
@@ -134,7 +147,7 @@ export default function PricingWorkbench({propertyId,name,authority,initialPolic
         </div>)}
       </details>
       <details className="mt-5 border-t pt-4"><summary className="cursor-pointer font-medium">Holidays and events</summary>
-        <p className="my-3 text-sm text-slate-500">Add known events explicitly. Helm does not discover events or estimate their demand yet.</p>
+        <p className="my-3 text-sm text-slate-500">Add dates, a price adjustment and an optional minimum stay.</p>
         {policy.events.map((e,i)=><div key={i} className="my-3 grid items-end gap-3 rounded-lg border p-3 sm:grid-cols-3">
           <label className="text-sm">Event name<input aria-label={`Event ${i+1} name`} className={inputClass} value={e.label} onChange={a=>modify('events',policy.events.map((v,j)=>j===i?{...v,label:a.target.value}:v))}/></label>
           {(['start','end'] as const).map(key=><label key={key} className="text-sm">{key==='start'?'First night':'Last night'}<input aria-label={`Event ${i+1} ${key}`} type="date" className={inputClass} value={e[key]} onChange={a=>modify('events',policy.events.map((v,j)=>j===i?{...v,[key]:a.target.value}:v))}/></label>)}
@@ -146,47 +159,29 @@ export default function PricingWorkbench({propertyId,name,authority,initialPolic
       </details>
       <div className="mt-6 border-t pt-4"><label className="text-sm font-medium">Pricing connection<select className={inputClass} value={mode} onChange={e=>{setMode(e.target.value as typeof mode);setReview(null);}}>
         <option value="shadow">Compare only</option><option value="helm_direct" disabled={authority!=='helm'}>Connect Helm direct rates</option></select></label>
-        <p className="my-3 text-sm text-slate-500">{authority==='guesty'?'This home is still run by Guesty. Compare here; finish calendar cutover before connecting direct rates.':
-          'Connecting enables reviewed, manual publishing. Saving a policy does not change any rates. Switching back to comparison leaves previously published rates in place; use Undo to restore them.'}</p>
-        {computed.errors.length>0&&<p role="alert" className="mb-3 text-sm text-red-700">{computed.errors.join(' · ')}</p>}
-        <Button variant="primary" disabled={!dirty||!preview} onClick={()=>perform(async()=>{
-          const r=await services.save({propertyId,policy,mode,version:profile?.version??0});if(!r.ok)throw Error(r.error);
-          setProfile(r.value);setReview(null);setMessage('Policy saved. No nightly rates changed.');
-        })}>Save policy{dirty?' · unsaved changes':''}</Button>
+        <p className="my-3 text-sm text-slate-500">{authority==='guesty'?'Guesty controls this calendar. Direct publishing is unavailable until cutover.':
+          'Direct publishing requires a review and confirmation. Disconnecting leaves published rates in place; use Undo to restore them.'}</p>
       </div>
     </fieldset>
-    <section className="rounded-2xl border bg-white p-5 sm:p-6"><h2 className="text-lg font-semibold">2. Compare the next 180 nights</h2>
-      <p className="mt-1 text-sm text-slate-500">Current rates: {authority==='helm'?'Helm direct calendar':'Guesty calendar mirror, not a direct PriceLabs feed'}. Snapshot: {snapshot.observedAt.replace('T',' ').slice(0,16)} UTC.</p>
-      <div className="my-5 grid gap-3 sm:grid-cols-3">{preview?.occupancy.map((w,i)=><div key={w.start} className="rounded-xl bg-slate-50 p-4">
-        <p className="text-xs text-slate-500">{['Next 15 nights','Nights 16–30','Nights 31–60'][i]} · booked occupancy</p>
-        <p className="mt-1 text-2xl font-semibold">{w.pct===null?'Unknown':`${Math.round(w.pct)}%`}</p><p className="text-xs text-slate-500">{w.booked} booked / {w.sellable} sellable · {w.unknown} unknown</p></div>)}</div>
-      <ul className="mb-5 list-disc space-y-1 pl-5 text-sm text-amber-800">{preview?.warnings.map(w=><li key={w}>{w}</li>)}</ul>
-      <div className="flex flex-wrap items-center justify-between gap-3"><label className="text-sm">Show <select className="ml-2 rounded border p-2" value={view} onChange={e=>setView(e.target.value)}>
-        <option value="all">All nights</option><option value="eligible">Eligible for publishing</option><option value="held">Kept or needs review</option></select></label>
-        <Button disabled={busy} onClick={()=>perform(async()=>{if(dirty&&!await ask({title:'Reload saved policy?',body:'This replaces your unsaved edits.',confirmLabel:'Reload saved state'}))return;await refresh();setMessage('Saved policy and current calendar loaded.');})}>Refresh saved state</Button></div>
-      <div className="mt-4 max-h-[580px] overflow-auto rounded-xl border"><table className="w-full min-w-[700px] text-left text-sm"><thead className="sticky top-0 bg-slate-100 text-xs uppercase text-slate-600"><tr>
-        {['Night','Current','Helm','Change','Min stay','Decision / explanation'].map(h=><th key={h} className="p-3 font-medium">{h}</th>)}</tr></thead>
-        <tbody>{filtered.map(d=><tr key={d.date} className="border-t"><td className="whitespace-nowrap p-3">{d.date}</td><td className="p-3 tabular-nums">{money(d.currentCents)}</td>
-          <td className="p-3 font-medium tabular-nums">{money(d.recommendedCents)}</td><td className="p-3 tabular-nums">{d.changePct===null?'—':`${d.changePct>0?'+':''}${d.changePct.toFixed(1)}%`}</td><td className="p-3">{d.minNights??'—'}</td>
-          <td className="p-3"><details><summary className={`cursor-pointer ${d.eligible?'text-teal-700':'text-slate-500'}`}>{d.eligible?'Eligible':d.reasons.join('; ')}</summary>
-            <ol className="mt-2 space-y-1 text-xs text-slate-500">{d.steps.map((s,i)=><li key={i}>{s.label}: {s.adjustmentPct?`${s.adjustmentPct.toFixed(1)}% → `:''}{money(s.resultCents)}</li>)}</ol></details></td></tr>)}</tbody></table></div>
-    </section>
-    <section className="rounded-2xl border bg-white p-5 sm:p-6"><h2 className="text-lg font-semibold">3. Review and publish direct rates</h2>
-      <p className="my-3 text-sm text-slate-500">{eligible.length} eligible nights. Nights outside the change limit need policy review. A saved review expires after 5 minutes and is rejected if the calendar or policy changes.</p>
-      <div className="flex flex-wrap gap-3"><Button disabled={busy||dirty||!profile} onClick={()=>perform(async()=>{
-        const r=await services.review(propertyId);if(!r.ok)throw Error(r.error);setSnapshot(r.value.snapshot);setProfile(r.value.profile);setPolicy(r.value.profile.policy);setMode(r.value.profile.mode);
-        setReview({id:r.value.id,createdAt:r.value.createdAt});setMessage('Review saved with a fresh calendar. Inspect the table before publishing.');
-      })}>Prepare publishing review</Button>
-      <Button variant="primary" disabled={busy||dirty||!review||!eligible.length||profile?.mode!=='helm_direct'} onClick={()=>perform(async()=>{
-        if(!review||!await ask({title:`Publish ${eligible.length} nights for ${name}?`,body:'This changes direct-booking nightly rates and minimum stays. Booked nights and manual overrides stay protected. OTA rates are unaffected.',confirmLabel:'Publish direct rates'}))return;
-        const r=await services.publish(review.id);if(!r.ok)throw Error(r.error);await refresh();setMessage(`Published ${r.value} nights to Helm direct rates.`);
-      })}>Publish reviewed direct rates</Button></div>
-      <p className="mt-4 text-sm text-slate-500">Channex / Airbnb / Vrbo: not connected to this engine yet. Scheduled recalculation is also not enabled. Keep PriceLabs syncing until a separately validated channel handoff is complete.</p>
-      {runs.some(r=>r.status==='applied')&&<div className="mt-5 border-t pt-4"><h3 className="font-medium">Recent published batches</h3>{runs.filter(r=>r.status==='applied').map(r=><div key={r.id} className="mt-3 flex items-center justify-between gap-3 text-sm">
-        <span>{r.applied_at?.replace('T',' ').slice(0,16)} UTC</span><Button disabled={busy} onClick={()=>perform(async()=>{
-          if(!await ask({title:'Restore the rates before this batch?',body:'Undo is refused if a later edit changed any affected night.',confirmLabel:'Undo batch'}))return;
-          const result=await services.undo(r.id);if(!result.ok)throw Error(result.error);await refresh();setMessage(`Restored ${result.value} nights.`);
-        })}>Undo batch</Button></div>)}</div>}
-    </section>
+    {(section==='prices'||section==='rules')&&<footer className="flex flex-wrap items-center justify-between gap-4 border-t pt-4" aria-label="Publish rates">
+      <div><p className="text-sm font-medium">{review?`Review ready · ${eligible.length} nights`:`${eligible.length} nights ready for review`}</p>
+        <p className="mt-1 text-xs text-slate-500">{snapshot.days[0]?.date} to {snapshot.days.at(-1)?.date} · {review?`Prepared ${etStamp(review.createdAt)} · expires after 5 minutes`:profile?.mode==='helm_direct'?'Direct bookings only. OTA rates unchanged.':'Compare only. Publishing is off.'}</p></div>
+      <div className="flex flex-wrap gap-2">
+        {profile?.mode!=='helm_direct'?(section!=='rules'&&<Button size="sm" disabled={busy} onClick={()=>setSection('rules')}>Connection settings</Button>):
+          !review?<Button variant="primary" disabled={busy||dirty||!eligible.length} onClick={()=>perform(async()=>{
+            const r=await services.review(propertyId);if(!r.ok)throw Error(r.error);setSnapshot(r.value.snapshot);setProfile(r.value.profile);setPolicy(r.value.profile.policy);setMode(r.value.profile.mode);
+            setReview({id:r.value.id,createdAt:r.value.createdAt});setSection('prices');setMessage('Review ready. Check the proposed rates before publishing.');
+          })}>Review {eligible.length} nights</Button>:
+          <><Button disabled={busy} variant="quiet" onClick={()=>setReview(null)}>Cancel review</Button><Button variant="primary" disabled={busy||dirty||!eligible.length} onClick={()=>perform(async()=>{
+            if(!review||!await ask({title:`Publish ${eligible.length} nights for ${name}?`,body:`Applies across ${snapshot.days[0]?.date} to ${snapshot.days.at(-1)?.date}, not just the displayed month. Updates direct-booking rates and minimum stays. Bookings and manual rates are protected. OTA rates are unchanged.`,confirmLabel:'Publish direct rates'}))return;
+            const r=await services.publish(review.id);if(!r.ok)throw Error(r.error);await refresh();setMessage(`Published ${r.value} nights to Helm direct rates.`);
+          })}>Publish {eligible.length} nights</Button></>}
+      </div>
+    </footer>}
+    {runs.some(r=>r.status==='applied')&&<details className="border-t pt-4"><summary className="cursor-pointer text-sm font-medium">Published batches</summary>{runs.filter(r=>r.status==='applied').map(r=><div key={r.id} className="mt-3 flex items-center justify-between gap-3 text-sm">
+      <span>{r.applied_at?etStamp(r.applied_at):'Published'}</span><Button size="sm" disabled={busy} onClick={()=>perform(async()=>{
+        if(!await ask({title:'Restore the previous rates?',body:'Undo stops if any affected night has been edited since publication.',confirmLabel:'Undo batch'}))return;
+        const result=await services.undo(r.id);if(!result.ok)throw Error(result.error);await refresh();setMessage(`Restored ${result.value} nights.`);
+      })}>Undo batch</Button></div>)}</details>}
   </div>;
 }

@@ -342,6 +342,20 @@ ingestion path before causal price-response claims are possible.
 ## Installation and review
 
 Entry: `/channels/pricing`, owner-only, searchable as **Helm pricing**.
+The workbench opens on a monthly calendar. Select a night for its current/proposed
+rate, minimum stay, reason for review and price calculation. The attention filter
+includes rate checks and missing data; it excludes routine bookings, blocks and
+manual overrides. Table view uses the same month and filter. Dates outside the
+forecast appear unavailable rather than fabricated as open.
+
+Occupancy, history, rules and data have separate views. Draft rules and imports
+survive switching views; a pristine initial policy no longer triggers an unsaved
+work warning. Imports, validation, experimental price sensitivity and model notes
+live under Data. Charts and advanced rules expand on request. Saving rules remains
+separate from publishing. A fresh review resets the price view's filter and states
+its full date range: publication covers eligible nights across that range, not
+only the currently displayed month. The confirmation repeats the scope.
+
 Interactive demo: `/channels/pricing/demo`, also owner-only; its service override
 keeps imports, comparison history/tracking, simulated publishing and undo entirely
 in browser memory. It includes two synthetic earlier captures. It works without
