@@ -1,11 +1,13 @@
 import { buildAvailability, type AvailabilityBooking } from './availability.ts';
 import type { RateDayRow, RatePlanRow } from './rate-plan.ts';
 import { shiftIsoDay } from './sca-quotes-types.ts';
+import { pricingEvidenceSchema, type PricingEvidence } from './dynamic-pricing-evidence.ts';
 import type { PricingSnapshot } from './dynamic-pricing.ts';
 
 /** Only operational calendar fields; no guest identities or booking financials. */
 export type PricingContext = {
   property: { id: string; calendar_authority: string; is_active: boolean; timezone: string | null };
+  evidence?:{data:PricingEvidence;version:number}|null;
   plan: RatePlanRow | null;
   rateDays: RateDayRow[];
   periods: { start_month: number; start_day: number; end_month: number; end_day: number }[];
@@ -35,6 +37,11 @@ export function pricingSnapshot(context: PricingContext, start: string, count: n
         currentCents:usd && d?.price && Number(d.price)>0?Math.round(Number(d.price)*100):null,
         minNights:d?.min_nights??null,protected:false,observedAt:d?.synced_at?new Date(d.synced_at).toISOString():observedAt};
     });
+  }
+  if(context.evidence) {
+    const evidence=pricingEvidenceSchema.parse(context.evidence.data);
+    if(evidence.propertyId!==context.property.id)throw Error('Evidence belongs to another property');
+    snapshot.evidence=evidence;
   }
   return snapshot;
 }

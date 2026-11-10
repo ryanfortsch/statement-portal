@@ -74,3 +74,23 @@ begin
   perform test_assert((select status='preview' from property_pricing_runs where id=other),'failed apply does not mark success');
 end $$;
 select 'dynamic pricing SQL checks passed' as result;
+
+-- Evidence is part of the atomic context, so a newer import invalidates review.
+do $$declare
+  data jsonb := '{"version":1,"propertyId":"pilot","currency":"USD","history":[],"market":[]}';
+  review uuid; begin_date date := (now() at time zone 'America/New_York')::date+4;
+begin
+  perform test_assert(not has_function_privilege('authenticated','helm_save_pricing_evidence(text,jsonb,integer,text)','execute'),'staff cannot import evidence');
+  perform test_assert(not has_table_privilege('anon','property_pricing_evidence','select'),'evidence must remain private');
+  perform test_assert(helm_save_pricing_evidence('pilot',data,0,'owner@test.invalid')=1,'initial evidence version');
+  begin perform helm_save_pricing_evidence('pilot',data,0,'owner@test.invalid');raise exception 'Expected evidence version rejection';
+  exception when others then if sqlerrm <> 'Evidence changed; reload' then raise;end if;end;
+  begin perform helm_save_pricing_evidence('guesty',data,0,'owner@test.invalid');raise exception 'Expected identity rejection';
+  exception when others then if sqlerrm <> 'Evidence identity mismatch' then raise;end if;end;
+  insert into property_pricing_runs(property_id,profile_version,model_version,start_date,end_date,context,recommendations,created_by)
+    select 'pilot',version,'helm-2',begin_date,begin_date+179,helm_pricing_context('pilot',begin_date,begin_date+179),'[]','owner@test.invalid'
+    from property_pricing_profiles where property_id='pilot' returning id into review;
+  perform helm_save_pricing_evidence('pilot',data,1,'owner@test.invalid');
+  begin perform helm_apply_pricing_run(review,'owner@test.invalid');raise exception 'Expected changed evidence rejection';
+  exception when others then if sqlerrm <> 'Calendar changed; refresh the review' then raise;end if;end;
+end $$;

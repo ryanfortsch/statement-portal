@@ -10,24 +10,24 @@ const root=process.cwd(),scratch=await mkdtemp(join(tmpdir(),'helm-pricing-ui-')
 await writeFile(join(scratch,'loader.cjs'),`const ts=require(${JSON.stringify(require.resolve('typescript'))});module.exports=function(s){return ts.transpileModule(s,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext,jsx:ts.JsxEmit.ReactJSX}}).outputText};`);
 await writeFile(join(scratch,'actions.ts'),`
 import {previewPricing} from '${root}/src/lib/dynamic-pricing.ts';
-let profile=null;let runs=[];
+let profile=null;let runs=[];let evidenceVersion=0;
 const fixture=()=>globalThis.pricingFixture;
 export async function savePricingAction(i){profile={property_id:i.propertyId,policy:i.policy,mode:i.mode,version:i.version+1};return {ok:true,value:profile};}
 export async function reviewPricingAction(){return {ok:true,value:{id:'review-fixture',createdAt:new Date().toISOString(),profile,snapshot:fixture().snapshot,preview:previewPricing(profile.policy,fixture().snapshot)}};}
-export async function refreshPricingAction(){return {ok:true,value:{profile,policy:profile?.policy??fixture().policy,snapshot:fixture().snapshot,runs}};}
-export async function publishPricingAction(){if(new URLSearchParams(location.search).has('reject'))return {ok:false,error:'Calendar changed; refresh the review'};runs=[{id:'run-fixture',status:'applied',created_at:new Date().toISOString(),applied_at:new Date().toISOString()}];return {ok:true,value:10};}
+export async function refreshPricingAction(){return {ok:true,value:{profile,policy:profile?.policy??fixture().policy,snapshot:fixture().snapshot,runs,evidenceVersion}};}
+export async function savePricingEvidenceAction(i){fixture().snapshot={...fixture().snapshot,evidence:i.data};evidenceVersion++;return {ok:true,value:{snapshot:fixture().snapshot,evidenceVersion}};}
+export async function publishPricingAction(){if(new URLSearchParams(location.search).has('reject'))return {ok:false,error:'Calendar changed; refresh the review'};runs=[{id:'run-fixture',status:'applied',created_at:new Date().toISOString(),applied_at:new Date().toISOString()}];return {ok:true,value:previewPricing(profile.policy,fixture().snapshot).days.filter(d=>d.eligible).length};}
 export async function undoPricingAction(){runs=[];return {ok:true,value:10};}
 `);
 await writeFile(join(scratch,'entry.tsx'),`
 import React from 'react';import {createRoot} from 'react-dom/client';
 import PricingWorkbench from '${root}/src/app/channels/pricing/PricingWorkbench.tsx';
 import {ConfirmProvider} from '${root}/src/components/ConfirmDialog.tsx';
-import {defaultPricingPolicy} from '${root}/src/lib/dynamic-pricing.ts';
-const now=new Date(),today=now.toISOString().slice(0,10),policy=defaultPricingPolicy(44500,22500,120000);
-const snapshot={today,observedAt:now.toISOString(),lastBookedOn:null,market:[],days:Array.from({length:180},(_,i)=>{
- const date=new Date(Date.parse(today)+i*86400000).toISOString().slice(0,10);return {date,state:i%17===0?'booked':i%13===0?'blocked':'open',currentCents:44500,minNights:2,protected:i===4,observedAt:now.toISOString()};})};
+import {createPricingDemo} from '${root}/src/lib/dynamic-pricing-demo.ts';
+import PricingDemo from '${root}/src/app/channels/pricing/demo/PricingDemo.tsx';
+const {policy,snapshot}=createPricingDemo();snapshot.evidence.propertyId='test_home';
 globalThis.pricingFixture={policy,snapshot};
-createRoot(document.getElementById('root')).render(<ConfirmProvider><main className="mx-auto max-w-7xl p-5"><p className="mb-4 text-sm text-amber-800">Synthetic UI fixture — no production data or writes</p><h1 className="mb-6 text-3xl font-semibold">Helm pricing pilot</h1><PricingWorkbench propertyId="test_home" name="Synthetic harbor home" authority={new URLSearchParams(location.search).has('guesty')?'guesty':'helm'} initialPolicy={policy} initialSnapshot={snapshot} initialProfile={null} initialRuns={[]}/></main></ConfirmProvider>);
+createRoot(document.getElementById('root')).render(<ConfirmProvider><main className="mx-auto max-w-7xl p-5"><p className="mb-4 text-sm text-amber-800">Synthetic UI fixture — no production data or writes</p><h1 className="mb-6 text-3xl font-semibold">Helm pricing pilot</h1>{new URLSearchParams(location.search).has('demo')?<PricingDemo fixture={createPricingDemo()}/>:<PricingWorkbench propertyId="test_home" name="Synthetic harbor home" authority={new URLSearchParams(location.search).has('guesty')?'guesty':'helm'} initialPolicy={policy} initialSnapshot={snapshot} initialProfile={null} initialRuns={[]}/>}</main></ConfirmProvider>);
 `);
 await new Promise((resolve,reject)=>{const c=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.tsx'),output:{path:scratch,filename:'bundle.js'},
   resolve:{extensions:['.ts','.tsx','.js'],modules:[join(root,'node_modules')],alias:{'@':join(root,'src'),'./actions$':join(scratch,'actions.ts')}},

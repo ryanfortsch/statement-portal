@@ -1,8 +1,8 @@
 # Helm pricing: audit and pilot
 
-Reviewed November 8, 2026. **This is an independent rules-based pilot, not a complete
-PriceLabs replacement or a validated revenue optimizer.** No PriceLabs setting was
-changed during the audit. No live rates, connections, or migrations were changed.
+Account reviewed November 8; prototype updated November 10, 2026. **This is an independent pricing prototype with imported evidence, not a complete
+PriceLabs replacement or a validated revenue optimizer.** No PriceLabs pricing or sync setting was
+changed during the audit (the research chart was switched to daily aggregation). No live rates, connections, or migrations were changed.
 
 ## What the account actually costs
 
@@ -88,7 +88,16 @@ Read from the listing's currently applied rules, not inferred from marketing cop
 The dashboard reported 17% adjusted occupancy over the next 30 days, zero nights
 booked in the preceding 7 days and 14 in the preceding 45. Those are a snapshot,
 not a performance diagnosis. PriceLabs' displayed occupancy comparisons use its
-market model; Helm's pilot cannot reproduce those comparisons without that data.
+market model. The prototype now accepts daily exported comparisons, but does not
+reproduce PriceLabs’ proprietary forecasting model.
+
+The base-price helper recommended **$421 instead of $445 (−5%)**, updated
+November 5, with its next update due November 15. It examined booking activity
+October 5–November 2 for stay dates through September 29, 2027: 333 open dates,
+27 dates already booked before that window, and zero newly sold nights versus
+14 for similar properties. That is a specific booking-activity window, not a
+claim that the property had no bookings. The recommendation was inspected only;
+it was not accepted or substituted into Helm’s policy.
 
 Several discounts can compound. For illustration only, 22%, 20%, and 5% discounts
 multiply to 40.72% off their starting amount. Actual nightly output also reflects
@@ -108,52 +117,128 @@ has additional eligibility tests, including recent reservation data, sufficient
 sync history and low occupancy relative to the market. The pilot's inactive
 recency hook does not recreate all of those tests.
 
+## Deeper research and observed data
+
+The listing’s Neighborhood Data currently uses **346 nearby Airbnb listings with
+2–4 bedrooms**; 147 have three bedrooms. The summary showed 57% market occupancy,
+16-day median booking window, three-night stay length and $443 market ADR. These
+are research snapshots, not proposed targets for Calderwood.
+
+The daily export contains 360 dates and 73 dates with holiday/event labels. Its
+columns include current market occupancy, same-time-last-year occupancy, last-year
+final occupancy, seven-day pickup comparisons, asking-price percentiles, booked
+median prices, and PriceLabs’ final rate. The importer was checked against this
+actual export locally. No downloaded account data is committed to the repository.
+
+The [Neighborhood Data guide](https://help.pricelabs.co/portal/en/kb/articles/listing-market-data)
+distinguishes forward asking rates, existing bookings, prior-year outcomes and
+pickup. Those series are kept separate in Helm. Exported market observations are
+**still PriceLabs-sourced**; importing them does not make Helm independent of that
+subscription. A sustained replacement needs its own licensed source or an explicit
+own-history-only strategy.
+
+PriceLabs’ [algorithm overview](https://hello.pricelabs.co/blog/overview-of-pricelabs-dynamic-pricing-algorithm-part-1/)
+explains forecasting, price response and expected-revenue maximization. Its
+[rate-evolution explanation](https://hello.pricelabs.co/blog/overview-of-pricelabs-dynamic-pricing-algorithm-part-2/)
+adds the value of waiting for later booking opportunities. Helm now includes an
+independent Bellman-recursion sandbox demonstrating that mechanism, but its
+elasticity and opportunity probabilities are explicit assumptions, not recovered
+PriceLabs parameters or a calibrated production optimizer.
+
+The [minimum-stay documentation](https://help.pricelabs.co/portal/en/kb/articles/understanding-min-nights)
+provides defaults, lead-time rules, adjacency, overrides, gap relaxation and a hard
+lowest permitted stay. Helm implements this broader structure. Its optional
+preservation of event minimums deliberately differs from the default gap priority;
+a conflicting short gap is flagged rather than silently published as fillable.
+
 ## Feature coverage: explicit boundaries
 
-| Capability | Pilot implementation | Remaining work |
+| Capability | Implemented prototype | Remaining work |
 | --- | --- | --- |
-| Per-property base/min/max | Owner policy, validated USD integer cents | Calibrate each home |
-| Seasonality and weekdays | Editable monthly/day factors | Learned local curves and uncertainty |
-| Forward occupancy | Booked / sellable, 15/15/30-night windows; blocks excluded | Future pickup and final-occupancy forecast |
-| Occupancy response | Explicit owner targets, bounded adjustment | Validated market pacing targets |
-| Lead time | Gradual last-minute discount, far-out premium | Market-derived timing and magnitude |
-| Gaps and minimum stays | Bounded gaps, weekday/weekend/far-out and event rules | Booking-value optimization, richer profiles |
-| Recency | Engine supports it; adapter withholds unreliable timestamps | Original reservation creation provenance |
-| Events | Owner-entered dated adjustments and minimum stays | Local event feed and estimated demand |
-| Competitor / market data | Typed factor input in pure engine; no live feed | Licensed source, coverage, freshness and comp matching |
-| Price elasticity / optimization | Not implemented | Exposure data, cancellations, causal identification, validation |
-| Explainability | Night-by-night adjustment trail | Calibration diagnostics |
-| Guardrails | Combined operational discount cap, bounds, change limit, stale/missing-data checks | Net-margin floors after discounts/channel costs |
-| Historical safety minimum | Not implemented | Comparable-date and holiday matching using trusted realized rates |
-| Direct listing connection | Owner opt-in, review, atomic publish, conflict-safe undo | Pilot acceptance and production installation |
-| OTA publishing | Not connected | Verified Channex mappings, one writer, durable delivery, readback and channel acceptance |
-| Scheduling | Manual reviews only | Daily runs, alerts, leases and rollback drills |
-| Portfolio performance | Current-rate comparison only | Pickup, ADR, RevPAR, revenue, cancellations and experiment dashboard |
-| Groups / bulk profiles | Per-property policy | Inheritance, conflict resolution and controlled bulk rollout |
+| Base/min/max | Reviewed property policy, integer cents | Calibrate each property |
+| Seasonality / weekdays | Manual factors, learned historical shape with shrinkage, or base-anchored market asking-price shape | Independent market feed; distinguish historical provider effects |
+| Forward occupancy | Booked/sellable plus conditional pickup and final-occupancy scenarios | Calibrate on real inventory histories and cancellation snapshots |
+| Market demand / pace | Imported occupancy, same-time baseline, seven-day pickup; bounded price response | Automated licensed source, local comp matching, validation |
+| Lead time | Gradual last-minute and far-out rules | Learn market-specific timing |
+| Minimum stays | Weekday/weekend, last-minute, far-out, booking-value heuristic, after-booking adjacency, gaps, events and hard minimum | Before-booking gap prevention and market-learned stay profiles |
+| Historical safety floor | 110% of matched weekday ADR around 52 weeks earlier, two samples required | Exact holiday matching; trusted accommodation-rate ingestion |
+| Recency | Inactive hook; unreliable import timestamps withheld | Complete source provenance and vendor-equivalent eligibility |
+| Pricing calendar / charts | Daily calendar, rate comparison, market occupancy, monthly property forecast, CSV export | Portfolio aggregation and price-evolution history view |
+| Diagnostics | Coverage, large changes, unfillable gaps, price-floor hits, walk-forward occupancy scores | Forward validation and calibrated uncertainty |
+| Price response / optimization | Explicit elasticity scenario and dynamic programming rate-path experiment | Learned causal response, cancellation/LOS effects and validated net revenue |
+| Evidence storage | Property-scoped, versioned, source/timestamp recorded in each review | Automated data ingestion and provenance audits |
+| Listing connection | Manual owner review, direct-rate publishing, atomic undo | Production installation and pilot approval |
+| OTA publishing / scheduling | Not connected | Verified Channex rate mapping, single writer, journal, readback and daily runs |
+| Groups / bulk profiles | Per-property policies | Inheritance and controlled bulk rollout |
 
-## Pilot model, precisely
+## Model v2, precisely
 
-1. Start from the owner-approved base price; apply monthly and weekday factors.
-2. Apply a fresh, explicitly sourced market factor if provided to the engine;
-   the current production adapter provides none. Then apply an explicit event.
-3. Apply eligible last-minute, below-target occupancy, verified recency and gap
-   discounts. Cap their **combined multiplicative effect**, rather than each
-   discount separately. The cap is relative to the price after step 2.
-4. Apply bounded above-target occupancy and far-out premiums.
-5. Round while respecting the combined discount cap and hard nightly min/max.
-   Hard bounds take precedence when they conflict with the discount cap.
-6. Resolve minimum stay from weekday/weekend, far-out, bounded gap and event
-   rules. An event minimum wins over a gap relaxation.
-7. Hold unavailable/unknown nights and operator overrides. Freshness expires at
-   36 hours. Missing current prices and changes above the owner's review limit
-   cannot be published.
+The operator chooses **one** price shape; these do not stack:
 
-The default occupancy response is half a percent of price per percentage point
-off the owner target, capped by policy. This is an explicit heuristic, **not an
-estimated elasticity**. Occupancy and recency discounts start disabled. The
-Calderwood preset copies observed bounds and selected static rule shapes; it does
-not import PriceLabs' demand estimates. Seasonal and weekday factors start neutral
-and must be reviewed. No unattended publishing is enabled.
+- Manual monthly and weekday factors.
+- Historical shape: median accommodation-only booked nightly rate as a base
+  reference, monthly medians shrunk toward neutral by `n/(n+30)`, then weekday
+  residuals shrunk by `n/(n+40)`. At least 90 priced booked nights across six
+  months are required. Sparse months stay neutral. The base is adopted only
+  through an explicit draft action and remains inside the owner’s bounds.
+- Market shape: nightly median asking price divided by the median of at least
+  180 future priced dates, bounded to 0.5–2.0, multiplied by the owner’s base.
+  This is price positioning, not a booked-demand estimate.
+
+Optional market demand response is `0.5 × occupancy pace difference + 0.25 ×
+seven-day pickup difference` in percentage points, bounded to −20% / +15% price
+adjustment. These coefficients are independent Helm heuristics. Source evidence
+expires after 36 hours. A policy that needs missing/expired evidence is blocked
+from publishing; it does not silently substitute a neutral production price.
+
+Explicit events follow the price shape and market response. Last-minute,
+below-target own occupancy, recency (when available) and gap discounts then apply.
+Their multiplicative total is capped relative to that adjusted starting price.
+Above-target occupancy and far-out premiums follow. Optional historical safety
+floors, rounding and hard min/max follow; hard maximum wins. Explicit events are
+excluded from historical safety-floor matching until holiday correspondence is
+available. Imported event labels are context, not automatic event premiums.
+
+Minimum stay resolves default → last-minute → far-out → booking-value minimum →
+after-booking adjacency → explicit event → optional gap relaxation → hard lowest
+minimum. Booking value is `ceil(target accommodation value / nightly price)`,
+not a guarantee about a multi-night quote. A rule requiring more than 30 nights,
+or more nights than an eligible bounded gap contains, cannot publish.
+
+## Forecasting and testing, precisely
+
+For fresh market observations, projected final market occupancy is last year’s
+final plus half the same-time occupancy difference, bounded between current booked
+occupancy and 100%. Conditional sale probability for a currently open night is
+`(projected final − currently booked) / (1 − currently booked)`. A fully booked
+market cannot supply this remaining-inventory estimate. The ±10-point scenario
+around final occupancy is a sensitivity range, not a statistical confidence band.
+
+Without usable market evidence, historical pickup uses completed inventory nights
+that were still unsold at the equivalent lead time. It prefers matching weekday
+within one month either side of the target month, then pooled weekdays. It needs
+20 eligible nights across three months, at least 90% calendar coverage within the
+cohort, and original booking dates for at least 95% of booked nights. Blocks and
+unknowns never count as open. Laplace smoothing is `(later sales + 1)/(eligible
+nights + 2)`; per-night Wilson bounds describe sampling uncertainty only.
+
+Property forecasts sum existing booked nights and conditional probabilities for
+open nights, divided by sellable nights. Any missing forecast or stale/unknown
+calendar date suppresses that month’s figure. The first/last displayed month may
+be partial, and is labeled as visible nights. Correlation between nights is not
+modeled; summed ranges are not portfolio confidence intervals.
+
+The retrospective check holds out the latest 90 completed nights at 7/30/90-day
+lead times and trains strictly before each cutoff. It reports Brier score,
+predicted/actual sale rates and a no-further-pickup baseline. This guards temporal
+leakage in the calculation; it cannot recreate cancellations, calendar edits or
+information vintage from a final-state CSV. It cannot establish revenue uplift.
+
+The price-response sandbox shifts sale odds by `(price/reference)^(-elasticity)`.
+Its 41-point grid compares expected revenue. A separate Bellman recursion values
+selling in a window plus the option to sell later if unsold. The UI’s three equal
+conditional opportunities are a stated scenario assumption. Neither result feeds
+the production recommendation or publishing path.
 
 ## Data quality and operational integration
 
@@ -173,7 +258,8 @@ minimum net payout or minimum discounted average stay rate.
 Owner access is enforced in navigation, the route and every server action. New
 tables and RPCs are service-role only. Saving is version checked. Publishing
 checks authority, connection, version, a five-minute review expiry, and equality
-of the current calendar context. An identical retry returns the existing result.
+of the current calendar and evidence context. Updating an evidence version
+invalidates an older review even if the rates themselves did not change. An identical retry returns the existing result.
 Undo is refused if a subsequent edit changed any affected night; it is atomic.
 
 The apply transaction briefly locks the small portfolio's calendar tables because
@@ -212,6 +298,9 @@ and remote readback. The existing availability-only integration is unchanged.
 ## Installation and review
 
 Entry: `/channels/pricing`, owner-only, searchable as **Helm pricing**.
+Interactive demo: `/channels/pricing/demo`, also owner-only; its service override
+keeps imports, simulated publishing and undo entirely in browser memory. It works
+without the pricing migration. Reloading resets it.
 Migration: `supabase/migrations/20261108110000_helm_dynamic_pricing.sql`.
 The migration creates dormant storage and functions; it does not connect homes.
 Without it, the page displays a setup message and cannot publish.
@@ -225,7 +314,7 @@ does not erase already published rates.
 Verification commands: `npm test`, `npx tsc --noEmit`, and targeted ESLint for the
 new pricing modules. `scripts/tests/dynamic-pricing.sql` runs against a **fresh,
 local database named `helm_synthetic_pricing` only** and installs minimal fixtures
-plus the real migration. It verifies ACLs, authority, optimistic versions,
+plus the real migration. It verifies ACLs, authority, optimistic profile/evidence versions,
 idempotent apply/undo, preserved restrictions, stale/expired reviews, protected
 rows and all-or-nothing undo conflicts, including a writer that omits an updated
 timestamp. `node scripts/pricing-ui-fixture.mjs` serves the real client component

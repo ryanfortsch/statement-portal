@@ -25,6 +25,31 @@ alter table public.property_pricing_runs enable row level security;
 revoke all on public.property_pricing_profiles, public.property_pricing_runs from anon, authenticated;
 grant all on public.property_pricing_profiles, public.property_pricing_runs to service_role;
 
+-- Imported evidence is versioned separately; it never changes live rates itself.
+create table public.property_pricing_evidence (
+  property_id text primary key references public.properties(id), data jsonb not null,
+  version integer not null default 1, updated_at timestamptz not null default now(), updated_by text not null,
+  check (data->>'propertyId'=property_id), check (data->>'currency'='USD'), check(version>0)
+);
+alter table public.property_pricing_evidence enable row level security;
+revoke all on public.property_pricing_evidence from public, anon, authenticated;
+grant all on public.property_pricing_evidence to service_role;
+create function public.helm_save_pricing_evidence(p_property text,p_data jsonb,p_expected integer,p_actor text)
+returns integer language plpgsql security invoker set search_path=public,pg_temp as $$
+declare v integer;
+begin
+  perform pg_advisory_xact_lock(hashtext('helm_pricing:'||p_property));
+  if not exists(select 1 from properties where id=p_property and is_active) then raise exception 'Active property required'; end if;
+  if p_data->>'propertyId' is distinct from p_property or p_data->>'currency' is distinct from 'USD' then raise exception 'Evidence identity mismatch';end if;
+  select version into v from property_pricing_evidence where property_id=p_property for update;
+  if coalesce(v,0)<>p_expected then raise exception 'Evidence changed; reload';end if;
+  insert into property_pricing_evidence(property_id,data,version,updated_by) values(p_property,p_data,coalesce(v,0)+1,p_actor)
+    on conflict(property_id) do update set data=excluded.data,version=excluded.version,updated_by=excluded.updated_by,updated_at=clock_timestamp();
+  return coalesce(v,0)+1;
+end $$;
+revoke all on function public.helm_save_pricing_evidence(text,jsonb,integer,text) from public, anon, authenticated;
+grant execute on function public.helm_save_pricing_evidence(text,jsonb,integer,text) to service_role;
+
 -- A repeatable snapshot, also compared inside the apply transaction. No guest PII.
 create function public.helm_pricing_context(p_property text, p_start date, p_end date)
 returns jsonb language plpgsql security invoker set search_path = public, pg_temp as $$
@@ -34,6 +59,7 @@ begin
   select jsonb_build_object(
     'property', (select jsonb_build_object('id',id,'calendar_authority',calendar_authority,'is_active',is_active,'timezone',timezone)
       from properties where id=p_property),
+    'evidence', (select jsonb_build_object('data',data,'version',version) from property_pricing_evidence where property_id=p_property),
     'plan', (select to_jsonb(p) from property_rate_plans p where property_id=p_property),
     'rateDays', coalesce((select jsonb_agg(to_jsonb(d) order by date) from property_rate_days d
       where property_id=p_property and date between p_start and p_end),'[]'::jsonb),
@@ -84,7 +110,7 @@ begin
   set local lock_timeout = '3s';
   set local statement_timeout = '10s';
   lock table public.properties, public.property_rate_plans, public.property_rate_days,
-    public.property_rental_periods, public.bookings in share row exclusive mode;
+    public.property_rental_periods, public.bookings, public.property_pricing_evidence in share row exclusive mode;
   select * into r from property_pricing_runs where id=p_run for update;
   if not found then raise exception 'Unknown review'; end if;
   if r.status='applied' then return jsonb_array_length(r.applied_dates); end if;

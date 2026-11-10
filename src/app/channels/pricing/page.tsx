@@ -20,6 +20,7 @@ export default async function PricingPage({searchParams}:{searchParams:Promise<{
     <div className="mt-4 mb-7"><p className="text-xs font-semibold uppercase tracking-widest text-teal-700">Helm · Revenue tools</p>
       <h1 className="mt-2 text-3xl font-semibold tracking-tight">Price each night with a reason.</h1>
       <p className="mt-2 max-w-3xl text-slate-600">Set the rules, compare the calendar, then choose which homes use Helm for direct booking rates.</p></div>
+    <p className="mb-5"><Link className="text-sm font-medium text-teal-700 underline" href="/channels/pricing/demo">Try the interactive demo with sample data →</Link></p>
     <form className="mb-6 flex items-end gap-3" action="/channels/pricing">
       <label className="text-sm font-medium">Property<select name="property" defaultValue={selected?.id} className="mt-1 block rounded-lg border p-2">
         {fleet.map(p=><option key={p.id} value={p.id}>{p.name} · {p.calendar_authority==='helm'?'Helm calendar':'Guesty calendar'}</option>)}</select></label>
@@ -29,6 +30,6 @@ export default async function PricingPage({searchParams}:{searchParams:Promise<{
     {!selected&&<p>No active properties found.</p>}
     {workspace&&selected&&<PricingWorkbench key={selected.id} propertyId={selected.id} name={selected.name}
       authority={selected.calendar_authority} initialPolicy={workspace.policy} initialSnapshot={workspace.snapshot}
-      initialProfile={workspace.profile} initialRuns={workspace.runs} />}
+      initialProfile={workspace.profile} initialRuns={workspace.runs} initialEvidenceVersion={workspace.context.evidence?.version??0} />}
   </main></>;
 }

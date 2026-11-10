@@ -1,14 +1,21 @@
 /** Independent, deterministic pricing policy. No vendor IO or learned-market claims. */
 import { z } from 'zod';
+import { pricingEvidenceSchema } from './dynamic-pricing-evidence.ts';
+import { analyzePricingEvidence, historicalSafetyFloor, marketPaceAdjustment } from './dynamic-pricing-model.ts';
 import { isIsoDay, shiftIsoDay, nightsBetween } from './sca-quotes-types.ts';
 
-export const PRICING_MODEL_VERSION = 'helm-1';
+export const PRICING_MODEL_VERSION = 'helm-2';
 const cents = z.number().int().min(100).max(10000000);
 const pct = z.number().min(0).max(80);
 const iso = z.string().refine(s => isIsoDay(s) && Number.isFinite(Date.parse(s)) && new Date(s).toISOString().slice(0,10) === s, 'Invalid calendar date');
 export const pricingPolicySchema = z.object({
   version: z.literal(1), currency: z.literal('USD'),
   baseCents: cents, floorCents: cents, ceilingCents: cents,
+  priceShape: z.enum(['manual','history','market']).default('manual'), marketPacingEnabled:z.boolean().default(false),
+  safetyFloorEnabled:z.boolean().default(false), safetyFloorAfterDays:z.number().int().min(0).max(499).default(180),
+  lowestMinNights:z.number().int().min(1).max(30).default(1), minimumBookingCents:z.number().int().min(0).max(10000000).default(0),
+  orphanPreservesEvents:z.boolean().default(true), adjacentMinNights:z.number().int().min(0).max(7).default(0),
+  lastMinStays:z.array(z.object({withinDays:z.number().int().min(0).max(90),weekday:z.number().int().min(1).max(30),weekend:z.number().int().min(1).max(30)}).strict()).max(3).default([]),
   monthlyFactors: z.array(z.number().min(0.25).max(4)).length(12),
   weekdayFactors: z.array(z.number().min(0.5).max(2)).length(7),
   lastMinuteDays: z.number().int().min(1).max(90), lastMinuteDiscountPct: pct,
@@ -27,6 +34,7 @@ export const pricingPolicySchema = z.object({
 }).strict().superRefine((p, ctx) => {
   if (p.floorCents > p.baseCents || p.baseCents > p.ceilingCents) ctx.addIssue({ code: 'custom', message: 'Minimum ≤ base ≤ maximum is required' });
   if (p.farOutStart >= p.farOutEnd) ctx.addIssue({ code: 'custom', message: 'Far-out end must follow its start' });
+  if(new Set(p.lastMinStays.map(r=>r.withinDays)).size!==p.lastMinStays.length) ctx.addIssue({code:'custom',message:'Last-minute thresholds must be unique'});
   const events = [...p.events].sort((a,b) => a.start.localeCompare(b.start));
   if (events.some((e,i) => i > 0 && e.start <= events[i-1].end)) ctx.addIssue({ code: 'custom', message: 'Event windows must not overlap' });
   if (new Set(p.farMinStays.map(s => s.afterDays)).size !== p.farMinStays.length) ctx.addIssue({ code: 'custom', message: 'Minimum-stay thresholds must be unique' });
@@ -48,7 +56,7 @@ const pricingDaySchema = z.object({ date: iso, state: z.enum(['open','booked','b
   protected: z.boolean(), observedAt: z.string().datetime(),
 }).strict();
 export type PricingDay = z.infer<typeof pricingDaySchema>;
-const snapshotSchema = z.object({ today: iso, observedAt: z.string().datetime(),
+const snapshotSchema = z.object({ today: iso, observedAt: z.string().datetime(), evidence:pricingEvidenceSchema.optional(),
   days: z.array(pricingDaySchema).max(550), lastBookedOn: iso.nullable(),
   market: z.array(z.object({ date: iso, factor: z.number().min(0.5).max(2),
     observedAt: z.string().datetime(), source: z.string().min(1).max(120) }).strict()).max(500),
@@ -77,8 +85,11 @@ export function previewPricing(policyInput: unknown, snapshotInput: unknown, now
   if (byDate.size !== snap.days.length) throw Error('Duplicate calendar date');
   if (new Set(snap.market.map(d=>d.date)).size !== snap.market.length) throw Error('Duplicate market date');
   if (snap.lastBookedOn && snap.lastBookedOn > snap.today) throw Error('Booking recency date is in the future');
-  const warnings = ['Monthly and weekday factors are operator assumptions, not PriceLabs market forecasts.'];
-  if (!snap.market.length) warnings.push('No independent market-demand feed is connected. Market adjustments are neutral.');
+  const analysis=snap.evidence?analyzePricingEvidence(snap.evidence,snap.today,now):null;
+  const warnings = ['Pricing rules and forecast coefficients are Helm assumptions, not PriceLabs proprietary weights.',...(analysis?.warnings??[])];
+  if(policy.priceShape==='history'&&!analysis?.shape.qualified)warnings.push('Historical price learning is unavailable. Publishing is blocked until qualified data is supplied.');
+  if((policy.priceShape==='market'||policy.marketPacingEnabled)&&!analysis?.marketFresh)warnings.push('Fresh market evidence is required for this policy. Publishing is blocked.');
+  if (!snap.market.length&&!analysis?.marketFresh) warnings.push('No independent market-demand feed is connected. Market adjustments are neutral.');
   if (!fresh(snap.observedAt,at)) warnings.push('Calendar snapshot is stale. Publishing is blocked.');
   if (policy.recencyEnabled && !snap.lastBookedOn) warnings.push('Booking creation date is unavailable. Recency discount is skipped.');
   const occupancy = [[0,14],[15,29],[30,59]].map(([a,b]) => {
@@ -118,8 +129,22 @@ export function previewPricing(policyInput: unknown, snapshotInput: unknown, now
     let value=policy.baseCents;
     steps.push({label:'Base price',adjustmentPct:0,resultCents:value});
     function apply(label:string,factor:number) { value*=factor; steps.push({label,adjustmentPct:(factor-1)*100,resultCents:Math.round(value)}); }
-    apply('Seasonal assumption',policy.monthlyFactors[Number(day.date.slice(5,7))-1]);
-    apply('Day of week',policy.weekdayFactors[dow]);
+    const evidenceMarket=snap.evidence?.market.find(m=>m.date===day.date);
+    if(policy.priceShape==='history'&&analysis?.shape.qualified) {
+      apply('Learned monthly pattern',analysis.shape.monthlyFactors[Number(day.date.slice(5,7))-1]);
+      apply('Learned weekday residual',analysis.shape.weekdayFactors[dow]);
+    } else if(policy.priceShape==='market'&&analysis?.marketFresh&&analysis.marketCenter&&evidenceMarket?.p50Cents) {
+      apply('Market asking-price shape (base anchored)',clamp(evidenceMarket.p50Cents/analysis.marketCenter,0.5,2));
+    } else {
+      apply('Seasonal assumption',policy.monthlyFactors[Number(day.date.slice(5,7))-1]);
+      apply('Day of week',policy.weekdayFactors[dow]);
+      if(policy.priceShape!=='manual')reasons.push('Selected price shape lacks qualified evidence');
+    }
+    if(policy.marketPacingEnabled) {
+      if(analysis?.marketFresh&&evidenceMarket&&evidenceMarket.occupancyPct!==null&&evidenceMarket.sameTimeLastYearPct!==null)
+        apply('Market booking pace and pickup',1+marketPaceAdjustment(evidenceMarket)/100);
+      else reasons.push('Fresh market occupancy and same-time baseline required');
+    }
     const market=snap.market.find(m=>m.date===day.date);
     if(market && fresh(market.observedAt,at)) apply(`Market: ${market.source}`,market.factor);
     else if(market) reasons.push('Stale market observation skipped');
@@ -147,14 +172,26 @@ export function previewPricing(policyInput: unknown, snapshotInput: unknown, now
       if(delta>0) apply('Occupancy above target',1+delta/100);
     }
     if(lead>policy.farOutStart) apply('Far-out premium',1+policy.farOutPremiumPct/100*clamp((lead-policy.farOutStart)/(policy.farOutEnd-policy.farOutStart),0,1));
+    if(policy.safetyFloorEnabled&&lead>policy.safetyFloorAfterDays&&!event&&snap.evidence) {
+      const safety=historicalSafetyFloor(snap.evidence,day.date,snap.today);
+      if(safety!==null&&value<safety){value=safety;steps.push({label:'110% of matched last-year accommodation ADR',adjustmentPct:0,resultCents:value});}
+    }
     value=Math.max(Math.round(clamp(value,policy.floorCents,policy.ceilingCents)/100)*100,
       Math.ceil((discountFloor-1e-7)/100)*100); // rounding must not deepen a capped discount
     value=clamp(value,policy.floorCents,policy.ceilingCents); // rounding can never cross hard bounds
     steps.push({label:'Minimum, maximum and rounding',adjustmentPct:0,resultCents:value});
     let minNights=dow===5||dow===6?policy.weekendMinNights:policy.weekdayMinNights;
+    for(const rule of [...policy.lastMinStays].sort((a,b)=>b.withinDays-a.withinDays)) if(lead<=rule.withinDays) minNights=dow===5||dow===6?rule.weekend:rule.weekday;
     for(const rule of [...policy.farMinStays].sort((a,b)=>a.afterDays-b.afterDays)) if(lead>rule.afterDays) minNights=dow===5||dow===6?rule.weekend:rule.weekday;
-    if(orphan) minNights=Math.min(minNights,gap);
-    if(event?.minNights) minNights=Math.max(minNights,event.minNights);
+    if(policy.minimumBookingCents>0)minNights=Math.max(minNights,Math.ceil(policy.minimumBookingCents/value));
+    const before=byDate.get(shiftIsoDay(day.date,-1));
+    if(policy.adjacentMinNights&&before&&(before.state==='booked'||before.state==='blocked')&&fresh(before.observedAt,at))minNights=Math.min(minNights,policy.adjacentMinNights);
+    if(event?.minNights) minNights=event.minNights;
+    if(orphan&&(!event?.minNights||!policy.orphanPreservesEvents)) minNights=Math.min(minNights,gap);
+    minNights=Math.max(minNights,policy.lowestMinNights);
+    if(minNights>30)reasons.push('Booking-value minimum exceeds supported 30 nights');
+    if(orphan&&minNights>gap)reasons.push('Minimum stay cannot fit this gap');
+    steps.push({label:`Minimum stay: ${minNights} nights`,adjustmentPct:0,resultCents:value});
     result.recommendedCents=value; result.minNights=minNights;
     result.changePct=day.currentCents?100*(value/day.currentCents-1):null;
     if(!fresh(snap.observedAt,at)||!fresh(day.observedAt,at)) reasons.push('Refresh calendar before publishing');

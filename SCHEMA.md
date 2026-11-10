@@ -295,12 +295,14 @@ All service role only. Money is integer cents.
   `src/lib/occupancy-tax.ts` (keyed by property id) and the Guesty
   listing's own tax config are what the statements pipeline and live Guesty
   quotes use today; changing a rate still means all of them agree.
-- **`property_pricing_profiles` / `property_pricing_runs`**: optional Helm pricing
+- **`property_pricing_profiles` / `property_pricing_runs` / `property_pricing_evidence`**: optional Helm pricing
   pilot (migration `20261108110000_helm_dynamic_pricing.sql`). Owner policies and
   versioned comparison/direct connection; immutable review inputs and recommendations,
   publish status and before images for conflict-safe undo. Service-role only. No
   homes connected by migration. `helm_pricing_context`, `helm_save_pricing_profile`,
-  `helm_apply_pricing_run`, and `helm_revert_pricing_run` are the guarded RPCs.
+  `helm_apply_pricing_run`, `helm_revert_pricing_run`, and `helm_save_pricing_evidence` are the guarded RPCs.
+  Evidence holds source-stamped imported market/history data per property; its
+  version is part of the exact publishing context.
   Applied recommendations become `property_rate_days` rows with `source='rule'`.
   Manual direct-rate publishing only; no OTA publisher or schedule. See
   `docs/operations/helm-pricing-pilot.md` for model boundaries and rollout criteria.
