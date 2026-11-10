@@ -58,3 +58,14 @@ test('complete explicit nullable projection is required; unsafe/masked notes fai
   const withRaw = { ...raw, attributes: { ...raw.attributes, raw_message: 'PAYMENT_SENTINEL' } };
   assert.ok(!JSON.stringify(normalizeAirbnbBookingRevision(withRaw, mapping)).includes('PAYMENT_SENTINEL'));
 });
+test('notice null semantics and optional state are preserved without guessing ACK state', () => {
+  const raw = fixture();
+  for (const state of [null, 'MA', '***']) {
+    const withState = { ...raw, attributes: { ...raw.attributes, customer: { ...raw.attributes.customer, state } } };
+    if (state === '***') assert.throws(() => normalizeAirbnbBookingRevision(withState, mapping));
+    else assert.equal(normalizeAirbnbBookingRevision(withState, mapping).guestDetails.state, state);
+  }
+  assert.equal(Object.hasOwn(normalizeAirbnbBookingRevision(raw, mapping).guestDetails, 'state'), false);
+  const allNull = { ...raw, attributes: { ...raw.attributes, customer: Object.fromEntries(Object.keys(raw.attributes.customer).map(k => [k, null])) } };
+  assert.ok(Object.values(normalizeAirbnbBookingRevision(allNull, mapping).guestDetails).every(v => v === null));
+});

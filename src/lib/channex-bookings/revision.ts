@@ -14,13 +14,14 @@ const guestText = z.string().max(2000).refine(v => !v.includes('***') &&
 export const guestDetailsSchema = z.object({
   name: guestText.nullable(), surname: guestText.nullable(), mail: guestText.nullable(),
   phone: guestText.nullable(), address: guestText.nullable(), city: guestText.nullable(),
-  country: guestText.nullable(), zip: guestText.nullable(), notes: guestText.nullable(),
+  state: guestText.nullable().optional(), country: guestText.nullable(), zip: guestText.nullable(), notes: guestText.nullable(),
 }).strict();
 function guestDetails(a: Record<string, unknown>) {
   const customer = record(a.customer);
   // Absence is not proof of an empty field. Require the full provider projection.
   return guestDetailsSchema.parse(Object.fromEntries([
     ...['name', 'surname', 'mail', 'phone', 'address', 'city', 'country', 'zip'].map(k => [k, customer[k]]),
+    ...(Object.hasOwn(customer, 'state') ? [['state', customer.state]] : []),
     ['notes', a.notes],
   ]));
 }

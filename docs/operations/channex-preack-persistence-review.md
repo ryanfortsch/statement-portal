@@ -6,7 +6,8 @@ preview, or deploy as part of this patch. The inspection-only runtime is unchang
 ## Contract
 
 The revision now requires a complete explicit nullable projection of customer
-name, surname, mail, phone, address, city, country and zip, plus booking notes.
+name, surname, mail, phone, address, city, country and zip, plus booking notes. State is preserved when present (including
+explicit null); absence remains absence because the published example omits it.
 Missing, masked (`***`), oversized, structurally invalid or suspicious text fails
 closed before persistence/ACK. Optional-field omission semantics must be verified
 against current provider documentation and representative synthetic fixtures before
@@ -46,3 +47,17 @@ duplicate/lost-response replay and pre-ACK contact changes. The guarded database
 suite uses a fresh temporary loopback PostgreSQL instance with synthetic data only;
 it exercises canonical writes, original-receipt replay, masked/payment refusal,
 overlap rollback, inventory events and the existing service-only permissions.
+
+## Original notice/example verified November 10
+
+Source email: https://mail.google.com/mail/u/?authuser=ryan%40risingtidestr.com#all/1a1c5ac057e98dd0
+Provider example: https://docs.channex.io/api-v.1-documentation/bookings-collection#masked-booking-message
+
+The notice explicitly says existing nulls stay null after ACK. The example mixes
+null address/zip with masked populated contact fields and notes, and retains name
+and surname. It omits state, although the notice includes state among masked fields.
+The original draft missed state; the follow-up fixes that gap without treating
+omission as null. Null alone does not prove ACK status, and unchanged names do not
+prove a record is unmasked. We refuse any masked retained field and never erase a
+prior receipt. Raw_message remains intentionally excluded: this is operational
+projection retention, not a claim to archive the full upstream payload.

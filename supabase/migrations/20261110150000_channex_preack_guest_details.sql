@@ -25,8 +25,9 @@ begin
  -- Strict operational projection only: no raw_message, guarantee or arbitrary keys.
  if jsonb_typeof(p_revision->'guestDetails') is distinct from 'object'
  then raise exception 'invalid_guest_details'; end if;
- if (select count(*) from jsonb_object_keys(p_revision->'guestDetails'))<>9
+ if (select count(*) from jsonb_object_keys(p_revision->'guestDetails')) not in (9,10)
  or not ((p_revision->'guestDetails') ?& array['name','surname','mail','phone','address','city','country','zip','notes'])
+ or exists(select 1 from jsonb_object_keys(p_revision->'guestDetails') k where k not in ('name','surname','mail','phone','address','city','state','country','zip','notes'))
  or exists(select 1 from jsonb_each(p_revision->'guestDetails') where
    jsonb_typeof(value) not in ('string','null') or length(value #>> '{}')>2000
    or (value #>> '{}') like '%***%'

@@ -111,6 +111,8 @@ do $$declare before_receipt jsonb; bad jsonb; begin
  before_receipt:=helm_airbnb_revision_receipt('10000000-0000-4000-8000-000000000001');
  perform pg_temp.assert_true(before_receipt#>>'{revision,guestDetails,mail}'='guest@example.invalid','durable guest contact');
  foreach bad in array array[
+   jsonb_set(channex_synthetic_revision(1,'2026-11-06T15:00:00.000001Z'),'{guestDetails,state}','"***"'),
+   jsonb_set(channex_synthetic_revision(1,'2026-11-06T15:00:00.000001Z'),'{guestDetails,unexpected}','null'),
    jsonb_set(channex_synthetic_revision(1,'2026-11-06T15:00:00.000001Z'),'{guestDetails,mail}','"***"'),
    jsonb_set(channex_synthetic_revision(1,'2026-11-06T15:00:00.000001Z'),'{guestDetails,notes}','"4111 1111 1111 1111"'),
    jsonb_set(channex_synthetic_revision(1,'2026-11-06T15:00:00.000001Z'),'{guestDetails}','{}')] loop
@@ -119,3 +121,12 @@ do $$declare before_receipt jsonb; bad jsonb; begin
  end loop;
  perform pg_temp.assert_true(before_receipt=helm_airbnb_revision_receipt('10000000-0000-4000-8000-000000000001'),'masked retry never overwrites');
 end$$;
+
+begin;
+select pg_temp.assert_true(helm_airbnb_revision_commit(
+ jsonb_set(channex_synthetic_revision(990,'2026-11-06T14:00:00.000001Z'),'{guestDetails,state}','"MA"')
+ )#>>'{revision,guestDetails,state}'='MA','populated state retained');
+select pg_temp.assert_true(helm_airbnb_revision_commit(
+ jsonb_set(channex_synthetic_revision(991,'2026-11-06T14:00:00.000002Z'),'{guestDetails,state}','null')
+ )#>'{revision,guestDetails,state}'='null'::jsonb,'explicit state null retained');
+rollback;
