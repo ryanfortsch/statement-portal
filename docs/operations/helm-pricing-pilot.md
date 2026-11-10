@@ -347,6 +347,11 @@ rate, minimum stay, reason for review and price calculation. The attention filte
 includes rate checks and missing data; it excludes routine bookings, blocks and
 manual overrides. Table view uses the same month and filter. Dates outside the
 forecast appear unavailable rather than fabricated as open.
+The calendar uses separate visual states for booked, blocked, manual and review
+nights. A wide workbench keeps the price inspector beside it; narrower views open
+a keyboard-accessible drawer, or a bottom sheet on phones. Closing the detail
+returns to the selected date. Initial rules can be saved from Rules; unsaved
+changes surface Save changes in the header.
 
 Occupancy, history, rules and data have separate views. Draft rules and imports
 survive switching views; a pristine initial policy no longer triggers an unsaved

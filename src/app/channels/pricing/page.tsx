@@ -21,20 +21,20 @@ export default async function PricingPage({searchParams}:{searchParams:Promise<{
   return <>
       <HelmMasthead />
       <GuestyWritesNotice scope={selected?{kind:'home',guestyRun:selected.calendar_authority!=='helm',otaReadsHelm:false}:{kind:'unknown'}} />
-    <HelmHero plain eyebrow="" title="Helm pricing" />
-    <main className="mx-auto w-full max-w-7xl px-4 pb-8 sm:px-8">
-    <Link href="/channels" className="text-sm text-slate-500">← Channels</Link>
-    <form className="my-5 flex flex-wrap items-end gap-3" action="/channels/pricing">
-      <label className="text-sm font-medium">Property<select name="property" defaultValue={selected?.id} className="mt-1 block rounded-lg border p-2">
-        {fleet.map(p=><option key={p.id} value={p.id}>{p.name} · {p.calendar_authority==='helm'?'Helm calendar':'Guesty calendar'}</option>)}</select></label>
-      <Button type="submit" size="sm">Open</Button>
-      <Link className="ml-auto py-2 text-sm text-slate-500 underline" href="/channels/pricing/demo">Sample property</Link>
-    </form>
+    <div className="pricing-page-shell"><header className="pricing-page-heading">
+      <HelmHero plain eyebrow="" title="Helm pricing" paddingTop={16} paddingBottom={16}/>
+      <form className="pricing-property-picker" action="/channels/pricing">
+        <label className="sr-only" htmlFor="pricing-property">Property</label><select id="pricing-property" name="property" defaultValue={selected?.id}>
+          {fleet.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>
+        <Button type="submit" size="sm">Open</Button>
+      </form>
+      <Link href="/channels/pricing/demo">Sample property</Link>
+    </header><main>
     {error&&<p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-5">{error}</p>}
     {!selected&&<EmptyState>No active properties found.</EmptyState>}
     {workspace&&selected&&<PricingWorkbench key={selected.id} propertyId={selected.id} name={selected.name}
       authority={selected.calendar_authority} initialPolicy={workspace.policy} initialSnapshot={workspace.snapshot}
       initialProfile={workspace.profile} initialRuns={workspace.runs} initialEvidenceVersion={workspace.context.evidence?.version??0}
       initialObservations={history?.observations} initialTracking={history?.tracking} scheduledCaptureEnabled={history?.scheduledCaptureEnabled} />}
-  </main><HelmFooter module="Pricing" right="" /></>;
+  </main></div><HelmFooter module="Pricing" right="" /></>;
 }

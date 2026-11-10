@@ -8,6 +8,8 @@ import type { PricingProfile, PricingRunSummary } from '@/lib/dynamic-pricing-st
 import PricingInsights from './PricingInsights';
 import PricingHistory from './PricingHistory';
 import PricingCalendar from './PricingCalendar';
+import PricingIcon from './PricingIcon';
+import './pricing.css';
 import {etStamp} from '@/lib/stable-time';
 import type {PricingObservationRecord,PricingTracking} from '@/lib/dynamic-pricing-observations';
 import { capturePricingObservationAction,setPricingTrackingAction,savePricingEvidenceAction, publishPricingAction, refreshPricingAction, reviewPricingAction, savePricingAction, undoPricingAction } from './actions';
@@ -41,6 +43,7 @@ export default function PricingWorkbench({propertyId,name,authority,initialPolic
       {preview:null,errors:parsed.error.issues.map(i=>`${i.path.join('.')}: ${i.message}`)};
   },[policy,snapshot]);
   const preview=computed.preview,eligible=preview?.days.filter(d=>d.eligible)??[];
+  const dateRange=[snapshot.days[0]?.date,snapshot.days.at(-1)?.date].filter(Boolean).map(date=>new Date(date+'T12:00:00Z').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric',timeZone:'UTC'})).join(' – ');
   const modify=<K extends keyof PricingPolicy>(key:K,value:PricingPolicy[K])=>{setPolicy(p=>({...p,[key]:value}));setReview(null);};
   async function perform(work:()=>Promise<void>) {
     if(busy)return false;setBusy(true);setError('');setMessage('');
@@ -57,36 +60,38 @@ export default function PricingWorkbench({propertyId,name,authority,initialPolic
     const r=await services.save({propertyId,policy,mode,version:profile?.version??0});if(!r.ok)throw Error(r.error);
     setProfile(r.value);setReview(null);setMessage('Rules saved. Rates unchanged.');
   });}
-  return <div className="space-y-5 rounded-xl border bg-white p-4 sm:p-6">
-    <header className="flex flex-wrap items-start justify-between gap-3">
-      <div><h2 className="text-xl font-semibold">{name}</h2><p className="mt-1 text-xs text-slate-500">{profile?.mode==='helm_direct'?'Helm direct · manual publishing':'Compare only · no rate sync'} · {authority==='helm'?'Helm':'Guesty'} calendar · {etStamp(snapshot.observedAt)}</p></div>
-      <div className="flex items-center gap-3">
-        {busy&&<span role="status" className="text-xs text-slate-500">Updating…</span>}
-        <Button size="sm" variant="quiet" disabled={busy} onClick={()=>perform(async()=>{if(changed&&!await ask({title:'Discard unsaved rules?',body:'Reload the saved rules and current calendar.',confirmLabel:'Discard and refresh'}))return;await refresh();setMessage('Calendar refreshed.');})}>Refresh</Button>
-        {dirty&&<Button variant="primary" size="sm" disabled={busy||!preview} onClick={()=>void saveRules()}>{busy?'Working…':changed?'Save changes':'Save rules'}</Button>}
+  return <div className="helm-pricing">
+    <header className="pricing-workbench-header">
+      <div><h2 className="pricing-property-title">{name}</h2><p className="pricing-property-meta">{authority==='helm'?'Helm':'Guesty'} calendar · Updated {etStamp(snapshot.observedAt)}</p></div>
+      <div className="pricing-header-actions">
+        <Button variant="quiet" className="pricing-connection" data-connected={profile?.mode==='helm_direct'||undefined} onClick={()=>setSection('rules')}>{profile?.mode==='helm_direct'?'Helm direct':'Compare only'}</Button>
+        <Button variant="quiet" className="pricing-icon-button" aria-label="Refresh calendar" title="Refresh calendar" disabled={busy} onClick={()=>perform(async()=>{if(changed&&!await ask({title:'Discard unsaved rules?',body:'Reload the saved rules and current calendar.',confirmLabel:'Discard and refresh'}))return;await refresh();setMessage('Calendar refreshed.');})}><PricingIcon name="refresh"/></Button>
+        {changed&&<Button variant="primary" size="sm" disabled={busy||!preview} onClick={()=>void saveRules()}>{busy?'Working…':'Save changes'}</Button>}
+        {busy&&<span role="status" className="sr-only">Updating pricing</span>}
       </div>
     </header>
-    <div role="group" aria-label="Pricing views" className="flex gap-1 overflow-x-auto border-b pb-3">{([
+    <div role="group" aria-label="Pricing views" className="pricing-tabs">{([
       ['prices','Prices'],['occupancy','Occupancy'],['history','History'],['rules','Rules'],['data','Data'],
-    ] as const).map(([id,label])=><Button key={id} size="sm" variant={section===id?'primary':'quiet'} className="shrink-0 !px-2 !py-2 !text-xs !normal-case !tracking-normal sm:!text-sm" aria-pressed={section===id} onClick={()=>setSection(id)}>{label}{id==='rules'&&changed?' *':''}</Button>)}</div>
-    {error&&<p role="alert" className="border-l-2 border-red-600 pl-3 text-sm text-red-800">{error}</p>}
-    {message&&<p role="status" className="text-sm text-slate-600">{message}</p>}
-    {changed&&section!=='rules'&&<p className="text-sm text-amber-800">Previewing unsaved rules.</p>}
+    ] as const).map(([id,label])=><Button key={id} variant="quiet" className="pricing-tab" aria-pressed={section===id} onClick={()=>setSection(id)}>{label}{id==='rules'&&changed?' *':''}</Button>)}</div>
+    {error&&<p role="alert" className="pricing-feedback">{error}</p>}
+    {message&&<p role="status" className="pricing-feedback text-slate-600">{message}</p>}
+    {changed&&section!=='rules'&&<p className="pricing-feedback text-amber-800">Previewing unsaved rules.</p>}
     {computed.errors.length>0&&<div role="alert" className="text-sm text-red-700"><p>{computed.errors.join(' · ')}</p><Button variant="quiet" size="sm" onClick={()=>setSection('rules')}>Fix rules</Button></div>}
     <div hidden={section!=='prices'}><PricingCalendar key={review?.id??'draft'} snapshot={snapshot} preview={preview} policy={policy} onRules={()=>setSection('rules')}/></div>
     <PricingInsights view={section==='occupancy'?'occupancy':section==='data'?'data':section==='prices'?'prices':'hidden'} propertyId={propertyId} snapshot={snapshot} preview={preview} policy={policy} busy={busy}
       onUseLearned={base=>{setPolicy(p=>({...p,baseCents:Math.max(p.floorCents,Math.min(p.ceilingCents,base)),priceShape:'history'}));setReview(null);setSection('rules');}}
       onSave={async data=>perform(async()=>{const r=await services.evidence({propertyId,data,version:evidenceVersion});if(!r.ok)throw Error(r.error);
         setSnapshot(r.value.snapshot);setEvidenceVersion(r.value.evidenceVersion);setReview(null);setMessage('Data updated. Prepare a new review before publishing.');})}/>
-    <div hidden={section!=='history'}><PricingHistory observations={observations} tracking={tracking} scheduledCaptureEnabled={collectorEnabled} busy={busy} canCapture={!dirty}
+    <div className="pricing-panel" hidden={section!=='history'}><PricingHistory observations={observations} tracking={tracking} scheduledCaptureEnabled={collectorEnabled} busy={busy} canCapture={!dirty}
       onCapture={()=>void perform(async()=>{const requestId=captureRequest.current??crypto.randomUUID();captureRequest.current=requestId;
         const r=await services.observe({propertyId,requestId});if(!r.ok)throw Error(r.error);
         await refresh();captureRequest.current=null;setMessage('Snapshot saved.');})}
       onTracking={enabled=>void perform(async()=>{const r=await services.tracking({propertyId,enabled,version:tracking.version});if(!r.ok)throw Error(r.error);
         setTracking(r.value.tracking);setObservations(r.value.observations);setCollectorEnabled(r.value.scheduledCaptureEnabled);setMessage(enabled?'Daily history requested.':'Daily history stopped.');})}/></div>
-    <fieldset disabled={busy} hidden={section!=='rules'} className="space-y-4">
+    <fieldset disabled={busy} hidden={section!=='rules'} className="pricing-panel space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-semibold">Pricing rules</h2>
         <p className="mt-1 text-sm text-slate-500">Nightly rates before taxes and fees.</p></div>
+        {!profile&&!changed&&<Button variant="primary" size="sm" disabled={busy||!preview} onClick={()=>void saveRules()}>Save rules</Button>}
         {propertyId==='65_calderwood'&&<Button size="sm" onClick={()=>{setPolicy(defaultPricingPolicy(44500,22500,120000));setReview(null);}}>Reset starting prices</Button>}</div>
       <div className="mt-5 grid gap-4 sm:grid-cols-3">
         <NumberField label="Minimum nightly price ($)" value={policy.floorCents/100} step={0.01} onChange={n=>modify('floorCents',Math.round(n*100))}/>
@@ -163,9 +168,9 @@ export default function PricingWorkbench({propertyId,name,authority,initialPolic
           'Direct publishing requires a review and confirmation. Disconnecting leaves published rates in place; use Undo to restore them.'}</p>
       </div>
     </fieldset>
-    {(section==='prices'||section==='rules')&&<footer className="flex flex-wrap items-center justify-between gap-4 border-t pt-4" aria-label="Publish rates">
+    {(section==='prices'||section==='rules')&&<footer className="pricing-publish-bar" aria-label="Publish rates">
       <div><p className="text-sm font-medium">{review?`Review ready · ${eligible.length} nights`:`${eligible.length} nights ready for review`}</p>
-        <p className="mt-1 text-xs text-slate-500">{snapshot.days[0]?.date} to {snapshot.days.at(-1)?.date} · {review?`Prepared ${etStamp(review.createdAt)} · expires after 5 minutes`:profile?.mode==='helm_direct'?'Direct bookings only. OTA rates unchanged.':'Compare only. Publishing is off.'}</p></div>
+        <p className="mt-1 text-xs text-slate-500">{dateRange} · {review?`Prepared ${etStamp(review.createdAt)} · expires after 5 minutes`:profile?.mode==='helm_direct'?'Direct bookings only. OTA rates unchanged.':'Compare only. Publishing is off.'}</p></div>
       <div className="flex flex-wrap gap-2">
         {profile?.mode!=='helm_direct'?(section!=='rules'&&<Button size="sm" disabled={busy} onClick={()=>setSection('rules')}>Connection settings</Button>):
           !review?<Button variant="primary" disabled={busy||dirty||!eligible.length} onClick={()=>perform(async()=>{
@@ -173,7 +178,7 @@ export default function PricingWorkbench({propertyId,name,authority,initialPolic
             setReview({id:r.value.id,createdAt:r.value.createdAt});setSection('prices');setMessage('Review ready. Check the proposed rates before publishing.');
           })}>Review {eligible.length} nights</Button>:
           <><Button disabled={busy} variant="quiet" onClick={()=>setReview(null)}>Cancel review</Button><Button variant="primary" disabled={busy||dirty||!eligible.length} onClick={()=>perform(async()=>{
-            if(!review||!await ask({title:`Publish ${eligible.length} nights for ${name}?`,body:`Applies across ${snapshot.days[0]?.date} to ${snapshot.days.at(-1)?.date}, not just the displayed month. Updates direct-booking rates and minimum stays. Bookings and manual rates are protected. OTA rates are unchanged.`,confirmLabel:'Publish direct rates'}))return;
+            if(!review||!await ask({title:`Publish ${eligible.length} nights for ${name}?`,body:`Applies across ${dateRange}, not just the displayed month. Updates direct-booking rates and minimum stays. Bookings and manual rates are protected. OTA rates are unchanged.`,confirmLabel:'Publish direct rates'}))return;
             const r=await services.publish(review.id);if(!r.ok)throw Error(r.error);await refresh();setMessage(`Published ${r.value} nights to Helm direct rates.`);
           })}>Publish {eligible.length} nights</Button></>}
       </div>

@@ -12,9 +12,12 @@ export default async function PricingDemoPage(){
   return <>
       <HelmMasthead />
       <GuestyWritesNotice scope={{kind:'unknown'}} />
-    <HelmHero plain eyebrow="" title="Helm pricing" />
-    <main className="mx-auto w-full max-w-7xl px-4 pb-8 sm:px-8"><Link href="/channels/pricing" className="text-sm text-slate-500">← Property pricing</Link>
-      <p className="my-4 text-xs text-slate-500">Sample data. Changes stay in this browser and reset on reload.</p>
+    <div className="pricing-page-shell"><header className="pricing-page-heading">
+      <HelmHero plain eyebrow="" title="Helm pricing" paddingTop={16} paddingBottom={16}/>
+      <Link href="/channels/pricing">Property pricing</Link>
+      <p>Sample data</p>
+    </header><main>
       <PricingDemo fixture={createPricingDemo()}/>
-    </main><HelmFooter module="Pricing" right="" /></>;
+      <p className="pricing-demo-note">Sample data. Changes stay in this browser and reset on reload.</p>
+    </main></div><HelmFooter module="Pricing" right="" /></>;
 }
