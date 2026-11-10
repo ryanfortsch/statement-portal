@@ -313,6 +313,8 @@ export type CleaningReviewCardData = {
   recipients: string[];
   /** Enabled crew on the schedule list with no email on file. */
   missingEmail: string[];
+  /** Who rides on copy, by first name (the cleaning_review duty). */
+  copy: string[];
 };
 
 export const STUCK_CLAIM_MS = 5 * 60_000;

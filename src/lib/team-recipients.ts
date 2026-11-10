@@ -72,6 +72,13 @@ export function creativeLeadEmail(today: string = todayET()): string {
   return dutyEmails('creative', today)[0] ?? officeNotice(today).to;
 }
 
+/** Who is copied on Friday's cleaning review email to the crew, in roster
+ *  order. With nobody holding the duty, operations stands in. */
+export function cleaningReviewCopy(today: string = todayET()): string[] {
+  const copy = dutyEmails('cleaning_review', today);
+  return copy.length ? copy : operationsEmails(today);
+}
+
 /** Who receives the Tuesday brief (/api/cron/weekly-brief), in roster order. */
 export function weeklyBriefEmails(today: string = todayET()): string[] {
   return dutyEmails('weekly_brief', today);
