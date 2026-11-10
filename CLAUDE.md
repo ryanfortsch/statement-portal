@@ -68,7 +68,7 @@ supabase/migrations/   302 migrations
 scripts/               parity harnesses and one-off tools (see Testing below)
 ```
 
-**37 cron routes, 36 schedules, and that is correct.** `/api/cron/reviews-to-slips` is a manual
+**38 cron routes, 37 schedules, and that is correct.** `/api/cron/reviews-to-slips` is a manual
 and backfill trigger on purpose; the recurring work runs at the end of `/api/cron/sync-guesty`.
 Do not "fix" it by adding a schedule.
 `/api/cron/channex-production` checks the disabled production Channex configuration
@@ -285,18 +285,24 @@ unclear day or home is a question on the card. A home is matched by street numbe
 word with dates stripped, never by a bare number, because "Wed 10/21" is not 21 Horton.
 `vendor-visit-guard.test.ts` holds the never-write-before-approve rule.
 
-**A cleaning rating never texts by itself** (`docs/cleaning-reviews.md`, since 2026-11-07). Every
-walk ends on one question, How was the clean?, and `completeInspection` stores the answer once per
-walk in `cleaning_reviews` through `saveCleaningReview`. Five stars is stored and nothing more. Four
-or fewer (`CLEANING_FLAG_MAX` in `src/lib/cleaning-reviews-core.ts`) renders the crew note in
-Portuguese with the English beside it (our template around the inspector's reason, which goes
-through `cleaner-note.ts`'s model pass; the home, the day, the stars, the photo links, never a
-person's name) and files it `pending`. The Team inbox shows it under Cleaners as a Cleaning card
-on the one approval card. Only Approve sends, through `approveCleaningReview`: claim the row, read
-the cleaner schedule's enabled recipients for the home's region, one language per recipient, from
-the Rising Tide line. Edit stores the operator's words verbatim and remakes the English; Mark
-handled clears with a reason; Undo brings it back. `cleaning-review-guard.test.ts` keeps
-`sendMessage` inside approve and nowhere else.
+**A cleaning rating never reaches the crew by itself** (`docs/cleaning-reviews.md`, since
+2026-11-07; one weekly email since 2026-11-10). Every walk ends on one question, How was the
+clean?, and `completeInspection` stores the answer once per walk in `cleaning_reviews` through
+`saveCleaningReview`, which sends nothing. Four or fewer (`CLEANING_FLAG_MAX` in
+`src/lib/cleaning-reviews-core.ts`) also asks what was off and for photos. Every Friday at 12:00
+UTC `/api/cron/cleaning-review-email` drafts ONE email of every rating no report has carried,
+through Thursday (`draftWeeklyCleaningReport`, idempotent per `week_end`, stamping
+`cleaning_reviews.report_id`): the week's average and count, every clean with its stars, home and
+day, and the reason and photo links under each at four or fewer, in Portuguese with the English
+beside it (`composeWeeklyEmail`; reasons go through `cleaner-note.ts`'s model pass; never a
+person's name). It files the `cleaning_review_reports` row `pending` as a Cleaning card under
+Cleaners on the Team inbox. Only Approve sends, through `approveCleaningReview`: claim the report,
+email each enabled schedule recipient covering those homes who has an email on file
+(`cleaner_schedule_recipients.email`, set on Cleaner settings and read apart from
+`RECIPIENT_COLS` so the daily text never depends on it), one language per recipient, operations on
+copy, replies to the office. Edit stores the operator's words verbatim; Mark handled clears the
+week with a reason; Undo brings it back. `cleaning-review-guard.test.ts` keeps the send inside
+approve and the cron to drafting.
 
 
 The home appointment agenda also has `/appointments` for capture, review,

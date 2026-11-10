@@ -1,23 +1,26 @@
 /**
- * Cleaning reviews, the rules (2026-11-07). Pure: no imports from the app, so
- * a test, the Stepper (a client component) and the server writer all read the
- * same thresholds and the same text.
+ * Cleaning reviews, the rules (2026-11-07; weekly email 2026-11-10). Pure: no
+ * imports from the app, so a test, the Stepper (a client component) and the
+ * server all read the same thresholds and the same text.
  *
  * The inspector gives the clean they walked behind 1 to 5 stars at the end
- * of the walk. Five stars is stored and nothing more. FLAG_MAX or fewer also
- * asks what was off and for photos, and files one note to the crew as a
- * pending card on the Team inbox. Only Approve sends it (cleaning-reviews.ts).
+ * of the walk. FLAG_MAX or fewer also asks what was off and for photos.
+ * Nothing goes to the crew from the walk. Every Friday the week's ratings
+ * become ONE email to the crew (Dotti, 2026-11-10: batch it, send it on
+ * Friday, by email), drafted by the cron and sent only on the operator's
+ * Approve (cleaning-review-report.ts).
  *
- * The note is composed here, deterministically, in the crew's language and in
- * English: the template is ours, the operator's reason inside it is rendered
- * by the same model pass the schedule's special-instructions line gets
- * (cleaner-note.ts), falling back to the words as typed. One language per
- * text (Dotti, 2026-09-26): the Portuguese goes to a Portuguese recipient,
- * the English to an English one, never both. No sign-off name: a crew text
- * is from Rising Tide, not from a person.
+ * The email is composed here, deterministically, in the crew's language and
+ * in English: the template is ours, the inspector's reasons inside it are
+ * rendered by the same model pass the schedule's special-instructions line
+ * gets (cleaner-note.ts), falling back to the words as typed. One language
+ * per message (Dotti, 2026-09-26): a Portuguese reader gets the Portuguese,
+ * an English one the English. No sign-off name: it is from Rising Tide, not
+ * from a person, and it never names the inspector.
  */
 
-/** A clean at or below this many stars files a note for the crew. */
+/** A clean at or below this many stars asks what was off, and its reason
+ *  and photos print in the weekly email. */
 export const CLEANING_FLAG_MAX = 4;
 
 export const CLEANING_STARS = [1, 2, 3, 4, 5] as const;
@@ -25,10 +28,10 @@ export type CleaningStars = (typeof CLEANING_STARS)[number];
 
 export type NoticeStatus = 'none' | 'pending' | 'approving' | 'sent' | 'handled';
 
-/** Mark handled's reasons on the card: what the operator did instead. */
-export const CLEANING_HANDLED_REASONS = ['Spoke with the crew', 'Not the crew', 'Rated by mistake'] as const;
+/** Mark handled's reasons on the weekly card: what the operator did instead. */
+export const CLEANING_HANDLED_REASONS = ['Spoke with the crew', 'Skip this week'] as const;
 
-/** Whether a rating files a note to the crew. */
+/** Whether a rating is flagged: it carries a reason and photos. */
 export function needsCleaningNotice(stars: number): boolean {
   return Number.isInteger(stars) && stars >= 1 && stars <= CLEANING_FLAG_MAX;
 }
@@ -69,17 +72,39 @@ export function enDay(ymd: string): string {
   return p ? `${EN_DAYS[p.dow]}, ${EN_MONTHS[p.m]} ${p.d}` : ymd;
 }
 
-export type NoticeInput = {
+/** "6/11": a day as the crew writes it, without the weekday. */
+export function ptShort(ymd: string): string {
+  const p = dateParts(ymd);
+  return p ? `${p.d}/${p.m + 1}` : ymd;
+}
+
+/** "Nov 6". */
+export function enShort(ymd: string): string {
+  const p = dateParts(ymd);
+  return p ? `${EN_MONTHS[p.m]} ${p.d}` : ymd;
+}
+
+/** One rated clean, as the weekly email prints it. */
+export type WeeklyClean = {
   /** The home's internal name: "21 Horton". Never translated. */
   home: string;
   /** Eastern calendar day of the walk, YYYY-MM-DD. */
   walkDate: string;
   stars: number;
-  /** The reason in each language; empty when the inspector typed nothing. */
+  /** The reason in each language; empty when none was typed. */
   reasonPt: string;
   reasonEn: string;
   photoUrls: readonly string[];
 };
+
+export type WeeklyEmailInput = {
+  /** The first and last walk days the email covers, YYYY-MM-DD. */
+  firstWalk: string;
+  weekEnd: string;
+  cleans: readonly WeeklyClean[];
+};
+
+export type WeeklyEmail = { subjectPt: string; subjectEn: string; pt: string; en: string };
 
 function sentence(text: string): string {
   const t = text.trim().replace(/\s+/g, ' ');
@@ -88,31 +113,80 @@ function sentence(text: string): string {
   return /[.!?…]$/.test(cap) ? cap : `${cap}.`;
 }
 
+/** Walk order, then the home, so the email reads as the week went. */
+function byWalk(a: WeeklyClean, b: WeeklyClean): number {
+  return a.walkDate === b.walkDate ? a.home.localeCompare(b.home) : a.walkDate < b.walkDate ? -1 : 1;
+}
+
+/** The week's average to one decimal, the way each reader writes it. */
+export function weeklyAverage(cleans: readonly Pick<WeeklyClean, 'stars'>[]): number | null {
+  if (cleans.length === 0) return null;
+  return Math.round((cleans.reduce((s, c) => s + c.stars, 0) / cleans.length) * 10) / 10;
+}
+
 /**
- * The note in both languages. The structure is fixed so the crew always reads
- * the same shape: which home, which day, how many stars, what was off, the
- * photos. Nothing in it names the inspector.
+ * The week in both languages. One line per clean (the stars, the home, the
+ * day); a clean at four or fewer adds what was off and its photos under its
+ * line. The average and the count lead, so the grade reads first.
  */
-export function composeCleaningNotice(input: NoticeInput): { pt: string; en: string } {
-  const stars = Math.max(1, Math.min(5, Math.round(input.stars)));
-  const photos = input.photoUrls.filter(Boolean);
-  const pt = [
-    `Oi! Sobre a limpeza da ${input.home} (${ptDay(input.walkDate)}): avaliamos ${stars} de 5.`,
-    sentence(input.reasonPt),
-    photos.length ? `Fotos: ${photos.join(' ')}` : '',
+export function composeWeeklyEmail(input: WeeklyEmailInput): WeeklyEmail {
+  const cleans = [...input.cleans].sort(byWalk);
+  const avg = weeklyAverage(cleans);
+  const n = cleans.length;
+  const range = (f: (d: string) => string, to: string) =>
+    input.firstWalk === input.weekEnd ? f(input.weekEnd) : `${f(input.firstWalk)} ${to} ${f(input.weekEnd)}`;
+
+  const block = (c: WeeklyClean, lang: 'pt' | 'en'): string => {
+    const head = `${starsGlyphs(c.stars)}  ${c.home} · ${lang === 'pt' ? ptDay(c.walkDate) : enDay(c.walkDate)}`;
+    if (!needsCleaningNotice(c.stars)) return head;
+    const photos = c.photoUrls.filter(Boolean);
+    const lines = [
+      head,
+      sentence(lang === 'pt' ? c.reasonPt : c.reasonEn),
+      photos.length ? `${lang === 'pt' ? 'Fotos' : 'Photos'}: ${photos.join(' ')}` : '',
+    ].filter(Boolean);
+    // A flagged clean stands apart, so its reason reads with its home.
+    return `\n${lines.join('\n')}\n`;
+  };
+  const tidy = (t: string) => t.replace(/\n{3,}/g, '\n\n').trim();
+
+  const rangePt = range(ptShort, 'a');
+  const rangeEn = range(enShort, 'to');
+  const avgPt = avg == null ? '' : `Média ${avg.toFixed(1).replace('.', ',')} de 5 em ${n} ${n === 1 ? 'limpeza' : 'limpezas'}.`;
+  const avgEn = avg == null ? '' : `Average ${avg.toFixed(1)} of 5 across ${n} ${n === 1 ? 'clean' : 'cleans'}.`;
+
+  const pt = tidy([
+    `Oi! Como foram as limpezas de ${rangePt}:`,
+    '',
+    avgPt,
+    '',
+    cleans.map((c) => block(c, 'pt')).join('\n'),
+    '',
     'Obrigada!',
-  ]
-    .filter(Boolean)
-    .join(' ');
-  const en = [
-    `Hi! About the clean at ${input.home} (${enDay(input.walkDate)}): we rated it ${stars} of 5.`,
-    sentence(input.reasonEn),
-    photos.length ? `Photos: ${photos.join(' ')}` : '',
+  ].join('\n'));
+  const en = tidy([
+    `Hi! How the cleans went, ${rangeEn}:`,
+    '',
+    avgEn,
+    '',
+    cleans.map((c) => block(c, 'en')).join('\n'),
+    '',
     'Thank you!',
-  ]
-    .filter(Boolean)
-    .join(' ');
-  return { pt, en };
+  ].join('\n'));
+  return {
+    subjectPt: `Avaliação das limpezas · ${rangePt}`,
+    subjectEn: `Cleaning review · ${rangeEn}`,
+    pt,
+    en,
+  };
+}
+
+/** The last walk day a report drafted on `today` covers: the day before.
+ *  Friday's email covers through Thursday, so a Friday walk is next week's. */
+export function reportWeekEnd(today: string): string {
+  const d = new Date(`${today}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
 }
 
 /** The one row shape every reader uses. */
@@ -137,6 +211,10 @@ export type CleaningReviewRow = {
   sent_at: string | null;
   sent_log: unknown;
   last_error: string | null;
+  /** The weekly email this rating rode in; null until Friday's draft. */
+  report_id?: string | null;
+  /** That email's status, when the reader joined it. */
+  report_status?: ReportStatus | null;
   created_at: string;
   updated_at: string;
 };
@@ -162,42 +240,79 @@ export function summarizeCleaningReviews(rows: ReadonlyArray<Pick<CleaningReview
   };
 }
 
-/** The one word a row prints for where its note stands. */
-export function noticeWord(status: NoticeStatus, crew = 'Crew'): string | null {
-  switch (status) {
+export type ReportStatus = 'pending' | 'approving' | 'sent' | 'handled';
+
+/** The one word a rated walk prints for where it stands. A rating not yet in
+ *  a report rides in Friday's email; once drafted, the report says the rest.
+ *  A per-walk text from before the weekly email keeps its own word. */
+export function noticeWord(status: NoticeStatus, crew = 'Crew', report?: ReportStatus | null): string {
+  if (status === 'sent') return `${crew} texted`;
+  switch (report) {
+    case 'sent':
+      return `${crew} emailed`;
+    case 'handled':
+      return 'Not sent';
     case 'pending':
     case 'approving':
       return 'Waiting on approval';
-    case 'sent':
-      return `${crew} texted`;
-    case 'handled':
-      return 'Handled';
     default:
-      return null;
+      return "In Friday's email";
   }
 }
 
-/** What the Team inbox card carries. Serializable: it crosses to the client. */
+const HTML_ESC: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+
+/** The email's text as plain HTML: escaped, line breaks kept, photo links
+ *  clickable as 1, 2, 3 (a line of raw storage URLs reads as noise), the stars in the signal color. Nothing else is styled, so the
+ *  operator's edit reads in the inbox exactly as it read on the card. */
+export function weeklyEmailHtml(text: string): string {
+  const esc = (t: string) => t.replace(/[&<>"']/g, (c) => HTML_ESC[c]);
+  const lines = text.split('\n').map((line) => {
+    let out = esc(line).replace(/https?:\/\/[^\s<]+/g, (u, i, all) => {
+      const n = (all.slice(0, i).match(/https?:\/\//g) ?? []).length + 1;
+      return `<a href="${u}" style="color:#1f5e6b">${n}</a>`;
+    });
+    out = out.replace(/^([★☆]{5})/, '<span style="color:#c85a3a;letter-spacing:1px">$1</span>');
+    return out;
+  });
+  return `<div style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.55;color:#1e2e34">${lines.join('<br>')}</div>`;
+}
+
+/** One clean on the weekly card. */
+export type CleaningReportClean = {
+  id: string;
+  propertyName: string;
+  inspectorName: string;
+  walkDate: string;
+  stars: number;
+  reason: string;
+  photoUrls: string[];
+};
+
+/** What the Team inbox card carries: one week's email. Serializable. */
 export type CleaningReviewCardData = {
   id: string;
   status: 'pending' | 'approving';
   /** An approve that started more than five minutes ago and never finished. */
   stuck: boolean;
-  inspectorName: string;
-  propertyId: string;
-  propertyName: string;
-  walkDate: string;
-  stars: number;
-  reason: string;
-  photoUrls: string[];
-  pt: string;
-  en: string;
-  translated: boolean;
+  firstWalk: string;
+  weekEnd: string;
+  average: number | null;
+  cleans: CleaningReportClean[];
+  /** The email in the To reader's language, and its English check (only
+   *  when that is Portuguese). */
+  language: 'pt' | 'en';
+  subject: string;
+  text: string;
+  english: string;
+  edited: boolean;
   createdAt: string;
   ageMinutes: number;
   lastError: string | null;
-  /** The schedule recipients this would text, by name, so the operator sees who. */
+  /** Who it would reach, "Name <address>", so the operator sees where. */
   recipients: string[];
+  /** Enabled crew on the schedule list with no email on file. */
+  missingEmail: string[];
 };
 
 export const STUCK_CLAIM_MS = 5 * 60_000;

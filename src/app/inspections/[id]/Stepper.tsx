@@ -252,8 +252,9 @@ export function Stepper({
   const [slipVerdicts, setSlipVerdicts] = useState<Map<string, 'done' | 'handled'>>(() => new Map());
   // How was the clean? One answer per walk: 1 to 5 stars, or "No clean to
   // rate". Four or fewer also asks what was off and for photos; Complete
-  // files it as a pending note for the crew (cleaning-reviews-core.ts). The
-  // walk cannot complete until this is answered.
+  // stores it, and Friday's email to the crew carries the week's ratings
+  // after approval (cleaning-reviews-core.ts). The walk cannot complete until
+  // this is answered.
   const [cleaningStars, setCleaningStars] = useState<CleaningStars | null>(null);
   const [cleaningSkipped, setCleaningSkipped] = useState(false);
   const [cleaningReason, setCleaningReason] = useState('');
@@ -685,7 +686,7 @@ export function Stepper({
           </div>
 
           {/* HOW WAS THE CLEAN? One tap. Four or fewer opens what was off
-              and photos; Complete files the crew's note for approval. */}
+              and photos; the rating rides in Friday's email to the crew. */}
           <CleanRating
             inspectionId={inspectionId}
             stars={cleaningStars}
@@ -1517,8 +1518,9 @@ function primaryBtn(): React.CSSProperties {
 /**
  * How was the clean? Five taps, one answer. Five stars closes the question.
  * Four or fewer (CLEANING_FLAG_MAX) opens what was off and a photo row, and
- * says in one line what Complete does with it: a note for the crew that waits
- * for approval on the Team inbox. "No clean to rate" is the exit for a walk
+ * says in one line what Complete does with it: every rating rides in
+ * Friday's email to the crew, sent after approval on the Team inbox. "No
+ * clean to rate" is the exit for a walk
  * of a house nobody cleaned.
  */
 function CleanRating({
@@ -1547,7 +1549,7 @@ function CleanRating({
   onUploadingChange: (uploading: boolean) => void;
 }) {
   const flagged = stars !== null && stars <= CLEANING_FLAG_MAX;
-  const status = skipped ? 'no clean to rate' : stars === null ? 'tap a star' : flagged ? `${stars} of 5 · the crew gets a note` : '5 of 5';
+  const status = skipped ? 'no clean to rate' : stars === null ? 'tap a star' : `${stars} of 5 · in Friday's email`;
   return (
     <div style={{ marginTop: 40 }}>
       <div className="flex items-baseline justify-between" style={{ marginBottom: 6, gap: 12 }}>

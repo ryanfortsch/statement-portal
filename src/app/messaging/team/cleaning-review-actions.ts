@@ -13,8 +13,8 @@ import {
 
 /**
  * The cleaning review card's verbs (docs/cleaning-reviews.md). Approve is
- * the only door to the crew's phone and needs a signed-in operator; the
- * walk that filed the card cannot reach it. Staff may approve: a note to
+ * the only door to the crew's inbox and needs a signed-in operator; the
+ * Friday cron that drafts the card cannot reach it. Staff may approve: an email to
  * the crew moves no money.
  */
 
