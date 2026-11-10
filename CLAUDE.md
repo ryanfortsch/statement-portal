@@ -75,7 +75,7 @@ Do not "fix" it by adding a schedule.
 every 15 minutes. It does not ingest or acknowledge bookings, publish availability,
 change Guesty authority or send messages. See `docs/operations/channex-production-calderwood.md`.
 `/api/cron/weekly-brief` is the Tuesday brief (since 2026-11-09): a printable PDF emailed to
-whoever holds the `weekly_brief` duty in `team.ts` (Dotti). Page one is Delaney's three goals (the
+whoever holds the `weekly_brief` duty in `team.ts` (Ryan and Dotti). Page one is Delaney's three goals (the
 home band's own read) and the check-ins for Tuesday through Monday by day; page two is what guests
 told us in the seven days before (every review below five stars, lowest first, then the five-star
 ones with a private note or a category below five, Guesty reviews plus direct testimonials, with
