@@ -15,6 +15,7 @@ import {
   type BriefReview,
   groupCheckIns,
   compareHomeNames,
+  isPastAppointment,
   isSendHour,
   rankSlips,
   rowMeta,
@@ -142,6 +143,55 @@ describe('the Tuesday brief: one page per home', () => {
     assert.deepEqual(b.pages.map((p) => p.home.name), ['20 Hammond', '3 Windward']);
     assert.deepEqual(b.quietHomes, ['17 Beach']);
     assert.equal(b.pages[0].headline, 'Gutter and the outdoor shower');
+  });
+
+  test('homes with a check-in this week come first, in arrival order; the rest follow by street', () => {
+    const homes: BriefHome[] = [
+      ...HOMES,
+      { id: 'h4', name: '4 Atlantic', address: null, owner_last: null },
+      { id: 'h5', name: '9 Zephyr', address: null, owner_last: null },
+    ];
+    const b = buildWeeklyBrief({
+      today: TODAY,
+      scorecard: null,
+      homes,
+      slips: ['h1', 'h2', 'h3', 'h4', 'h5'].map((id) => slip({ property_id: id })),
+      notes: [],
+      arrivals: [
+        stay({ property_id: 'h3', check_in: '2026-11-13', check_out: '2026-11-15' }),
+        stay({ property_id: 'h5', check_in: '2026-11-11', check_out: '2026-11-14' }),
+      ],
+      departures: [],
+      headlines: {},
+    });
+    assert.deepEqual(b.pages.map((p) => p.home.name), ['9 Zephyr', '3 Windward', '4 Atlantic', '17 Beach', '20 Hammond']);
+    assert.equal(b.arrivingPages, 2);
+    const html = weeklyBriefHtml(b);
+    assert.ok(html.indexOf('Check-ins this week') < html.indexOf('The rest of the homes'));
+    assert.match(html, /9 Zephyr<\/span><span class="ix-counts">[^<]*p\.3</);
+    assert.match(html, /20 Hammond<\/span><span class="ix-counts">[^<]*p\.7</);
+  });
+
+  test('an appointment whose day has passed closes out at the foot, not as overdue work', () => {
+    assert.equal(isPastAppointment({ title: 'Cover city Building/Fire inspection', scheduled_date: '2026-11-06', follow_up_date: null }, TODAY), true);
+    assert.equal(isPastAppointment({ title: 'Attend insurance inspection at 73 Rocky Neck', scheduled_date: '2026-11-03', follow_up_date: null }, TODAY), true);
+    assert.equal(isPastAppointment({ title: 'Cover city Building/Fire inspection', scheduled_date: TODAY, follow_up_date: null }, TODAY), false, 'today is still ahead');
+    assert.equal(isPastAppointment({ title: 'Schedule the chimney inspection', scheduled_date: '2026-11-06', follow_up_date: null }, TODAY), false, 'booking one is work');
+    assert.equal(isPastAppointment({ title: 'Change thermostat batteries', scheduled_date: '2026-11-06', follow_up_date: null }, TODAY), false, 'overdue work stays work');
+    const page = buildWeeklyBrief({
+      today: TODAY, scorecard: null, homes: HOMES, notes: [], arrivals: [], departures: [], headlines: {},
+      slips: [
+        slip({ title: 'City of Gloucester safety inspection', priority: 'high', scheduled_date: '2026-11-06' }),
+        slip({ title: 'Change thermostat batteries', scheduled_date: '2026-11-06' }),
+      ],
+    }).pages[0];
+    assert.deepEqual(page.rows.map((r) => r.title), ['Change thermostat batteries']);
+    assert.deepEqual(page.pastAppointments.map((a) => [a.title, a.date]), [['City of Gloucester safety inspection', 'Nov 6']]);
+    assert.equal(page.openCount, 2, 'still counted as open until it is closed');
+    assert.match(weeklyBriefHtml(buildWeeklyBrief({
+      today: TODAY, scorecard: null, homes: HOMES, notes: [], arrivals: [], departures: [], headlines: {},
+      slips: [slip({ title: 'City of Gloucester safety inspection', scheduled_date: '2026-11-06' })],
+    })), /Past dates, to close out/);
   });
 
   test('homes file by street, the number aside', () => {
