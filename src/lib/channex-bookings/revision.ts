@@ -20,14 +20,15 @@ export const guestDetailsSchema = z.object({
   phone: guestPhone.nullable(), address: guestText.nullable(), city: guestText.nullable(),
   state: guestText.nullable().optional(), country: guestText.nullable(), zip: guestText.nullable(), notes: guestText.nullable(),
 }).strict();
-function guestDetails(a: Record<string, unknown>) {
+/** Shared provider projection; no origin/mapping/ACK authority is granted here. */
+export function projectChannexGuestDetails(a: Record<string, unknown>) {
   const customer = record(a.customer);
   // Absence is not proof of an empty field. Require the full provider projection.
-  return guestDetailsSchema.parse(Object.fromEntries([
+  try { return guestDetailsSchema.parse(Object.fromEntries([
     ...['name', 'surname', 'mail', 'phone', 'address', 'city', 'country', 'zip'].map(k => [k, customer[k]]),
     ...(Object.hasOwn(customer, 'state') ? [['state', customer.state]] : []),
     ['notes', a.notes],
-  ]));
+  ])); } catch { throw Error('Channex guest details incomplete; values withheld'); }
 }
 const uuid = z.string().uuid();
 export const airbnbMappingSchema = z.object({
@@ -77,7 +78,7 @@ export function normalizeAirbnbBookingRevision(raw: unknown, mapping: AirbnbBook
         revision.ratePlanId !== scope.ratePlanId || /^HELMTEST-/i.test(revision.reservationCode)) throw Error();
     nights(revision.checkIn, revision.checkOut);
     return { ...revision, providerReceivedAt: revisionTime(revision.providerReceivedAt),
-      environment: scope.environment, mappingGeneration: scope.generation, channel: 'airbnb' as const, guestDetails: guestDetails(a) };
+      environment: scope.environment, mappingGeneration: scope.generation, channel: 'airbnb' as const, guestDetails: projectChannexGuestDetails(a) };
   } catch {
     // Never echo the raw provider payload, which may include guest/payment details.
     throw Error('Airbnb booking revision rejected: invalid identity, mapping, or stay');

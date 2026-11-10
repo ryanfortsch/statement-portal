@@ -133,8 +133,11 @@ fixed-host reader, commit/readback/ACK engine and RPC store. The engine validate
 an entire batch before writing, preserves microsecond ordering and requires the
 independent durable receipt to exactly match the commit response before ACK.
 ACK is explicitly disabled by default. A provider failure after a committed
-write is recoverable by replaying the original receipt. No raw provider payload,
-guest contact data, price or payment data is stored in this receipt path.
+write must be reconciled against the original receipt. The November 10 migration
+adds an allowlisted guest/contact/notes projection to the private receipt before
+ACK. Raw provider payloads, prices and payment data remain excluded. A masked
+revision cannot replace the original receipt. See
+`channex-preack-persistence-review.md` for the retention and activation gates.
 
 The three `20261106103000`–`20261106103200` migrations add the tables described in
 `SCHEMA.md`, a disabled Calderwood mapping and service-only RPCs. Import requires
