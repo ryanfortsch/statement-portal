@@ -6,7 +6,7 @@ import { listScheduleRecipients } from '@/lib/cleaner-digest';
 import type { ScheduleRecipient } from '@/lib/cleaner-digest-core';
 import { CAPE_ANN_REGION } from '@/lib/property-scope';
 import { sendTransactionalViaResend } from '@/lib/resend';
-import { cleaningReviewCopy, fieldReplyTo, todayET } from '@/lib/team-recipients';
+import { cleaningReviewCopy, cleaningReviewSender, fieldReplyTo, todayET } from '@/lib/team-recipients';
 import { getTeamMember } from '@/lib/team';
 import {
   composeWeeklyEmail,
@@ -391,8 +391,8 @@ async function release(id: string, lastError: string | null): Promise<void> {
 
 /**
  * Approve: send the week's email. The one place a cleaning review reaches
- * the crew. Each recipient gets it in their own language, from the Field
- * sender, with the cleaning_review duty on copy (team.ts) and replies to the
+ * the crew. Each recipient gets it in their own language, from the cleaning
+ * role address (cleaningReviewSender), with the cleaning_review duty on copy (team.ts) and replies to the
  * office. A send that
  * reaches nobody releases the claim and says why.
  */
@@ -433,7 +433,7 @@ export async function approveCleaningReview(id: string, operatorEmail: string): 
         cc: cc.filter((e) => e.toLowerCase() !== r.email.toLowerCase()),
         replyTo,
         fromName: 'Rising Tide',
-        fromEmail: process.env.FIELD_FROM_EMAIL || undefined,
+        fromEmail: cleaningReviewSender(),
         idempotencyKey: `cleaning-report-${id}-${r.email.toLowerCase()}`,
       });
       log.push(ok ? { email: r.email, name: r.display_name, ok } : { email: r.email, name: r.display_name, ok, error: 'Resend refused the send.' });
