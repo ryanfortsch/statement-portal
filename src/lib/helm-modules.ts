@@ -269,7 +269,7 @@ export const HELM_MODULES: HelmModule[] = [
   },
   // Not a tab any more: each checkout's cleaner verdict prints on its board
   // row. What is left is the crew's visits no row can show, reached from
-  // the board and the home feed's "Cleanings to check".
+  // the board and the home page's cleanings strip.
   {
     id: 'cleanings',
     href: '/turnovers/cleanings',

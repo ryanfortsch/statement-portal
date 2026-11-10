@@ -220,8 +220,8 @@ async function handleInboundMessage(msg: WebhookMessage): Promise<void> {
       return;
     }
 
-    // No house. A real completion or issue goes to the home feed's
-    // "Cleanings to check" for a person to place (cleaner_unplaced_texts);
+    // No house. A real completion or issue goes to the cleaner texts on
+    // /turnovers/cleanings for a person to place (cleaner_unplaced_texts);
     // plain chatter ("OK I will") is a no-op. This used to throw into
     // quo_events.process_error, which no page reads, and the turnover never
     // got its completion.

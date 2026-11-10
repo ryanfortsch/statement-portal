@@ -439,20 +439,29 @@ export const INSURANCE_MONTH = 3;
  * annual April lump because the bank showed two hits, $4,156.62 on
  * 2025-01-13 and $4,442.96 on 2026-04-15, and read them as a tax-season
  * engagement that recurs. The operator ruled on 2026-09-02 that MS
- * Consultants was a one-off, so nothing projects forward: $0 in every
- * month of 2027 and 2028. The April 2026 hit is kept for the seasonality
+ * Consultants was a one-off, so its lump does not project forward. The April 2026 hit is kept for the seasonality
  * path only, and that month is an ACT month carrying the real charge.
  * Do not reinstate the annual lump on the strength of the 2025 payment
  * without asking; that evidence was already on the table when she ruled.
+ *
+ * CPA (Jim Keefe, Lee & Crowley), from 2027. Dotti asked on 2026-11-09
+ * for his year-end fee to be budgeted: the three LLC returns, the 1099s
+ * and the tax projection. No fee is quoted in his mail yet, so the
+ * placeholder is the last measured accountant bill, $4,450, in April
+ * (tax season). Replace CPA_ANNUAL with his invoice when it arrives.
  */
 export const ACCOUNTING_MONTHLY = 0;
 export const ACCOUNTING_ANNUAL = 4450;
 export const ACCOUNTING_MONTH = 4;
-/** The one year the lump lands. Later years project $0. */
+/** The MS Consultants year. */
 export const ACCOUNTING_YEAR = 2026;
+export const CPA_ANNUAL = 4450;
+export const CPA_MONTH = 4;
+export const CPA_FIRST_YEAR = 2027;
 
 export function accountingCost(year: number, month: number): number {
   if (year === ACCOUNTING_YEAR && month === ACCOUNTING_MONTH) return ACCOUNTING_ANNUAL;
+  if (year >= CPA_FIRST_YEAR && month === CPA_MONTH) return CPA_ANNUAL;
   return ACCOUNTING_MONTHLY;
 }
 

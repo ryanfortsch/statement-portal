@@ -159,7 +159,7 @@ function twinKey(r: DedupableReview): string | null {
   return `${r.property_id}|${name}`;
 }
 
-function dropCsvTwins<T extends DedupableReview>(rows: T[]): T[] {
+export function dropCsvTwins<T extends DedupableReview>(rows: T[]): T[] {
   const apiKeys = new Set<string>();
   for (const r of rows) {
     if (r.source === 'csv-fallback') continue;

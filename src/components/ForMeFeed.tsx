@@ -2,12 +2,12 @@ import { collapseWorkIssues } from '@/lib/work-issues';
 import { loadWorkIssueLinks } from '@/lib/work-issues-server';
 import { workAssignedTo } from '@/lib/work-board-view';
 import { selectAllPaged } from '@/lib/paged-select';
-import { splitReplyUpdates } from '@/lib/home-reply-triage';
+import { splitReplyUpdates, staffMaySeeInbound } from '@/lib/home-reply-triage';
 import Link from 'next/link';
 import { auth } from '@/auth';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { ACTIVE_WORK_SLIP_STATUSES, ACTIVE_TASK_STATUSES, OFFICE_TODO_LABEL } from '@/lib/work-types';
-import { loadDailyBrief, type BriefEmail, type BriefInboundTouch, type BriefCleaningFlag, type BriefInspection, type BriefStay } from '@/lib/daily-brief';
+import { loadDailyBrief, type BriefEmail, type BriefInboundTouch } from '@/lib/daily-brief';
 import { fieldDb, isFieldConfigured } from '@/lib/field-db';
 import { loadShootBoard, shootPaySummary } from '@/lib/creative-shoots';
 import { dollars } from '@/lib/field-types';
@@ -22,7 +22,6 @@ import { homeAgendaSpeaks } from '@/lib/appointment-agenda';
 import { todayET } from '@/lib/meetings-core';
 import { countLater, groupByDay, workDateLabel, workDay, type WeekDay, type WorkDateKind } from '@/lib/home-week';
 import { operatingDate } from '@/lib/operating-date';
-import { checkoutBoardHref } from '@/lib/turnover-board';
 import { roleMayOpen, type HelmRole } from '@/lib/helm-access';
 import { sessionView } from '@/lib/helm-access-server';
 import { canOpenMailbox, gmailUrl } from '@/lib/gmail-links';
@@ -33,10 +32,6 @@ import { HoldRow } from '@/app/cleaner-messaging/OwnerHoldQuestionsCard';
 import { homeFeedOrder, windowPayments, type FeedSection } from '@/lib/home-feed-order';
 import { EmptyState } from '@/components/EmptyState';
 import { seriousQueueText } from '@/lib/lease-leads-core';
-import { loadUnplacedCleanerTexts } from '@/lib/cleaner-unplaced-server';
-import { splitUnplacedForHome } from '@/lib/cleaner-unplaced';
-import { dropCarryOnStays } from '@/lib/home-houses';
-import { UnplacedCleanerTextRow } from '@/components/UnplacedCleanerTextRow';
 
 type MyWork = {
   id: string;
@@ -91,8 +86,7 @@ const GLANCE_WINDOW = 6;
  * The "For Me" home feed: the signed-in person's day, in the order it is
  * worked (lib/home-feed-order.ts). Upcoming appointments and source coverage,
  * then my walks and dated work for seven days (lib/home-week.ts); then the
- * clock-bound team items (an owner block's "clean after?", a cleaning to
- * check); then my work and what is waiting on my reply, or the team's
+ * clock-bound team items (an owner block's "clean after?"); then my work and what is waiting on my reply, or the team's
  * unassigned work; then the office queues; then guest payments. Owners keep
  * the "clean after?" card first. The mail is the daily-brief triage read
  * from cache, with no live classification on page load.
@@ -100,15 +94,13 @@ const GLANCE_WINDOW = 6;
  * One secondary action with one meaning: it hides a row from your own feed and changes
  * nothing else (recorded per user in home_feed_dismissals), and the next
  * from the pool backfills. A card that clears by being answered (an owner
- * block, a cleaning flag, a cleaner text to place, an office queue, a Stripe
+ * block, an office queue, a Stripe
  * key to fix) has no hide action.
  */
 export async function ForMeFeed() {
   let needsReply: BriefEmail[] = [];
   let fyi: BriefEmail[] = [];
   let inboundWaiting: BriefInboundTouch[] = [];
-  let cleaningFlags: BriefCleaningFlag[] = [];
-  let houses: TodayAtTheHouses = { out: [], in: [], walked: [] };
   let gmailConfigured = true;
   let gmailMailbox: string | null = null;
 
@@ -117,8 +109,6 @@ export async function ForMeFeed() {
     needsReply = brief.unreadEmails.filter((e) => e.triage === 'needs_reply');
     fyi = brief.unreadEmails.filter((e) => e.triage === 'fyi');
     inboundWaiting = brief.inboundWaiting;
-    cleaningFlags = brief.cleaningFlags;
-    houses = todayAtTheHouses(brief.checkoutsToday, brief.checkinsToday, brief.inspectionsCompletedToday);
     gmailConfigured = brief.gmailConfigured;
     gmailMailbox = brief.gmailMailbox;
   } catch {
@@ -141,7 +131,10 @@ export async function ForMeFeed() {
     needsReply = [];
     fyi = [];
   }
-  const [{ work: allWork, mode: workMode }, dismissed, plannedWalks, queueCards, paymentCards, ownerHolds, unplacedTexts] = await Promise.all([
+  // A message from an owner or a prospect waits on the owners, not on the
+  // team: it never reaches a staff feed (staffMaySeeInbound).
+  if (!owner) inboundWaiting = inboundWaiting.filter((t) => staffMaySeeInbound(t.contactType));
+  const [{ work: allWork, mode: workMode }, dismissed, plannedWalks, queueCards, paymentCards, ownerHolds] = await Promise.all([
     loadMyWork(email),
     loadDismissals(email),
     loadPlannedWalks(email),
@@ -150,14 +143,8 @@ export async function ForMeFeed() {
     // Owner blocks nobody has answered "clean after?" for. No clear
     // button: answering is the clear, on the buttons right here.
     loadOwnerHoldQuestions(supabase).catch(() => null),
-    // A cleaner's "done" that named no house Helm could find. No ×:
-    // attaching it to a house, or setting it aside, is the clear.
-    loadUnplacedCleanerTexts(),
   ]);
   const ownerHoldAsks: OwnerHoldQuestionCard[] = ownerHolds?.pending ?? [];
-  // Today's and yesterday's texts ask here; older ones wait on the
-  // cleanings page, counted in one line.
-  const { home: unplacedHome, older: unplacedOlder } = splitUnplacedForHome(unplacedTexts, operatingDate());
   const ownerHoldToday = ownerHolds?.today ?? todayET();
 
   // Only payments needing action appear in the day. Received payments live
@@ -308,45 +295,6 @@ export async function ForMeFeed() {
         </>
       ) : null,
 
-    // CLEANINGS TO CHECK: a guest leaving and no cleaner booked, or a
-    // cleaner booked before the guest is out or after the next one is in.
-    // Today through the day after tomorrow, as far as the vendor announces.
-    // A flag clears itself once the vendor's schedule catches up. Above
-    // them, a cleaner's text Helm could not place on a house: pick the
-    // house and Attach, or Set aside (lib/cleaner-unplaced.ts).
-    cleanings:
-      cleaningFlags.length + unplacedTexts.length > 0 ? (
-        <>
-          <SectionHeaderLink
-            href="/turnovers/cleanings"
-            title="Cleanings to check"
-            eyebrow={`${cleaningFlags.length + unplacedTexts.length} to check`}
-          />
-          <div style={{ borderTop: '1px solid var(--ink)' }}>
-            {unplacedHome.map((t) => (
-              <UnplacedCleanerTextRow
-                key={t.id}
-                id={t.id}
-                when={t.when}
-                cleanerName={t.cleanerName}
-                line={t.line}
-                body={t.body}
-                choices={t.choices}
-              />
-            ))}
-            {cleaningFlags.map((f) => (
-              <CleaningFlagRow key={`${f.date}|${f.propertyId}`} flag={f} />
-            ))}
-            {unplacedOlder > 0 && (
-              <MoreRow
-                href="/turnovers/cleanings#cleaner-texts"
-                text={`${unplacedOlder} older cleaner text${unplacedOlder === 1 ? '' : 's'} to place`}
-              />
-            )}
-          </div>
-        </>
-      ) : null,
-
     // UNASSIGNED WORK: when nothing is assigned to you, the team's
     // unclaimed backlog, spread across homes, after the clock-bound items.
     unassigned:
@@ -431,11 +379,6 @@ export async function ForMeFeed() {
         ))
       )}
 
-      {/* TODAY AT THE HOUSES: who leaves and who arrives today, and the
-          homes walked today. The one block of the retired /today page the
-          home did not already have; under the feed, because it is the
-          day's backdrop rather than something waiting on you. */}
-      <TodayAtTheHousesSection houses={houses} />
     </section>
   );
 }
@@ -1128,35 +1071,6 @@ async function loadStatementQueue(): Promise<QueueCard | null> {
   }
 }
 
-function CleaningFlagRow({ flag }: { flag: BriefCleaningFlag }) {
-  // A flag about a checkout lands on that house's board row, where the
-  // verdict prints; a visit with nobody checking out has no row, so it lands
-  // on the From Cape Ann Elite list.
-  const href =
-    flag.status === 'no_checkout'
-      ? `/turnovers/cleanings#day-${flag.date}`
-      : checkoutBoardHref(flag.propertyId, flag.date, operatingDate());
-  return (
-    <Link
-      href={href}
-      style={{ ...feedRowStyle, alignItems: 'baseline', textDecoration: 'none', color: 'inherit' }}
-    >
-      <span aria-hidden style={{ ...dotStyle, background: 'var(--signal)' }} />
-      <span
-        className="font-mono"
-        style={{ flexShrink: 0, fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--ink-3)', minWidth: 78 }}
-      >
-        {flag.dayLabel}
-      </span>
-      <span style={{ flex: 1, minWidth: 0, fontSize: 14, color: 'var(--ink)' }}>
-        <span style={{ fontWeight: 600 }}>{flag.propertyName}</span>
-        <span style={{ color: 'var(--ink-3)' }}> · {flag.detail}</span>
-      </span>
-      <span className="eyebrow">→</span>
-    </Link>
-  );
-}
-
 function QueueRow({ card }: { card: QueueCard }) {
   return (
     <Link
@@ -1211,118 +1125,6 @@ const sectionHeadingStyle: React.CSSProperties = {
   color: 'var(--ink)',
   margin: 0,
 };
-
-
-// ── Today at the houses ───────────────────────────────────────────
-
-type HouseRow = { kind: 'out' | 'in'; stay: BriefStay; walked: boolean };
-type TodayAtTheHouses = { out: HouseRow[]; in: HouseRow[]; walked: BriefInspection[] };
-
-/** Today's checkouts, then check-ins, each ticked when the home was walked
- *  today; a home walked with no stay today gets its own row. */
-function todayAtTheHouses(checkoutRows: BriefStay[], checkinRows: BriefStay[], walks: BriefInspection[]): TodayAtTheHouses {
-  // A guest out and back in at the same house is one stay carrying on.
-  const { out: checkouts, in: checkins } = dropCarryOnStays(checkoutRows, checkinRows);
-  const walkedHomes = new Set(walks.map((w) => w.propertyId));
-  const stayHomes = new Set([...checkouts, ...checkins].map((s) => s.propertyId));
-  const byName = (a: HouseRow, b: HouseRow) => a.stay.propertyName.localeCompare(b.stay.propertyName);
-  return {
-    out: checkouts.map((stay): HouseRow => ({ kind: 'out', stay, walked: walkedHomes.has(stay.propertyId) })).sort(byName),
-    in: checkins.map((stay): HouseRow => ({ kind: 'in', stay, walked: walkedHomes.has(stay.propertyId) })).sort(byName),
-    walked: walks.filter((w) => !stayHomes.has(w.propertyId)),
-  };
-}
-
-function TodayAtTheHousesSection({ houses }: { houses: TodayAtTheHouses }) {
-  const total = houses.out.length + houses.in.length + houses.walked.length;
-  if (total === 0) return null;
-  const eyebrow = [
-    houses.out.length > 0 ? `${houses.out.length} out` : null,
-    houses.in.length > 0 ? `${houses.in.length} in` : null,
-    houses.walked.length > 0 ? `${houses.walked.length} walked` : null,
-  ]
-    .filter(Boolean)
-    .join(' · ');
-  return (
-    <div data-feed-section="houses" style={{ marginTop: 12 }}>
-      <SectionHeaderLink href="/turnovers?range=today" title="Today at the houses" eyebrow={eyebrow} />
-      <div style={{ borderTop: '1px solid var(--ink)' }}>
-        {[...houses.out, ...houses.in].map((r, i) => (
-          <HouseStayRow key={`${r.kind}-${r.stay.propertyId}-${i}`} row={r} />
-        ))}
-        {houses.walked.map((w) => (
-          <Link
-            key={w.id}
-            href={`/inspections/${w.id}/summary`}
-            style={{ ...feedRowStyle, alignItems: 'baseline', textDecoration: 'none', color: 'inherit' }}
-          >
-            <span className="font-mono" style={houseTagStyle('var(--ink-3)')}>
-              Walked
-            </span>
-            <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 500, color: 'var(--ink)' }}>
-              {w.propertyName}
-              <WalkedTick />
-            </span>
-            <span style={{ flexShrink: 0, fontSize: 11, color: 'var(--ink-4)' }}>
-              {w.completedAt
-                ? new Date(w.completedAt).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })
-                : ''}
-            </span>
-          </Link>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function HouseStayRow({ row }: { row: HouseRow }) {
-  const { stay } = row;
-  return (
-    <Link
-      href={`/properties/${stay.propertyId}`}
-      style={{ ...feedRowStyle, alignItems: 'baseline', textDecoration: 'none', color: 'inherit' }}
-    >
-      <span className="font-mono" style={houseTagStyle(row.kind === 'out' ? 'var(--signal)' : 'var(--ink-3)')}>
-        {row.kind === 'out' ? 'Out' : 'In'}
-      </span>
-      <span style={{ flex: 1, minWidth: 0, fontSize: 14, color: 'var(--ink)' }}>
-        <span style={{ fontWeight: 500 }}>{stay.propertyName}</span>
-        {row.walked && <WalkedTick />}
-        {stay.guestName && <span style={{ color: 'var(--ink-3)' }}> · {stay.guestName}</span>}
-      </span>
-      <span style={{ flexShrink: 0, fontSize: 11, color: 'var(--ink-4)' }}>{stay.channel ?? ''}</span>
-    </Link>
-  );
-}
-
-function WalkedTick() {
-  return (
-    <span
-      aria-label="walked today"
-      title="Walked today"
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        width: 16,
-        height: 16,
-        marginLeft: 8,
-        background: 'var(--signal)',
-        color: 'var(--paper)',
-        borderRadius: 999,
-        fontSize: 10,
-        lineHeight: 1,
-        verticalAlign: 'middle',
-      }}
-    >
-      ✓
-    </span>
-  );
-}
-
-function houseTagStyle(color: string): React.CSSProperties {
-  return { flexShrink: 0, minWidth: 44, fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color };
-}
 
 // ── Payments ──────────────────────────────────────────────────────
 

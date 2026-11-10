@@ -84,3 +84,75 @@ export function offSeasonFactor(realized: number, expected: number): number {
   if (!(realized > 0) || !(expected > 0)) return 1;
   return Math.max(OFF_SEASON_FACTOR_MIN, Math.min(1, realized / expected));
 }
+
+/**
+ * JANUARY TO MARCH: RISING TIDE'S OWN WINTER, MEASURED (2026-11-09).
+ *
+ * The shoulder reading above comes from October or November, and October is
+ * foliage season: it sells far better than a Cape Ann January. So a home's
+ * October said "your off-season is fine" and the forecast spread a
+ * market-shaped January to March across it. On 2026-11-09 the 2027 forecast
+ * had January to March at 28% of its own July plus August; the homes Rising
+ * Tide ran last winter did 11%. Dotti: "change it" so January to March follow
+ * last winter's real fees.
+ *
+ * The measurement, same homes on both sides. The six homes managed all of
+ * winter 2025-26 (CURRENT_2026 entries with start: 1: 17 Beach, 21 Horton,
+ * 73 Rocky Neck, 3 South, 20 Hammond, 20 Enon):
+ *
+ *   January to March 2026 fees   $6,389.31  (the Chase ...5130 sweeps, Feb 2
+ *                                            to Apr 3; Statements began April)
+ *   July plus August 2026 fees  $57,765.33  (their 12 closed statements)
+ *   ratio                          11.06%
+ *
+ * On the Gloucester revenue curve the same months are 13.67% and 31.19% of the
+ * year, a ratio of 43.82%. So Rising Tide's January to March runs at about a
+ * quarter (25.2%) of the market's shape, against the curve's own summer. The
+ * Jul+Aug 2025 sweeps against the same winter give 11.14%, so the reading does
+ * not hang on which summer is the base. If 53 Rocky Neck (contract from
+ * 2025-06-30, no statement before May) was in the winter sweeps, the true
+ * ratio is lower still (9.4%); 11.06% is the generous reading.
+ *
+ * Every home carries this one factor in January, February and March in place
+ * of its shoulder reading (which stays on April, May and October to December).
+ * Bookings still speak: Part A blends in as each winter month books. One
+ * winter is one reading. Re-measure when April 2027 closes, from the
+ * statements this time, and replace the two figures.
+ */
+export const DEEP_WINTER_MONTHS: ReadonlySet<number> = new Set([1, 2, 3]);
+
+/** January to March 2026 management fees of the six homes managed all winter. */
+export const RT_WINTER_FEES_JAN_MAR = 6389.31;
+/** July plus August 2026 management fees of the same six homes. */
+export const RT_SUMMER_FEES_JUL_AUG = 57765.33;
+
+export function isDeepWinterMonth(ym: string): boolean {
+  return DEEP_WINTER_MONTHS.has(parseInt(ym.slice(5, 7), 10));
+}
+
+/**
+ * The share of the market curve Rising Tide's January to March carries:
+ * RT's own January-to-March over July-plus-August, divided by the curve's.
+ * `curve` is twelve shares, January first. Capped at 1 (it only lowers);
+ * 1 when either side is unknown.
+ */
+export function deepWinterFactor(
+  curve: readonly number[],
+  winterFees: number = RT_WINTER_FEES_JAN_MAR,
+  summerFees: number = RT_SUMMER_FEES_JUL_AUG,
+): number {
+  const curveWinter = (curve[0] ?? 0) + (curve[1] ?? 0) + (curve[2] ?? 0);
+  const curveSummer = (curve[6] ?? 0) + (curve[7] ?? 0);
+  if (!(winterFees > 0) || !(summerFees > 0) || !(curveWinter > 0) || !(curveSummer > 0)) return 1;
+  return Math.min(1, winterFees / summerFees / (curveWinter / curveSummer));
+}
+
+/**
+ * What multiplies a home's curve share in month `ym`: 1 in summer, the
+ * measured winter factor in January to March, the home's own shoulder
+ * reading in the other off-season months.
+ */
+export function partBSeasonFactor(ym: string, offFactor: number, winterFactor: number): number {
+  if (!isOffSeasonMonth(ym)) return 1;
+  return isDeepWinterMonth(ym) ? winterFactor : offFactor;
+}

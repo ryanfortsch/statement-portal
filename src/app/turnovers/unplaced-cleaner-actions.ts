@@ -8,7 +8,7 @@ import { recordCleanerText } from '@/lib/quo-ingest';
 type Result = { ok: boolean; message?: string };
 
 /**
- * Place a cleaner's text on a house (the home feed's "Cleanings to check").
+ * Place a cleaner's text on a house (the cleaner texts on /turnovers/cleanings).
  *
  * Writes exactly what the Quo ingest writes for a text that names its house,
  * through the same function (recordCleanerText): the completion on that
