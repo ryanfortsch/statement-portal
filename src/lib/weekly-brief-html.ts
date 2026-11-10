@@ -11,8 +11,11 @@ import {
   longDay,
   monthDay,
   shortDay,
+  starWords,
   type BriefDay,
   type CheckIn,
+  type FeedbackItem,
+  type FeedbackPage,
   type HomePage,
   type WeeklyBrief,
 } from './weekly-brief.ts';
@@ -83,6 +86,17 @@ h1 { font-family: 'Fraunces', Georgia, serif; font-weight: 300; font-size: 34px;
 .note-title { font-weight: 600; }
 .note-body { color: #44555b; font-size: 11px; }
 .note-date { color: #9aa4a7; font-size: 9.5px; }
+.tally { margin-top: 8px; font-size: 10.5px; color: #5b6a70; }
+.fb { padding: 8px 0 9px; border-bottom: 1px solid #ecedec; break-inside: avoid; }
+.fb-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+.fb-home { font-size: 12.5px; font-weight: 600; }
+.fb-who { color: #44555b; }
+.fb-stars { font-size: 8.5px; letter-spacing: .14em; text-transform: uppercase; font-weight: 700; white-space: nowrap; color: #7a878c; }
+.fb-stars-low { color: #c85a3a; }
+.fb-meta { font-size: 9.5px; color: #7a878c; margin-top: 1px; letter-spacing: .02em; }
+.fb-text { font-family: 'Fraunces', Georgia, serif; font-size: 12px; line-height: 1.45; color: #2b3c42; margin-top: 4px; }
+.fb-label { font-size: 8.5px; letter-spacing: .16em; text-transform: uppercase; font-weight: 700; color: #5b6a70; margin-top: 6px; }
+.fb-private { font-size: 11px; color: #44555b; margin-top: 1px; }
 .foot { margin-top: 22px; font-size: 9px; letter-spacing: .2em; text-transform: uppercase; color: #9aa4a7; }
 `;
 
@@ -133,13 +147,18 @@ function pageOne(b: WeeklyBrief): string {
   const tiles = b.scorecard && b.scorecard.length
     ? `<div class="tiles">${b.scorecard.map(tileHtml).join('')}</div>`
     : '<div class="none">The goals could not be read this morning.</div>';
-  const index = b.pages.length
-    ? `<div class="index">${b.pages
-        .map(
-          (p, i) => `<div class="ix"><span>${esc(p.home.name)}</span><span class="ix-counts">${p.openCount} open${p.highCount ? ` · <span class="ix-high">${p.highCount} high</span>` : ''}${p.notes.length ? ` · ${p.notes.length} flagged` : ''} · p.${i + 2}</span></div>`,
-        )
-        .join('')}</div>`
-    : '<div class="none">No open work at any home.</div>';
+  const fb = b.feedback;
+  const below = fb.belowFive.length + fb.moreBelowFive;
+  const feedbackIx = `<div class="ix"><span>Guest feedback</span><span class="ix-counts">${
+    fb.unreadable ? 'could not read'
+    : below ? `<span class="ix-high">${below} below five</span>`
+    : `${fb.total} review${fb.total === 1 ? '' : 's'}`
+  } · p.2</span></div>`;
+  const index = `<div class="index">${feedbackIx}${b.pages
+    .map(
+      (p, i) => `<div class="ix"><span>${esc(p.home.name)}</span><span class="ix-counts">${p.openCount} open${p.highCount ? ` · <span class="ix-high">${p.highCount} high</span>` : ''}${p.notes.length ? ` · ${p.notes.length} flagged` : ''} · p.${i + FIRST_HOME_PAGE}</span></div>`,
+    )
+    .join('')}</div>${b.pages.length ? '' : '<div class="none">No open work at any home.</div>'}`;
   return `<section class="sheet">
     <div class="mast"><span>Rising Tide · Helm weekly</span><span>${esc(longDay(b.today))}</span></div>
     <h1>The week of ${esc(monthDay(b.window.from))}</h1>
@@ -162,6 +181,54 @@ function pageOne(b: WeeklyBrief): string {
     </div>
   </section>`;
 }
+
+function feedbackItemHtml(i: FeedbackItem): string {
+  const who = [i.guest, i.channel].filter(Boolean).join(' · ');
+  const meta = [`landed ${i.landed}`, ...i.lowCategories, i.slip].filter(Boolean).join(' · ');
+  const low = i.rating !== null && i.rating < 5;
+  return `<div class="fb">
+    <div class="fb-head">
+      <div><span class="fb-home">${esc(i.home)}</span>${who ? ` <span class="fb-who">· ${esc(who)}</span>` : ''}</div>
+      <div class="fb-stars${low ? ' fb-stars-low' : ''}">${i.rating === null ? 'No rating' : esc(starWords(i.rating))}</div>
+    </div>
+    <div class="fb-meta">${esc(meta)}</div>
+    ${i.publicText ? `<div class="fb-text">${esc(i.publicText)}</div>` : ''}
+    ${i.privateText ? `<div class="fb-label">${esc(i.privateLabel)}</div><div class="fb-private">${esc(i.privateText)}</div>` : ''}
+  </div>`;
+}
+
+function feedbackHtml(f: FeedbackPage, today: string): string {
+  const tally = f.unreadable
+    ? 'The reviews could not be read this morning. The Reviews tab has them.'
+    : f.total
+      ? `${f.total} review${f.total === 1 ? '' : 's'} landed · ${f.fiveStar} at five stars${f.avg !== null ? ` · average ${f.avg.toFixed(2)}` : ''}`
+      : 'No rated review landed this week.';
+  const below = f.unreadable
+    ? ''
+    : `<div class="section">
+        <div class="section-head"><span class="section-title">Below five stars</span><span class="section-note">lowest first</span></div>
+        ${f.belowFive.length ? f.belowFive.map(feedbackItemHtml).join('') : '<div class="none">No review below five stars this week.</div>'}
+        ${f.moreBelowFive ? `<div class="more">${f.moreBelowFive} more on the Reviews tab.</div>` : ''}
+      </div>`;
+  const notes = f.notes.length || f.moreNotes
+    ? `<div class="section">
+        <div class="section-head"><span class="section-title">Five stars, with a note to us</span><span class="section-note">a private note or a category below five</span></div>
+        ${f.notes.map(feedbackItemHtml).join('')}
+        ${f.moreNotes ? `<div class="more">${f.moreNotes} more on the Reviews tab.</div>` : ''}
+      </div>`
+    : '';
+  return `<section class="sheet">
+    <div class="mast"><span>Rising Tide · Helm weekly · ${esc(shortDay(today))}</span><span>Page 2</span></div>
+    <h1>What guests told us</h1>
+    <div class="sub">Reviews that landed ${esc(shortDay(f.from))} through ${esc(shortDay(f.to))}</div>
+    <div class="tally">${esc(tally)}</div>
+    ${below}
+    ${notes}
+  </section>`;
+}
+
+/** Page one is the week, page two the guests' feedback; the homes follow. */
+export const FIRST_HOME_PAGE = 3;
 
 function homeHtml(p: HomePage, pageNumber: number, today: string): string {
   const facts: string[] = [`${p.openCount} open`];
@@ -249,7 +316,8 @@ export function weeklyBriefHtml(b: WeeklyBrief): string {
 </head>
 <body>
 ${pageOne(b)}
-${b.pages.map((p, i) => homeHtml(p, i + 2, b.today)).join('\n')}
+${feedbackHtml(b.feedback, b.today)}
+${b.pages.map((p, i) => homeHtml(p, i + FIRST_HOME_PAGE, b.today)).join('\n')}
 </body>
 </html>`;
 }

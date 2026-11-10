@@ -8,11 +8,24 @@ import { esc, weeklyBriefHtml } from '@/lib/weekly-brief-html';
 import { renderWeeklyBriefPdf } from '@/lib/weekly-brief-pdf';
 import { briefFilename, briefSubject, isSendHour, shortDay, type WeeklyBrief } from '@/lib/weekly-brief';
 
+/** One line on what guests told us, for the email body. */
+function feedbackLine(b: WeeklyBrief): string {
+  const f = b.feedback;
+  if (f.unreadable) return 'The reviews could not be read this morning.';
+  const below = f.belowFive.length + f.moreBelowFive;
+  const notes = f.notes.length + f.moreNotes;
+  const parts = [`${f.total} review${f.total === 1 ? '' : 's'} last week`];
+  parts.push(below ? `${below} below five stars` : 'none below five stars');
+  if (notes) parts.push(`${notes} five-star with a note to us`);
+  return `${parts.join(', ')}. Page 2 has them.`;
+}
+
 /**
  * GET /api/cron/weekly-brief
  *
  * The Tuesday brief (lib/weekly-brief.ts): a printable PDF of Delaney's
- * three goals, the week's check-ins by day, and one page per home with its
+ * three goals, the week's check-ins by day, what guests told us in the
+ * week before (page two), and one page per home with its
  * open work in priority order, emailed to whoever holds the `weekly_brief`
  * duty in team.ts (Dotti).
  *
@@ -46,6 +59,7 @@ function emailHtml(b: WeeklyBrief): string {
     ${goals ? `<p style="margin-bottom:4px"><strong>Operations goals</strong></p><ul style="margin-top:0;padding-left:18px">${goals}</ul>` : ''}
     <p style="margin-bottom:4px"><strong>${total} check-in${total === 1 ? '' : 's'} this week</strong></p>
     <p style="margin-top:0">${days || 'None.'}</p>
+    <p>${esc(feedbackLine(b))}</p>
     <p>${b.pages.length} home${b.pages.length === 1 ? '' : 's'} with open work${high ? `, ${high} high-priority item${high === 1 ? '' : 's'}` : ''}. One page each, in priority order.</p>
   </div>`;
 }
@@ -57,7 +71,7 @@ function emailText(b: WeeklyBrief): string {
     .filter((d) => d.checkIns.length)
     .map((d) => `${shortDay(d.date)}: ${d.checkIns.map((c) => c.home).join(', ')}`)
     .join('\n');
-  return `The week of ${shortDay(b.window.from)} is attached, ready to print.\n\n${goals ? `Operations goals\n${goals}\n\n` : ''}${total} check-ins this week\n${days || 'None.'}\n`;
+  return `The week of ${shortDay(b.window.from)} is attached, ready to print.\n\n${goals ? `Operations goals\n${goals}\n\n` : ''}${total} check-ins this week\n${days || 'None.'}\n\n${feedbackLine(b)}\n`;
 }
 
 export async function GET(request: NextRequest) {

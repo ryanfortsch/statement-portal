@@ -5,7 +5,14 @@ import {
   PAGE_BUDGET_PX,
   pageCost,
   briefWindow,
+  buildFeedbackPage,
   buildWeeklyBrief,
+  easternMidnightIso,
+  feedbackPageCost,
+  feedbackWindow,
+  FEEDBACK_BUDGET_PX,
+  starWords,
+  type BriefReview,
   groupCheckIns,
   compareHomeNames,
   isSendHour,
@@ -172,6 +179,73 @@ describe('the Tuesday brief: one page per home', () => {
   });
 });
 
+let rseq = 0;
+function review(over: Partial<BriefReview> = {}): BriefReview {
+  rseq += 1;
+  return {
+    id: `r${String(rseq).padStart(3, '0')}`,
+    property_id: 'h1',
+    guest_name: `Guest ${rseq}`,
+    channel: 'airbnb2',
+    overall_rating: 5,
+    public_review: 'Lovely stay.',
+    private_feedback: null,
+    review_created_at: '2026-11-06T15:00:00Z',
+    ...over,
+  };
+}
+
+describe('the Tuesday brief: page two, what guests told us', () => {
+  test('the seven days before the send, midnight to midnight Eastern', () => {
+    assert.deepEqual(feedbackWindow(TODAY), { from: '2026-11-03', to: '2026-11-09' });
+    assert.equal(easternMidnightIso('2026-11-03'), '2026-11-03T05:00:00.000Z', 'EST');
+    assert.equal(easternMidnightIso('2027-06-01'), '2027-06-01T04:00:00.000Z', 'EDT');
+    assert.equal(easternMidnightIso('2026-11-01'), '2026-11-01T04:00:00.000Z', 'the morning daylight saving ends');
+  });
+
+  test('below five leads, lowest first; five stars print only with a note to us', () => {
+    const p = buildFeedbackPage({
+      ...feedbackWindow(TODAY),
+      homes: HOME_MAP,
+      reviews: [
+        review({ overall_rating: 4, guest_name: 'Four', slip_status: 'open' }),
+        review({ overall_rating: 3, guest_name: 'Three', private_feedback: 'The hot water ran out.' }),
+        review({ overall_rating: 5, guest_name: 'Thanks', private_feedback: 'Thank you, Allie!' }),
+        review({ overall_rating: 5, guest_name: 'Clean four', category_cleanliness: 4 }),
+        review({ overall_rating: 5, guest_name: 'Plain five' }),
+        review({ overall_rating: 2, property_id: 'gone', guest_name: 'Not ours' }),
+      ],
+    });
+    assert.deepEqual(p.belowFive.map((i) => i.guest), ['Three', 'Four']);
+    assert.equal(p.belowFive[0].privateText, 'The hot water ran out.');
+    assert.equal(p.belowFive[1].slip, 'on the Work board');
+    assert.deepEqual(p.notes.map((i) => i.guest).sort(), ['Clean four', 'Thanks']);
+    assert.deepEqual(p.notes.find((i) => i.guest === 'Clean four')?.lowCategories, ['Cleanliness 4']);
+    assert.equal(p.total, 5, 'a home off the roster is not counted');
+    assert.equal(p.fiveStar, 3);
+    assert.equal(starWords(4.5), '4.5 stars');
+  });
+
+  test('a failed read says so; a long week stays one sheet and counts the rest', () => {
+    const failed = buildFeedbackPage({ ...feedbackWindow(TODAY), homes: HOME_MAP, reviews: null });
+    assert.equal(failed.unreadable, true);
+    const long = 'The listing said the deck had a view of the harbor and it did, but the stairs were loose and nobody answered for an hour. '.repeat(5);
+    const p = buildFeedbackPage({
+      ...feedbackWindow(TODAY),
+      homes: HOME_MAP,
+      reviews: [
+        ...Array.from({ length: 15 }, () => review({ overall_rating: 3, public_review: long, private_feedback: long })),
+        ...Array.from({ length: 10 }, () => review({ private_feedback: long })),
+      ],
+    });
+    assert.ok(p.belowFive.length >= 4, 'the first few below five always print');
+    assert.equal(p.belowFive.length + p.moreBelowFive, 15);
+    assert.equal(p.notes.length + p.moreNotes, 10);
+    assert.ok(feedbackPageCost(p) <= FEEDBACK_BUDGET_PX, `${feedbackPageCost(p)}`);
+    assert.ok(p.belowFive[0].publicText!.length <= 421, 'a review is clipped, the rest is on the Reviews tab');
+  });
+});
+
 describe('the Tuesday brief: the document', () => {
   test('page one plus a sheet per home, every value escaped', () => {
     const b = buildWeeklyBrief({
@@ -183,9 +257,13 @@ describe('the Tuesday brief: the document', () => {
       arrivals: [stay({ guest_name: 'O\'Neil & Co' })],
       departures: [],
       headlines: {},
+      reviews: [review({ overall_rating: 2, public_review: 'Dirty <b>sheets</b>' })],
     });
     const html = weeklyBriefHtml(b);
-    assert.equal((html.match(/class="sheet"/g) ?? []).length, 1 + b.pages.length);
+    assert.match(html, /Dirty &lt;b&gt;sheets/);
+    assert.equal((html.match(/class="sheet"/g) ?? []).length, 2 + b.pages.length, 'page one, page two, then the homes');
+    assert.match(html, /What guests told us/);
+    assert.match(html, /20 Hammond<\/span><span class="ix-counts">1 open · p\.3/, 'the homes start on page three');
     assert.doesNotMatch(html, /<script>alert/);
     assert.match(html, /Fix &lt;script&gt;/);
     assert.match(html, /O&#39;Neil &amp; Co/);
@@ -218,7 +296,7 @@ describe('the Tuesday brief: the send', () => {
   });
 
   test('the brief reads no money', () => {
-    for (const f of ['src/lib/weekly-brief.ts', 'src/lib/weekly-brief-server.ts', 'src/lib/weekly-brief-html.ts']) {
+    for (const f of ['src/lib/weekly-brief.ts', 'src/lib/weekly-brief-server.ts', 'src/lib/weekly-brief-html.ts', 'src/app/api/cron/weekly-brief/route.ts']) {
       assert.doesNotMatch(read(f), /owner_payout|management_fee|booking_finance|adjusted_revenue/, f);
     }
   });

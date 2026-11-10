@@ -76,7 +76,10 @@ every 15 minutes. It does not ingest or acknowledge bookings, publish availabili
 change Guesty authority or send messages. See `docs/operations/channex-production-calderwood.md`.
 `/api/cron/weekly-brief` is the Tuesday brief (since 2026-11-09): a printable PDF emailed to
 whoever holds the `weekly_brief` duty in `team.ts` (Dotti). Page one is Delaney's three goals (the
-home band's own read) and the check-ins for Tuesday through Monday by day; then one page per home
+home band's own read) and the check-ins for Tuesday through Monday by day; page two is what guests
+told us in the seven days before (every review below five stars, lowest first, then the five-star
+ones with a private note or a category below five, Guesty reviews plus direct testimonials, with
+the work slip's status where one was filed); then one page per home
 with open work, its slips in priority order (high, then overdue, then this week, then oldest) and
 its open "Flagged at the house" notes (`src/lib/weekly-brief.ts`). Vercel crons are UTC-only, so
 it fires at 10:00 and 11:00 UTC and only the run at 6 AM Eastern sends. `?format=pdf` previews it
