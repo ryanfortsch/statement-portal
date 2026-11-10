@@ -8,9 +8,9 @@ function fixture() {
     ota_name: 'Airbnb', ota_reservation_code: 'SYNTHETIC123', status: 'new',
     arrival_date: '2027-02-01', departure_date: '2027-02-04', inserted_at: '2026-10-23T12:00:00.123456',
     rooms: [{ room_type_id: id(2), rate_plan_id: id(3), checkin_date: '2027-02-01', checkout_date: '2027-02-04' }],
-    customer: { name: 'PRIVATE_SENTINEL' }, guarantee: { card: 'PRIVATE_SENTINEL' }, amount: '99' } };
+    notes: null, customer: { name: 'Synthetic', surname: null, mail: 'guest@example.invalid', phone: null, address: null, city: null, country: null, zip: null }, guarantee: { card: 'PRIVATE_SENTINEL' }, amount: '99' } };
 }
-test('Airbnb boundary retains provider identity and precision without guest/payment data or send authority', () => {
+test('Airbnb boundary retains provider identity and precision with allowlisted guest details but without payment data or send authority', () => {
   for (const status of ['new', 'modified', 'cancelled']) {
     const raw = fixture(); raw.attributes.status = status;
     const result = normalizeAirbnbBookingRevision(raw, mapping);
@@ -42,4 +42,42 @@ test('invalid calendar dates and invalid mapping never escape as usable bookings
   assert.throws(() => normalizeAirbnbBookingRevision(raw, mapping));
   assert.throws(() => normalizeAirbnbBookingRevision(fixture(), { ...mapping, generation: 0 }));
   assert.throws(() => normalizeAirbnbBookingRevision(null, mapping), e => e instanceof Error && !e.message.includes('PRIVATE_SENTINEL'));
+});
+test('complete explicit nullable projection is required; unsafe/masked notes fail closed', () => {
+  const raw = fixture();
+  const normalized = normalizeAirbnbBookingRevision(raw, mapping);
+  assert.equal(normalized.guestDetails.mail, 'guest@example.invalid');
+  for (const value of ['***', '4111 1111 1111 1111', 'CVV 123', { nested: 'text' }, undefined]) {
+    const bad = structuredClone(raw) as { attributes: Record<string, unknown> };
+    bad.attributes.notes = value;
+    assert.throws(() => normalizeAirbnbBookingRevision(bad, mapping));
+  }
+  const missing = structuredClone(raw) as { attributes: Record<string, unknown> };
+  delete missing.attributes.customer;
+  assert.throws(() => normalizeAirbnbBookingRevision(missing, mapping));
+  const withRaw = { ...raw, attributes: { ...raw.attributes, raw_message: 'PAYMENT_SENTINEL' } };
+  assert.ok(!JSON.stringify(normalizeAirbnbBookingRevision(withRaw, mapping)).includes('PAYMENT_SENTINEL'));
+});
+test('notice null semantics and optional state are preserved without guessing ACK state', () => {
+  const raw = fixture();
+  for (const state of [null, 'MA', '***']) {
+    const withState = { ...raw, attributes: { ...raw.attributes, customer: { ...raw.attributes.customer, state } } };
+    if (state === '***') assert.throws(() => normalizeAirbnbBookingRevision(withState, mapping));
+    else assert.equal(normalizeAirbnbBookingRevision(withState, mapping).guestDetails.state, state);
+  }
+  assert.equal(Object.hasOwn(normalizeAirbnbBookingRevision(raw, mapping).guestDetails, 'state'), false);
+  const allNull = { ...raw, attributes: { ...raw.attributes, customer: Object.fromEntries(Object.keys(raw.attributes.customer).map(k => [k, null])) } };
+  assert.ok(Object.values(normalizeAirbnbBookingRevision(allNull, mapping).guestDetails).every(v => v === null));
+});
+test('international phone formatting survives retention; masked and oversized phones do not', () => {
+  for (const phone of ['+123456789012345', '+1 (202) 555-0100', '', null]) {
+    const raw = fixture();
+    const withPhone = { ...raw, attributes: { ...raw.attributes, customer: { ...raw.attributes.customer, phone } } };
+    assert.equal(normalizeAirbnbBookingRevision(withPhone, mapping).guestDetails.phone, phone);
+  }
+  for (const phone of ['***', '+1234567890123456', 'CVV 123', '1'.repeat(65)]) {
+    const raw = fixture();
+    const withPhone = { ...raw, attributes: { ...raw.attributes, customer: { ...raw.attributes.customer, phone } } };
+    assert.throws(() => normalizeAirbnbBookingRevision(withPhone, mapping));
+  }
 });

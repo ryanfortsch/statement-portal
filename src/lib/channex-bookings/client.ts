@@ -44,7 +44,10 @@ export function createAirbnbRevisionReader(config: { mapping: AirbnbBookingMappi
   return {
     inspect, revision,
     async feed() {
-      const params = new URLSearchParams({ 'filter[property_id]': mapping.propertyId, 'pagination[page]': '1', 'pagination[limit]': '100', 'order[inserted_at]': 'asc' });
+      // One feed for this credential, per Channex's November 2026 guidance.
+      // Keep validating every row against the sole reviewed mapping: a broader
+      // key or foreign row must stop the batch, never cause an out-of-scope ACK.
+      const params = new URLSearchParams({ 'pagination[page]': '1', 'pagination[limit]': '100', 'order[inserted_at]': 'asc' });
       const body = await request('/booking_revisions/feed?' + params), meta = record(body.meta);
       if (!Array.isArray(body.data) || meta.page !== 1 || !Number.isSafeInteger(meta.total) || (meta.total as number) < 0 ||
           !Number.isSafeInteger(meta.limit) || (meta.limit as number) < 1 || (meta.limit as number) > 100 ||
