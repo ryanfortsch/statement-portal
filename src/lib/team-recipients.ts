@@ -90,6 +90,17 @@ export function cleaningReviewSender(): string {
   return process.env.CLEANING_FROM_EMAIL || 'cleaning@risingtidestr.com';
 }
 
+/**
+ * Where the crew's reply to Friday's cleaning email lands. Plain Reply reaches
+ * everyone who holds the cleaning_review duty, so no one teammate's inbox is the
+ * only place it can go. Once a shared mailbox exists (a Workspace group behind
+ * the cleaning role address), set CLEANING_REPLY_TO to it and replies go there.
+ */
+export function cleaningReviewReplyTo(today: string = todayET()): string[] {
+  const shared = process.env.CLEANING_REPLY_TO?.trim();
+  return shared ? [shared] : cleaningReviewCopy(today);
+}
+
 /** Who receives the Tuesday brief (/api/cron/weekly-brief), in roster order. */
 export function weeklyBriefEmails(today: string = todayET()): string[] {
   return dutyEmails('weekly_brief', today);
