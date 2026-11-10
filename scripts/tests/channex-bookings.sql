@@ -7,6 +7,7 @@ returns jsonb language sql as $$select jsonb_build_object(
  'roomTypeId','e8673d84-4bea-48b1-a160-214b016a8c05',
  'ratePlanId','ce53790a-7b7d-4cec-91a6-a128589f9dd2',
  'environment','production','mappingGeneration',1,'channel','airbnb',
+ 'guestDetails',jsonb_build_object('name','Synthetic','surname',null,'mail','guest@example.invalid','phone',null,'address',null,'city',null,'country',null,'zip',null,'notes',null),
  'reservationCode','SYNTHETIC'||booking_n,'status',revision_status,
  'checkIn','2027-02-01','checkOut','2027-02-04','providerReceivedAt',at_time)$$;
 
@@ -32,7 +33,7 @@ select pg_temp.assert_true((select receipt from original_receipt)=helm_airbnb_re
 select pg_temp.assert_true((select count(*)=1 from bookings),'one canonical booking');
 select pg_temp.assert_true((select count(*)=2 from helm_booking_inventory_events),'enable and booking events');
 select pg_temp.assert_true((select count(*)=1 from booking_events),'one canonical audit event');
--- Guest/contact/payment payloads must never enter receipt storage through this narrow path.
+-- Unprojected customer/payment payloads must never enter receipt storage.
 do $$begin
  begin perform helm_airbnb_revision_commit(channex_synthetic_revision(2,'2026-11-06T15:00:00.000002Z')||'{"customer":"PRIVATE_SENTINEL"}'::jsonb);raise exception 'expected payload reject';
  exception when others then if sqlerrm<>'invalid_airbnb_revision' then raise;end if;end;
@@ -104,3 +105,17 @@ set role service_role;
 select public.helm_channex_storage_status();
 select public.helm_airbnb_revision_receipt('10000000-0000-4000-8000-000000000001');
 reset role;
+
+-- Guest projection is independently readable, immutable on masked replay.
+do $$declare before_receipt jsonb; bad jsonb; begin
+ before_receipt:=helm_airbnb_revision_receipt('10000000-0000-4000-8000-000000000001');
+ perform pg_temp.assert_true(before_receipt#>>'{revision,guestDetails,mail}'='guest@example.invalid','durable guest contact');
+ foreach bad in array array[
+   jsonb_set(channex_synthetic_revision(1,'2026-11-06T15:00:00.000001Z'),'{guestDetails,mail}','"***"'),
+   jsonb_set(channex_synthetic_revision(1,'2026-11-06T15:00:00.000001Z'),'{guestDetails,notes}','"4111 1111 1111 1111"'),
+   jsonb_set(channex_synthetic_revision(1,'2026-11-06T15:00:00.000001Z'),'{guestDetails}','{}')] loop
+  begin perform helm_airbnb_revision_commit(bad); raise exception 'expected guest rejection';
+  exception when others then if sqlerrm<>'invalid_guest_details' then raise;end if;end;
+ end loop;
+ perform pg_temp.assert_true(before_receipt=helm_airbnb_revision_receipt('10000000-0000-4000-8000-000000000001'),'masked retry never overwrites');
+end$$;

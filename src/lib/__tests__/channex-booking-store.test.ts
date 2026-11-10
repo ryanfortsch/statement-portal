@@ -6,7 +6,7 @@ const id = (n: number) => `30000000-0000-4000-8000-${String(n).padStart(12,'0')}
 const revision: AirbnbBookingRevision = {revisionId:id(1),bookingId:id(2),propertyId:id(3),
  roomTypeId:id(4),ratePlanId:id(5),reservationCode:'SYNTHETIC',status:'new',
  checkIn:'2027-01-01',checkOut:'2027-01-04',providerReceivedAt:'2026-11-06T15:00:00.000001Z',
- environment:'production',mappingGeneration:1,channel:'airbnb'};
+ environment:'production',mappingGeneration:1,channel:'airbnb',guestDetails:{name:'Synthetic',surname:null,mail:null,phone:null,address:null,city:null,country:null,zip:null,notes:null}};
 test('booking storage validates the narrow revision before calling the database',async()=>{
  const calls:unknown[]=[];
  const store=createAirbnbBookingStore(async(name,args)=>{calls.push({name,args});return {data:{saved:true},error:null};});

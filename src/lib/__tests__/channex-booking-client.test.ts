@@ -4,7 +4,7 @@ import { createAirbnbRevisionReader } from '../channex-bookings/client.ts';
 import { normalizeAirbnbBookingRevision, type AirbnbBookingMapping } from '../channex-bookings/revision.ts';
 const id = (n: number) => `40000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const mapping: AirbnbBookingMapping = { environment: 'staging', propertyId: id(1), roomTypeId: id(2), ratePlanId: id(3), generation: 1 };
-const row = () => ({ type: 'booking_revision', id: id(4), attributes: { booking_id: id(5), property_id: id(1), ota_name: 'Airbnb', ota_reservation_code: 'SYNTHETIC123', status: 'new', arrival_date: '2027-02-01', departure_date: '2027-02-04', inserted_at: '2026-10-23T12:00:00.000001Z', rooms: [{ room_type_id: id(2), rate_plan_id: id(3), checkin_date: '2027-02-01', checkout_date: '2027-02-04' }] } });
+const row = () => ({ type: 'booking_revision', id: id(4), attributes: { notes: null, customer: { name: 'Synthetic', surname: null, mail: 'guest@example.invalid', phone: null, address: null, city: null, country: null, zip: null }, booking_id: id(5), property_id: id(1), ota_name: 'Airbnb', ota_reservation_code: 'SYNTHETIC123', status: 'new', arrival_date: '2027-02-01', departure_date: '2027-02-04', inserted_at: '2026-10-23T12:00:00.000001Z', rooms: [{ room_type_id: id(2), rate_plan_id: id(3), checkin_date: '2027-02-01', checkout_date: '2027-02-04' }] } });
 function harness(acknowledgeEnabled = true, scope = mapping) {
   const calls: { url: string; method: string }[] = [];
   const rel = (n: number) => ({ data: { id: id(n) } });
@@ -54,4 +54,13 @@ test('fixed environment hosts and invalid credential or mapping cannot leak secr
   assert.throws(() => createAirbnbRevisionReader({ mapping, apiKey: 'PRIVATE\n' }));
   const client = createAirbnbRevisionReader({ mapping, apiKey: 'SYNTHETIC' }, async () => { throw Error('PRIVATE'); });
   await assert.rejects(() => client.feed(), e => e instanceof Error && !e.message.includes('PRIVATE'));
+});
+test('changed or masked guest contact at pre-ACK refetch never POSTs', async () => {
+  for (const mail of ['changed@example.invalid', '***']) {
+    const h = harness(), expected = normalizeAirbnbBookingRevision(row(), mapping);
+    const changed = row(); changed.attributes.customer.mail = mail;
+    h.replies['/booking_revisions/' + id(4)] = { data: changed };
+    await assert.rejects(() => h.client.acknowledge(expected));
+    assert.equal(h.calls.some(c => c.method === 'POST'), false);
+  }
 });
