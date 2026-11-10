@@ -77,13 +77,16 @@ only when the production capture gate is enabled; it never publishes rates.
 every 15 minutes. It does not ingest or acknowledge bookings, publish availability,
 change Guesty authority or send messages. See `docs/operations/channex-production-calderwood.md`.
 `/api/cron/weekly-brief` is the Tuesday brief (since 2026-11-09): a printable PDF emailed to
-whoever holds the `weekly_brief` duty in `team.ts` (Dotti). Page one is Delaney's three goals (the
+whoever holds the `weekly_brief` duty in `team.ts` (Ryan and Dotti). Page one is Delaney's three goals (the
 home band's own read) and the check-ins for Tuesday through Monday by day; page two is what guests
 told us in the seven days before (every review below five stars, lowest first, then the five-star
 ones with a private note or a category below five, Guesty reviews plus direct testimonials, with
 the work slip's status where one was filed); then one page per home
 with open work, its slips in priority order (high, then overdue, then this week, then oldest) and
-its open "Flagged at the house" notes (`src/lib/weekly-brief.ts`). Vercel crons are UTC-only, so
+its open "Flagged at the house" notes (`src/lib/weekly-brief.ts`). The homes with a check-in that
+week come first, in arrival order, then the rest by street; an appointment slip whose day has
+passed (an inspection, a meeting) prints at the page's foot under "Past dates, to close out"
+instead of leading it as overdue (`isPastAppointment`). Vercel crons are UTC-only, so
 it fires at 10:00 and 11:00 UTC and only the run at 6 AM Eastern sends. `?format=pdf` previews it
 without sending; `?force=1` sends now. Chromium prints the HTML string directly, so the document
 has no URL to guard. It reads no money.

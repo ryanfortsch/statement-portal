@@ -728,12 +728,9 @@ code, contact, note, money, credential or portal token. No new public route,
 recipient, access grant, schedule job or message is created, and this preview
 does not set the cleaner handover readiness flags or replace the Guesty URL.
 
-Guesty's signed-in phone book shows Luana Martins at Lu's Cleaning Crew, and
-the Calderwood cleaner workflow remains enabled. A read of Guesty's documented
-contacts endpoint returned one matching cleaning contact whose phone agrees with
-the signed-in phone book. The source stays private and no recipient was installed.
-The contact destination still
-needs to be matched to both workflow messages before configuring Helm delivery.
+Source cleaner routing was inspected without saving changes. Recipient and
+workflow evidence is retained privately, outside the repository. No recipient
+was installed. Helm delivery and cleaner access are not yet configured.
 The approved cleaner-queue support follow-up has no newer answer at this check.
 
 Validation: 3,976 local tests pass, seven optional checks skipped, TypeScript
@@ -741,10 +738,37 @@ passes, and all 29 synthetic queue-action browser checks pass. The latter had
 two stale expectations for the previous "slips" label; only those expectations
 were updated to the current "work items" wording, preserving all action guards.
 
-Live verification found all four expected stays. Their canonical guest counts
-are null, so the preview correctly displays "Not recorded" rather than inferring
-counts. The property's 15:00 check-in setting is the deliberate cleaner ready-by
+Initial live verification found all four expected stays with null canonical
+guest counts. The property's 15:00 check-in setting is the deliberate cleaner ready-by
 deadline (see the listing-sync fill-empty contract); Guesty's guest-facing
 arrival remains 16:00. The report labels this value "Ready by" explicitly. No
 stored times or automation timings were changed. The production route redirects
 anonymous requests to sign-in, and the owner check precedes the private reads.
+
+The next preview batch fills missing guest counts from live Guesty detail without
+persisting them into canonical bookings. It resolves unique confirmation codes
+and source IDs against the property-scoped mirror, checks the account, listing,
+status and exact dates, then requires two independent count reads to agree.
+The report, local identities and calendar authority must still match after the
+reads, including when the source fails. Changed local context makes the schedule
+unavailable; failed or ambiguous source reads leave missing counts explicitly
+unverified. Existing canonical counts are preserved. The source lookup runs only
+while Guesty owns the calendar, is limited to 12 missing-count stays, uses a
+20-second source-read deadline and 32 KiB response limit, and reuses the sync's
+valid cached token without refreshing or writing credentials. The page labels
+source-verified counts and shows the check time in Eastern time.
+
+Read-only live verification matched all four current/future stays on eight
+Guesty reads, with the 15:00 ready-by deadline preserved. No bookings, recipients,
+access grants, message queues or automation settings changed. Cleaner delivery
+still needs Helm recipient/access setup and source queue clearance;
+the support follow-up remains unanswered at this check. Local validation:
+3,992 tests pass, seven optional checks skipped, TypeScript and changed-file
+lint pass, and the synthetic preview renders the verified/unknown count states.
+
+The initial Vercel preview for PR #2171 was rejected while the deploying account
+had viewer-only access. On 10 November, the team owner restored Developer access;
+the authenticated API confirmed the new role. The release branch was then updated
+against current main: 4,127 tests passed, seven optional checks skipped, and
+TypeScript plus changed-file lint passed. Deployment and merge results are tracked
+on the PR; this access correction alone does not establish a completed deployment.

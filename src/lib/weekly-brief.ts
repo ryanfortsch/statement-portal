@@ -7,7 +7,11 @@
  * landed in the week before the send rated below five stars, then the
  * five-star ones that carried a private note or a category below five.
  * Every page after it is one home: its open work slips in priority order and
- * the issues flagged at the house.
+ * the issues flagged at the house. The homes with a check-in that week come
+ * first, in the order the guests arrive; the rest follow by street (Dotti,
+ * 2026-11-10). An appointment whose day has passed (the inspection on the
+ * 6th) is not work this week: it prints once at the foot of its page, to
+ * close out, instead of leading the page as overdue.
  *
  * Pure, so `npm test` pins the ordering and the week. The reads are in
  * weekly-brief-server.ts, the HTML in weekly-brief-html.ts, the PDF in
@@ -49,6 +53,7 @@ export const COST = {
   noteBodyLine: 16,
   bringLine: 17,
   more: 24,           // the "N more" line
+  pastLine: 22,       // a passed appointment's one line
 } as const;
 /** Characters per wrapped line at the row and note widths. */
 const DETAIL_CHARS_PER_LINE = 105;
@@ -509,6 +514,23 @@ export function rankSlips<T extends BriefSlip>(slips: T[], today: string): T[] {
   });
 }
 
+/**
+ * A slip whose job was to be somewhere at a set time (an inspection, a
+ * meeting, an appointment) and whose date has passed. The time is gone, so
+ * it is no longer this week's work: either it happened and the slip was
+ * never closed, or it was missed. Read from the title, and never a slip that
+ * asks us to book one ("Schedule the chimney inspection" is still work).
+ */
+const APPOINTMENT_WORDS = /\b(inspections?|inspector|appointments?|meetings?|walk-?through|showing|site visit)\b/i;
+const BOOKING_VERBS = /^\s*(schedule|book|arrange|set up|find|get|hire|request|call to)\b/i;
+
+export function isPastAppointment(s: Pick<BriefSlip, 'title' | 'scheduled_date' | 'follow_up_date'>, today: string): boolean {
+  const clock = slipClock(s);
+  if (!clock || clock >= today) return false;
+  const title = s.title ?? '';
+  return APPOINTMENT_WORDS.test(title) && !BOOKING_VERBS.test(title);
+}
+
 export type BriefRow = {
   id: string;
   number: number;
@@ -559,6 +581,8 @@ export type HomePage = {
   moreNotes: number;
   /** The shopping list: supply slips, one line. */
   bring: string[];
+  /** Appointments whose day has passed: one line each at the foot, to close out. */
+  pastAppointments: Array<{ id: string; title: string; date: string }>;
   notes: Array<{ id: string; title: string; body: string | null; opened: string }>;
   checkIns: CheckIn[];
   highCount: number;
@@ -591,7 +615,11 @@ export function buildHomePage(args: {
   const { home, today } = args;
   const headline = args.headline?.trim() || null;
   const supplies = args.slips.filter((s) => isSupplySlip(s) && !s.owner_action_required);
-  const work = rankSlips(args.slips.filter((s) => !supplies.includes(s)), today);
+  const past = args.slips.filter((s) => !supplies.includes(s) && isPastAppointment(s, today));
+  const work = rankSlips(args.slips.filter((s) => !supplies.includes(s) && !past.includes(s)), today);
+  const pastAppointments = [...past]
+    .sort((a, b) => (slipClock(a) ?? '').localeCompare(slipClock(b) ?? '') || a.id.localeCompare(b.id))
+    .map((s) => ({ id: s.id, title: slipDisplayTitle(s.title, home.name), date: monthDay(slipClock(s) as string) }));
   const bring = rankSlips(supplies, today).map((s) => `${supplyChipLabel(s, home.name)}${s.priority === 'high' ? ' (high)' : ''}`);
   const allNotes = [...args.notes]
     .sort((a, b) => b.created_at.localeCompare(a.created_at))
@@ -609,6 +637,7 @@ export function buildHomePage(args: {
     for (const n of notes) spent += COST.note + lines(n.body, DETAIL_CHARS_PER_LINE) * COST.noteBodyLine;
   }
   if (bring.length) spent += COST.section + lines(bring.join(', '), BRING_CHARS_PER_LINE) * COST.bringLine;
+  if (pastAppointments.length) spent += COST.section + pastAppointments.length * COST.pastLine;
   if (work.length) spent += COST.section;
 
   const rows: BriefRow[] = [];
@@ -638,6 +667,7 @@ export function buildHomePage(args: {
     rows,
     moreRows: work.length - rows.length,
     bring,
+    pastAppointments,
     notes,
     moreNotes: allNotes.length - notes.length,
     checkIns: args.checkIns,
@@ -655,6 +685,7 @@ export function pageCost(p: HomePage): number {
     for (const n of p.notes) spent += COST.note + lines(n.body, DETAIL_CHARS_PER_LINE) * COST.noteBodyLine;
   }
   if (p.bring.length) spent += COST.section + lines(p.bring.join(', '), BRING_CHARS_PER_LINE) * COST.bringLine;
+  if (p.pastAppointments.length) spent += COST.section + p.pastAppointments.length * COST.pastLine;
   if (p.rows.length) spent += COST.section;
   for (const r of p.rows) spent += COST.row + lines(r.detail, DETAIL_CHARS_PER_LINE) * COST.detailLine;
   if (p.moreRows) spent += COST.more;
@@ -675,7 +706,10 @@ export type WeeklyBrief = {
   days: BriefDay[];
   /** Page two: what guests told us in the week before the send. */
   feedback: FeedbackPage;
+  /** Homes with a check-in this week first, in arrival order; then the rest by street. */
   pages: HomePage[];
+  /** How many of `pages`, from the front, are homes with a check-in this week. */
+  arrivingPages: number;
   /** Active homes with no open work and no flagged issue: named on page one, no page. */
   quietHomes: string[];
 };
@@ -720,9 +754,22 @@ export function buildWeeklyBrief(args: {
       }),
     );
   }
+  // Section one: the homes a guest arrives at this week, in the order they
+  // arrive (street breaks a tie). Section two: the rest, by street. The
+  // sort is stable, so street order holds inside the second section.
+  const firstArrival = (p: HomePage) => p.checkIns.map((c) => c.date).sort()[0] ?? null;
+  pages.sort((a, b) => {
+    const fa = firstArrival(a);
+    const fb = firstArrival(b);
+    if (fa && fb) return fa.localeCompare(fb) || compareHomeNames(a.home.name, b.home.name);
+    if (fa) return -1;
+    if (fb) return 1;
+    return 0;
+  });
+  const arrivingPages = pages.filter((p) => p.checkIns.length > 0).length;
   const fw = feedbackWindow(today);
   const feedback = buildFeedbackPage({ ...fw, reviews: args.reviews === undefined ? [] : args.reviews, homes: byId });
-  return { today, window: briefWindow(today), scorecard: args.scorecard, days, feedback, pages, quietHomes };
+  return { today, window: briefWindow(today), scorecard: args.scorecard, days, feedback, pages, arrivingPages, quietHomes };
 }
 
 /** "Helm weekly · Tue, Nov 10". */
