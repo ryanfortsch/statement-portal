@@ -97,3 +97,42 @@ omission as null. Null alone does not prove ACK status, and unchanged names do n
 prove a record is unmasked. We refuse any masked retained field and never erase a
 prior receipt. Raw_message remains intentionally excluded: this is operational
 projection retention, not a claim to archive the full upstream payload.
+
+## GET-only acknowledgment observation (November 10 follow-up)
+
+`src/lib/channex-bookings/acknowledgment.ts` adds an internal, server-only observer
+for a lost ACK response. It requires an already committed, unmasked receipt; checks
+the reviewed environment/property/room/rate/generation; reads the exact provider
+revision; and independently rereads the durable receipt. Only an explicit
+`acknowledge_status: acknowledged` plus matching identity, stay, timestamp and
+retained projection yields a point-in-time `confirmed` observation. Missing,
+unknown or inconsistent evidence remains unconfirmed or requires review.
+
+Documented exact `***` masks can be compared to retained values in a temporary
+copy only after explicit provider acknowledgment. Names cannot be masked, null
+cannot become a mask, and optional-state absence cannot become null. No provider
+value or durable record is modified. The observer makes only bounded GET requests
+with fresh deadlines, no caching and no redirects; it does not scan the feed,
+retry ACK, commit, send messages, repair a ledger or grant complete coverage.
+It is not wired into a production route, worker or activation gate.
+
+On November 10 at 23:54 UTC, the staging read-only check verified the known
+fictional certification booking's new, modified and cancelled revisions. Each
+reported explicit acknowledgment, masked notes, retained name/surname and explicit
+null contact fields (including state). The pre-ACK parser correctly refused each
+masked projection, and the Airbnb origin guard continued to reject Offline CRS.
+Masking is therefore already observable in staging ahead of the announced date.
+
+Run `scripts/check-channex-staging-contract.mts --read-only` with Node's
+`--conditions=react-server` and the existing approved staging credential supplied
+outside source control. The script accepts only the fixed synthetic staging
+identities and emits field types/mask flags, never values. It performs no writes,
+ACKs, feed scans or receipt imports. It refuses production configuration.
+
+This observation is not proof of pre-ACK field completeness, a recovered real
+Airbnb ACK, or live channel delivery: these historical Offline fixtures have no
+retained pre-ACK receipt in this check. Synthetic tests cover the lost-response
+comparison and notes-only masking with null contacts. A November 10 follow-up to
+Evan requests confirmation of exact-revision acknowledgment status as the supported
+recovery contract, Airbnb omitted/null fields, and possible pre-ACK masking.
+Production ingestion remains disabled pending those contract and retention gates.
