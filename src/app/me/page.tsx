@@ -174,8 +174,7 @@ export default async function MePage({ searchParams }: { searchParams: Promise<{
               key={c.id}
               home={homes.get(c.property_id) ?? c.property_id}
               text={c.reason || ''}
-              small={[noticeWord(c.notice_status), houseDay(c.walk_date)].filter(Boolean).join(' · ')}
-              smallTone={c.notice_status === 'pending' || c.notice_status === 'approving' ? 'var(--signal)' : undefined}
+              small={[noticeWord(c.notice_status, 'Crew', c.report_status), houseDay(c.walk_date)].join(' · ')}
               meta={<Stars n={c.stars} />}
             />
           ))}

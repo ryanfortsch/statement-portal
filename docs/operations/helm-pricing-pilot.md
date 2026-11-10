@@ -361,7 +361,7 @@ keeps imports, comparison history/tracking, simulated publishing and undo entire
 in browser memory. It includes two synthetic earlier captures. It works without
 the pricing migrations; reloading resets it.
 Install in order: `supabase/migrations/20261108110000_helm_dynamic_pricing.sql`, then
-`supabase/migrations/20261110120000_helm_pricing_observations.sql`.
+`supabase/migrations/20261110123000_helm_pricing_observations.sql`.
 These create dormant storage and functions; they do not connect homes or opt them
 into collection. Without both, the workbench displays a setup message.
 

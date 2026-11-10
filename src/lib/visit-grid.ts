@@ -344,6 +344,17 @@ export function composeVisitGrid(input: VisitGridInput): VisitGrid {
       // own arrival: the tap acts on the mark, whatever the day's state.
       const carried = date === today ? stays.find((s) => s !== next && isLate(s, today)) ?? null : null;
       if (carried && (tap.kind === 'none' || tap.kind === 'claim')) tap = tapFor(carried);
+      // A mark on a day the house is booked (a stay landed over the planned
+      // day, or it was planned before one did) still answers its holder:
+      // without this the cell is dead and the mark can never be let go
+      // (Delaney's 53 Rocky Neck walk on 11/14, under a guest's stay,
+      // 2026-11-10). Only a release: nobody claims a booked day.
+      if (tap.kind === 'none') {
+        const stranded = stays.find((s) => s.walk === 'open' && s.plan && markDay(s.plan, today) === date && same(s.plan.assignee, me));
+        // The day is dead, so the plan goes whole: kept with nobody named,
+        // it would strand a question mark on the same booked day.
+        if (stranded?.plan) tap = { kind: 'release', stay: stranded, planId: stranded.plan.id, keep: false };
+      }
 
       return {
         date,

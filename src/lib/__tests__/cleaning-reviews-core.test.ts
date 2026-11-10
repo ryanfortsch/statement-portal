@@ -1,9 +1,10 @@
 /**
  * Cleaning reviews, the rules (docs/cleaning-reviews.md).
  *
- * Five stars files nothing; four or fewer files a note. The note names the
- * home and the day the crew's way, carries the stars, the reason and the
- * photo links, in one language per text, and never a person's name.
+ * Every rating rides in Friday's one email. It leads with the week's grade,
+ * lists every clean with its stars, home and day the crew's way, and under
+ * each at four or fewer prints the reason and the photo links, in one
+ * language per email, and never a person's name.
  *
  * Run: npm test
  */
@@ -12,21 +13,26 @@ import assert from 'node:assert/strict';
 import {
   CLEANING_FLAG_MAX,
   CLEANING_HANDLED_REASONS,
-  composeCleaningNotice,
+  composeWeeklyEmail,
   enDay,
+  enShort,
   needsCleaningNotice,
   noticeWord,
   parseStars,
   ptDay,
+  ptShort,
+  reportWeekEnd,
   starsGlyphs,
   summarizeCleaningReviews,
+  weeklyAverage,
+  weeklyEmailHtml,
 } from '../cleaning-reviews-core.ts';
 
-describe('which ratings file a note', () => {
-  test('five stars is stored and nothing more', () => {
+describe('which ratings are flagged', () => {
+  test('five stars prints as one line', () => {
     assert.equal(needsCleaningNotice(5), false);
   });
-  test('four or fewer files the crew note', () => {
+  test('four or fewer carries a reason and photos', () => {
     for (const n of [1, 2, 3, 4]) assert.equal(needsCleaningNotice(n), true, `${n} stars`);
     assert.equal(CLEANING_FLAG_MAX, 4);
   });
@@ -40,47 +46,80 @@ describe('which ratings file a note', () => {
   });
 });
 
-describe('the note to the crew', () => {
-  const input = {
-    home: '21 Horton',
-    walkDate: '2026-11-06',
-    stars: 3,
-    reasonPt: 'ficou cabelo na banheira e migalhas embaixo da torradeira',
-    reasonEn: 'hair was left in the tub and crumbs under the toaster',
-    photoUrls: ['https://x.test/a.jpg', 'https://x.test/b.jpg'],
+describe("Friday's email", () => {
+  const week = {
+    firstWalk: '2026-11-06',
+    weekEnd: '2026-11-12',
+    cleans: [
+      { home: '3 South', walkDate: '2026-11-10', stars: 5, reasonPt: '', reasonEn: '', photoUrls: [] },
+      {
+        home: '21 Horton',
+        walkDate: '2026-11-06',
+        stars: 3,
+        reasonPt: 'ficou cabelo na banheira',
+        reasonEn: 'hair was left in the tub',
+        photoUrls: ['https://x.test/a.jpg', 'https://x.test/b.jpg'],
+      },
+      { home: '20 Enon', walkDate: '2026-11-08', stars: 5, reasonPt: '', reasonEn: '', photoUrls: ['https://x.test/never.jpg'] },
+    ],
   };
+  const email = composeWeeklyEmail(week);
 
-  test('the Portuguese carries the home, the day, the stars, the reason and the photos', () => {
-    const { pt } = composeCleaningNotice(input);
-    assert.match(pt, /21 Horton/);
-    assert.match(pt, /sex, 6\/11/);
-    assert.match(pt, /avaliamos 3 de 5/);
-    assert.match(pt, /Ficou cabelo na banheira e migalhas embaixo da torradeira\./);
-    assert.match(pt, /Fotos: https:\/\/x\.test\/a\.jpg https:\/\/x\.test\/b\.jpg/);
+  test('the grade leads, in each reader\'s numbers', () => {
+    assert.match(email.pt, /Média 4,3 de 5 em 3 limpezas\./);
+    assert.match(email.en, /Average 4\.3 of 5 across 3 cleans\./);
+    assert.ok(email.pt.indexOf('Média') < email.pt.indexOf('★'), 'the grade before the list');
+    assert.equal(weeklyAverage(week.cleans), 4.3);
+    assert.equal(weeklyAverage([]), null);
   });
 
-  test('the English is the same note for the operator and an English recipient', () => {
-    const { en } = composeCleaningNotice(input);
-    assert.match(en, /21 Horton \(Fri, Nov 6\)/);
-    assert.match(en, /rated it 3 of 5/);
-    assert.match(en, /Hair was left in the tub and crumbs under the toaster\./);
-    assert.match(en, /Photos: /);
+  test('every clean is listed in walk order, the crew\'s day', () => {
+    const horton = email.pt.indexOf('21 Horton · sex, 6/11');
+    const enon = email.pt.indexOf('20 Enon · dom, 8/11');
+    const south = email.pt.indexOf('3 South · ter, 10/11');
+    assert.ok(horton > 0 && enon > horton && south > enon, email.pt);
+    assert.ok(email.pt.includes('★★★☆☆  21 Horton'));
+    assert.ok(email.en.includes('21 Horton · Fri, Nov 6'));
   });
 
-  test('one language per text: no English words in the Portuguese template', () => {
-    const { pt } = composeCleaningNotice({ ...input, reasonPt: '', reasonEn: '', photoUrls: [] });
-    for (const word of ['clean', 'rated', 'Photos', 'Thank']) assert.ok(!pt.includes(word), `${word} leaked into the Portuguese`);
+  test('a flagged clean carries its reason and photos; a five-star one does not', () => {
+    assert.ok(email.pt.includes('Ficou cabelo na banheira.'));
+    assert.ok(email.pt.includes('Fotos: https://x.test/a.jpg https://x.test/b.jpg'));
+    assert.ok(email.en.includes('Photos: https://x.test/a.jpg'));
+    assert.ok(!email.pt.includes('never.jpg'), 'five stars prints no photos');
   });
 
-  test('no reason and no photos leaves a complete short note', () => {
-    const { pt, en } = composeCleaningNotice({ ...input, reasonPt: '', reasonEn: '', photoUrls: [] });
-    assert.equal(pt, 'Oi! Sobre a limpeza da 21 Horton (sex, 6/11): avaliamos 3 de 5. Obrigada!');
-    assert.equal(en, 'Hi! About the clean at 21 Horton (Fri, Nov 6): we rated it 3 of 5. Thank you!');
+  test('one language per email, no person named, no sign-off name', () => {
+    assert.ok(!email.pt.includes('hair was left'));
+    assert.ok(!email.en.includes('cabelo'));
+    assert.ok(email.pt.endsWith('Obrigada!'));
+    assert.ok(email.en.endsWith('Thank you!'));
+    for (const name of ['Dotti', 'Ryan', 'Allie', 'Delaney']) {
+      assert.ok(!email.pt.includes(name) && !email.en.includes(name), name);
+    }
   });
 
-  test('the note never names the inspector', () => {
-    const { pt, en } = composeCleaningNotice(input);
-    for (const t of [pt, en]) assert.ok(!/Delaney|Dotti|Ryan|Allie/.test(t));
+  test('the subject names the week; one day prints once', () => {
+    assert.equal(email.subjectPt, 'Avaliação das limpezas · 6/11 a 12/11');
+    assert.equal(email.subjectEn, 'Cleaning review · Nov 6 to Nov 12');
+    const one = composeWeeklyEmail({ ...week, firstWalk: '2026-11-12', cleans: [week.cleans[0]] });
+    assert.equal(one.subjectEn, 'Cleaning review · Nov 12');
+    assert.match(one.pt, /em 1 limpeza\./);
+    assert.equal(ptShort('2026-11-06'), '6/11');
+    assert.equal(enShort('2026-11-06'), 'Nov 6');
+  });
+
+  test('Friday covers through Thursday', () => {
+    assert.equal(reportWeekEnd('2026-11-13'), '2026-11-12');
+    assert.equal(reportWeekEnd('2026-12-01'), '2026-11-30');
+  });
+
+  test('the HTML escapes the text and numbers the photo links', () => {
+    const html = weeklyEmailHtml('★★★☆☆  1 <b>Main</b>\nFotos: https://x.test/a.jpg https://x.test/b.jpg');
+    assert.ok(html.includes('&lt;b&gt;Main&lt;/b&gt;'), 'escaped');
+    assert.ok(html.includes('<a href="https://x.test/a.jpg" style="color:#1f5e6b">1</a>'));
+    assert.ok(html.includes('<a href="https://x.test/b.jpg" style="color:#1f5e6b">2</a>'));
+    assert.ok(html.includes('<br>'));
   });
 
   test('days print the way each reader writes them', () => {
@@ -107,9 +146,11 @@ describe('the stat strip', () => {
   });
   test('glyphs and the one status word', () => {
     assert.equal(starsGlyphs(3), '★★★☆☆');
-    assert.equal(noticeWord('none'), null);
-    assert.equal(noticeWord('pending'), 'Waiting on approval');
-    assert.equal(noticeWord('sent', 'Rosa'), 'Rosa texted');
-    assert.equal(CLEANING_HANDLED_REASONS.length, 3);
+    assert.equal(noticeWord('none'), "In Friday's email");
+    assert.equal(noticeWord('none', 'Crew', 'pending'), 'Waiting on approval');
+    assert.equal(noticeWord('none', 'Rosa', 'sent'), 'Rosa emailed');
+    assert.equal(noticeWord('handled', 'Crew', 'handled'), 'Not sent');
+    assert.equal(noticeWord('sent', 'Rosa'), 'Rosa texted', 'a per-walk text from before keeps its word');
+    assert.deepEqual([...CLEANING_HANDLED_REASONS], ['Spoke with the crew', 'Skip this week']);
   });
 });

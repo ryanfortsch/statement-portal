@@ -152,8 +152,10 @@ export function VisitGrid({ today, days, homes, stays, myEmail, dispatcher = fal
       );
     if (t.kind === 'release') {
       // Someone else's plan, or one with a note, keeps its day: only the
-      // name comes off (plan-actions decides the same way on the server).
-      return run(rid, t.keep && t.stay.plan ? { ...t.stay.plan, assignee: null } : null, () => releaseWalk(t.planId));
+      // name comes off. A plan that goes is removed outright: the grid
+      // decides for whom the tap plans (a dispatcher planning for Delaney
+      // lets go of Delaney's own tap), which the server cannot see.
+      return run(rid, t.keep && t.stay.plan ? { ...t.stay.plan, assignee: null } : null, () => releaseWalk(t.planId, t.keep ? {} : { remove: true }));
     }
     if (t.kind === 'take') {
       const who = nameFor(t.holder);
@@ -374,6 +376,9 @@ function cellText(home: string, cell: GridCell, today: string): string {
   const when = dayLong(cell.date);
   const who = cell.badges.map((b) => (b.kind === 'walked' ? `walked by ${b.name}${b.on ? ` ${dayWord(b.on, today)}` : ''}` : b.kind === 'walking' ? (b.on ? `${b.name} started walking it ${dayWord(b.on, today)} and never finished` : `${b.name} walking now`) : b.kind === 'field' ? b.name : b.kind === 'unassigned' ? b.name : `${b.name}${b.late ? ', was due earlier' : ''}`));
   const lead = `${home} · ${when}`;
+  if (cell.state !== 'open' && cell.tap.kind === 'release') {
+    return `${lead}: you're down to walk it ${dayWord(cell.date, today)}, but ${cell.state === 'occupied' ? 'a guest is in the house' : 'the house is on hold'}. Tap to let it go.`;
+  }
   if (cell.state === 'occupied') return `${lead}: guest in house${who.length ? ` · ${who.join(', ')}` : ''}`;
   if (cell.state === 'blocked') return `${lead}: owner / hold${cell.hold === 'long' ? ', no end in view' : ''}${who.length ? ` · ${who.join(', ')}` : ''}`;
   const events = [cell.leaving ? 'guest leaves' : null, cell.arriving ? `${cell.channel ? `${channelLabel(cell.channel)} ` : ''}guest arrives` : null].filter(Boolean).join(', ');

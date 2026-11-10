@@ -16,7 +16,7 @@ create table public.bookings(id uuid,property_id text,status text,check_in date,
 create table public.property_calendar_days(property_id text,date date,status text,price numeric,currency text,min_nights integer,synced_at timestamptz);
 grant all on all tables in schema public to service_role;
 \ir ../../supabase/migrations/20261108110000_helm_dynamic_pricing.sql
-\ir ../../supabase/migrations/20261110120000_helm_pricing_observations.sql
+\ir ../../supabase/migrations/20261110123000_helm_pricing_observations.sql
 insert into properties values('pilot','helm',true,'America/New_York'),('guesty','guesty',true,'America/New_York');
 insert into property_rate_plans values('pilot','USD',30000);
 create function public.test_assert(ok boolean, message text) returns void language plpgsql as $$begin if ok is not true then raise exception '%',message; end if; end$$;

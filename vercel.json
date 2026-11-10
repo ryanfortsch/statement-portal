@@ -109,6 +109,10 @@
       "schedule": "0 22,23 * * *"
     },
     {
+      "path": "/api/cron/cleaning-review-email",
+      "schedule": "0 12 * * 5"
+    },
+    {
       "path": "/api/cron/payment-links",
       "schedule": "*/15 * * * *"
     },

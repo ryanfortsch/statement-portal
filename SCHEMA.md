@@ -307,7 +307,7 @@ All service role only. Money is integer cents.
   Manual direct-rate publishing only; no OTA publisher or rate-publishing schedule. See
   `docs/operations/helm-pricing-pilot.md` for model boundaries and rollout criteria.
 - **`property_pricing_tracking` / `property_pricing_observations`**: prospective
-  comparison history (migration `20261110120000_helm_pricing_observations.sql`, after
+  comparison history (migration `20261110123000_helm_pricing_observations.sql`, after
   the pricing pilot migration). Owner opt-in is version checked by
   `helm_set_pricing_tracking`. `helm_record_pricing_observation` pins 180 future
   nights, original forecasts, source timestamps and policy/evidence/model versions
@@ -545,8 +545,9 @@ Message-ID. Written by `/api/cron/lease-leads`. Service role only.
   reservation churn.
 - **`cleaner_schedule_recipients`** + **`cleaner_schedule_digests`**: now
   scoped by `region` (FK to `regions`). A recipient's `property_ids = '{}'`
-  means every property in their region; `language` is `pt` or `en`. One
-  digest row per `(service_date, region)`.
+  means every property in their region; `language` is `pt` or `en`;
+  `email` is where Friday's cleaning review email goes (null = none), read
+  apart from `RECIPIENT_COLS`. One digest row per `(service_date, region)`.
 - **`checkout_cleaning_skips`**: "no cleaning needed" on one checkout,
   keyed on the stay `(property_id, stay_check_in)`, one live row per stay
   (`cleared_at is null`). Set from `/turnovers/schedule`. A skipped stay
@@ -677,13 +678,20 @@ live in `property_access` and per-stay `guest_access_codes`.
 - `inspection_plans`: per-user upcoming walks. Read by the home
   ForMeFeed's "Planned walks" section.
 - `cleaning_reviews`: the inspector's 1 to 5 stars for the clean behind a
-  walk, one row per `inspection_id`, with the reason, photos and, at four
-  stars or fewer, the Portuguese and English crew note and its
-  `notice_status` (`none`, `pending`, `approving`, `sent`, `handled`).
-  Written by `completeInspection` through `lib/cleaning-reviews.ts`, the
-  only file that also sends (on Approve from the Team inbox). Read by the
-  Team inbox, the Cleaners badge and `/me`. Service role only, RLS on.
+  walk, one row per `inspection_id`, with the reason and photos, and
+  `report_id`, the weekly email it rode in (null until Friday's draft).
+  The `notice_*` columns are the per-walk texts from 2026-11-07 to
+  2026-11-10; nothing writes them now. Written by `completeInspection`
+  through `lib/cleaning-reviews.ts`. Read by the weekly draft, the Team
+  inbox and `/me`. Service role only, RLS on.
   `20261107120000_cleaning_reviews.sql`.
+- `cleaning_review_reports`: one weekly cleaning review email per
+  `week_end` (the Thursday before a Friday send): the subject and body in
+  Portuguese and English, `edited`, and `status` (`pending`, `approving`,
+  `sent`, `handled`) with the claim, decision and `sent_to`. Drafted by
+  `/api/cron/cleaning-review-email`, sent only on Approve from the Team
+  inbox, both in `lib/cleaning-reviews.ts`, the only file that sends.
+  Service role only, RLS on. `20261110120000_cleaning_review_reports.sql`.
 - `inspection_packets` + `packet_stops` + `packet_events`: the Field
   module's pooled inspection contracts for 1099 inspectors.
 

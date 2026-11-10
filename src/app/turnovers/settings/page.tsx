@@ -35,6 +35,7 @@ const ERR_COPY: Record<string, string> = {
   bad_time: 'That time did not parse - use HH:MM or "11am".',
   bad_phone: 'That phone did not parse - ten digits, US.',
   bad_name: 'A recipient needs a display name.',
+  bad_email: 'That email did not look right. Check it and save again.',
   bad_property: 'One of those property ids is not in the registry.',
   bad_region: 'That region is not in the registry.',
   mixed_region: 'Those homes are in different regions. A recipient gets one region\'s digest: add one row per region.',
@@ -75,10 +76,14 @@ const inputStyle: React.CSSProperties = {
  */
 function RecipientForm({
   recipient,
+  email,
   regions,
   properties,
 }: {
   recipient: ScheduleRecipient | null;
+  /** Where Friday's cleaning review email goes; read apart from the row so
+   *  the daily text never depends on the column. */
+  email?: string | null;
   regions: string[];
   properties: Array<{ id: string; name: string; region: string | null }>;
 }) {
@@ -99,6 +104,10 @@ function RecipientForm({
       <label style={labelStyle}>
         Name
         <input name="displayName" defaultValue={recipient?.display_name ?? ''} placeholder="First name" required style={{ ...inputStyle, fontFamily: 'inherit', width: 140 }} />
+      </label>
+      <label style={labelStyle}>
+        Email (Friday&apos;s cleaning review)
+        <input name="email" type="email" defaultValue={email ?? ''} placeholder="name@example.com" style={{ ...inputStyle, fontFamily: 'inherit', width: 220 }} />
       </label>
       <label style={labelStyle}>
         Region
@@ -163,7 +172,7 @@ export default async function CleanerSettingsPage({
     ? null
     : errNotice ?? (first(sp.saved) ? { tone: 'ok', text: 'Saved.' } : null);
 
-  const [recipients, propsRes, settings] = await Promise.all([
+  const [recipients, propsRes, settings, emailRes] = await Promise.all([
     listScheduleRecipients(supabase).catch(() => []),
     supabase
       .from('properties')
@@ -172,7 +181,13 @@ export default async function CleanerSettingsPage({
     // Unknown is not off: a failed read shows no switch rather than one
     // that might flip the setting the wrong way.
     getScheduleSettings(supabase).catch(() => null),
+    // Apart from RECIPIENT_COLS: before the email column exists this read
+    // fails alone and the forms show an empty email field.
+    supabase.from('cleaner_schedule_recipients').select('phone, email'),
   ]);
+  const emails = new Map(
+    ((emailRes.error ? [] : emailRes.data ?? []) as Array<{ phone: string; email: string | null }>).map((r) => [r.phone, r.email]),
+  );
   const sendHour = settings ? formatTime12(`${String(settings.send_hour_et).padStart(2, '0')}:00`) : null;
 
   // Every active managed home, all regions: the recipient form's picker and
@@ -222,6 +237,7 @@ export default async function CleanerSettingsPage({
                   {regionLabel(r.region)} · {describeRecipientScope(r, regionLabel, (id) => allPropNames.get(id) ?? id)}
                 </span>
                 <span className="eyebrow" style={{ fontSize: 10 }}>{r.language === 'en' ? 'English' : 'Português'}</span>
+                {emails.get(r.phone) && <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>{emails.get(r.phone)}</span>}
                 <a
                   href={portalLink(r.portal_token)}
                   target="_blank"
@@ -233,10 +249,10 @@ export default async function CleanerSettingsPage({
               </div>
               <details style={{ marginTop: -6 }}>
                 <summary style={{ cursor: 'pointer', listStyle: 'none', fontSize: 11, color: 'var(--ink-4)', padding: '0 0 8px' }}>
-                  edit scope, language, phone ▾
+                  edit email, scope, language, phone ▾
                 </summary>
                 <div style={{ padding: '4px 0 16px' }}>
-                  <RecipientForm recipient={r} regions={regionOptions} properties={allProps} />
+                  <RecipientForm recipient={r} email={emails.get(r.phone)} regions={regionOptions} properties={allProps} />
                 </div>
               </details>
             </div>
