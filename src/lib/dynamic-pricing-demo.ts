@@ -2,6 +2,7 @@
 import {defaultPricingPolicy,previewPricing,pricingPolicySchema,type PricingSnapshot} from './dynamic-pricing.ts';
 import {emptyPricingEvidence,pricingEvidenceSchema} from './dynamic-pricing-evidence.ts';
 import {shiftIsoDay} from './sca-quotes-types.ts';
+import {makePricingObservation,type PricingObservationRecord,type PricingTracking} from './dynamic-pricing-observations.ts';
 export function createPricingDemo(now:Date=new Date()) {
   const today=now.toISOString().slice(0,10),policy=defaultPricingPolicy(44500,22500,120000);
   const snapshot:PricingSnapshot={today,observedAt:now.toISOString(),lastBookedOn:null,market:[],days:Array.from({length:180},(_,i)=>({date:shiftIsoDay(today,i),state:i%17===0?'booked':i%13===0?'blocked':'open',currentCents:44500,minNights:2,protected:i===4,observedAt:now.toISOString()}))};
@@ -11,18 +12,41 @@ export function createPricingDemo(now:Date=new Date()) {
   return {policy,snapshot};
 }
 
+export function createDemoObservations(fixture:ReturnType<typeof createPricingDemo>):PricingObservationRecord[] {
+  return [7,14].map(offset=>{
+    const snapshot=structuredClone(fixture.snapshot),stamp=new Date(Date.parse(snapshot.observedAt)-offset*86400000).toISOString();
+    snapshot.today=shiftIsoDay(snapshot.today,-offset);snapshot.observedAt=stamp;
+    snapshot.days=snapshot.days.map(d=>({...d,date:shiftIsoDay(d.date,-offset),observedAt:stamp,currentCents:44500-offset*100}));
+    snapshot.evidence={...snapshot.evidence!,marketObservedAt:stamp,historyObservedAt:stamp,
+      market:snapshot.evidence!.market.map(m=>({...m,date:shiftIsoDay(m.date,-offset)})),
+      history:snapshot.evidence!.history.map(h=>({...h,date:shiftIsoDay(h.date,-offset),bookedOn:h.bookedOn?shiftIsoDay(h.bookedOn,-offset):null}))};
+    return {id:`synthetic-${offset}-days-ago`,data:makePricingObservation('demo_home','helm',fixture.policy,snapshot,1,0)};
+  });
+}
+
 import {z} from 'zod';
 import type {PricingProfile,PricingRunSummary} from './dynamic-pricing-store.ts';
 /** Local in-memory service. No database or production action imports. */
 export function createPricingDemoServices(fixture:ReturnType<typeof createPricingDemo>) {
     let snapshot=structuredClone(fixture.snapshot),profile:PricingProfile|null=null,evidenceVersion=0;
+    let tracking:PricingTracking={enabled:false,version:0};
+    const observations=createDemoObservations(fixture),captureIds=new Map<string,string>();
+    const history=()=>({observations:[...observations],tracking:{...tracking},scheduledCaptureEnabled:false});
     const runs:PricingRunSummary[]=[],reviews=new Map<string,{preview:ReturnType<typeof previewPricing>;version:number;context:string;createdAt:string}>(),before=new Map<string,PricingSnapshot>(),counts=new Map<string,number>();
     const fail=(error:string)=>({ok:false as const,error});
     return {
       async save(input:unknown){const i=z.object({propertyId:z.literal('demo_home'),policy:pricingPolicySchema,mode:z.enum(['shadow','helm_direct']),version:z.number()}).parse(input);
         if(i.version!==(profile?.version??0))return fail('Settings changed; reload');
         profile={property_id:'demo_home',policy:i.policy,mode:i.mode,version:i.version+1};return {ok:true as const,value:profile};},
-      async refresh(){return {ok:true as const,value:{profile,policy:profile?.policy??fixture.policy,snapshot,runs:[...runs],evidenceVersion}};},
+      async refresh(){return {ok:true as const,value:{profile,policy:profile?.policy??fixture.policy,snapshot,runs:[...runs],evidenceVersion,...history()}};},
+      async observe(input:unknown){const i=z.object({propertyId:z.literal('demo_home'),requestId:z.string().uuid()}).strict().parse(input);
+        if(!profile)return fail('Save a policy first');
+        if(!captureIds.has(i.requestId)){const id=crypto.randomUUID();snapshot={...snapshot,observedAt:new Date().toISOString()};
+          observations.unshift({id,data:makePricingObservation(i.propertyId,'helm',profile.policy,snapshot,profile.version,evidenceVersion)});observations.splice(14);captureIds.set(i.requestId,id);}
+        return {ok:true as const,value:history()};},
+      async tracking(input:unknown){const i=z.object({propertyId:z.literal('demo_home'),enabled:z.boolean(),version:z.number().int().nonnegative()}).strict().parse(input);
+        if(!profile||tracking.version!==i.version)return fail('Save the policy or refresh tracking first');
+        tracking={enabled:i.enabled,version:i.version+1};return {ok:true as const,value:history()};},
       async evidence(input:unknown){const i=z.object({propertyId:z.literal('demo_home'),data:pricingEvidenceSchema,version:z.number()}).parse(input);
         if(i.data.propertyId!=='demo_home'||i.version!==evidenceVersion)return fail('Evidence changed; reload');
         const observedAt=new Date().toISOString();

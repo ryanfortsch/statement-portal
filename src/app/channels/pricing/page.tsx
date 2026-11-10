@@ -4,6 +4,7 @@ import { GuestyWritesNotice } from '@/components/channels/GuestyWritesNotice';
 import { requireOwnerEmail } from '@/lib/helm-access-server';
 import { listFleetProperties } from '@/lib/fleet';
 import { readPricingWorkspace } from '@/lib/dynamic-pricing-store';
+import { readPricingObservationWorkspace } from '@/lib/dynamic-pricing-observations-server';
 import PricingWorkbench from './PricingWorkbench';
 export const dynamic='force-dynamic';
 export default async function PricingPage({searchParams}:{searchParams:Promise<{property?:string}>}) {
@@ -11,7 +12,8 @@ export default async function PricingPage({searchParams}:{searchParams:Promise<{
   const [params,fleet]=await Promise.all([searchParams,listFleetProperties()]);
   const selected=fleet.find(p=>p.id===params.property)??fleet.find(p=>p.id==='65_calderwood')??fleet[0];
   let workspace:Awaited<ReturnType<typeof readPricingWorkspace>>|null=null,error='';
-  if(selected) try { workspace=await readPricingWorkspace(selected.id); } catch(e) { error=e instanceof Error?e.message:'Unable to load pricing'; }
+  let history:Awaited<ReturnType<typeof readPricingObservationWorkspace>>|null=null;
+  if(selected) try { [workspace,history]=await Promise.all([readPricingWorkspace(selected.id),readPricingObservationWorkspace(selected.id)]); } catch(e) { error=e instanceof Error?e.message:'Unable to load pricing'; }
   return <>
       <HelmMasthead />
       <GuestyWritesNotice scope={selected?{kind:'home',guestyRun:selected.calendar_authority!=='helm',otaReadsHelm:false}:{kind:'unknown'}} />
@@ -30,6 +32,7 @@ export default async function PricingPage({searchParams}:{searchParams:Promise<{
     {!selected&&<p>No active properties found.</p>}
     {workspace&&selected&&<PricingWorkbench key={selected.id} propertyId={selected.id} name={selected.name}
       authority={selected.calendar_authority} initialPolicy={workspace.policy} initialSnapshot={workspace.snapshot}
-      initialProfile={workspace.profile} initialRuns={workspace.runs} initialEvidenceVersion={workspace.context.evidence?.version??0} />}
+      initialProfile={workspace.profile} initialRuns={workspace.runs} initialEvidenceVersion={workspace.context.evidence?.version??0}
+      initialObservations={history?.observations} initialTracking={history?.tracking} scheduledCaptureEnabled={history?.scheduledCaptureEnabled} />}
   </main></>;
 }

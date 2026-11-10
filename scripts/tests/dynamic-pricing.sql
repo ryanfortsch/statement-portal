@@ -16,6 +16,7 @@ create table public.bookings(id uuid,property_id text,status text,check_in date,
 create table public.property_calendar_days(property_id text,date date,status text,price numeric,currency text,min_nights integer,synced_at timestamptz);
 grant all on all tables in schema public to service_role;
 \ir ../../supabase/migrations/20261108110000_helm_dynamic_pricing.sql
+\ir ../../supabase/migrations/20261110120000_helm_pricing_observations.sql
 insert into properties values('pilot','helm',true,'America/New_York'),('guesty','guesty',true,'America/New_York');
 insert into property_rate_plans values('pilot','USD',30000);
 create function public.test_assert(ok boolean, message text) returns void language plpgsql as $$begin if ok is not true then raise exception '%',message; end if; end$$;
@@ -73,6 +74,71 @@ begin
   exception when others then if sqlerrm <> 'Protected night changed' then raise; end if; end;
   perform test_assert((select status='preview' from property_pricing_runs where id=other),'failed apply does not mark success');
 end $$;
+-- Comparison capture is append-only and cannot modify prices or publish runs.
+create function public.test_capture_rejected(data jsonb,context jsonb,message text,key text default null,tracking integer default null)
+returns void language plpgsql as $$begin
+  begin
+    perform helm_record_pricing_observation('pilot',coalesce(key,'manual:'||gen_random_uuid()::text),data,context,tracking,'owner@test.invalid');
+    raise exception 'Expected capture rejection: %',message;
+  exception when others then if sqlerrm <> message then raise;end if;end;
+end $$;
+do $$declare
+  start date := (clock_timestamp() at time zone 'America/New_York')::date;
+  data jsonb; context jsonb; rate_before jsonb; runs_before bigint; id uuid; same uuid;
+  key text := 'manual:'||gen_random_uuid()::text; tracking property_pricing_tracking;
+begin
+  perform test_assert(not exists(select 1 from property_pricing_tracking),'migration does not opt in homes');
+  perform test_assert(not has_function_privilege('authenticated','helm_record_pricing_observation(text,text,jsonb,jsonb,integer,text)','execute'),'staff cannot capture');
+  perform test_assert(not has_function_privilege('anon','helm_set_pricing_tracking(text,boolean,integer,text)','execute'),'anon cannot enable tracking');
+  perform test_assert(not has_table_privilege('authenticated','property_pricing_observations','select'),'history stays private');
+  perform test_assert(has_table_privilege('service_role','property_pricing_observations','insert'),'app can append observations');
+  perform test_assert(not has_table_privilege('service_role','property_pricing_observations','update'),'app cannot rewrite history');
+  perform test_assert(not has_table_privilege('service_role','property_pricing_observations','delete'),'app cannot remove history');
+  begin perform helm_set_pricing_tracking('guesty',true,0,'owner@test.invalid');raise exception 'Expected saved-policy rejection';
+  exception when others then if sqlerrm <> 'Save a policy for an active property first' then raise;end if;end;
+  context:=helm_pricing_context('pilot',start,start+179);
+  data:=jsonb_build_object('version',1,'propertyId','pilot','authority','helm','capturedAt',clock_timestamp(),
+    'asOf',start,'modelVersion','helm-3','policyVersion',1,'evidenceVersion',coalesce((context->'evidence'->>'version')::integer,0),
+    'days',(select jsonb_agg(jsonb_build_object('date',start+i,'state','open','currentCents',30000,'recommendedCents',31000,
+      'minNights',2,'eligible',true,'saleProbability',0.5,'forecastBasis','Synthetic','sourceObservedAt',clock_timestamp()) order by i) from generate_series(0,179) i));
+  select jsonb_agg(to_jsonb(d) order by property_id,date) into rate_before from property_rate_days d;
+  select count(*) into runs_before from property_pricing_runs;
+  id:=helm_record_pricing_observation('pilot',key,data,context,null,'owner@test.invalid');
+  same:=helm_record_pricing_observation('pilot',key,data,context,null,'owner@test.invalid');
+  perform test_assert(id=same and (select count(*)=1 from property_pricing_observations),'capture retry is idempotent');
+  perform test_assert((select o.data from property_pricing_observations o where o.capture_key=key)=data,'original forecast preserved');
+  perform test_capture_rejected(data||'{"policyVersion":2}',context,'Policy changed; capture again');
+  perform test_capture_rejected(data||'{"evidenceVersion":999}',context,'Evidence version mismatch');
+  perform test_capture_rejected(data||'{"authority":"guesty"}',context,'Observation authority or date changed');
+  perform test_capture_rejected(data||jsonb_build_object('capturedAt',clock_timestamp()-interval '3 minutes'),context,'Observation expired; capture again');
+  perform test_capture_rejected(data||jsonb_build_object('capturedAt',clock_timestamp()+interval '2 minutes'),context,'Observation expired; capture again');
+  perform test_capture_rejected(data||jsonb_build_object('asOf',start-1),context,'Observation authority or date changed');
+  perform test_capture_rejected(data||jsonb_build_object('days',(data->'days')-0),context,'Complete 180-night observation required');
+  perform test_capture_rejected(jsonb_set(data,'{days,1,date}',to_jsonb(start)),context,'Complete 180-night observation required');
+  perform test_capture_rejected(jsonb_set(data,'{days,1,date}',to_jsonb(start+180)),context,'Complete 180-night observation required');
+  update property_rate_days set nightly_cents=nightly_cents+100 where property_id='pilot';
+  perform test_capture_rejected(data,context,'Calendar changed; capture again');
+  update property_rate_days set nightly_cents=nightly_cents-100 where property_id='pilot';
+  update properties set is_active=false where properties.id='pilot';
+  perform test_capture_rejected(data,context,'Observation authority or date changed');
+  update properties set is_active=true where properties.id='pilot';
+  perform test_capture_rejected(data,context,'Daily tracking version required','daily:'||start::text);
+  perform test_capture_rejected(data,context,'Daily tracking changed','daily:'||start::text,1);
+  select * into tracking from helm_set_pricing_tracking('pilot',true,0,'owner@test.invalid');
+  perform test_assert(tracking.enabled and tracking.version=1,'explicit opt in records a version');
+  begin perform helm_set_pricing_tracking('pilot',false,0,'owner@test.invalid');raise exception 'Expected tracking conflict';
+  exception when others then if sqlerrm <> 'Tracking changed; reload' then raise;end if;end;
+  select * into tracking from helm_set_pricing_tracking('pilot',false,1,'owner@test.invalid');
+  perform test_capture_rejected(data,context,'Daily tracking changed','daily:'||start::text,1);
+  perform test_capture_rejected(data,context,'Daily tracking changed','daily:'||start::text,2);
+  select * into tracking from helm_set_pricing_tracking('pilot',true,2,'owner@test.invalid');
+  id:=helm_record_pricing_observation('pilot','daily:'||start::text,data,context,3,'scheduled-pricing-comparison');
+  same:=helm_record_pricing_observation('pilot','daily:'||start::text,data,context,3,'scheduled-pricing-comparison');
+  perform test_assert(id=same and (select count(*)=2 from property_pricing_observations),'daily capture is once per property date');
+  perform test_assert((select jsonb_agg(to_jsonb(d) order by property_id,date) from property_rate_days d)=rate_before,'capture never changes rates');
+  perform test_assert((select count(*) from property_pricing_runs)=runs_before,'capture never creates a publishing review');
+end $$;
+select 'pricing observation SQL checks passed' as result;
 select 'dynamic pricing SQL checks passed' as result;
 
 -- Evidence is part of the atomic context, so a newer import invalidates review.

@@ -5,16 +5,18 @@ import { mkdtemp,readFile,writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createServer } from 'node:http';
-const require=createRequire(import.meta.url),ts=require('typescript'),webpack=require('next/dist/compiled/webpack/webpack').webpack;
+const require=createRequire(import.meta.url),webpack=require('next/dist/compiled/webpack/webpack').webpack;
 const root=process.cwd(),scratch=await mkdtemp(join(tmpdir(),'helm-pricing-ui-'));
 await writeFile(join(scratch,'loader.cjs'),`const ts=require(${JSON.stringify(require.resolve('typescript'))});module.exports=function(s){return ts.transpileModule(s,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext,jsx:ts.JsxEmit.ReactJSX}}).outputText};`);
 await writeFile(join(scratch,'actions.ts'),`
 import {previewPricing} from '${root}/src/lib/dynamic-pricing.ts';
-let profile=null;let runs=[];let evidenceVersion=0;
+let profile=null;let runs=[];let evidenceVersion=0;let tracking={enabled:false,version:0};let observations=[];
 const fixture=()=>globalThis.pricingFixture;
 export async function savePricingAction(i){profile={property_id:i.propertyId,policy:i.policy,mode:i.mode,version:i.version+1};return {ok:true,value:profile};}
 export async function reviewPricingAction(){return {ok:true,value:{id:'review-fixture',createdAt:new Date().toISOString(),profile,snapshot:fixture().snapshot,preview:previewPricing(profile.policy,fixture().snapshot)}};}
-export async function refreshPricingAction(){return {ok:true,value:{profile,policy:profile?.policy??fixture().policy,snapshot:fixture().snapshot,runs,evidenceVersion}};}
+export async function refreshPricingAction(){return {ok:true,value:{profile,policy:profile?.policy??fixture().policy,snapshot:fixture().snapshot,runs,evidenceVersion,tracking,observations,scheduledCaptureEnabled:false}};}
+export async function capturePricingObservationAction(){return {ok:true,value:{tracking,observations,scheduledCaptureEnabled:false}};}
+export async function setPricingTrackingAction(i){tracking={enabled:i.enabled,version:i.version+1};return {ok:true,value:{tracking,observations,scheduledCaptureEnabled:false}};}
 export async function savePricingEvidenceAction(i){fixture().snapshot={...fixture().snapshot,evidence:i.data};evidenceVersion++;return {ok:true,value:{snapshot:fixture().snapshot,evidenceVersion}};}
 export async function publishPricingAction(){if(new URLSearchParams(location.search).has('reject'))return {ok:false,error:'Calendar changed; refresh the review'};runs=[{id:'run-fixture',status:'applied',created_at:new Date().toISOString(),applied_at:new Date().toISOString()}];return {ok:true,value:previewPricing(profile.policy,fixture().snapshot).days.filter(d=>d.eligible).length};}
 export async function undoPricingAction(){runs=[];return {ok:true,value:10};}

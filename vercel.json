@@ -1,6 +1,10 @@
 {
   "crons": [
     {
+      "path": "/api/cron/pricing-comparisons",
+      "schedule": "20 11 * * *"
+    },
+    {
       "path": "/api/cron/appointment-capture",
       "schedule": "20 * * * *"
     },

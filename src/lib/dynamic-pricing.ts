@@ -4,7 +4,7 @@ import { pricingEvidenceSchema } from './dynamic-pricing-evidence.ts';
 import { analyzePricingEvidence, historicalSafetyFloor, marketPaceAdjustment } from './dynamic-pricing-model.ts';
 import { isIsoDay, shiftIsoDay, nightsBetween } from './sca-quotes-types.ts';
 
-export const PRICING_MODEL_VERSION = 'helm-2';
+export const PRICING_MODEL_VERSION = 'helm-3';
 const cents = z.number().int().min(100).max(10000000);
 const pct = z.number().min(0).max(80);
 const iso = z.string().refine(s => isIsoDay(s) && Number.isFinite(Date.parse(s)) && new Date(s).toISOString().slice(0,10) === s, 'Invalid calendar date');

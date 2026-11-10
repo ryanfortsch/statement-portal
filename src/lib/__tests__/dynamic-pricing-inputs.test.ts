@@ -21,7 +21,10 @@ test('never loses OTA duplicate closures and does not turn seasonal closures int
   const c=context();c.bookings=[{status:'block',check_in:'2026-11-09',check_out:'2026-11-11',duplicate_of:'other',source:'ical_import',hold_kind:'ota',channel:'booking_com',booked_at:null}];
   c.periods=[{start_month:5,start_day:1,end_month:10,end_day:31}];
   const s=pricingSnapshot(c,'2026-11-08',60,now);
-  assert.equal(s.days[0].state,'blocked');assert.equal(s.days[1].state,'booked');
+  assert.equal(s.days[0].state,'blocked');assert.equal(s.days[1].state,'blocked');
+  c.bookings.push({status:'confirmed',check_in:'2026-11-09',check_out:'2026-11-10',booked_at:null});
+  const withStay=pricingSnapshot(c,'2026-11-08',60,now);
+  assert.equal(withStay.days[1].state,'booked');assert.equal(withStay.days[2].state,'blocked');
 });
 test('Guesty mirror preserves missing and stale data, and never treats another currency as USD',()=>{
   const c=context();c.property.calendar_authority='guesty';c.mirror=[{date:'2026-11-08',status:'available',price:500,currency:'EUR',min_nights:3,synced_at:now.toISOString()},

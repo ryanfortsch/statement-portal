@@ -6,6 +6,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { createPricingReview, readPricingWorkspace, savePricingProfile } from '@/lib/dynamic-pricing-store';
 import { pricingPolicySchema } from '@/lib/dynamic-pricing';
 import { pricingEvidenceSchema } from '@/lib/dynamic-pricing-evidence';
+import { readPricingObservationWorkspace,recordPricingObservation } from '@/lib/dynamic-pricing-observations-server';
 const property=z.string().min(1).max(100).regex(/^[a-zA-Z0-9_-]+$/);
 async function result<T>(fn:()=>Promise<T>) {
   try { return {ok:true as const,value:await fn()}; }
@@ -21,8 +22,24 @@ export async function reviewPricingAction(propertyId:unknown) { return result(as
   const actor=await requireOwnerEmail();return createPricingReview(property.parse(propertyId),actor);
 }); }
 export async function refreshPricingAction(propertyId:unknown) { return result(async()=>{
-  await requireOwnerEmail();const w=await readPricingWorkspace(property.parse(propertyId));
-  return {snapshot:w.snapshot,profile:w.profile,policy:w.policy,runs:w.runs,evidenceVersion:w.context.evidence?.version??0};
+  await requireOwnerEmail();const id=property.parse(propertyId);
+  const [w,history]=await Promise.all([readPricingWorkspace(id),readPricingObservationWorkspace(id)]);
+  return {snapshot:w.snapshot,profile:w.profile,policy:w.policy,runs:w.runs,evidenceVersion:w.context.evidence?.version??0,...history};
+}); }
+
+export async function capturePricingObservationAction(input:unknown) { return result(async()=>{
+  const actor=await requireOwnerEmail();
+  const i=z.object({propertyId:property,requestId:z.string().uuid()}).strict().parse(input);
+  await recordPricingObservation(i.propertyId,actor,{manualId:i.requestId});
+  revalidatePath('/channels/pricing');return readPricingObservationWorkspace(i.propertyId);
+}); }
+
+export async function setPricingTrackingAction(input:unknown) { return result(async()=>{
+  const actor=await requireOwnerEmail();
+  const i=z.object({propertyId:property,enabled:z.boolean(),version:z.number().int().nonnegative()}).strict().parse(input);
+  const {error}=await supabaseAdmin.rpc('helm_set_pricing_tracking',{p_property:i.propertyId,p_enabled:i.enabled,p_expected:i.version,p_actor:actor});
+  if(error)throw Error('Tracking could not be saved. Refresh and try again.');
+  revalidatePath('/channels/pricing');return readPricingObservationWorkspace(i.propertyId);
 }); }
 export async function publishPricingAction(runId:unknown) { return result(async()=>{
   const actor=await requireOwnerEmail();const id=z.string().uuid().parse(runId);

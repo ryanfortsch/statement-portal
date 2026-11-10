@@ -1,4 +1,4 @@
-import { buildAvailability, type AvailabilityBooking } from './availability.ts';
+import { buildAvailability, nightHolds, type AvailabilityBooking } from './availability.ts';
 import type { RateDayRow, RatePlanRow } from './rate-plan.ts';
 import { shiftIsoDay } from './sca-quotes-types.ts';
 import { pricingEvidenceSchema, type PricingEvidence } from './dynamic-pricing-evidence.ts';
@@ -24,10 +24,13 @@ export function pricingSnapshot(context: PricingContext, start: string, count: n
   // Do not misrepresent import timestamps as booking demand. Recency remains unknown.
   const snapshot:PricingSnapshot={ today:start,observedAt,lastBookedOn:null,market:[],days:[] };
   if(context.property.calendar_authority==='helm') {
+    // Sale safety treats Booking.com closures as reserved. Demand measurement
+    // needs an actual canonical stay; a closure alone does not prove a sale.
+    const occupied=nightHolds(context.bookings.filter(b=>!b.duplicate_of&&['confirmed','completed'].includes(b.status.toLowerCase()))).reserved;
     snapshot.days=buildAvailability({bookings:context.bookings,plan:context.plan,rateDays:days,
       rentalPeriods:context.periods.map(p=>({startMonth:p.start_month,startDay:p.start_day,endMonth:p.end_month,endDay:p.end_day})),
       start,end,now,timeZone:context.property.timezone??'America/New_York'}).map(d=>({date:d.date,
-      state:d.reserved?'booked':d.available?'open':'blocked',currentCents:d.price && d.price>0 ? Math.round(d.price*100):null,
+      state:occupied.has(d.date)?'booked':d.available?'open':'blocked',currentCents:d.price && d.price>0 ? Math.round(d.price*100):null,
       minNights:d.minNights??null,protected:days.get(d.date)?.source==='operator',observedAt}));
   } else {
     const mirror=new Map(context.mirror.map(d=>[d.date,d]));

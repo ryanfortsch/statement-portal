@@ -1,14 +1,16 @@
 'use client';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/Button';
 import { useConfirm } from '@/components/ConfirmDialog';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import { defaultPricingPolicy, previewPricing, pricingPolicySchema, type PricingPolicy, type PricingSnapshot } from '@/lib/dynamic-pricing';
 import type { PricingProfile, PricingRunSummary } from '@/lib/dynamic-pricing-store';
 import PricingInsights from './PricingInsights';
-import { savePricingEvidenceAction, publishPricingAction, refreshPricingAction, reviewPricingAction, savePricingAction, undoPricingAction } from './actions';
+import PricingHistory from './PricingHistory';
+import type {PricingObservationRecord,PricingTracking} from '@/lib/dynamic-pricing-observations';
+import { capturePricingObservationAction,setPricingTrackingAction,savePricingEvidenceAction, publishPricingAction, refreshPricingAction, reviewPricingAction, savePricingAction, undoPricingAction } from './actions';
 
-export const livePricingServices={save:savePricingAction,refresh:refreshPricingAction,review:reviewPricingAction,publish:publishPricingAction,undo:undoPricingAction,evidence:savePricingEvidenceAction};
+export const livePricingServices={save:savePricingAction,refresh:refreshPricingAction,review:reviewPricingAction,publish:publishPricingAction,undo:undoPricingAction,evidence:savePricingEvidenceAction,observe:capturePricingObservationAction,tracking:setPricingTrackingAction};
 export type PricingServices=typeof livePricingServices;
 const money=(n:number|null)=>n===null?'—':new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:2}).format(n/100);
 const months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -18,14 +20,17 @@ function NumberField({label,value,onChange,step=1}:{label:string;value:number;on
   return <label className="block text-sm text-slate-700">{label}<input type="number" step={step} value={Number.isFinite(value)?value:''}
     onChange={e=>onChange(e.target.value===''?NaN:Number(e.target.value))} className={inputClass}/></label>;
 }
-export default function PricingWorkbench({propertyId,name,authority,initialPolicy,initialSnapshot,initialProfile,initialRuns,initialEvidenceVersion=0,services=livePricingServices}:{
+export default function PricingWorkbench({propertyId,name,authority,initialPolicy,initialSnapshot,initialProfile,initialRuns,initialEvidenceVersion=0,initialObservations=[],initialTracking={enabled:false,version:0},scheduledCaptureEnabled=false,services=livePricingServices}:{
   propertyId:string;name:string;authority:'helm'|'guesty';initialPolicy:PricingPolicy;initialSnapshot:PricingSnapshot;
   initialProfile:PricingProfile|null;initialRuns:PricingRunSummary[];initialEvidenceVersion?:number;services?:PricingServices;
+  initialObservations?:PricingObservationRecord[];initialTracking?:PricingTracking;scheduledCaptureEnabled?:boolean;
 }) {
   const [policy,setPolicy]=useState(initialPolicy),[snapshot,setSnapshot]=useState(initialSnapshot),[profile,setProfile]=useState(initialProfile);
   const [runs,setRuns]=useState(initialRuns),[mode,setMode]=useState<'shadow'|'helm_direct'>(initialProfile?.mode??'shadow');
   const [review,setReview]=useState<{id:string;createdAt:string}|null>(null),[busy,setBusy]=useState(false),[message,setMessage]=useState(''),[error,setError]=useState('');
   const [evidenceVersion,setEvidenceVersion]=useState(initialEvidenceVersion);
+  const [observations,setObservations]=useState(initialObservations),[tracking,setTracking]=useState(initialTracking),[collectorEnabled,setCollectorEnabled]=useState(scheduledCaptureEnabled);
+  const captureRequest=useRef<string|null>(null);
   const [view,setView]=useState('all');const {ask}=useConfirm();
   const dirty=!profile||JSON.stringify(policy)!==JSON.stringify(profile.policy)||mode!==profile.mode;
   useUnsavedWorkGuard(dirty);
@@ -43,6 +48,7 @@ export default function PricingWorkbench({propertyId,name,authority,initialPolic
     finally{if(timer)clearTimeout(timer);setBusy(false);}
   }
   async function refresh() { const r=await services.refresh(propertyId);if(!r.ok)throw Error(r.error);
+    setObservations(r.value.observations);setTracking(r.value.tracking);setCollectorEnabled(r.value.scheduledCaptureEnabled);
     setEvidenceVersion(r.value.evidenceVersion);setSnapshot(r.value.snapshot);setProfile(r.value.profile);setPolicy(r.value.policy);setMode(r.value.profile?.mode??'shadow');setRuns(r.value.runs);setReview(null);
   }
   const filtered=preview?.days.filter(d=>view==='all'||(view==='eligible'?d.eligible:!d.eligible))??[];
@@ -50,7 +56,7 @@ export default function PricingWorkbench({propertyId,name,authority,initialPolic
     <section className="rounded-2xl border border-teal-200 bg-teal-50 p-5">
       <div className="flex flex-wrap items-start justify-between gap-4"><div><h2 className="font-semibold text-teal-950">{name}</h2>
         <p className="mt-1 text-sm text-teal-900">{profile?.mode==='helm_direct'?'Connected to Helm direct rates · manual publishing':'Comparison mode · existing prices stay in control'}</p></div>
-        <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-teal-800">Model v2 · prototype</span></div>
+        <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-teal-800">Model v3 · prototype</span></div>
       <p className="mt-3 text-sm text-teal-900">Helm combines your calendar, reviewed evidence and explicit pricing rules. Market data can be imported for comparison; automatic market feeds and OTA publishing are not connected.</p>
     </section>
     {error&&<p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{error}</p>}
@@ -59,6 +65,12 @@ export default function PricingWorkbench({propertyId,name,authority,initialPolic
       onUseLearned={base=>{setPolicy(p=>({...p,baseCents:Math.max(p.floorCents,Math.min(p.ceilingCents,base)),priceShape:'history'}));setReview(null);}}
       onSave={async data=>{return perform(async()=>{const r=await services.evidence({propertyId,data,version:evidenceVersion});if(!r.ok)throw Error(r.error);
         setSnapshot(r.value.snapshot);setEvidenceVersion(r.value.evidenceVersion);setReview(null);setMessage('Evidence saved. No live rates changed.');});}}/>
+    <PricingHistory observations={observations} tracking={tracking} scheduledCaptureEnabled={collectorEnabled} busy={busy} canCapture={!dirty}
+      onCapture={()=>void perform(async()=>{const requestId=captureRequest.current??crypto.randomUUID();captureRequest.current=requestId;
+        const r=await services.observe({propertyId,requestId});if(!r.ok)throw Error(r.error);
+        await refresh();captureRequest.current=null;setMessage('Dated comparison recorded. No rates changed.');})}
+      onTracking={enabled=>void perform(async()=>{const r=await services.tracking({propertyId,enabled,version:tracking.version});if(!r.ok)throw Error(r.error);
+        setTracking(r.value.tracking);setObservations(r.value.observations);setCollectorEnabled(r.value.scheduledCaptureEnabled);setMessage(enabled?'Daily comparison preference saved. This does not publish rates.':'Daily comparison preference stopped.');})}/>
     <fieldset disabled={busy} className="rounded-2xl border bg-white p-5 sm:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-semibold">1. Set the policy</h2>
         <p className="mt-1 text-sm text-slate-500">Draft values need your review. All prices are per night before taxes, fees and length-of-stay discounts.</p></div>

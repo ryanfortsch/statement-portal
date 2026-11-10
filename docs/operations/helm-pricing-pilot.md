@@ -163,15 +163,21 @@ a conflicting short gap is flagged rather than silently published as fillable.
 | Minimum stays | Weekday/weekend, last-minute, far-out, booking-value heuristic, after-booking adjacency, gaps, events and hard minimum | Before-booking gap prevention and market-learned stay profiles |
 | Historical safety floor | 110% of matched weekday ADR around 52 weeks earlier, two samples required | Exact holiday matching; trusted accommodation-rate ingestion |
 | Recency | Inactive hook; unreliable import timestamps withheld | Complete source provenance and vendor-equivalent eligibility |
-| Pricing calendar / charts | Daily calendar, rate comparison, market occupancy, monthly property forecast, CSV export | Portfolio aggregation and price-evolution history view |
+| Pricing calendar / charts | Daily calendar, rate comparison, market occupancy, monthly property forecast, CSV export, dated price/forecast history | Portfolio aggregation |
 | Diagnostics | Coverage, large changes, unfillable gaps, price-floor hits, walk-forward occupancy scores | Forward validation and calibrated uncertainty |
 | Price response / optimization | Explicit elasticity scenario and dynamic programming rate-path experiment | Learned causal response, cancellation/LOS effects and validated net revenue |
 | Evidence storage | Property-scoped, versioned, source/timestamp recorded in each review | Automated data ingestion and provenance audits |
+| Prospective comparison tracking | Append-only 180-night captures, original forecasts, observed state changes, opt-in daily collector | Production installation/activation, cancellation-aware outcomes and calibration |
 | Listing connection | Manual owner review, direct-rate publishing, atomic undo | Production installation and pilot approval |
 | OTA publishing / scheduling | Not connected | Verified Channex rate mapping, single writer, journal, readback and daily runs |
 | Groups / bulk profiles | Per-property policies | Inheritance and controlled bulk rollout |
 
-## Model v2, precisely
+## Model v3, precisely
+
+Version `helm-3` retains v2's pricing rules and corrects native occupancy measurement:
+an OTA closure alone is unavailable inventory, not evidence of a guest booking.
+Canonical confirmed/completed stays count as booked. Sale-safety availability rules
+remain unchanged. The policy document schema remains version 1.
 
 The operator chooses **one** price shape; these do not stack:
 
@@ -244,7 +250,9 @@ the production recommendation or publishing path.
 
 Helm-run homes read their rate plan, day overrides, canonical bookings plus OTA
 closures (including duplicate closure echoes), rental periods and existing
-availability rules. Guesty-run homes use their mirrored calendar with its actual
+availability rules. Closures without a canonical guest stay remain blocked for
+demand measurement, even where the sale-safety calendar marks them reserved.
+Guesty-run homes use their mirrored calendar with its actual
 sync timestamp, and support comparison only. No missing calendar row is interpreted
 as vacant. No imported `first_seen_at` is used as demand recency: historical
 `booked_at` backfills make that provenance uncertain.
@@ -276,6 +284,42 @@ publisher needs verified property/room/rate-plan relationships, currency/sell-mo
 checks, an immutable delivery journal, no blind retry after an uncertain outcome,
 and remote readback. The existing availability-only integration is unchanged.
 
+## Prospective comparison history
+
+Owners can record a comparison against a saved policy. Each append-only record
+contains 180 forward nights: original current/proposed rates, minimum stays,
+availability state, source timestamps, conditional sale probability and basis,
+policy/evidence/model versions and calendar authority. Stale or future-dated source
+observations become unknown. It stores no guest identities or booking financials.
+The server rejects changed calendar/evidence context, changed policy versions,
+expired captures, incorrect authority and incomplete windows. Request keys make
+manual retries and daily captures idempotent. The application role can read and
+append this archive, but cannot update or delete it.
+
+The history panel compares overlapping future nights only. Open → booked and
+booked → open are net night-state changes, not reservation or cancellation counts.
+Blocked transitions are reported separately; unknown observations and authority
+changes are withheld from booking comparisons. Policy/model/evidence changes are
+flagged. A per-night table preserves the proposal and forecast as originally seen;
+neither proves a published or realized accommodation rate. The page shows the last
+14 captures; older records remain stored. No retention deletion job is installed.
+
+The daily collector at `/api/cron/pricing-comparisons` requires **both** an owner’s
+saved per-property opt-in and `HELM_PRICING_CAPTURE_ENABLED=true` in production
+(`VERCEL_ENV=production`). The configured schedule is 11:20 UTC daily (06:20 EST /
+07:20 EDT). Both gates are dormant by default, and neither was activated during
+this work. Cron bearer authentication or an owner session is required. A bounded
+batch isolates failures and stops starting properties after 90 seconds; retries
+return an existing property-date capture rather than adding another. Its reported
+capture count includes those successful idempotent retries. This collector never
+calls a rate writer. Opting in does not connect pricing or publish recommendations.
+
+This creates the evidence trail needed for future learning. It does **not** yet
+score final outcomes, adjust coefficients automatically, reconstruct historical
+cancellations, or remove the dependency on imported market evidence. Original
+booking/cancellation events and realized accommodation rates still need a trusted
+ingestion path before causal price-response claims are possible.
+
 ## Evidence needed before replacement
 
 1. Capture dated calendar snapshots, original booking creation/cancellation times,
@@ -299,11 +343,13 @@ and remote readback. The existing availability-only integration is unchanged.
 
 Entry: `/channels/pricing`, owner-only, searchable as **Helm pricing**.
 Interactive demo: `/channels/pricing/demo`, also owner-only; its service override
-keeps imports, simulated publishing and undo entirely in browser memory. It works
-without the pricing migration. Reloading resets it.
-Migration: `supabase/migrations/20261108110000_helm_dynamic_pricing.sql`.
-The migration creates dormant storage and functions; it does not connect homes.
-Without it, the page displays a setup message and cannot publish.
+keeps imports, comparison history/tracking, simulated publishing and undo entirely
+in browser memory. It includes two synthetic earlier captures. It works without
+the pricing migrations; reloading resets it.
+Install in order: `supabase/migrations/20261108110000_helm_dynamic_pricing.sql`, then
+`supabase/migrations/20261110120000_helm_pricing_observations.sql`.
+These create dormant storage and functions; they do not connect homes or opt them
+into collection. Without both, the workbench displays a setup message.
 
 Review the migration and model before installation. Then compare a policy, connect
 a Helm-run home's **direct rates** explicitly, save, prepare a fresh review and
@@ -314,9 +360,11 @@ does not erase already published rates.
 Verification commands: `npm test`, `npx tsc --noEmit`, and targeted ESLint for the
 new pricing modules. `scripts/tests/dynamic-pricing.sql` runs against a **fresh,
 local database named `helm_synthetic_pricing` only** and installs minimal fixtures
-plus the real migration. It verifies ACLs, authority, optimistic profile/evidence versions,
+plus both real migrations. It verifies ACLs, authority, optimistic profile/evidence versions,
 idempotent apply/undo, preserved restrictions, stale/expired reviews, protected
 rows and all-or-nothing undo conflicts, including a writer that omits an updated
-timestamp. `node scripts/pricing-ui-fixture.mjs` serves the real client component
+timestamp. Capture checks cover append-only permissions, idempotency, complete
+windows, policy/evidence/authority/context guards, opt-in versions, and unchanged
+rates/reviews. `node scripts/pricing-ui-fixture.mjs` serves the real client component
 with an in-memory synthetic backend for browser checks; it does not exercise
 production authentication or a live database connection.
