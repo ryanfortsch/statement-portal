@@ -299,8 +299,8 @@ person's name). It files the `cleaning_review_reports` row `pending` as a Cleani
 Cleaners on the Team inbox. Only Approve sends, through `approveCleaningReview`: claim the report,
 email each enabled schedule recipient covering those homes who has an email on file
 (`cleaner_schedule_recipients.email`, set on Cleaner settings and read apart from
-`RECIPIENT_COLS` so the daily text never depends on it), one language per recipient, operations on
-copy, replies to the office. Edit stores the operator's words verbatim; Mark handled clears the
+`RECIPIENT_COLS` so the daily text never depends on it), one language per recipient, the
+`cleaning_review` duty on copy (Ryan, Allie, Delaney), replies to the office. Edit stores the operator's words verbatim; Mark handled clears the
 week with a reason; Undo brings it back. `cleaning-review-guard.test.ts` keeps the send inside
 approve and the cron to drafting.
 
@@ -380,7 +380,8 @@ other caller.
 since 2026-10-13). `team.ts` says who runs operations (role `operations`), who approves Field
 pay and answers contractor questions (`duties: ['field_pay']`, Ryan), who runs the creative
 program (`duties: ['creative']`, Dotti), who countersigns staff documents (`countersign`, Ryan)
-and who is copied on them (`staff_copy`, Allie); a member with a `starts` date joins every list
+and who is copied on them (`staff_copy`, Allie), who is copied on Friday's cleaning review email
+(`cleaning_review`: Ryan, Allie, Delaney); a member with a `starts` date joins every list
 on that day. `officeNotice()` is the Field office (first operations seat, the rest and field pay
 on copy), `operationsEmails()` is the CC on contractor-facing mail, `fieldReplyTo()` is the one
 inbox a contractor's reply lands in, `creativeLeadEmail()` the shoot and view-count reminders.

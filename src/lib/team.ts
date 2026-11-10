@@ -38,10 +38,12 @@ export type TeamAccess = 'owner' | 'staff';
  * `weekly_brief`: receives the Tuesday 6 AM brief, the printable PDF of the
  * operations goals, the week's check-ins and each home's open work
  * (/api/cron/weekly-brief). Dotti (2026-11-09) and Ryan (2026-11-10).
+ * `cleaning_review`: copied on Friday's cleaning review email to the crew
+ * (docs/cleaning-reviews.md). Ryan, Allie and Delaney (Dotti, 2026-11-10).
  * Notices resolve through `src/lib/team-recipients.ts`; nothing in the app
  * should name a teammate's inbox directly.
  */
-export type TeamDuty = 'field_pay' | 'creative' | 'countersign' | 'staff_copy' | 'dispatch' | 'disputes' | 'weekly_brief';
+export type TeamDuty = 'field_pay' | 'creative' | 'countersign' | 'staff_copy' | 'dispatch' | 'disputes' | 'weekly_brief' | 'cleaning_review';
 
 export type TeamMember = {
   email: string;        // canonical id
@@ -86,7 +88,7 @@ export const TEAM_MEMBERS: TeamMember[] = [
     role: 'principal',
     access: 'owner',
     active: true,
-    duties: ['field_pay', 'countersign', 'dispatch', 'weekly_brief'],
+    duties: ['field_pay', 'countersign', 'dispatch', 'weekly_brief', 'cleaning_review'],
   },
   {
     email: 'allie@risingtidestr.com',
@@ -97,7 +99,7 @@ export const TEAM_MEMBERS: TeamMember[] = [
     role: 'operations',
     access: 'owner',
     active: true,
-    duties: ['staff_copy', 'disputes'],
+    duties: ['staff_copy', 'disputes', 'cleaning_review'],
   },
   {
     email: 'dotti@risingtidestr.com',
@@ -126,6 +128,7 @@ export const TEAM_MEMBERS: TeamMember[] = [
     access: 'staff',
     active: true,
     starts: '2026-11-01',
+    duties: ['cleaning_review'],
     fieldEmails: ['delaneyjordan@outlook.com'],
   },
 ];
