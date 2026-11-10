@@ -20,6 +20,7 @@ import {
   pairText,
   walkSlot,
   walkVerb,
+  planDayCame,
   type BoardRow,
 } from '../turnover-board.ts';
 import type { Turnover } from '../operations.ts';
@@ -313,6 +314,25 @@ describe('the walk and its one verb', () => {
     const later = turnover({ propertyId: 'home_a', checkIn: '2026-10-22', plan: { ...plan, planned_for_date: '2026-10-22' } });
     assert.equal(walkSlot(later, lc(later), TODAY, () => 'Delaney').label, 'Walk Thu · Delaney');
     assert.equal(walkVerb(later, lc(later)), 'plan');
+  });
+
+  test('a walk planned for today starts today, however far off the guest is (3 South, 2026-11-10)', () => {
+    const plan = { id: 'plan-2', planned_for_date: TODAY, notes: null, planned_by_email: 'office@example.test', assigned_to_email: 'delaney@example.test' };
+    const quiet = turnover({ propertyId: 'home_a', checkIn: '2026-10-25', previousCheckout: '2026-10-16', plan });
+    assert.equal(lc(quiet).due, false, 'a week out, the prep window is not live');
+    assert.equal(planDayCame(quiet, TODAY), true);
+    assert.equal(walkVerb(quiet, lc(quiet), TODAY), 'start');
+    assert.equal(walkVerb(quiet, lc(quiet)), 'plan', 'no clock, no change');
+    const slipped = turnover({ propertyId: 'home_a', checkIn: '2026-10-25', previousCheckout: '2026-10-16', plan: { ...plan, planned_for_date: '2026-10-17' } });
+    assert.equal(walkVerb(slipped, lc(slipped), TODAY), 'start', 'a slipped plan can still be walked');
+    const ahead = turnover({ propertyId: 'home_a', checkIn: '2026-10-25', previousCheckout: '2026-10-16', plan: { ...plan, planned_for_date: '2026-10-21' } });
+    assert.equal(walkVerb(ahead, lc(ahead), TODAY), 'plan', 'its day has not come');
+    const nobody = turnover({ propertyId: 'home_a', checkIn: '2026-10-25', previousCheckout: '2026-10-16', plan: { ...plan, assigned_to_email: null } });
+    assert.equal(walkVerb(nobody, lc(nobody), TODAY), 'plan', 'nobody named, nobody walking');
+    const occupied = turnover({ propertyId: 'home_a', checkIn: '2026-10-25', previousCheckout: '2026-10-22', plan });
+    assert.equal(planDayCame(occupied, TODAY), false, 'the guest before has not left');
+    const rows = board([quiet, ahead], null, '2026-10-19').days.flatMap((d) => d.rows);
+    assert.deepEqual(rows.map((r) => [r.turnover?.plan?.planned_for_date, r.day, r.verb]), [[TODAY, TODAY, 'start']], 'the walk planned for today sits on today, where its Start is; the later one waits');
   });
 });
 
