@@ -17,6 +17,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   cleaningReviewCopy,
+  cleaningReviewReplyTo,
   cleaningReviewSender,
   creativeLeadEmail,
   dutyEmails,
@@ -138,10 +139,23 @@ describe("Friday's cleaning review email copy (2026-11-10)", () => {
       if (saved !== undefined) process.env.CLEANING_FROM_EMAIL = saved;
     }
   });
+  test('a reply reaches all three, or the shared mailbox once it is set', () => {
+    const saved = process.env.CLEANING_REPLY_TO;
+    delete process.env.CLEANING_REPLY_TO;
+    try {
+      assert.deepEqual(cleaningReviewReplyTo('2026-11-13'), ['ryan@risingtidestr.com', 'allie@risingtidestr.com', 'delaney@risingtidestr.com']);
+      process.env.CLEANING_REPLY_TO = 'cleaning@risingtidestr.com';
+      assert.deepEqual(cleaningReviewReplyTo('2026-11-13'), ['cleaning@risingtidestr.com']);
+    } finally {
+      if (saved === undefined) delete process.env.CLEANING_REPLY_TO;
+      else process.env.CLEANING_REPLY_TO = saved;
+    }
+  });
   test('the sender takes its copy from the duty and its address from the role', () => {
     const src = read('src/lib/cleaning-reviews.ts');
     assert.ok(src.includes('const cc = cleaningReviewCopy();'));
     assert.ok(src.includes('fromEmail: cleaningReviewSender(),'));
+    assert.ok(src.includes('const replyTo = cleaningReviewReplyTo();'), 'replies reach the duty, not one inbox');
     assert.ok(!/@risingtidestr\.com/.test(src), 'no teammate inbox named in the sender');
   });
 });

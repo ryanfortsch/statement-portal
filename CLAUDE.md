@@ -1103,7 +1103,7 @@ counted 2026-10-22).
   defaulted), `SUPPLY_CLOSET_CODE` (prints on a claimed packet; unset hides the line; never in
   source)
 - **Email routing**, all defaulted: `STAFF_NOTIFY_EMAILS` (agreement, contract and quote notices),
-  `AUTOMATIONS_REPLY_TO`, `FIELD_FROM_EMAIL`, `CLEANING_FROM_EMAIL`, `READINESS_FROM_EMAIL`, `READINESS_REVIEW_TO`,
+  `AUTOMATIONS_REPLY_TO`, `FIELD_FROM_EMAIL`, `CLEANING_FROM_EMAIL`, `CLEANING_REPLY_TO`, `READINESS_FROM_EMAIL`, `READINESS_REVIEW_TO`,
   `READINESS_REVIEW_CC`
 - **Direct guest testimonials**: `GOOGLE_REVIEW_URL`, optional. The Google Business Profile
   review link the staycapeann.com testimonial form's thank-you page offers; unset, the page

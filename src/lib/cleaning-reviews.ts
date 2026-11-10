@@ -6,7 +6,7 @@ import { listScheduleRecipients } from '@/lib/cleaner-digest';
 import type { ScheduleRecipient } from '@/lib/cleaner-digest-core';
 import { CAPE_ANN_REGION } from '@/lib/property-scope';
 import { sendTransactionalViaResend } from '@/lib/resend';
-import { cleaningReviewCopy, cleaningReviewSender, fieldReplyTo, todayET } from '@/lib/team-recipients';
+import { cleaningReviewCopy, cleaningReviewReplyTo, cleaningReviewSender, todayET } from '@/lib/team-recipients';
 import { getTeamMember } from '@/lib/team';
 import {
   composeWeeklyEmail,
@@ -419,7 +419,7 @@ export async function approveCleaningReview(id: string, operatorEmail: string): 
     return { ok: false, error: 'No cleaner email on file. Add one under Cleaner settings.' };
   }
   const cc = cleaningReviewCopy();
-  const replyTo = fieldReplyTo();
+  const replyTo = cleaningReviewReplyTo();
   const log: Array<{ email: string; name: string; ok: boolean; error?: string }> = [];
   for (const r of audience.to) {
     const en = r.language === 'en';
