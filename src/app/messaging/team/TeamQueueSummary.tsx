@@ -5,6 +5,7 @@ import { getOpenDigest } from '@/lib/cleaner-digest';
 import { countPendingOwnerHoldQuestions } from '@/lib/owner-hold-questions';
 import { cleanerKindsLine } from '@/lib/cleaner-queue-kinds';
 import { countPendingVendorVisits } from '@/lib/vendor-visit-cards';
+import { countPendingCleaningReviews } from '@/lib/cleaning-reviews';
 
 /**
  * The title row under the Team tab: what the pill's one number is made of
@@ -16,7 +17,7 @@ export async function TeamQueueSummary({ audience }: { audience: TeamAudience })
   const waiting = (r: { ok: boolean; data?: { approvals: { status: string }[] } }) =>
     r.ok && r.data ? r.data.approvals.filter((a) => a.status !== 'scheduled').length : null;
   const cleaners = showsCleaners(audience);
-  const [texts, contractorTexts, schedules, questions, vendorVisits] = await Promise.all([
+  const [texts, contractorTexts, schedules, questions, vendorVisits, cleaningReviews] = await Promise.all([
     cleaners && isStayConciergeConfigured() ? listCleanerApprovals().then(waiting).catch(() => null) : Promise.resolve(0),
     showsContractors(audience) && isStayConciergeConfigured() ? listContractorApprovals().then(waiting).catch(() => null) : Promise.resolve(0),
     // The pill counts a pending digest dated today or later; getOpenDigest
@@ -25,6 +26,9 @@ export async function TeamQueueSummary({ audience }: { audience: TeamAudience })
     cleaners ? countPendingOwnerHoldQuestions(supabase).catch(() => null) : Promise.resolve(0),
     // A trade vendor's confirmed day waiting on a hold, with the contractors.
     showsContractors(audience) ? countPendingVendorVisits() : Promise.resolve(0),
+    // An inspector's rating of the clean, four stars or fewer, whose crew
+    // note waits on Approve. With the cleaners.
+    cleaners ? countPendingCleaningReviews() : Promise.resolve(0),
   ]);
   const kinds = cleanerKindsLine({
     texts,
@@ -32,6 +36,7 @@ export async function TeamQueueSummary({ audience }: { audience: TeamAudience })
     questions,
     contractorTexts: audience === 'cleaners' ? undefined : contractorTexts,
     vendorVisits: audience === 'cleaners' ? undefined : vendorVisits,
+    cleaningReviews: audience === 'contractors' ? undefined : cleaningReviews,
   });
   if (kinds.length === 0) return null;
   return (

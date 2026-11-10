@@ -30,6 +30,17 @@ agenda, even after cancellation or moving beyond the visible window. This does
 not correct the shared CRM row or stop its existing reminder. That shared
 correction needs a separate reviewed action. Similar titles never auto-merge.
 
+A CRM meeting or owner-booked record is held for review only when its title or
+location names a different street number from the filed property. Otherwise it
+is an ordinary dated row, still tentative with attendance open, because the CRM
+records neither. Its row on `/appointments` answers Going / Not going in one
+tap (`answerMeetingAttendance`). The answer is a private `agenda_appointments`
+record marked `attendanceOnly`, linked to `helm:meeting:<id>` alone, with a
+generic title and none of the meeting's details. It never suppresses the
+meeting: the live CRM row keeps its own date, time and place and takes only
+that person's attendance. Reviewing an answered meeting reuses the answer's
+record. The shared CRM row and its reminder texts are never written.
+
 ## Rollout
 
 1. `20261031030000_appointment_agenda.sql` and

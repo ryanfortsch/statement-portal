@@ -2,11 +2,11 @@
  * Daily Brief: the day's signals for the home page's For Me feed, plus the
  * email triage that feeds it.
  *
- * One async loader pulls today's stays and walks, the cleaning crew's
- * schedule against ours, inbound CRM touches awaiting a reply, and the
+ * One async loader pulls inbound CRM touches awaiting a reply and the
  * triaged unread mail (read from the email_triage cache). It used to back
  * the /today page too; /today was retired into the home on 2026-10-18 and
- * now redirects there, so the loader carries only what the home reads. The
+ * now redirects there, so the loader carries only what the home reads. Today's stays and walks
+ * moved to the cleanings strip on 2026-11-08 (home-houses-server.ts). The
  * sync watchdog and the Helm-run homes check that /today printed moved to
  * /messaging/status (`loadFeedsNeedingAttention`, `loadChannelsAttention`).
  *
@@ -16,15 +16,12 @@
 import { linkedListingNotices } from '@/lib/listing-links';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
-import { loadCleaningOutlook, cleaningFlags } from '@/lib/cleaning-schedule';
-import type { CleaningFlag } from '@/lib/cleaning-days';
 import { operatingDate } from '@/lib/operating-date';
 import { formatUsPhone } from '@/lib/phone';
 import { triageEmails } from '@/lib/ai/triage-emails';
 import { draftReply } from '@/lib/ai/draft-reply';
 import { replySignalFor, type HandledVia, type ReplySignals } from '@/lib/email-reply-signals';
 import { gmailMailbox } from '@/lib/gmail-draft';
-import { CHANNEL_LABELS, type BookingChannel } from '@/lib/channels-types';
 import { carryoverFor, loadCutoverFacts } from '@/lib/cutover';
 
 let _serviceSupabase: SupabaseClient | null = null;
@@ -37,38 +34,17 @@ function serviceSupabase(): SupabaseClient {
   return _serviceSupabase;
 }
 
-export type BriefStay = {
-  propertyId: string;
-  propertyName: string;
-  guestName: string | null;
-  channel: string | null;
-  checkIn: string;
-  checkOut: string;
-};
-
-/** A house on the cleaning crew's schedule that needs a human: a guest
- *  leaving with no cleaner booked, a cleaner booked before the guest is
- *  out or after the next one is in, or a cleaner with nobody leaving.
- *  Today through the day after tomorrow, the vendor's whole horizon.
- *  Built by lib/cleaning-schedule.ts, the same read /turnovers/cleanings
- *  and the home strip use. */
-export type BriefCleaningFlag = CleaningFlag;
 
 export type BriefInboundTouch = {
   contactId: string;
   contactName: string | null;
+  /** The CRM contact's type ('owner', 'lead', 'vendor', 'other'); null when
+   *  the contact could not be read. A staff feed shows vendor and other only. */
+  contactType: string | null;
   channel: string;
   summary: string;
   touchedAt: string;
   daysWaiting: number;
-};
-
-export type BriefInspection = {
-  id: string;
-  propertyId: string;
-  propertyName: string;
-  completedAt: string | null;
-  startedAt: string | null;
 };
 
 export type BriefEmail = {
@@ -118,10 +94,6 @@ export type BriefChannelAttention = {
 
 export type DailyBrief = {
   date: string;
-  checkoutsToday: BriefStay[];
-  checkinsToday: BriefStay[];
-  cleaningFlags: BriefCleaningFlag[];
-  inspectionsCompletedToday: BriefInspection[];
   inboundWaiting: BriefInboundTouch[];
   unreadEmails: BriefEmail[];
   gmailConfigured: boolean;
@@ -949,7 +921,7 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
   // contacts has one name column. It never had first_name / last_name:
   // asking for them failed the whole read, so every waiting reply printed
   // "Contact" (fixed 2026-11-06; contact-name-columns.test.ts holds it).
-  type ContactPick = { id: string; name: string | null; phone: string | null; emails: string[] | null };
+  type ContactPick = { id: string; name: string | null; phone: string | null; emails: string[] | null; type: string | null };
   type InboundTouchPick = {
     id: string;
     contact_id: string;
@@ -958,49 +930,10 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
     touched_at: string;
     direction: 'inbound' | 'outbound';
   };
-  type ReservationPick = {
-    property_id: string;
-    guest_name: string | null;
-    channel: string | null;
-    check_in: string;
-    check_out: string;
-  };
-  type PropertyPick = { id: string; name: string };
-  type InspectionPick = { id: string; property_id: string; started_at: string | null; completed_at: string | null };
-
-  // A walk finished "today" in Gloucester: read the last day and a half of
-  // completions and keep the ones whose Eastern date is today, so neither
-  // end of the day is cut at UTC midnight.
-  const walkCutoffIso = new Date(Date.now() - 36 * 3_600_000).toISOString();
-
   const [
-    { data: properties },
-    { data: checkouts },
-    { data: checkins },
     { data: touches },
-    { data: walksRecent },
     unreadEmails,
-    cleaningFlagList,
   ] = await Promise.all([
-    supabase.from('properties').select('id, name').eq('is_active', true),
-    // Today's departures and arrivals come from canonical bookings, the
-    // Helm-native stay source every ops surface reads, not from
-    // guesty_reservations: a home Helm runs after its Guesty cutover has no
-    // Guesty row at all, and a Guesty-run home is mirrored into bookings
-    // anyway. Same filters as operations.ts (confirmed/completed, canonical
-    // rows only) so the home names the exact stays the turnover rail shows.
-    supabase
-      .from('bookings')
-      .select('property_id, guest_name, channel, check_in, check_out')
-      .in('status', ['confirmed', 'completed'])
-      .is('duplicate_of', null)
-      .eq('check_out', todayIso),
-    supabase
-      .from('bookings')
-      .select('property_id, guest_name, channel, check_in, check_out')
-      .in('status', ['confirmed', 'completed'])
-      .is('duplicate_of', null)
-      .eq('check_in', todayIso),
     // Last 14 days of inbound + outbound touches; we resolve "still
     // waiting" by checking if any outbound touch exists for the same
     // contact after the inbound timestamp.
@@ -1009,39 +942,8 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
       .select('id, contact_id, channel, summary, touched_at, direction')
       .gte('touched_at', new Date(Date.now() - 14 * 86_400_000).toISOString())
       .order('touched_at', { ascending: false }),
-    supabase
-      .from('inspections')
-      .select('id, property_id, started_at, completed_at')
-      .gte('completed_at', walkCutoffIso)
-      .order('completed_at', { ascending: false }),
     loadUnreadEmailsFromCache().catch(() => [] as BriefEmail[]),
-    // The crew's schedule against ours, today through the day after
-    // tomorrow. A failed read is an empty list here, never a crash: the
-    // feed has to render even when the schedule cannot be built, and the
-    // cleanings page says so in its own words.
-    loadCleaningOutlook(supabase)
-      .then(cleaningFlags)
-      .catch(() => [] as CleaningFlag[]),
   ]);
-
-  const propertyById = new Map<string, string>();
-  for (const p of (properties ?? []) as PropertyPick[]) {
-    propertyById.set(p.id, p.name);
-  }
-
-
-  // bookings.channel is the enum token ('booking_com'); the home prints the
-  // display label ('Booking.com'). An iCal-imported stay can carry no guest
-  // name (Airbnb's feed withholds it): the name stays null so the renderer
-  // hides the span rather than printing a placeholder.
-  const toStay = (r: ReservationPick): BriefStay => ({
-    propertyId: r.property_id,
-    propertyName: propertyById.get(r.property_id) ?? r.property_id,
-    guestName: r.guest_name?.trim() || null,
-    channel: r.channel ? (CHANNEL_LABELS[r.channel as BookingChannel] ?? r.channel) : null,
-    checkIn: r.check_in,
-    checkOut: r.check_out,
-  });
 
   // Reply-needed: most-recent inbound per contact with no outbound
   // touch newer than that inbound.
@@ -1073,7 +975,7 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
   if (waitingIds.length > 0) {
     const { data: contacts, error: contactsError } = await supabase
       .from('contacts')
-      .select('id, name, phone, emails')
+      .select('id, name, phone, emails, type')
       .in('id', waitingIds);
     if (contactsError) console.error('[daily-brief] waiting contacts read failed', contactsError.code, contactsError.message);
     for (const c of (contacts ?? []) as ContactPick[]) contactById.set(c.id, c);
@@ -1092,6 +994,7 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
     inboundWaiting.push({
       contactId,
       contactName: name,
+      contactType: contact?.type ?? null,
       channel: inbound.channel,
       summary: inbound.summary,
       touchedAt: inbound.touched_at,
@@ -1100,22 +1003,8 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
   }
   inboundWaiting.sort((a, b) => (a.touchedAt < b.touchedAt ? 1 : -1));
 
-  const inspectionsCompletedToday: BriefInspection[] = ((walksRecent ?? []) as InspectionPick[])
-    .filter((i) => i.completed_at && operatingDate(new Date(i.completed_at)) === todayIso)
-    .map((i) => ({
-      id: i.id,
-      propertyId: i.property_id,
-      propertyName: propertyById.get(i.property_id) ?? i.property_id,
-      completedAt: i.completed_at,
-      startedAt: i.started_at,
-    }));
-
   return {
     date: todayIso,
-    checkoutsToday: ((checkouts ?? []) as ReservationPick[]).map(toStay),
-    checkinsToday: ((checkins ?? []) as ReservationPick[]).map(toStay),
-    cleaningFlags: cleaningFlagList,
-    inspectionsCompletedToday,
     inboundWaiting,
     unreadEmails,
     gmailConfigured: gmailConfigured(),

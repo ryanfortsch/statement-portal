@@ -195,6 +195,10 @@ export async function toggleAutosendAction(formData: FormData): Promise<void> {
   await setAutosend(supabase, String(formData.get('enabled') || '') === 'true', email);
   revalidatePath(CARD);
   revalidatePath(PAGE);
+  revalidatePath(SETTINGS);
+  // The switch lives on Cleaner settings (2026-11-07 audit); an older card
+  // or schedule tab still lands where it posted from.
+  if (String(formData.get('back') || '') === 'settings') redirect(`${SETTINGS}?at=autosend&saved=1#schedule-autosend`);
   redirect(digestBack(formData));
 }
 

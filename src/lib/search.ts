@@ -6,6 +6,8 @@
  *   - Pages (Helm modules from helm-modules.ts)
  *   - Properties (name, address, title, owner)
  *   - Contacts (name, organization)
+ *   - Guests (name, email, phone; opens the CRM contact when one matches,
+ *     else the Guest list record: src/lib/person-record-link.ts)
  *   - Work slips (title, description, location)
  *   - Tasks (title, description)
  *   - Playbook entries (title, summary, body)
@@ -23,6 +25,8 @@ import type { WorkSlipRow, TaskRow } from '@/lib/work-types';
 import { ACTIVE_WORK_SLIP_STATUSES, ACTIVE_TASK_STATUSES } from '@/lib/work-types';
 import type { ContactRow } from '@/lib/crm';
 import type { PlaybookEntryRow } from '@/lib/playbook';
+import { searchGuests } from '@/lib/person-record-link-server';
+import { withoutListedContacts, type GuestMatch } from '@/lib/person-record-link';
 
 export type PageMatch = {
   id: string;
@@ -37,13 +41,14 @@ export type SearchResults = {
   pages: PageMatch[];
   properties: HelmPropertyRow[];
   contacts: ContactRow[];
+  guests: GuestMatch[];
   slips: SlipMatch[];
   tasks: TaskRow[];
   playbook: PlaybookEntryRow[];
   total: number;
 };
 
-const EMPTY: SearchResults = { pages: [], properties: [], contacts: [], slips: [], tasks: [], playbook: [], total: 0 };
+const EMPTY: SearchResults = { pages: [], properties: [], contacts: [], guests: [], slips: [], tasks: [], playbook: [], total: 0 };
 
 /** Return up to N module pages matching the query against title / description / id.
  *  Owner-only modules are left out for staff, so search never links a page
@@ -87,7 +92,7 @@ export async function searchEverything(q: string, opts?: { perGroup?: number; ro
   const escaped = trimmed.replace(/[%_,]/g, ' ');
   const like = `%${escaped}%`;
 
-  const [propRes, contactRes, slipRes, taskRes, playbookRes, propMapRes] = await Promise.all([
+  const [propRes, contactRes, slipRes, taskRes, playbookRes, propMapRes, guestHits] = await Promise.all([
     supabase
       .from('properties')
       .select('*')
@@ -122,6 +127,8 @@ export async function searchEverything(q: string, opts?: { perGroup?: number; ro
       .order('updated_at', { ascending: false })
       .limit(perGroup),
     supabase.from('properties').select('id, name'),
+    // Fails quiet to no rows; both records it links are open to staff.
+    searchGuests(trimmed, perGroup),
   ]);
 
   const propertyMap = new Map<string, string>(
@@ -132,6 +139,8 @@ export async function searchEverything(q: string, opts?: { perGroup?: number; ro
   const pages = searchPages(trimmed, 6, opts?.role ?? 'staff');
   const properties = (propRes.data ?? []) as HelmPropertyRow[];
   const contacts = (contactRes.data ?? []) as ContactRow[];
+  // A guest whose CRM contact is already in Contacts is listed once, there.
+  const guests = withoutListedContacts(guestHits, contacts.map((c) => c.id));
   const slips: SlipMatch[] = ((slipRes.data ?? []) as WorkSlipRow[])
     .filter((s) => !s.snoozed_until || s.snoozed_until <= todayIso)
     .slice(0, perGroup)
@@ -139,9 +148,9 @@ export async function searchEverything(q: string, opts?: { perGroup?: number; ro
   const tasks = (taskRes.data ?? []) as TaskRow[];
   const playbook = (playbookRes.data ?? []) as PlaybookEntryRow[];
 
-  const total = pages.length + properties.length + contacts.length + slips.length + tasks.length + playbook.length;
+  const total = pages.length + properties.length + contacts.length + guests.length + slips.length + tasks.length + playbook.length;
 
-  return { pages, properties, contacts, slips, tasks, playbook, total };
+  return { pages, properties, contacts, guests, slips, tasks, playbook, total };
 }
 
 /** Page-only search. Cheap, in-memory, no DB. Used as an instant pre-flight. */

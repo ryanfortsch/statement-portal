@@ -67,6 +67,9 @@ describe('every Channels page says it once, at the top', () => {
   for (const page of pages) {
     test(page, () => {
       const src = read(page);
+      // A route kept only so old links land (the per-home month grid since
+      // 2026-11-08) renders nothing: it redirects to a page that says it.
+      if (/\n\s*redirect\(/.test(src) && !/return\s*[(<]/.test(src) && !src.includes('<HelmMasthead')) return;
       assert.equal(src.split('<GuestyWritesNotice scope=').length - 1, 1, `${page} must render the notice exactly once`);
       const masthead = src.indexOf('<HelmMasthead />\n      <GuestyWritesNotice');
       assert.ok(masthead > 0, `${page}: the notice sits directly under the masthead`);
@@ -86,6 +89,12 @@ describe('the hub on a Guesty-run home', () => {
     assert.ok(hub.includes('{runbook && carry && (helmRun || cutoverUnderway) && <AttentionPanel'), 'the attention panel');
     assert.ok(hub.includes('{runbook && recent.length > 0 && ('), 'recent stays');
     assert.ok(/\{runbook && <section className="max-w-\[1100px\] mx-auto px-10" style=\{\{ width: '100%', paddingBottom: 40 \}\}>/.test(hub), 'the stat strip');
+  });
+  test('+ Booking and + Block go quiet and Property record is the exit; a Helm-run home keeps them primary', () => {
+    assert.ok(hub.includes("style={helmRun ? primaryButton : ghostButton}>+ Booking</Link>"));
+    assert.ok(hub.includes("style={helmRun ? secondaryButton : ghostButton}>+ Block</Link>"));
+    assert.ok(hub.includes('{!helmRun && <Link href={`/properties/${propertyId}`} style={secondaryButton}>Property record →</Link>}'));
+    assert.ok(hub.includes('{helmRun && <Link href={`/properties/${propertyId}`} style={ghostButton}>Property record →</Link>}'), 'Property record prints once');
   });
   test('the feed rows, the export links and upcoming stays are always there', () => {
     const feeds = hub.indexOf('{orderedFeeds(feeds).map(');

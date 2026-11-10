@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useState } from 'react';
+import Link from 'next/link';
 import { useQueueRefresh } from '@/components/QueueRefreshControl';
 import { useApprovalQueue } from '@/lib/use-approval-queue';
 import type { OwnerApproval } from '@/lib/stay-concierge';
@@ -25,6 +26,7 @@ import { Envelope, InboundSubject } from './Envelope';
 import { proposedActionItems } from './ProposedActions';
 import { ownerApprovalPlan } from '@/lib/owner-approval-plan';
 import { actionKeys, initialSkipped, skipPlan } from '@/lib/owner-action-skip';
+import { ownerCrmHref, EMPTY_OWNER_CRM_DIRECTORY, type OwnerCrmDirectory } from '@/lib/owner-crm-link';
 
 // How often the REST of the page re-renders. The cards poll their own feed
 // every 15s (useApprovalQueue), so a coached draft appears as soon as the
@@ -36,10 +38,13 @@ const PAGE_REFRESH_MS = 60_000;
 export function OwnerMessagingQueue({
   initialPending,
   aiPaused,
+  crm = EMPTY_OWNER_CRM_DIRECTORY,
 }: {
   initialPending: OwnerApproval[];
   /** The drafting AI is down: a card with no draft says so. */
   aiPaused?: { reason?: string } | null;
+  /** Which CRM contact each card is, for its link to the owner's Activity. */
+  crm?: OwnerCrmDirectory;
 }) {
   const { approvals, refreshStatus, refresh, watchRegen, stalledId } = useApprovalQueue(initialPending, 'owners');
   const { softRefresh } = useQueueRefresh(PAGE_REFRESH_MS);
@@ -63,6 +68,7 @@ export function OwnerMessagingQueue({
           onRegenerating={watchRegen}
           regenStalled={stalledId === approval.id}
           aiPaused={aiPaused}
+          crmHref={ownerCrmHref(crm, approval.owner_contact, approval.property_id)}
         />
       )}
     />
@@ -75,12 +81,15 @@ function OwnerCard({
   onRegenerating,
   regenStalled,
   aiPaused,
+  crmHref,
 }: {
   approval: OwnerApproval;
   helpers: QueueCardHelpers;
   onRegenerating: (id: string) => void;
   regenStalled: boolean;
   aiPaused?: { reason?: string } | null;
+  /** The owner's CRM contact, where the history lives. */
+  crmHref: string | null;
 }) {
   const id = approval.id;
   const owner = approval.owner_name || approval.owner_contact || 'Owner';
@@ -125,7 +134,19 @@ function OwnerCard({
     property,
     preview: approval.owner_text,
     channel,
-    chips: <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>{prettifyTopic(approval.topic) || 'General'} · {channel}</span>,
+    chips: (
+      <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
+        {prettifyTopic(approval.topic) || 'General'} · {channel}
+        {crmHref && (
+          <>
+            {' · '}
+            <Link href={crmHref} style={{ color: 'var(--ink-3)', textDecoration: 'underline', textUnderlineOffset: 3 }} title={`${owner}'s CRM contact: every text, email and call`}>
+              History in CRM
+            </Link>
+          </>
+        )}
+      </span>
+    ),
     ageMinutes: approval.age_minutes,
     createdAt: approval.created_at,
     shortId: approval.short_id,

@@ -10,6 +10,8 @@ import {
   fmtNum,
   MONTH_LABELS,
   CC_OPERATING_BREAKDOWN,
+  SOFTWARE_BUDGET_ITEMS,
+  itemizedSoftwareCost,
   CURRENT_2026,
   NEW_PROPERTY_FEE,
   type ForecastYear,
@@ -667,7 +669,7 @@ function SmartForecastPanel({
                 {p.property.name}
                 {p.annualBasis === 'statements' && (
                   <span
-                    title={`Annual gross floored at what this property's closed statements prove (its whole record once it has four closed months): ${fmtUsd(p.annualGross)}`}
+                    title={`Annual gross from this property's closed statements: floored at what they prove while it is ramping, and its whole record alone once it has four closed months, whatever its forward bookings pace toward: ${fmtUsd(p.annualGross)}`}
                     style={{
                       marginLeft: 6,
                       fontSize: 8.5,
@@ -697,7 +699,7 @@ function SmartForecastPanel({
                 )}
                 {p.offSeasonFactor < 1 && p.offSeasonMonth && (
                   <span
-                    title={`Off-season at ${Math.round(p.offSeasonFactor * 100)}% of the market curve: what this home has on the books for ${p.offSeasonMonth} is ${Math.round(p.offSeasonFactor * 100)}% of what the curve expected of it, so every month outside June to September carries that share.`}
+                    title={`Off-season at ${Math.round(p.offSeasonFactor * 100)}% of the market curve: what this home has on the books for ${p.offSeasonMonth} is ${Math.round(p.offSeasonFactor * 100)}% of what the curve expected of it, so April, May and October to December carry that share. January to March carry Rising Tide's own measured winter instead.`}
                     style={{
                       marginLeft: 6,
                       fontSize: 8.5,
@@ -865,14 +867,17 @@ function SmartForecastPanel({
         annual gross is the property&apos;s own forward bookings, pace-corrected
         and annualized, since Helm has no full year of per-property booking
         history to draw on, and it is floored at what the property&apos;s own
-        closed statements imply: while a home is still ramping (two or three closed full months), the larger of its latest closed full month annualized on its share and its whole closed record; from four closed full months, the whole record alone, so one strong month cannot set the year. That floor is what stops a home
+        closed statements imply: while a home is still ramping (two or three closed full months), the larger of its latest closed full month annualized on its share and its whole closed record; from four closed full months, the whole record alone, so one strong month cannot set the year, and the forward pace no longer raises it either: two winter months of bookings cannot set a settled home&apos;s year. That floor is what stops a home
         that was still ramping in August from being projected below that
-        August; rows it lifts carry a <em>floor</em> tag. When a month has no
+        August; rows on their statements carry a <em>floor</em> tag. When a month has no
         bookings yet, Part A drops out and Part B carries 100%. Outside June to
         September, Part B is scaled to the home&apos;s own off-season: what it has on
         the books for the shoulder month (the current month from the 15th, the
         month just finished before that) as a share of what the curve expected of
-        it, capped at 100%; rows it lowers carry an <em>off-season</em> tag. The mgmt fee column is the blended gross × that
+        it, capped at 100%; rows it lowers carry an <em>off-season</em> tag. January to March take
+        Rising Tide&apos;s own winter instead, the same for every home: about a quarter of the
+        curve&apos;s share, measured on the six homes run all of last winter (their January to
+        March was 11% of their July plus August; the curve says 44%). The mgmt fee column is the blended gross × that
         property&apos;s fee %.
       </div>
     </div>
@@ -970,7 +975,13 @@ function Assumptions({ yearKey }: { yearKey: ForecastYear }) {
         background: 'var(--paper)',
       }}
     >
-      {sections.map((sec, si) => (
+      {[...sections, {
+        heading: 'Software from April 2027 — itemized budget',
+        items: SOFTWARE_BUDGET_ITEMS.map(item => ({
+          label: item.label,
+          value: `$${item.amount.toFixed(2)} ${'billingMonth' in item ? 'in May only' : 'per month'}. ${item.note}`,
+        })),
+      }].map((sec, si) => (
         <div key={sec.heading}>
           <div
             style={{
@@ -1014,7 +1025,7 @@ function Assumptions({ yearKey }: { yearKey: ForecastYear }) {
 
 const SOFTWARE_BUDGET_ASSUMPTION: AssumptionItem = {
   label: 'Software',
-  value: 'Projected total software: $2,700/mo through October 2026; $2,850/mo in November and December during the Guesty/Channex overlap; $2,600 in January 2027, $2,300 in February, $1,900 in March, and $1,650/mo from April onward, including 2028. The rounded steady budget replaces the $1,323 Guesty baseline with about $150-$160 for Channex and $100 of extra operating allowance; PriceLabs and the other subscriptions remain. This planning assumption allows a late-November Calderwood pilot, phased migration and billing winding down by March-April, subject to channel readiness and Guesty contract terms. Measured months show actual card spending.',
+  value: `Transition estimates remain $2,707.06 in November 2026, $2,659.88 in December, $2,409.88 in January 2027, $2,109.88 in February and $1,709.88 in March. From April 2027, the named subscriptions and allowances below sum to $${itemizedSoftwareCost(4).toFixed(2)}/mo, with $57.28 extra in May for 1Password. This replaces the rounded allowance; cancelled Adobe, Zoom, one Dropbox and the Vercel seat are not subtracted a second time. AirDNA is assumed cancelled, confirmation pending. Squarespace and the remaining Dropbox are retained pending verification. AI credits have a user-approved $150 monthly allowance on top of the two $100 base plans; this does not change account limits. Guesty exit timing still depends on channel readiness and contract terms. Prices reflect the current fleet snapshot, not a guaranteed future invoice. Actual card spending overrides every estimate.`,
 };
 
 const SUPPLIES_BUDGET_ASSUMPTION: AssumptionItem = {
@@ -1026,7 +1037,7 @@ const sections2026: AssumptionSection[] = [
   {
     heading: 'Revenue',
     items: [
-      { label: 'Properties', value: 'Seventeen homes filed 2026 statements and make up the Properties row. Measured months carry the real management fee from those statements from April 2026; January to March carry the bank sweep from Chase ...5130, because the Statements module began in April. Forward months come from the smart forecast: the bookings already in Guesty for each home, pace-corrected against the capture rate Rising Tide itself achieved on the closed months of 2026, blended with the annual gross of the home spread over the Gloucester revenue curve. That annual gross is floored at what the closed statements of the home prove: while it is still ramping (two or three closed months), the larger of its latest full month and its whole record (first ramp month dropped once there are three); from four closed months, the whole record alone, so one strong month cannot set the year (decided 2026-10-15, when a single September had 17 Beach at $358K a year). Each month is held at no less than what is already booked, and the pacing scale-up is capped at 2.5x. Rows the floor lifts carry a floor tag in the per-property table. A unit of a home already in the table (17 Beach\'s front unit and guest house, split off on 2026-09-28) sells the same nights as the whole house, so it projects only its own bookings, never the portfolio average; such rows carry a unit tag. Outside June to September every home\'s curve share is scaled to its own off-season, read from the shoulder month on the books (October 2026 as of mid-October: 17 Beach at 61% of what the curve expected, 84 Thatcher 54%, most homes at 100%), so a summer house is not projected a market-shaped winter; the factor only lowers, and rows it lowers carry an off-season tag.' },
+      { label: 'Properties', value: 'Seventeen homes filed 2026 statements and make up the Properties row. Measured months carry the real management fee from those statements from April 2026; January to March carry the bank sweep from Chase ...5130, because the Statements module began in April. Forward months come from the smart forecast: the bookings already in Guesty for each home, pace-corrected against the capture rate Rising Tide itself achieved on the closed months of 2026, blended with the annual gross of the home spread over the Gloucester revenue curve. That annual gross is floored at what the closed statements of the home prove: while it is still ramping (two or three closed months), the larger of its latest full month and its whole record (first ramp month dropped once there are three); from four closed months, the whole record alone, so one strong month cannot set the year (decided 2026-10-15, when a single September had 17 Beach at $358K a year), and from then on the forward pace cannot raise it either (decided 2026-11-09, when two winter months of bookings had 53 Rocky Neck at $38K of fee a year against $32K on its record, and 19 Rackliffe and 21 Horton about 60% above theirs). Each month is held at no less than what is already booked, and the pacing scale-up is capped at 2.5x. Rows the floor lifts carry a floor tag in the per-property table. A unit of a home already in the table (17 Beach\'s front unit and guest house, split off on 2026-09-28) sells the same nights as the whole house, so it projects only its own bookings, never the portfolio average; such rows carry a unit tag. Outside June to September every home\'s curve share is scaled to its own off-season, read from the shoulder month on the books (October 2026 as of mid-October: 17 Beach at 61% of what the curve expected, 84 Thatcher 54%, most homes at 100%), so a summer house is not projected a market-shaped winter; the factor only lowers, and rows it lowers carry an off-season tag. January to March take Rising Tide\'s own measured winter instead of that reading, the same for every home: the six homes run all of winter 2025-26 earned 11% of their July plus August fees in January to March, where the curve puts 44%, so those three months carry about a quarter of the curve\'s share (decided 2026-11-09).' },
       { label: 'Prospects', value: 'The live prospect pipeline (Prospects). Each deck projects a year-one fee; it enters month by month, weighted by close likelihood.' },
       ENDINGS_ASSUMPTION,
       { label: 'New mandates', value: '$25K/yr each in their first season on Cape Ann seasonality (4.3% of the year in each of Jan to May and Nov to Dec, 10% in Jun, Sep and Oct, 20% in Jul and Aug), from the month the slider starts them. Default 3, in Jul, Sep and Nov. Each carries the $3,400 onboarding charge (outfitting plus the listing shoot) in its start month, so a home added late in the year is a small loss in that year and earns its keep the next. From 2027 they roll forward at the fleet average fee per earning home.' },
@@ -1039,7 +1050,7 @@ const sections2026: AssumptionSection[] = [
       SUPPLIES_BUDGET_ASSUMPTION,
       { label: 'Corporate card', value: 'Two parts, calibrated on 2026 card detail through October 7 and the Amazon Business export of October 15. Variable: guest supplies and small repairs at $2,950 per live home per year, on the Cape Ann turnover curve pulled one month earlier (a home is stocked before its guests arrive) and damped to 60%, with repairs at 12% of it. The rate is measured item by item: $1,805 of Amazon consumables per home per year, about $1,000 of replacement durables, and the non-Amazon stores. It was $8,360 until 2026-10-15, fitted with the summer outfitting orders left in; September, the first month after the onboarding wave, came in at a quarter of what that rate projected, so outfitting is now its own one-time charge (Onboarding, below). Fixed: GEICO $519, AT&T $114, travel $175, the rest of Other $185 (the van, card interest, the hiring run), marketing $680 through May 2026 and $225 from June (the step-down is measured on the card, not assumed), and two $199 Furnished Finder listings, one renewing in August and one in September. The Marketing & advertising row also carries Cooper\'s content work from the operating account: $1,300/mo per 16 homes from July 2026, scaled to the live fleet (filed here rather than on the bench since 2026-11-07). Projected months itemise the card by these terms; measured months read the card\'s own categories.' },
       SOFTWARE_BUDGET_ASSUMPTION,
-      { label: 'Office', value: '$750/mo rent at 85 Eastern Ave from March 2026 when the lease began, plus $471/mo for the Republic Services dumpster through November 2026, the rate Republic has billed monthly since August. The dumpster was cancelled effective 2026-11-30 (notice sent 2026-10-05), so December is rent only.' },
+      { label: 'Office', value: '$750/mo downstairs rent at 85 Eastern Ave from March 2026; Suite 107 adds $80 partial rent in July and $250/mo from August, for $1,000/mo total. Both leases were retained in October. Plus $471/mo for the Republic Services dumpster through November 2026, the rate Republic has billed monthly since August. The dumpster was cancelled effective 2026-11-30 (notice sent 2026-10-05), so December is rent only.' },
       { label: 'Bank fees', value: '$10/mo. Real fee rows total $75 across 24 months; the old $100 figure counted bounced deposits, which are a wash, not a cost.' },
       { label: 'Contractors', value: 'The 1099 bench. Field labor (Delaney Jordan) at $33,700 a year per 16 homes, on Cape Ann seasonality and scaled to the live fleet, July to October 2026; from November it is her salary instead. Everyone else (handymen, one-off trades) $250/mo blended. Cooper\'s content work is on the Marketing & advertising row and Lightshed\'s listing shoots are in the Onboarding charge, both since 2026-11-07. The operating-account bench ran $8,288/mo over July 1 to August 25, 2026, with Cooper in it.' },
       { label: 'Operations manager', value: 'Delaney Jordan on W-2 from 2026-11-01 at $70,000 a year: about $6,450 a month all-in (salary, 8.1% payroll taxes, the $92 Gusto Plus fee, the $50 phone allowance), flat. Workers comp is on the Insurance line. Mileage and summer overtime are not projected. The count-triggered hires in the old plan stay dropped (2026-09-06): this one is a date, not a threshold.' },
@@ -1068,7 +1079,7 @@ const sections2027: AssumptionSection[] = [
     heading: 'Revenue',
     items: [
       { label: 'Active (Jan 1)', value: 'Every active managed home in Helm\'s registry drives the cost lines (card and bench), minus 4 Brier Neck, 73 Rocky Neck and 79 Main, which the operating windows have offline for the whole year; 16 Waterman is open May to October and counts only in those months. A home costs from the month it is activated, so 4 Middle Road is on the cost lines from day one rather than from its first closed statement. The revenue row is every active managed home in Helm with its operating window applied, so a home with no bookings or statements yet rides the portfolio-average gross (4 Middle Road today), except a unit of a home already in the table (17 Beach\'s front unit and guest house), which sells the whole house\'s nights and projects only its own bookings. Plus every home added on the 2026 slider, rolled forward as a full-year Cape Ann contract at the fleet average fee per earning home for 2027 (the mean of the per-property totals in the smart table, about $32K today), never below $25K.' },
-      { label: 'Revenue per home', value: 'The smart forecast, almost entirely its annual-times-seasonality part: the annual gross of each home (its forward pace, floored at what its closed statements prove: the whole record once it has four closed months) spread over the Gloucester revenue curve, with the months outside June to September scaled to the home\'s own off-season as its shoulder month on the books showed it, times its fee percent. Bookings already placed for 2027 blend in where they exist.' },
+      { label: 'Revenue per home', value: 'The smart forecast, almost entirely its annual-times-seasonality part: the annual gross of each home (its forward pace, floored at what its closed statements prove; once it has four closed months, its whole record alone, whatever the pace) spread over the Gloucester revenue curve, with the months outside June to September scaled to the home\'s own off-season as its shoulder month on the books showed it, and January to March at about a quarter of the curve\'s share, which is what the homes run last winter actually earned, times its fee percent. Bookings already placed for 2027 blend in where they exist.' },
       { label: 'Prospects', value: 'The live prospect pipeline (Prospects). Each open deck contributes a full year at its projected fee times its close likelihood (50% when none is entered), and adds no cost until it becomes a property.' },
       ENDINGS_ASSUMPTION,
       { label: 'New mandates', value: '$25K/yr each in their first season on Cape Ann seasonality from the month the slider starts them. Default 3, in Mar, Jun and Sep. They roll into 2028 at the fleet average fee.' },
@@ -1080,7 +1091,7 @@ const sections2027: AssumptionSection[] = [
       SUPPLIES_BUDGET_ASSUMPTION,
       { label: 'Corporate card', value: 'Same two-part model as 2026: $2,950 per live home per year on the turnover curve (repairs 12% of it; the rate is Amazon consumables plus replacements, measured item by item), plus the fixed floor (GEICO $519, AT&T $114, travel $175, the rest of Other $185, marketing $225 at the post-cut level measured on the card, Furnished Finder $199 in August and again in September). The Marketing & advertising row also carries Cooper\'s content work from the operating account, $1,300/mo per 16 homes scaled to the live fleet, full every month. Scales with the homes operating each month: the fourteen, plus rollovers, plus new ones as they start. Outfitting is the separate Onboarding charge, not part of the rate.' },
       SOFTWARE_BUDGET_ASSUMPTION,
-      { label: 'Office', value: '$750/mo rent, full year. The Republic Services dumpster ended 2026-11-30 and is not projected.' },
+      { label: 'Office', value: '$1,000/mo rent, full year: $750 downstairs plus $250 for Suite 107. Both leases end February 2027; the forecast assumes continuation at the same rate. The Republic Services dumpster ended 2026-11-30 and is not projected.' },
       { label: 'Bank fees', value: '$10/mo.' },
       { label: 'Contractors', value: '$250/mo for the one-off handymen and trades, at half for January to April 2027 (ruling of 2026-10-21: the bench does half the work in the off-season). Cooper\'s content work is on the Marketing & advertising row, full every month, and the listing shoot is in the Onboarding charge, since 2026-11-07. Field labor is no longer on the bench: since November 2026 it is the operations manager\'s salary.' },
       { label: 'Operations manager', value: '$70,000 a year, about $6,450 a month all-in (salary, 8.1% payroll taxes, the $92 Gusto Plus fee, the $50 phone allowance), flat all year. Workers comp is on the Insurance line. The count-triggered hires were dropped 2026-09-06 because a step made whichever home landed on 20 read as a loss; this one is dated, and the bench still scales with the fleet.' },
@@ -1093,7 +1104,7 @@ const sections2027: AssumptionSection[] = [
       { label: 'Workers comp', value: 'AmTrust, $1,966 a policy year: $188 on the 1st of January to September, then the $274 down payment at the November renewal, assumed at the same price. The insurer re-rates it on actual payroll at the year-end audit, and adds the pay of any 1099 subcontractor without a workers comp certificate on file.' },
       { label: 'Onboarding', value: '$3,400 per slider home in its start month (linens, the Amazon durables and the $400 listing shoot). Homes rolled forward from the 2026 slider were outfitted and shot in 2026 and carry none.' },
       { label: 'Bookkeeper', value: '$0. The engagement ended May 2026.' },
-      { label: 'Accounting', value: '$0. MS Consultants was a one-off.' },
+      { label: 'Accounting', value: 'CPA year-end fee, $4,450 each April from 2027 (Lee & Crowley; placeholder until the invoice).' },
     ],
   },
   {
@@ -1109,7 +1120,7 @@ const sections2028: AssumptionSection[] = [
     heading: 'Revenue',
     items: [
       { label: 'Active (Jan 1)', value: 'The same active managed homes drive the cost lines and the revenue row, each with its operating window applied; a unit of a home already in the table projects only its own bookings. Plus everything added on the 2026 and 2027 sliders, all rolled forward as full-year Cape Ann contracts at the fleet average fee per earning home for 2028, never below $25K. Homes offline before 2028 stay out.' },
-      { label: 'Revenue per home', value: 'The smart forecast on its annual-times-seasonality part alone: the annual gross of each home, floored at what its closed statements prove (the whole record once it has four closed months), spread over the Gloucester revenue curve with the months outside June to September scaled to the home\'s own off-season, times its fee percent. Bookings placed for 2028 blend in where they exist; none are on the books today.' },
+      { label: 'Revenue per home', value: 'The smart forecast on its annual-times-seasonality part alone: the annual gross of each home, floored at what its closed statements prove (once it has four closed months, the whole record alone), spread over the Gloucester revenue curve with the months outside June to September scaled to the home\'s own off-season and January to March at Rising Tide\'s measured winter, times its fee percent. Bookings placed for 2028 blend in where they exist; none are on the books today.' },
       { label: 'Prospects', value: 'The live prospect pipeline (Prospects): each open deck a full year at its projected fee times its close likelihood, no cost until it becomes a property.' },
       ENDINGS_ASSUMPTION,
       { label: 'New mandates', value: '$25K/yr each in their first season on Cape Ann seasonality. Default 3, in Mar, Jun and Sep.' },
@@ -1120,7 +1131,7 @@ const sections2028: AssumptionSection[] = [
     items: [
       { label: 'Corporate card', value: 'Same two-part model: $2,950 per live home per year on the turnover curve (repairs 12% of it), plus the fixed floor (GEICO $519, AT&T $114, travel $175, the rest of Other $185, marketing $225, Furnished Finder $199 in August and September). The Marketing & advertising row also carries Cooper\'s content work, $1,300/mo per 16 homes scaled to the live fleet. Scales with the homes operating each month. Outfitting is the separate Onboarding charge.' },
       SOFTWARE_BUDGET_ASSUMPTION,
-      { label: 'Office', value: '$750/mo rent, full year. The Republic Services dumpster ended 2026-11-30 and is not projected.' },
+      { label: 'Office', value: '$1,000/mo rent, full year: $750 downstairs plus $250 for Suite 107. Both leases end February 2027; the forecast assumes continuation at the same rate. The Republic Services dumpster ended 2026-11-30 and is not projected.' },
       { label: 'Bank fees', value: '$10/mo.' },
       { label: 'Contractors', value: '$250/mo for the one-off handymen and trades. Cooper\'s content work is on the Marketing & advertising row and the listing shoot is in the Onboarding charge. Field labor is the operations manager\'s salary, not the bench.' },
       { label: 'Operations manager', value: '$70,000 a year, about $6,450 a month all-in, flat all year (dated hire 2026-11-01; no count-triggered hires, decided 2026-09-06).' },
@@ -1650,7 +1661,7 @@ function ForecastTable({
         r.cc_detail ? r.cc_detail[cat.key] : (r.exp_cc_ops * cat.monthly) / denom;
       return { label: cat.label, info: cat.info, values: monthly.map(catValue), fy: sumOf(monthly, catValue) };
     }),
-    { label: 'Office', info: '$750/mo rent at 85 Eastern Ave plus $471/mo for the Republic Services dumpster through November 2026: $165 a month April to June 2026, nothing in July, then $471 on 2026-08-14 and again on 2026-09-14, so $471 is the rate the last two months project. Lease started March 2026. The dumpster was cancelled effective 2026-11-30, so from December 2026 the line projects rent only. Measured months read the landlord ACHs from the operating account plus any Republic Services charge on the card.', values: monthly.map((r) => r.exp_office), fy: sumOf(monthly, (r) => r.exp_office) },
+    { label: 'Office', info: '$1,000/mo rent at 85 Eastern Ave from August 2026: $750 downstairs plus $250 for Suite 107 (July adds only $80 partial rent). Future years assume the same rent after the February 2027 lease end. Plus $471/mo for the Republic Services dumpster through November 2026: $165 a month April to June 2026, nothing in July, then $471 on 2026-08-14 and again on 2026-09-14, so $471 is the rate the last two months project. Lease started March 2026. The dumpster was cancelled effective 2026-11-30, so from December 2026 the line projects rent only. Measured months read the landlord ACHs from the operating account plus any Republic Services charge on the card.', values: monthly.map((r) => r.exp_office), fy: sumOf(monthly, (r) => r.exp_office) },
     { label: 'Software', info: SOFTWARE_BUDGET_ASSUMPTION.value, values: monthly.map((r) => r.exp_software), fy: sumOf(monthly, (r) => r.exp_software) },
     { label: 'Bank fees', info: '$10/mo. Real fee rows on Chase ...5130 total $75 across 24 months; the old $100 to $112 figures counted bounced deposits, which are a wash, not a cost.', values: monthly.map((r) => r.exp_bank), fy: sumOf(monthly, (r) => r.exp_bank) },
   ];
@@ -1663,7 +1674,7 @@ function ForecastTable({
     { label: 'Onboarding', info: 'Bringing a new home online, charged once in the month a slider home starts: $3,400. The linen order is $2,156 (Fix Linens billed $23,719 across the eleven 2026 onboardings), the Amazon durables bought for a new home beyond a settled home\'s replacement trickle are about $850 (towels, bedclothes, rugs, a Schlage lock, soap dispensers, a hair dryer, a coffee maker, shelving, measured item by item on the Amazon Business export of 2026-10-15), and the listing shoot is $400 (Lightshed Photography, five shoots at $342 to $415 in 2026, on the card; a bench line until 2026-11-07). The supplies left over once the per-home run rate is taken out agree with the outfitting figure ($3,020 each). The card shows what Rising Tide paid; whether an owner should fund outfitting instead is an open decision. Measured months carry the linens and durables inside Guest supplies, where the card put them, and the shoots here. Outfitting was $0 until 2026-10-15, which is why the summer read as a supplies run rate.', values: monthly.map(onboarding), fy: sumOf(monthly, onboarding) },
     { label: 'Bookkeeper', info: 'MH Partners outside bookkeeper. ~$1,000/mo Jan-Apr 2026, $1,800 final wrap-up payment in May, then $0 once the engagement ends.', values: monthly.map((r) => r.exp_debt), fy: sumOf(monthly, (r) => r.exp_debt) },
     { label: 'Insurance', info: 'Premiums on their own schedule, not monthly. Phillips commercial liability, $5,263.92 by ACH on 2026-03-02, assumed to renew each March. Workers comp for the operations manager (AmTrust, $1,966 a policy year from 2026-11-01): $274 down each November and $188 on the 1st of January to September. Arbella, $3,188.57 on the card on 2026-04-15, is treated as a one-time hit and is not projected forward. GEICO auto is monthly and lives on the Vehicle & other insurance row above.', values: monthly.map((r) => r.exp_insurance), fy: sumOf(monthly, (r) => r.exp_insurance) },
-    { label: 'Accounting', info: 'MS Consultants $4,442.96 paid 4/15/2026 was a one-time engagement, not recurring. $0 going forward.', values: monthly.map((r) => r.exp_accounting), fy: sumOf(monthly, (r) => r.exp_accounting) },
+    { label: 'Accounting', info: 'MS Consultants $4,442.96 paid 4/15/2026 was a one-time engagement. From 2027, the CPA year-end fee (Lee & Crowley) each April, $4,450 until the invoice says otherwise.', values: monthly.map((r) => r.exp_accounting), fy: sumOf(monthly, (r) => r.exp_accounting) },
   ];
 
   // One disclosure under the table instead of a hover popover per row, so

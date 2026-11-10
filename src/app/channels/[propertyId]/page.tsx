@@ -51,6 +51,8 @@ import { CHANNEL_LABELS, PRIMARY_CHANNELS, STATUS_LABELS, type BookingChannel } 
 import { EXPORT_FOR_CHANNELS, exportUrlFor, exportUrlForListing } from '@/lib/ical-export';
 import { type CalendarRowVM } from '../calendar/MultiCalendarGrid';
 import { PropertyMonthCalendar } from './PropertyMonthCalendar';
+import { CalendarRangeTools } from './CalendarRangeTools';
+import { messageHandoverHref } from '@/lib/message-handover';
 import { confirmBookingComEchoAction, flipCalendarAuthorityAction, readGuestyCalendarAheadAction } from './cutover-actions';
 import { massCancelConfirm, releaseClosureConfirm } from '@/lib/irreversible-confirms';
 import { askFromSentence } from '@/lib/confirm-question';
@@ -180,15 +182,18 @@ export default async function ChannelsPropertyPage({
   const flipped = one(sp.flipped);
   const flipNote = one(sp.flip_note);
   const flipError = one(sp.flip_error);
+  const rangeSaved = one(sp.range_saved);
+  const rangeError = one(sp.range_error);
 
-  // On a home Guesty runs the hub is a read surface: the badge, the feed
-  // rows, the export links and the upcoming stays. The cutover runbook (the
+  // On a home Guesty runs the hub is a read surface: the badge, the
+  // calendar, the feed rows, the export links and the upcoming stays. The cutover runbook (the
   // panel, its preflight ledger, the attention panel) opens behind Prepare
   // cutover, for owners: on its own when a cutover is underway or a flip
   // just reported back. A Helm-run home shows everything.
   const owner = await isOwnerSession();
   const prepare = one(sp.prepare) === '1' || !!(flipped || flipError || flipNote);
   const runbook = helmRun || (owner && (prepare || cutoverUnderway));
+  const handoverHref = messageHandoverHref(propertyId);
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -210,9 +215,8 @@ export default async function ChannelsPropertyPage({
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 24 }}>
         <div className="flex items-center gap-3 flex-wrap">
           <Link href="/channels" style={ghostButton}>← Channels</Link>
-          <Link href={`/properties/${propertyId}`} style={ghostButton}>Property record →</Link>
-          <Link href={`/channels/${propertyId}/calendar?month=${monthKey(ym.year, ym.month)}`} style={ghostButton}>Month grid →</Link>
-          {owner && propertyId === '65_calderwood' && <Link href="/channels/65_calderwood/message-preparation" style={ghostButton}>Message handover →</Link>}
+          {helmRun && <Link href={`/properties/${propertyId}`} style={ghostButton}>Property record →</Link>}
+          {owner && handoverHref && <Link href={handoverHref} style={ghostButton}>Message handover →</Link>}
           <Link href={`/book/${propertyId}`} target="_blank" style={ghostButton}>Public booking page ↗</Link>
           {!helmRun && owner && !runbook && (
             <Link href={`/channels/${propertyId}?prepare=1#cutover`} style={ghostButton}>Prepare cutover</Link>
@@ -221,8 +225,11 @@ export default async function ChannelsPropertyPage({
             <Link href={`/channels/${propertyId}`} style={ghostButton}>Close cutover</Link>
           )}
           <span style={{ flex: 1 }} />
-          <Link href={`/channels/bookings/new?property=${propertyId}`} style={primaryButton}>+ Booking</Link>
-          <Link href={`/channels/bookings/new?property=${propertyId}&type=block`} style={secondaryButton}>+ Block</Link>
+          {/* On a Guesty-run home nothing written here reaches an OTA, so the
+              writes go quiet and the property record is the way out. */}
+          <Link href={`/channels/bookings/new?property=${propertyId}`} style={helmRun ? primaryButton : ghostButton}>+ Booking</Link>
+          <Link href={`/channels/bookings/new?property=${propertyId}&type=block`} style={helmRun ? secondaryButton : ghostButton}>+ Block</Link>
+          {!helmRun && <Link href={`/properties/${propertyId}`} style={secondaryButton}>Property record →</Link>}
         </div>
       </section>
 
@@ -414,8 +421,8 @@ export default async function ChannelsPropertyPage({
       </section>
       )}
 
-      {/* ── Month grid ────────────────────────────────────────────────── */}
-      {runbook && (
+      {/* ── Calendar: the home's one calendar (the per-home month grid
+           folded in here on 2026-11-08), with Set a range under it ──────── */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 56 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, marginBottom: 14, flexWrap: 'wrap' }}>
           <div className="eyebrow">Calendar</div>
@@ -423,14 +430,25 @@ export default async function ChannelsPropertyPage({
           <Link href={`/channels/${propertyId}?month=${monthKey(monthOf(today).year, monthOf(today).month)}#calendar`} style={ghostButton}>Today</Link>
           <Link href={`/channels/${propertyId}?month=${monthKey(next.year, next.month)}#calendar`} style={ghostButton}>{monthShort(next)} →</Link>
           <span className="font-serif" style={{ fontSize: 20 }}>{grid.label}</span>
-          <span style={{ flex: 1 }} />
-          <Link href={`/channels/${propertyId}/calendar?month=${monthKey(ym.year, ym.month)}`} style={ghostButton}>Full month grid →</Link>
         </div>
         <div id="calendar">
           <PropertyMonthCalendar row={rowVM} weeks={grid.weeks.map((w) => w.map((c) => c.date))} monthStart={grid.start} monthEnd={grid.end} today={today} monthLabel={grid.label} compact canPrice={owner} />
         </div>
+        <CalendarRangeTools
+          propertyId={propertyId}
+          month={monthKey(ym.year, ym.month)}
+          monthStart={grid.start}
+          monthEnd={grid.end}
+          monthCells={rowVM.cells.filter((c) => c.date >= grid.start && c.date <= grid.end)}
+          today={today}
+          helmRun={helmRun}
+          owner={owner}
+          planNightlyCents={bundle?.plan?.base_nightly_cents ?? null}
+          planMinNights={bundle?.plan?.min_nights_default ?? null}
+          saved={rangeSaved}
+          error={rangeError}
+        />
       </section>
-      )}
 
       {/* ── Feed health ───────────────────────────────────────────────── */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 56 }}>

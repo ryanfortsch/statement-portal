@@ -8,17 +8,20 @@ import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { isCapeAnnOps, regionLabel, CAPE_ANN_REGION } from '@/lib/property-scope';
 import {
   listScheduleRecipients,
+  getScheduleSettings,
   portalLink,
   describeRecipientScope,
   type ScheduleRecipient,
 } from '@/lib/cleaner-digest';
-import { saveRecipientAction, saveDefaultTimesAction } from '../schedule/actions';
+import { formatTime12 } from '@/lib/checkout-schedule';
+import { saveRecipientAction, saveDefaultTimesAction, toggleAutosendAction } from '../schedule/actions';
 import { RecipientToggle } from '../schedule/RecipientToggle';
 
 /**
- * Cleaner settings: the two admin sections that used to sit at the foot of
- * the schedule workroom. Who gets the daily text (the
- * cleaner_schedule_recipients rows, each with its live page link) and the
+ * Cleaner settings: who gets the daily text (the
+ * cleaner_schedule_recipients rows, each with its live page link), whether
+ * it sends on its own (cleaner_schedule_settings.autosend_enabled, off by
+ * policy; it moved here from the Team inbox card on 2026-11-08), and the
  * per-home default times the schedule falls back to when no adjustment is
  * set. The actions stay in ../schedule/actions.ts and land back here.
  *
@@ -149,21 +152,28 @@ export default async function CleanerSettingsPage({
   // that section where the anchor scrolls to. A default-times save lands
   // on its row with ?saved=1 or ?err=, and the head carries that.
   const atRecipients = first(sp.at) === 'recipients';
+  // The automatic-sending switch lands with at=autosend.
+  const atAutosend = first(sp.at) === 'autosend';
   const errNotice: Notice | null = err ? { tone: 'bad', text: ERR_COPY[err] ?? `Error: ${err}` } : null;
   const recipientNotice: Notice | null = atRecipients
     ? errNotice ?? (first(sp.saved) ? { tone: 'ok', text: 'Recipient saved.' } : null)
     : null;
-  const headNotice: Notice | null = atRecipients
+  const autosendNotice: Notice | null = atAutosend && first(sp.saved) ? { tone: 'ok', text: 'Saved.' } : null;
+  const headNotice: Notice | null = atRecipients || atAutosend
     ? null
     : errNotice ?? (first(sp.saved) ? { tone: 'ok', text: 'Saved.' } : null);
 
-  const [recipients, propsRes] = await Promise.all([
+  const [recipients, propsRes, settings] = await Promise.all([
     listScheduleRecipients(supabase).catch(() => []),
     supabase
       .from('properties')
       .select('id, name, default_checkout_time, default_checkin_time, is_active, kind, region')
       .order('name'),
+    // Unknown is not off: a failed read shows no switch rather than one
+    // that might flip the setting the wrong way.
+    getScheduleSettings(supabase).catch(() => null),
   ]);
+  const sendHour = settings ? formatTime12(`${String(settings.send_hour_et).padStart(2, '0')}:00`) : null;
 
   // Every active managed home, all regions: the recipient form's picker and
   // the region options. The Cape Ann filter is for the default-times list,
@@ -242,6 +252,34 @@ export default async function CleanerSettingsPage({
         </div>
       </Section>
 
+      <Section id="schedule-autosend" title="Automatic sending" eyebrow="The daily text" paddingTop={8} paddingBottom={12}>
+        <div style={{ borderTop: '1px solid var(--ink)', paddingTop: 12, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', fontSize: 13, color: 'var(--ink-3)', scrollMarginTop: 100 }}>
+          <NoticeLine notice={autosendNotice} style={{ flexBasis: '100%' }} />
+          {settings && sendHour ? (
+            <>
+              <span>
+                {settings.autosend_enabled
+                  ? `Sends automatically at ${sendHour} ET.`
+                  : 'Sends only when you approve it on the Team inbox.'}
+              </span>
+              {/* A skipped day never sends; a day sent by hand never sends twice. */}
+              <form action={toggleAutosendAction}>
+                <input type="hidden" name="enabled" value={settings.autosend_enabled ? 'false' : 'true'} />
+                <input type="hidden" name="back" value="settings" />
+                <SubmitButton
+                  label={settings.autosend_enabled ? 'Turn off automatic sending' : `Send automatically at ${sendHour}`}
+                  busyLabel="Saving..."
+                  spinnerTone="ink"
+                  className="rt-quiet-btn"
+                />
+              </form>
+            </>
+          ) : (
+            <span role="status">Couldn&rsquo;t read this setting. Reload to try again.</span>
+          )}
+        </div>
+      </Section>
+
       <Section id="default-times" title="Default times per property" eyebrow="When no adjustment is set" paddingTop={8}>
         <div style={{ borderTop: '1px solid var(--ink)' }}>
           {timeProps.map((p) => (
@@ -280,7 +318,7 @@ export default async function CleanerSettingsPage({
       </Section>
 
       <div style={{ flex: 1 }} />
-      <HelmFooter left="Turnovers · Cleaner settings" right="Recipients and default times" />
+      <HelmFooter left="Turnovers · Cleaner settings" right="Recipients, automatic sending and default times" />
     </div>
   );
 }

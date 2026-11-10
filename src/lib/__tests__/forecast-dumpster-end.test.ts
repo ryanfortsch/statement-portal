@@ -17,6 +17,8 @@ import {
   dumpsterCost,
   hasDumpster,
   officeCost,
+  rentCost,
+  type ActualsByMonth,
   DUMPSTER_LAST_MONTH,
   DUMPSTER_LAST_YEAR,
   DUMPSTER_MONTHLY,
@@ -75,5 +77,35 @@ describe('the dumpster projection ends after November 2026', () => {
       'Rent & office',
     );
     assert.equal(routeCardRow('Rent & office', 'REPUBLIC SERVICES TRASH'), 'office');
+  });
+});
+
+
+describe('the second office lease is included from July 2026', () => {
+  test('dates the partial month and ongoing rent without changing earlier months', () => {
+    assert.equal(rentCost(2026, 2, 3), 0);
+    assert.equal(rentCost(2026, 3, 3), 750);
+    assert.equal(rentCost(2026, 6, 3), 750);
+    assert.equal(rentCost(2026, 7, 3), 830);
+    assert.equal(rentCost(2026, 8, 3), 1000);
+    assert.equal(calcYear(0, 2027).monthly.reduce((sum, row) => sum + row.exp_office, 0), 12000);
+  });
+
+  test('card-only months add dated projected rent; covered operating months preserve measured rent', () => {
+    for (const [month, expectedRent] of [[6, 750], [7, 830], [8, 1000], [12, 1000]]) {
+      const actuals: ActualsByMonth[number][] = [];
+      actuals[month - 1] = {
+        month: `2026-${String(month).padStart(2, '0')}`, revenue: 20000,
+        exp_office: 75, exp_software: 500, exp_debt: 0, exp_insurance: 0,
+        exp_accounting: 0, exp_bank: 0, exp_contractors: 0, exp_payroll: 0,
+        exp_onboard_presigned: 0, exp_onboard_new: 0, exp_cc_ops: 0,
+        operating_covered: false,
+      };
+      const projected = calcYear(0, 2026, actuals, month).monthly[month - 1];
+      assert.equal(projected.exp_office, 75 + expectedRent);
+      actuals[month - 1] = { ...actuals[month - 1], operating_covered: true };
+      const measured = calcYear(0, 2026, actuals, month).monthly[month - 1];
+      assert.equal(measured.exp_office, 75);
+    }
   });
 });

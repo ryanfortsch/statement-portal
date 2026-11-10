@@ -14,7 +14,7 @@ import { fieldChipColor, fieldChipLabel, formatDateLong } from './turnover-forma
 
 /**
  * One house on the turnover board, one line: the house, the pair
- * ("Out 10:00 · In 4:00"), the cleaner, the walk, and one verb. Every word on
+ * ("Out 10:00 · In 4:00"), the cleaner verdict, and one verb. Every word on
  * the line was decided on the server (lib/turnover-board.ts) from one clock
  * read, so the line never ticks and never disagrees with the strip above it.
  *
@@ -23,6 +23,12 @@ import { fieldChipColor, fieldChipLabel, formatDateLong } from './turnover-forma
  * Opening it shows who leaves and who arrives, then the stages: the six-stage
  * rail on a lock-monitored home, the three steps Helm can see everywhere
  * else (Out, Cleaned, Walked), and the secondary actions.
+ *
+ * The walk is set on the week grid above the board (VisitGrid, claimWalk),
+ * which already draws who is going and when. So the line prints a walk only
+ * when it carries a state the strip counts (Walking, Needs walk) or says why
+ * a done row is done, and it offers no Plan verb. The planner modal (notes,
+ * another walker) opens from the opened row only (2026-11-07 audit, finding 1).
  *
  * Desktop: one grid line, columns aligned down the board. Phone: two lines,
  * the house and its verb, then the facts (see .rt-tb-* in globals.css).
@@ -34,7 +40,11 @@ export function BoardLine({ row, today, myEmail, dispatcher = false }: { row: Bo
   const prep = !row.done && !!t && t.prepSlips.length > 0;
   const battery = !row.done && !!t?.lockBattery?.isLow;
   const fp = t?.fieldPacket ?? null;
-  const fieldHref = fp && fp.status !== 'draft' && row.walk?.label.startsWith('Field') ? `/fieldwork/packets/${fp.packetId}` : null;
+  // The walk on the line: only a state the strip counts, or a done row's reason.
+  const walkOnLine = row.walk && (row.walk.key || row.done) ? row.walk : null;
+  // The planner opens from the opened row while the walk is still to plan:
+  // not walked, not started, not covered by a live Field packet.
+  const planner = !!t && !row.done && !t.inspection && !(fp && fp.status !== 'draft');
 
   return (
     <div id={row.id} className="rt-tb-row" data-done={row.done ? '' : undefined}>
@@ -68,19 +78,23 @@ export function BoardLine({ row, today, myEmail, dispatcher = false }: { row: Bo
           {row.pair}
           {row.sameDay && <span className="rt-tb-sd">Same day</span>}
         </span>
-        {row.cleaner && (
-          <span className="rt-tb-slot rt-tb-cleaner" data-tone={row.cleaner.tone}>
-            {row.cleaner.label}
-          </span>
-        )}
-        {row.walk && (
-          <span className="rt-tb-slot rt-tb-walk" data-tone={row.walk.tone}>
-            {fieldHref ? <Link href={fieldHref}>{row.walk.label}</Link> : row.walk.label}
+        {(row.cleaner || walkOnLine) && (
+          <span className="rt-tb-status">
+            {row.cleaner && (
+              <span className="rt-tb-slot rt-tb-cleaner" data-tone={row.cleaner.tone}>
+                {row.cleaner.label}
+              </span>
+            )}
+            {walkOnLine && (
+              <span className="rt-tb-slot rt-tb-walk" data-tone={walkOnLine.tone}>
+                {walkOnLine.label}
+              </span>
+            )}
           </span>
         )}
       </div>
       <div className="rt-tb-verb">
-        <Verb row={row} myEmail={myEmail} dispatcher={dispatcher} />
+        <Verb row={row} />
       </div>
 
       {open && (
@@ -120,11 +134,11 @@ export function BoardLine({ row, today, myEmail, dispatcher = false }: { row: Bo
               lockMonitored
             />
           ) : (
-            <TurnoverSteps row={row} today={today} />
+            <TurnoverSteps row={row} today={today} plannerShown={planner && !!t?.plan?.id} />
           )}
 
           <div className="rt-tb-actions">
-            {t && !row.done && !t.inspection && row.verb !== 'plan' && !(fp && fp.status !== 'draft') && (
+            {t && planner && (
               <PlanButton
                 guestyReservationId={t.reservationId}
                 propertyId={t.propertyId}
@@ -147,9 +161,7 @@ export function BoardLine({ row, today, myEmail, dispatcher = false }: { row: Bo
                 {t.openWorkSlipsCount} {t.openWorkSlipsCount === 1 ? 'slip' : 'slips'} · print →
               </Link>
             )}
-            {/* The Field chip only when the line's walk slot does not already
-                link the packet. */}
-            {fp && !fieldHref && (
+            {fp && (
               <Link href={`/fieldwork/packets/${fp.packetId}`} className="rt-tb-chip" style={{ color: fieldChipColor(fp.status), fontWeight: 600 }}>
                 {fieldChipLabel(fp)} →
               </Link>
@@ -185,7 +197,7 @@ export function BoardLine({ row, today, myEmail, dispatcher = false }: { row: Bo
 }
 
 /** The row's one action. */
-function Verb({ row, myEmail, dispatcher }: { row: BoardRow; myEmail: string; dispatcher: boolean }) {
+function Verb({ row }: { row: BoardRow }) {
   const t = row.turnover;
   if (!t || !row.verb) return null;
   switch (row.verb) {
@@ -215,22 +227,9 @@ function Verb({ row, myEmail, dispatcher }: { row: BoardRow; myEmail: string; di
         </form>
       );
     case 'plan':
-      return (
-        <PlanButton
-          variant="verb"
-          guestyReservationId={t.reservationId}
-          propertyId={t.propertyId}
-          checkInDate={t.checkIn.slice(0, 10)}
-          checkOutDate={t.checkOut.slice(0, 10)}
-          planId={t.plan?.id ?? null}
-          plannedForDate={t.plan?.planned_for_date ?? null}
-          plannedBy={t.plan?.planned_by_email ?? null}
-          plannedNotes={t.plan?.notes ?? null}
-          assignedToEmail={t.plan?.assigned_to_email ?? null}
-          myEmail={myEmail}
-          dispatcher={dispatcher}
-        />
-      );
+      // Planning lives on the week grid above; the planner modal is in the
+      // opened row. The line offers no second way to plan.
+      return null;
   }
 }
 
@@ -241,7 +240,7 @@ function Verb({ row, myEmail, dispatcher }: { row: BoardRow; myEmail: string; di
  * Each step prints the row's own words for it, so opening a row never
  * introduces a new name for a state.
  */
-function TurnoverSteps({ row, today }: { row: BoardRow; today: string }) {
+function TurnoverSteps({ row, today, plannerShown }: { row: BoardRow; today: string; plannerShown: boolean }) {
   const t = row.turnover;
   const out = row.out;
   const checkedOut = !!out && out.date <= today;
@@ -259,7 +258,8 @@ function TurnoverSteps({ row, today }: { row: BoardRow; today: string }) {
     });
   }
   if (t) {
-    steps.push({ key: 'walked', label: 'Walked', detail: row.walk?.label ?? '', state: walked ? 'done' : (cleaned || !out) ? 'now' : 'later' });
+    // A planned walk's day and person print once, on the planner below.
+    steps.push({ key: 'walked', label: 'Walked', detail: plannerShown ? '' : (row.walk?.label ?? ''), state: walked ? 'done' : (cleaned || !out) ? 'now' : 'later' });
   }
   return (
     <div className="rt-tb-stepswrap">

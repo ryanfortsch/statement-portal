@@ -83,6 +83,9 @@ import { getAutomationsPanelView } from '@/lib/automations';
 import { isHelmRun, isCapeAnnOps } from '@/lib/property-scope';
 import { shiftIsoDay, todayInEastern } from '@/lib/sca-quotes-types';
 import type { OwnerCard } from '@/app/properties/actions';
+import { createPropertyNote } from '@/app/properties/actions';
+import { NoteEditorForm } from '@/components/properties/NoteEditorForm';
+import { InlineNoteDisclosure } from '@/components/properties/InlineNoteDisclosure';
 import { isOwnerSession } from '@/lib/helm-access-server';
 import { sessionMailbox } from '@/lib/gmail-draft';
 
@@ -895,14 +898,19 @@ export default async function PropertyDetailPage({
                   ? ` · showing ${propertyFlags.flags.length}`
                   : ''}
               </span>
-              <Link
-                href={`/properties/${p.id}/notes/new?kind=issue`}
+              {/* A plain anchor, not Link: the hash opens the inline form
+                  (InlineNoteDisclosure listens for hashchange). */}
+              <a
+                href="#new-issue"
                 style={{ fontSize: 11, color: 'var(--tide-deep)', textDecoration: 'none', letterSpacing: '.04em' }}
               >
                 + Flag an issue
-              </Link>
+              </a>
             </span>
           </div>
+          <InlineNoteDisclosure id="new-issue" key={`issue-${propertyFlags.total ?? 'x'}-${propertyFlags.flags.length}`}>
+            <NoteEditorForm action={createPropertyNote.bind(null, p.id)} propertyId={p.id} initial={{ kind: 'issue' }} submitLabel="Flag the issue" inline />
+          </InlineNoteDisclosure>
           {propertyFlags.total === null && (
             <p role="status" style={{ margin: '0 0 14px', fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.5 }}>
               We couldn&rsquo;t load all flags for this house.{' '}
@@ -1227,20 +1235,23 @@ export default async function PropertyDetailPage({
           return `${total} ${total === 1 ? 'fact' : 'facts'}${kb ? ` · ${kb} in the Guest KB` : ''}`;
         })()}
         headerAction={
-          <Link href={`/properties/${p.id}/notes/new?kind=fact`} style={primaryActionStyle}>
+          <a href="#new-fact" style={primaryActionStyle}>
             + Add a fact
-          </Link>
+          </a>
         }
       >
+        <InlineNoteDisclosure id="new-fact" key={`fact-${knownFacts.length}`}>
+          <NoteEditorForm action={createPropertyNote.bind(null, p.id)} propertyId={p.id} initial={{ kind: 'fact' }} submitLabel="Add the fact" inline />
+        </InlineNoteDisclosure>
         {knownFacts.length === 0 ? (
           <div style={{ padding: '14px 0', color: 'var(--ink-3)', fontSize: 13 }}>
             Nothing written down for {p.name} yet: a thermostat quirk, a sticky door, a neighbor, a vendor.{' '}
-            <Link
-              href={`/properties/${p.id}/notes/new?kind=fact`}
+            <a
+              href="#new-fact"
               style={{ color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}
             >
               Add the first fact
-            </Link>
+            </a>
           </div>
         ) : (
           <div style={{ borderTop: '1px solid var(--ink)' }}>
@@ -1889,6 +1900,13 @@ export default async function PropertyDetailPage({
             taxes), then what Helm sends them (Automations). */}
         <TabSection tab="guest">
           <ScaStatusLine propertyId={p.id} launch={scaLaunch} live={scaLive} listingId={scaListingId} />
+          {/* On a Guesty-run home Helm's listing, pricing and automations are
+              drafts nothing reads yet, so they fold under one line and the
+              tab opens on Guest documents. A Helm-run home reads in order. */}
+          <GuestTabSections
+            helmRun={helmRun}
+            waiting={automationsView?.counts.awaiting ?? 0}
+            listing={<>
           {/* The listing as a guest reads it: each block opens its own
               editor. Deep link ?tab=guest#listing (the old ?tab=listing
               aliases here). */}
@@ -1926,6 +1944,8 @@ export default async function PropertyDetailPage({
             {/* A helm-run home has no live Guesty listing to compare with. */}
             {!helmRun && <ToolLink href={`/properties/${p.id}/sync-guesty`}>Guesty fields</ToolLink>}
           </ToolsLine>
+            </>}
+            documents={<>
       {/* GUEST DOCUMENTS: the printed pieces for the house. Each opens with
           one screen-only bar (Back, Print, Download PDF) that never prints;
           its Back lands here. */}
@@ -2137,6 +2157,8 @@ export default async function PropertyDetailPage({
           )}
         </div>
       </GuestSection>
+            </>}
+            pricing={<>
           {/* WHAT THEY PAY: Helm's rate plan, taxes and day overrides, as
               three questions, a calendar and a Price a stay line. On a
               Guesty-run home (every home today) the head says once that this
@@ -2184,6 +2206,8 @@ export default async function PropertyDetailPage({
               />
             )}
           </GuestSection>
+            </>}
+            automations={<>
           {/* WHAT HELM SENDS THEM: opens on the next sends and to whom; the
               rules sit behind Edit rules, in a drawer. */}
           <GuestSection
@@ -2200,6 +2224,8 @@ export default async function PropertyDetailPage({
           >
             <AutomationsPanel propertyId={p.id} view={automationsView} />
           </GuestSection>
+            </>}
+          />
         </TabSection>
 
       </PropertyTabs>
@@ -2390,6 +2416,59 @@ function GuestSection({
       </div>
       {children}
     </section>
+  );
+}
+
+/**
+ * The Guest & listing tab's order. A Helm-run home reads top to bottom: the
+ * listing, the guest documents, what they pay, what Helm sends. On a
+ * Guesty-run home (every home today) the listing, pricing and automations
+ * are Helm's drafts, so the tab opens on the guest documents and the three
+ * fold under one closed line that opens to them unchanged. A send waiting
+ * for approval opens the fold, so the tab's badge never points at a closed
+ * line. Deep links (#listing, #rates, #automations) open it through
+ * HashOpenScript.
+ */
+function GuestTabSections({
+  helmRun,
+  waiting,
+  listing,
+  documents,
+  pricing,
+  automations,
+}: {
+  helmRun: boolean;
+  waiting: number;
+  listing: React.ReactNode;
+  documents: React.ReactNode;
+  pricing: React.ReactNode;
+  automations: React.ReactNode;
+}) {
+  if (helmRun) {
+    return (
+      <>
+        {listing}
+        {documents}
+        {pricing}
+        {automations}
+      </>
+    );
+  }
+  return (
+    <>
+      {documents}
+      <details id="helm-drafts" open={waiting > 0} style={{ width: '100%', paddingTop: 18, paddingBottom: 24 }}>
+        <summary className="max-w-[1100px] mx-auto px-10" style={{ cursor: 'pointer', fontSize: 14, paddingTop: 12, paddingBottom: 12, width: '100%' }}>
+          Listing, pricing and automations
+          <span style={{ marginLeft: 12, fontSize: 12, color: 'var(--ink-3)' }}>
+            {waiting > 0 ? `${waiting} waiting for approval · ` : ''}Take effect once Helm runs this home
+          </span>
+        </summary>
+        {listing}
+        {pricing}
+        {automations}
+      </details>
+    </>
   );
 }
 

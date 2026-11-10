@@ -14,10 +14,13 @@ describe('/today is retired into the home', () => {
     assert.ok(/source: '\/today',\n\s*destination: '\/',/.test(read('next.config.ts')));
   });
 
-  test('today at the houses is a home section under the feed', () => {
+  test("today at the houses is the cleanings strip's Today column, printed once", () => {
     const feed = read('src/components/ForMeFeed.tsx');
-    assert.ok(feed.includes('<TodayAtTheHousesSection houses={houses} />'));
-    assert.ok(feed.indexOf('<TodayAtTheHousesSection') > feed.indexOf('shown.map((key) => ('), 'it renders after the feed');
+    assert.ok(!feed.includes('TodayAtTheHousesSection'), 'the feed prints today\'s houses a second time');
+    const strip = read('src/components/CleaningsStrip.tsx');
+    assert.ok(strip.includes('loadTodayAtTheHouses()'), 'the strip no longer reads today\'s stays');
+    assert.ok(strip.includes('extras={day.date === today ? extras : undefined}'), 'the extras left the Today column');
+    assert.ok(strip.includes('<Guest name={item.guestName} />'), 'a route line no longer names the guest');
     assert.ok(!feed.includes('Open full brief'), 'no link promises a fuller page');
     assert.ok(!feed.includes('MarkHandled'), 'the × is the email\'s one verb');
   });

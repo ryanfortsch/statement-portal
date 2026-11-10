@@ -12,7 +12,6 @@ import {
   getChannelStats,
   getIcalSyncSummary,
   listChannelListings,
-  listUpcomingBookings,
   listRecentSyncRunsWithListing,
   findBookingConflicts,
   listOpenInquiries,
@@ -26,7 +25,7 @@ import {
 import { lastPullsByProperty, type ExportPull } from '@/lib/ical-export-pulls';
 import { CHANNEL_LABELS, STATUS_LABELS, type Booking, type BookingChannel, type BookingSource } from '@/lib/channels-types';
 import { conflictFromSearchParams, describeConflict } from '@/lib/bookings-write-core';
-import { authorityBadge, importFreshness, pullFreshness, relativeAge, sourceGlyph, type Freshness } from '@/lib/calendar-model';
+import { authorityBadge, importFreshness, pullFreshness, relativeAge, type Freshness } from '@/lib/calendar-model';
 import { setBookingStatus } from './inquiry-actions';
 import { expiredInquiryNote } from '@/lib/inquiry-expiry';
 import { operatingDate } from '@/lib/operating-date';
@@ -55,10 +54,9 @@ export default async function ChannelsPage({ searchParams }: { searchParams: Pro
   // operating date: the pending count is the open ones only.
   const today = operatingDate(now);
 
-  const [stats, listings, upcoming, recentRuns, conflicts, inquiries, expiredInquiries, fleet, syncSummary] = await Promise.all([
+  const [stats, listings, recentRuns, conflicts, inquiries, expiredInquiries, fleet, syncSummary] = await Promise.all([
     safe(getChannelStats, null),
     safe(listChannelListings, [] as ChannelListingEx[]),
-    safe(() => listUpcomingBookings(14), [] as Booking[]),
     safe(() => listRecentSyncRunsWithListing(10), [] as SyncRunWithListing[]),
     safe(() => findBookingConflicts(365), [] as BookingConflict[]),
     safe(() => listOpenInquiries(today), [] as Booking[]),
@@ -89,7 +87,8 @@ export default async function ChannelsPage({ searchParams }: { searchParams: Pro
         <>
           {backfilled > 0 && (
             <Banner tone="positive">
-              Backfilled <strong>{backfilled}</strong> bookings from Guesty. They show in the table below.
+              Backfilled <strong>{backfilled}</strong> bookings from Guesty. They show on the{' '}
+              <Link href="/channels/calendar" style={{ color: 'var(--ink)' }}>multi-calendar</Link>.
             </Banner>
           )}
           {conflictParam && (
@@ -105,7 +104,6 @@ export default async function ChannelsPage({ searchParams }: { searchParams: Pro
           )}
           {conflicts.length > 0 && <ConflictsBlock conflicts={conflicts} nameOf={nameOf} />}
           <CoverageGrid fleet={shownFleet} regions={regions} regionFilter={regionFilter} listings={listings} pulls={pulls} now={now} />
-          <UpcomingBlock bookings={upcoming} nameOf={nameOf} />
           <RecentRunsBlock runs={recentRuns} summary={syncSummary} nameOf={nameOf} now={now} />
         </>
       )}
@@ -183,14 +181,17 @@ function StatsStrip({
 
 // Wiring is per home now (the Edit wiring fold on each hub); the Calderwood
 // pilot workspace and the Airbnb request desk are retired (2026-10-18).
+// Multi-calendar is the one primary verb (audit 2026-11-07); the rest are
+// quiet links, and the next 14 days of stays live on the multi-calendar and
+// Turnovers, not here.
 function ActionsBar() {
   return (
     <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 32 }}>
       <div className="flex items-center gap-3 flex-wrap">
         <Link href="/channels/calendar" style={primaryButtonStyle}>Multi-calendar →</Link>
-        <Link href="/channels/bookings" style={secondaryButtonStyle}>Bookings</Link>
-        <Link href="/channels/bookings/new" style={secondaryButtonStyle}>+ Booking</Link>
-        <Link href="/channels/bookings/new?type=block" style={secondaryButtonStyle}>+ Block</Link>
+        <Link href="/channels/bookings" style={quietLinkStyle}>Bookings</Link>
+        <Link href="/channels/bookings/new" style={quietLinkStyle}>+ Booking</Link>
+        <Link href="/channels/bookings/new?type=block" style={quietLinkStyle}>+ Block</Link>
         <SyncNowButton style={secondaryButtonStyle} />
         <BackfillButton style={ghostBtn} />
       </div>
@@ -352,39 +353,7 @@ function Chip({ href, active, label }: { href: string; active: boolean; label: s
   );
 }
 
-// ── Upcoming, inquiries, conflicts, runs ────────────────────────────────────
-
-function UpcomingBlock({ bookings, nameOf }: { bookings: Booking[]; nameOf: Map<string, string> }) {
-  if (!bookings.length) {
-    return (
-      <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 56 }}>
-        <div className="eyebrow" style={{ marginBottom: 14 }}>Upcoming</div>
-        <div style={{ borderTop: '1px solid var(--ink)', padding: '24px 0', color: 'var(--ink-3)', fontSize: 13 }}>No arrivals in the next 14 days.</div>
-      </section>
-    );
-  }
-  return (
-    <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 56 }}>
-      <div className="eyebrow" style={{ marginBottom: 14 }}>Upcoming · next 14 days</div>
-      <div style={{ borderTop: '1px solid var(--ink)' }}>
-        {bookings.slice(0, 12).map((b) => {
-          const g = sourceGlyph(b);
-          return (
-            <Link key={b.id} href={`/channels/bookings/${b.id}`} style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}>
-              <div className="rt-ch-upcoming" style={{ display: 'grid', gridTemplateColumns: '90px 20px 1fr 1fr 90px', gap: 16, padding: '13px 0', alignItems: 'baseline', borderBottom: '1px solid var(--rule)' }}>
-                <span className="font-mono" style={{ fontSize: 11, color: 'var(--ink-3)' }}>{shortDate(b.check_in)}</span>
-                <span title={g.label} style={{ fontSize: 12, color: 'var(--ink-3)' }}>{g.glyph}</span>
-                <span className="font-serif" style={{ fontSize: 17, fontWeight: 400, color: 'var(--ink)' }}>{nameOf.get(b.property_id) ?? b.property_id}</span>
-                <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>{b.guest_name ?? `${CHANNEL_LABELS[b.channel] ?? b.channel} stay`}</span>
-                <span style={{ fontSize: 10, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--ink-3)', textAlign: 'right' }}>{CHANNEL_LABELS[b.channel] ?? b.channel}</span>
-              </div>
-            </Link>
-          );
-        })}
-      </div>
-    </section>
-  );
-}
+// ── Inquiries, conflicts, runs ──────────────────────────────────────────────
 
 const INQUIRY_ROWS_SHOWN = 8;
 
@@ -499,7 +468,7 @@ function ConflictsBlock({ conflicts, nameOf }: { conflicts: BookingConflict[]; n
         {shown.map((c, i) => (
           <div key={`${c.a.id}-${c.b.id}`} style={{ padding: '14px 0', borderBottom: i === shown.length - 1 ? 'none' : '1px solid var(--rule)', display: 'grid', gridTemplateColumns: '180px 1fr', gap: 16, alignItems: 'baseline' }}>
             <div>
-              <Link href={`/channels/${c.property_id}/calendar?month=${c.a.check_in.slice(0, 7)}`} className="font-serif" style={{ fontSize: 17, fontWeight: 400, textDecoration: 'none', color: 'var(--ink)' }}>
+              <Link href={`/channels/${c.property_id}?month=${c.a.check_in.slice(0, 7)}#calendar`} className="font-serif" style={{ fontSize: 17, fontWeight: 400, textDecoration: 'none', color: 'var(--ink)' }}>
                 {nameOf.get(c.property_id) ?? c.property_id}
               </Link>
               <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2 }}>
@@ -600,11 +569,6 @@ function nightsLabel(n: number): string {
   return `${n} night${n === 1 ? '' : 's'}`;
 }
 
-function shortDate(iso: string) {
-  if (!iso) return '';
-  return new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
-}
-
 const chipPrimary: React.CSSProperties = {
   background: 'var(--ink)',
   color: 'var(--paper)',
@@ -670,5 +634,15 @@ const secondaryButtonStyle: React.CSSProperties = {
   fontWeight: 500,
   border: '1px solid var(--ink)',
   cursor: 'pointer',
+  textDecoration: 'none',
+};
+
+const quietLinkStyle: React.CSSProperties = {
+  color: 'var(--ink-3)',
+  padding: '10px 4px',
+  fontSize: 12,
+  letterSpacing: '.06em',
+  textTransform: 'uppercase',
+  fontWeight: 500,
   textDecoration: 'none',
 };

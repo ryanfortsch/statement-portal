@@ -38,10 +38,13 @@ describe('status words agree', () => {
     assert.ok(card.includes("approval.conversation_id.startsWith('helm:') ? 'The full conversation history, live from Helm'"));
   });
 
-  test('the digest card prints the configured send hour', () => {
-    const src = read('src/app/cleaner-messaging/ScheduleDigestCard.tsx');
+  test('the automatic-sending switch prints the configured send hour', () => {
+    // The switch moved from the digest card to Cleaner settings (2026-11-07 audit).
+    const src = read('src/app/turnovers/settings/page.tsx');
     assert.ok(!src.includes('Send automatically at 6 PM'), 'the hour is a setting, not a literal');
-    assert.ok(src.includes('`Send automatically at ${formatTime12(`${String(settings.send_hour_et)'), 'the button reads send_hour_et');
+    assert.ok(src.includes('formatTime12(`${String(settings.send_hour_et)'), 'the button reads send_hour_et');
+    const card = read('src/app/cleaner-messaging/ScheduleDigestCard.tsx');
+    assert.ok(!card.includes('Send automatically at 6 PM') && card.includes('formatTime12(`${String(sendHour)'), 'the card names the configured hour too');
   });
 
   test('the Cleaners pill is one number and the title row names the kinds', () => {

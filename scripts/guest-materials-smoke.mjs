@@ -12,7 +12,8 @@ const require=createRequire(import.meta.url),{webpack}=require('next/dist/compil
 const root=process.cwd(),scratch=await mkdtemp(join(tmpdir(),'helm-guest-'));
 const compile=s=>ts.transpileModule(s,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext,jsx:ts.JsxEmit.ReactJSX}}).outputText;
 for(const [name,path] of [
- ['note','src/components/properties/NoteEditorForm.tsx'],['notice','src/components/properties/NoticeEditorForm.tsx'],['guide','src/components/properties/HomeGuideCustomizeForm.tsx'],
+ ['note','src/components/properties/NoteEditorForm.tsx'],['inline-note','src/components/properties/InlineNoteDisclosure.tsx'],
+ ['button','src/components/Button.tsx'],['button-class','src/lib/button-class.ts'],['watchdog','src/lib/use-pending-watchdog.ts'],['confirm-dialog','src/components/ConfirmDialog.tsx'],['confirm-question','src/lib/confirm-question.ts'],['notice','src/components/properties/NoticeEditorForm.tsx'],['guide','src/components/properties/HomeGuideCustomizeForm.tsx'],
  ['form','src/components/properties/RetainedPropertyForm.tsx'],['outfitting','src/components/walkthrough/OutfittingClient.tsx'],['walk-state','src/lib/home-walkthrough.ts'],
  ['owner','src/components/OwnerRequestsPanel.tsx'],['guesty','src/app/properties/[id]/sync-guesty/SyncGuestyClient.tsx'],['recover','src/lib/use-recoverable-action.ts'],['unsaved','src/lib/unsaved-work.ts'],['guard','src/lib/use-draft-navigation-guard.ts'],
  ['queue','src/lib/checklist-save-queue.ts'],['saves','src/lib/use-checklist-saves.ts'],['status','src/components/ChecklistSaveStatus.tsx'],['readiness-catalog','src/lib/projections-readiness.ts'],
@@ -21,6 +22,7 @@ for(const [name,path] of [
 const catalogSource=ts.createSourceFile('properties.ts',await readFile(join(root,'src/lib/properties.ts'),'utf8'),ts.ScriptTarget.Latest,true);
 const catalog=ts.createPrinter().printList(ts.ListFormat.MultiLine,ts.factory.createNodeArray(catalogSource.statements.filter(n=>ts.isVariableStatement(n)&&n.declarationList.declarations.some(d=>['HOME_GUIDE_CATALOG','HOME_GUIDE_CATALOG_KEYS'].includes(d.name.getText(catalogSource))))),catalogSource);
 await writeFile(join(scratch,'properties.js'),compile(catalog));
+await writeFile(join(scratch,'skew.js'),'export const reloadedForNewDeployment=()=>Promise.resolve(false);');
 await writeFile(join(scratch,'order-catalog.js'),"export const LINEN_VENDOR='Synthetic vendor';");
 await writeFile(join(scratch,'actions.js'),`
 export const save=(kind,args)=>new Promise((resolve,reject)=>window.calls.push({kind,args,resolve,reject}));
@@ -37,10 +39,11 @@ await writeFile(join(scratch,'router.js'),`export {unstable_rethrow} from 'next/
 await writeFile(join(scratch,'link.js'),compile(`import React from 'react';export default function Link({children,...props}){return <a {...props} onClick={e=>{props.onClick?.(e);if(!e.defaultPrevented){window.navs++;e.preventDefault();}}}>{children}</a>;}`));
 await writeFile(join(scratch,'entry.js'),compile(`
 import React,{useState} from 'react';import {createRoot} from 'react-dom/client';import Link from './link.js';
-import {NoteEditorForm} from './note.js';import {NoticeEditorForm} from './notice.js';import {HomeGuideCustomizeForm} from './guide.js';import {OutfittingClient} from './outfitting.js';import {OwnerRequestsPanel} from './owner.js';import {SyncGuestyClient} from './guesty.js';import {hasUnsavedWork} from './unsaved.js';import {save} from './actions.js';
+import {NoteEditorForm} from './note.js';import {InlineNoteDisclosure} from './inline-note.js';import {NoticeEditorForm} from './notice.js';import {HomeGuideCustomizeForm} from './guide.js';import {OutfittingClient} from './outfitting.js';import {OwnerRequestsPanel} from './owner.js';import {SyncGuestyClient} from './guesty.js';import {hasUnsavedWork} from './unsaved.js';import {save} from './actions.js';
 window.calls=[];window.navs=0;window.reloads=0;window.prints=0;window.print=()=>window.prints++;window.guarded=hasUnsavedWork;window.confirmAnswer=false;window.confirm=()=>window.confirmAnswer;
 const groups=[{title:'Kitchen',items:[{label:'Cups',count:4},{label:'Plates',count:6}]}],initial={have:{Cups:1},notes:{supply_closet:'Old closet',order_notes:'Old order'}};
 function Fixture(){const mode=new URLSearchParams(location.search).get('mode');const [mounted,setMounted]=useState(true);window.unmount=()=>setMounted(false);if(!mounted)return null;return <><Link href="/away">Leave page</Link><section id={mode}>
+{mode==='inline'&&<><a href="#new-fact">+ Add a fact</a><InlineNoteDisclosure id="new-fact"><NoteEditorForm propertyId="home-a" initial={{kind:'fact'}} submitLabel="Add the fact" inline action={data=>save('form',{fields:[...data.entries()]})}/></InlineNoteDisclosure></>}
 {mode==='note'&&<NoteEditorForm propertyId="home-a" initial={{title:'Old title',body:'Old body',tag:'old'}} submitLabel="Save note" action={data=>save('form',{fields:[...data.entries()]})}/>}
 {mode==='notice'&&<NoticeEditorForm propertyId="home-a" initial={{title:'Old title',body:'Old body',eyebrow:'Old kicker'}} submitLabel="Save notice" action={data=>save('form',{fields:[...data.entries()]})}/>}
 {mode==='guide'&&<HomeGuideCustomizeForm propertyId="home-a" overrides={{wifi:'Old guide copy'}}/>}
@@ -50,7 +53,7 @@ function Fixture(){const mode=new URLSearchParams(location.search).get('mode');c
 {mode==='owner'&&<OwnerRequestsPanel houses={[{propertyId:'home-a',name:'Synthetic home'}]} candidates={{'home-a':{candidates:[]}}} selections={{}} includeHandled={{}} maintenanceCharge={{}} loading={false} onSelectionsChange={()=>{}} onToggleHandled={()=>{}} onReloadHouse={()=>window.reloads++}/>}
 </section></>;}createRoot(document.getElementById('root')).render(<Fixture/>);
 `));
-const alias={'./actions':'actions','@/app/properties/actions':'actions','@/app/projections/actions':'actions','@/app/statements/actions':'actions','./RetainedPropertyForm':'form','@/lib/properties':'properties','@/lib/projections-readiness':'readiness-catalog','@/lib/home-walkthrough':'walk-state','@/app/walkthrough-actions':'actions','@/lib/order-checklist':'order-catalog','@/lib/use-recoverable-action':'recover','@/lib/unsaved-work':'unsaved','./unsaved-work':'unsaved','@/lib/use-draft-navigation-guard':'guard','./use-draft-navigation-guard':'guard','./checklist-save-queue':'queue','@/lib/use-checklist-saves':'saves','@/components/ChecklistSaveStatus':'status','next/link':'link','next/navigation':'router'};
+const alias={'@/components/Button':'button','@/lib/button-class':'button-class','@/lib/use-pending-watchdog':'watchdog','@/lib/version-skew':'skew','@/components/ConfirmDialog':'confirm-dialog','@/lib/confirm-question':'confirm-question','./actions':'actions','@/app/properties/actions':'actions','@/app/projections/actions':'actions','@/app/statements/actions':'actions','./RetainedPropertyForm':'form','@/lib/properties':'properties','@/lib/projections-readiness':'readiness-catalog','@/lib/home-walkthrough':'walk-state','@/app/walkthrough-actions':'actions','@/lib/order-checklist':'order-catalog','@/lib/use-recoverable-action':'recover','@/lib/unsaved-work':'unsaved','./unsaved-work':'unsaved','@/lib/use-draft-navigation-guard':'guard','./use-draft-navigation-guard':'guard','./checklist-save-queue':'queue','@/lib/use-checklist-saves':'saves','@/components/ChecklistSaveStatus':'status','next/link':'link','next/navigation':'router'};
 await new Promise((resolve,reject)=>{const compiler=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.js'),output:{path:scratch,filename:'bundle.js'},resolve:{modules:[join(root,'node_modules')],alias:Object.fromEntries(Object.entries(alias).map(([k,v])=>[k,join(scratch,v+'.js')]))},performance:{hints:false}});compiler.run((err,stats)=>compiler.close(()=>err||stats?.hasErrors()?reject(err||Error(stats.toString({all:false,errors:true}))):resolve()));});
 if(process.argv.includes('--compile-only')){console.log('Guest materials fixture compiled.');await rm(scratch,{recursive:true,force:true});process.exit(0);}
 const server=createServer(async(req,res)=>{if(req.method!=='GET'){res.writeHead(405).end();return;}res.setHeader('Cache-Control','no-store');res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'");if(req.url==='/bundle.js'){res.setHeader('Content-Type','text/javascript; charset=utf-8');res.end(await readFile(join(scratch,'bundle.js')));}else{res.setHeader('Content-Type','text/html; charset=utf-8');res.end('<!doctype html><title>Synthetic guest materials</title><style>body{font:14px system-ui;--ink:#222;--paper:#fff;--rule:#ccc}section{margin:20px}button{margin:4px}input,textarea,select{margin:4px}</style><div id="root"></div><script src="/bundle.js"></script>');}});
@@ -90,6 +93,13 @@ for(const mode of ['note','notice','guide']){
  pass(mode+': failed response retains all native fields and unlocks without duplicate submission');
  await submit('#'+mode,true);await waitCalls(2);assert.deepEqual((await calls())[1].args.fields,first);await finish(1,undefined);await clean();await waitText('Saved.');pass(mode+': successful retry uses the same identity and releases the draft guard');
 }
+await reset('inline');assert.equal(await page.$eval('#new-fact',e=>e.hidden),true);
+await page.$$eval('#inline a',as=>as.find(a=>a.textContent==='+ Add a fact').click());await page.waitForFunction(()=>!document.getElementById('new-fact').hidden);
+assert.equal(await page.$$eval('#inline a',as=>as.some(a=>a.textContent==='Cancel')),false);assert.equal(await page.$eval('#new-fact [name="kind"][value="fact"]',e=>e.checked),true);
+await edit('#new-fact [name="title"]','Half-typed fact');await click('#inline','Close');await page.waitForFunction(()=>document.getElementById('new-fact').hidden&&!location.hash);
+await page.$$eval('#inline a',as=>as.find(a=>a.textContent==='+ Add a fact').click());await page.waitForFunction(()=>!document.getElementById('new-fact').hidden);assert.equal(await value('#new-fact [name="title"]'),'Half-typed fact');
+await reset('inline','#new-fact');await page.waitForFunction(()=>!document.getElementById('new-fact').hidden);
+pass('inline note: the hash opens it, Close hides it and drops the hash, a draft survives Close, and an old link lands open');
 for(const mode of ['readiness','order']){
  await reset(mode);const qty='#'+mode+' input[type="number"]';
  await edit(qty,'2');await waitCalls(1);await edit(qty,'3');await edit(qty,'4');

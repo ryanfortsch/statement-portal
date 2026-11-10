@@ -58,7 +58,7 @@ try{
  await page.screenshot({path:'/private/tmp/helm-maintenance-desktop.png',fullPage:true});
  await page.setViewport({width:390,height:844});await page.screenshot({path:'/private/tmp/helm-maintenance-mobile.png',fullPage:true});
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
- await page.$$eval('button',bs=>bs.find(b=>b.textContent==='Dismiss slip').click());
+ await page.$$eval('button',bs=>bs.find(b=>b.textContent==='Dismiss work item').click());
  assert.equal(await page.evaluate(()=>window.dismissed),true);
  assert.deepEqual(errors,[]);console.log('PASS: one work panel, default Create/Skip, retry explanation, proposed work, confirmed link and assignee, dismiss, mobile width');
 }finally{await browser?.close();server.close();await rm(scratch,{recursive:true,force:true});}

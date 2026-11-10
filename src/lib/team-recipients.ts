@@ -71,3 +71,8 @@ export function fieldPayNotice(today: string = todayET()): { to: string; cc: str
 export function creativeLeadEmail(today: string = todayET()): string {
   return dutyEmails('creative', today)[0] ?? officeNotice(today).to;
 }
+
+/** Who receives the Tuesday brief (/api/cron/weekly-brief), in roster order. */
+export function weeklyBriefEmails(today: string = todayET()): string[] {
+  return dutyEmails('weekly_brief', today);
+}

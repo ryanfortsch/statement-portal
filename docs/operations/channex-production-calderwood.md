@@ -766,8 +766,9 @@ the support follow-up remains unanswered at this check. Local validation:
 3,992 tests pass, seven optional checks skipped, TypeScript and changed-file
 lint pass, and the synthetic preview renders the verified/unknown count states.
 
-Release status: PR #2171 passed the application and database CI gates. Its Vercel
-preview was rejected because the signed-in team member has viewer-only access.
-This batch remains unmerged and undeployed until deployment permission is restored
-or a project owner completes the release. The previous production preview remains
-live; no permission or branch-protection settings were changed to bypass the gate.
+The initial Vercel preview for PR #2171 was rejected while the deploying account
+had viewer-only access. On 10 November, the team owner restored Developer access;
+the authenticated API confirmed the new role. The release branch was then updated
+against current main: 4,127 tests passed, seven optional checks skipped, and
+TypeScript plus changed-file lint passed. Deployment and merge results are tracked
+on the PR; this access correction alone does not establish a completed deployment.

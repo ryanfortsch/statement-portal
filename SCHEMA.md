@@ -655,6 +655,14 @@ live in `property_access` and per-stay `guest_access_codes`.
 - `inspection_templates`: dead, no reader or writer in `src/`.
 - `inspection_plans`: per-user upcoming walks. Read by the home
   ForMeFeed's "Planned walks" section.
+- `cleaning_reviews`: the inspector's 1 to 5 stars for the clean behind a
+  walk, one row per `inspection_id`, with the reason, photos and, at four
+  stars or fewer, the Portuguese and English crew note and its
+  `notice_status` (`none`, `pending`, `approving`, `sent`, `handled`).
+  Written by `completeInspection` through `lib/cleaning-reviews.ts`, the
+  only file that also sends (on Approve from the Team inbox). Read by the
+  Team inbox, the Cleaners badge and `/me`. Service role only, RLS on.
+  `20261107120000_cleaning_reviews.sql`.
 - `inspection_packets` + `packet_stops` + `packet_events`: the Field
   module's pooled inspection contracts for 1099 inspectors.
 

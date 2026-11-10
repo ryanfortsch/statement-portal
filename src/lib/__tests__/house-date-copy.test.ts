@@ -32,9 +32,11 @@ test('the cleaner-schedule proposals, in both places they print', () => {
 test('the reminders panels and the booking record header', () => {
   const panel = read('src/components/ProactiveRemindersPanel.tsx');
   assert.ok(!panel.includes('`runs until ${r.end_date}`'));
-  const guest = read('src/app/messaging/RemindersSection.tsx');
-  assert.ok(!guest.includes('here until {r.check_out}'));
-  assert.ok(!guest.includes('{r.check_in}→{r.check_out}'));
+  // The guest stay picker lives in the shared panel since the guest
+  // RemindersSection folded into it (slice 2, 2026-11-08).
+  assert.ok(panel.includes('here until {houseDay(t.stay?.check_out'));
+  assert.ok(panel.includes('{houseRange(t.stay?.check_in'));
+  assert.ok(!panel.includes('here until {t.stay?.check_out}'));
   const booking = read('src/app/channels/bookings/[id]/page.tsx');
   assert.ok(!booking.includes('description={`${booking.check_in} to ${booking.check_out}'));
 });

@@ -1,22 +1,27 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { calcYear, type ActualsByMonth, type ForecastYear } from '../forecast-model.ts';
+import { calcYear, itemizedSoftwareCost, type ActualsByMonth, type ForecastYear } from '../forecast-model.ts';
 
 const budgets: Record<ForecastYear, number[]> = {
-  2026: [2700, 2700, 2700, 2700, 2700, 2700, 2700, 2700, 2700, 2700, 2850, 2850],
-  2027: [2600, 2300, 1900, 1650, 1650, 1650, 1650, 1650, 1650, 1650, 1650, 1650],
-  2028: [1650, 1650, 1650, 1650, 1650, 1650, 1650, 1650, 1650, 1650, 1650, 1650],
+  2026: [2700, 2700, 2700, 2700, 2700, 2700, 2700, 2700, 2700, 2700, 2707.06, 2659.88],
+  2027: [2409.88, 2109.88, 1709.88, 1190.46, 1247.74, 1190.46, 1190.46, 1190.46, 1190.46, 1190.46, 1190.46, 1190.46],
+  2028: [1190.46, 1190.46, 1190.46, 1190.46, 1247.74, 1190.46, 1190.46, 1190.46, 1190.46, 1190.46, 1190.46, 1190.46],
 };
 
 describe('Guesty exit software budget', () => {
+  test('itemizes the steady budget without deducting cancellations twice, and renews annual software once', () => {
+    assert.equal(itemizedSoftwareCost(4), 1190.46);
+    assert.equal(itemizedSoftwareCost(5), 1247.74);
+    assert.equal(itemizedSoftwareCost(6), 1190.46);
+  });
   test('uses the approved monthly totals through 2028 independently of the new-home slider', () => {
     for (const year of [2026, 2027, 2028] as const) {
       for (const newHomes of [0, 3, 8]) {
         assert.deepEqual(calcYear(newHomes, year).monthly.map(row => row.exp_software), budgets[year]);
       }
     }
-    assert.equal(calcYear(0, 2027).monthly.reduce((sum, row) => sum + row.exp_software, 0), 21650);
-    assert.equal(calcYear(0, 2028).monthly.reduce((sum, row) => sum + row.exp_software, 0), 19800);
+    assert.ok(Math.abs(calcYear(0, 2027).monthly.reduce((sum, row) => sum + row.exp_software, 0) - 17001.06) < 1e-6);
+    assert.ok(Math.abs(calcYear(0, 2028).monthly.reduce((sum, row) => sum + row.exp_software, 0) - 14342.80) < 1e-6);
   });
 
   test('keeps measured software spending in covered and card-only months, including zero spend', () => {

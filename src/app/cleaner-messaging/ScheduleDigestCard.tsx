@@ -29,16 +29,12 @@ import { homeLabel } from '@/lib/home-label';
 import {
   approveAndSendDigest,
   sendDigestUpdate,
-  refreshDigestDraft,
   skipDigestAction,
-  toggleAutosendAction,
   rescanMessagesAction,
-  toggleRecipientAction,
   applyProposalAction,
   addTurnoverNoteAction,
   dismissTurnoverNoteAction,
   dismissProposalAction,
-  setNoCleanAction,
   ensureTomorrowDraft,
   saveDigestNote,
 } from '../turnovers/schedule/actions';
@@ -49,6 +45,13 @@ import { houseDay } from '@/lib/house-date';
  * concierge queue below it), so it renders even when the Mac Mini is
  * unreachable. Drafted by /api/cron/cleaner-schedule the afternoon
  * before; approving here is the ONLY thing that texts Rosa.
+ *
+ * The card is the text, the approval-time calls (detected checkout changes,
+ * guest notes) and three verbs: Approve & send, Re-scan messages, Skip this
+ * day. Its rows are read-only; a stay is changed on /turnovers/schedule.
+ * Who gets the text and automatic sending are set on Cleaner settings
+ * (/turnovers/settings); the card names both in one line (2026-11-07 audit,
+ * finding 3).
  */
 
 const ROW_BORDER = '1px solid var(--rule)';
@@ -134,22 +137,8 @@ function RowLine({ row }: { row: ScheduleRow }) {
           <Chip tone="warn">Feeds disagree · other says {row.conflictingCheckOut}</Chip>
         )}
       </span>
-      {/* One tap takes the house off the route (an owner working on it);
-          the pending draft re-composes. A reason can be added on
-          /turnovers/schedule; it never goes to the crew either way. */}
-      <form action={setNoCleanAction} style={{ marginLeft: 'auto' }}>
-        <input type="hidden" name="propertyId" value={row.propertyId} />
-        <input type="hidden" name="stayCheckIn" value={row.checkIn} />
-        <input type="hidden" name="serviceDate" value={row.effectiveCheckOut} />
-        <input type="hidden" name="on" value={row.noClean ? '0' : '1'} />
-        <input type="hidden" name="back" value="card" />
-        <SubmitButton
-          label={row.noClean ? 'Needs cleaning after all' : 'No cleaning needed'}
-          busyLabel="Saving..."
-          spinnerTone="ink"
-          style={{ fontSize: 11, padding: '4px 10px', background: 'transparent', color: 'var(--ink-3)', border: '1px solid var(--rule)', borderRadius: 4, cursor: 'pointer', whiteSpace: 'nowrap' }}
-        />
-      </form>
+      {/* Read-only: No cleaning needed (with its reason) is set on the
+          stay's row on /turnovers/schedule, and the draft re-composes. */}
     </div>
   );
 }
@@ -287,54 +276,28 @@ function Proposals({ day }: { day: ScheduleDay }) {
   );
 }
 
-function Recipients({ recipients, serviceDate }: { recipients: ScheduleRecipient[]; serviceDate: string }) {
+/**
+ * Who gets the text and whether it sends on its own, in one line. Both are
+ * set on Cleaner settings; the card only says them, so an approval never
+ * goes out without the person seeing who receives it.
+ */
+function SendsTo({ recipients, autosend, sendHour }: { recipients: ScheduleRecipient[]; autosend: boolean; sendHour: number }) {
   const enabled = recipients.filter((r) => r.enabled);
   return (
-    <div id="schedule-recipients" style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-      <span style={{ fontSize: 11, letterSpacing: '.12em', textTransform: 'uppercase', fontWeight: 700, color: 'var(--ink-4)' }}>
-        Texts to
+    <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', fontSize: 12, color: 'var(--ink-3)' }}>
+      {enabled.length > 0 ? (
+        <span>Texts {enabled.map((r) => r.display_name).join(', ')}</span>
+      ) : (
+        <span style={{ color: 'var(--signal)', fontWeight: 600 }}>Nobody gets this text yet.</span>
+      )}
+      <span>
+        {autosend
+          ? `Sends automatically at ${formatTime12(`${String(sendHour).padStart(2, '0')}:00`)} ET.`
+          : 'Sends only when you approve it.'}
       </span>
-      {recipients.map((r) => (
-        <form
-          key={r.phone}
-          action={toggleRecipientAction}
-          style={{ display: 'inline' }}
-          title={r.enabled ? 'Click to stop texting this cleaner' : 'Click to include this cleaner'}
-        >
-          <input type="hidden" name="phone" value={r.phone} />
-          <input type="hidden" name="enabled" value={r.enabled ? 'false' : 'true'} />
-          <input type="hidden" name="back" value="card" />
-          <SubmitButton
-            label={r.enabled ? `${r.display_name} ✓` : `${r.display_name} · off`}
-            busyLabel="..."
-            spinnerTone="ink"
-            style={{
-              fontSize: 12,
-              padding: '4px 10px',
-              borderRadius: 12,
-              cursor: 'pointer',
-              border: r.enabled ? '1px solid var(--ink)' : '1px solid var(--rule)',
-              background: r.enabled ? 'var(--ink)' : 'transparent',
-              color: r.enabled ? 'var(--paper)' : 'var(--ink-4)',
-            }}
-          />
-        </form>
-      ))}
-      {enabled.length === 0 && (
-        <span style={{ fontSize: 12, color: 'var(--signal)', fontWeight: 600 }}>
-          Turn on a recipient to send.
-        </span>
-      )}
-      {enabled[0] && (
-        <a
-          href={portalLink(enabled[0].portal_token, serviceDate)}
-          target="_blank"
-          rel="noreferrer"
-          style={{ fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}
-        >
-          Preview {enabled[0].display_name}&rsquo;s live page →
-        </a>
-      )}
+      <Link href="/turnovers/settings#schedule-recipients" className="rt-inline-action" style={{ fontSize: 12 }}>
+        Cleaner settings →
+      </Link>
     </div>
   );
 }
@@ -448,16 +411,21 @@ export async function ScheduleDigestCard({
       id="schedule-digest"
       title={`Schedule · ${fmtDay(digest.service_date)}`}
       eyebrow={pending ? 'Waiting on your approval' : digest.status === 'sent' ? 'Sent' : 'Skipped'}
+      right={
+        <Link href="/turnovers/schedule" className="rt-inline-action" style={{ fontSize: 12 }}>
+          Full schedule →
+        </Link>
+      }
     >
       <MessagingCountsRefresh revision={`${digest.id}:${digest.status}`} />
       <details open={needsAttention}>
         <summary style={{ cursor: 'pointer', minHeight: 44, fontSize: 14, color: 'var(--ink-3)' }}>
-          {needsAttention ? 'Review schedule' : 'View schedule and settings'}
+          {needsAttention ? 'Review schedule' : 'View schedule'}
         </summary>
       <div style={{ borderTop: '1px solid var(--ink)', padding: '14px 0 6px' }}>
         {notice?.err && (
           <div style={{ marginBottom: 10, fontSize: 12, color: 'var(--signal)', fontWeight: 600 }}>
-            {notice.err === 'no_recipients' && 'Nothing sent: no recipient is enabled below.'}
+            {notice.err === 'no_recipients' && 'Nothing sent: nobody is turned on in Cleaner settings.'}
             {notice.err === 'quo_unconfigured' && 'Nothing sent: texting is not set up here. Ask Ryan.'}
             {notice.err === 'all_failed' && 'Every text failed. The log below says why; try again.'}
             {notice.err === 'raced' && 'Already handled in another tab. This is the fresh state.'}
@@ -520,33 +488,7 @@ export async function ScheduleDigestCard({
           </>
         )}
 
-        {/* Unattended-send switch, one line (2026-10-18; it was a bordered
-            paragraph). Sits with the recipients because both answer the same
-            question: who gets texted, and does it happen without me. A skipped
-            day never sends; a day sent by hand never sends twice. */}
-        {pending && !anyEnabled && <p role="status" style={{ color: 'var(--signal)' }}>Choose a recipient in Schedule settings before sending.</p>}
-        <details open={!anyEnabled} style={{ marginTop: 14 }}>
-          <summary style={{ cursor: 'pointer', minHeight: 44, fontSize: 14 }}>Schedule settings</summary>
-        <div style={{ marginTop: 14, display: 'flex', alignItems: 'baseline', gap: 14, flexWrap: 'wrap', fontSize: 12, color: 'var(--ink-3)' }}>
-          <span>
-            {settings.autosend_enabled
-              ? `Sends automatically at ${formatTime12(`${String(settings.send_hour_et).padStart(2, '0')}:00`)} ET.`
-              : 'Sends only when you approve it.'}
-          </span>
-          <form action={toggleAutosendAction}>
-            <input type="hidden" name="enabled" value={settings.autosend_enabled ? 'false' : 'true'} />
-            <input type="hidden" name="back" value="card" />
-            <SubmitButton
-              label={settings.autosend_enabled ? 'Turn off automatic sending' : `Send automatically at ${formatTime12(`${String(settings.send_hour_et).padStart(2, '0')}:00`)}`}
-              busyLabel="Saving..."
-              spinnerTone="ink"
-              className="rt-quiet-btn"
-            />
-          </form>
-        </div>
-
-        <Recipients recipients={recipients} serviceDate={digest.service_date} />
-        </details>
+        <SendsTo recipients={recipients} autosend={settings.autosend_enabled} sendHour={settings.send_hour_et} />
 
         {pending ? (
           <form action={approveAndSendDigest} style={{ marginTop: 16 }}>
@@ -697,15 +639,6 @@ export async function ScheduleDigestCard({
                 }}
               />
               <div className="rt-message-quiet">
-                <SubmitButton
-                  label="Refresh draft"
-                  busyLabel="Refreshing..."
-                  spinnerTone="ink"
-                  formAction={refreshDigestDraft}
-                  name="serviceDate"
-                  value={digest.service_date}
-                  className="rt-quiet-btn"
-                />
                 <span title="Reads the last 3 days of guest threads for agreed late checkouts and extensions, now">
                   <SubmitButton
                     label="Re-scan messages"
@@ -722,9 +655,6 @@ export async function ScheduleDigestCard({
                   formAction={skipDigestAction}
                   className="rt-quiet-btn"
                 />
-                <Link href="/turnovers/schedule" className="rt-inline-action" style={{ fontSize: 12 }}>
-                  Full schedule →
-                </Link>
               </div>
             </div>
             <input type="hidden" name="back" value="card" />

@@ -29,6 +29,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { isStatementMonth, previousCalendarMonth, statementsHref, statementsUploadHref, statementsReceiptsHref } from '@/lib/statements-month';
 import { buttonClass } from '@/lib/button-class';
+import { Button } from '@/components/Button';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { FinancialsTabs } from '@/components/FinancialsTabs';
 import { AddNoteModal } from '@/components/AddNoteModal';
@@ -37,9 +38,10 @@ import { BookingDepositsUploadCard } from '@/components/BookingDepositsUploadCar
 import { PeriodNotesCard } from '@/components/PeriodNotesCard';
 import { BankDepositReview } from '@/components/BankDepositReview';
 import { CleaningEventCredit } from '@/components/CleaningEventCredit';
-import { ReceiptCapture, ReceiptRowActions } from '@/components/ReceiptCapture';
+import { ReceiptRowActions } from '@/components/ReceiptCapture';
 import { HandoffFileQueue } from '@/components/HandoffFileQueue';
 import { useConfirm } from '@/components/ConfirmDialog';
+import { StatementUploadForm, type IngestResult } from './upload/StatementUploadForm';
 import { partialSyncLine } from '@/lib/guesty-sync-plan';
 
 /* ─── Types ─── */
@@ -660,6 +662,29 @@ function IconSync({ className = 'w-4 h-4' }: { className?: string }) {
   );
 }
 
+/** A strip verb's quiet aside (when it last ran, how many wait), in lowercase. */
+function ButtonMeta({ alert, children }: { alert?: boolean; children: React.ReactNode }) {
+  return (
+    <span style={{ color: alert ? 'var(--negative)' : 'var(--ink-4)', fontWeight: alert ? 600 : 400, letterSpacing: 0, textTransform: 'none', fontSize: 11 }}>
+      {children}
+    </span>
+  );
+}
+
+/** The strip's busy mark: a turning ring where the verb's icon sits. */
+function SpinIcon() {
+  return (
+    <span
+      aria-hidden
+      style={{
+        width: 10, height: 10, borderRadius: '50%',
+        border: '1.5px solid currentColor', borderTopColor: 'transparent',
+        animation: 'spin 0.8s linear infinite',
+      }}
+    />
+  );
+}
+
 function IconWarning({ className = 'w-4 h-4' }: { className?: string }) {
   return <svg className={className} fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd"/></svg>;
 }
@@ -920,32 +945,18 @@ function FillGapModal(props: {
             )}
 
             <div style={{ marginTop: 20, display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-              <button
+              <Button variant="quiet"
                 onClick={onClose}
                 disabled={busy}
-                style={{
-                  background: 'transparent', border: '1px solid var(--rule)',
-                  padding: '10px 16px',
-                  fontSize: 11, fontWeight: 600, letterSpacing: '.1em', textTransform: 'uppercase',
-                  color: 'var(--ink-3)',
-                  cursor: busy ? 'not-allowed' : 'pointer',
-                }}
               >
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button variant="primary"
                 onClick={submit}
                 disabled={!file || busy}
-                style={{
-                  background: 'var(--ink)', color: 'var(--paper)', border: 'none',
-                  padding: '10px 18px',
-                  fontSize: 11, fontWeight: 600, letterSpacing: '.1em', textTransform: 'uppercase',
-                  cursor: (!file || busy) ? 'not-allowed' : 'pointer',
-                  opacity: (!file || busy) ? 0.4 : 1,
-                }}
               >
                 {busy ? 'Processing…' : 'Patch Statement'}
-              </button>
+              </Button>
             </div>
           </>
         )}
@@ -1010,17 +1021,11 @@ function FillGapModal(props: {
             )}
 
             <div style={{ marginTop: 18, display: 'flex', justifyContent: 'flex-end' }}>
-              <button
+              <Button variant="primary"
                 onClick={onSuccess}
-                style={{
-                  background: 'var(--ink)', color: 'var(--paper)', border: 'none',
-                  padding: '10px 18px',
-                  fontSize: 11, fontWeight: 600, letterSpacing: '.1em', textTransform: 'uppercase',
-                  cursor: 'pointer',
-                }}
               >
                 Done
-              </button>
+              </Button>
             </div>
           </div>
         )}
@@ -1095,17 +1100,12 @@ function Toast({ tone, onDismiss, action, children }: {
         </div>
         <div className="flex items-center gap-2" style={{ flexShrink: 0 }}>
           {action && (
-            <button
+            <Button variant="secondary" size="sm"
               type="button"
               onClick={action.onClick}
-              style={{
-                border: '1px solid var(--ink)', background: 'transparent', color: 'var(--ink)',
-                fontSize: 10, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase',
-                padding: '5px 12px', cursor: 'pointer',
-              }}
             >
               {action.label}
-            </button>
+            </Button>
           )}
           {onDismiss && (
             <button
@@ -1414,19 +1414,12 @@ function CloseStep({ index, label, done, total, complete, next, details, onOpen 
       </span>
       <span className="flex items-baseline flex-wrap" style={{ gap: 14, minWidth: 0 }}>{details}</span>
       {onOpen && !complete ? (
-        <button
+        <Button variant={next ? 'primary' : 'secondary'} size="sm"
           type="button"
           onClick={onOpen}
-          style={{
-            border: `1px solid ${next ? 'var(--ink)' : 'var(--rule)'}`,
-            background: next ? 'var(--ink)' : 'transparent',
-            color: next ? 'var(--paper)' : 'var(--ink-3)',
-            fontSize: 10, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase',
-            padding: '4px 12px', cursor: 'pointer',
-          }}
         >
           Open
-        </button>
+        </Button>
       ) : <span />}
     </div>
   );
@@ -1452,53 +1445,6 @@ function StepLink({ alert, onClick, children }: { alert?: boolean; onClick: () =
 /** A plain line inside a close step: said, not clickable. */
 function StepNote({ alert, children }: { alert?: boolean; children: React.ReactNode }) {
   return <span style={{ fontSize: 12, color: alert ? 'var(--negative)' : 'var(--ink-4)' }}>{children}</span>;
-}
-
-function EditorialButton({
-  onClick, disabled, busy, label, meta, metaAlert, icon,
-}: {
-  onClick?: () => void;
-  disabled?: boolean;
-  busy?: boolean;
-  label: string;
-  meta?: string;
-  metaAlert?: boolean;
-  icon?: React.ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      style={{
-        display: 'inline-flex', alignItems: 'center', gap: 6,
-        border: '1px solid var(--rule)',
-        background: busy ? 'var(--paper-2)' : 'transparent',
-        color: 'var(--ink-3)',
-        fontSize: 11, fontWeight: 500, letterSpacing: '.08em', textTransform: 'uppercase',
-        padding: '6px 12px',
-        cursor: disabled ? (busy ? 'wait' : 'not-allowed') : 'pointer',
-        opacity: disabled && !busy ? 0.5 : 1,
-        transition: 'background .15s, border-color .15s',
-      }}
-    >
-      {busy ? (
-        <span
-          aria-hidden
-          style={{
-            width: 10, height: 10, borderRadius: '50%',
-            border: '1.5px solid var(--ink-3)', borderTopColor: 'transparent',
-            animation: 'spin 0.8s linear infinite',
-          }}
-        />
-      ) : icon}
-      {label}
-      {meta && (
-        <span style={{ color: metaAlert ? 'var(--negative)' : 'var(--ink-4)', fontWeight: metaAlert ? 600 : 400, letterSpacing: 0, textTransform: 'none', fontSize: 10 }}>
-          &middot; {meta}
-        </span>
-      )}
-    </button>
-  );
 }
 
 /* ─── Sync menu item (used inside the Sync ▾ dropdown) ─── */
@@ -1648,6 +1594,7 @@ function PropertyCard({
   onCloseTaskField,
   onMarkSent,
   onPreview,
+  onReingested,
 }: {
   prop: PropertyStatement;
   month: string;
@@ -1666,6 +1613,9 @@ function PropertyCard({
   // unfreezes the statement and must leave a trace.
   onMarkSent: (next: boolean) => void;
   onPreview: () => void;
+  // Re-upload data, processed: the ingest rebuilt this statement under a
+  // new id, so the dashboard reloads the month and reopens this home's card.
+  onReingested: (result: IngestResult) => void;
   // Re-read THIS statement and the strip counts, in place. The card stays
   // mounted, so it stays open and the page stays where it was scrolled.
   onRefresh: () => void;
@@ -1709,7 +1659,9 @@ function PropertyCard({
   const [fillingGap, setFillingGap] = useState<DataGap | null>(null);
   const [resolvingGapId, setResolvingGapId] = useState<string | null>(null);
   const [refreshingStatement, setRefreshingStatement] = useState(false);
-  const [addingReceipt, setAddingReceipt] = useState(false);
+  // Re-upload data opens the upload form here, under the card's verbs
+  // (UX audit 2026-11-07, finding 3): the card's month and home, no picker.
+  const [reuploading, setReuploading] = useState(false);
   // Bumped by an action that can change this card's bank rows (a bank CSV
   // patched through Fill Gap re-runs deposit matching), so the queue below
   // refetches along with the statement.
@@ -1898,7 +1850,7 @@ function PropertyCard({
                   {prop.drift_bookings!.length > 3 && ` +${prop.drift_bookings!.length - 3} more`}
                 </div>
               </div>
-              <button
+              <Button variant="primary" size="sm"
                 disabled={refreshingStatement}
                 onClick={async (e) => {
                   e.stopPropagation();
@@ -1938,19 +1890,9 @@ function PropertyCard({
                     setRefreshingStatement(false);
                   }
                 }}
-                style={{
-                  border: '1px solid var(--ink)',
-                  background: 'var(--ink)',
-                  color: 'var(--paper)',
-                  fontSize: 10, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase',
-                  padding: '8px 14px',
-                  cursor: refreshingStatement ? 'wait' : 'pointer',
-                  opacity: refreshingStatement ? 0.5 : 1,
-                  flexShrink: 0,
-                }}
               >
                 {refreshingStatement ? 'Refreshing…' : 'Add to Statement'}
-              </button>
+              </Button>
             </div>
           )}
 
@@ -2275,37 +2217,12 @@ function PropertyCard({
 
           {/* The field handoff: what the operations manager sent for this
               home and month. Filed through the same /api/receipts path as the
-              button below, or noted on the period, never written straight to
-              the statement. Renders nothing when there is nothing waiting. */}
+              receipts page, or noted on the period, never written straight to
+              the statement. Renders nothing when there is nothing waiting.
+              A receipt of your own is filed on /statements/receipts (the
+              strip's Add receipt): the card no longer carries a second
+              capture form (UX audit 2026-11-07, finding 5). */}
           <HandoffFileQueue propertyId={prop.property_id} propertyName={prop.property_name} month={month} onFiled={onRefresh} />
-
-          {/* Receipt capture -- photograph a Home Depot run (or drag the
-              photo in) and bill it to this month's Repairs & Maintenance.
-              Rides under section 05 when repairs exist; stands alone as a
-              slim affordance when the month has none yet. */}
-          <div style={{ marginTop: repairs.length > 0 || attributedDebits.length > 0 ? 12 : 28 }}>
-            {addingReceipt ? (
-              <ReceiptCapture
-                propertyId={prop.property_id}
-                propertyName={prop.property_name}
-                defaultMonth={month}
-                onDone={onRefresh}
-                onCancel={() => setAddingReceipt(false)}
-              />
-            ) : (
-              <button
-                type="button"
-                onClick={() => setAddingReceipt(true)}
-                style={{
-                  fontSize: 9, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase',
-                  color: 'var(--ink-3)', border: '1px solid var(--rule)', background: 'transparent',
-                  padding: '5px 10px', cursor: 'pointer',
-                }}
-              >
-                + Add receipt
-              </button>
-            )}
-          </div>
 
           {/* Unattributed bank deposits -- operator review queue. Shows
               nothing if there are no pending deposits for this property+month. */}
@@ -2358,7 +2275,7 @@ function PropertyCard({
                       </div>
                       <div style={{ flexShrink: 0, display: 'flex', gap: 6 }}>
                         {needsManualResolve && (
-                          <button
+                          <Button variant="secondary" size="sm"
                             disabled={resolvingGapId === gap.id}
                             onClick={async (e) => {
                               e.stopPropagation();
@@ -2386,21 +2303,12 @@ function PropertyCard({
                                 setResolvingGapId(null);
                               }
                             }}
-                            style={{
-                              border: '1px solid var(--ink-4)',
-                              background: 'transparent',
-                              color: 'var(--ink-3)',
-                              fontSize: 10, fontWeight: 600, letterSpacing: '.12em', textTransform: 'uppercase',
-                              padding: '6px 10px',
-                              cursor: resolvingGapId === gap.id ? 'wait' : 'pointer',
-                              opacity: resolvingGapId === gap.id ? 0.5 : 1,
-                            }}
                           >
                             {resolvingGapId === gap.id ? 'Working…' : 'Resolve'}
-                          </button>
+                          </Button>
                         )}
                         {offStripeResolvable && (
-                          <button
+                          <Button variant="secondary" size="sm"
                             disabled={resolvingGapId === gap.id}
                             onClick={async (e) => {
                               e.stopPropagation();
@@ -2426,21 +2334,12 @@ function PropertyCard({
                                 setResolvingGapId(null);
                               }
                             }}
-                            style={{
-                              border: '1px solid var(--ink)',
-                              background: 'transparent',
-                              color: 'var(--ink)',
-                              fontSize: 10, fontWeight: 600, letterSpacing: '.12em', textTransform: 'uppercase',
-                              padding: '6px 10px',
-                              cursor: resolvingGapId === gap.id ? 'wait' : 'pointer',
-                              opacity: resolvingGapId === gap.id ? 0.5 : 1,
-                            }}
                           >
                             {resolvingGapId === gap.id ? 'Working…' : 'Paid Off-Stripe'}
-                          </button>
+                          </Button>
                         )}
                         {(gap.gap_type === 'cleaning_credit_override_unapplied' || gap.gap_type === 'cleaning_credit_override_collision') && (
-                          <button
+                          <Button variant="secondary" size="sm"
                             disabled={resolvingGapId === gap.id}
                             onClick={async (e) => {
                               e.stopPropagation();
@@ -2468,21 +2367,12 @@ function PropertyCard({
                                 setResolvingGapId(null);
                               }
                             }}
-                            style={{
-                              border: '1px solid var(--ink)',
-                              background: 'transparent',
-                              color: 'var(--ink)',
-                              fontSize: 10, fontWeight: 600, letterSpacing: '.12em', textTransform: 'uppercase',
-                              padding: '6px 10px',
-                              cursor: resolvingGapId === gap.id ? 'wait' : 'pointer',
-                              opacity: resolvingGapId === gap.id ? 0.5 : 1,
-                            }}
                           >
                             {resolvingGapId === gap.id ? 'Working…' : 'Remove hand credit'}
-                          </button>
+                          </Button>
                         )}
                         {gap.gap_type === 'cancelled_reservation' && (
-                          <button
+                          <Button variant="danger" size="sm"
                             disabled={resolvingGapId === gap.id}
                             onClick={async (e) => {
                               e.stopPropagation();
@@ -2512,33 +2402,16 @@ function PropertyCard({
                                 setResolvingGapId(null);
                               }
                             }}
-                            style={{
-                              border: '1px solid var(--negative)',
-                              background: 'var(--negative)',
-                              color: 'var(--paper)',
-                              fontSize: 10, fontWeight: 600, letterSpacing: '.12em', textTransform: 'uppercase',
-                              padding: '6px 10px',
-                              cursor: resolvingGapId === gap.id ? 'wait' : 'pointer',
-                              opacity: resolvingGapId === gap.id ? 0.5 : 1,
-                            }}
                           >
                             {resolvingGapId === gap.id ? 'Removing…' : 'Remove from statement'}
-                          </button>
+                          </Button>
                         )}
                         {fillable && (
-                          <button
+                          <Button variant="secondary" size="sm"
                             onClick={(e) => { e.stopPropagation(); setFillingGap(gap); }}
-                            style={{
-                              border: '1px solid var(--ink)',
-                              background: 'transparent',
-                              color: 'var(--ink)',
-                              fontSize: 10, fontWeight: 600, letterSpacing: '.12em', textTransform: 'uppercase',
-                              padding: '6px 10px',
-                              cursor: 'pointer',
-                            }}
                           >
                             Upload file
-                          </button>
+                          </Button>
                         )}
                       </div>
                     </div>
@@ -2585,7 +2458,7 @@ function PropertyCard({
                               )}
                             </div>
                             {reopenable && (
-                              <button
+                              <Button variant="secondary" size="sm"
                                 type="button"
                                 disabled={resolvingGapId === g.id}
                                 onClick={async () => {
@@ -2606,14 +2479,9 @@ function PropertyCard({
                                   }
                                 }}
                                 title="Open the flag again"
-                                style={{
-                                  fontSize: 9, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase',
-                                  color: 'var(--ink-3)', background: 'transparent', border: '1px solid var(--rule)',
-                                  padding: '4px 10px', cursor: resolvingGapId === g.id ? 'wait' : 'pointer', flexShrink: 0,
-                                }}
                               >
                                 {resolvingGapId === g.id ? '…' : 'Undo'}
-                              </button>
+                              </Button>
                             )}
                           </div>
                         );
@@ -2695,18 +2563,12 @@ function PropertyCard({
                 disabled={!closeTaskKnown}
                 onToggle={(next) => onCloseTaskField({ email_include_work_slips: next })}
               />
-              <button
+              <Button variant="secondary" size="sm"
                 type="button"
                 onClick={onPreview}
-                style={{
-                  border: '1px solid var(--rule)',
-                  background: 'transparent', color: 'var(--ink-3)',
-                  fontSize: 10, fontWeight: 500, letterSpacing: '.12em', textTransform: 'uppercase',
-                  padding: '5px 12px', cursor: 'pointer',
-                }}
               >
                 Preview
-              </button>
+              </Button>
               <CheckTask
                 label="Drafted"
                 done={!!closeTask?.email_drafted_at}
@@ -2753,24 +2615,16 @@ function PropertyCard({
 
           {/* Actions */}
           <div className="flex items-center gap-3 flex-wrap" style={{ marginTop: 24 }}>
-            <button
+            <Button variant="primary"
               onClick={downloadStatement}
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: 8,
-                background: 'var(--ink)', color: 'var(--paper)',
-                fontSize: 11, fontWeight: 600, letterSpacing: '.1em', textTransform: 'uppercase',
-                padding: '10px 18px',
-                cursor: 'pointer',
-                border: 'none',
-              }}
             >
               <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
               View Statement
-            </button>
-            <button
+            </Button>
+            <Button variant="secondary"
               disabled={downloadingPdf}
               onClick={async (e) => {
                 e.stopPropagation();
@@ -2783,18 +2637,7 @@ function PropertyCard({
                 } finally {
                   setDownloadingPdf(false);
                 }
-              }}
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: 8,
-                background: downloadingPdf ? 'var(--paper-2)' : 'transparent',
-                color: 'var(--ink-2)',
-                fontSize: 11, fontWeight: 600, letterSpacing: '.1em', textTransform: 'uppercase',
-                padding: '10px 18px',
-                border: '1px solid var(--ink)',
-                cursor: downloadingPdf ? 'wait' : 'pointer',
-                minWidth: 170,
-                justifyContent: 'center',
-              }}
+              }} style={{ minWidth: 170 }}
             >
               {downloadingPdf ? (
                 <>
@@ -2811,36 +2654,31 @@ function PropertyCard({
                   Download PDF
                 </>
               )}
-            </button>
+            </Button>
             {pdfError && (
               <span style={{ fontSize: 11, color: 'var(--negative)' }}>{pdfError}</span>
             )}
-            <Link
-              href={statementsUploadHref(month, prop.property_id)}
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: 8,
-                background: 'transparent', color: 'var(--ink-3)',
-                fontSize: 11, fontWeight: 500, letterSpacing: '.08em', textTransform: 'uppercase',
-                padding: '10px 18px',
-                border: '1px solid var(--rule)',
-              }}
+            <Button
+              variant="quiet"
+              aria-expanded={reuploading}
+              onClick={() => setReuploading(v => !v)}
             >
               Re-upload Data
-            </Link>
-            <Link
-              href={`/properties/${prop.property_id}`}
-              title="Open the installment splitter on the property page. It lists upcoming 30-night-plus bookings that span statement months."
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: 8,
-                background: 'transparent', color: 'var(--ink-3)',
-                fontSize: 11, fontWeight: 500, letterSpacing: '.08em', textTransform: 'uppercase',
-                padding: '10px 18px',
-                border: '1px solid var(--rule)',
-              }}
-            >
-              Multi-month bookings →
-            </Link>
+            </Button>
           </div>
+          {reuploading && (
+            <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--rule)' }}>
+              <StatementUploadForm
+                initialMonth={month}
+                initialPropertyId={prop.property_id}
+                embed={{
+                  propertyName: prop.property_name,
+                  onIngested: onReingested,
+                  onCancel: () => setReuploading(false),
+                }}
+              />
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -3307,6 +3145,17 @@ function DashboardContent() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // A card's Re-upload data, processed. The statement came back under a new
+  // id, so its card remounts: reload the month quietly and reopen that card
+  // (no scroll; it is where it was). The result is one line in the toast.
+  const [reingestNotice, setReingestNotice] = useState<IngestResult | null>(null);
+  const onCardReingested = useCallback((propertyId: string, result: IngestResult) => {
+    setReingestNotice(result);
+    setCardFocus(prev => ({ token: prev.token + 1, targets: { [propertyId]: 'sources' }, first: null }));
+    const shown = shownMonthRef.current;
+    if (shown) void loadPeriod(shown, { quiet: true });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   /**
    * Re-read one statement after an action on its card, and the strip's
    * counts with it. Nothing else reloads: no spinner, no other card
@@ -3992,12 +3841,7 @@ function DashboardContent() {
           <h1 className="font-serif" style={{ fontSize: 36, fontWeight: 300, letterSpacing: '-0.02em', color: 'var(--ink)', lineHeight: 1.1 }}>
             Upload your first <em style={{ color: 'var(--tide-deep)', fontWeight: 400 }}>owner statement</em> to get started.
           </h1>
-          <Link href={statementsUploadHref(selectedMonth)} style={{
-            display: 'inline-flex', marginTop: 28,
-            background: 'var(--ink)', color: 'var(--paper)',
-            fontSize: 11, fontWeight: 600, letterSpacing: '.18em', textTransform: 'uppercase',
-            padding: '12px 24px',
-          }}>
+          <Link href={statementsUploadHref(selectedMonth)} className={buttonClass('primary', 'lg')} style={{ marginTop: 28 }}>
             Upload Data
           </Link>
           <div style={{ marginTop: 20 }}>
@@ -4090,18 +3934,12 @@ function DashboardContent() {
                 whiteSpace: 'pre-wrap',
                 wordBreak: 'break-all',
               }}>{loadError.message}</pre>
-              <button
+              <Button variant="primary"
                 type="button"
-                onClick={retry}
-                style={{
-                  marginTop: 18,
-                  background: 'var(--ink)', color: 'var(--paper)', border: 'none',
-                  fontSize: 11, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase',
-                  padding: '10px 22px', cursor: 'pointer',
-                }}
+                onClick={retry} style={{ marginTop: 18 }}
               >
                 Retry
-              </button>
+              </Button>
             </div>
           ) : (
             <div className="flex flex-col items-center" style={{ gap: 14 }}>
@@ -4153,25 +3991,25 @@ function DashboardContent() {
                     .sort()
                     .reverse()[0];
                   return (
-                    <EditorialButton
+                    <Button
+                      variant="secondary"
+                      size="sm"
                       onClick={() => setSyncMenuOpen(o => !o)}
                       disabled={syncingAll}
-                      busy={syncing || syncingGuesty || syncingStripe || syncingAll}
-                      label={
-                        syncingAll ? 'Syncing all…'
+                      aria-busy={syncing || syncingGuesty || syncingStripe || syncingAll || undefined}
+                    >
+                      {(syncing || syncingGuesty || syncingStripe || syncingAll) ? <SpinIcon /> : <IconSync className="w-3 h-3" />}
+                      {syncingAll ? 'Syncing all…'
                         : syncing ? 'Syncing invoices…'
                         : syncingGuesty ? 'Syncing bookings…'
                         : syncingStripe ? 'Syncing Stripe…'
-                        : 'Sync ▾'
-                      }
-                      meta={
-                        failing.length > 0
-                          ? `${failing.length} feed${failing.length === 1 ? '' : 's'} failing`
-                          : freshest ? `last ${relativeTime(freshest)}` : undefined
-                      }
-                      metaAlert={failing.length > 0}
-                      icon={<IconSync className="w-3 h-3" />}
-                    />
+                        : 'Sync ▾'}
+                      {failing.length > 0 ? (
+                        <ButtonMeta alert>&middot; {failing.length} feed{failing.length === 1 ? '' : 's'} failing</ButtonMeta>
+                      ) : freshest ? (
+                        <ButtonMeta>&middot; last {relativeTime(freshest)}</ButtonMeta>
+                      ) : null}
+                    </Button>
                   );
                 })()}
                 {syncMenuOpen && (
@@ -4235,49 +4073,48 @@ function DashboardContent() {
                   </>
                 )}
               </div>
-              <EditorialButton
+              <Button
+                variant="secondary"
+                size="sm"
                 onClick={() => setAddNoteOpen(true)}
-                label="Add Note"
-                icon={
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-                  </svg>
-                }
-              />
-              <EditorialButton
+              >
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                </svg>
+                Add Note
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
                 onClick={draftAll}
                 disabled={!!bulkDraftProgress || props.length === 0 || !!closeStateError}
-                busy={!!bulkDraftProgress}
-                label={
-                  bulkDraftProgress
-                    ? `Drafting ${bulkDraftProgress.done}/${bulkDraftProgress.total}…`
-                    : 'Draft All'
-                }
-                meta={(() => {
+                aria-busy={!!bulkDraftProgress || undefined}
+              >
+                {bulkDraftProgress ? <SpinIcon /> : <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                  </svg>}
+                {bulkDraftProgress ? `Drafting ${bulkDraftProgress.done}/${bulkDraftProgress.total}…` : 'Draft All'}
+                {(() => {
                   // "Ready to draft" is the strip's word for a reviewed
                   // statement; Draft All drafts every one not yet drafted
                   // (red confidence aside), reviewed or not, after a confirm.
                   const eligible = props.filter(p => p.confidence !== 'red' && !closeTasks[p.property_id]?.email_drafted_at).length;
-                  return eligible > 0 ? `${eligible} not drafted` : 'all drafted';
+                  return <ButtonMeta>&middot; {eligible > 0 ? `${eligible} not drafted` : 'all drafted'}</ButtonMeta>;
                 })()}
-                icon={
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                  </svg>
-                }
-              />
-              <EditorialButton
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
                 onClick={runReconcile}
                 disabled={reconciling || !selectedMonth}
-                busy={reconciling}
-                label={reconciling ? 'Checking…' : 'Check sent emails'}
-                meta="flags a mismatch"
-                icon={
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                aria-busy={reconciling || undefined}
+              >
+                {reconciling ? <SpinIcon /> : <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7M5 12h14" />
-                  </svg>
-                }
-              />
+                  </svg>}
+                {reconciling ? 'Checking…' : 'Check sent emails'}
+                <ButtonMeta>&middot; flags a mismatch</ButtonMeta>
+              </Button>
             </div>
             <div className="flex items-center gap-3">
               <Link href={statementsReceiptsHref(missingMonth || selectedMonth)} className={buttonClass('secondary', 'sm')}>
@@ -4286,12 +4123,7 @@ function DashboardContent() {
               {refreshing > 0 && (
                 <span className="eyebrow" aria-live="polite" style={{ color: 'var(--ink-4)' }}>Refreshing…</span>
               )}
-              <Link href={statementsUploadHref(selectedMonth)} style={{
-                display: 'inline-flex', alignItems: 'center', gap: 6,
-                background: 'var(--ink)', color: 'var(--paper)',
-                fontSize: 11, fontWeight: 600, letterSpacing: '.1em', textTransform: 'uppercase',
-                padding: '7px 14px',
-              }}>
+              <Link href={statementsUploadHref(selectedMonth)} className={buttonClass('primary', 'sm')}>
                 <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
                 </svg>
@@ -4343,6 +4175,21 @@ function DashboardContent() {
             tone: 'tide',
             action: { label: 'Retry', onClick: () => { void loadOwnerCfg(); } },
             body: <>Owner contacts did not load, so email previews show the built-in names and addresses. The Gmail draft reads the live ones.</>,
+          },
+          // A card's Re-upload data: what the ingest wrote, in one line. The
+          // card itself, reopened, carries the rest.
+          !!reingestNotice && {
+            key: 'reingest',
+            tone: reingestNotice.wrong_property_pdf || reingestNotice.stripe_sync?.error ? 'negative' : 'positive',
+            autoDismiss: !reingestNotice.wrong_property_pdf && !reingestNotice.stripe_sync?.error,
+            onDismiss: () => setReingestNotice(null),
+            body: (
+              <>
+                {reingestNotice.property} processed for {monthLabel(reingestNotice.month)}: {reingestNotice.summary.reservations} reservation{reingestNotice.summary.reservations === 1 ? '' : 's'}, payout {fmt(reingestNotice.summary.owner_payout)}, {reingestNotice.summary.data_gaps} flag{reingestNotice.summary.data_gaps === 1 ? '' : 's'}.
+                {reingestNotice.wrong_property_pdf && <> The PDF covers {reingestNotice.wrong_property_pdf.listing}, so no reservations were taken from it.</>}
+                {reingestNotice.stripe_sync?.error && <> Stripe sync failed, so the fee estimates stand.</>}
+              </>
+            ),
           },
           // Sync results
           !!syncResult && (
@@ -4900,17 +4747,9 @@ function DashboardContent() {
             </div>
 
             <div style={{ marginTop: 18, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-              <button
+              <Button variant="primary"
                 onClick={() => createGmailDraft(previewPropertyId)}
                 disabled={draftingProperty === previewPropertyId || cfg.owner_emails.length === 0}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 8,
-                  background: 'var(--ink)', color: 'var(--paper)',
-                  fontSize: 10, fontWeight: 600, letterSpacing: '.18em', textTransform: 'uppercase',
-                  padding: '10px 18px', border: 'none',
-                  cursor: (draftingProperty === previewPropertyId || cfg.owner_emails.length === 0) ? 'not-allowed' : 'pointer',
-                  opacity: (draftingProperty === previewPropertyId || cfg.owner_emails.length === 0) ? 0.4 : 1,
-                }}
               >
                 {draftingProperty === previewPropertyId ? (
                   <>
@@ -4929,34 +4768,24 @@ function DashboardContent() {
                     Create Gmail Draft
                   </>
                 )}
-              </button>
-              <button
+              </Button>
+              <Button variant="secondary"
                 onClick={async () => {
                   try {
                     await navigator.clipboard.writeText(`Subject: ${subject}\n\n${body}`);
                   } catch {}
                 }}
-                style={{
-                  background: 'transparent', color: 'var(--ink-3)',
-                  fontSize: 10, fontWeight: 500, letterSpacing: '.12em', textTransform: 'uppercase',
-                  padding: '10px 16px', border: '1px solid var(--rule)', cursor: 'pointer',
-                }}
               >
                 Copy Instead
-              </button>
-              <button
+              </Button>
+              <Button variant="secondary"
                 onClick={() => {
                   saveCloseTaskField(previewPropertyId, { email_drafted_at: new Date().toISOString() });
                   setPreviewPropertyId(null);
                 }}
-                style={{
-                  background: 'transparent', color: 'var(--ink-4)',
-                  fontSize: 10, fontWeight: 500, letterSpacing: '.12em', textTransform: 'uppercase',
-                  padding: '10px 16px', border: '1px solid var(--rule)', cursor: 'pointer',
-                }}
               >
                 Mark Drafted (manual)
-              </button>
+              </Button>
               {cfg.owner_emails.length === 0 && (
                 <span style={{ fontSize: 10, color: 'var(--signal)', letterSpacing: '.08em', textTransform: 'uppercase' }}>
                   No owner email on file
@@ -5001,31 +4830,20 @@ function DashboardContent() {
                   overflowX: 'auto',
                 }}>{text}</pre>
                 <div style={{ marginTop: 14, display: 'flex', gap: 10 }}>
-                  <button
+                  <Button variant="primary"
                     onClick={async () => {
                       try {
                         await navigator.clipboard.writeText(text);
                       } catch {}
                     }}
-                    style={{
-                      background: 'var(--ink)', color: 'var(--paper)',
-                      fontSize: 10, fontWeight: 600, letterSpacing: '.18em', textTransform: 'uppercase',
-                      padding: '9px 16px', border: 'none', cursor: 'pointer',
-                    }}
                   >
                     Copy to Clipboard
-                  </button>
-                  <button
+                  </Button>
+                  <Button variant="secondary"
                     onClick={() => printPlainText(`${monthLabel(selectedMonth)} · Owner Transfer List`, text)}
-                    style={{
-                      background: 'transparent', color: 'var(--ink)',
-                      border: '1px solid var(--rule)',
-                      fontSize: 10, fontWeight: 600, letterSpacing: '.18em', textTransform: 'uppercase',
-                      padding: '9px 16px', cursor: 'pointer',
-                    }}
                   >
                     Print
-                  </button>
+                  </Button>
                 </div>
               </>
             );
@@ -5063,39 +4881,22 @@ function DashboardContent() {
                   overflowX: 'auto',
                 }}>{text}</pre>
                 <div style={{ marginTop: 14, display: 'flex', gap: 10 }}>
-                  <button
+                  <Button variant="primary"
                     onClick={async () => { try { await navigator.clipboard.writeText(text); } catch {} }}
-                    style={{
-                      background: 'var(--ink)', color: 'var(--paper)',
-                      fontSize: 10, fontWeight: 600, letterSpacing: '.18em', textTransform: 'uppercase',
-                      padding: '9px 16px', border: 'none', cursor: 'pointer',
-                    }}
                   >
                     Copy to Clipboard
-                  </button>
-                  <button
+                  </Button>
+                  <Button variant="secondary"
                     onClick={() => printPlainText(`${monthLabel(selectedMonth)} · Booking.com Deposit Routing`, text)}
-                    style={{
-                      background: 'transparent', color: 'var(--ink)',
-                      border: '1px solid var(--rule)',
-                      fontSize: 10, fontWeight: 600, letterSpacing: '.18em', textTransform: 'uppercase',
-                      padding: '9px 16px', cursor: 'pointer',
-                    }}
                   >
                     Print
-                  </button>
-                  <button
+                  </Button>
+                  <Button variant="secondary"
                     onClick={() => { setBookingRoutingRows(null); loadBookingRouting(); }}
                     disabled={loadingBookingRouting}
-                    style={{
-                      background: 'transparent', color: 'var(--ink)',
-                      border: '1px solid var(--rule)',
-                      fontSize: 10, fontWeight: 600, letterSpacing: '.18em', textTransform: 'uppercase',
-                      padding: '9px 16px', cursor: loadingBookingRouting ? 'wait' : 'pointer',
-                    }}
                   >
                     Refresh
-                  </button>
+                  </Button>
                 </div>
               </>
             );
@@ -5274,39 +5075,22 @@ function DashboardContent() {
                   overflowX: 'auto',
                 }}>{text}</pre>
                 <div style={{ marginTop: 14, display: 'flex', gap: 10 }}>
-                  <button
+                  <Button variant="primary"
                     onClick={async () => { try { await navigator.clipboard.writeText(text); } catch {} }}
-                    style={{
-                      background: 'var(--ink)', color: 'var(--paper)',
-                      fontSize: 10, fontWeight: 600, letterSpacing: '.18em', textTransform: 'uppercase',
-                      padding: '9px 16px', border: 'none', cursor: 'pointer',
-                    }}
                   >
                     Copy to Clipboard
-                  </button>
-                  <button
+                  </Button>
+                  <Button variant="secondary"
                     onClick={() => printPlainText(`${monthLabel(selectedMonth)} · Accountant Transfers`, text)}
-                    style={{
-                      background: 'transparent', color: 'var(--ink)',
-                      border: '1px solid var(--rule)',
-                      fontSize: 10, fontWeight: 600, letterSpacing: '.18em', textTransform: 'uppercase',
-                      padding: '9px 16px', cursor: 'pointer',
-                    }}
                   >
                     Print
-                  </button>
-                  <button
+                  </Button>
+                  <Button variant="secondary"
                     onClick={() => { setRemittanceSheet(null); loadRemittance(); }}
                     disabled={loadingRemittance}
-                    style={{
-                      background: 'transparent', color: 'var(--ink)',
-                      border: '1px solid var(--rule)',
-                      fontSize: 10, fontWeight: 600, letterSpacing: '.18em', textTransform: 'uppercase',
-                      padding: '9px 16px', cursor: loadingRemittance ? 'wait' : 'pointer',
-                    }}
                   >
                     Refresh
-                  </button>
+                  </Button>
                 </div>
               </>
             );
@@ -5322,12 +5106,7 @@ function DashboardContent() {
             <h2 className="font-serif" style={{ fontSize: 24, fontWeight: 300, color: 'var(--ink)' }}>
               Nothing uploaded for {monthLabel(selectedMonth)}.
             </h2>
-            <Link href={statementsUploadHref(selectedMonth)} style={{
-              display: 'inline-flex', gap: 8, alignItems: 'center',
-              marginTop: 18, padding: '10px 18px',
-              background: 'var(--ink)', color: 'var(--paper)',
-              fontSize: 11, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase',
-            }}>
+            <Link href={statementsUploadHref(selectedMonth)} className={buttonClass('primary')} style={{ marginTop: 18 }}>
               Upload statement data
               <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" /></svg>
             </Link>
@@ -5352,6 +5131,7 @@ function DashboardContent() {
                 onCloseTaskField={(patch) => { void saveCloseTaskField(prop.property_id, patch); }}
                 onMarkSent={(next) => markStatementSent(prop, next)}
                 onPreview={() => setPreviewPropertyId(prop.property_id)}
+                onReingested={(r) => onCardReingested(prop.property_id, r)}
               />
             ))}
             <div style={{ borderTop: '1px solid var(--ink)' }} />
@@ -5414,46 +5194,28 @@ function DashboardContent() {
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
-                <button
+                <Button variant="secondary" size="sm"
                   onClick={() => { setRemittanceOpen(true); if (!remittanceSheet) loadRemittance(); }}
-                  style={{
-                    border: '1px solid var(--ink)',
-                    background: 'transparent', color: 'var(--ink)',
-                    fontSize: 11, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase',
-                    padding: '8px 14px', cursor: 'pointer',
-                  }}
                 >
                   Remittance
-                </button>
-                <button
+                </Button>
+                <Button variant="secondary" size="sm"
                   onClick={() => setTransferListOpen(true)}
-                  style={{
-                    border: '1px solid var(--ink)',
-                    background: 'transparent', color: 'var(--ink)',
-                    fontSize: 11, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase',
-                    padding: '8px 14px', cursor: 'pointer',
-                  }}
                 >
                   Transfer List
-                </button>
-                <button
+                </Button>
+                <Button variant="secondary" size="sm"
                   onClick={() => { setBookingRoutingOpen(true); if (!bookingRoutingRows) loadBookingRouting(); }}
-                  style={{
-                    border: '1px solid var(--ink)',
-                    background: 'transparent', color: 'var(--ink)',
-                    fontSize: 11, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase',
-                    padding: '8px 14px', cursor: 'pointer',
-                  }}
                 >
                   Booking.com
-                </button>
+                </Button>
                 {/* The period status machine, finally driven: 'final' freezes
                     every statement in the month behind the shared finality
                     guard. Reopen flips it back to draft. Shown on every
                     month: the freeze no longer grandfathers older ones, so
                     the badge tells the truth wherever it appears. */}
                 {period.status === 'final' ? (
-                  <button
+                  <Button variant="secondary" size="sm"
                     disabled={finalizing}
                     onClick={async () => {
                       const go = await ask({
@@ -5469,17 +5231,11 @@ function DashboardContent() {
                         else await loadPeriod(selectedMonth, { quiet: true });
                       } finally { setFinalizing(false); }
                     }}
-                    style={{
-                      border: '1px solid var(--positive)',
-                      background: 'transparent', color: 'var(--positive)',
-                      fontSize: 11, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase',
-                      padding: '8px 14px', cursor: finalizing ? 'wait' : 'pointer',
-                    }}
                   >
                     {finalizing ? 'Working…' : '✓ Finalized · Reopen'}
-                  </button>
+                  </Button>
                 ) : (
-                  <button
+                  <Button variant="primary" size="sm"
                     disabled={finalizing || !!closeStateError}
                     title="Freeze every statement in this month. Any later change requires an explicit, recorded override."
                     onClick={async () => {
@@ -5505,15 +5261,9 @@ function DashboardContent() {
                         else await loadPeriod(selectedMonth, { quiet: true });
                       } finally { setFinalizing(false); }
                     }}
-                    style={{
-                      border: '1px solid var(--ink)',
-                      background: 'var(--ink)', color: 'var(--paper)',
-                      fontSize: 11, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase',
-                      padding: '8px 14px', cursor: finalizing ? 'wait' : 'pointer',
-                    }}
                   >
                     {finalizing ? 'Working…' : 'Finalize Month'}
-                  </button>
+                  </Button>
                 )}
               </div>
             </div>

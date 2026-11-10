@@ -38,7 +38,7 @@ test('a hold in the tick-to-flip window is not told to live in Helm only', () =>
   assert.ok(/\.eq\('export_subscribed', true\)\s*\.neq\('channel', 'guesty'\)/.test(action));
   const grid = read('src/app/channels/calendar/MultiCalendarGrid.tsx');
   assert.ok(grid.includes('{!p.helmRun && !p.exportTicked && ('));
-  for (const p of ['src/app/channels/calendar/page.tsx', 'src/app/channels/[propertyId]/calendar/page.tsx', 'src/app/channels/[propertyId]/page.tsx']) {
+  for (const p of ['src/app/channels/calendar/page.tsx', 'src/app/channels/[propertyId]/page.tsx']) {
     assert.ok(read(p).includes('exportTicked:'), `${p} sets exportTicked`);
   }
 });

@@ -208,6 +208,21 @@ export const HELM_MODULES: HelmModule[] = [
     group: 'operations',
     section: 'operations',
   },
+  // The signed-in person's own page: their guest rating, open work and the
+  // cleans they rated. Reached from the avatar menu; registered so Cmd+K
+  // finds it. An owner reads a teammate's with ?as=.
+  {
+    id: 'me',
+    href: '/me',
+    number: '02b',
+    title: 'My page',
+    description: 'Your numbers: the guests\' rating of the stays you walked, the fleet\'s last 30 days, your open work, and the cleans you rated.',
+    status: 'active',
+    primary: false,
+    hidden: true,
+    group: 'operations',
+    section: 'operations',
+  },
   // A Turnovers tab (TurnoverTabs), so no menu entry of its own. Registered
   // for search; the daily digest approval lives on the Team inbox.
   {
@@ -254,7 +269,7 @@ export const HELM_MODULES: HelmModule[] = [
   },
   // Not a tab any more: each checkout's cleaner verdict prints on its board
   // row. What is left is the crew's visits no row can show, reached from
-  // the board and the home feed's "Cleanings to check".
+  // the board and the home page's cleanings strip.
   {
     id: 'cleanings',
     href: '/turnovers/cleanings',
@@ -738,8 +753,9 @@ export const HELM_MODULES: HelmModule[] = [
     id: 'guest-contacts',
     href: '/guests/contacts',
     number: '13a',
-    title: 'Guest Contacts',
-    description: 'The guest contact list: subscribers, campaigns, and each guest\'s record. Where The Weekly is sent from.',
+    // "Guest list", so Contacts means the CRM only (UX audit 2026-11-07).
+    title: 'Guest list',
+    description: 'Every guest who booked or signed up: subscribers, campaigns, and each guest\'s record. Where The Weekly is sent from.',
     status: 'active',
     primary: false,
     hidden: true,

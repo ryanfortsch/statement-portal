@@ -3,7 +3,7 @@ import { RefreshNavCounts } from '@/components/NavTabCount';
 import Link from 'next/link';
 import { loadFieldReview } from '@/lib/field-review';
 import { RetryDashboard } from '@/components/RetryDashboard';
-import { TRADE_META } from '@/lib/field-types';
+import { NAV_TRADES, TRADE_META } from '@/lib/field-types';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { FieldTabs } from '@/components/FieldTabs';
 import { HelmFooter } from '@/components/HelmFooter';
@@ -194,9 +194,9 @@ export default async function PacketsBoard({
   // new date, a Record, or a Dismiss - so it belongs in the brief, not just the
   // Drafts list below.
   const expiredDrafts = drafts.filter((p) => daysUntilET(p.visit_date) < 0);
-  // Needs review is scoped to the lit trade, so its count is the number on
-  // the row-1 pill. The other trades' submitted packets are one line below
-  // it, a link each, instead of a second list that disagreed with the pill.
+  // Needs review is scoped to the lit trade chip. The other trades'
+  // submitted packets are one line below it, a link each, so the Jobs
+  // tab's badge (every trade's count) always adds up from this page.
   const visibleReviews = reviewPackets === null ? null : reviewPackets.filter((p) => parseTrade(p.trade) === trade);
   const elsewhereByTrade: Partial<Record<ContractorTrade, number>> = {};
   for (const p of reviewPackets ?? []) {
@@ -240,6 +240,14 @@ export default async function PacketsBoard({
         <SentFlash sent={sp.sent} who={sp.who} skipped={sp.skipped} />
 
         <nav aria-label="Filter field visits" className="rt-field-filters" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 20 }}>
+          {/* The trade is the first filter: it was the strip's first row
+              until the strip became one row (UX audit, 2026-11-07). Only
+              the trades that dispatch jobs; creative is on the Roster and
+              Shoots & Pay. */}
+          {NAV_TRADES.filter((t) => TRADE_META[t].hasPackets).map((t) => (
+            <Link key={t} href={`/fieldwork/packets?trade=${t}`} aria-current={t === trade ? 'page' : undefined}>{TRADE_META[t].label}</Link>
+          ))}
+          <span aria-hidden style={{ width: 1, alignSelf: 'stretch', background: 'var(--rule)', margin: '0 4px' }} />
           <Link href={focusHref('all')} aria-current={focus === 'all' ? 'page' : undefined}>All visits</Link>
           {[
             { id: 'late', label: 'Late visits', count: atRiskPackets.length },

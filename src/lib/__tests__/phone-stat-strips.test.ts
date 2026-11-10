@@ -19,8 +19,7 @@ const STRIPS: Array<[string, number]> = [
   ['src/app/guests/contacts/page.tsx', 1],
   ['src/app/channels/page.tsx', 2],
   ['src/app/channels/[propertyId]/page.tsx', 1],
-  ['src/app/channels/[propertyId]/calendar/page.tsx', 1],
-  ['src/app/statements/upload/page.tsx', 1],
+  ['src/app/statements/upload/StatementUploadForm.tsx', 1],
   ['src/app/competitors/[id]/page.tsx', 1],
   ['src/app/guests/[id]/page.tsx', 1],
   ['src/app/guests/quotes/[id]/page.tsx', 1],
@@ -52,7 +51,9 @@ test('a contact row leads with the name and keeps the status on a phone', () => 
 test('/channels never scrolls sideways on a phone', () => {
   const page = read('src/app/channels/page.tsx');
   assert.equal(page.split('className="rt-phone-scroll"').length - 1, 2, 'the home-by-channel matrix and the sync-run log scroll in their own box');
-  for (const cls of ['rt-ch-upcoming', 'rt-ch-inquiry', 'rt-ch-expired']) {
+  // The Upcoming list left /channels on 2026-11-08 (the multi-calendar and
+  // Turnovers show the next 14 days); the inquiry rows keep their phone class.
+  for (const cls of ['rt-ch-inquiry', 'rt-ch-expired']) {
     assert.ok(page.includes(`className="${cls}"`), `a /channels row list lost ${cls}`);
   }
   const css = read('src/app/globals.css');

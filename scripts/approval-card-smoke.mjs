@@ -39,7 +39,8 @@ export const approveDraft=rec('approve'),markHandled=rec('handled'),undoDecision
 editDraft=rec('edit'),redraftDraft=rec('redraft'),scheduleDraft=rec('schedule'),cancelSchedule=rec('cancel'),dismissMaintenanceSlip=rec('dismiss');
 export const releaseHeldPitch=rec('release');
 export const completeVendorVisitAction=rec('complete-vendor-visit'),approveVendorVisitAction=rec('approve-vendor-visit'),editVendorVisitAction=rec('edit-vendor-visit'),
-markVendorVisitHandledAction=rec('handled'),undoVendorVisitAction=rec('undo-vendor-visit');`);
+markVendorVisitHandledAction=rec('handled'),undoVendorVisitAction=rec('undo-vendor-visit');
+export const approveCleaningReviewAction=rec('approve-cleaning-review'),editCleaningReviewAction=rec('edit-cleaning-review'),markCleaningReviewHandledAction=rec('handled'),undoCleaningReviewAction=rec('undo-cleaning-review');`);
 await writeFile(join(scratch,'role.js'),`export const useHelmRole=()=>window.role||'owner';`);
 // version-skew reads process.env, which only Next defines; the card's Button watchdog imports it.
 await writeFile(join(scratch,'skew.js'),'export const reloadedForNewDeployment=()=>Promise.resolve(false);');
@@ -119,7 +120,7 @@ if (new URLSearchParams(location.search).has('expired')) {
 const teamAudience=new URLSearchParams(location.search).get('audience')||(mode==='cleaner'?'cleaners':mode==='contractor'?'contractors':'all');
 createRoot(document.getElementById('root')).render(<main id={mode}>{mode==='owner'?<OwnerMessagingQueue initialPending={ownerCards}/>:mode==='guest'?<MessagingQueue initialPending={guestCards} initialQuotes={guestQuotes} held={held}/>:<TeamInboxQueue initialCleaners={mode==='contractor'||mode==='vendor'?[]:cleanerCards} initialContractors={mode==='cleaner'||mode==='vendor'?[]:cards} contractorContext={{}} properties={homes} audience={teamAudience} vendorVisits={mode==='vendor'?vendorCards:[]}/>}</main>);
 `);
-const alias={'@/lib/version-skew':join(scratch,'skew.js'),'./inbox-health-actions':join(scratch,'actions.js'),'./vendor-visit-actions':join(scratch,'actions.js'),'@/app/cleaner-messaging/actions':join(scratch,'actions.js'),'@/app/contractor-messaging/actions':join(scratch,'actions.js'),'@/components/useHelmRole':join(scratch,'role.js'),'./Thread':join(scratch,'thread.js'),'@':join(root,'src'),'./actions':join(scratch,'actions.js'),'next/navigation':join(scratch,'navigation.js'),'next/link':join(scratch,'link.js')};
+const alias={'@/lib/version-skew':join(scratch,'skew.js'),'./inbox-health-actions':join(scratch,'actions.js'),'./vendor-visit-actions':join(scratch,'actions.js'),'./cleaning-review-actions':join(scratch,'actions.js'),'@/app/cleaner-messaging/actions':join(scratch,'actions.js'),'@/app/contractor-messaging/actions':join(scratch,'actions.js'),'@/components/useHelmRole':join(scratch,'role.js'),'./Thread':join(scratch,'thread.js'),'@':join(root,'src'),'./actions':join(scratch,'actions.js'),'next/navigation':join(scratch,'navigation.js'),'next/link':join(scratch,'link.js')};
 await new Promise((resolve,reject)=>{const compiler=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.tsx'),output:{path:scratch,filename:'bundle.js'},
  resolve:{extensions:['.tsx','.ts','.js'],modules:[join(root,'node_modules')],alias},
  module:{rules:[{test:/\.tsx?$/,use:join(scratch,'ts-loader.cjs')}]},performance:{hints:false}});

@@ -6,7 +6,7 @@ import { growthTabFor } from '@/lib/growth-tabs';
 import { SectionTabs } from './SectionTabs';
 
 /**
- * The one Growth strip: Marketing / Reviews / Contacts / Agreements /
+ * The one Growth strip: Marketing / Reviews / Guest list / Agreements /
  * Quotes / Competitors. Rendered by the Growth layouts through GrowthFrame,
  * never by a page, so every Growth page carries it in the same place and
  * clicking between siblings never moves it.
@@ -22,7 +22,7 @@ export function GrowthTabs() {
       tabs={[
         { id: 'marketing', label: 'Marketing', href: '/marketing' },
         { id: 'reviews', label: 'Reviews', href: '/guests' },
-        { id: 'contacts', label: 'Contacts', href: '/guests/contacts' },
+        { id: 'contacts', label: 'Guest list', href: '/guests/contacts' },
         { id: 'agreements', label: 'Agreements', href: '/guests/agreements' },
         { id: 'quotes', label: 'Quotes', href: '/guests/quotes' },
         { id: 'competitors', label: 'Competitors', href: '/competitors' },
