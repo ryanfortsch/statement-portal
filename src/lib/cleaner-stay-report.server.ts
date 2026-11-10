@@ -3,6 +3,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import { selectAllPaged } from './paged-select';
 import { addDays, collapseStays, findGhostStays } from './checkout-schedule';
+import { enrichCleanerGuestCounts, readCleanerCountReservation, unavailableCleanerCounts } from './cleaner-guest-counts';
+import { loadCleanerCountSource, readCleanerCountToken } from './cleaner-guest-counts.server';
 import {
   CLEANER_REPORT_PROPERTY as propertyId, cleanerReportPropertySchema,
   cleanerReportBookingSchema, cleanerReportAdjustmentSchema, cleanerReportSkipSchema,
@@ -11,7 +13,7 @@ import {
 
 const BOOKING_FIELDS = 'id,property_id,check_in,check_out,status,duplicate_of,num_guests,guest_name,source,first_seen_at,last_seen_at,external_confirmation_code';
 /** Owner preview only. No recipient, bearer URL, mutations or send capability. */
-export async function loadCalderwoodCleanerReport(db: SupabaseClient, from: string) {
+async function readCleanerReport(db: SupabaseClient, from: string) {
   z.iso.date().parse(from);
   const through = addDays(from, 365);
   async function read<T>(query: (start: number, end: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>) {
@@ -54,9 +56,26 @@ export async function loadCalderwoodCleanerReport(db: SupabaseClient, from: stri
   const collapsed = collapseStays(bookings);
   const ghosts = await findGhostStays(db, [...collapsed.values()]);
   const byId = new Map(bookings.map(b => [b.id, b]));
-  return projectCleanerStayReport({ property, adjustments, skips, from, through,
-    bookings: [...collapsed].filter(([key]) => !ghosts.has(key)).map(([, b]) => ({
-      ...byId.get(b.id)!, conflictingCheckOut: b.conflictingCheckOut,
-    })),
+  const resolved = [...collapsed].filter(([key]) => !ghosts.has(key)).map(([, b]) => ({
+    ...byId.get(b.id)!, conflictingCheckOut: b.conflictingCheckOut,
+  }));
+  return { report: projectCleanerStayReport({ property, adjustments, skips, from, through, bookings: resolved }),
+    bookings: resolved };
+}
+
+export async function loadCalderwoodCleanerReport(db: SupabaseClient, from: string) {
+  const base = await readCleanerReport(db, from);
+  if (!base.report.stays.some(stay => stay.guests === null)) return base.report;
+  let source;
+  try { source = await loadCleanerCountSource(db); }
+  catch { return unavailableCleanerCounts(base.report); }
+  let token: Promise<string> | undefined;
+  const deadline = AbortSignal.timeout(20000);
+  return enrichCleanerGuestCounts({ ...base, ...source }, {
+    readReservation: async id => readCleanerCountReservation(id, await (token ??= readCleanerCountToken(db)), deadline),
+    reloadContext: async () => {
+      const [current, context] = await Promise.all([readCleanerReport(db, from), loadCleanerCountSource(db)]);
+      return { ...current, ...context };
+    },
   });
 }

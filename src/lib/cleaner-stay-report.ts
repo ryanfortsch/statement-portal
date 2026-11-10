@@ -33,9 +33,11 @@ export type CleanerStay = {
   checkIn: string; checkOut: string; arrivalTime: string | null;
   checkoutTime: string | null; guests: number | null; staying: boolean;
   adjusted: boolean; noCleaning: boolean; needsReview: boolean;
+  guestCountSource?: 'guesty';
 };
 export type CleanerStayReport = {
   propertyName: string; from: string; through: string; stays: CleanerStay[];
+  guestCountCheck?: { status: 'verified' | 'unavailable'; checkedAt: string | null };
 };
 
 export function projectCleanerStayReport(input: {
