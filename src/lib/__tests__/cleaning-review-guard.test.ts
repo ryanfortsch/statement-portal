@@ -1,10 +1,11 @@
 /**
- * A cleaning rating never texts by itself (docs/cleaning-reviews.md).
+ * A cleaning rating never reaches the crew by itself (docs/cleaning-reviews.md).
  *
- * The walk's Complete stores the stars and, at four or fewer, files the crew
- * note PENDING. Only the operator's Approve on the Team inbox reaches a
- * phone, and only through the one sender in cleaning-reviews.ts. Each link
- * is one line that deletes cleanly, so these read the source.
+ * The walk's Complete stores the stars. The Friday cron drafts ONE email of
+ * the week's ratings and files it PENDING. Only the operator's Approve on the
+ * Team inbox reaches the crew, and only through the one sender in
+ * cleaning-reviews.ts. Each link is one line that deletes cleanly, so these
+ * read the source.
  *
  * Run: npm test
  */
@@ -17,35 +18,59 @@ const code = (repoPath: string): string => read(repoPath).replace(/\/\*[\s\S]*?\
 
 describe('the one sender', () => {
   const lib = code('src/lib/cleaning-reviews.ts');
+  const fn = (name: string): string => {
+    const start = lib.indexOf(`export async function ${name}`);
+    const end = lib.indexOf('export async function', start + 10);
+    return lib.slice(start, end === -1 ? undefined : end);
+  };
 
-  test('sendMessage is called only inside approveCleaningReview', () => {
-    const approveStart = lib.indexOf('export async function approveCleaningReview');
-    const approveEnd = lib.indexOf('export async function', approveStart + 10);
-    const inside = lib.slice(approveStart, approveEnd);
-    const outside = lib.slice(0, approveStart) + lib.slice(approveEnd);
-    assert.ok(inside.includes('sendMessage('), 'approve sends');
-    assert.ok(!outside.includes('sendMessage('), 'nothing else sends');
+  test('the email is sent only inside approveCleaningReview', () => {
+    const approve = fn('approveCleaningReview');
+    const outside = lib.replace(approve, '');
+    assert.ok(approve.includes('sendTransactionalViaResend('), 'approve sends');
+    assert.ok(!outside.includes('sendTransactionalViaResend('), 'nothing else sends');
+    assert.ok(!lib.includes('sendMessage'), 'no text to the crew from here any more');
   });
 
-  test('approve claims the row before it sends, and sends from the Rising Tide line', () => {
-    const approve = lib.slice(lib.indexOf('export async function approveCleaningReview'));
-    assert.ok(approve.indexOf('await claim(id)') < approve.indexOf('sendMessage('), 'claim first');
-    assert.ok(approve.includes("quoFromNumber('ops')"), 'the back-office line, never guests or owners');
-    assert.ok(!approve.includes("quoFromNumber('guests')") && !approve.includes("quoFromNumber('owners')"));
+  test('approve claims the report before it sends, with one key per reader', () => {
+    const approve = fn('approveCleaningReview');
+    assert.ok(approve.indexOf('await claim(id)') < approve.indexOf('sendTransactionalViaResend('), 'claim first');
+    assert.ok(approve.includes('idempotencyKey: `cleaning-report-${id}-'), 'a retried approve mails once');
+    assert.ok(approve.includes('cc: cc.filter'), 'operations on copy');
   });
 
-  test('saving a rating files pending and does not send', () => {
-    const saveStart = lib.indexOf('export async function saveCleaningReview');
-    const saveEnd = lib.indexOf('export async function', saveStart + 10);
-    const save = lib.slice(saveStart, saveEnd);
-    assert.ok(save.includes("status: 'pending'"), 'four or fewer files a pending note');
-    assert.ok(!save.includes('sendMessage'), 'the save never texts');
-    assert.ok(save.includes('needsCleaningNotice(stars)'), 'the threshold is the core rule, not a literal here');
+  test('saving a rating stores it and files nothing for the crew', () => {
+    const save = fn('saveCleaningReview');
+    assert.ok(!save.includes('notice_status'), 'no per-walk note');
+    assert.ok(!save.includes('report_id'), 'a retried Complete leaves its report alone');
+    assert.ok(!save.includes('sendTransactionalViaResend') && !save.includes('renderOperatorNote'));
+  });
+
+  test('the Friday draft files pending, never sends, and takes each rating once', () => {
+    const draft = fn('draftWeeklyCleaningReport');
+    assert.ok(draft.includes("status: 'pending'"));
+    assert.ok(draft.includes(".is('report_id', null)"), 'only ratings no report carried');
+    assert.ok(draft.includes('update({ report_id: id })'), 'and marks them');
+    assert.ok(!draft.includes('sendTransactionalViaResend') && !draft.includes('approveCleaningReview'));
   });
 
   test('every recipient gets one language, their own', () => {
-    const approve = lib.slice(lib.indexOf('export async function approveCleaningReview'));
-    assert.ok(approve.includes("r.language === 'en' ? row.notice_en : row.notice_pt"));
+    const approve = fn('approveCleaningReview');
+    assert.ok(approve.includes('(en ? row.body_en : row.body_pt)'));
+  });
+
+  test('the cron only drafts, behind authorizeCron, on Friday', () => {
+    const route = code('src/app/api/cron/cleaning-review-email/route.ts');
+    assert.ok(route.includes('await authorizeCron(request)'));
+    assert.ok(route.includes('draftWeeklyCleaningReport()'));
+    assert.ok(!route.includes('approveCleaningReview') && !route.includes('sendTransactionalViaResend'));
+    const vercel = JSON.parse(read('vercel.json')) as { crons: Array<{ path: string; schedule: string }> };
+    const cron = vercel.crons.find((c) => c.path === '/api/cron/cleaning-review-email');
+    assert.equal(cron?.schedule, '0 12 * * 5', 'Friday morning in Gloucester');
+  });
+
+  test('the crew email column is read apart from the daily text', () => {
+    assert.ok(!read('src/lib/cleaner-digest-core.ts').match(/RECIPIENT_COLS\s*=[^;]*email/), 'the digest never needs the column');
   });
 });
 
@@ -70,7 +95,7 @@ describe('the walk and the card', () => {
     for (const verb of ['approveCleaningReviewAction', 'editCleaningReviewAction', 'markCleaningReviewHandledAction']) {
       assert.ok(card.includes(verb), verb);
     }
-    assert.ok(!card.includes('sendMessage'));
+    assert.ok(!card.includes('sendMessage') && !card.includes('sendTransactionalViaResend'));
     const actions = code('src/app/messaging/team/cleaning-review-actions.ts');
     assert.ok(actions.includes('await auth()'), 'a signed-in operator');
     assert.ok(actions.includes('approveCleaningReview(id, who)'));

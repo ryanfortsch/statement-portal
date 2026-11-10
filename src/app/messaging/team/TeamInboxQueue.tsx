@@ -138,7 +138,7 @@ export function TeamInboxQueue({
         if (row.kind === 'cleaning_review') {
           return (
             <CleaningReviewCard
-              key={`${row.id}:${row.card.pt}`}
+              key={`${row.id}:${row.card.text}`}
               card={row.card}
               helpers={tagged}
               audienceChip={<Pill label="Cleaning" tone={AUDIENCE_TONE.cleaning_review} />}
