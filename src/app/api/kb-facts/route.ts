@@ -4,7 +4,8 @@ import { getPropertyAccessMap } from '@/lib/property-access';
 import { normalizeTime } from '@/lib/checkout-schedule';
 import { authorizeStayConcierge } from '@/lib/stay-concierge-auth';
 import { civicForProperty } from '@/lib/civic';
-import { isHelmRun } from '@/lib/property-scope';
+import { isCapeAnnOps, isHelmRun } from '@/lib/property-scope';
+import { guestAppUrl } from '@/lib/guest-app-db';
 import type { HelmPropertyRow } from '@/lib/properties';
 import { selectAllPaged } from '@/lib/paged-select';
 import { guestRoomFacts } from '@/lib/kb-facts-rooms';
@@ -172,6 +173,27 @@ export async function GET(req: Request) {
     roomsByProp.get(r.property_id)!.push(r);
   }
 
+  // The guest app's permanent link per home (/h/<token>, guest_app_homes):
+  // the same link the QR card in the house opens, so the concierge can send
+  // the house guide to any guest of the home. It carries no code, which is
+  // why it may sit in a KB every guest of the home shares. A STAY link (the
+  // one that shows a door code) never rides this feed: it is per
+  // reservation, from POST /api/guest-app-links. A failed read sends no
+  // link this pass rather than failing the feed; the next pass restores it.
+  const guestAppByProp = new Map<string, string>();
+  if (ids.length > 0) {
+    const { data: appRows, error: appErr } = await supabase
+      .from('guest_app_homes')
+      .select('property_id, token, enabled')
+      .in('property_id', ids)
+      .eq('enabled', true);
+    if (!appErr) {
+      for (const r of (appRows ?? []) as Array<{ property_id: string; token: string }>) {
+        guestAppByProp.set(r.property_id, guestAppUrl(r.token));
+      }
+    }
+  }
+
   const clean = (v: string | null | undefined): string => (v ?? '').trim();
 
   const properties = rows.map((p) => {
@@ -291,6 +313,9 @@ export async function GET(req: Request) {
       num_tvs: p.num_tvs ?? null,
       smart_tv: clean(p.smart_tv),
       rooms: guestRoomFacts(roomsByProp.get(p.id) ?? []),
+      // The home's guest app (Cape Ann homes with the app on; '' otherwise).
+      // A guide link, never a door code: see guestAppByProp above.
+      guest_app_url: isCapeAnnOps({ region: p.region }) ? guestAppByProp.get(p.id) ?? '' : '',
       guest_notes: (notesByProp.get(p.id) ?? [])
         .map((n) => ({ title: clean(n.title), body: clean(n.body) }))
         .filter((n) => n.title || n.body),

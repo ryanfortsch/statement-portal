@@ -404,7 +404,8 @@ Public surfaces that self-guard by token rather than session: `/onboarding/<toke
 `/contract/<token>`, `/agreement/<token>`, `/sign/<token>` (staff documents), `/c/<token>`
 (cleaner schedule; `/clean/` stays open only for its redirect), `/b/<token>` (shoot briefs),
 `/field/*` (contractor session cookie), `/book/*`, `/h/<token>` (the Stay Cape Ann guest app),
-and the puppeteer-rendered deliverables under
+`/h/s/<token>` (one stay's guest app link, with its door code behind a POST), and the
+puppeteer-rendered deliverables under
 `/projections/<id>/`, `/properties/<id>/`, `/inspections/<id>/render`, `/statements/render`.
 
 The property Home Guide and WiFi placard contain credentials. They pass the proxy for PDF
@@ -421,8 +422,8 @@ QR opens the guest app, which shows the Wi-Fi password.
 (`guest_app_homes`), printed as the guest app card's QR in the house and sent in messages. It
 is Guesty's guest app turned around: Guesty's link is per reservation and expires at checkout,
 so it can never be printed; ours outlives every stay, which is exactly why it carries **no door,
-gate, garage, alarm or thermostat code**. The door code still arrives in the check-in message.
-The properties select is an explicit column list (`GUEST_APP_PROPERTY_COLS`), Wi-Fi comes
+gate, garage, alarm or thermostat code**. The door code arrives in the check-in message, and
+inside the stay link below. The properties select is an explicit column list (`GUEST_APP_PROPERTY_COLS`), Wi-Fi comes
 through `getGuestWifiPasswords` (a select of the two Wi-Fi columns only), rooms through
 `guestRoomFacts`, how-tos from open guest-facing notes (the concierge's KB), trash from
 `civic.ts`, guest check-in from the rate plan. `guest-app.test.ts` reads the loader and fails on a
@@ -435,6 +436,29 @@ listing) holds the link, Turn off (the card shows "This guide link has moved"), 
 every printed card) and the welcome note, and lists what the app has nothing for yet. A Helm
 session previewing the page is not counted as an open. `GUEST_APP_ORIGIN` can put a guest-facing
 domain in front later; printed cards keep working because `/h/` stays on Helm.
+
+**The stay link** (`/h/s/<token>`, phase 2; `src/lib/guest-app-stays.ts` is pure,
+`guest-app-stays-db.ts` reads, `src/app/h/s/`). One short-lived link per reservation
+(`guest_app_stays`: a 128-bit token unrelated to the home's, one live link per stay). It is the
+home's app with a Your stay card on top: arrive and leave, the arrival steps, and the stay's own
+Seam door code (`getLiveStayCode` in `guest-locks.ts`, from `guest_access_codes`, never
+`property_access.smart_lock_code`). The window opens at 10:00 AM Eastern the day before check-in,
+the hour the pre-arrival message sends the code, and closes at the guest checkout, a late checkout
+in `checkout_adjustments` included. Before it the page says when it opens; after it, a thank-you.
+**The code is never in the HTML**: Show my door code POSTs to `/h/s/<token>/code`, which re-checks
+the window, the booking and the code and answers `no-store`, so the page, the service worker's
+cache and a saved copy hold no digits. The link alone is the verification, on purpose: it travels
+in the message that already carries the code, so a name or phone check stops nobody holding that
+message, and it would lock out a co-traveller the guest forwarded it to and fail on OTA
+placeholder names. A cancelled stay, a home turned off, or New link on the stay's row in Guest
+door codes ends it at once. Stay pages carry no manifest: it would name the home token, and an
+installed app would die at checkout. `{{guest_app_link}}` in an automation mints the stay link on
+send, else the home link; it is a secret merge field (masked in stored copies), and previews never
+mint. `/api/kb-facts` carries only the home link (`guest_app_url`), because one KB serves every
+guest of the home; the concierge gets a stay link from the bridge `POST /api/guest-app-links`
+(property or Guesty listing id plus the exact dates: one confirmed stay gets its link, anything
+else the home link). `guest-app-stays.test.ts` holds the window and keeps the digits out of
+everything but the POST route.
 
 `/api/archive-onboarding` also self-guards: staff may archive by projection ID; owners must
 send that projection's onboarding token in the POST body. The thank-you page passes its

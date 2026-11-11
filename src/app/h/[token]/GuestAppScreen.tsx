@@ -7,8 +7,11 @@ import { guestAppCss } from './guest-app-css';
 /**
  * The guest app's screen for one built GuestApp, apart from the route so the
  * page stays a thin read (token, open count) around it.
+ *
+ * `top` is the stay link's slot (/h/s/<token>): "Your stay" inside the
+ * window, or the hour it opens. The permanent page passes nothing.
  */
-export async function GuestAppScreen({ app }: { app: GuestApp }) {
+export async function GuestAppScreen({ app, top }: { app: GuestApp; top?: React.ReactNode }) {
   const wifiQr: Record<string, string> = {};
   for (const n of app.wifi) {
     if (!n.joinUri) continue;
@@ -54,6 +57,8 @@ export async function GuestAppScreen({ app }: { app: GuestApp }) {
           <p className="ga-welcome-text">{app.welcome}</p>
         </section>
 
+        {top}
+
         <GuestAppBody app={app} wifiQr={wifiQr} mark={<ScaMark size={36} navy="#FCFAF5" sand="#C8B89A" />} />
       </main>
     </div>
@@ -85,7 +90,7 @@ export function InactiveLink() {
 }
 
 /** The Stay Cape Ann mark (src/components/properties/ScaMark.tsx geometry), inline so the page stays self-contained. */
-function ScaMark({ size = 40, navy = '#0F2A44', sand = '#C8B89A' }: { size?: number; navy?: string; sand?: string }) {
+export function ScaMark({ size = 40, navy = '#0F2A44', sand = '#C8B89A' }: { size?: number; navy?: string; sand?: string }) {
   return (
     <svg viewBox="0 0 200 200" width={size} height={size} aria-hidden="true" style={{ display: 'block' }}>
       <path d="M16.5 145.3 L183.5 145.3 A95 95 0 0 1 16.5 145.3 Z" fill={navy} />

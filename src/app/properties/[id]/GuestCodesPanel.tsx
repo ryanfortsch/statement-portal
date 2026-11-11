@@ -15,6 +15,7 @@ import { revokeCodeConfirm } from '@/lib/irreversible-confirms';
 import { useConfirm } from '@/components/ConfirmDialog';
 import { askFromSentence } from '@/lib/confirm-question';
 import { etStamp } from '@/lib/stable-time';
+import { StayLinkControl } from './StayLinkControl';
 
 export function GuestCodesPanel({
   propertyId,
@@ -46,7 +47,7 @@ export function GuestCodesPanel({
     <div style={{ paddingBottom: 6 }}>
       <p style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55, marginTop: 0, marginBottom: 16 }}>
         Programs a time-boxed PIN onto this property&apos;s Seam lock{locks.length > 1 ? 's' : ''} for a stay, and revokes it after.
-        This does not text the guest. You issue and share the code yourself.
+        This does not text the guest. Share the code, or the stay&apos;s guest app link, yourself.
       </p>
 
       {msg && (
@@ -226,6 +227,7 @@ export function GuestCodesPanel({
                       <div style={{ fontSize: 11, color: 'var(--ink-4)' }}>
                         {fmtDate(b.check_in)} → {fmtDate(b.check_out)}
                       </div>
+                      <StayLinkControl propertyId={propertyId} bookingId={b.booking_id} />
                     </div>
                     {b.code ? (
                       <>
