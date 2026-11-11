@@ -2,8 +2,8 @@
 import {useState} from 'react';
 import {Button} from '@/components/Button';
 import {etStamp} from '@/lib/stable-time';
+import {pricingMoney as money} from '@/lib/dynamic-pricing-display';
 import {comparePricingObservations,type PricingObservationRecord,type PricingTracking} from '@/lib/dynamic-pricing-observations';
-const money=(n:number|null)=>n===null?'—':`$${(n/100).toFixed(2)}`;
 export default function PricingHistory({observations,tracking,scheduledCaptureEnabled,busy,canCapture,onCapture,onTracking}:{
   observations:PricingObservationRecord[];tracking:PricingTracking;scheduledCaptureEnabled:boolean;busy:boolean;canCapture:boolean;
   onCapture:()=>void;onTracking:(enabled:boolean)=>void;

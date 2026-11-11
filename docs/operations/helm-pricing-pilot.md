@@ -393,9 +393,9 @@ Incomplete calendars and dates older than 36 hours withhold occupancy; stale pri
 are also removed from the property calendar. A native home without a USD rate plan
 remains unavailable rather than receiving draft defaults.
 
-The live table shows booked occupancy, open nights and the mean current asking rate
-on open nights for the selected period. The rate requires complete pricing across
-those open nights; it is not booked ADR, a base price or a model recommendation.
+The live table shows adjusted occupancy, available nights and the mean current asking
+rate on available nights for the selected period. The rate requires complete pricing
+across those nights; it is not booked ADR, a base price or a model recommendation.
 Blocked nights are excluded from occupancy. Property calendars show current prices
 and minimum stays without proposals, rule editing, connection or publishing controls.
 Market data is not read by this view and the missing feed is stated once in its footer.
@@ -411,7 +411,7 @@ than printed. No credentials or live records enter the JavaScript bundle, source
 tree or test fixtures. The separately named synthetic fixture remains available.
 
 The dashboard opens with a portfolio overview and one selected period (7, 30, 60 or
-90 days). The overview shows occupancy versus market for matched homes/dates, open
+90 days). The overview shows occupancy versus market for matched homes/dates, available
 nights across complete calendars and the count of compared homes below market.
 Coverage counts remain visible. It covers the full portfolio even when the listing
 table is narrowed by search or filters.
@@ -420,16 +420,35 @@ The 24-home demo includes missing/stale evidence, a fully blocked home and a lon
 listing name. All demo data is simulated. The live workspace labels market data as
 imports. No automatic market feed is connected.
 
-The table has explicit Your occupancy, Market occupancy and Difference columns for
+The table has explicit Adj. occupancy, Market occupancy and Difference columns for
 the selected period, with equal-weight percentage values. Difference is in
 percentage points. It replaces the previous unlabeled pairs and per-row mini bars.
 The All listings / Below market / Data gaps category tabs were Helm additions, not
 a PriceLabs replica, and have been removed. Filtering remains in the Filters menu;
 affected homes carry specific notes such as Market outdated or Calendar incomplete.
-Open nights, min/max prices and connection are optional columns. Every data-column
+Available nights, min/max prices and connection are optional columns. Every data-column
 header toggles ascending/descending order; missing values stay last in either
 direction and ties use natural-name ordering. Sort direction and period round-trip
 through property links.
+
+The November 11 UX review used the logged-in PriceLabs dashboard, its Add Metrics
+dialog, property calendar and [metric definitions](https://help.pricelabs.co/portal/en/kb/articles/performance-metrics).
+Every period-based column and overview metric displays its horizon. The selector
+shows the exact inclusive stay-date range, including both years when needed. The
+range uses the same property-local dates as the calculation; mixed local dates are
+identified rather than assigned a misleading common range.
+
+"Available nights" means unreserved, unblocked nights in that range; minimum-stay
+restrictions may still apply. "Reserved nights" counts stay dates, not recent booking
+pickup (PriceLabs' "Nights Booked"). The live view cannot calculate that pickup from
+its calendar-only projection. Adjusted occupancy excludes all known blocks in Helm;
+PriceLabs' PMS-dependent block classification can produce a different result.
+
+Dashboard percentages and rate summaries, calendar cells and historical rate lists
+use whole-number display. Selected-night details retain exact cents, and sorting,
+calculations, stored values and publishing retain their original precision. Review
+prices buttons open each calendar; Add Column exposes optional fields in both live
+and model views. Phone search keeps a full-width input above those controls.
 
 The table keeps compact rows, a bounded scroll area, sticky headers and a pinned
 listing column. Returning from a home preserves demo scroll/filter state. The
