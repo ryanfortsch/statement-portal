@@ -5,10 +5,8 @@ import { SubmitButton } from '@/components/SubmitButton';
 import { toggleRecipientAction } from './actions';
 
 /**
- * The per-recipient delivery switch. Turning a cleaner's texts OFF asks
- * once ("Stop texting Rosa? Confirm / Cancel") because one tap on a
- * person's name used to silently stop the crew text with nothing on the
- * pill saying what the tap did. Turning delivery back on is one tap.
+ * The master recipient switch. Daily summary enrollment is separate, so
+ * the pill describes activation rather than promising a daily text.
  */
 export function RecipientToggle({ phone, name, enabled }: { phone: string; name: string; enabled: boolean }) {
   const [confirming, setConfirming] = useState(false);
@@ -25,8 +23,8 @@ export function RecipientToggle({ phone, name, enabled }: { phone: string; name:
 
   if (enabled && !confirming) {
     return (
-      <button type="button" onClick={() => setConfirming(true)} style={pill} title={`${name} gets the daily text. Tap to stop.`}>
-        {name} · gets the text
+      <button type="button" onClick={() => setConfirming(true)} style={pill} title={`${name} is active. Tap to deactivate this recipient.`}>
+        {name} · active
       </button>
     );
   }
@@ -37,7 +35,7 @@ export function RecipientToggle({ phone, name, enabled }: { phone: string; name:
       <input type="hidden" name="enabled" value={enabled ? 'false' : 'true'} />
       {enabled ? (
         <>
-          <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>Stop texting {name} the daily schedule?</span>
+          <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>Deactivate {name}? This stops their eligible texts and arrival-report access.</span>
           <SubmitButton
             label="Confirm"
             busyLabel="..."

@@ -23,6 +23,7 @@ import { expireStaleProposals } from '@/lib/schedule-proposal-expiry';
 import { formatOperatorNote, noteRenderingIsStale } from '@/lib/cleaner-note';
 import {
   listScheduleRecipients,
+  receivesDailyDigest,
   portalLink,
   getOpenDigest,
   previewRecipientBodies,
@@ -715,7 +716,7 @@ export default async function CheckoutSchedulePage({
         const status = digest?.status ?? null;
         const pending = status === 'pending';
         const sent = status === 'sent';
-        const enabledHere = recipients.filter((r) => r.enabled && r.region === region);
+        const enabledHere = recipients.filter((r) => receivesDailyDigest(r) && r.region === region);
         return (
           <Section
             key={region}

@@ -679,7 +679,11 @@ export async function saveRecipientAction(formData: FormData): Promise<void> {
   if (!knownRegions.has(region)) redirect(`${SETTINGS}?err=bad_region${anchor}`);
 
   const now = new Date().toISOString();
-  const fields = { phone, display_name: displayName, region, property_ids: propertyIds, language, enabled, updated_at: now };
+  // New forms explicitly choose daily enrollment (new recipients default off).
+  // An older open form preserves the stored preference instead of resetting it.
+  const digestFields = formData.get('dailyDigestPreference') === 'present'
+    ? { daily_digest_enabled: formData.get('dailyDigestEnabled') === 'true' } : {};
+  const fields = { phone, display_name: displayName, region, property_ids: propertyIds, language, enabled, ...digestFields, updated_at: now };
 
   if (originalPhone) {
     const { data, error } = await supabase

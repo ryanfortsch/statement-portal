@@ -25,6 +25,9 @@ export type ScheduleRecipient = {
   display_name: string;
   portal_token: string;
   enabled: boolean;
+  /** Separate daily-summary enrollment. Missing only on legacy callers; send
+   * readers always shape an explicit boolean before checking eligibility. */
+  daily_digest_enabled?: boolean;
   /** '{}' (empty) = every home in `region`. */
   property_ids: string[];
   region: string;
@@ -46,6 +49,7 @@ export function shapeRecipient(r: {
   display_name: string;
   portal_token: string;
   enabled: boolean;
+  daily_digest_enabled?: unknown;
   property_ids?: string[] | null;
   region?: string | null;
   language?: string | null;
@@ -55,6 +59,7 @@ export function shapeRecipient(r: {
     display_name: r.display_name,
     portal_token: r.portal_token,
     enabled: !!r.enabled,
+    daily_digest_enabled: r.daily_digest_enabled === undefined ? true : r.daily_digest_enabled === true,
     property_ids: Array.isArray(r.property_ids) ? r.property_ids.filter((x) => typeof x === 'string' && x.length > 0) : [],
     region: r.region || CAPE_ANN_REGION,
     language: normalizeLanguage(r.language),

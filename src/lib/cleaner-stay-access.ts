@@ -18,6 +18,11 @@ export function canReadCalderwoodStays(row: unknown): boolean {
   return recipientSchema.safeParse(row).success;
 }
 
+export function calderwoodAccessUnchanged(before: unknown, after: unknown): boolean {
+  const first = recipientSchema.safeParse(before), last = recipientSchema.safeParse(after);
+  return first.success && last.success && JSON.stringify(first.data) === JSON.stringify(last.data);
+}
+
 const date = z.iso.date();
 const time = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable();
 // Strip every unrecognized field before it reaches the public render tree.
