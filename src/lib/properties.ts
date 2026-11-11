@@ -574,6 +574,9 @@ export type HelmPropertyRow = {
   water_shutoff_location: string | null;
   electrical_panel_location: string | null;
   fire_extinguisher_locations: string | null;
+  /** When the extinguishers were last inspected (YYYY-MM-DD). */
+  fire_extinguisher_inspected_on: string | null;
+  oil_shutoff_location: string | null;
   smoke_detector_locations: string | null;
   fire_exit_locations: string | null;
   str_permit_expires: string | null;

@@ -1516,12 +1516,14 @@ function primaryBtn(): React.CSSProperties {
 }
 
 /**
- * How was the clean? Five taps, one answer. Five stars closes the question.
- * Four or fewer (CLEANING_FLAG_MAX) opens what was off and a photo row, and
- * says in one line what Complete does with it: every rating rides in
- * Friday's email to the crew, sent after approval on the Team inbox. "No
- * clean to rate" is the exit for a walk
- * of a house nobody cleaned.
+ * How was the clean? The housekeeping card at the end of the walk. Five
+ * taps, one answer, and a note with photos under it at every rating, the
+ * way every other card takes a note (Delaney, 2026-11-10). Four or fewer
+ * (CLEANING_FLAG_MAX) asks for the note in the signal color: what was off.
+ * At five it is a quiet optional line, for what went right or a heads-up.
+ * Every rating rides in Friday's email to the crew, sent after approval on
+ * the Team inbox, with its note and photos when it has them. "No clean to
+ * rate" is the exit for a walk of a house nobody cleaned.
  */
 function CleanRating({
   inspectionId,
@@ -1596,10 +1598,18 @@ function CleanRating({
         <span>Perfect</span>
       </div>
 
-      {flagged && (
-        <div style={{ marginTop: 20, borderLeft: '3px solid var(--signal)', padding: '12px 16px', background: 'rgba(148,109,46,0.06)' }}>
+      {stars !== null && !skipped && (
+        <div
+          style={{
+            marginTop: 20,
+            borderLeft: `3px solid ${flagged ? 'var(--signal)' : 'var(--rule)'}`,
+            padding: '12px 16px',
+            background: flagged ? 'rgba(148,109,46,0.06)' : 'transparent',
+          }}
+        >
           <label htmlFor="clean-reason" style={{ display: 'block', fontSize: 14, color: 'var(--ink)', fontWeight: 500 }}>
-            What was off?
+            {flagged ? 'What was off?' : 'A note for the crew'}
+            {flagged ? null : <span style={{ marginLeft: 8, fontSize: 12, fontWeight: 400, color: 'var(--ink-4)' }}>optional</span>}
           </label>
           <textarea
             id="clean-reason"
@@ -1607,7 +1617,7 @@ function CleanRating({
             onChange={(e) => onReason(e.target.value.slice(0, 600))}
             disabled={disabled}
             rows={3}
-            placeholder="Hair in the tub, crumbs under the toaster"
+            placeholder={flagged ? 'Hair in the tub, crumbs under the toaster' : 'Beds looked great; one towel short in the guest bath'}
             style={{
               display: 'block',
               width: '100%',
@@ -1631,9 +1641,11 @@ function CleanRating({
               onUploadingChange={onUploadingChange}
             />
           </div>
-          <div style={{ marginTop: 12, fontSize: 12.5, color: 'var(--ink-3)', lineHeight: 1.5 }}>
-            Approving it on Team texts the crew in Portuguese{photos.length ? ' with these photos' : ''}.
-          </div>
+          {reason.trim() || photos.length ? (
+            <div style={{ marginTop: 12, fontSize: 12.5, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+              Rides in Friday&rsquo;s email to the crew, in Portuguese{photos.length ? ', with these photos' : ''}, once it is approved on Team.
+            </div>
+          ) : null}
         </div>
       )}
 

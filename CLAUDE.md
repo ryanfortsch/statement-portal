@@ -113,7 +113,7 @@ as modules land, so read it as where the weight sits today.
 | `/turnovers/calendar` | The occupancy calendar, 7, 14 or 30 days. The only place it renders; the pipeline links to it |
 | `/turnovers/schedule` | Cleaner checkout schedule, merged with late checkouts and extensions. Each row links to its board row and back |
 | `/turnovers/cleanings` | From Cape Ann Elite: only what no board row can show (a visit booked where nobody checks out, unannounced days). Not a tab; reached from the board and the home's cleanings strip. It also lists the cleaner texts Helm could not place, each with its house picker. Every checkout's verdict prints on its board row; a three-day strip of the same data sits on the home page |
-| `/inspections` | Property inspection runs. The review screen ends on **How was the clean?** (1 to 5 stars, or "No clean to rate"); four or fewer asks what was off and for photos and files a Portuguese note to the crew as a pending Team inbox card (`docs/cleaning-reviews.md`) |
+| `/inspections` | Property inspection runs. The review screen ends on **How was the clean?** (1 to 5 stars, or "No clean to rate"), with a note and photos at any rating; at four or fewer the note asks what was off. Every rating rides in Friday's one email, approved on the Team inbox (`docs/cleaning-reviews.md`) |
 | `/me` | My page, from the avatar menu: the signed-in person's own numbers. Their guest rating (the guests' stars on the stays they walked before, staff walks and old Field packets as one chain, `src/lib/inspector-reviews-core.ts`), the fleet's trailing 30 days, their open work (the board's "mine"), and the cleans they rated. Staff see only their own; an owner reads a teammate's with `?as=` |
 | `/fieldwork/*` | Contractor-facing ops: packets (one "Send a job" form at `/fieldwork/packets/new`; the maintenance bundler on the Handymen board), roster (hiring folded in as Applicants at the top; `/fieldwork/hiring` redirects there), shoots (creative pay ledger), trades (the outside vendor directory), close (the field's handoff before the statement close; staff add items, owners file them through the receipt path) |
 | `/field` | The external 1099 contractor portal. Separate auth plane, magic-link tokens |
@@ -288,12 +288,12 @@ word with dates stripped, never by a bare number, because "Wed 10/21" is not 21 
 **A cleaning rating never reaches the crew by itself** (`docs/cleaning-reviews.md`, since
 2026-11-07; one weekly email since 2026-11-10). Every walk ends on one question, How was the
 clean?, and `completeInspection` stores the answer once per walk in `cleaning_reviews` through
-`saveCleaningReview`, which sends nothing. Four or fewer (`CLEANING_FLAG_MAX` in
-`src/lib/cleaning-reviews-core.ts`) also asks what was off and for photos. Every Friday at 12:00
+`saveCleaningReview`, which sends nothing. A note and photos sit under the stars at every rating;
+at four or fewer (`CLEANING_FLAG_MAX` in `src/lib/cleaning-reviews-core.ts`) it asks what was off. Every Friday at 12:00
 UTC `/api/cron/cleaning-review-email` drafts ONE email of every rating no report has carried,
 through Thursday (`draftWeeklyCleaningReport`, idempotent per `week_end`, stamping
 `cleaning_reviews.report_id`): the week's average and count, every clean with its stars, home and
-day, and the reason and photo links under each at four or fewer, in Portuguese with the English
+day, and the note and photo links under each that has one, in Portuguese with the English
 beside it (`composeWeeklyEmail`; reasons go through `cleaner-note.ts`'s model pass; never a
 person's name). It files the `cleaning_review_reports` row `pending` as a Cleaning card under
 Cleaners on the Team inbox. Only Approve sends, through `approveCleaningReview`: claim the report,

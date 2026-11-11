@@ -63,6 +63,7 @@ export function InlineField({
 
   const col = captureColumn(column);
   const numeric = col?.type === 'int' || col?.type === 'float';
+  const dateCol = col?.type === 'date';
   const highStakes = isHighStakesColumn(column);
 
   function save() {
@@ -97,7 +98,7 @@ export function InlineField({
       // instead of closing on a save that did not happen.
       if (res.columns === 0) {
         setError(
-          numeric ? 'That did not read as a number, so nothing was saved.' : 'Nothing was saved.',
+          numeric ? 'That did not read as a number, so nothing was saved.' : dateCol ? 'That did not read as a date, so nothing was saved.' : 'Nothing was saved.',
         );
         return;
       }
@@ -178,7 +179,8 @@ export function InlineField({
               setError(null);
             }
           }}
-          inputMode={numeric ? 'numeric' : undefined}
+          type={dateCol ? 'date' : 'text'}
+          inputMode={numeric ? (col?.type === 'float' ? 'decimal' : 'numeric') : undefined}
           aria-label={label}
           style={{
             flex: 1,

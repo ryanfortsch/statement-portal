@@ -15,6 +15,8 @@ import {
   parsePropertyCapture,
   captureColumn,
   CAPTURE_COLUMN_KEYS,
+  CAPTURE_COLUMNS,
+  parseFactDate,
   type CaptureItem,
   type CaptureProposal,
 } from '@/lib/ai/property-capture';
@@ -272,6 +274,8 @@ async function performPropertyUpdate(
     water_shutoff_location: strOrNull(formData, 'water_shutoff_location'),
     electrical_panel_location: strOrNull(formData, 'electrical_panel_location'),
     fire_extinguisher_locations: strOrNull(formData, 'fire_extinguisher_locations'),
+    fire_extinguisher_inspected_on: strOrNull(formData, 'fire_extinguisher_inspected_on'),
+    oil_shutoff_location: strOrNull(formData, 'oil_shutoff_location'),
     smoke_detector_locations: strOrNull(formData, 'smoke_detector_locations'),
     fire_exit_locations: strOrNull(formData, 'fire_exit_locations'),
     str_permit_expires: strOrNull(formData, 'str_permit_expires'),
@@ -785,6 +789,23 @@ function notePayload(formData: FormData): { title: string; body: string; tag: st
   return { title, body, tag, guest_facing, kind };
 }
 
+/**
+ * The note's photos from the form's hidden field: uploaded https URLs only,
+ * at most twelve. Null when the form carried no photo field, so a writer
+ * that never offered photos leaves them as they are.
+ */
+function notePhotos(formData: FormData): string[] | null {
+  const raw = formData.get('photo_urls');
+  if (raw == null) return null;
+  try {
+    const parsed: unknown = JSON.parse(String(raw));
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((u): u is string => typeof u === 'string' && /^https:\/\//.test(u)).slice(0, 12);
+  } catch {
+    return [];
+  }
+}
+
 /** Where a note lives once saved: a fact in What we know, an issue in the Now list. */
 function noteHome(propertyId: string, kind: 'fact' | 'issue'): string {
   return kind === 'fact' ? `/properties/${propertyId}?tab=facts#ops-notebook` : `/properties/${propertyId}?tab=now#flags`;
@@ -800,7 +821,14 @@ export async function createPropertyNote(propertyId: string, formData: FormData)
   // Service role: guest_facing is a recent column, so go through the
   // service-role client to dodge the anon schema-cache / grants edge
   // case that silently dropped new-column writes on 2026-06-02.
-  await insertGuestMaterial('property_notes', { property_id: propertyId, ...payload, author_email: session.user.email }, formData);
+  const noteId = await insertGuestMaterial('property_notes', { property_id: propertyId, ...payload, author_email: session.user.email }, formData);
+  // Photos ride a second write: the insert's read-back compares values one
+  // by one, and an array never compares equal.
+  const photos = notePhotos(formData);
+  if (photos && photos.length > 0) {
+    const { error } = await getServiceClient().from('property_notes').update({ photo_urls: photos }).eq('id', noteId).eq('property_id', propertyId);
+    if (error) throw new Error(`The note saved but its photos did not: ${error.message}`);
+  }
 
   revalidatePath(`/properties/${propertyId}`);
   redirect(noteHome(propertyId, payload.kind));
@@ -815,7 +843,9 @@ export async function updatePropertyNote(propertyId: string, noteId: string, for
 
   // A fact is never resolved (property_notes_fact_never_resolved), so a
   // resolved issue turned into a fact is reopened in the same write.
-  const patch = payload.kind === 'fact' ? { ...payload, resolved_at: null, resolved_by_email: null } : payload;
+  const photos = notePhotos(formData);
+  const base = photos ? { ...payload, photo_urls: photos } : payload;
+  const patch = payload.kind === 'fact' ? { ...base, resolved_at: null, resolved_by_email: null } : base;
   const { data, error } = await getServiceClient()
     .from('property_notes')
     .update(patch)
@@ -1151,6 +1181,8 @@ export async function applyPropertyCaptureAction(
       const numeric = raw.replace(/[^\d.-]/g, '');
       const n = /\d/.test(numeric) ? Number(numeric) : NaN;
       coerced = Number.isFinite(n) ? n : null;
+    } else if (col.type === 'date') {
+      coerced = parseFactDate(raw);
     } else {
       coerced = raw;
     }
@@ -1245,6 +1277,15 @@ export async function applyPropertyCaptureAction(
   }
 
   if (columnsApplied === 0 && notesApplied === 0) {
+    // Say which field could not take what was typed (a sentence in a
+    // number field), rather than that nothing was there.
+    if (skipped.length > 0) {
+      const kinds = skipped.map((label) => {
+        const t = CAPTURE_COLUMNS.find((c) => c.label === label)?.type;
+        return t === 'int' || t === 'float' ? `${label} takes a number` : t === 'date' ? `${label} takes a date` : `${label} could not be read`;
+      });
+      return { ok: false, error: `Nothing was saved: ${kinds.join('; ')}.`, skipped };
+    }
     return { ok: false, error: 'Nothing to apply: every item was empty.' };
   }
 

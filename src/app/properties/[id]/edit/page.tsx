@@ -167,7 +167,7 @@ export default async function PropertyEditPage({
             <Field name="cable_provider" label="Cable / TV" defaultValue={p.cable_provider} />
           </Row>
           <Row>
-            <Field name="num_tvs" label="TVs" type="number" defaultValue={p.num_tvs} />
+            <Field name="num_tvs" label="Number of TVs" type="number" defaultValue={p.num_tvs} hint="Each TV, its room and its remote go on the room under Rooms and beds" />
             <Field name="smart_tv" label="Smart TV" defaultValue={p.smart_tv} hint="Yes / No" />
           </Row>
         </Group>
@@ -244,6 +244,7 @@ export default async function PropertyEditPage({
           <Row>
             <Field name="gas_shutoff_location" label="Gas shutoff" defaultValue={p.gas_shutoff_location} hint="e.g. basement, behind the boiler" />
             <Field name="water_shutoff_location" label="Water shutoff" defaultValue={p.water_shutoff_location} />
+            <Field name="oil_shutoff_location" label="Oil shutoff" defaultValue={p.oil_shutoff_location} hint="Oil-heated homes: the burner switch or tank valve" />
           </Row>
           <Field name="electrical_panel_location" label="Electrical panel" defaultValue={p.electrical_panel_location} />
           <Field
@@ -252,6 +253,13 @@ export default async function PropertyEditPage({
             defaultValue={p.fire_extinguisher_locations}
             hint="Comma-separated, e.g. kitchen under sink, basement"
             textarea
+          />
+          <Field
+            name="fire_extinguisher_inspected_on"
+            label="Extinguishers inspected"
+            type="date"
+            defaultValue={p.fire_extinguisher_inspected_on}
+            hint="The date on the inspection tag"
           />
           <Field
             name="smoke_detector_locations"

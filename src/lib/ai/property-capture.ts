@@ -31,6 +31,7 @@ export {
   CAPTURE_COLUMNS,
   CAPTURE_COLUMN_KEYS,
   captureColumn,
+  parseFactDate,
   type CaptureColumn,
   type CaptureItem,
   type CaptureProposal,

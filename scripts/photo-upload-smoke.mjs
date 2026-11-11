@@ -157,7 +157,9 @@ try {
   assert.equal(uploads.every(item => item.folder === 'synthetic-work-slip'), true);
   await page.click('#submit');
   assert.equal(await page.evaluate(() => window.submits), 0);
-  assert.equal(await page.$eval('[aria-label="Take a photo"]', el => el.getAttribute('capture')), 'environment');
+  // One picker: no capture attribute, so the phone's sheet offers the camera and the library both.
+  assert.equal(await page.$$eval('input[type=file]', els => els.length), 1);
+  assert.equal(await page.$eval('input[type=file]', el => el.getAttribute('capture')), null);
   assert.ok(await page.$eval('[aria-label="Retry retry.png"]', el => el.getBoundingClientRect().height >= 44));
   assert.equal(await page.$eval('#direct-save', el => el.disabled), true);
   passed.push('failed photos block completion and mobile retry targets are at least 44px');

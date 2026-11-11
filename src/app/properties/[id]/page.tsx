@@ -73,6 +73,8 @@ import { OwnersEditor } from './OwnersEditor';
 import { RoomsEditor } from './RoomsEditor';
 import { RentalSeasonPanel } from './RentalSeasonPanel';
 import { getPropertyRooms } from '@/lib/property-rooms';
+import { roomSofaBeds, tvLines, type PropertyRoom } from '@/lib/property-rooms-shared';
+import { loadUnitFacts, type UnitFacts } from '@/lib/unit-homes-server';
 import { RatesPanel } from './RatesPanel';
 import { ListingPanel } from './ListingPanel';
 import { AutomationsPanel } from './AutomationsPanel';
@@ -428,7 +430,7 @@ export default async function PropertyDetailPage({
   const p = await getProperty(id);
   if (!p) notFound();
 
-  const [statements, propertyFlags, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, propertyNotices, propertyNotes, documents, session, scaLaunch, launchLoad, ownerPortfolio, climateProfile, guestCodeView, propertyCleaners, propertyRooms, contractFacts, propertyContracts, rentalPeriods, workBrief] = await Promise.all([
+  const [statements, propertyFlags, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, propertyNotices, propertyNotes, documents, session, scaLaunch, launchLoad, ownerPortfolio, climateProfile, guestCodeView, propertyCleaners, propertyRooms, contractFacts, propertyContracts, rentalPeriods, workBrief, unitFacts] = await Promise.all([
     getRecentStatements(p.id),
     getPropertyFlags(p.id),
     getRecentInspections(p.id),
@@ -464,6 +466,7 @@ export default async function PropertyDetailPage({
     getPropertyContracts(p.id),
     getRentalPeriods(p.id),
     getWorkBrief(p.id),
+    loadUnitFacts(p.id),
   ]);
   const myEmail = session?.user?.email ?? '';
   // What we know on Facts: the facts. Issues are the Now tab's flags.
@@ -674,7 +677,8 @@ export default async function PropertyDetailPage({
     crmContactsFull.length === 0
       ? 'no contacts linked'
       : `${crmContactsFull.length} ${crmContactsFull.length === 1 ? 'contact' : 'contacts'}${mostRecentTouch ? ` · last touch ${formatRelative(mostRecentTouch.touched_at)}` : ''}`;
-  const operationalCounts = countOperationalFields(p);
+  const factContext: FactContext = { rooms: propertyRooms, units: unitFacts };
+  const operationalCounts = countOperationalFields(p, factContext);
   const operationalSummary =
     operationalCounts.populated === 0
       ? 'not yet onboarded'
@@ -1071,7 +1075,101 @@ export default async function PropertyDetailPage({
           answer, as plain headed lists. Facts used to be fifteen closed folds
           with this one three taps deep; a phone in the driveway reads it now
           without opening anything. Every row edits in place, blank or not. */}
-      <FactSheet p={p} summary={operationalSummary} />
+      <FactSheet p={p} ctx={factContext} summary={operationalSummary} />
+
+      {/* WHAT WE KNOW: the property's facts (property_notes, kind = 'fact').
+          A quirk, a workaround, a vendor, a local tip: things that stay true.
+          Guest KB rows are what the guest AI knows about this home
+          (/api/kb-facts). A fact is edited or deleted, never resolved: that
+          verb belongs to issues, on Now, and a resolved fact used to drop
+          out of the Guest KB without a word. The old "Operations notebook"
+          anchor is kept so deep links still land. It sits directly under the
+          fact sheet, open: anything without a field of its own (a note, with
+          photos) is written here (Delaney, 2026-11-10). */}
+      <CollapsibleSection
+        id="ops-notebook"
+        defaultOpen
+        title="What we know"
+        summary={(() => {
+          const total = knownFacts.length;
+          if (total === 0) return 'nothing written down yet';
+          const kb = knownFacts.filter((n) => n.guest_facing).length;
+          return `${total} ${total === 1 ? 'fact' : 'facts'}${kb ? ` · ${kb} in the Guest KB` : ''}`;
+        })()}
+        headerAction={
+          <a href="#new-fact" style={primaryActionStyle}>
+            + Add a fact
+          </a>
+        }
+      >
+        <InlineNoteDisclosure id="new-fact" key={`fact-${knownFacts.length}`}>
+          <NoteEditorForm action={createPropertyNote.bind(null, p.id)} propertyId={p.id} initial={{ kind: 'fact' }} submitLabel="Add the fact" inline />
+        </InlineNoteDisclosure>
+        {knownFacts.length === 0 ? (
+          <div style={{ padding: '14px 0', color: 'var(--ink-3)', fontSize: 13 }}>
+            Nothing written down for {p.name} yet: a thermostat quirk, a sticky door, a neighbor, a vendor.{' '}
+            <a
+              href="#new-fact"
+              style={{ color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}
+            >
+              Add the first fact
+            </a>
+          </div>
+        ) : (
+          <div style={{ borderTop: '1px solid var(--ink)' }}>
+            {knownFacts.map((n) => (
+              <div
+                key={n.id}
+                style={{
+                  padding: '14px 0',
+                  borderBottom: '1px solid var(--rule)',
+                  display: 'grid',
+                  gridTemplateColumns: 'minmax(0, 1fr) auto',
+                  gap: 16,
+                  alignItems: 'baseline',
+                }}
+              >
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+                    <h3
+                      className="font-serif"
+                      style={{ fontSize: 16, fontWeight: 500, letterSpacing: '-0.005em', color: 'var(--ink)', margin: 0 }}
+                    >
+                      {n.title}
+                    </h3>
+                    {n.guest_facing && (
+                      <span title="In the Guest KB: the guest AI knows this about the home" style={pillStyle('var(--tide-deep)', true)}>
+                        Guest KB
+                      </span>
+                    )}
+                    {n.tag && <span style={pillStyle('var(--ink-3)')}>{n.tag}</span>}
+                  </div>
+                  {n.body && (
+                    <p style={{ marginTop: 6, marginBottom: 0, fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>
+                      {n.body}
+                    </p>
+                  )}
+                  {(n.photo_urls?.length ?? 0) > 0 && (
+                    <div style={{ marginTop: 8 }}>
+                      <PhotoThumbs urls={n.photo_urls} size={64} />
+                    </div>
+                  )}
+                  <div style={{ marginTop: 8, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.04em' }}>
+                    {n.author_email ? `${n.author_email.split('@')[0]} · ` : ''}
+                    {formatDate(n.created_at)}
+                  </div>
+                </div>
+                <Link
+                  href={`/properties/${p.id}/notes/${n.id}/edit`}
+                  style={{ fontSize: 11, color: 'var(--tide-deep)', textDecoration: 'none', letterSpacing: '.04em' }}
+                >
+                  Edit
+                </Link>
+              </div>
+            ))}
+          </div>
+        )}
+      </CollapsibleSection>
 
       {/* HOUSE POLICY — the decisions a guest, a listing or the concierge
           quotes. Each of these was a tick in the Setup catalog recording
@@ -1218,91 +1316,6 @@ export default async function PropertyDetailPage({
         )}
       </CollapsibleSection>
 
-      {/* WHAT WE KNOW: the property's facts (property_notes, kind = 'fact').
-          A quirk, a workaround, a vendor, a local tip: things that stay true.
-          Guest KB rows are what the guest AI knows about this home
-          (/api/kb-facts). A fact is edited or deleted, never resolved: that
-          verb belongs to issues, on Now, and a resolved fact used to drop
-          out of the Guest KB without a word. The old "Operations notebook"
-          anchor is kept so deep links still land. */}
-      <CollapsibleSection
-        id="ops-notebook"
-        title="What we know"
-        summary={(() => {
-          const total = knownFacts.length;
-          if (total === 0) return 'nothing written down yet';
-          const kb = knownFacts.filter((n) => n.guest_facing).length;
-          return `${total} ${total === 1 ? 'fact' : 'facts'}${kb ? ` · ${kb} in the Guest KB` : ''}`;
-        })()}
-        headerAction={
-          <a href="#new-fact" style={primaryActionStyle}>
-            + Add a fact
-          </a>
-        }
-      >
-        <InlineNoteDisclosure id="new-fact" key={`fact-${knownFacts.length}`}>
-          <NoteEditorForm action={createPropertyNote.bind(null, p.id)} propertyId={p.id} initial={{ kind: 'fact' }} submitLabel="Add the fact" inline />
-        </InlineNoteDisclosure>
-        {knownFacts.length === 0 ? (
-          <div style={{ padding: '14px 0', color: 'var(--ink-3)', fontSize: 13 }}>
-            Nothing written down for {p.name} yet: a thermostat quirk, a sticky door, a neighbor, a vendor.{' '}
-            <a
-              href="#new-fact"
-              style={{ color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}
-            >
-              Add the first fact
-            </a>
-          </div>
-        ) : (
-          <div style={{ borderTop: '1px solid var(--ink)' }}>
-            {knownFacts.map((n) => (
-              <div
-                key={n.id}
-                style={{
-                  padding: '14px 0',
-                  borderBottom: '1px solid var(--rule)',
-                  display: 'grid',
-                  gridTemplateColumns: 'minmax(0, 1fr) auto',
-                  gap: 16,
-                  alignItems: 'baseline',
-                }}
-              >
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-                    <h3
-                      className="font-serif"
-                      style={{ fontSize: 16, fontWeight: 500, letterSpacing: '-0.005em', color: 'var(--ink)', margin: 0 }}
-                    >
-                      {n.title}
-                    </h3>
-                    {n.guest_facing && (
-                      <span title="In the Guest KB: the guest AI knows this about the home" style={pillStyle('var(--tide-deep)', true)}>
-                        Guest KB
-                      </span>
-                    )}
-                    {n.tag && <span style={pillStyle('var(--ink-3)')}>{n.tag}</span>}
-                  </div>
-                  {n.body && (
-                    <p style={{ marginTop: 6, marginBottom: 0, fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>
-                      {n.body}
-                    </p>
-                  )}
-                  <div style={{ marginTop: 8, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.04em' }}>
-                    {n.author_email ? `${n.author_email.split('@')[0]} · ` : ''}
-                    {formatDate(n.created_at)}
-                  </div>
-                </div>
-                <Link
-                  href={`/properties/${p.id}/notes/${n.id}/edit`}
-                  style={{ fontSize: 11, color: 'var(--tide-deep)', textDecoration: 'none', letterSpacing: '.04em' }}
-                >
-                  Edit
-                </Link>
-              </div>
-            ))}
-          </div>
-        )}
-      </CollapsibleSection>
 
       {/* Only a home with something to automate gets the fold: a climate
           profile on file, or a smart thermostat recorded on its fact sheet
@@ -2275,7 +2288,15 @@ type OpRow = {
    * (a trash day outside Gloucester is the city's, not a column to type).
    */
   fixed?: string;
+  /** Where this row is edited when it is not one column: a section on this
+   *  page (TVs live on their rooms) or another home (a unit's own facts). */
+  href?: string;
+  /** The Add or Edit link's words when `href` is set. */
+  hrefLabel?: string;
 };
+
+/** What the fact sheet reads beside the property row. */
+type FactContext = { rooms: PropertyRoom[]; units: UnitFacts[] };
 
 /** ONE primary treatment for the whole page (the thing you came to do:
  *  Edit operational data, Open a deliverable, + Add note). The page used
@@ -2515,7 +2536,7 @@ function TabActions({ children }: { children: React.ReactNode }) {
  * draws from two edit sections the link points at the larger half; that
  * mismatch is real and is noted per group rather than papered over.
  */
-function operationalGroups(p: HelmPropertyRow) {
+function operationalGroups(p: HelmPropertyRow, ctx: FactContext) {
   const entry: OpRow[] = [
     { label: 'Guest access', value: p.guest_access_method, col: 'guest_access_method' },
     { label: 'Smart lock', value: [p.smart_lock_brand, p.smart_lock_code].filter(Boolean).join(' · ') || null },
@@ -2527,6 +2548,8 @@ function operationalGroups(p: HelmPropertyRow) {
     { label: 'Arrival brief (crew)', value: p.arrival_brief },
     { label: 'Supply closet', value: p.supply_closet_location, col: 'supply_closet_location' },
   ];
+  const tvs = tvLines(ctx.rooms);
+  const sofaRooms = ctx.rooms.filter((r) => roomSofaBeds(r).length > 0);
   const connectivity: OpRow[] = [
     { label: p.wifi_label ? `Wi-Fi name (${p.wifi_label})` : 'Wi-Fi name', value: p.wifi_name, col: 'wifi_name' },
     { label: p.wifi_label ? `Wi-Fi password (${p.wifi_label})` : 'Wi-Fi password', value: p.wifi_password, mono: true, col: 'wifi_password' },
@@ -2534,14 +2557,26 @@ function operationalGroups(p: HelmPropertyRow) {
     { label: p.wifi_label_2 ? `Wi-Fi password (${p.wifi_label_2})` : 'Wi-Fi password 2', value: p.wifi_password_2, mono: true, col: 'wifi_password_2' },
     { label: 'Internet', value: p.internet_provider, col: 'internet_provider' },
     { label: 'Cable / TV', value: p.cable_provider, col: 'cable_provider' },
-    { label: 'TVs', value: p.num_tvs, col: 'num_tvs' },
+    { label: 'Number of TVs', value: p.num_tvs, col: 'num_tvs' },
     { label: 'Smart TV', value: p.smart_tv, col: 'smart_tv' },
+    // Each TV is a fact about a room: where it is, what it is, its remote
+    // and batteries (Delaney, 2026-11-10). Written on Rooms and beds below.
+    { label: 'TVs by room', value: tvs.join('\n') || null, href: '#rooms', hrefLabel: 'Add on a room' },
   ];
   const systems: OpRow[] = [
     { label: 'Bedrooms', value: p.bedrooms, col: 'bedrooms' },
     { label: 'Bathrooms', value: p.bathrooms, col: 'bathrooms' },
     { label: 'Square feet', value: p.square_feet, col: 'square_feet' },
     { label: 'Livable floors', value: p.livable_floors },
+    // A split house's units each carry their own counts (17 Beach: main
+    // house 3.5 baths, guest house 1.5), on the unit's own record.
+    ...ctx.units.map((u): OpRow => ({
+      label: u.name,
+      value:
+        [u.bedrooms != null ? `${u.bedrooms} bd` : null, u.bathrooms != null ? `${u.bathrooms} ba` : null].filter(Boolean).join(' · ') || null,
+      href: `/properties/${u.id}?tab=facts#facts-house`,
+      hrefLabel: 'Open the unit',
+    })),
     { label: 'Basement', value: p.basement, col: 'basement' },
     { label: 'HOA', value: p.hoa, col: 'hoa' },
     { label: 'Heating', value: p.heating, col: 'heating' },
@@ -2562,7 +2597,18 @@ function operationalGroups(p: HelmPropertyRow) {
           .filter(Boolean)
           .join(', ') || null,
     },
-    { label: 'Pullout linens', value: p.has_pullout_bed ? p.pullout_linens_location : null },
+    { label: 'Pullout linens', value: p.has_pullout_bed || sofaRooms.length > 0 ? p.pullout_linens_location : null },
+    // Every sofa bed by its room, each with its own sheets; each one is
+    // named on the inspection's pullout card.
+    {
+      label: 'Sofa beds by room',
+      value:
+        sofaRooms
+          .map((r) => `${r.name}: ${roomSofaBeds(r).join(', ')}${r.details.sofa_linens ? ` · sheets: ${r.details.sofa_linens}` : ''}`)
+          .join('\n') || null,
+      href: '#rooms',
+      hrefLabel: 'Add on a room',
+    },
     { label: 'Known issues', value: p.known_issues },
     { label: 'Upcoming maintenance', value: p.upcoming_maintenance },
   ];
@@ -2589,8 +2635,10 @@ function operationalGroups(p: HelmPropertyRow) {
   const safety: OpRow[] = [
     { label: 'Gas shutoff', value: p.gas_shutoff_location, col: 'gas_shutoff_location' },
     { label: 'Water shutoff', value: p.water_shutoff_location, col: 'water_shutoff_location' },
+    { label: 'Oil shutoff', value: p.oil_shutoff_location, col: 'oil_shutoff_location' },
     { label: 'Electrical panel', value: p.electrical_panel_location, col: 'electrical_panel_location' },
     { label: 'Fire extinguishers', value: p.fire_extinguisher_locations, col: 'fire_extinguisher_locations' },
+    { label: 'Extinguishers inspected', value: p.fire_extinguisher_inspected_on, col: 'fire_extinguisher_inspected_on' },
     { label: 'Smoke / CO detectors', value: p.smoke_detector_locations, col: 'smoke_detector_locations' },
     { label: 'Fire exits', value: p.fire_exit_locations, col: 'fire_exit_locations' },
     { label: 'STR permit expires', value: p.str_permit_expires, col: 'str_permit_expires' },
@@ -2622,8 +2670,8 @@ function operationalGroups(p: HelmPropertyRow) {
 
 /** Total / populated count across all operational groups. Drives the
  *  parent CollapsibleSection's summary chip ("23 of 43 fields populated"). */
-function countOperationalFields(p: HelmPropertyRow): { populated: number; total: number } {
-  const groups = operationalGroups(p);
+function countOperationalFields(p: HelmPropertyRow, ctx: FactContext): { populated: number; total: number } {
+  const groups = operationalGroups(p, ctx);
   let total = 0;
   let populated = 0;
   for (const g of groups) {
@@ -2644,8 +2692,8 @@ function countOperationalFields(p: HelmPropertyRow): { populated: number; total:
  * columns (the smart lock, guest gear) or outside the capture catalog keeps
  * its link to the edit form group of the same name.
  */
-function FactSheet({ p, summary }: { p: HelmPropertyRow; summary: string }) {
-  const groups = operationalGroups(p);
+function FactSheet({ p, ctx, summary }: { p: HelmPropertyRow; ctx: FactContext; summary: string }) {
+  const groups = operationalGroups(p, ctx);
   return (
     <section id="facts" className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 26, paddingBottom: 30, width: '100%', scrollMarginTop: 120 }}>
       <div className="flex items-baseline justify-between" style={{ gap: 12, flexWrap: 'wrap', marginBottom: 6 }}>
@@ -2654,6 +2702,11 @@ function FactSheet({ p, summary }: { p: HelmPropertyRow; summary: string }) {
         </h2>
         <span className="eyebrow">{summary}</span>
       </div>
+      <p style={{ margin: '0 0 4px', fontSize: 12, color: 'var(--ink-3)' }}>
+        No field for it? Write it under{' '}
+        <a href="#ops-notebook" style={{ color: 'var(--tide-deep)', textDecoration: 'none' }}>What we know</a>, with photos. TVs and sofa beds go on their room under{' '}
+        <a href="#rooms" style={{ color: 'var(--tide-deep)', textDecoration: 'none' }}>Rooms and beds</a>.
+      </p>
       {groups.map((g) => {
         const populated = g.rows.filter((r) => (r.value != null && r.value !== '') || r.fixed).length;
         return (
@@ -2686,6 +2739,20 @@ function FactSheet({ p, summary }: { p: HelmPropertyRow; summary: string }) {
                           current={has ? String(r.value) : null}
                           mono={r.mono === true}
                         />
+                      ) : r.href ? (
+                        <span style={{ display: 'inline-flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap', minWidth: 0 }}>
+                          {has ? (
+                            <span style={{ color: 'var(--ink)', fontSize: 14, wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{String(r.value)}</span>
+                          ) : null}
+                          <Link
+                            href={r.href}
+                            style={has
+                              ? { fontSize: 11, color: 'var(--ink-4)', textDecoration: 'none', letterSpacing: '.04em' }
+                              : { fontSize: 12, color: 'var(--signal)', textDecoration: 'none' }}
+                          >
+                            {has ? 'Edit' : `${r.hrefLabel ?? 'Add'} \u2192`}
+                          </Link>
+                        </span>
                       ) : has ? (
                         <span style={{ display: 'inline-flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap', minWidth: 0 }}>
                           <span
