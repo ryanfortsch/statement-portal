@@ -98,6 +98,45 @@ No nightly availability, reservations, guest records, prices or messages were
 requested. The declared PriceLabs authority is configuration intent, not proof
 that PriceLabs has connected or populated this production rate.
 
+## Read-only channel mapping review (11 November 2026 UTC)
+
+The owner Calendar sync page now runs `src/lib/channex-channel-audit.ts` in a
+separate streamed section. The existing closed/unmapped inspection and dormant
+availability transport are unchanged. This diagnostic cannot become a send permit.
+
+It reads the complete property-filtered channel collection twice. For one
+property-associated connection, it also reads the connection twice and the fixed
+Calderwood rate. It checks channel identity, isolated property scope, a single
+listing/rate mapping, whole-home rate relationships, USD, the reviewed minimum-stay
+mode, activation/removal state, and price/restriction overrides. LOS or parent-listing
+mapping needs review. Changes between observations invalidate the check; matching
+observations do not lock provider state or prove Airbnb delivery.
+
+The server-only optional `CHANNEX_CALDERWOOD_CHANNEL_REVIEW` holds a JSON object
+with `channelId` (UUID), `listingId` (decimal string), and `minStayType` (`Arrival`
+or `Through`). Populate it only from independently reviewed handover evidence.
+It has not been configured by this release. Missing review never approves an
+observed identity; malformed review fails before provider access. Preview/staging
+and non-inspection runtime modes cannot run this production check.
+
+Requests are GET-only to the fixed production host, with redirects disabled,
+no caching, one 20-second deadline and a 512 KiB response limit. The complete
+collection is capped at 100 rows and must match its pagination metadata; incomplete
+or oversized collections display unavailable rather than empty. Reports omit
+connection/listing IDs, tokens, provider bodies and guest information. There is
+no database write, migration, scheduler, activation button or production writer.
+PriceLabs daily delivery, inventory coverage and messaging handover remain separate
+requirements even if every mapping check passes.
+
+Contract sources rechecked for this batch:
+[Channel API](https://docs.channex.io/api-v.1-documentation/channel-api),
+[Airbnb API flow](https://docs.channex.io/channel-api-examples/airbnb), and
+[channel codes](https://docs.channex.io/api-v.1-documentation/channel-codes).
+The updated Airbnb guide says creating a mapping submits it to Airbnb immediately
+and starts background ARI synchronization. Treat mapping as a consequential handover
+step, not harmless preparation while Guesty is authoritative. Activation also
+starts full synchronization. Neither action is part of this diagnostic.
+
 ## Work remaining before the Airbnb switch
 
 1. Wire the durable booking processor and availability publisher into a reviewed
