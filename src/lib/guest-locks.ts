@@ -26,6 +26,7 @@ import {
   type SeamAccessCodeFull,
 } from '@/lib/seam';
 import { isReservedPin } from '@/lib/staff-codes';
+import type { LiveStayCode } from '@/lib/guest-app-stays';
 
 export type PropertyLock = { device_id: string; display_name: string | null };
 
@@ -239,6 +240,55 @@ export async function getGuestCodeView(propertyId: string): Promise<GuestCodeVie
       unmappedLocks: [],
       lockCodes: [],
     };
+  }
+}
+
+/**
+ * The stay's live Seam code, for the guest app's stay link (/h/s/<token>,
+ * src/lib/guest-app-stays-db.ts). The ONE place the stay page's digits come
+ * from: a code Helm issued for one of the stay's bookings rows (the
+ * canonical row and its duplicates, since the panel can issue against
+ * either), still on the ledger, on a lock still mapped to this home, and not
+ * yet ended. Never property_access.smart_lock_code: a standing house code
+ * outlives the stay, and the stay page is the place a code must not outlive.
+ *
+ * Null on any miss or read error: the page then says the code comes in the
+ * check-in message, which is what it said before this existed.
+ */
+export async function getLiveStayCode(
+  propertyId: string,
+  bookingIds: readonly string[],
+  now: Date = new Date(),
+): Promise<LiveStayCode | null> {
+  const ids = [...new Set(bookingIds.filter(Boolean))];
+  if (!propertyId || ids.length === 0) return null;
+  try {
+    const sb = getServiceClient();
+    const locks = await getPropertyLocks(sb, propertyId);
+    if (locks.length === 0) return null;
+    const mapped = new Set(locks.map((l) => l.device_id));
+    const { data, error } = await sb
+      .from('guest_access_codes')
+      .select('code, device_id, starts_at, ends_at, created_at')
+      .eq('property_id', propertyId)
+      .in('booking_id', ids)
+      .is('removed_at', null)
+      .order('created_at', { ascending: false });
+    if (error) return null;
+    const live = ((data ?? []) as Array<{ code: string | null; device_id: string | null; starts_at: string | null; ends_at: string | null }>).filter(
+      (r) =>
+        !!r.code &&
+        /^\d{4,8}$/.test(r.code) &&
+        !!r.device_id &&
+        mapped.has(r.device_id) &&
+        (!r.ends_at || Date.parse(r.ends_at) > now.getTime()),
+    );
+    const newest = live[0];
+    if (!newest?.code) return null;
+    const doors = new Set(live.filter((r) => r.code === newest.code).map((r) => r.device_id));
+    return { code: newest.code, starts_at: newest.starts_at, ends_at: newest.ends_at, doorCount: doors.size };
+  } catch {
+    return null;
   }
 }
 

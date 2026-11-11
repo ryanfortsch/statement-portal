@@ -379,6 +379,7 @@ export const MERGE_FIELDS = [
   'trash_day',
   'arrival_when',
   'cleaner_schedule_url',
+  'guest_app_link',
 ] as const;
 export type MergeField = (typeof MERGE_FIELDS)[number];
 
@@ -402,10 +403,16 @@ export const MERGE_FIELD_HELP: Record<MergeField, string> = {
   trash_day: 'Collection day (Cape Ann only)',
   arrival_when: "'tomorrow', 'today', or 'on Friday, October 16', from when the message goes",
   cleaner_schedule_url: 'Verified cleaner schedule link (must be configured before delivery)',
+  guest_app_link: "The stay's guest app link (door code inside on arrival), else the home's guide link (masked until sent)",
 };
 
 /** Values that go over the wire but never into a stored body. */
-export const SECRET_FIELDS: ReadonlySet<string> = new Set<MergeField>(['door_code', 'wifi_password']);
+/**
+ * guest_app_link is here because a stay link shows that stay's door code
+ * from 10 AM the day before check-in (src/lib/guest-app-stays.ts): stored
+ * copies hold it masked, like the code itself.
+ */
+export const SECRET_FIELDS: ReadonlySet<string> = new Set<MergeField>(['door_code', 'wifi_password', 'guest_app_link']);
 export const MASK = '••••';
 
 export type MergeContext = Partial<Record<MergeField, string | null | undefined>>;
@@ -554,6 +561,8 @@ export type MergeInput = {
   stayCode: string | null;
   lockMapped: boolean;
   trashDay: string | null;
+  /** The stay's guest app link (guest-app-stays-db.ts), else the home's; null when the home has none. */
+  guestAppLink?: string | null;
   /** When the message goes (arrival_when); absent reads as now. */
   now?: Date;
   /** The rule's timezone for arrival_when; absent reads as Eastern. */
@@ -613,6 +622,7 @@ export function buildMergeContext(input: MergeInput): MergeContext {
     parking: (property.parking ?? '').trim(),
     trash_day: (input.trashDay ?? '').trim(),
     arrival_when: arrivalWhen(booking.check_in, input.now ?? new Date(), input.timeZone ?? DEFAULT_TIMEZONE),
+    guest_app_link: (input.guestAppLink ?? '').trim(),
   };
 }
 

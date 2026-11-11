@@ -41,6 +41,7 @@ import { otaChannelOfBooking, otaThreadUrl } from '@/lib/helm-inbox-core';
 import { RECIPIENT_COLS, shapeRecipient, type ScheduleRecipient } from '@/lib/cleaner-digest-core';
 import { civicForProperty } from '@/lib/civic';
 import { loadGuestTimes } from '@/lib/property-rates';
+import { guestAppLinkForBooking } from '@/lib/guest-app-stays-db';
 import type { HelmPropertyRow } from '@/lib/properties';
 import { toE164Phone } from '@/lib/guests-identity-core';
 import {
@@ -361,6 +362,19 @@ export async function listAutomatedProperties(propertyId?: string | null): Promi
 
 // ── Merge context ───────────────────────────────────────────────────────
 
+/**
+ * How {{guest_app_link}} fills: 'mint' makes (or reuses) the stay's own link
+ * (a send, an OTA paste), 'preview' uses the home's permanent link so a
+ * panel preview or a test text never mints a stay link, 'none' skips the
+ * reads for a template that does not ask for it.
+ */
+type GuestAppLinkMode = 'mint' | 'preview' | 'none';
+
+function linkModeFor(mint: boolean, ...templates: Array<string | null | undefined>): GuestAppLinkMode {
+  if (!templates.some((t) => templateFields(t).includes('guest_app_link'))) return 'none';
+  return mint ? 'mint' : 'preview';
+}
+
 async function mergeContextFor(
   booking: AutomationBooking,
   bundle: PropertyBundle,
@@ -369,8 +383,11 @@ async function mergeContextFor(
   /** The rule's timezone, so {{arrival_when}} reads the guest's calendar
    *  day at the moment the text goes. */
   timeZone?: string | null,
+  linkMode: GuestAppLinkMode = 'none',
 ): Promise<MergeContext> {
   const stayCode = bundle.lockMapped ? await loadStayCode(booking.id) : null;
+  const guestAppLink =
+    linkMode === 'none' ? null : await guestAppLinkForBooking(booking.id, booking.property_id, 'automations', linkMode === 'mint');
   return buildMergeContext({
     booking,
     guest,
@@ -389,6 +406,7 @@ async function mergeContextFor(
     stayCode,
     lockMapped: bundle.lockMapped,
     trashDay: bundle.trashDay,
+    guestAppLink,
     now: new Date(),
     timeZone: timeZone || undefined,
   });
@@ -880,8 +898,9 @@ async function dispatchRow(row: AutomationSendRow, opts: DispatchOptions): Promi
 
   const guest = booking ? await loadGuest(booking.guest_id) : null;
   const adjustment = booking ? await loadAdjustmentFor(booking.property_id, booking.check_in) : null;
-  const ctx = booking && bundle ? await mergeContextFor(booking, bundle, guest, adjustment, rule?.timezone) : {};
   const body = opts.bodyOverride?.trim() || rule?.body || '';
+  const ctx =
+    booking && bundle ? await mergeContextFor(booking, bundle, guest, adjustment, rule?.timezone, linkModeFor(true, body, rule?.subject)) : {};
   const rendered = renderTemplate(body, ctx);
   // Rendered pair: .text for the wire only, .masked for the ledger and the inbox.
   const subject = rule ? renderSubject(rule.subject, ctx) : null;
@@ -1111,7 +1130,7 @@ export async function otaPasteText(id: string): Promise<{ ok: true; text: string
   const rule = { ...ruleRow, enabled: ruleRow.enabled && effectiveIds.has(ruleRow.id) };
   const guest = await loadGuest(booking.guest_id);
   const adjustment = await loadAdjustmentFor(booking.property_id, booking.check_in);
-  const rendered = renderTemplate(rule.body, await mergeContextFor(booking, bundle, guest, adjustment, rule.timezone));
+  const rendered = renderTemplate(rule.body, await mergeContextFor(booking, bundle, guest, adjustment, rule.timezone, linkModeFor(true, rule.body)));
   // The same checks the send makes, before the door code leaves the server:
   // a stay the feed has cancelled or moved since this was parked, a rule
   // switched off, a home no longer automated. Copying first and learning at
@@ -1404,7 +1423,7 @@ export async function sendTestToOperator(propertyId: string, ruleId: string, pho
   const stay = (await loadNextStay(propertyId)) ?? sampleStay(propertyId);
   const guest = await loadGuest(stay.guest_id);
   const adjustment = await loadAdjustmentFor(propertyId, stay.check_in);
-  const ctx = await mergeContextFor(stay, bundle, guest, adjustment, rule.timezone);
+  const ctx = await mergeContextFor(stay, bundle, guest, adjustment, rule.timezone, linkModeFor(false, rule.body));
   const rendered = renderTemplate(rule.body, ctx);
   const content = `TEST from Helm (${bundle.property.name}, ${rule.key}). Secrets masked.\n\n${rendered.masked}`;
   try {
@@ -1539,7 +1558,9 @@ export async function getAutomationsPanelView(propertyId: string): Promise<Autom
 
   const guest = nextStay ? await loadGuest(nextStay.guest_id) : null;
   const adjustment = nextStay ? await loadAdjustmentFor(propertyId, nextStay.check_in) : null;
-  const ctx = nextStay ? await mergeContextFor(nextStay, bundle, guest, adjustment) : null;
+  const ctx = nextStay
+    ? await mergeContextFor(nextStay, bundle, guest, adjustment, undefined, linkModeFor(false, ...rules.flatMap((r) => [r.body, r.subject])))
+    : null;
 
   const effective = effectiveRulesFor(propertyId, rules);
   const panelRules: PanelRule[] = effective.map((e) => {

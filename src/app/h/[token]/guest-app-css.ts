@@ -180,6 +180,23 @@ export const guestAppCss = `
 .ga-inactive { padding-top: calc(80px + env(safe-area-inset-top)); text-align: center; display: flex; flex-direction: column; align-items: center; gap: 14px; }
 .ga-inactive .ga-display { margin-top: 10px; }
 
+/* Your stay (the stay link, /h/s/<token>, inside its window) */
+.ga-stay { margin: 22px 0 6px; background: var(--paper); border: 1px solid var(--rule); border-top: 3px solid var(--ink); border-radius: 14px; padding: 16px 16px 6px; }
+.ga-stay .ga-h2 { margin-bottom: 10px; }
+.ga-stay-dates { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+.ga-stay-date { background: var(--cream); border-radius: 12px; padding: 10px 12px; min-width: 0; }
+.ga-stay-date-v { font-family: var(--serif); font-size: 18px; line-height: 1.2; }
+.ga-stay-date-t { font-size: 13px; color: var(--ink-3); }
+.ga-code { border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); padding: 14px 0; margin-bottom: 4px; display: grid; gap: 8px; justify-items: start; }
+.ga-code-v { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.ga-code-digits { font-family: var(--mono); font-size: 40px; line-height: 1; letter-spacing: 0.16em; color: var(--ink); }
+.ga-code button.ga-btn { border: 0; cursor: pointer; font: inherit; font-size: 13px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; }
+.ga-code button.ga-btn[disabled] { opacity: 0.7; cursor: wait; }
+.ga-code-err { margin: 0; font-size: 14px; color: var(--alert); }
+.ga-stay .ga-items { background: transparent; border: 0; padding: 0; border-radius: 0; }
+.ga-stay-until { margin: 6px 0 10px; font-size: 13px; color: var(--ink-3); }
+.ga-stay-later { margin: 22px 0 6px; background: var(--paper); border: 1px solid var(--rule); border-left: 3px solid var(--drift); border-radius: 14px; padding: 13px 16px; font-size: 15px; color: var(--ink-2); }
+
 @media (min-width: 640px) {
   .ga-quick { grid-template-columns: repeat(3, 1fr); }
   .ga-tile-wifi { grid-column: 1 / -1; }
