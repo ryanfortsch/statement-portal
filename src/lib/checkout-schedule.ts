@@ -52,6 +52,7 @@ import { CAPE_ANN_REGION } from '@/lib/property-scope';
 import { NON_LIVE_STATUSES } from '@/lib/ghost-booking-reconcile';
 import { guestNameScore, displayGuestName, isContinuation } from '@/lib/stay-continuation';
 import { ownerHoldCheckouts, type HeldNight } from '@/lib/owner-hold-checkouts';
+import { earlyArrivals, EARLY_ARRIVAL_REACH_DAYS } from '@/lib/early-arrival-holds';
 
 // Which homes a schedule covers is a registry question (properties.region,
 // read through lib/property-scope.ts), never a literal id set: Rosa's Cape
@@ -172,6 +173,10 @@ export type ScheduleRow = {
   conflictingCheckOut: string | null;
   nextCheckinTime: string | null;
   nextGuestName: string | null;
+  /** The next guest paid to arrive early: their arrival here comes from the
+   *  Guesty early-arrival hold, and the reservation still says
+   *  `bookedCheckIn` (src/lib/early-arrival-holds.ts). */
+  nextArrivalEarly?: { bookedCheckIn: string } | null;
   adjustment: {
     id: string;
     source: AdjustmentSource;
@@ -517,7 +522,9 @@ export async function buildCheckoutSchedule(
       .from('bookings')
       .select('id, property_id, check_in, check_out, guest_name, source, first_seen_at, last_seen_at, external_confirmation_code')
       .gte('check_in', startDate)
-      .lte('check_in', endDate)
+      // Past the window: a paid early arrival inside it belongs to a
+      // reservation that starts after it (early-arrival-holds.ts).
+      .lte('check_in', addDays(endDate, EARLY_ARRIVAL_REACH_DAYS))
       .in('status', STAY_STATUSES)
       .is('duplicate_of', null),
     // Every live adjustment whose stay could land in the window. Stays run
@@ -544,7 +551,7 @@ export async function buildCheckoutSchedule(
     selectAllPaged<HeldNight>((fromIdx, toIdx) =>
       supabase
         .from('property_calendar_days')
-        .select('property_id, date, block_type, block_reason, block_note, block_start')
+        .select('property_id, date, block_type, block_reason, block_note, block_start, block_end')
         .not('block_type', 'is', null)
         .gte('date', addDays(startDate, -60))
         .lte('date', endDate)
@@ -695,6 +702,21 @@ export async function buildCheckoutSchedule(
     arrivalByPropertyDay.set(`${b.property_id}|${b.check_in}`, b);
   }
 
+  // A paid early arrival: the guest comes in on the first held night, not
+  // the check-in Guesty still has, so the checkout that morning is a
+  // same-day turn. Read live from the hold (src/lib/early-arrival-holds.ts).
+  // A failed mirror read leaves arrivals as booked, as before this layer.
+  const earlyByPropertyDay = new Map<string, string>();
+  if (!holdsRes.error) {
+    for (const ea of earlyArrivals(holdsRes.data ?? [], [...checkinStays.values()])) {
+      const booked = arrivalByPropertyDay.get(`${ea.propertyId}|${ea.bookedCheckIn}`);
+      if (!booked) continue;
+      arrivalByPropertyDay.delete(`${ea.propertyId}|${ea.bookedCheckIn}`);
+      arrivalByPropertyDay.set(`${ea.propertyId}|${ea.arrives}`, booked);
+      earlyByPropertyDay.set(`${ea.propertyId}|${ea.arrives}`, ea.bookedCheckIn);
+    }
+  }
+
   // Resolve each stay to its effective checkout day, then bucket by day.
   const rowsByDay = new Map<string, ScheduleRow[]>();
   const skippedByDay = new Map<string, ScheduleRow[]>();
@@ -749,6 +771,9 @@ export async function buildCheckoutSchedule(
         ? (normalizeTime(prop.default_checkin_time) ?? FALLBACK_CHECKIN_TIME)
         : null,
       nextGuestName: arrival ? displayGuestName(arrival.guest_name) : null,
+      nextArrivalEarly: arrival && earlyByPropertyDay.has(`${stay.property_id}|${effectiveCheckOut}`)
+        ? { bookedCheckIn: earlyByPropertyDay.get(`${stay.property_id}|${effectiveCheckOut}`) as string }
+        : null,
       adjustment: adj
         ? {
             id: adj.id,
