@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { prepareInventory } from '../src/lib/channex-inventory/planner.ts';
 import { createInventoryDeliveryStore } from '../src/lib/channex-inventory/delivery-store.ts';
-import { deliverInventoryOnce, createUnmappedInventoryTransport } from '../src/lib/channex-inventory/delivery.ts';
+import { deliverInventoryOnce, recoverInventoryOnce, createUnmappedInventoryTransport } from '../src/lib/channex-inventory/delivery.ts';
 import { CALDERWOOD_PRODUCTION as m } from '../src/lib/channex-production-preflight.ts';
 import { PRODUCTION_DB_URL } from '../src/lib/channex-production-runtime.ts';
 if (process.env.PGHOST !== '127.0.0.1' || process.env.PGDATABASE !== 'helm_synthetic_channex') throw Error('Synthetic loopback database required');
@@ -26,11 +26,13 @@ sql('update helm_airbnb_bookings.delivery_scope set enabled=true;');
 const rpcFetch: typeof fetch = async (url, init) => {
   const name = String(url).split('/').at(-1), p = JSON.parse(String(init?.body));
   assert.ok(String(url).startsWith(PRODUCTION_DB_URL + '/rest/v1/rpc/'));
-  const args = name === 'helm_channex_delivery_claim' ? `${str(p.p_token)}::uuid` : name === 'helm_channex_delivery_begin'
+  const args = name === 'helm_channex_delivery_claim' ? `${str(p.p_token)}::uuid` : name === 'helm_channex_delivery_recover'
+    ? `${str(p.p_previous_token)}::uuid,${str(p.p_token)}::uuid` : name === 'helm_channex_delivery_begin'
     ? `${str(p.p_token)}::uuid,${str(p.p_digest)}` : name === 'helm_channex_delivery_record'
     ? `${str(p.p_token)}::uuid,${str(p.p_digest)},${json(p.p_outcome)}` : null;
   assert.ok(args);
   const result = JSON.parse(sql(`set role service_role; select to_jsonb(public.${name}(${args}));`));
+  if (name === 'helm_channex_delivery_recover' && loseRecoveryResponse) { loseRecoveryResponse = false; throw Error('Synthetic lost recovery response'); }
   if (name === 'helm_channex_delivery_record' && loseRecordResponse) { loseRecordResponse = false; throw Error('Synthetic lost outcome response'); }
   return Response.json(result);
 };
@@ -43,12 +45,13 @@ const reads = [
 ];
 let readCount = 0, sendCount = 0;
 let token = randomUUID(), taskId = randomUUID();
-let loseRecordResponse = false;
+let loseRecordResponse = false, loseRecoveryResponse = false, timeoutNext = false;
 const provider: typeof fetch = async (_url, init) => {
   if (init?.method === 'GET') return Response.json(reads[readCount++ % 4]);
   sendCount++;
   assert.equal(sql(`select state from helm_airbnb_bookings.delivery_attempts where token=${str(token)}::uuid;`), 'submitting');
   assert.equal(init?.body, sql(`select request_body from helm_airbnb_bookings.delivery_attempts where token=${str(token)}::uuid;`));
+  if (timeoutNext) { timeoutNext = false; throw Error('Synthetic availability timeout'); }
   return Response.json({ data: [{ id: taskId, type: 'task' }], meta: { message: 'Success', warnings: [] } });
 };
 try {
@@ -80,7 +83,45 @@ try {
   assert.equal((await deliverInventoryOnce(store, transport, randomUUID())).status, 'already-accepted');
   assert.equal(sql('select count(*) from helm_airbnb_bookings.delivery_attempts;'), '2');
   assert.equal(sendCount, 2); assert.equal(readCount, 8);
+  function freshPlan() {
+    const next = prepareInventory(JSON.parse(sql('select helm_channex_inventory_read();')), Date.now()); assert.ok(next.plan);
+    sql(`select helm_channex_inventory_plan_commit(${json({ captureVersion: next.state.captureVersion, configurationVersion: next.state.configurationVersion,
+      headVersion: next.state.headVersion, inputToken: next.state.inputToken })}, ${json(next.plan)});`);
+    return next.plan;
+  }
+  sql(`update property_rate_days set closed=false where property_id='65_calderwood' and date=${str(availableDate)};`);
+  freshPlan(); sql("update helm_airbnb_bookings.delivery_scope set next_attempt_at='-infinity';");
+  token=randomUUID(); timeoutNext=true;
+  assert.equal((await deliverInventoryOnce(store, transport, token)).status,'uncertain');
+  const timedOut=token, timedOutBytes=sql(`select request_body from helm_airbnb_bookings.delivery_attempts where token=${str(token)}::uuid;`);
+  token=randomUUID();
+  assert.equal((await recoverInventoryOnce(store, transport, timedOut, token)).status,'blocked');
+  assert.equal(sendCount,3); assert.equal(readCount,12);
+  sql(`update helm_airbnb_bookings.delivery_attempts set expires_at=0,started_at=clock_timestamp()-interval '2 minutes' where token=${str(timedOut)}::uuid;
+    update helm_airbnb_bookings.delivery_scope set next_attempt_at='-infinity';
+    update property_rate_days set closed=true where property_id='65_calderwood' and date=${str(availableDate)};`);
+  assert.equal((await recoverInventoryOnce(store, transport, timedOut, token)).status,'stale');
+  freshPlan(); loseRecoveryResponse=true;
+  await assert.rejects(recoverInventoryOnce(store,transport,timedOut,token),/checkpoint uncertain/);
+  assert.equal(sendCount,3); assert.equal(readCount,12); // lost claim grants no IO
+  taskId=randomUUID();
+  assert.equal((await recoverInventoryOnce(store,transport,timedOut,token)).status,'accepted');
+  const replacement=token;
+  const replacementBytes=sql(`select request_body from helm_airbnb_bookings.delivery_attempts where token=${str(token)}::uuid;`);
+  assert.notEqual(replacementBytes,timedOutBytes);
+  assert.equal(sql(`select request_body from helm_airbnb_bookings.delivery_attempts where token=${str(timedOut)}::uuid;`),timedOutBytes);
+  assert.equal((await recoverInventoryOnce(store,transport,timedOut,token)).status,'already-accepted');
+  assert.equal(sendCount,4); assert.equal(readCount,16);
+  // Old request's authentic response arrives AFTER the replacement acceptance.
+  await store.record(timedOut,sql(`select request_digest from helm_airbnb_bookings.delivery_attempts where token=${str(timedOut)}::uuid;`),{kind:'accepted',taskId:randomUUID()});
+  assert.equal((await deliverInventoryOnce(store,transport,replacement)).status,'blocked');
+  freshPlan(); sql("update helm_airbnb_bookings.delivery_scope set next_attempt_at='-infinity';");
+  token=randomUUID(); taskId=randomUUID();
+  assert.equal((await deliverInventoryOnce(store,transport,token)).status,'accepted');
+  assert.equal(sql(`select request_body from helm_airbnb_bookings.delivery_attempts where token=${str(token)}::uuid;`),replacementBytes);
+  assert.equal(sendCount,5); assert.equal(readCount,20);
+  assert.equal(sql('select consecutive_recoveries from helm_airbnb_bookings.delivery_scope;'),'0');
 } finally {
   sql("delete from helm_airbnb_bookings.delivery_attempts; update helm_airbnb_bookings.delivery_scope set enabled=false,next_attempt_at='-infinity';");
 }
-console.log('PASS: real SQL claim, exact stored bytes, service RPC adapter, one-use barrier, latest-plan acceptance, lost response recovery and duplicate suppression');
+console.log('PASS: real SQL claim, exact stored bytes, service RPC adapter, one-use barrier, latest-plan acceptance, real timeout recovery, lost responses, late-receipt reassertion and duplicate suppression');

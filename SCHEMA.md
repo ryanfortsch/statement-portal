@@ -175,14 +175,22 @@ never key per-stay logic on `bookings.id`.
   service-RPC-only availability send ledger. Each attempt pins the immutable
   plan, exact credential-free request bytes and SHA-256, configuration version,
   lease and provider task receipt. Claim and one-use begin checkpoints recheck
-  the planner's source/coverage/authority/clock guards. At most one unresolved
-  attempt exists. Pre-send expiry is reclaimable; expiry after the send barrier,
-  timeouts and ambiguous responses quarantine the lane. A confirmed acceptance
+  the planner's source/coverage/authority/clock guards. At most one unsuperseded
+  unresolved attempt exists. Pre-send expiry is reclaimable; expiry after the
+  send barrier, timeouts and ambiguous responses quarantine the lane. An explicit
+  `helm_channex_delivery_recover(previous_token, token)` can link an old unknown
+  attempt to a new lease built from the current validated plan after cooldown.
+  Both records survive; old bytes are never replayed. A recovery generation
+  fences prepared sends when a definitive late receipt changes known ordering.
+  Three consecutive recoveries exhaust the budget until current acceptance.
+  A confirmed acceptance
   deduplicates the exact current plan (`already-accepted`, no provider IO) and
   permits a later fresh plan after pacing and full revalidation. Accepted history
-  is retained but is not OTA delivery proof. No timeout retirement, task-status
-  polling, direct service table access, activation or settlement RPC is installed.
-  `helm_channex_delivery_status()` returns gate state and counts, not payloads.
+  is retained but is not OTA delivery proof. No scheduler invokes recovery, and
+  no task-status polling, direct service table access, activation or settlement
+  RPC is installed. `helm_channex_delivery_status()` returns gate state and counts,
+  not payloads; `unresolved` includes superseded unknown history, not just the
+  current lane. All gates remain off.
 - **`helm_channex_booking_audit_snapshot()`**: service-only, read-only bounded
   projection of all Calderwood calendar rows for the owner-triggered migration
   comparison. IDs, dates, statuses, duplicate roots and confirmation codes only;

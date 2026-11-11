@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
-import { createUnmappedInventoryTransport, deliverInventoryOnce, type DeliveryAttempt,
+import { createUnmappedInventoryTransport, deliverInventoryOnce, recoverInventoryOnce, type InventoryRecoveryStore, type DeliveryAttempt,
   type DeliveryOutcome, type InventoryDeliveryStore } from '../channex-inventory/delivery.ts';
 import { createInventoryDeliveryStore } from '../channex-inventory/delivery-store.ts';
 import { inventoryDigest } from '../channex-inventory/planner.ts';
@@ -137,4 +137,35 @@ test('durable acceptance returns without provider IO, even when the previous out
   const malformed = createInventoryDeliveryStore(PRODUCTION_DB_URL, 'synthetic', async () =>
     Response.json({ status: 'already-accepted', attempt: fixture() }));
   await assert.rejects(malformed.claim(randomUUID()));
+});
+
+test('recovery uses a distinct durable replacement token and the same one-use IO barrier', async () => {
+  const a = fixture(), h = store(a); let recovered = 0, sent = 0;
+  const previous = randomUUID();
+  const db: InventoryRecoveryStore = { ...h.db, async recover(old, next) {
+    assert.equal(old, previous); assert.equal(next, a.token); recovered++;
+    return { status: 'claimed', attempt: a };
+  } };
+  const transport = { async prepare() { return { async send(): Promise<DeliveryOutcome> { sent++; return { kind: 'accepted', taskId }; } }; } };
+  await assert.rejects(recoverInventoryOnce(db, transport, a.token, a.token, () => now), /new token/);
+  assert.equal(recovered, 0);
+  const results = await Promise.all([recoverInventoryOnce(db, transport, previous, a.token, () => now), recoverInventoryOnce(db, transport, previous, a.token, () => now)]);
+  assert.equal(results.filter(r => r.status === 'accepted').length, 1); assert.equal(sent, 1);
+});
+test('blocked, stale and lost recovery responses never perform provider IO', async () => {
+  for (const status of ['blocked', 'stale', 'disabled', 'already-accepted'] as const) {
+    const db: InventoryRecoveryStore = { ...store(fixture()).db, async recover() { return { status }; } };
+    assert.deepEqual(await recoverInventoryOnce(db, { async prepare() { throw Error('must not prepare'); } }, randomUUID(), randomUUID()), { status });
+  }
+  const db = createInventoryDeliveryStore(PRODUCTION_DB_URL, 'synthetic', async () => { throw Error('lost PRIVATE_SENTINEL'); });
+  await assert.rejects(recoverInventoryOnce(db, { async prepare() { throw Error('must not prepare'); } }, randomUUID(), randomUUID()), /checkpoint uncertain/);
+});
+test('recovery adapter binds both tokens; a mismatched returned token fails before IO', async () => {
+  const previous = randomUUID(), a = fixture();
+  const db = createInventoryDeliveryStore(PRODUCTION_DB_URL, 'synthetic', async (url, init) => {
+    assert.ok(String(url).endsWith('/helm_channex_delivery_recover'));
+    assert.deepEqual(JSON.parse(String(init?.body)), { p_previous_token: previous, p_token: a.token });
+    return Response.json({ status: 'claimed', attempt: { ...a, token: randomUUID() } });
+  });
+  await assert.rejects(recoverInventoryOnce(db, { async prepare() { throw Error('must not prepare'); } }, previous, a.token, () => now), /token mismatch/);
 });
