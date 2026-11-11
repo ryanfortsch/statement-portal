@@ -126,11 +126,11 @@ export async function auditCalderwoodChannels(key: string, expected: ChannelRevi
       { key: 'connection', label: 'One connection, scoped only to Calderwood', passed: !!exactScope },
       { key: 'review', label: 'Connection identity matches the reviewed setup', passed: !!review && current?.id === review.channelId },
       { key: 'airbnb', label: 'Airbnb adapter', passed: a?.channel === 'ABB' },
-      { key: 'listing', label: 'One reviewed Airbnb listing and rate mapping', passed: !!review && !!mapping
+      { key: 'listing', label: 'One reviewed Airbnb listing and rate mapping', passed: !!review && !!mapping && !!a
         && listingId.safeParse(mapping.settings.listing_id).success && mapping.settings.listing_id === review.listingId
         && mapping.rate_plan_id === m.ratePlanId && mapping.settings.parent_listing_id == null
         && (mapping.settings.los_enabled === undefined || mapping.settings.los_enabled === false)
-        && a?.settings.parent_listing_id == null && (a.settings.los_enabled === undefined || a.settings.los_enabled === false) },
+        && a.settings.parent_listing_id == null && (a.settings.los_enabled === undefined || a.settings.los_enabled === false) },
       { key: 'rate', label: 'Mapped USD rate belongs to Calderwood’s whole-home room', passed: rateVerified && (a?.currency === 'USD' || a?.currency === null) },
       { key: 'minimum-stay', label: 'Minimum-stay mode matches the reviewed setup', passed: !!review && a?.settings.min_stay_type === review.minStayType },
       { key: 'overrides', label: 'No channel or mapping price/restriction overrides', passed: !!a && !!mapping

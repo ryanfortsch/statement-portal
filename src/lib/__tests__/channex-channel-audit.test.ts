@@ -7,14 +7,14 @@ const id = (n: number) => `10000000-0000-4000-8000-${String(n).padStart(12,'0')}
 const now = Date.parse('2026-11-11T03:00:00Z');
 const key = 'synthetic-key';
 const expected = { channelId:id(1), listingId:'123456789', minStayType:'Arrival' as const };
-function channel() { return { id:id(1), type:'channel', attributes:{ id:id(1), channel:'ABB', is_active:true, currency:null,
-  properties:[m.propertyId], expected_removal_date:null as string|null,
+function channel() { return { id:id(1), type:'channel', attributes:{ id:id(1), channel:'ABB', is_active:true, currency:null as string|null,
+  properties:[m.propertyId] as string[], expected_removal_date:null as string|null,
   settings:{ min_stay_type:'Arrival', derived_option:null, access_token:'PRIVATE_SENTINEL' } as Record<string,unknown>,
   rate_plans:[{ id:id(2), rate_plan_id:m.ratePlanId, settings:{ listing_id:'123456789', los_enabled:false } as Record<string,unknown> }],
-}, relationships:{ properties:{ data:[{ id:m.propertyId, type:'property' }] } } }; }
+}, relationships:{ properties:{ data:[{ id:m.propertyId as string, type:'property' }] } } }; }
 function list(rows=[channel()]) { return { data:rows, meta:{ page:1,limit:100,total:rows.length } }; }
 function rate() { return { data:{ id:m.ratePlanId, type:'rate_plan', attributes:{ currency:'USD',sell_mode:'per_room',rate_mode:'manual' },
-  relationships:{ property:{ data:{ id:m.propertyId } }, room_type:{ data:{ id:m.roomTypeId } } } } }; }
+  relationships:{ property:{ data:{ id:m.propertyId as string } }, room_type:{ data:{ id:m.roomTypeId as string } } } } }; }
 function harness(rows: unknown[] = [list(),{data:channel()},rate(),{data:channel()},list()]) {
   const calls: { url:string; init:RequestInit|undefined }[]=[];
   const fetcher: typeof fetch = async (input,init) => { calls.push({url:String(input),init}); return Response.json(rows[calls.length-1]); };
