@@ -11,8 +11,8 @@ const monthLabel = (month:string) => new Date(`${month}-01T12:00:00Z`).toLocaleD
 const dateLabel = (date:string) => new Date(`${date}T12:00:00Z`).toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric', timeZone:'UTC'});
 const labels: Record<PricingNightStatus, string> = {ready:'Ready to review', review:'Needs review', manual:'Manual price', booked:'Booked', blocked:'Blocked', unknown:'No data'};
 
-export default function PricingCalendar({snapshot, preview,currentOnly=false}: {
-  snapshot:PricingSnapshot; preview:PricingPreview|null;currentOnly?:boolean;
+export default function PricingCalendar({snapshot, preview,currentOnly=false,onOverride}: {
+  snapshot:PricingSnapshot; preview:PricingPreview|null;currentOnly?:boolean;onOverride?:(date:string)=>void;
 }) {
   const statusLabel=(status:PricingNightStatus)=>currentOnly&&status==='ready'?'Available':labels[status];
   const months = [...new Set(snapshot.days.map(d => d.date.slice(0,7)))];
@@ -48,6 +48,7 @@ export default function PricingCalendar({snapshot, preview,currentOnly=false}: {
       </div>
       {selected.day!.state === 'open' && <div className="pricing-detail-minimum"><span>Minimum stay</span><b>{(currentOnly?selected.day!.minNights:recommendation?.minNights) ?? 'Unknown'} {(currentOnly?selected.day!.minNights:recommendation?.minNights) === 1 ? 'night' : 'nights'}</b></div>}
       {!!recommendation?.reasons.length && <ul className="pricing-detail-reasons" data-status={selected.status}>{recommendation.reasons.map(r => <li key={r}>{r}</li>)}</ul>}
+      {onOverride&&selected.day!.state==='open'&&<Button variant="secondary" onClick={()=>{dialog.current?.close();onOverride(selected.date);}}>Override dates</Button>}
       {!!steps.length && <div className="pricing-calculation"><h4>Price breakdown</h4><ol>{steps.map((s,i) => <li key={i}><span>{s.label}{s.adjustmentPct !== 0 && <small>{s.adjustmentPct > 0 ? '+' : ''}{s.adjustmentPct.toFixed(1)}%</small>}</span><b>{money(s.resultCents,true)}</b></li>)}</ol></div>}
     </>;
   }

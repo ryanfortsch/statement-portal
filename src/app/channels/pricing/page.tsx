@@ -17,6 +17,8 @@ import {supabaseAdmin} from '@/lib/supabase-admin';
 import {readPricingLivePortfolio} from '@/lib/dynamic-pricing-live.server';
 import PricingLiveWorkspace from './PricingLiveWorkspace';
 import {refreshPricingLiveAction,readPricingLiveCalendarAction} from './live-actions';
+import { capturePricingObservationAction,setPricingTrackingAction,savePricingEvidenceAction,publishPricingAction,refreshPricingAction,reviewPricingAction,savePricingAction,undoPricingAction } from './actions';
+const pricingServices={save:savePricingAction,refresh:refreshPricingAction,review:reviewPricingAction,publish:publishPricingAction,undo:undoPricingAction,evidence:savePricingEvidenceAction,observe:capturePricingObservationAction,tracking:setPricingTrackingAction};
 export const dynamic='force-dynamic';
 export default async function PricingPage({searchParams}:{searchParams:Promise<Record<string,string|string[]|undefined>>}) {
   await requireOwnerEmail();
@@ -43,7 +45,7 @@ export default async function PricingPage({searchParams}:{searchParams:Promise<R
     {!live&&params.property&&!selected&&<EmptyState>Home not found in the active portfolio.</EmptyState>}
     {!live&&params.property&&!workspace&&<PricingBackLink view={view} selectedId={selected?.id} homes={fleet.map(p=>({id:p.id,name:p.name}))}/>}
     {portfolio&&<PricingPortfolio rows={portfolio} initialView={view}/>}
-    {workspace&&selected&&<PricingWorkbench key={selected.id} propertyId={selected.id} name={selected.name}
+    {workspace&&selected&&<PricingWorkbench services={pricingServices} key={selected.id} propertyId={selected.id} name={selected.name}
       navigation={<PricingBackLink view={view} selectedId={selected.id} homes={fleet.map(p=>({id:p.id,name:p.name}))}/>}
       authority={selected.calendar_authority} initialPolicy={workspace.policy} initialSnapshot={workspace.snapshot}
       initialProfile={workspace.profile} initialRuns={workspace.runs} initialEvidenceVersion={workspace.context.evidence?.version??0}

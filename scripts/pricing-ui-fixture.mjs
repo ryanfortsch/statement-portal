@@ -25,13 +25,19 @@ export async function undoPricingAction(){runs=[];return {ok:true,value:10};}
 `);
 await writeFile(join(scratch,'entry.tsx'),`
 import React from 'react';import {createRoot} from 'react-dom/client';
+import * as actions from './actions';
+const services={save:actions.savePricingAction,refresh:actions.refreshPricingAction,review:actions.reviewPricingAction,publish:actions.publishPricingAction,undo:actions.undoPricingAction,evidence:actions.savePricingEvidenceAction,observe:actions.capturePricingObservationAction,tracking:actions.setPricingTrackingAction};
 import PricingWorkbench from '${root}/src/app/channels/pricing/PricingWorkbench.tsx';
 import {ConfirmProvider} from '${root}/src/components/ConfirmDialog.tsx';
 import {createPricingDemo,createPricingPortfolioDemo} from '${root}/src/lib/dynamic-pricing-demo.ts';
+import PricingLiveWorkspace from '${root}/src/app/channels/pricing/PricingLiveWorkspace.tsx';
+import {pricingLiveRow,currentPricingSnapshot} from '${root}/src/lib/dynamic-pricing-live.ts';
 import PricingDemo from '${root}/src/app/channels/pricing/demo/PricingDemo.tsx';
 const {policy,snapshot}=createPricingDemo();snapshot.evidence.propertyId='test_home';
 globalThis.pricingFixture={policy,snapshot};
-createRoot(document.getElementById('root')).render(<ConfirmProvider><main className="pricing-preview-shell"><header className="pricing-preview-toolbar"><h1><b>Helm</b><span>/</span>Pricing</h1><span title="Synthetic data. Changes stay in this browser and reset on reload.">Demo · simulated data</span></header>{new URLSearchParams(location.search).has('demo')?<PricingDemo fixtures={createPricingPortfolioDemo()}/>:<PricingWorkbench propertyId="test_home" name="Synthetic harbor home" authority={new URLSearchParams(location.search).has('guesty')?'guesty':'helm'} initialPolicy={policy} initialSnapshot={snapshot} initialProfile={null} initialRuns={[]}/>}</main></ConfirmProvider>);
+const liveHomes=createPricingPortfolioDemo().map(({home,fixture})=>({home:{...home,timezone:'America/New_York'},snapshot:currentPricingSnapshot(fixture.snapshot,new Date()),source:'Synthetic mirror',sourceObservedAt:fixture.snapshot.observedAt}));
+const livePortfolio={readAt:new Date().toISOString(),rows:liveHomes.map(c=>pricingLiveRow(c.home,c.snapshot,new Date(),c.snapshot.today))};
+createRoot(document.getElementById('root')).render(<ConfirmProvider><main className="pricing-preview-shell"><header className="pricing-preview-toolbar"><h1><b>Helm</b><span>/</span>Pricing</h1><span title="Synthetic data. Changes stay in this browser and reset on reload.">Demo · simulated data</span></header>{new URLSearchParams(location.search).has('live')?<PricingLiveWorkspace initialPortfolio={livePortfolio} refreshAction={async()=>({ok:true,value:livePortfolio})} calendarAction={async id=>({ok:true,value:liveHomes.find(c=>c.home.id===id)})}/>:new URLSearchParams(location.search).has('demo')?<PricingDemo fixtures={createPricingPortfolioDemo()}/>:<PricingWorkbench services={services} propertyId="test_home" name="Synthetic harbor home" authority={new URLSearchParams(location.search).has('guesty')?'guesty':'helm'} initialPolicy={policy} initialSnapshot={snapshot} initialProfile={null} initialRuns={[]}/>}</main></ConfirmProvider>);
 `);
 await new Promise((resolve,reject)=>{const c=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.tsx'),output:{path:scratch,filename:'bundle.js'},
   resolve:{extensions:['.ts','.tsx','.js'],modules:[join(root,'node_modules')],alias:{'@':join(root,'src'),'./actions$':join(scratch,'actions.ts'),'next/link$':join(scratch,'link.tsx')}},

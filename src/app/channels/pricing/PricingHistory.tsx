@@ -4,8 +4,8 @@ import {Button} from '@/components/Button';
 import {etStamp} from '@/lib/stable-time';
 import {pricingMoney as money} from '@/lib/dynamic-pricing-display';
 import {comparePricingObservations,type PricingObservationRecord,type PricingTracking} from '@/lib/dynamic-pricing-observations';
-export default function PricingHistory({observations,tracking,scheduledCaptureEnabled,busy,canCapture,onCapture,onTracking}:{
-  observations:PricingObservationRecord[];tracking:PricingTracking;scheduledCaptureEnabled:boolean;busy:boolean;canCapture:boolean;
+export default function PricingHistory({observations,tracking,scheduledCaptureEnabled,busy,canCapture,onCapture,onTracking,sessionOnly=false}:{
+  sessionOnly?:boolean;observations:PricingObservationRecord[];tracking:PricingTracking;scheduledCaptureEnabled:boolean;busy:boolean;canCapture:boolean;
   onCapture:()=>void;onTracking:(enabled:boolean)=>void;
 }) {
   const [night,setNight]=useState(''),[baseline,setBaseline]=useState('');
@@ -14,7 +14,7 @@ export default function PricingHistory({observations,tracking,scheduledCaptureEn
   const selected=latest?.data.days.some(d=>d.date===night)?night:latest?.data.days[0]?.date;
   return <section className="space-y-4" aria-label="Comparison history">
     <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-lg font-semibold">Saved snapshots</h2>
-      <p className="mt-2 max-w-3xl text-sm text-slate-500">Compare recorded rates and booking changes.</p></div>
+      <p className="mt-2 max-w-3xl text-sm text-slate-500">Compare recorded rates and booking changes.{sessionOnly?' Kept for this session only.':''}</p></div>
       <Button disabled={busy||!canCapture} onClick={onCapture}>Save snapshot</Button></div>
     {!canCapture&&<p className="mt-3 text-xs text-amber-800">Save rules before recording a snapshot.</p>}
     {!latest?<p className="rounded-lg bg-slate-50 p-4 text-sm">No snapshots saved yet.</p>:<>
@@ -31,11 +31,11 @@ export default function PricingHistory({observations,tracking,scheduledCaptureEn
         <p className="mt-3 text-xs text-slate-500">Original proposals and forecasts. Published rates and final outcomes may differ.</p>
       </details>
     </>}
-    <details className="border-t pt-4"><summary className="cursor-pointer text-sm font-medium">Collection settings</summary>
+    {!sessionOnly&&<details className="border-t pt-4"><summary className="cursor-pointer text-sm font-medium">Collection settings</summary>
     <div className="my-4 flex flex-wrap items-center gap-3"><Button size="sm" disabled={busy||!canCapture} onClick={()=>onTracking(!tracking.enabled)}>{tracking.enabled?'Stop daily capture':'Request daily capture'}</Button>
       <span className="text-xs text-slate-500">{tracking.enabled?(scheduledCaptureEnabled?'Daily capture on':'Requested · collector not active'):'Daily capture off'}</span></div>
       <p className="text-xs text-slate-500">Capture saves comparisons; it does not publish prices. Daily capture also requires the collector to be activated.</p>
       {latest&&<p className="mt-3 text-xs text-slate-500">{latest.data.authority} calendar · rules v{latest.data.policyVersion} · {latest.data.modelVersion}</p>}
-    </details>
+    </details>}
   </section>;
 }

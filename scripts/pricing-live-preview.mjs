@@ -21,9 +21,10 @@ await writeFile(join(scratch,'css-loader.cjs'),`module.exports=function(){return
 await writeFile(join(scratch,'entry.tsx'),`
 import React from 'react';import {createRoot} from 'react-dom/client';
 import PricingLiveWorkspace from '${root}/src/app/channels/pricing/PricingLiveWorkspace.tsx';
+import {ConfirmProvider} from '${root}/src/components/ConfirmDialog.tsx';
 const root=createRoot(document.getElementById('root'));
 const get=async(url)=>{const r=await fetch(url,{cache:'no-store'});if(!r.ok)throw Error('Calendar unavailable');return r.json();};
-get('/portfolio').then(p=>root.render(<main className="pricing-preview-shell"><header className="pricing-preview-toolbar"><h1><b>Helm</b><span>/</span>Pricing</h1><span>Current data</span></header><PricingLiveWorkspace initialPortfolio={p.value} refreshAction={()=>get('/portfolio')} calendarAction={id=>get('/calendar?property='+encodeURIComponent(id))}/></main>)).catch(()=>root.render(<main>Could not load the portfolio. Refresh to try again.</main>));
+get('/portfolio').then(p=>root.render(<ConfirmProvider><main className="pricing-preview-shell"><header className="pricing-preview-toolbar"><h1><b>Helm</b><span>/</span>Pricing</h1><span>Current data</span></header><PricingLiveWorkspace initialPortfolio={p.value} refreshAction={()=>get('/portfolio')} calendarAction={id=>get('/calendar?property='+encodeURIComponent(id))}/></main></ConfirmProvider>)).catch(()=>root.render(<main>Could not load the portfolio. Refresh to try again.</main>));
 `);
 await new Promise((resolve,reject)=>{const c=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.tsx'),output:{path:scratch,filename:'bundle.js'},
   resolve:{extensions:['.ts','.tsx','.js'],modules:[join(root,'node_modules')],alias:{'@':join(root,'src'),'next/link$':join(scratch,'link.tsx')}},

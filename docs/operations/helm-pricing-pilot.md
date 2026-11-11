@@ -1,6 +1,6 @@
 # Helm pricing: audit and pilot
 
-Account reviewed November 8; prototype updated November 10, 2026. **This is an independent pricing prototype with imported evidence, not a complete
+Account reviewed November 8; prototype updated November 11, 2026. **This is an independent pricing prototype with imported evidence, not a complete
 PriceLabs replacement or a validated revenue optimizer.** No PriceLabs pricing or sync setting was
 changed during the audit (the research chart was switched to daily aggregation). No live rates, connections, or migrations were changed.
 
@@ -522,3 +522,64 @@ windows, policy/evidence/authority/context guards, opt-in versions, and unchange
 rates/reviews. `node scripts/pricing-ui-fixture.mjs` serves the real client component
 with an in-memory synthetic backend for browser checks; it does not exercise
 production authentication or a live database connection.
+
+## November 11: actual-listing workbench and feature audit
+
+The live-calendar screen previously bypassed the pricing workbench entirely. It
+could show stored rates and occupancy but not edit rules. The live view now supports
+local drafts over actual calendars. Saved settings, groups and date overrides use
+browser storage; imported evidence and observation snapshots stay in memory for the
+session. Live calendar reads remain GET-only. No production write action is bundled
+into the standalone preview. No database migration has been applied by this work.
+
+Each unconfigured listing starts with explicit base/min/max setup. The optional
+current-rate shortcut uses the median, minimum and maximum of its available rates;
+it is not an inferred optimal base or an import of PriceLabs settings. Initial
+adjustments are neutral, with a stated two-night minimum. Current rates remain the
+default calendar view; the Helm draft is an explicit toggle.
+
+| Workflow | Actual-listing prototype | Remaining difference / dependency |
+| --- | --- | --- |
+| Portfolio | Internal names, sortable 7/30/60/90-day metrics, column picker, filters and local group filter | No fabricated market comparison; no bulk multi-calendar editor |
+| Price configuration | Base/min/max, current versus proposed calendar/table, exact nightly breakdown | Device-local settings; production storage not installed |
+| Recurring rules | Monthly/weekday factors, gradual last-minute discount, far-out premium, occupancy targets, recency switch, gap pricing, historical safety floor | Not the vendor's complete flat/fixed/market-driven presets; recency requires verified booking timestamps |
+| Minimum stays | Weekday/weekend, last-minute and far-out thresholds, gaps, adjacency, minimum booking value, event minimums | No check-in/check-out or maximum-stay delivery |
+| Date overrides | Inclusive date ranges, selected weekdays, fixed nightly rate, percentage of recommendation or minimum stay; edit/remove | No expiry, fixed-price bounds bypass, date-specific base/min/max or drag-to-select range |
+| Groups | Create from saved rules, assign homes, update shared rules, listing-specific rule set, shared date overrides | One level; no account defaults/subgroups; rules inherited as a whole set |
+| Market | Qualified CSV evidence, source and freshness checks, market charts/model inputs | No connected neighborhood feed, hotel feed, comp-set manager or licensed automatic vendor API |
+| Performance | Current forward occupancy and evidence-backed forecasts/history analysis | No real booking pickup, earned ADR/RevPAR, cancellation or acquisition-channel analytics without reservation/revenue evidence |
+| History | Actual observation snapshots and rate/availability comparison in session | No invented historical captures; durable daily collection remains an infrastructure step |
+| Delivery | Read-only calendars, local drafts; existing separately gated Helm-direct implementation retained | Live prototype has no publishing. No OTA/Guesty/Channex pricing handoff, scheduler or delivered-rate verification |
+| Other vendor controls | Not implemented | Weekly/monthly discounts, extra-guest fees, listing mapping, custom sensitivity presets, pricing/action log parity and automated action-center recommendations |
+
+The logged-in PriceLabs customizations list was reviewed again on November 11.
+Its account/group/listing hierarchy is more granular than this first local group
+implementation. The official [hierarchy explanation](https://hello.pricelabs.co/blog/optimize-your-pricing-strategies-using-customizations/)
+describes listing, subgroup, group and account precedence. Here, base/min/max remain
+per property; changing a shared recurring rule creates a whole listing rule-set
+override. Group date rules still apply unless replaced at listing level.
+
+PriceLabs' [date override guide](https://help.pricelabs.co/portal/en/kb/articles/date-specific-overrides)
+includes fixed, percentage and stay restrictions at several scopes. Helm's local
+implementation keeps hard price bounds even for fixed overrides. It protects
+booked, blocked, stale, unknown and manually protected nights. Same-level date
+rules may not overlap on the same weekdays; listing date rules take precedence
+over group date rules rather than compounding them.
+
+The official [customer API changelog](https://developers.pricelabs.co/customer-api/changelog/changelog?filter=customer-api)
+documents endpoints for customizations, groups, overrides and neighborhood data.
+This suggests a possible authenticated import path; it does not establish access,
+a license to reuse the data, or access to the proprietary algorithm. No API
+credential or new third-party integration was added.
+
+Next substantive work is to obtain a verified market feed and reservation-history
+inputs, implement the remaining stay/channel controls, then run shadow comparisons
+on real bookings before any cutover. UI similarity alone is not pricing parity.
+
+Validation for this revision: 4,398 tests passed, seven intentionally skipped;
+TypeScript and targeted ESLint clean. Browser checks covered 24 synthetic homes,
+two-property group inheritance, individual rule overrides, dated fixed prices and
+minimum stays, protected/booked inventory, group filtering, persistence after
+reload, empty market states, snapshots and the actual 26-record roster. Calderwood
+has a local comparison draft using its observed price bounds and selected observed
+customizations; this is not a complete settings import or live pricing activation.

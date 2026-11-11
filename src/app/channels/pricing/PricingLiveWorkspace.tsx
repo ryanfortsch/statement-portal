@@ -1,45 +1,79 @@
 'use client';
-import {useState} from 'react';
+import {useEffect,useRef,useState} from 'react';
 import {Button} from '@/components/Button';
+import {useConfirm} from '@/components/ConfirmDialog';
+import {hasUnsavedWork} from '@/lib/unsaved-work';
 import {etStamp} from '@/lib/stable-time';
 import type {PricingLivePortfolio,PricingLiveCalendar} from '@/lib/dynamic-pricing-live';
+import {pricingDraftError,applyPricingDraftOverrides,revisePricingDraftGroups,emptyPricingDrafts,neutralPricingDraft,pricingDraftsSchema,PRICING_DRAFT_STORAGE,type PricingDrafts} from '@/lib/dynamic-pricing-drafts';
+import {createPricingDraftServices} from '@/lib/dynamic-pricing-draft-services';
 import PricingPortfolio from './PricingPortfolio';
 import PricingCalendar from './PricingCalendar';
+import PricingWorkbench from './PricingWorkbench';
+import PricingDraftControls,{type PricingDraftControlsRef} from './PricingDraftControls';
 import PricingIcon from './PricingIcon';
 import './pricing.css';
 
 type Result<T>={ok:true;value:T}|{ok:false;error:string};
+type DraftServices=ReturnType<typeof createPricingDraftServices>;
 export default function PricingLiveWorkspace({initialPortfolio,refreshAction,calendarAction}:{
-  initialPortfolio:PricingLivePortfolio;
-  refreshAction:()=>Promise<Result<PricingLivePortfolio>>;
-  calendarAction:(id:string)=>Promise<Result<PricingLiveCalendar>>;
+  initialPortfolio:PricingLivePortfolio;refreshAction:()=>Promise<Result<PricingLivePortfolio>>;calendarAction:(id:string)=>Promise<Result<PricingLiveCalendar>>;
 }) {
-  const [portfolio,setPortfolio]=useState(initialPortfolio),[calendar,setCalendar]=useState<PricingLiveCalendar|null>(null);
-  const [busy,setBusy]=useState(false),[error,setError]=useState('');
+  const [portfolio,setPortfolio]=useState(initialPortfolio),[selection,setSelection]=useState<{calendar:PricingLiveCalendar;services:DraftServices|null}|null>(null);
+  const [drafts,setDrafts]=useState<PricingDrafts>(emptyPricingDrafts),[ready,setReady]=useState(false),[revision,setRevision]=useState(0),[filter,setFilter]=useState('');
+  const stored=useRef<PricingDrafts>(emptyPricingDrafts()),adapters=useRef(new Map<string,DraftServices>());
+  const [busy,setBusy]=useState(false),[error,setError]=useState('');const {ask}=useConfirm();
+  useEffect(()=>{
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Hydrate browser-only draft settings after SSR before enabling interaction.
+    try{const raw=localStorage.getItem(PRICING_DRAFT_STORAGE);if(raw){const parsed=pricingDraftsSchema.parse(JSON.parse(raw));stored.current=parsed;setDrafts(parsed);}}
+    catch{setError('Saved drafts could not be loaded. They have not been replaced.');}
+    setReady(true);
+  },[]);
+  function persist(next:PricingDrafts){const disk=localStorage.getItem(PRICING_DRAFT_STORAGE);if(disk&&JSON.stringify(pricingDraftsSchema.parse(JSON.parse(disk)))!==JSON.stringify(stored.current))throw Error('Drafts changed in another tab. Reload before saving.');const parsed=pricingDraftsSchema.parse(revisePricingDraftGroups(stored.current,next));localStorage.setItem(PRICING_DRAFT_STORAGE,JSON.stringify(parsed));stored.current=parsed;setDrafts(parsed);}
+  function adapter(calendar:PricingLiveCalendar){const id=calendar.home.id;let service=adapters.current.get(id);if(!service){service=createPricingDraftServices(calendar,()=>stored.current,persist,calendarAction);adapters.current.set(id,service);}return service;}
+  async function leave(){return !hasUnsavedWork()||await ask({title:'Discard unsaved changes?',body:'Saved drafts remain on this device.',confirmLabel:'Discard'});}
   async function open(id:string) {
-    setBusy(true);setError('');
-    try {const r=await calendarAction(id);if(!r.ok)throw Error(r.error);setCalendar(r.value);}
-    catch {setError('Could not load this calendar. Try again.');}
-    finally {setBusy(false);}
+    if(!await leave())return;setBusy(true);setError('');
+    try{const r=await calendarAction(id);if(!r.ok)throw Error(r.error);const services=stored.current.homes[id]?adapter(r.value):null;
+      if(services){const refreshed=await services.refresh(id);if(!refreshed.ok)throw Error(refreshed.error);}
+      setSelection({calendar:r.value,services});setRevision(v=>v+1);
+    }catch{setError('Could not load this calendar. Try again.');}finally{setBusy(false);}
   }
   async function refresh() {
-    setBusy(true);setError('');
-    try {
-      const p=await refreshAction();if(!p.ok)throw Error(p.error);setPortfolio(p.value);
-      if(calendar) {const c=await calendarAction(calendar.home.id);if(!c.ok)throw Error(c.error);setCalendar(c.value);}
-    } catch {setError('Could not refresh all data. The previous snapshot remains visible.');}
-    finally {setBusy(false);}
+    if(!await leave())return;setBusy(true);setError('');
+    try{const p=await refreshAction();if(!p.ok)throw Error(p.error);setPortfolio(p.value);
+      if(selection){const c=await calendarAction(selection.calendar.home.id);if(!c.ok)throw Error(c.error);if(selection.services){const r=await selection.services.refresh(c.value.home.id);if(!r.ok)throw Error(r.error);}setSelection({...selection,calendar:c.value});setRevision(v=>v+1);}
+    }catch{setError('Could not refresh all data. The previous snapshot remains visible.');}finally{setBusy(false);}
   }
+  const calendar=selection?.calendar;
+  const navigation=calendar?<div className="pricing-listing-navigation"><Button variant="quiet" className="pricing-back-button" disabled={busy} aria-label="All listings" onClick={async()=>{if(await leave())setSelection(null);}}><PricingIcon name="previous"/></Button><label className="pricing-title-select"><span className="sr-only">Switch listing</span><select value={calendar.home.id} disabled={busy} onChange={e=>void open(e.target.value)}>{portfolio.rows.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select></label></div>:null;
   return <div className="helm-pricing pricing-live-workspace" aria-busy={busy}>
-    <div className="pricing-live-toolbar"><span>Read-only · Loaded {etStamp(portfolio.readAt)}</span><Button variant="secondary" size="sm" disabled={busy} onClick={()=>void refresh()}>{busy?'Loading…':'Refresh'}</Button></div>
+    <div className="pricing-live-toolbar"><span>Live calendars · {etStamp(portfolio.readAt)} · Drafts saved on this device</span><Button variant="secondary" size="sm" disabled={busy||!ready} onClick={()=>void refresh()}>{busy?'Loading…':'Refresh'}</Button></div>
     {error&&<p role="alert" className="pricing-feedback">{error}</p>}
-    <div hidden={calendar!==null} inert={busy}><PricingPortfolio rows={portfolio.rows} observed onOpen={id=>void open(id)}/></div>
-    {calendar&&<>
-      <div className="pricing-workbench-header"><div className="pricing-listing-navigation"><Button variant="quiet" className="pricing-back-button" disabled={busy} aria-label="All listings" onClick={()=>setCalendar(null)}><PricingIcon name="previous"/></Button>
-        <label className="pricing-title-select"><span className="sr-only">Switch listing</span><select value={calendar.home.id} disabled={busy} onChange={e=>void open(e.target.value)}>{portfolio.rows.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select></label></div>
-      </div>
-      <p className="pricing-live-source">{calendar.source} · {calendar.sourceObservedAt?`Updated ${etStamp(calendar.sourceObservedAt)}`:'Update time unavailable'} · Current USD rates</p>
-      <PricingCalendar key={calendar.home.id} snapshot={calendar.snapshot} preview={null} currentOnly/>
-    </>}
+    {!calendar&&<div inert={busy||!ready}>{drafts.groups.length>0&&<label className="pricing-group-filter">Group<select value={filter} onChange={e=>setFilter(e.target.value)}><option value="">All listings</option>{drafts.groups.map(g=><option key={g.id} value={g.id}>{g.name}</option>)}</select></label>}<PricingPortfolio rows={portfolio.rows.filter(r=>!filter||drafts.homes[r.id]?.groupId===filter)} observed onOpen={id=>void open(id)}/></div>}
+    {calendar&&selection&&<div inert={busy}>
+      {selection.services?<DraftProperty key={`${calendar.home.id}-${revision}`} calendar={calendar} navigation={navigation} services={selection.services} drafts={drafts} commit={persist}/>:<>
+        <div className="pricing-workbench-header">{navigation}</div>
+        <PricingDraftSetup calendar={calendar} onCreate={(policy)=>{persist({...stored.current,homes:{...stored.current.homes,[calendar.home.id]:{policy,version:1,groupId:null,inheritRules:false,overrides:[]}}});setSelection({calendar,services:adapter(calendar)});}}/>
+        <PricingCalendar snapshot={calendar.snapshot} preview={null} currentOnly/>
+      </>}
+      <p className="pricing-live-source">{calendar.source} · {calendar.sourceObservedAt?`Updated ${etStamp(calendar.sourceObservedAt)}`:'Update time unavailable'} · Live rates unchanged</p>
+    </div>}
   </div>;
+}
+function DraftProperty({calendar,navigation,services,drafts,commit}:{calendar:PricingLiveCalendar;navigation:React.ReactNode;services:DraftServices;drafts:PricingDrafts;commit:(s:PricingDrafts)=>void}) {
+  const [revision,setRevision]=useState(0),controls=useRef<PricingDraftControlsRef>(null),workspace=services.inspect(),home=drafts.homes[calendar.home.id],group=drafts.groups.find(g=>g.id===home.groupId);
+  return <><PricingWorkbench key={revision} propertyId={calendar.home.id} name={calendar.home.name} authority={calendar.home.authority} navigation={navigation} services={services} draftOnly
+    initialPolicy={workspace.policy} initialSnapshot={workspace.snapshot} initialProfile={workspace.profile} initialRuns={[]} initialEvidenceVersion={workspace.evidenceVersion} initialObservations={workspace.observations}
+    previewTransform={(p,policy,snapshot)=>applyPricingDraftOverrides(p,policy,snapshot,home.overrides,group?.overrides)}
+    onOverride={date=>controls.current?.open(date)} calendarTools={<PricingDraftControls ref={controls} state={drafts} propertyId={calendar.home.id} today={calendar.snapshot.today} commit={next=>{commit(next);setRevision(v=>v+1);}}/>}/>
+    <p className="pricing-draft-note">Rules and groups stay on this device. Imported data and comparison snapshots stay in this session.</p></>;
+}
+function PricingDraftSetup({calendar,onCreate}:{calendar:PricingLiveCalendar;onCreate:(policy:ReturnType<typeof neutralPricingDraft>)=>void}) {
+  const [base,setBase]=useState(''),[min,setMin]=useState(''),[max,setMax]=useState(''),[error,setError]=useState('');
+  const rates=calendar.snapshot.days.filter(d=>d.state==='open'&&!d.protected&&d.currentCents!==null).map(d=>d.currentCents!).sort((a,b)=>a-b);
+  return <section className="pricing-draft-setup" aria-label="Create pricing draft"><div><h3>Configure prices</h3><p>Set a base, minimum and maximum to preview Helm rules. No prices will sync.</p></div><div className="pricing-setup-fields">
+    <label className="pricing-field">Base ($)<input type="number" step="0.01" value={base} onChange={e=>setBase(e.target.value)}/></label><label className="pricing-field">Min ($)<input type="number" step="0.01" value={min} onChange={e=>setMin(e.target.value)}/></label><label className="pricing-field">Max ($)<input type="number" step="0.01" value={max} onChange={e=>setMax(e.target.value)}/></label>
+    <Button variant="primary" disabled={!base||!min||!max} onClick={()=>{try{onCreate(neutralPricingDraft(Math.round(Number(base)*100),Math.round(Number(min)*100),Math.round(Number(max)*100)));}catch(e){setError(pricingDraftError(e));}}}>Create draft</Button>
+  </div><div className="pricing-setup-foot"><Button variant="quiet" disabled={!rates.length} onClick={()=>{setBase(String(rates[Math.floor(rates.length/2)]/100));setMin(String(rates[0]/100));setMax(String(rates.at(-1)!/100));}}>Use current rate range</Button><span>Median / lowest / highest available rate. Discounts off; minimum stay starts at 2 nights.</span></div>{error&&<p role="alert" className="pricing-feedback">{error}</p>}</section>;
 }

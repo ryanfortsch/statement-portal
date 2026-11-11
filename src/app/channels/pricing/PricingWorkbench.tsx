@@ -3,7 +3,7 @@ import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { Button } from '@/components/Button';
 import { useConfirm } from '@/components/ConfirmDialog';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
-import { previewPricing, pricingPolicySchema, type PricingPolicy, type PricingSnapshot } from '@/lib/dynamic-pricing';
+import { previewPricing, pricingPolicySchema, type PricingPolicy, type PricingSnapshot, type PricingPreview } from '@/lib/dynamic-pricing';
 import type { PricingProfile, PricingRunSummary } from '@/lib/dynamic-pricing-store';
 import PricingInsights from './PricingInsights';
 import PricingHistory from './PricingHistory';
@@ -14,10 +14,9 @@ import './pricing.css';
 import {etStamp} from '@/lib/stable-time';
 import {pricingOccupancyWindow} from '@/lib/dynamic-pricing-portfolio';
 import type {PricingObservationRecord,PricingTracking} from '@/lib/dynamic-pricing-observations';
-import { capturePricingObservationAction,setPricingTrackingAction,savePricingEvidenceAction, publishPricingAction, refreshPricingAction, reviewPricingAction, savePricingAction, undoPricingAction } from './actions';
+import type { capturePricingObservationAction,setPricingTrackingAction,savePricingEvidenceAction, publishPricingAction, refreshPricingAction, reviewPricingAction, savePricingAction, undoPricingAction } from './actions';
 
-export const livePricingServices={save:savePricingAction,refresh:refreshPricingAction,review:reviewPricingAction,publish:publishPricingAction,undo:undoPricingAction,evidence:savePricingEvidenceAction,observe:capturePricingObservationAction,tracking:setPricingTrackingAction};
-export type PricingServices=typeof livePricingServices;
+export type PricingServices={save:typeof savePricingAction;refresh:typeof refreshPricingAction;review:typeof reviewPricingAction;publish:typeof publishPricingAction;undo:typeof undoPricingAction;evidence:typeof savePricingEvidenceAction;observe:typeof capturePricingObservationAction;tracking:typeof setPricingTrackingAction};
 const months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const weekdays=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const inputClass='mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm';
@@ -25,9 +24,9 @@ function NumberField({label,value,onChange,step=1,currency=false}:{label:string;
   return <label className="block text-sm text-slate-700">{label}<span className={currency?'pricing-money-input':undefined}>{currency&&<span aria-hidden="true">$</span>}<input aria-label={currency?`${label} in USD`:undefined} type="number" step={step} value={Number.isFinite(value)?value:''}
     onChange={e=>onChange(e.target.value===''?NaN:Number(e.target.value))} className={inputClass}/></span></label>;
 }
-export default function PricingWorkbench({propertyId,name,authority,navigation,initialPolicy,initialSnapshot,initialProfile,initialRuns,initialEvidenceVersion=0,initialObservations=[],initialTracking={enabled:false,version:0},scheduledCaptureEnabled=false,services=livePricingServices}:{
+export default function PricingWorkbench({propertyId,name,authority,navigation,initialPolicy,initialSnapshot,initialProfile,initialRuns,initialEvidenceVersion=0,initialObservations=[],initialTracking={enabled:false,version:0},scheduledCaptureEnabled=false,services,draftOnly=false,calendarTools,previewTransform,onOverride}:{
   propertyId:string;name:string;authority:'helm'|'guesty';navigation?:ReactNode;initialPolicy:PricingPolicy;initialSnapshot:PricingSnapshot;
-  initialProfile:PricingProfile|null;initialRuns:PricingRunSummary[];initialEvidenceVersion?:number;services?:PricingServices;
+  initialProfile:PricingProfile|null;initialRuns:PricingRunSummary[];initialEvidenceVersion?:number;services:PricingServices;draftOnly?:boolean;calendarTools?:ReactNode;previewTransform?:(preview:PricingPreview,policy:PricingPolicy,snapshot:PricingSnapshot)=>PricingPreview;onOverride?:(date:string)=>void;
   initialObservations?:PricingObservationRecord[];initialTracking?:PricingTracking;scheduledCaptureEnabled?:boolean;
 }) {
   const [policy,setPolicy]=useState(initialPolicy),[snapshot,setSnapshot]=useState(initialSnapshot),[profile,setProfile]=useState(initialProfile);
@@ -36,6 +35,7 @@ export default function PricingWorkbench({propertyId,name,authority,navigation,i
   const [evidenceVersion,setEvidenceVersion]=useState(initialEvidenceVersion);
   const [observations,setObservations]=useState(initialObservations),[tracking,setTracking]=useState(initialTracking),[collectorEnabled,setCollectorEnabled]=useState(scheduledCaptureEnabled);
   const captureRequest=useRef<string|null>(null);
+  const [currentOnly,setCurrentOnly]=useState(draftOnly);
   const [section,setSection]=useState<'prices'|'market'|'occupancy'|'history'|'data'>('prices');const {ask}=useConfirm();
   const [ruleSection,setRuleSection]=useState<'strategy'|'adjustments'|'stays'|'events'|'connection'>('strategy');
   const customizations=useRef<HTMLDialogElement>(null),moreMenu=useRef<HTMLDetailsElement>(null);
@@ -49,7 +49,7 @@ export default function PricingWorkbench({propertyId,name,authority,navigation,i
     return parsed.success?{preview:previewPricing(parsed.data,snapshot,new Date(snapshot.observedAt)),errors:[]}:
       {preview:null,errors:parsed.error.issues.map(i=>`${i.path.join('.')}: ${i.message}`)};
   },[policy,snapshot]);
-  const preview=computed.preview,eligible=preview?.days.filter(d=>d.eligible)??[];
+  const preview=computed.preview?(previewTransform?.(computed.preview,policy,snapshot)??computed.preview):null,eligible=preview?.days.filter(d=>d.eligible)??[];
   const dateRange=[snapshot.days[0]?.date,snapshot.days.at(-1)?.date].filter(Boolean).map(date=>new Date(date+'T12:00:00Z').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric',timeZone:'UTC'})).join(' – ');
   const modify=<K extends keyof PricingPolicy>(key:K,value:PricingPolicy[K])=>{setPolicy(p=>({...p,[key]:value}));setReview(null);};
   async function perform(work:()=>Promise<void>) {
@@ -71,7 +71,7 @@ export default function PricingWorkbench({propertyId,name,authority,navigation,i
   return <div className="helm-pricing">
     <header className="pricing-workbench-header">
       <div className="pricing-title-block" title={`${authority==='helm'?'Helm':'Guesty'} · Updated ${etStamp(snapshot.observedAt)}`}>{navigation}<h2 className={navigation?'sr-only':'pricing-property-title'}>{name}</h2></div>
-      <div className="pricing-header-actions"><Button variant="quiet" className="pricing-connection" data-connected={profile?.mode==='helm_direct'||undefined} onClick={()=>openCustomizations('connection')}>{profile?.mode==='helm_direct'?'Helm direct':'Compare only'}</Button>
+      <div className="pricing-header-actions">{draftOnly?<span className="pricing-connection">Draft · Not syncing</span>:<Button variant="quiet" className="pricing-connection" data-connected={profile?.mode==='helm_direct'||undefined} onClick={()=>openCustomizations('connection')}>{profile?.mode==='helm_direct'?'Helm direct':'Compare only'}</Button>}
         {changed&&!busy&&<span className="pricing-unsaved">Unsaved</span>}{busy&&<span role="status">Updating…</span>}
       </div>
     </header>
@@ -95,25 +95,25 @@ export default function PricingWorkbench({propertyId,name,authority,navigation,i
             <NumberField currency label="Min" value={policy.floorCents/100} step={0.01} onChange={n=>modify('floorCents',Math.round(n*100))}/>
             <NumberField currency label="Max" value={policy.ceilingCents/100} step={0.01} onChange={n=>modify('ceilingCents',Math.round(n*100))}/>
           </div>
-          <div className="pricing-configure-actions"><Button variant="primary" title="Save rules and refresh the preview. Does not publish rates." disabled={busy||!preview||!dirty} onClick={()=>void saveRules()}>{!dirty?'Saved':'Save'}</Button><Button variant="secondary" onClick={()=>openCustomizations()}><PricingIcon name="sliders"/>Rules</Button></div>
+          <div className="pricing-configure-actions"><Button variant={!dirty?'secondary':'primary'} title="Save rules and refresh the preview. Does not publish rates." disabled={busy||!preview||!dirty} onClick={()=>void saveRules()}>{!dirty?'Saved':draftOnly?'Save draft':'Save'}</Button><Button variant="secondary" onClick={()=>openCustomizations()}><PricingIcon name="sliders"/>Rules</Button></div>
         </fieldset>
-        <div className="pricing-listing-metrics" aria-label="Listing occupancy"><div className="pricing-metrics-heading"><h3>Booked occupancy</h3></div>{listingMetrics.map(w=><div className="pricing-listing-metric" key={w.nights}><span>{w.nights} days</span><PricingOccupancy window={w}/></div>)}</div>
+        <div className="pricing-listing-metrics" aria-label="Listing occupancy"><div className="pricing-metrics-heading"><h3>Adjusted occupancy</h3></div>{listingMetrics.map(w=><div className="pricing-listing-metric" key={w.nights}><span>Next {w.nights} days</span><PricingOccupancy window={w}/></div>)}</div>
       </aside>
-      <div className="pricing-calendar-workspace"><PricingCalendar key={review?.id??'draft'} snapshot={snapshot} preview={preview}/></div>
+      <div className="pricing-calendar-workspace">{draftOnly&&<div className="pricing-draft-toolbar"><div className="pricing-view-switch" role="group" aria-label="Rates shown"><Button variant="quiet" aria-pressed={currentOnly} onClick={()=>setCurrentOnly(true)}>Current rates</Button><Button variant="quiet" aria-pressed={!currentOnly} onClick={()=>setCurrentOnly(false)}>Helm draft</Button></div>{calendarTools}</div>}<PricingCalendar key={review?.id??'draft'} snapshot={snapshot} preview={currentOnly?null:preview} currentOnly={currentOnly} onOverride={onOverride}/></div>
     </div>
-    <PricingInsights view={section==='occupancy'?'occupancy':section==='data'?'data':section==='market'?'market':'hidden'} propertyId={propertyId} snapshot={snapshot} preview={preview} policy={policy} busy={busy}
+    <PricingInsights draftOnly={draftOnly} onOpenData={()=>setSection('data')} view={section==='occupancy'?'occupancy':section==='data'?'data':section==='market'?'market':'hidden'} propertyId={propertyId} snapshot={snapshot} preview={preview} policy={policy} busy={busy}
       onUseLearned={base=>{setPolicy(p=>({...p,baseCents:Math.max(p.floorCents,Math.min(p.ceilingCents,base)),priceShape:'history'}));setReview(null);setSection('prices');openCustomizations();}}
       onSave={async data=>perform(async()=>{const r=await services.evidence({propertyId,data,version:evidenceVersion});if(!r.ok)throw Error(r.error);
-        setSnapshot(r.value.snapshot);setEvidenceVersion(r.value.evidenceVersion);setReview(null);setMessage('Data updated. Prepare a new review before publishing.');})}/>
-    <div className="pricing-panel" hidden={section!=='history'}><PricingHistory observations={observations} tracking={tracking} scheduledCaptureEnabled={collectorEnabled} busy={busy} canCapture={!dirty}
+        setSnapshot(r.value.snapshot);setEvidenceVersion(r.value.evidenceVersion);setReview(null);setMessage(draftOnly?'Imported data is available for this session.':'Data updated. Prepare a new review before publishing.');})}/>
+    <div className="pricing-panel" hidden={section!=='history'}><PricingHistory sessionOnly={draftOnly} observations={observations} tracking={tracking} scheduledCaptureEnabled={collectorEnabled} busy={busy} canCapture={!dirty}
       onCapture={()=>void perform(async()=>{const requestId=captureRequest.current??crypto.randomUUID();captureRequest.current=requestId;
         const r=await services.observe({propertyId,requestId});if(!r.ok)throw Error(r.error);
-        await refresh();captureRequest.current=null;setMessage('Snapshot saved.');})}
+        await refresh();captureRequest.current=null;setMessage(draftOnly?'Snapshot saved for this session.':'Snapshot saved.');})}
       onTracking={enabled=>void perform(async()=>{const r=await services.tracking({propertyId,enabled,version:tracking.version});if(!r.ok)throw Error(r.error);
         setTracking(r.value.tracking);setObservations(r.value.observations);setCollectorEnabled(r.value.scheduledCaptureEnabled);setMessage(enabled?'Daily history requested.':'Daily history stopped.');})}/></div>
     <dialog ref={customizations} className="pricing-customizations-dialog" aria-labelledby="pricing-customizations-title" onClick={e=>{if(e.target===e.currentTarget)customizations.current?.close();}}>
       <header><h2 id="pricing-customizations-title">Pricing rules</h2><Button variant="quiet" className="pricing-icon-button" aria-label="Close customizations" onClick={()=>customizations.current?.close()}><PricingIcon name="close"/></Button></header>
-      <div className="pricing-rules-layout"><nav className="pricing-rule-nav" aria-label="Rule categories">{([['strategy','Strategy'],['adjustments','Adjustments'],['stays','Minimum stays'],['events','Events'],['connection','Connection']] as const).map(([id,label])=><Button key={id} variant="quiet" aria-pressed={ruleSection===id} onClick={()=>setRuleSection(id)}>{label}<PricingIcon name="next"/></Button>)}</nav>
+      <div className="pricing-rules-layout"><nav className="pricing-rule-nav" aria-label="Rule categories">{([['strategy','Strategy'],['adjustments','Adjustments'],['stays','Minimum stays'],['events','Events'],['connection','Connection']] as const).filter(([id])=>!draftOnly||id!=='connection').map(([id,label])=><Button key={id} variant="quiet" aria-pressed={ruleSection===id} onClick={()=>setRuleSection(id)}>{label}<PricingIcon name="next"/></Button>)}</nav>
       <fieldset disabled={busy} className="pricing-rules-content"><section hidden={ruleSection!=='strategy'}><h3>Strategy</h3>
       <div className="mt-5 grid gap-4 sm:grid-cols-2"><label className="text-sm">Seasonality<select className={inputClass} value={policy.priceShape} onChange={e=>modify('priceShape',e.target.value as PricingPolicy['priceShape'])}>
         <option value="manual">Custom factors</option><option value="history">Historical rates</option><option value="market">Market rates</option></select></label>
@@ -163,11 +163,13 @@ export default function PricingWorkbench({propertyId,name,authority,navigation,i
         <label className="my-3 flex items-center gap-2 text-sm"><input type="checkbox" checked={policy.orphanPreservesEvents} onChange={e=>modify('orphanPreservesEvents',e.target.checked)}/>Preserve event minimums even inside short gaps</label>
         {policy.lastMinStays.map((r,i)=><div key={i} className="my-3 grid grid-cols-4 gap-3"><NumberField label={`Last minute ${i+1}: within days`} value={r.withinDays} onChange={n=>modify('lastMinStays',policy.lastMinStays.map((v,j)=>j===i?{...v,withinDays:n}:v))}/><NumberField label={`Last minute ${i+1}: weekdays`} value={r.weekday} onChange={n=>modify('lastMinStays',policy.lastMinStays.map((v,j)=>j===i?{...v,weekday:n}:v))}/><NumberField label={`Last minute ${i+1}: Fri/Sat`} value={r.weekend} onChange={n=>modify('lastMinStays',policy.lastMinStays.map((v,j)=>j===i?{...v,weekend:n}:v))}/><Button onClick={()=>modify('lastMinStays',policy.lastMinStays.filter((_,j)=>i!==j))}>Remove</Button></div>)}
         <Button disabled={policy.lastMinStays.length>=3} onClick={()=>modify('lastMinStays',[...policy.lastMinStays,{withinDays:7+policy.lastMinStays.length*7,weekday:1,weekend:2}])}>Add last-minute stay rule</Button>
-        {policy.farMinStays.map((r,i)=><div key={i} className="my-3 grid grid-cols-3 gap-3">
+        {policy.farMinStays.map((r,i)=><div key={i} className="my-3 grid grid-cols-4 gap-3">
           <NumberField label={`Rule ${i+1}: beyond days`} value={r.afterDays} onChange={n=>modify('farMinStays',policy.farMinStays.map((v,j)=>j===i?{...v,afterDays:n}:v))}/>
           <NumberField label={`Rule ${i+1}: weekdays`} value={r.weekday} onChange={n=>modify('farMinStays',policy.farMinStays.map((v,j)=>j===i?{...v,weekday:n}:v))}/>
           <NumberField label={`Rule ${i+1}: Fri/Sat`} value={r.weekend} onChange={n=>modify('farMinStays',policy.farMinStays.map((v,j)=>j===i?{...v,weekend:n}:v))}/>
+          <Button onClick={()=>modify('farMinStays',policy.farMinStays.filter((_,j)=>j!==i))}>Remove</Button>
         </div>)}
+        <Button disabled={policy.farMinStays.length>=5} onClick={()=>modify('farMinStays',[...policy.farMinStays,{afterDays:[15,30,60,90,180].find(d=>!policy.farMinStays.some(r=>r.afterDays===d))??365,weekday:2,weekend:3}])}>Add far-out stay rule</Button>
         </details>
       </section>
       <section hidden={ruleSection!=='events'}><h3>Events</h3>
@@ -189,9 +191,9 @@ export default function PricingWorkbench({propertyId,name,authority,navigation,i
       </fieldset></div>
       {computed.errors.length>0&&<p role="alert" className="pricing-feedback">{computed.errors.join(' · ')}</p>}
       {error&&<p role="alert" className="pricing-feedback">{error}</p>}
-      <footer><Button variant="quiet" onClick={()=>customizations.current?.close()}>Close</Button><Button variant="primary" disabled={busy||!preview} onClick={async()=>{if(await saveRules())customizations.current?.close();}}>Save rules</Button></footer>
+      <footer><Button variant="quiet" onClick={()=>customizations.current?.close()}>Close</Button><Button variant="primary" disabled={busy||!preview} onClick={async()=>{if(await saveRules())customizations.current?.close();}}>{draftOnly?'Save draft':'Save rules'}</Button></footer>
     </dialog>
-    {section==='prices'&&profile?.mode==='helm_direct'&&<footer className="pricing-publish-bar" aria-label="Publish rates">
+    {!draftOnly&&section==='prices'&&profile?.mode==='helm_direct'&&<footer className="pricing-publish-bar" aria-label="Publish rates">
       <div><p className="text-sm font-medium">{review?`Review ready · ${eligible.length} nights`:`${eligible.length} nights ready for review`}</p>
         <p className="mt-1 text-xs text-slate-500">{dateRange} · {review?`Prepared ${etStamp(review.createdAt)} · expires after 5 minutes`:profile?.mode==='helm_direct'?'Direct bookings only. OTA rates unchanged.':'Compare only. Publishing is off.'}</p></div>
       <div className="flex flex-wrap gap-2">

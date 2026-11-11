@@ -405,3 +405,38 @@ body:has(.pricing-page-shell) { background: #f6f7f8; }
 .helm-pricing .pricing-live-toolbar { display:flex; align-items:center; justify-content:space-between; gap:16px; padding-top:16px; color:#66727a; font-size:11px; }
 .helm-pricing .pricing-live-source { margin:0 0 22px; color:#66727a; font-size:12px; }
 .helm-pricing .pricing-detail-comparison[data-current-only] { grid-template-columns:1fr; }
+/* Live-calendar draft tools use the same compact property workflow. */
+.helm-pricing .pricing-draft-toolbar {display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+.helm-pricing .pricing-draft-tools {display:flex;gap:8px;align-items:center}
+.helm-pricing .pricing-draft-note {font-size:11px;color:var(--pricing-muted);margin:14px 0;line-height:1.6}
+.helm-pricing .pricing-draft-setup {padding:20px 24px;background:white;border:1px solid var(--pricing-line);border-radius:10px;margin-bottom:24px}
+.helm-pricing .pricing-draft-setup h3 {font-size:15px;font-weight:600;margin-bottom:5px}
+.helm-pricing .pricing-draft-setup p {font-size:12px;color:var(--pricing-muted)}
+.helm-pricing .pricing-setup-fields {display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) auto;align-items:end;gap:14px;margin-top:18px}
+.helm-pricing .pricing-field {display:flex;flex-direction:column;gap:6px;font-size:12px;color:#53636b}
+.helm-pricing .pricing-field :is(input,select) {padding:9px 10px;border:1px solid var(--pricing-line);border-radius:6px;background:white;font:inherit;color:var(--pricing-ink);min-width:0;width:100%}
+.helm-pricing .pricing-setup-foot {display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:14px;font-size:11px;color:var(--pricing-muted)}
+.helm-pricing .pricing-draft-dialog {margin:auto;width:min(650px,calc(100vw - 32px));max-height:85dvh;padding:0;border:1px solid var(--pricing-line);border-radius:14px;color:var(--pricing-ink);box-shadow:0 24px 70px #17251e30}
+.helm-pricing .pricing-draft-dialog::backdrop {background:#17251e66}
+.helm-pricing .pricing-draft-dialog header {display:flex;align-items:flex-start;justify-content:space-between;padding:22px 24px;border-bottom:1px solid var(--pricing-line);gap:24px}
+.helm-pricing .pricing-draft-dialog h2 {font-size:20px;font-weight:600;letter-spacing:-.5px}
+.helm-pricing .pricing-draft-dialog header p {font-size:12px;color:var(--pricing-muted);margin-top:5px}
+.helm-pricing .pricing-draft-dialog-body {padding:24px;display:flex;flex-direction:column;gap:18px}
+.helm-pricing .pricing-draft-fields {display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.helm-pricing .pricing-weekday-picker {display:flex;gap:12px;flex-wrap:wrap;font-size:12px}
+.helm-pricing .pricing-weekday-picker legend {margin-bottom:10px;color:var(--pricing-muted)}
+.helm-pricing .pricing-weekday-picker label {display:flex;gap:5px;align-items:center}
+.helm-pricing .pricing-draft-dialog-actions {display:flex;justify-content:flex-end;gap:12px}
+.helm-pricing .pricing-override-list>div {display:flex;align-items:center;gap:16px;padding:16px 0;border-bottom:1px solid var(--pricing-line)}
+.helm-pricing .pricing-override-list>div>div {display:flex;flex-direction:column;gap:4px;flex:1;font-size:13px}
+.helm-pricing .pricing-override-list span {font-size:11px;color:var(--pricing-muted)}
+.helm-pricing .pricing-group-create {padding-top:18px;border-top:1px solid var(--pricing-line);display:flex;flex-direction:column;gap:14px}
+.helm-pricing .pricing-group-filter {display:flex;align-items:center;justify-content:flex-end;gap:10px;font-size:12px;margin-top:16px}
+.helm-pricing .pricing-group-filter select {background:white;border:1px solid var(--pricing-line);border-radius:6px;padding:8px 12px}
+@container pricing (max-width:600px) {.helm-pricing .pricing-setup-fields{grid-template-columns:repeat(3,minmax(0,1fr))}.helm-pricing .pricing-setup-fields>.rt-btn{grid-column:1/-1}.helm-pricing .pricing-draft-toolbar{align-items:flex-start}.helm-pricing .pricing-draft-tools{flex-wrap:wrap}}
+
+.helm-pricing .pricing-insight-empty {padding:46px 24px;display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center;color:var(--pricing-muted);font-size:12px}
+.helm-pricing .pricing-insight-empty h4 {font-size:15px;font-weight:550;color:var(--pricing-ink)}
+.helm-pricing .pricing-draft-toolbar > .pricing-view-switch {flex-shrink:0}
+.helm-pricing .pricing-draft-toolbar > .pricing-view-switch .rt-quiet-btn {width:auto;height:34px;padding:7px 12px;white-space:nowrap;font-size:12px}
+@container pricing (max-width:950px) {.helm-pricing .pricing-listing-metrics{grid-row:2}.helm-pricing .pricing-calendar-workspace{grid-row:3}}
