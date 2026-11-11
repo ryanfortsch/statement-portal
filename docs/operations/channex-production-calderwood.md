@@ -951,3 +951,27 @@ where still unknown. Recipient enablement also affects the existing regional
 digest; do not treat it as a portal-only toggle. This release does not install a
 recipient, share a link, activate a schedule, send a message or satisfy source SMS
 clearance. Guesty remains the sender and calendar authority.
+
+### Cleaner daily-text enrollment — 11 November 2026
+
+The cleaner recipient now has a separate `daily_digest_enabled` setting. Apply
+`20261111140000_cleaner_daily_digest_enrollment.sql` before deploying: it preserves
+existing daily enrollment and never creates a recipient, token, job or send. A
+missing column, schema-cache error or malformed enrollment row blocks sending.
+
+The settings form defaults a new recipient to daily texts off. An active recipient
+with that preference off retains the scoped portal and per-booking reminder
+eligibility; property automation and calendar-authority gates still apply. Turning
+the master recipient off revokes both Calderwood portal views. Other regional crew
+links keep their existing access behavior.
+
+Daily previews, recipient labels, region selection, approvals, update sends and
+automatic dispatch use the separate preference. Each dispatch rechecks consent,
+phone, token, region, property scope and language immediately before Quo; a changed
+or unreadable row is not sent. This cannot recall a message already submitted to
+the provider.
+
+Luana must be added with exactly `65_calderwood`, region `bridgeport_ct`, a verified
+destination/language, and daily texts off. Do not disable Guesty or enable Helm
+automations as part of this configuration. Canonical guest counts and controlled
+message handover remain separate checks.

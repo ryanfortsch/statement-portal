@@ -34,6 +34,7 @@ import { PropertyOnboardingLink } from './PropertyOnboardingLink';
 import { PropertyTabs, TabSection } from './PropertyTabs';
 import { DocumentsPanel } from './DocumentsPanel';
 import { GuestCodesPanel } from './GuestCodesPanel';
+import { GuestAppCardTile, GuestAppPanelLoader } from './GuestAppSection';
 import { QuickCapture } from './QuickCapture';
 import { getPropertyDocuments } from '@/lib/property-documents-server';
 import { startContractRenewal } from '@/app/projections/actions';
@@ -1959,6 +1960,16 @@ export default async function PropertyDetailPage({
           </ToolsLine>
             </>}
             documents={<>
+      {/* GUEST APP: the home's one permanent link to its Stay Cape Ann guest
+          app (/h/<token>), for the QR card in the house and for messages.
+          Cape Ann homes only: the app wears the Stay Cape Ann brand. */}
+      {isCapeAnnOps({ region: pmsRegion }) && (
+        <GuestSection id="guest-app" title="Guest app" note="Wi-Fi, checkout, how the house works and Cape Ann nearby, on the guest's phone">
+          <Suspense fallback={<p style={{ margin: 0, fontSize: 12, color: 'var(--ink-3)' }}>Loading the guest app…</p>}>
+            <GuestAppPanelLoader propertyId={p.id} />
+          </Suspense>
+        </GuestSection>
+      )}
       {/* GUEST DOCUMENTS: the printed pieces for the house. Each opens with
           one screen-only bar (Back, Print, Download PDF) that never prints;
           its Back lands here. */}
@@ -2039,6 +2050,12 @@ export default async function PropertyDetailPage({
               <DownloadPropertyPdfButton propertyId={p.id} type="wifi-placard" label="Download PDF" />
             </div>
           </div>
+          {/* Guest app card tile: the 4 x 6 QR to this home's guest app. */}
+          {isCapeAnnOps({ region: pmsRegion }) && (
+            <Suspense fallback={null}>
+              <GuestAppCardTile propertyId={p.id} actionStyle={primaryActionStyle} />
+            </Suspense>
+          )}
           {/* Information Note tile — Gloucester-only. The note cites the
               Gloucester STR ordinance and renders a Gloucester-issued
               permit ID in the footer, so it's not a fit for Rockport,

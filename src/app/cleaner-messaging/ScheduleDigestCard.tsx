@@ -8,6 +8,7 @@ import {
   getScheduleSettings,
   getOpenDigest,
   listScheduleRecipients,
+  receivesDailyDigest,
   portalLink,
   digestBaseUrl,
   composeDigestBodyLive,
@@ -282,7 +283,7 @@ function Proposals({ day }: { day: ScheduleDay }) {
  * goes out without the person seeing who receives it.
  */
 function SendsTo({ recipients, autosend, sendHour }: { recipients: ScheduleRecipient[]; autosend: boolean; sendHour: number }) {
-  const enabled = recipients.filter((r) => r.enabled);
+  const enabled = recipients.filter(receivesDailyDigest);
   return (
     <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', fontSize: 12, color: 'var(--ink-3)' }}>
       {enabled.length > 0 ? (
@@ -393,7 +394,7 @@ export async function ScheduleDigestCard({
   const noteBlock = formatOperatorNote({ pt: digest.operator_note_pt, en: digest.operator_note_en }, 'pt');
   const noteStale = noteRenderingIsStale(digest);
   const lastBatch = digest.sent_log?.[digest.sent_log.length - 1];
-  const enabledList = recipients.filter((r) => r.enabled);
+  const enabledList = recipients.filter(receivesDailyDigest);
   const anyEnabled = enabledList.length > 0;
   // The same instruction in English: the operator's check on the
   // translation, never added to a Portuguese text. A recipient marked

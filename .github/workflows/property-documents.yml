@@ -28,6 +28,8 @@ on:
       - 'scripts/pdf-download-recovery-smoke.mjs'
       - 'scripts/cleaner-stay-portal-smoke.mjs'
       - 'scripts/tests/layout-field-photos*'
+      - 'scripts/tests/cleaner-digest-enrollment.sql'
+      - 'supabase/migrations/20261111140000_cleaner_daily_digest_enrollment.sql'
       - 'supabase/migrations/20260929151500_atomic_inspection_layout_and_field_photos.sql'
       - '.github/workflows/property-documents.yml'
   push:
@@ -142,3 +144,5 @@ jobs:
         run: psql -v ON_ERROR_STOP=1 -f scripts/tests/layout-field-photos.sql
       - name: Verify simultaneous photo additions
         run: bash scripts/tests/layout-field-photos-concurrency.sh
+      - name: Verify cleaner daily enrollment preserves existing recipients
+        run: psql -v ON_ERROR_STOP=1 -f scripts/tests/cleaner-digest-enrollment.sql

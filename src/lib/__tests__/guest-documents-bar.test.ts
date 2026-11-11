@@ -23,6 +23,7 @@ const DOCUMENTS: Array<[string, string]> = [
   ['wifi-placard', 'Wi-Fi placard'],
   ['info-note', 'Information note'],
   ['trash-notice', 'Trash day notice'],
+  ['guest-app-card', 'Guest app card'],
 ];
 
 test('the bar never prints', () => {
@@ -42,7 +43,7 @@ test('every guest document mounts the bar under one name, the tab title the same
 });
 
 test('a self-guarded document mounts the bar only after its access check', () => {
-  for (const slug of ['home-guide', 'wifi-placard']) {
+  for (const slug of ['home-guide', 'wifi-placard', 'guest-app-card']) {
     const src = read(`src/app/properties/[id]/${slug}/page.tsx`);
     const guard = src.indexOf(`await requirePropertyDocumentAccess(id, '${slug}')`);
     const bar = src.indexOf('<GuestDocumentBar');
@@ -52,10 +53,11 @@ test('a self-guarded document mounts the bar only after its access check', () =>
 
 test('the PDF file, the tile and the bar share each document name', () => {
   const pdf = read('src/lib/property-pdf.ts');
-  const page = read('src/app/properties/[id]/page.tsx');
+  // The guest app card's tile renders with its link's state, from its own file.
+  const page = read('src/app/properties/[id]/page.tsx') + read('src/app/properties/[id]/GuestAppSection.tsx');
   for (const [slug, name] of DOCUMENTS) {
     assert.ok(pdf.includes(`'${slug}': '${name}'`), `${slug} downloads under another name`);
-    assert.ok(page.includes(`\n              ${name}\n            </h3>`) || page.includes(`\n                ${name}\n              </h3>`), `the ${name} tile is titled otherwise`);
+    assert.ok(page.includes(`\n              ${name}\n            </h3>`) || page.includes(`\n                ${name}\n              </h3>`) || page.includes(`\n        ${name}\n      </h3>`), `the ${name} tile is titled otherwise`);
   }
 });
 

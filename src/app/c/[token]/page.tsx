@@ -13,7 +13,7 @@ import { CAPE_ANN_REGION, regionLabel } from '@/lib/property-scope';
 import { civicForProperty, isCollectionDay } from '@/lib/civic';
 import type { HelmPropertyRow } from '@/lib/properties';
 import { CLEANER_WINDOW_DAYS, cleanerWindow } from '@/lib/cleaner-schedule-window';
-import { canReadCalderwoodStays } from '@/lib/cleaner-stay-access';
+import { canReadCalderwoodStays, calderwoodAccessUnchanged, CLEANER_STAY_ACCESS_FIELDS } from '@/lib/cleaner-stay-access';
 
 /**
  * The cleaner's live schedule page. Reached from the daily digest SMS
@@ -86,6 +86,10 @@ export default async function CleanerSchedulePage({
     .maybeSingle();
   if (!recipientRow) notFound();
   const recipient = shapeRecipient(recipientRow as Parameters<typeof shapeRecipient>[0]);
+  const calderwoodPortal = recipient.property_ids.includes('65_calderwood');
+  // The pilot's checkout link uses the same revocable access as its arrival
+  // report. Existing regional crew links keep their original access contract.
+  if (calderwoodPortal && !canReadCalderwoodStays(recipientRow)) notFound();
   const scope = recipientScope(recipient);
 
   const today = todayET();
@@ -183,6 +187,12 @@ export default async function CleanerSchedulePage({
     }
   } catch {
     // Tag is a convenience; the schedule renders without it.
+  }
+
+  if (calderwoodPortal) {
+    const current = await supabase.from('cleaner_schedule_recipients')
+      .select(CLEANER_STAY_ACCESS_FIELDS).eq('portal_token', token).maybeSingle();
+    if (current.error || !calderwoodAccessUnchanged(recipientRow, current.data)) notFound();
   }
 
   return (

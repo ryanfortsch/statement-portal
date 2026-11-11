@@ -405,7 +405,8 @@ Two shared auth helpers exist. Use them; do not hand-roll a check:
 Public surfaces that self-guard by token rather than session: `/onboarding/<token>`,
 `/contract/<token>`, `/agreement/<token>`, `/sign/<token>` (staff documents), `/c/<token>`
 (cleaner schedule; `/clean/` stays open only for its redirect), `/b/<token>` (shoot briefs),
-`/field/*` (contractor session cookie), `/book/*`, and the puppeteer-rendered deliverables under
+`/field/*` (contractor session cookie), `/book/*`, `/h/<token>` (the Stay Cape Ann guest app),
+and the puppeteer-rendered deliverables under
 `/projections/<id>/`, `/properties/<id>/`, `/inspections/<id>/render`, `/statements/render`.
 
 The property Home Guide and WiFi placard contain credentials. They pass the proxy for PDF
@@ -414,6 +415,28 @@ scoped to one property and document. `/api/property-pdf` authenticates staff bef
 `property-pdf.ts` sends the token only on the exact document navigation, in a header, never a
 URL. Keep the document-root check: Next can stream a 200 shell for an unauthorized not-found
 page. Printed WiFi QR codes encode network details directly and do not use these web routes.
+The guest app card (`/properties/<id>/guest-app-card`) is the third self-guarded document: its
+QR opens the guest app, which shows the Wi-Fi password.
+
+**The guest app** (`/h/<token>`, since 2026-11-11; `src/lib/guest-app.ts`, `guest-app-db.ts`,
+`guest-app-nearby.ts`, `src/app/h/`). One permanent link per Cape Ann home
+(`guest_app_homes`), printed as the guest app card's QR in the house and sent in messages. It
+is Guesty's guest app turned around: Guesty's link is per reservation and expires at checkout,
+so it can never be printed; ours outlives every stay, which is exactly why it carries **no door,
+gate, garage, alarm or thermostat code**. The door code still arrives in the check-in message.
+The properties select is an explicit column list (`GUEST_APP_PROPERTY_COLS`), Wi-Fi comes
+through `getGuestWifiPasswords` (a select of the two Wi-Fi columns only), rooms through
+`guestRoomFacts`, how-tos from open guest-facing notes (the concierge's KB), trash from
+`civic.ts`, guest check-in from the rate plan. `guest-app.test.ts` reads the loader and fails on a
+broader read. Every load is live, so a fact fixed on the property page is on the guest's phone
+next open. Every way to reach us is an `sms:` to the GUESTS line naming the home; nothing on the
+page writes to Helm except the open counter. Around Cape Ann is staycapeann.com's own list
+(`src/data/sca-guide.json`, refreshed with `npm run sync-sca-guide -- --src=<stay-cape-ann
+checkout>`; only verified businesses are in it). The property page's Guest app panel (Guest &
+listing) holds the link, Turn off (the card shows "This guide link has moved"), New link (retires
+every printed card) and the welcome note, and lists what the app has nothing for yet. A Helm
+session previewing the page is not counted as an open. `GUEST_APP_ORIGIN` can put a guest-facing
+domain in front later; printed cards keep working because `/h/` stays on Helm.
 
 `/api/archive-onboarding` also self-guards: staff may archive by projection ID; owners must
 send that projection's onboarding token in the POST body. The thank-you page passes its
@@ -1115,7 +1138,8 @@ counted 2026-10-22).
   review link the staycapeann.com testimonial form's thank-you page offers; unset, the page
   offers nothing. The form link itself is `SCA_PUBLIC_ORIGIN/review/<token>`.
 - **Origins in links**, all defaulted: `SCA_PUBLIC_ORIGIN` (quote links), `NEXT_PUBLIC_APP_URL`,
-  `NEXT_PUBLIC_HELM_URL`, `NEXT_PUBLIC_HELM_ORIGIN`, `NEXT_PUBLIC_SITE_URL`
+  `NEXT_PUBLIC_HELM_URL`, `NEXT_PUBLIC_HELM_ORIGIN`, `NEXT_PUBLIC_SITE_URL`, `GUEST_APP_ORIGIN`
+  (the guest app link and its QR; unset = `NEXT_PUBLIC_APP_URL`, then the Helm host)
 - **Other**: `GITHUB_TOKEN`, `BLOB_READ_WRITE_TOKEN`, `GOOGLE_SERVICE_ACCOUNT_KEY`,
   `DRIVE_HELM_RECORDS_FOLDER_ID` (with the service account, turns on the Drive archive),
   `VERCEL_API_TOKEN` (Speed Insights on `/marketing`), `CLEANING_AUTO_CONFIRM_MINUTES` (default

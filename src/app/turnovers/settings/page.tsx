@@ -138,8 +138,16 @@ function RecipientForm({
       </label>
       <label style={{ ...labelStyle, flexDirection: 'row', alignItems: 'center', gap: 6, paddingBottom: 8 }}>
         <input type="checkbox" name="enabled" value="true" defaultChecked={recipient?.enabled ?? false} />
-        enabled
+        Recipient active
       </label>
+      <input type="hidden" name="dailyDigestPreference" value="present" />
+      <label style={{ ...labelStyle, flexDirection: 'row', alignItems: 'center', gap: 6, paddingBottom: 8 }}>
+        <input type="checkbox" name="dailyDigestEnabled" value="true" defaultChecked={recipient?.daily_digest_enabled === true} />
+        Daily checkout text
+      </label>
+      <p style={{ flexBasis: '100%', margin: 0, fontSize: 12, color: 'var(--ink-3)' }}>
+        Daily checkout texts require both switches. Leaving daily texts off preserves portal access and the property’s separate booking-reminder settings.
+      </p>
       <SubmitButton
         label={recipient ? 'Save' : 'Add recipient'}
         busyLabel="Saving..."
@@ -220,7 +228,7 @@ export default async function CleanerSettingsPage({
         <NoticeLine notice={headNotice} />
       </Section>
 
-      <Section id="schedule-recipients" title="Who gets the daily text" eyebrow="Via Quo, after your approval" paddingTop={8} paddingBottom={12}>
+      <Section id="schedule-recipients" title="Cleaner access & messages" eyebrow="Recipients" paddingTop={8} paddingBottom={12}>
         <div style={{ borderTop: '1px solid var(--ink)' }}>
           <NoticeLine notice={recipientNotice} style={{ padding: '10px 0 0' }} />
           {recipients.length === 0 && (
@@ -232,6 +240,7 @@ export default async function CleanerSettingsPage({
             <div key={r.phone} id={`recipient-${r.phone.replace(/\D/g, '')}`} style={{ borderTop: '1px solid var(--rule)', scrollMarginTop: 100 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', flexWrap: 'wrap' }}>
                 <RecipientToggle phone={r.phone} name={r.display_name} enabled={r.enabled} />
+                <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>Daily checkout text: {r.enabled && r.daily_digest_enabled === true ? 'on' : 'off'}</span>
                 <span style={{ fontFamily: 'var(--font-mono), monospace', fontSize: 12, color: 'var(--ink-3)' }}>{r.phone}</span>
                 <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
                   {regionLabel(r.region)} · {describeRecipientScope(r, regionLabel, (id) => allPropNames.get(id) ?? id)}

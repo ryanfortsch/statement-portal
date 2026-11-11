@@ -44,7 +44,7 @@ function browserFixture({ ok = true, hasDocument = true } = {}) {
       return { ok: () => ok };
     },
     $: async (selector: string) => {
-      assert.match(selector, /^\[data-property-document="(wifi-placard|home-guide)"\]$/);
+      assert.match(selector, /^\[data-property-document="(wifi-placard|home-guide|guest-app-card)"\]$/);
       return hasDocument ? {} : null;
     },
     evaluate: async () => {},
@@ -59,7 +59,7 @@ function browserFixture({ ok = true, hasDocument = true } = {}) {
   };
 }
 
-for (const type of ['wifi-placard', 'home-guide'] as const) {
+for (const type of ['wifi-placard', 'home-guide', 'guest-app-card'] as const) {
   test(`${type}: temporary authorization goes only to the exact main document`, async (t) => {
     const fixture = browserFixture();
     t.mock.method(puppeteer, 'launch', async () => fixture.browser);

@@ -190,7 +190,7 @@ describe('composeDigestBody', () => {
 describe('shapeRecipient', () => {
   test('a pre-scope row gets the table defaults: Cape Ann, every home, Portuguese', () => {
     const r = shapeRecipient({ phone: '+1', display_name: 'Rosa', portal_token: 't', enabled: true });
-    assert.deepEqual(r, { phone: '+1', display_name: 'Rosa', portal_token: 't', enabled: true, property_ids: [], region: 'cape_ann', language: 'pt' });
+    assert.deepEqual(r, { phone: '+1', display_name: 'Rosa', portal_token: 't', enabled: true, daily_digest_enabled: true, property_ids: [], region: 'cape_ann', language: 'pt' });
   });
   test('an unknown language falls back to Portuguese, en is kept', () => {
     assert.equal(shapeRecipient({ phone: '+1', display_name: 'x', portal_token: 't', enabled: false, language: 'fr' }).language, 'pt');
