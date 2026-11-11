@@ -132,13 +132,13 @@
 .helm-pricing .pricing-menu[open] summary { background: #f5f7fa; }
 .helm-pricing .pricing-filter-dot { width: 5px; height: 5px; border-radius: 50%; background: #53749c; }
 .helm-pricing .pricing-menu-panel { position: absolute; top: calc(100% + 8px); right: 0; z-index: 20; width: 236px; border: 1px solid #e1e5eb; border-radius: 9px; padding: 18px; background: white; box-shadow: 0 8px 30px #17283b16,0 2px 6px #17283b08; }
-.helm-pricing .pricing-menu-panel label { display: block; font-size: 12px; margin-bottom: 14px; }
-.helm-pricing .pricing-menu-panel label:last-child { margin-bottom: 0; }
-.helm-pricing .pricing-menu-panel select { display: block; width: 100%; margin-top: 6px; border: 1px solid #dce0e6; border-radius: 5px; background: #fff; padding: 8px; font: inherit; }
-.helm-pricing .pricing-menu-panel p { font-size: 12px; font-weight: 600; margin-bottom: 16px; }
+.helm-pricing .pricing-menu-panel > label { display: block; font-size: 12px; margin-bottom: 14px; }
+.helm-pricing .pricing-menu-panel > label:last-child { margin-bottom: 0; }
+.helm-pricing .pricing-menu-panel > label select { display: block; width: 100%; margin-top: 6px; border: 1px solid #dce0e6; border-radius: 5px; background: #fff; padding: 8px; font: inherit; }
+.helm-pricing .pricing-menu-panel > p { font-size: 12px; font-weight: 600; margin-bottom: 16px; }
 .helm-pricing .pricing-menu-panel .pricing-menu-check { display: flex; align-items: center; gap: 10px; }
 .helm-pricing .pricing-more summary { border: 0; background: transparent; }
-.helm-pricing .pricing-more .pricing-menu-panel .rt-quiet-btn { display: block; width: 100%; text-align: left; padding: 9px 6px; }
+.helm-pricing .pricing-more .pricing-menu-panel > .rt-quiet-btn { display: block; width: 100%; text-align: left; padding: 9px 6px; }
 /* Property */
 .pricing-listing-navigation { display: flex; align-items: center; gap: 14px; min-width: 0; }
 .helm-pricing .pricing-back-button { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 30px; color: #667488; flex-shrink: 0; padding: 0; }
@@ -440,3 +440,58 @@ body:has(.pricing-page-shell) { background: #f6f7f8; }
 .helm-pricing .pricing-draft-toolbar > .pricing-view-switch {flex-shrink:0}
 .helm-pricing .pricing-draft-toolbar > .pricing-view-switch .rt-quiet-btn {width:auto;height:34px;padding:7px 12px;white-space:nowrap;font-size:12px}
 @container pricing (max-width:950px) {.helm-pricing .pricing-listing-metrics{grid-row:2}.helm-pricing .pricing-calendar-workspace{grid-row:3}}
+
+.helm-pricing .pricing-portfolio-tools {display:flex;align-items:center;justify-content:flex-end;gap:12px;margin:18px 0 -12px}
+.helm-pricing .pricing-portfolio-tools .pricing-group-filter {margin:0}
+.helm-pricing .pricing-group-manager {width:min(860px,calc(100vw - 28px))}
+.helm-pricing .pricing-group-manager > header {position:sticky;top:0;background:white;z-index:3}
+.helm-pricing .pricing-group-manager-body {padding:24px;display:flex;flex-direction:column;gap:18px}
+.helm-pricing .pricing-group-manager > footer {position:sticky;bottom:0;display:flex;justify-content:space-between;align-items:center;padding:16px 24px;border-top:1px solid var(--pricing-line);background:white;z-index:3}
+.helm-pricing .pricing-group-manager footer>span {font-size:12px;color:var(--pricing-muted)}
+.helm-pricing .pricing-group-scope {display:flex;gap:16px;align-items:flex-end}
+.helm-pricing .pricing-group-scope>.pricing-field {flex:1}
+.helm-pricing .pricing-group-create-form {display:grid;grid-template-columns:1fr 1fr;gap:12px;background:var(--pricing-wash,#f5f7f5);padding:16px;border-radius:8px}
+.helm-pricing .pricing-group-create-form>.rt-btn {grid-column:1/-1;justify-self:end}
+.helm-pricing .pricing-group-heading {display:flex;justify-content:space-between;align-items:center;margin-top:4px}
+.helm-pricing .pricing-group-heading h3 {font-size:17px;font-weight:600;letter-spacing:-.3px}
+.helm-pricing .pricing-group-heading>span {font-size:12px;color:var(--pricing-muted)}
+.helm-pricing .pricing-rule-source-table>div {display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) 60px;align-items:center;gap:12px;min-height:45px;border-bottom:1px solid var(--pricing-line);font-size:12px}
+.helm-pricing .pricing-rule-source-table>div>span:nth-child(2) {color:var(--pricing-muted);overflow-wrap:anywhere}
+.helm-pricing .pricing-rule-source-table .pricing-rule-source-head {min-height:32px;color:var(--pricing-muted);font-size:10px;letter-spacing:.3px}
+.helm-pricing .pricing-rule-source-table .rt-quiet-btn {font-size:12px;padding:8px 0;display:flex;align-items:center;justify-content:space-between;text-align:left;gap:8px}
+.helm-pricing .pricing-rule-source-table svg {width:12px;color:var(--pricing-muted)}
+.helm-pricing .pricing-shared-fields {padding:4px 0 12px}
+.helm-pricing .pricing-group-editor-nav {display:flex;align-items:center;justify-content:space-between;font-size:12px;color:var(--pricing-muted)}
+.helm-pricing .pricing-group-editor-nav .rt-quiet-btn {padding:0;font-size:12px}
+.helm-pricing .pricing-group-assignment {display:flex;gap:16px;align-items:flex-end}
+.helm-pricing .pricing-group-assignment>.pricing-field {flex:1}
+.helm-pricing .pricing-group-assignment>label:last-child {font-size:12px;display:flex;align-items:center;gap:6px;white-space:nowrap;padding-bottom:12px}
+.helm-pricing .pricing-group-home-list {max-height:340px;overflow:auto;border:1px solid var(--pricing-line);border-radius:8px}
+.helm-pricing .pricing-group-home-list>label {display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid var(--pricing-line);font-size:12px;cursor:pointer}
+.helm-pricing .pricing-group-home-list>label:last-child {border:0}
+.helm-pricing .pricing-group-home-list>label>span:nth-child(2) {flex:1;display:flex;flex-direction:column;gap:3px}
+.helm-pricing .pricing-group-home-list b {font-weight:550}
+.helm-pricing .pricing-group-home-list small,.helm-pricing .pricing-group-home-list>label>span:last-child {font-size:10px;color:var(--pricing-muted)}
+.helm-pricing .pricing-bulk-assign {display:flex;flex-direction:column;gap:12px;padding:16px;background:#f4f7f4;border-radius:8px}
+.helm-pricing .pricing-bulk-assign>p {font-size:12px;line-height:1.6;color:var(--pricing-muted)}
+.helm-pricing .pricing-bulk-assign>.rt-btn {align-self:flex-end}
+@media(max-width:540px){.helm-pricing .pricing-group-manager-body{padding:18px}.helm-pricing .pricing-group-manager>header{padding:18px}.helm-pricing .pricing-group-scope{gap:10px}.helm-pricing .pricing-group-home-list>label>span:last-child{max-width:75px;text-align:right}.helm-pricing .pricing-rule-source-table>div{gap:8px;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) 48px}}
+
+.helm-pricing .pricing-stay-fields {display:flex;flex-direction:column;gap:28px}
+.helm-pricing .pricing-stay-fields>section {display:flex;flex-direction:column;gap:16px}
+.helm-pricing .pricing-stay-section-head {display:flex;align-items:center;justify-content:space-between;gap:16px}
+.helm-pricing .pricing-stay-section-head h3 {font-size:15px;font-weight:550}
+.helm-pricing .pricing-stay-section-head span {font-size:11px;color:var(--pricing-muted)}
+.helm-pricing .pricing-stay-section-head .rt-quiet-btn {font-size:12px}
+.helm-pricing .pricing-los-row {display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:12px;align-items:end}
+.helm-pricing .pricing-los-row>.rt-quiet-btn {font-size:12px;padding-bottom:12px}
+.helm-pricing .pricing-stay-fields section>.rt-btn {align-self:flex-start}
+.helm-pricing .pricing-stay-result {border:1px solid var(--pricing-line);border-radius:9px;padding:20px}
+.helm-pricing .pricing-stay-result>div {display:flex;justify-content:space-between;align-items:center;gap:10px}
+.helm-pricing .pricing-stay-result h3 {font-size:18px;font-weight:600}
+.helm-pricing .pricing-stay-result span {font-size:11px;color:var(--pricing-muted)}
+.helm-pricing .pricing-stay-result dl {display:flex;flex-direction:column;gap:12px;margin-top:18px;font-size:12px}
+.helm-pricing .pricing-stay-result dl>div {display:flex;justify-content:space-between;gap:16px}
+.helm-pricing .pricing-stay-result dl>div:last-child {padding-top:14px;border-top:1px solid var(--pricing-line);font-weight:600;font-size:15px}
+.helm-pricing .pricing-stay-result :is(ul,p) {margin-top:12px;color:var(--pricing-muted);font-size:12px;line-height:1.6}
+.helm-pricing .pricing-stay-result ul {padding-left:16px;list-style:disc}

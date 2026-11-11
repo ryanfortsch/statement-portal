@@ -78,3 +78,45 @@ test('shared group edits invalidate every member version without double incremen
  const next=structuredClone(before);next.groups[0].policy.lastMinuteDiscountPct=10;next.homes.a.version=2;
  const revised=revisePricingDraftGroups(before,next);assert.equal(revised.homes.a.version,2);assert.equal(revised.homes.b.version,2);
 });
+
+function hierarchy(){const s=state();s.account={policy:{...policy,lastMinuteDiscountPct:10,farOutPremiumPct:12,weekdayMinNights:5},ruleCategories:['lastMinute','farOut','minimumStay'],overrides:[]};s.groups=[{id:'g',name:'Coastal',parentId:null,policy:{...policy,lastMinuteDiscountPct:15},ruleCategories:['lastMinute'],overrides:[]},{id:'sg',name:'Large homes',parentId:'g',policy:{...policy,farOutPremiumPct:20,weekdayMinNights:3},ruleCategories:['farOut','minimumStay'],overrides:[]}];s.homes.a={...s.homes.a,groupId:'sg',inheritRules:true,ruleCategories:[]};return s;}
+import {assignPricingGroup,pricingInheritedOverrides,pricingRuleSources,pricingRuleCategories,PRICING_RULE_CATEGORIES,resolvePricingStayRules,pricingInGroup} from '../dynamic-pricing-drafts.ts';
+test('every policy rule belongs to exactly one inheritance category; prices stay local',()=>{
+ const keys=Object.values(PRICING_RULE_CATEGORIES).flatMap(c=>c.fields);assert.equal(new Set(keys).size,keys.length);
+ assert.deepEqual([...keys].sort(),Object.keys(policy).filter(k=>!['version','currency','baseCents','floorCents','ceilingCents'].includes(k)).sort());assert.equal(pricingRuleCategories.length,10);
+});
+test('account, group, subgroup and listing resolve per category and minimum stays remain atomic',()=>{
+ let s=hierarchy();const before=resolvePricingDraft(s,'a');assert.equal(before.lastMinuteDiscountPct,15);assert.equal(before.farOutPremiumPct,20);assert.equal(before.weekdayMinNights,3);assert.equal(before.weekendMinNights,2);
+ s=savePricingDraftPolicy(s,'a',{...before,lastMinuteDiscountPct:8},1);assert.deepEqual(s.homes.a.ruleCategories,['lastMinute']);
+ s.groups[1].policy.farOutPremiumPct=25;assert.equal(resolvePricingDraft(s,'a').farOutPremiumPct,25);assert.equal(resolvePricingDraft(s,'a').lastMinuteDiscountPct,8);
+ assert.equal(pricingRuleSources(s,{kind:'listing',id:'a'}).sources.lastMinute,'This listing');assert.equal(pricingRuleSources(s,{kind:'listing',id:'a'}).sources.farOut,'Large homes');
+ s.homes.a.ruleCategories=[];assert.equal(resolvePricingDraft(s,'a').lastMinuteDiscountPct,15);
+});
+test('legacy drafts retain exact listing and group behavior when loaded',()=>{
+ const s=state();s.groups=[{id:'g',name:'Legacy',policy:{...policy,lastMinuteDiscountPct:14},overrides:[]}];s.homes.a.groupId='g';s.homes.a.inheritRules=true;
+ const loaded=pricingDraftsSchema.parse(JSON.parse(JSON.stringify(s)));assert.equal(resolvePricingDraft(loaded,'a').lastMinuteDiscountPct,14);assert.equal(resolvePricingDraft(loaded,'b').baseCents,45000);assert.equal(resolvePricingDraft(loaded,'b').lastMinuteDiscountPct,0);
+});
+test('rejects cycles, missing parents and nesting beyond subgroups',()=>{
+ const s=hierarchy();s.groups[0].parentId='sg';assert.throws(()=>pricingDraftsSchema.parse(s));s.groups[0].parentId=null;s.groups.push({...s.groups[1],id:'third',name:'Third',parentId:'sg'});assert.throws(()=>pricingDraftsSchema.parse(s));s.groups[2].parentId='missing';assert.throws(()=>pricingDraftsSchema.parse(s));
+});
+test('bulk assignment supports 26 homes without inventing prices, retaining existing local overrides',()=>{
+ const s=hierarchy();const ids=Array.from({length:26},(_,i)=>i===0?'a':i===1?'b':`home-${i}`);const next=assignPricingGroup(s,ids,'sg',false);
+ assert.equal(Object.keys(next.homes).length,2);assert.equal(Object.keys(next.assignments??{}).length,24);assert.equal(resolvePricingDraft(next,'b').baseCents,45000);assert.equal(resolvePricingDraft(next,'b').lastMinuteDiscountPct,0);assert.equal(pricingInGroup(next,'home-25','g'),true);
+ const inherited=assignPricingGroup(next,['b'],'sg',true);assert.equal(resolvePricingDraft(inherited,'b').baseCents,45000);assert.equal(resolvePricingDraft(inherited,'b').lastMinuteDiscountPct,15);assert.throws(()=>assignPricingGroup(s,ids,'missing',false));
+});
+test('date precedence is listing then subgroup then group then account without stacking',()=>{
+ const s=hierarchy();s.account!.overrides=[override({value:31000})];s.groups[0].overrides=[override({start:'2026-11-12',value:32000})];s.groups[1].overrides=[override({start:'2026-11-13',value:33000})];s.homes.a.overrides=[override({start:'2026-11-14',value:34000})];
+ const p=resolvePricingDraft(s,'a'),result=applyPricingDraftOverrides(previewPricing(p,snapshot,now),p,snapshot,s.homes.a.overrides,pricingInheritedOverrides(s,'a'));
+ assert.deepEqual(result.days.map(d=>d.recommendedCents),[31000,32000,33000,34000,34000,34000]);assert.equal(result.days[0].steps.at(-1)?.label,'Account override: Holiday');assert.equal(result.days[2].steps.at(-1)?.label,'Subgroup override: Holiday');
+});
+test('parent and account edits invalidate only affected effective rules and date versions',()=>{
+ const s=hierarchy(),next=structuredClone(s);next.account!.policy.farOutPremiumPct=30;assert.equal(revisePricingDraftGroups(s,next).homes.a.version,1);
+ next.account!.overrides=[override()];assert.equal(revisePricingDraftGroups(s,next).homes.a.version,2);assert.equal(revisePricingDraftGroups(s,next).homes.b.version,2);
+ const parent=structuredClone(s);parent.groups[0].policy.lastMinuteDiscountPct=20;assert.equal(revisePricingDraftGroups(s,parent).homes.a.version,2);assert.equal(revisePricingDraftGroups(s,parent).homes.b.version,1);
+});
+test('stay-length and arrival rules inherit independently; reset bulk uses parent rules',()=>{
+ const s=hierarchy();s.account!.lengthOfStay=[{nights:7,adjustmentPct:-10}];s.groups[0].arrivalDeparture={arrival:[5],departure:[0]};s.homes.a.lengthOfStay=[{nights:28,adjustmentPct:-20}];
+ let r=resolvePricingStayRules(s,{kind:'listing',id:'a'});assert.equal(r.rules.lengthOfStay[0].nights,28);assert.deepEqual(r.rules.arrivalDeparture.arrival,[5]);assert.equal(r.sources.arrivalDeparture,'Coastal');
+ const next=assignPricingGroup(s,['a'],'sg',true);r=resolvePricingStayRules(next,{kind:'listing',id:'a'});assert.equal(r.rules.lengthOfStay[0].nights,7);
+ const after=structuredClone(s);after.account!.lengthOfStay![0].adjustmentPct=-15;assert.equal(revisePricingDraftGroups(s,after).homes.a.version,1);assert.equal(revisePricingDraftGroups(s,after).homes.b.version,2);
+});

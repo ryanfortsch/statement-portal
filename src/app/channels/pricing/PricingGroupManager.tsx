@@ -1,0 +1,54 @@
+'use client';
+import {useEffect,useRef,useState} from 'react';
+import {Button} from '@/components/Button';
+import {useConfirm} from '@/components/ConfirmDialog';
+import {useUnsavedWorkGuard} from '@/lib/unsaved-work';
+import {type PricingPolicy} from '@/lib/dynamic-pricing';
+import {assignPricingGroup,neutralPricingDraft,pricingChangedCategories,pricingDraftError,pricingGroupId,pricingGroupName,pricingHomeCategories,pricingInGroup,pricingRuleCategories,pricingDraftsSchema,pricingRuleSources,PRICING_RULE_CATEGORIES,savePricingSharedRules,resolvePricingStayRules,type PricingDrafts,type PricingRuleCategory,type PricingRuleScope} from '@/lib/dynamic-pricing-drafts';
+import PricingPolicyFields from './PricingPolicyFields';
+import PricingIcon from './PricingIcon';
+import PricingStayFields from './PricingStayFields';
+import type {PricingStayRules} from '@/lib/dynamic-pricing-stays';
+const sectionFor:Record<PricingRuleCategory,string>={seasonality:'strategy',weekdays:'strategy',market:'strategy',lastMinute:'adjustments',farOut:'adjustments',occupancy:'adjustments',recency:'adjustments',limits:'adjustments',minimumStay:'stays',events:'events'};
+export default function PricingGroupManager({state,homes,today,commit,close}:{state:PricingDrafts;homes:{id:string;name:string}[];today:string;commit:(s:PricingDrafts)=>PricingDrafts;close:()=>void}){
+  const [work,setWork]=useState(state),[saved,setSaved]=useState(state),[selected,setSelected]=useState(''),[view,setView]=useState<'rules'|'stays'|'listings'>('rules'),[editing,setEditing]=useState<string|null>(null);
+  const [name,setName]=useState(''),[parent,setParent]=useState(''),[creating,setCreating]=useState(false),[search,setSearch]=useState(''),[ids,setIds]=useState<string[]>([]),[inherit,setInherit]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState('');
+  const dialog=useRef<HTMLDialogElement>(null),{ask}=useConfirm();
+  useEffect(()=>{dialog.current?.showModal();},[]);
+  const dirty=JSON.stringify(work)!==JSON.stringify(saved);useUnsavedWorkGuard(dirty||!!name);
+  const group=work.groups.find(g=>g.id===selected),scope:Exclude<PricingRuleScope,{kind:'listing'}>=group?{kind:'group',id:group.id}:{kind:'account'};
+  const effective=pricingRuleSources(work,scope,false),own=group??work.account,active=own?.ruleCategories??(own?pricingRuleCategories:[]);
+  const label=group?pricingGroupName(work,group.id):'Account defaults',members=homes.filter(h=>!group||pricingInGroup(work,h.id,group.id));
+  const filtered=homes.filter(h=>h.name.toLowerCase().includes(search.toLowerCase())),selectedHomes=homes.filter(h=>ids.includes(h.id));
+  async function requestClose(){if(dirty||name){dialog.current?.close();const yes=await ask({title:'Discard unsaved group changes?',body:'Saved rules and listing assignments will remain unchanged.',confirmLabel:'Discard'});if(!yes){dialog.current?.showModal();return;}}close();}
+  function change(next:PricingDrafts){setWork(next);setError('');setMessage('');}
+  function modify<K extends keyof PricingPolicy>(key:K,value:PricingPolicy[K]){
+    const policy={...effective.policy,[key]:value},ruleCategories=[...new Set([...active,...pricingChangedCategories(effective.policy,policy)])];
+    // Keep incomplete input editable; validate the complete policy when saving.
+    change(scope.kind==='account'?{...work,account:{...work.account,policy,ruleCategories,overrides:work.account?.overrides??[]}}:{...work,groups:work.groups.map(g=>g.id===scope.id?{...g,policy,ruleCategories}:g)});
+  }
+  function reset(category:PricingRuleCategory){try{change(savePricingSharedRules(work,scope,effective.policy,active.filter(c=>c!==category)));}catch(e){setError(pricingDraftError(e));}}
+  function changeStay<K extends keyof PricingStayRules>(key:K,value:PricingStayRules[K]|undefined){change(group?{...work,groups:work.groups.map(g=>g.id===group.id?{...g,[key]:value}:g)}:{...work,account:{policy:effective.policy,ruleCategories:active,overrides:[],...work.account,[key]:value}});}
+  const stay=resolvePricingStayRules(work,scope),validation=pricingDraftsSchema.safeParse(work);
+  function save(){try{const next=commit(work);setWork(next);setSaved(next);setError('');setMessage('Saved on this device');}catch(e){setError(pricingDraftError(e));}}
+  function selectScope(id:string){setSelected(id);setEditing(null);setIds([]);setError('');}
+  return <dialog ref={dialog} className="pricing-draft-dialog pricing-group-manager" aria-label="Groups and rules" onCancel={e=>{e.preventDefault();void requestClose();}}>
+    <header><div><h2>Groups & rules</h2><p>Account → Group → Subgroup → Listing</p></div><Button variant="quiet" aria-label="Close group manager" onClick={()=>void requestClose()}><PricingIcon name="close"/></Button></header>
+    <div className="pricing-group-manager-body">
+      <div className="pricing-group-scope"><label className="pricing-field">Scope<select aria-label="Rule scope" value={selected} onChange={e=>selectScope(e.target.value)}><option value="">Account defaults</option>{work.groups.map(g=><option key={g.id} value={g.id}>{pricingGroupName(work,g.id)}</option>)}</select></label><Button variant="secondary" onClick={()=>setCreating(!creating)}>New group</Button></div>
+      {creating&&<div className="pricing-group-create-form"><label className="pricing-field">Group name<input value={name} maxLength={60} onChange={e=>setName(e.target.value)}/></label><label className="pricing-field">Parent<select aria-label="Parent group" value={parent} onChange={e=>setParent(e.target.value)}><option value="">Account (top-level group)</option>{work.groups.filter(g=>!g.parentId).map(g=><option key={g.id} value={g.id}>{g.name}</option>)}</select></label><Button variant="primary" disabled={!name.trim()} onClick={()=>{if(work.groups.some(g=>g.name.toLowerCase()===name.trim().toLowerCase())){setError('A group with this name already exists');return;}if(work.groups.length>=50){setError('A maximum of 50 groups is supported');return;}const id=crypto.randomUUID();change({...work,groups:[...work.groups,{id,name:name.trim(),parentId:parent||null,policy:neutralPricingDraft(100,100,100),ruleCategories:[],overrides:[]}]});selectScope(id);setName('');setCreating(false);}}>Create {parent?'subgroup':'group'}</Button></div>}
+      <div className="pricing-group-heading"><h3>{label}</h3><span>{members.length} listings</span></div>
+      <div className="pricing-tabs" role="group" aria-label="Group views"><Button variant="quiet" className="pricing-tab" aria-pressed={view==='rules'} onClick={()=>setView('rules')}>Rules</Button><Button variant="quiet" className="pricing-tab" aria-pressed={view==='stays'} onClick={()=>setView('stays')}>Stay pricing</Button><Button variant="quiet" className="pricing-tab" aria-pressed={view==='listings'} onClick={()=>{setView('listings');setIds([]);}}>Listings</Button></div>
+      {view==='rules'&&<>{editing?<><div className="pricing-group-editor-nav"><Button variant="quiet" onClick={()=>setEditing(null)}>← All rules</Button><span>{label}</span></div><div className="pricing-rules-content pricing-shared-fields"><PricingPolicyFields policy={effective.policy} modify={modify} ruleSection={editing} today={today}/></div></>:<div className="pricing-rule-source-table"><div className="pricing-rule-source-head"><span>Rule</span><span>Applied from</span><span/></div>{pricingRuleCategories.map(k=><div key={k}><Button variant="quiet" onClick={()=>setEditing(sectionFor[k])}>{PRICING_RULE_CATEGORIES[k].label}<PricingIcon name="next"/></Button><span>{effective.sources[k]}</span>{active.includes(k)&&<Button variant="quiet" aria-label={`Inherit ${PRICING_RULE_CATEGORIES[k].label}`} onClick={()=>reset(k)}>{group?'Inherit':'Reset'}</Button>}</div>)}</div>}<p className="pricing-draft-note">Base, minimum and maximum prices remain specific to each home. Minimum-stay rules inherit together.</p></>}
+      {view==='stays'&&<PricingStayFields rules={stay.rules} sources={stay.sources} modify={changeStay} own={(['lengthOfStay','arrivalDeparture'] as const).filter(k=>own?.[k]!==undefined)} onInherit={k=>changeStay(k,undefined)}/>}
+      {view==='listings'&&<>
+        <div className="pricing-group-assignment"><label className="pricing-field">Find listings<input aria-label="Find listings" placeholder="Search internal names" value={search} onChange={e=>setSearch(e.target.value)}/></label><label><input type="checkbox" checked={filtered.length>0&&filtered.every(h=>ids.includes(h.id))} onChange={e=>setIds(e.target.checked?[...new Set([...ids,...filtered.map(h=>h.id)])]:ids.filter(id=>!filtered.some(h=>h.id===id)))}/>Select {filtered.length} shown</label></div>
+        <div className="pricing-group-home-list" aria-label="Listing assignments">{filtered.map(h=><label key={h.id}><input type="checkbox" aria-label={`Select ${h.name}`} checked={ids.includes(h.id)} onChange={e=>setIds(e.target.checked?[...ids,h.id]:ids.filter(id=>id!==h.id))}/><span><b>{h.name}</b><small>{pricingGroupName(work,pricingGroupId(work,h.id))}</small></span><span>{work.homes[h.id]?`${pricingHomeCategories(work.homes[h.id]).length+(['lengthOfStay','arrivalDeparture'] as const).filter(k=>work.homes[h.id][k]!==undefined).length} listing overrides`:'Base price not set'}</span></label>)}{!filtered.length&&<p>No matching listings.</p>}</div>
+        {ids.length>0&&<div className="pricing-bulk-assign"><label className="pricing-field">Listing rules<select aria-label="Existing listing rules" value={inherit?'inherit':'keep'} onChange={e=>setInherit(e.target.value==='inherit')}><option value="keep">Keep listing overrides</option><option value="inherit">Use inherited rules for every category</option></select></label><p>{ids.length} listings → {group?label:'No group (account rules)'}. {selectedHomes.filter(h=>!work.homes[h.id]).length} need base prices before a draft can be calculated.</p><Button variant="secondary" onClick={()=>{try{change(assignPricingGroup(work,ids,group?.id??null,inherit));setIds([]);}catch(e){setError(pricingDraftError(e));}}}>Assign {ids.length} listings</Button></div>}
+      </>}
+      {!validation.success&&<p role="alert" className="pricing-feedback">{pricingDraftError(validation.error)}</p>}
+      {error&&<p role="alert" className="pricing-feedback">{error}</p>}{message&&<p role="status" className="pricing-draft-note">{message}</p>}
+    </div>
+    <footer><span>{dirty?'Unsaved changes':'Local draft settings'}</span><Button variant="primary" disabled={!dirty||!validation.success} onClick={save}>Save changes</Button></footer>
+  </dialog>;
+}

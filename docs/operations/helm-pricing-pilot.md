@@ -543,21 +543,22 @@ default calendar view; the Helm draft is an explicit toggle.
 | Portfolio | Internal names, sortable 7/30/60/90-day metrics, column picker, filters and local group filter | No fabricated market comparison; no bulk multi-calendar editor |
 | Price configuration | Base/min/max, current versus proposed calendar/table, exact nightly breakdown | Device-local settings; production storage not installed |
 | Recurring rules | Monthly/weekday factors, gradual last-minute discount, far-out premium, occupancy targets, recency switch, gap pricing, historical safety floor | Not the vendor's complete flat/fixed/market-driven presets; recency requires verified booking timestamps |
-| Minimum stays | Weekday/weekend, last-minute and far-out thresholds, gaps, adjacency, minimum booking value, event minimums | No check-in/check-out or maximum-stay delivery |
+| Minimum stays | Weekday/weekend, last-minute and far-out thresholds, gaps, adjacency, minimum booking value, event minimums; arrival/departure weekdays in stay preview | No restriction delivery, seasonal/last-minute arrival profiles or maximum stays |
 | Date overrides | Inclusive date ranges, selected weekdays, fixed nightly rate, percentage of recommendation or minimum stay; edit/remove | No expiry, fixed-price bounds bypass, date-specific base/min/max or drag-to-select range |
-| Groups | Create from saved rules, assign homes, update shared rules, listing-specific rule set, shared date overrides | One level; no account defaults/subgroups; rules inherited as a whole set |
+| Groups | Account defaults, groups/subgroups, per-category listing overrides, source table, bulk assignments and date overrides at all four levels | Device-local settings, no server synchronization or live migration |
 | Market | Qualified CSV evidence, source and freshness checks, market charts/model inputs | No connected neighborhood feed, hotel feed, comp-set manager or licensed automatic vendor API |
 | Performance | Current forward occupancy and evidence-backed forecasts/history analysis | No real booking pickup, earned ADR/RevPAR, cancellation or acquisition-channel analytics without reservation/revenue evidence |
 | History | Actual observation snapshots and rate/availability comparison in session | No invented historical captures; durable daily collection remains an infrastructure step |
 | Delivery | Read-only calendars, local drafts; existing separately gated Helm-direct implementation retained | Live prototype has no publishing. No OTA/Guesty/Channex pricing handoff, scheduler or delivered-rate verification |
-| Other vendor controls | Not implemented | Weekly/monthly discounts, extra-guest fees, listing mapping, custom sensitivity presets, pricing/action log parity and automated action-center recommendations |
+| Stay pricing | Up to eight configurable length thresholds, discounts/premiums, inherited arrival/departure weekdays, date-range accommodation calculation | No booking quotes, fee/tax calculation, smart gap avoidance, extra-guest fees or channel delivery |
+| Other vendor controls | Not implemented | Listing mapping, custom sensitivity presets, pricing/action log parity and automated action-center recommendations |
 
 The logged-in PriceLabs customizations list was reviewed again on November 11.
-Its account/group/listing hierarchy is more granular than this first local group
-implementation. The official [hierarchy explanation](https://hello.pricelabs.co/blog/optimize-your-pricing-strategies-using-customizations/)
+The current local hierarchy follows its account/group/subgroup/listing structure. The official [hierarchy explanation](https://hello.pricelabs.co/blog/optimize-your-pricing-strategies-using-customizations/)
 describes listing, subgroup, group and account precedence. Here, base/min/max remain
-per property; changing a shared recurring rule creates a whole listing rule-set
-override. Group date rules still apply unless replaced at listing level.
+per property; only changed recurring-rule categories become listing overrides.
+Minimum-stay settings inherit atomically. Date overrides follow the most specific
+matching scope without compounding the parent date rule.
 
 PriceLabs' [date override guide](https://help.pricelabs.co/portal/en/kb/articles/date-specific-overrides)
 includes fixed, percentage and stay restrictions at several scopes. Helm's local
@@ -583,3 +584,66 @@ minimum stays, protected/booked inventory, group filtering, persistence after
 reload, empty market states, snapshots and the actual 26-record roster. Calderwood
 has a local comparison draft using its observed price bounds and selected observed
 customizations; this is not a complete settings import or live pricing activation.
+
+## November 11: hierarchy, bulk assignments and stay calculations
+
+The dashboard now opens a Groups & rules manager for account defaults, top-level
+groups and one subgroup level. Its table identifies the source of each rule
+category. A shared editor uses the same fields as the property workbench. New
+groups inherit rather than copying every category. Resetting a category restores
+its parent; no parent falls back to explicitly neutral Helm defaults. Legacy local
+drafts preserve their saved behavior, including legacy whole-listing overrides.
+
+Bulk assignment accepts the complete portfolio, with search and select-all. It
+shows the selected count and homes that still need base prices. Existing listing
+overrides are retained by default; an explicit alternative resets recurring and
+stay rules to inheritance. Base/min/max and listing date overrides stay local.
+Unconfigured listings receive membership only, not fabricated prices. Parent group
+filters include subgroup members. Cycles, missing parents and deeper nesting are
+rejected. Changes to effective inherited rules, stay rules or inherited date rules
+invalidate affected home versions. Other-tab changes and storage errors remain
+visible failures.
+
+Date overrides can now target a listing, its subgroup, its group or the account.
+The whole matching date rule resolves from listing to subgroup to group to account.
+This remains narrower than PriceLabs: hard bounds cannot be bypassed, same-level
+weekday overlaps are rejected, and a stay-only override replaces the whole parent
+date override rather than mixing parent price and child stay rules.
+
+Stay pricing is under the property More menu and in shared customization settings.
+Length-of-stay adjustments and arrival/departure restrictions inherit independently.
+Defaults allow all weekdays and apply no stay-length adjustment. Thresholds are
+explicit nights (initial suggestions 7 and 28, both editable), not an assumed
+PMS-specific interpretation of “monthly.” Only the longest matching threshold
+applies, once, to the final drafted nightly amounts. Each amount rounds to cents
+and remains within that home's hard price bounds. The screen reports any clipping.
+
+The stay calculator checks arrival/departure weekdays, the arrival-night minimum,
+minimum booking value, nightly review status and every occupied night. Departure
+is exclusive. Booked, blocked, protected, unknown, stale and missing-rate nights
+withhold the total. Nightly recommendations that still need review prevent a
+passing result. Its total is accommodation only, not a reservation quote or an
+assertion of live channel availability. No fee, payout, tax, reservation quote,
+rate-publishing or production restriction code was rewritten.
+
+Research references:
+- [Customization hierarchy and LOS behavior](https://hello.pricelabs.co/blog/optimize-your-pricing-strategies-using-customizations/)
+- [Customization source table](https://help.pricelabs.co/portal/en/kb/articles/table-view-for-customizations)
+- [Arrival/departure restrictions](https://help.pricelabs.co/portal/en/kb/articles/checkin-checkout-feature)
+- [Weekly/monthly integration differences](https://help.pricelabs.co/portal/en/kb/articles/weekly-monthly-discount)
+
+Remaining gaps include automatic licensed market/comp-set feeds, verified booking
+pickup inputs, reusable seasonal stay profiles, flat/fixed/market-driven vendor
+presets, custom weekend definitions, smart gap avoidance, durable shared storage,
+and verified channel delivery. These local workflows do not establish proprietary
+algorithm parity or revenue uplift. PriceLabs remains in the financial forecast.
+
+Validation on integrated main `eec2c43ce75d7ddc3bc14699ea9a5b503ec02e4c`:
+4,421 passing tests, seven skipped, zero failures; TypeScript and targeted ESLint
+clean. The hierarchy and stay suites cover 25 cases including legacy storage,
+category coverage, atomic stays, all four precedence levels, cyclic/deep-group
+rejection, 26-home bulk assignment, version invalidation, cent rounding, exclusive
+departure, missing/protected inventory, price bounds and review-required rates.
+Browser checks covered group/subgroup creation, 24-home assignments, inherited
+stay rules, local overrides, calculation errors, saved settings and the actual
+26-listing roster. Existing Calderwood base/min/max survived the storage upgrade.

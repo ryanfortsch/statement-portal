@@ -7,6 +7,7 @@ test('display rounding retains exact cents on inspection, zero, missing values a
   assert.equal(pricingMoney(25837),'$258');
   assert.equal(pricingMoney(25850),'$259');
   assert.equal(pricingMoney(25837,true),'$258.37');
+  assert.equal(pricingMoney(89820,true),'$898.20');
   assert.equal(pricingMoney(120000),'$1,200');
   assert.equal(pricingMoney(0),'$0');
   for(const value of [null,undefined,NaN,Infinity])assert.equal(pricingMoney(value),'–');
