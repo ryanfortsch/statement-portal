@@ -10,7 +10,7 @@ import type {PricingPolicy,PricingPreview,PricingSnapshot} from '@/lib/dynamic-p
 const money=(n:number|null)=>n===null?'—':`$${(n/100).toFixed(0)}`;
 const pct=(n:number|null)=>n===null?'Unavailable':`${n.toFixed(1)}%`;
 const field='mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm';
-export default function PricingInsights({view,propertyId,snapshot,preview,policy,busy,onSave,onUseLearned}:{view:'prices'|'occupancy'|'data'|'hidden';propertyId:string;snapshot:PricingSnapshot;preview:PricingPreview|null;policy:PricingPolicy;busy:boolean;onSave:(e:PricingEvidence)=>Promise<boolean>;onUseLearned:(base:number)=>void}) {
+export default function PricingInsights({view,propertyId,snapshot,preview,policy,busy,onSave,onUseLearned}:{view:'prices'|'market'|'occupancy'|'data'|'hidden';propertyId:string;snapshot:PricingSnapshot;preview:PricingPreview|null;policy:PricingPolicy;busy:boolean;onSave:(e:PricingEvidence)=>Promise<boolean>;onUseLearned:(base:number)=>void}) {
   const evidence=useMemo(()=>snapshot.evidence??emptyPricingEvidence(propertyId),[snapshot.evidence,propertyId]);
   const [type,setType]=useState('market'),[source,setSource]=useState(''),[observed,setObserved]=useState(''),[pending,setPending]=useState<PricingEvidence|null>(null),[error,setError]=useState('');
   const [elasticity,setElasticity]=useState(2);
@@ -58,6 +58,10 @@ export default function PricingInsights({view,propertyId,snapshot,preview,policy
     ]:[{key:'market',name:'Booked',color:'#64748b',dash:''},{key:'final',name:'Projected',color:'#0f766e',dash:'5 3'}]).map(line=><Line key={line.key} dataKey={line.key} name={line.name} stroke={line.color} strokeDasharray={line.dash} strokeWidth={line.key==='helm'?2:1} dot={false} isAnimationActive={false}/>)}</ComposedChart></ResponsiveContainer>
   </div>;}
   return <div hidden={view==='hidden'}>
+    <section hidden={view!=='market'} aria-label="Neighborhood data" className="pricing-panel space-y-6">
+      <div><h3 className="font-semibold">Future prices</h3><p className="mt-1 text-xs text-slate-500">{evidence.marketSource||'No market source imported'} · {analysis.marketFresh?`Updated ${etStamp(evidence.marketObservedAt!)}`:'Current market data needed'}</p>{view==='market'&&chart('rates')}<p className="text-xs text-slate-500">Market rates are asking prices, not booked rates.</p></div>
+      <div className="border-t pt-5"><h3 className="font-semibold">Market occupancy</h3>{view==='market'&&chart('occupancy')}<p className="text-xs text-slate-500">Projected occupancy includes estimated future bookings.</p></div>
+    </section>
     <section hidden={view!=='prices'} aria-label="Rate comparison">
       <details className="pricing-chart-disclosure" open={chartOpen} onToggle={e=>setChartOpen(e.currentTarget.open)}><summary className="cursor-pointer text-sm font-medium">Rate comparison chart</summary>
         {view==='prices'&&chartOpen&&chart('rates')}<p className="mt-3 text-xs text-slate-500">Market rates are asking prices.{!analysis.marketFresh?' Market data is missing or expired.':''}</p>

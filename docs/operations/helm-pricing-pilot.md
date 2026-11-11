@@ -163,7 +163,7 @@ a conflicting short gap is flagged rather than silently published as fillable.
 | Minimum stays | Weekday/weekend, last-minute, far-out, booking-value heuristic, after-booking adjacency, gaps, events and hard minimum | Before-booking gap prevention and market-learned stay profiles |
 | Historical safety floor | 110% of matched weekday ADR around 52 weeks earlier, two samples required | Exact holiday matching; trusted accommodation-rate ingestion |
 | Recency | Inactive hook; unreliable import timestamps withheld | Complete source provenance and vendor-equivalent eligibility |
-| Portfolio / calendar / charts | Multi-home dashboard with weighted occupancy and market comparison, daily calendar, rate comparison, monthly property forecast, CSV export, dated price/forecast history | Multi-calendar bulk editing; automatic market feed |
+| Portfolio / calendar / charts | Multi-home dashboard with simultaneous 30/60/90-day occupancy and market comparisons, daily calendar, rate comparison, monthly property forecast, CSV export, dated price/forecast history | Multi-calendar bulk editing; automatic market feed |
 | Diagnostics | Coverage, large changes, unfillable gaps, price-floor hits, walk-forward occupancy scores | Forward validation and calibrated uncertainty |
 | Price response / optimization | Explicit elasticity scenario and dynamic programming rate-path experiment | Learned causal response, cancellation/LOS effects and validated net revenue |
 | Evidence storage | Property-scoped, versioned, source/timestamp recorded in each review | Automated data ingestion and provenance audits |
@@ -287,19 +287,22 @@ and remote readback. The existing availability-only integration is unchanged.
 ## Portfolio dashboard
 
 `/channels/pricing` now opens on all active managed homes. A property link opens
-the existing calendar at `?property=...`; All homes returns to the portfolio and
-asks before discarding unsaved rules. The synthetic demo contains six fictional
+the calendar at `?property=...`; All listings returns to the portfolio. The listing
+switcher and return link ask before discarding unsaved rules. The synthetic demo contains six fictional
 homes, each with isolated rules, evidence, capture history and simulated publishing.
 Saved state and dashboard filters survive navigation between the dashboard and a home.
 
 The layout follows PriceLabs' [listing dashboard](https://help.pricelabs.co/portal/en/kb/articles/understanding-your-dashboard):
 one row per home, review action, prices, connection and visible occupancy comparison.
-Helm defaults to the next 30 nights and offers 7, 60 and 90. Search, connection
-filters and sorting work with All homes, Below market and Data gaps views.
+The compact table shows 30-, 60- and 90-day adjusted occupancy together, with each
+market benchmark beside it. Metrics can add seven days or hide horizons. Search,
+Below market and missing-data quick filters, connection filters and sorting are
+functional. The listing column stays fixed when scrolling horizontally. There are
+no portfolio summary cards or alternate mobile cards.
 
 Metric definitions are explicit. PriceLabs' documented [Total Occupancy](https://help.pricelabs.co/portal/en/kb/articles/performance-metrics)
 includes blocks. Helm shows **booked / (booked + open)**, excluding deliberate
-blocks, and labels it Booked occupancy. It is not the same metric as PriceLabs
+blocks, and labels it Adjusted occupancy. It is not the same metric as PriceLabs
 Total Occupancy and is not a forecast of final occupancy. Market is the arithmetic
 mean of imported daily occupancy on the same bookable dates. A percentage-point
 gap compares those two figures. No market number is synthesized when evidence
@@ -307,11 +310,10 @@ is absent, over 36 hours old, future-dated, or incomplete for the comparison.
 Missing or stale calendar dates withhold the home's percentage. A fully blocked
 home has no denominator, rather than 0% or 100% occupancy.
 
-Portfolio occupancy is weighted by bookable home-nights. The market comparison
-uses the same matched homes and dates on both sides; its coverage is shown
-separately from overall calendar coverage. Filters change rows, not summary
-totals. Source names and timestamps are available under the calculation disclosure.
-Market data still requires per-home imports; this adds no automatic market feed.
+The underlying portfolio aggregate helper still weights by bookable home-nights,
+but aggregate cards are not displayed. Source names and timestamps are available
+under Occupancy & data sources. Market data still requires per-home imports;
+this adds no automatic market feed.
 
 The owner-gated server reads the existing workspace with at most four homes in
 flight and returns only summary fields. A failed home stays visible with unavailable
@@ -383,19 +385,25 @@ rate, minimum stay, reason for review and price calculation. The attention filte
 includes rate checks and missing data; it excludes routine bookings, blocks and
 manual overrides. Table view uses the same month and filter. Dates outside the
 forecast appear unavailable rather than fabricated as open.
-The calendar uses separate visual states for booked, blocked, manual and review
-nights. A wide workbench keeps the price inspector beside it; narrower views open
-a keyboard-accessible drawer, or a bottom sheet on phones. Closing the detail
-returns to the selected date. Initial rules can be saved from Rules; unsaved
-changes surface Save changes in the header.
+The property layout follows the observed [PriceLabs calendar](https://help.pricelabs.co/portal/en/kb/articles/pricing-calendar):
+minimum/base/maximum inputs, Save & refresh and an Applied customizations sidebar
+sit beside the calendar. Edit opens a modal with the existing detailed rules and
+connection controls. On phones, the price inputs sit above the calendar. A listing
+switcher preserves saved per-home state and guards unsaved changes.
 
-Occupancy, history, rules and data have separate views. Draft rules and imports
-survive switching views; a pristine initial policy no longer triggers an unsaved
-work warning. Imports, validation, experimental price sensitivity and model notes
-live under Data. Charts and advanced rules expand on request. Saving rules remains
-separate from publishing. A fresh review resets the price view's filter and states
-its full date range: publication covers eligible nights across that range, not
-only the currently displayed month. The confirmation repeats the scope.
+Calendar colors describe prices relative to the base (below 85%, 85–115%, above
+115%), not inferred market demand. Booked, blocked, manual and review states remain
+separate. Current-month weeks entirely before today are omitted. Selecting a night
+opens a keyboard-accessible detail drawer; closing returns focus to that night.
+
+Calendar, Neighborhood data and Booking insights are the primary views. The
+neighborhood view displays price and market occupancy comparisons. History and
+Data & model are under More. Draft rules and imports survive view changes.
+Save & refresh saves the policy and reloads current data; it does not publish.
+A fresh review resets the calendar filter and states its full date range:
+publication covers eligible nights across that range, not only the displayed month.
+The confirmation repeats the scope. Connection, review, confirmation and undo
+protections are unchanged.
 
 Interactive demo: `/channels/pricing/demo`, also owner-only; its service override
 keeps imports, comparison history/tracking, simulated publishing and undo entirely

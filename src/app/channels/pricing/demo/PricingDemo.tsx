@@ -21,17 +21,17 @@ export default function PricingDemo({fixtures}:{fixtures:ReturnType<typeof creat
   const {ask}=useConfirm();
   const rows=fixtures.map(f=>pricingPortfolioRow(f.home,workspaces[f.home.id],f.fixture.snapshot.today,new Date(evaluatedAt)));
   const home=fixtures.find(f=>f.home.id===selected)?.home,workspace=selected?workspaces[selected]:null;
-  async function returnToPortfolio() {
+  async function returnToPortfolio(next:string|null=null) {
     if(!selected||busy)return;
-    if(hasUnsavedWork()&&!await ask({title:'Discard unsaved changes?',body:'Saved rules stay with this home. Unsaved edits will be discarded when you return to the dashboard.',confirmLabel:'Discard and return'}))return;
+    if(hasUnsavedWork()&&!await ask({title:'Discard unsaved changes?',body:'Saved rules stay with this home. Unsaved edits will be discarded.',confirmLabel:'Discard and continue'}))return;
     setBusy(true);setError('');
-    try {const result=await services.get(selected)!.refresh();setWorkspaces(w=>({...w,[selected]:result.value}));setEvaluatedAt(new Date().toISOString());setSelected(null);}
+    try {const result=await services.get(selected)!.refresh();setWorkspaces(w=>({...w,[selected]:result.value}));setEvaluatedAt(new Date().toISOString());setSelected(next);}
     catch {setError('Could not refresh the dashboard. Try again.');}
     finally {setBusy(false);}
   }
   return <>
     <div hidden={selected!==null}><PricingPortfolio rows={rows} sample onOpen={setSelected}/></div>
-    {home&&workspace&&<><div className="helm-pricing portfolio-back"><Button variant="quiet" size="sm" disabled={busy} onClick={()=>void returnToPortfolio()}><PricingIcon name="previous"/>All homes</Button></div>
+    {home&&workspace&&<><div className="helm-pricing portfolio-back"><Button variant="quiet" size="sm" disabled={busy} onClick={()=>void returnToPortfolio()}><PricingIcon name="previous"/>All listings</Button><label className="pricing-demo-switch"><span className="sr-only">Switch listing</span><select value={home.id} disabled={busy} onChange={e=>void returnToPortfolio(e.target.value)}>{fixtures.map(f=><option key={f.home.id} value={f.home.id}>{f.home.name}</option>)}</select></label></div>
       {error&&<p role="alert">{error}</p>}
       <PricingWorkbench key={home.id} propertyId={home.id} name={home.name} authority={home.authority} initialPolicy={workspace.policy}
         initialSnapshot={workspace.snapshot} initialProfile={workspace.profile} initialRuns={workspace.runs} initialEvidenceVersion={workspace.evidenceVersion}

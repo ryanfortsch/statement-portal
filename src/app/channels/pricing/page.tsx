@@ -2,7 +2,6 @@ import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
-import { Button } from '@/components/Button';
 import { EmptyState } from '@/components/EmptyState';
 import { GuestyWritesNotice } from '@/components/channels/GuestyWritesNotice';
 import { requireOwnerEmail } from '@/lib/helm-access-server';
@@ -29,16 +28,11 @@ export default async function PricingPage({searchParams}:{searchParams:Promise<R
       <GuestyWritesNotice scope={selected?{kind:'home',guestyRun:selected.calendar_authority!=='helm',otaReadsHelm:false}:{kind:'unknown'}} />
     <div className="pricing-page-shell"><header className="pricing-page-heading">
       <HelmHero plain eyebrow="" title="Helm pricing" paddingTop={16} paddingBottom={16}/>
-      {selected&&<form className="pricing-property-picker" action="/channels/pricing">
-        <label className="sr-only" htmlFor="pricing-property">Property</label><select id="pricing-property" name="property" defaultValue={selected?.id}>
-          {fleet.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>
-        <Button type="submit" size="sm">Open</Button>
-      </form>}
       <Link href="/channels/pricing/demo">Sample portfolio</Link>
     </header><main>
     {error&&<p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-5">{error}</p>}
     {params.property&&!selected&&<EmptyState>Home not found in the active portfolio.</EmptyState>}
-    {params.property&&<PricingBackLink view={view}/>}
+    {params.property&&<PricingBackLink view={view} selectedId={selected?.id} homes={fleet.map(p=>({id:p.id,name:p.name}))}/>}
     {portfolio&&<PricingPortfolio rows={portfolio} initialView={view}/>}
     {workspace&&selected&&<PricingWorkbench key={selected.id} propertyId={selected.id} name={selected.name}
       authority={selected.calendar_authority} initialPolicy={workspace.policy} initialSnapshot={workspace.snapshot}
