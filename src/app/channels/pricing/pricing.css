@@ -391,3 +391,8 @@ body:has(.pricing-page-shell) { background: #f6f7f8; }
   .helm-pricing .pricing-rule-nav .rt-quiet-btn svg { display: none; }
   .helm-pricing .pricing-rules-content { padding: 22px 0; }
 }
+
+/* Observed calendar uses the same layout, without draft controls. */
+.helm-pricing .pricing-live-toolbar { display:flex; align-items:center; justify-content:space-between; gap:16px; padding-top:16px; color:#66727a; font-size:11px; }
+.helm-pricing .pricing-live-source { margin:0 0 22px; color:#66727a; font-size:12px; }
+.helm-pricing .pricing-detail-comparison[data-current-only] { grid-template-columns:1fr; }

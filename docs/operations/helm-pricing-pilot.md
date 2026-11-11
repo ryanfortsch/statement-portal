@@ -163,7 +163,7 @@ a conflicting short gap is flagged rather than silently published as fillable.
 | Minimum stays | Weekday/weekend, last-minute, far-out, booking-value heuristic, after-booking adjacency, gaps, events and hard minimum | Before-booking gap prevention and market-learned stay profiles |
 | Historical safety floor | 110% of matched weekday ADR around 52 weeks earlier, two samples required | Exact holiday matching; trusted accommodation-rate ingestion |
 | Recency | Inactive hook; unreliable import timestamps withheld | Complete source provenance and vendor-equivalent eligibility |
-| Portfolio / calendar / charts | Multi-home dashboard with simultaneous 30/60/90-day occupancy and market comparisons, daily calendar, rate comparison, monthly property forecast, CSV export, dated price/forecast history | Multi-calendar bulk editing; automatic market feed |
+| Portfolio / calendar / charts | Multi-home dashboard with selected-period occupancy and market comparisons, daily calendar, rate comparison, monthly property forecast, CSV export, dated price/forecast history | Multi-calendar bulk editing; automatic market feed |
 | Diagnostics | Coverage, large changes, unfillable gaps, price-floor hits, walk-forward occupancy scores | Forward validation and calibrated uncertainty |
 | Price response / optimization | Explicit elasticity scenario and dynamic programming rate-path experiment | Learned causal response, cancellation/LOS effects and validated net revenue |
 | Evidence storage | Property-scoped, versioned, source/timestamp recorded in each review | Automated data ingestion and provenance audits |
@@ -380,6 +380,36 @@ ingestion path before causal price-response claims are possible.
 ## Installation and review
 
 Entry: `/channels/pricing`, owner-only, searchable as **Helm pricing**.
+The **Live calendar** link (`?live=1`) reads existing operational tables without
+requiring either pricing migration. It uses only `properties.name` for the property
+label. The registry scope is active managed properties, including distinct units;
+it does not collapse units by street address or substitute public listing titles.
+
+Guesty-run homes use the latest stored `property_calendar_days` mirror; Helm-run
+homes use canonical availability, rate plans, overrides and rental periods. Reads
+are paged and limited to four concurrent homes. No guest identities, contacts,
+reservation financials or registry tokens are read. Failed homes remain visible.
+Incomplete calendars and dates older than 36 hours withhold occupancy; stale prices
+are also removed from the property calendar. A native home without a USD rate plan
+remains unavailable rather than receiving draft defaults.
+
+The live table shows booked occupancy, open nights and the mean current asking rate
+on open nights for the selected period. The rate requires complete pricing across
+those open nights; it is not booked ADR, a base price or a model recommendation.
+Blocked nights are excluded from occupancy. Property calendars show current prices
+and minimum stays without proposals, rule editing, connection or publishing controls.
+Market data is not read by this view and the missing feed is stated once in its footer.
+Refresh rereads Helm's existing records; it does not invoke any upstream sync.
+
+For authorized local review, `scripts/pricing-live-preview.mjs` bundles the same
+components and reader. Load the existing environment into the process, never copy
+an environment file into the worktree. Its Supabase transport rejects non-GET
+requests. The server binds only to `127.0.0.1`, checks Host/Origin, rejects cross-site
+requests, uses a private HttpOnly/SameSite cookie, and serves no-store responses.
+The private access URL is written to a mode-0600 temporary handoff file rather
+than printed. No credentials or live records enter the JavaScript bundle, source
+tree or test fixtures. The separately named synthetic fixture remains available.
+
 The dashboard opens with a portfolio overview and one selected period (7, 30, 60 or
 90 days). The overview shows occupancy versus market for matched homes/dates, open
 nights across complete calendars and the count of compared homes below market.

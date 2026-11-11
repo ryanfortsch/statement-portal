@@ -9,7 +9,7 @@ export function pricingNightStatus(day: PricingDay, recommendation?: PriceRecomm
 export const needsPricingAttention = (status: PricingNightStatus) => status === 'review' || status === 'unknown';
 
 /** Pad the actual month, including dates outside the forecast. Never invent open inventory. */
-export function pricingCalendarMonth(month: string, snapshot: PricingSnapshot, preview: PricingPreview | null) {
+export function pricingCalendarMonth(month: string, snapshot: PricingSnapshot, preview: PricingPreview | null, currentOnly=false) {
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw Error('Invalid month');
   const [year, number] = month.split('-').map(Number);
   const first = new Date(`${month}-01T12:00:00Z`).getUTCDay();
@@ -21,6 +21,6 @@ export function pricingCalendarMonth(month: string, snapshot: PricingSnapshot, p
     if (dayNumber < 1 || dayNumber > count) return null;
     const date = `${month}-${String(dayNumber).padStart(2, '0')}`;
     const day = source.get(date), recommendation = recommendations.get(date);
-    return {date, dayNumber, day, recommendation, status: day ? pricingNightStatus(day, recommendation) : null};
+    return {date, dayNumber, day, recommendation, status: day ? (currentOnly&&day.state==='open'?'ready' as const:pricingNightStatus(day, recommendation)) : null};
   });
 }
