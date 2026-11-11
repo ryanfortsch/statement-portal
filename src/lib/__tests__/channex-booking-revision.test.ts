@@ -8,7 +8,7 @@ function fixture() {
     ota_name: 'Airbnb', ota_reservation_code: 'SYNTHETIC123', status: 'new',
     arrival_date: '2027-02-01', departure_date: '2027-02-04', inserted_at: '2026-10-23T12:00:00.123456',
     rooms: [{ room_type_id: id(2), rate_plan_id: id(3), checkin_date: '2027-02-01', checkout_date: '2027-02-04' }],
-    notes: null, customer: { name: 'Synthetic', surname: null, mail: 'guest@example.invalid', phone: null, address: null, city: null, country: null, zip: null }, guarantee: { card: 'PRIVATE_SENTINEL' }, amount: '99' } };
+    notes: null, customer: { name: 'Synthetic', surname: null, mail: 'guest@example.invalid', phone: null, address: null, city: null, state: null, country: null, zip: null }, guarantee: { card: 'PRIVATE_SENTINEL' }, amount: '99' } };
 }
 test('Airbnb boundary retains provider identity and precision with allowlisted guest details but without payment data or send authority', () => {
   for (const status of ['new', 'modified', 'cancelled']) {
@@ -58,14 +58,16 @@ test('complete explicit nullable projection is required; unsafe/masked notes fai
   const withRaw = { ...raw, attributes: { ...raw.attributes, raw_message: 'PAYMENT_SENTINEL' } };
   assert.ok(!JSON.stringify(normalizeAirbnbBookingRevision(withRaw, mapping)).includes('PAYMENT_SENTINEL'));
 });
-test('notice null semantics and optional state are preserved without guessing ACK state', () => {
+test('confirmed Airbnb state presence is required without guessing missing values or ACK state', () => {
   const raw = fixture();
   for (const state of [null, 'MA', '***']) {
     const withState = { ...raw, attributes: { ...raw.attributes, customer: { ...raw.attributes.customer, state } } };
     if (state === '***') assert.throws(() => normalizeAirbnbBookingRevision(withState, mapping));
     else assert.equal(normalizeAirbnbBookingRevision(withState, mapping).guestDetails.state, state);
   }
-  assert.equal(Object.hasOwn(normalizeAirbnbBookingRevision(raw, mapping).guestDetails, 'state'), false);
+  Reflect.deleteProperty(raw.attributes.customer, 'state');
+  assert.throws(() => normalizeAirbnbBookingRevision(raw, mapping));
+  Object.assign(raw.attributes.customer, { state: null });
   const allNull = { ...raw, attributes: { ...raw.attributes, customer: Object.fromEntries(Object.keys(raw.attributes.customer).map(k => [k, null])) } };
   assert.ok(Object.values(normalizeAirbnbBookingRevision(allNull, mapping).guestDetails).every(v => v === null));
 });

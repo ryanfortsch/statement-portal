@@ -4,6 +4,7 @@ import { record } from './primitives.ts';
 import { airbnbMappingSchema, normalizeAirbnbBookingRevision, parseAirbnbBookingRevision,
   type AirbnbBookingMapping } from './revision.ts';
 import type { AirbnbRevisionReader } from './ingestion.ts';
+import { compareAirbnbRevisionObservation } from './acknowledgment-match.ts';
 const bases = { staging: 'https://staging.channex.io/api/v1', production: 'https://app.channex.io/api/v1' } as const;
 const relation = (row: Record<string, unknown>, key: string) => record(record(record(row.relationships)[key]).data).id;
 /** No environment lookup or scheduler activation. ACK is separately opt-in.
@@ -61,8 +62,12 @@ export function createAirbnbRevisionReader(config: { mapping: AirbnbBookingMappi
       if (!ackEnabled) throw Error('Booking acknowledgement disabled');
       const expected = parseAirbnbBookingRevision(input);
       await inspect(mapping);
-      const current = normalizeAirbnbBookingRevision(await revision(expected.revisionId), mapping);
-      if (JSON.stringify(current) !== JSON.stringify(expected)) throw Error('Revision changed before acknowledgement');
+      // Read raw here: a prior successful ACK can mask populated fields. Null
+      // fields remain null, so lack of masks must not trigger a duplicate POST.
+      // This only compares the caller's already committed/read-back revision;
+      // it never persists the masked provider response or retries an ACK.
+      const raw = (await request('/booking_revisions/' + expected.revisionId)).data;
+      if (compareAirbnbRevisionObservation(raw, expected, mapping)) return;
       const body = await request('/booking_revisions/' + expected.revisionId + '/ack', 'POST');
       if (record(body.meta).message !== 'Success') throw Error('Booking acknowledgement unconfirmed');
     },

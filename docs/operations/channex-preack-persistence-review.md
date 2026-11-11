@@ -8,12 +8,13 @@ release does not activate booking ingestion, ACK, channel mapping or messaging.
 ## Contract
 
 The revision now requires a complete explicit nullable projection of customer
-name, surname, mail, phone, address, city, country and zip, plus booking notes. State is preserved when present (including
-explicit null); absence remains absence because the published example omits it.
+name, surname, mail, phone, address, city, state, country and zip, plus booking
+notes at the Airbnb provider boundary. Channex confirmed on November 11 UTC that
+these fields are always present before ACK, with null for no value. The stored
+schema still reads older state-absent projections without rewriting them; such a
+receipt cannot satisfy comparison with a new complete provider revision.
 Missing, masked (`***`), oversized, structurally invalid or suspicious text fails
-closed before persistence/ACK. Optional-field omission semantics must be verified
-against current provider documentation and representative synthetic fixtures before
-activation; do not substitute null for absence without that verification.
+closed before persistence/ACK. Never substitute null for an omitted provider field.
 Telephone values use a separate format/15-digit bound so legitimate international
 numbers survive without changing their formatting. Free-text checks remain a
 conservative rejection rule, not a claim to identify all payment information.
@@ -28,7 +29,8 @@ Existing legacy receipts lacking the projection cannot satisfy the new ACK gate.
 
 ## Remaining gates before live ingestion
 
-- Confirm provider field names and explicit-null vs omitted-field semantics.
+- The November 11 provider reply resolves the field-presence and ACK observation
+  contract questions below. Representative live Airbnb delivery remains unverified.
 - Security/privacy review must establish retention/deletion and operational access
   for the new PII in receipts. This patch deliberately adds no broader access.
 - Text rejection is defense in depth, NOT a PCI/DLP guarantee. Free-text notes can
@@ -135,4 +137,36 @@ retained pre-ACK receipt in this check. Synthetic tests cover the lost-response
 comparison and notes-only masking with null contacts. A November 10 follow-up to
 Evan requests confirmation of exact-revision acknowledgment status as the supported
 recovery contract, Airbnb omitted/null fields, and possible pre-ACK masking.
-Production ingestion remains disabled pending those contract and retention gates.
+Production ingestion remains disabled pending the remaining activation and retention gates.
+
+## Confirmed contract and duplicate-ACK guard (November 11, 2026)
+
+Evan's [reply](https://mail.google.com/mail/u/?authuser=ryan%40risingtidestr.com#all/1a1c91b255b9d276)
+confirms that exact-revision `acknowledge_status: acknowledged` is sufficient
+provider evidence after a lost successful ACK response. The guest mail, phone,
+address, city, state, zip, country and notes fields are present before ACK as null
+or a value. After ACK, populated values become `***` and nulls remain null.
+Airbnb mail is null; phone is commonly null and may instead be a temporary phone
+number for qualifying reservations. Missing mail/phone values are therefore valid
+explicit nulls, not permission to invent a guest email or use an SMS fallback.
+
+The existing GET-only observer and the ACK client's preflight now share the same
+exact comparison. The client returns without another POST when that preflight
+proves the retained revision is already acknowledged, whether populated fields
+are masked or all contact/notes fields are null. A differing identity, booking,
+mapping generation, stay, timestamp or retained value still fails. The original
+receipt and provider input remain unchanged. Missing `state` fails at the Airbnb
+provider boundary, including feed, pre-ACK fetch and acknowledgment observation.
+The shared non-Airbnb projection and old receipt parser remain compatible.
+
+There is no automatic retry or new recovery scheduler: a lost POST response still
+raises an incomplete outcome. Reconciliation must start from the durable receipt
+and use the GET-only observer; a deliberate client replay with that same retained
+revision also cannot POST again when acknowledged. The ingestion engine's existing
+commit plus independent readback gate remains required. This is not a claim of
+end-to-end live booking ingestion, complete history, or permission to enable ACK.
+
+Synthetic checks exercise a lost successful POST followed by masked GET recovery,
+all-null acknowledged records, pending masks, stale/mismatched identities, missing
+state, unchanged originals and the disabled ACK boundary. No production guest
+records are imported, no provider ACK is sent, and no database migration is needed.

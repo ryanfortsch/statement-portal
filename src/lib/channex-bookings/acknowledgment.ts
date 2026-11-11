@@ -1,7 +1,8 @@
 import 'server-only';
 import { z } from 'zod';
 import { record } from './primitives.ts';
-import { airbnbMappingSchema, normalizeAirbnbBookingRevision, type AirbnbBookingMapping } from './revision.ts';
+import { airbnbMappingSchema, type AirbnbBookingMapping } from './revision.ts';
+import { compareAirbnbRevisionObservation } from './acknowledgment-match.ts';
 import { parseAirbnbBookingReceipt, type AirbnbBookingStore } from './ingestion.ts';
 import { createAirbnbRevisionReader } from './client.ts';
 
@@ -10,7 +11,6 @@ export interface AirbnbAcknowledgmentReader {
   /** Raw response required: acknowledged revisions may have masked fields. */
   revision(id: string): Promise<unknown>;
 }
-const maskedFields = new Set(['mail', 'phone', 'address', 'city', 'state', 'zip', 'country', 'notes']);
 type Reason = 'PROVIDER_ACKNOWLEDGED' | 'PROVIDER_NOT_CONFIRMED' | 'INVALID_SCOPE'
   | 'RECEIPT_UNAVAILABLE' | 'RECEIPT_CHANGED' | 'PROVIDER_READ_FAILED' | 'REVISION_MISMATCH';
 
@@ -47,19 +47,7 @@ export async function inspectAirbnbAcknowledgment(client: AirbnbAcknowledgmentRe
     if (JSON.stringify(again) !== JSON.stringify(durable)) return result('RECEIPT_CHANGED');
   } catch { return result('RECEIPT_UNAVAILABLE'); }
   try {
-    // Work on a private copy. No masked value is ever persisted over the receipt.
-    const row = record(structuredClone(raw)), a = record(row.attributes), customer = record(a.customer);
-    if (row.type !== 'booking_revision') throw Error();
-    const acknowledged = a.acknowledge_status === 'acknowledged';
-    for (const [field, saved] of Object.entries(expected.guestDetails)) {
-      const container = field === 'notes' ? a : customer;
-      if (container[field] !== '***') continue;
-      // Names stay unmasked. Existing nulls stay null per the provider contract.
-      if (!acknowledged || !maskedFields.has(field) || saved === null) throw Error();
-      container[field] = saved;
-    }
-    const current = normalizeAirbnbBookingRevision(row, scope);
-    if (JSON.stringify(current) !== JSON.stringify(expected)) throw Error();
+    const acknowledged = compareAirbnbRevisionObservation(raw, expected, scope);
     return result(acknowledged ? 'PROVIDER_ACKNOWLEDGED' : 'PROVIDER_NOT_CONFIRMED');
   } catch { return result('REVISION_MISMATCH'); }
 }

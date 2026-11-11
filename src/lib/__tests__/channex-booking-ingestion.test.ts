@@ -5,7 +5,7 @@ import type { AirbnbBookingMapping } from '../channex-bookings/revision.ts';
 const id = (n: number) => `20000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const mapping: AirbnbBookingMapping = { environment: 'production', propertyId: id(1), roomTypeId: id(2), ratePlanId: id(3), generation: 1 };
 function row(n = 4, status = 'new') {
-  return { id: id(n), attributes: { notes: null, customer: { name: 'Synthetic', surname: null, mail: 'guest@example.invalid', phone: null, address: null, city: null, country: null, zip: null }, booking_id: id(5), property_id: id(1), ota_name: 'Airbnb', ota_reservation_code: 'SYNTHETIC123', status,
+  return { id: id(n), attributes: { notes: null, customer: { name: 'Synthetic', surname: null, mail: 'guest@example.invalid', phone: null, address: null, city: null, state: null, country: null, zip: null }, booking_id: id(5), property_id: id(1), ota_name: 'Airbnb', ota_reservation_code: 'SYNTHETIC123', status,
     arrival_date: '2027-02-01', departure_date: '2027-02-04', inserted_at: `2026-10-23T12:00:00.${String(n).padStart(6, '0')}Z`,
     rooms: [{ room_type_id: id(2), rate_plan_id: id(3), checkin_date: '2027-02-01', checkout_date: '2027-02-04' }] } };
 }
