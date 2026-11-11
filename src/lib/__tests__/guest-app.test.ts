@@ -182,6 +182,7 @@ describe('nothing that opens a door reaches the guest app', () => {
   test('the open counter is the service role only', () => {
     const sql = read('supabase/migrations/20261111120000_guest_app_homes.sql');
     assert.match(sql, /alter table public\.guest_app_homes enable row level security/i);
+    assert.match(sql, /revoke all on public\.guest_app_homes from anon, authenticated/i);
     assert.match(sql, /revoke all on function public\.guest_app_opened\(text\) from public, anon, authenticated/i);
     assert.match(sql, /grant execute on function public\.guest_app_opened\(text\) to service_role/i);
   });

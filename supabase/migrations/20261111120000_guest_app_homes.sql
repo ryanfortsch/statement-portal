@@ -42,6 +42,8 @@ comment on table public.guest_app_homes is
   'One permanent guest app link per home (/h/<token>). Holds the token, the on/off switch, a welcome note and an open counter; never a fact about the house and never an access code. src/lib/guest-app-db.ts.';
 
 alter table public.guest_app_homes enable row level security;
+-- The tokens are credentials: no public-key path at all, not just no policy.
+revoke all on public.guest_app_homes from anon, authenticated;
 grant all on public.guest_app_homes to service_role;
 
 -- One link for every managed home that is live today, so a card can be
