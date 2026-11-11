@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { Suspense } from 'react';
 import { redirect } from 'next/navigation';
 import { isOwnerSession } from '@/lib/helm-access-server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
@@ -10,6 +11,7 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { InventoryStatusPanel } from './InventoryStatusPanel';
+import { ChannelAuditSection } from './ChannelAuditPanel';
 
 export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Calderwood calendar sync · Helm', robots: { index: false, follow: false } };
@@ -33,6 +35,9 @@ export default async function CalendarSyncStatusPage() {
         <Link href="/channels/65_calderwood" className="text-sm underline underline-offset-4">← Calderwood</Link>
         <form action="/channels/65_calderwood/sync-status" method="get"><button className="rounded-lg border px-4 py-2 text-sm font-medium" style={{ borderColor:'var(--rule)' }}>Refresh status</button></form>
       </div>
+      <Suspense fallback={<section className="mt-7 rounded-2xl border p-6" aria-live="polite" style={{ borderColor: 'var(--rule)' }}>Checking the Airbnb connection…</section>}>
+        <ChannelAuditSection />
+      </Suspense>
       <InventoryStatusPanel report={report} />
     </main>
     <HelmFooter module="Calendar sync" right="65 Calderwood" />
