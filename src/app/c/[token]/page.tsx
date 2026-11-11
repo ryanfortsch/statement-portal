@@ -13,6 +13,7 @@ import { CAPE_ANN_REGION, regionLabel } from '@/lib/property-scope';
 import { civicForProperty, isCollectionDay } from '@/lib/civic';
 import type { HelmPropertyRow } from '@/lib/properties';
 import { CLEANER_WINDOW_DAYS, cleanerWindow } from '@/lib/cleaner-schedule-window';
+import { canReadCalderwoodStays } from '@/lib/cleaner-stay-access';
 
 /**
  * The cleaner's live schedule page. Reached from the daily digest SMS
@@ -222,6 +223,10 @@ export default async function CleanerSchedulePage({
             <span className="rt-cl-weeknav is-off" aria-hidden="true">›</span>
           )}
         </div>
+
+        {canReadCalderwoodStays(recipientRow) && <a href={`/c/${token}/stays`} style={{ display:'inline-flex', alignItems:'center', minHeight:44, marginTop:10, fontSize:13 }}>
+          {recipient.language === 'en' ? 'Arrivals & departures →' : 'Entradas e saídas →'}
+        </a>}
 
         <nav className="rt-cl-days" aria-label="Dias">
           {days.map((day) => {

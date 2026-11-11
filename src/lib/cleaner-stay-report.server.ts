@@ -12,7 +12,7 @@ import {
 } from './cleaner-stay-report';
 
 const BOOKING_FIELDS = 'id,property_id,check_in,check_out,status,duplicate_of,num_guests,guest_name,source,first_seen_at,last_seen_at,external_confirmation_code';
-/** Owner preview only. No recipient, bearer URL, mutations or send capability. */
+/** Shared canonical reader. Callers authorize before reading. No mutations. */
 async function readCleanerReport(db: SupabaseClient, from: string) {
   z.iso.date().parse(from);
   const through = addDays(from, 365);
@@ -61,6 +61,11 @@ async function readCleanerReport(db: SupabaseClient, from: string) {
   }));
   return { report: projectCleanerStayReport({ property, adjustments, skips, from, through, bookings: resolved }),
     bookings: resolved };
+}
+
+/** Minimal portal report: database only, no Guesty token or external reads. */
+export async function loadCalderwoodPortalReport(db: SupabaseClient, from: string) {
+  return (await readCleanerReport(db, from)).report;
 }
 
 export async function loadCalderwoodCleanerReport(db: SupabaseClient, from: string) {
