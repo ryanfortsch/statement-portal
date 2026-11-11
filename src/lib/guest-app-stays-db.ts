@@ -358,7 +358,11 @@ export async function guestAppLinkForBooking(bookingId: string, propertyId: stri
   if (!isServiceConfigured) return null;
   try {
     if (mint) {
-      const link = await ensureStayLink(bookingId, { by, propertyId });
+      // A failed mint (the stays table unreachable) falls through to the home's link.
+      const link = await ensureStayLink(bookingId, { by, propertyId }).catch((err: unknown) => {
+        console.error('[guest-app-stays] mint failed:', err instanceof Error ? err.message : String(err));
+        return null;
+      });
       if (link) return link.url;
     }
     const home = await getGuestAppRow(propertyId);

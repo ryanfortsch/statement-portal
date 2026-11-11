@@ -371,6 +371,17 @@ describe('{{guest_app_link}}', () => {
     assert.equal(src.match(/linkModeFor\(false,/g)?.length, 2);
   });
 
+  test('a failed mint still sends the home link, in automations and the bridge', () => {
+    const db = read('src/lib/guest-app-stays-db.ts');
+    for (const fn of ['guestAppLinkForReservation', 'guestAppLinkForBooking']) {
+      const start = db.indexOf(`export async function ${fn}(`);
+      assert.ok(start > 0, `${fn} exists`);
+      const end = db.indexOf('\nexport ', start + 1);
+      const body = db.slice(start, end < 0 ? undefined : end);
+      assert.match(body, /await ensureStayLink\([^)]*\)\.catch\(/, `${fn} catches a failed mint`);
+    }
+  });
+
   test('kb-facts carries the home\'s permanent link and never a stay link', () => {
     const kb = read('src/app/api/kb-facts/route.ts');
     assert.match(kb, /\.from\('guest_app_homes'\)/);
