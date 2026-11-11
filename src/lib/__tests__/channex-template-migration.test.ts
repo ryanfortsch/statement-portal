@@ -75,7 +75,7 @@ test('prepared metadata rejects changed body, timing, state, hash or extra polic
 });
 test('disabled canonical overrides silence fleet defaults without planning messages', () => {
   const rows = rules() as AutomationRule[];
-  const fleet = { ...rows[0], id: '00000000-0000-4000-8000-000000000090', property_id: null, enabled: true };
+  const fleet = { ...rows[0], id: '00000000-0000-4000-8000-000000000090', property_id: null, enabled: true, migration_policy: null };
   assert.equal(resolveAutomationsFor('65_calderwood', [fleet, ...rows]).length, 0);
   assert.equal(resolveAutomationsFor('other_home', [fleet, ...rows]).length, 1);
 });

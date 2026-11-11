@@ -6,12 +6,13 @@ import { todayInEastern, shiftIsoDay } from '../sca-quotes-types.ts';
 import { parsePreparationRules, reviewPreparationRules } from './preparation-rules.ts';
 import { confirmationInstant, reviewCalderwoodTiming, type SourceClocks } from './preparation-timing.ts';
 import { parsePreparationRenderInputs, rehearsePreparedMessages, reviewPreparationInputs } from './preparation-render.ts';
+import { parseScheduleLedger, planCalderwoodSchedule } from './schedule-plan.ts';
 
 export class MessagePreparationError extends Error {
   readonly code: 'PREPARATION_READ_FAILED' | 'SOURCE_READ_FAILED' | 'SOURCES_CHANGED' | 'READ_LIMIT_REACHED';
   constructor(code: MessagePreparationError['code']) { super(code); this.code = code; }
 }
-export type PreparationContext = { canonical: unknown; mirror: unknown; rules: unknown; automationsEnabled: boolean; renderInputs: unknown };
+export type PreparationContext = { canonical: unknown; mirror: unknown; rules: unknown; ledger: unknown; automationsEnabled: boolean; renderInputs: unknown };
 type Deps = { context: () => Promise<PreparationContext>; verifyDormant: () => Promise<void>;
   token: () => Promise<string>; fetcher?: typeof fetch; clock?: () => number };
 function record(value: unknown): Record<string, unknown> {
@@ -73,10 +74,11 @@ export async function reviewMessagePreparation(env: Record<string, string | unde
   const context = async () => {
     const c = await deps.context();
     if (c.automationsEnabled !== false) throw new MessagePreparationError('PREPARATION_READ_FAILED');
-    const canonical = parseCanonicalSnapshot(c.canonical), rules = parsePreparationRules(c.rules);
+    const canonical = parseCanonicalSnapshot(c.canonical), rules = parsePreparationRules(c.rules), ledger = parseScheduleLedger(c.ledger);
     const stays = resolveMessageStayIdentities(canonical, c.mirror, start, end);
     const renderInputs = parsePreparationRenderInputs(c.renderInputs, stays);
-    return { revision: fingerprint({ canonical, mirror: c.mirror, rules }), stays, rules, renderInputs,
+    return { revision: fingerprint({ canonical, mirror: c.mirror, rules }), stays, rules, renderInputs, ledger,
+      privateScheduleRevision: fingerprint(ledger),
       // This private digest must never be returned: access codes can have low entropy.
       privateRenderRevision: fingerprint(renderInputs) };
   };
@@ -109,15 +111,28 @@ export async function reviewMessagePreparation(env: Record<string, string | unde
     if (fingerprint(first) !== fingerprint(second)) throw new MessagePreparationError('SOURCES_CHANGED');
   }
   const after = await context(); await deps.verifyDormant(); remaining();
-  if (before.revision !== after.revision || before.privateRenderRevision !== after.privateRenderRevision)
+  if (before.revision !== after.revision || before.privateRenderRevision !== after.privateRenderRevision
+    || before.privateScheduleRevision !== after.privateScheduleRevision)
     throw new MessagePreparationError('SOURCES_CHANGED');
   const observedAt = clock();
-  return { ok: true as const, format: 3 as const, propertyId: '65_calderwood' as const,
+  const plans = first.map(r => ({ canonicalId: r.canonicalId, rows: planCalderwoodSchedule({
+    stay: { canonicalId: r.canonicalId, status: 'confirmed', duplicateOf: null, clocks: r.clocks },
+    rules: before.rules, ledger: before.ledger, now: observedAt,
+  }) }));
+  const allPlanned = plans.flatMap(p => p.rows);
+  return { ok: true as const, format: 4 as const, propertyId: '65_calderwood' as const,
     checkedAt: new Date(observedAt).toISOString(), contextRevision: before.revision,
     currentAndUpcomingStays: first.length, ...reviewPreparationRules(before.rules),
     inputs: reviewPreparationInputs(before.renderInputs),
+    schedule: { mode: 'review_only' as const, historyRead: true as const, total: allPlanned.length,
+      futureCandidates: allPlanned.filter(p => p.state === 'future_candidate').length,
+      pastNotReplayed: allPlanned.filter(p => p.state === 'past_not_replayed').length,
+      historyProtected: allPlanned.filter(p => ['already_sent', 'held', 'existing_schedule'].includes(p.state)).length,
+      needsReview: allPlanned.filter(p => !['future_candidate', 'past_not_replayed', 'already_sent', 'held', 'existing_schedule'].includes(p.state)).length,
+      canSchedule: false as const },
     stays: first.sort((a, b) => a.clocks.start.localeCompare(b.clocks.start) || a.canonicalId.localeCompare(b.canonicalId)).map(r => ({ canonicalId: r.canonicalId, checkIn: r.clocks.start, checkOut: r.clocks.end,
       timings: reviewCalderwoodTiming(r.clocks, observedAt),
+      schedule: plans.find(p => p.canonicalId === r.canonicalId)!.rows.map(({ key, state, label, fireAt }) => ({ key, state, label, fireAt })),
       messages: rehearsePreparedMessages(before.rules, before.renderInputs, before.stays.find(s => s.canonicalId === r.canonicalId)!, r.clocks) })),
     sourceReads: requests, readyForAutomaticMessaging: false as const,
     guestyQueueVerified: false as const, templateParityVerified: false as const,

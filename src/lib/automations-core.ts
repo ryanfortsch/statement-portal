@@ -81,6 +81,8 @@ export type AutomationRule = {
   enabled: boolean;
   /** The operator says the OTA's own scheduled message already covers this. */
   configured_in_ota: boolean;
+  /** Captured migration rules belong to the dedicated, guarded scheduler. */
+  migration_policy?: unknown;
 };
 
 /** The slice of a bookings row the engine needs. */
@@ -206,7 +208,7 @@ export function effectiveRulesFor(propertyId: string, rows: readonly AutomationR
 /** The rules the planner fires for a home: the effective, enabled ones. */
 export function resolveAutomationsFor(propertyId: string, rows: readonly AutomationRule[]): AutomationRule[] {
   return effectiveRulesFor(propertyId, rows)
-    .filter((e) => e.active)
+    .filter((e) => e.active && e.rule.migration_policy == null)
     .map((e) => e.rule);
 }
 
@@ -328,12 +330,13 @@ export function anchorDateFor(
  * checkout time for post_checkout on the checkout day itself).
  */
 export function fireAtFor(
-  rule: Pick<AutomationRule, 'trigger' | 'offset_days' | 'at_local' | 'timezone'>,
+  rule: Pick<AutomationRule, 'trigger' | 'offset_days' | 'at_local' | 'timezone' | 'migration_policy'>,
   booking: Pick<AutomationBooking, 'check_in' | 'check_out'>,
   plan: StayPlanLike,
   adjustment: CheckoutAdjustmentLike,
   now: Date,
 ): Date | null {
+  if (rule.migration_policy != null) return null;
   if (rule.trigger === 'booking_confirmed') return new Date(now.getTime());
   const day = addDays(anchorDateFor(rule, booking, adjustment), rule.offset_days ?? 0);
   let hhmm = (rule.at_local ?? '').trim().slice(0, 5);
@@ -1237,6 +1240,7 @@ export function decideDispatch(input: DecisionInput): DispatchDecision {
   // gets its waiting messages again. Written as 'rule_disabled' and
   // 'property_not_automated' they froze for good, door-code text included.
   if (!rule || !rule.enabled) return { outcome: 'cancelled', rail: null, reason: PAUSE_REASON_SUPERSEDED };
+  if (rule.migration_policy != null) return { outcome: 'awaiting_approval', rail: null, reason: 'migrated rule requires its dedicated scheduler and handover' };
   if (!property || !property.automations_enabled || property.calendar_authority !== 'helm') {
     return { outcome: 'cancelled', rail: null, reason: `${PAUSE_REASON_DISABLED_PREFIX}the home (not Helm-run, or automations off)` };
   }

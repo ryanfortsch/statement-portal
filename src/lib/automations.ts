@@ -107,7 +107,7 @@ const STUCK_SENDING_MS = 30 * 60 * 1000;
 const IN_CHUNK = 150;
 
 const RULE_COLS =
-  'id, key, property_id, audience, trigger, offset_days, at_local, timezone, channel_exclusions, delivery, send_mode, min_nights, subject, body, enabled, configured_in_ota, created_by, created_at, updated_at';
+  'id, key, property_id, audience, trigger, offset_days, at_local, timezone, channel_exclusions, delivery, send_mode, min_nights, subject, body, enabled, configured_in_ota, migration_policy, created_by, created_at, updated_at';
 
 const BOOKING_COLS =
   'id, property_id, channel, status, check_in, check_out, guest_name, guest_phone, guest_email, guest_id, duplicate_of, first_seen_at, booked_at, external_confirmation_code, num_guests, source, cancel_reason, cancelled_at';
@@ -196,6 +196,7 @@ function shapeRule(raw: Record<string, unknown>): AutomationRule {
     body: String(raw.body ?? ''),
     enabled: !!raw.enabled,
     configured_in_ota: !!raw.configured_in_ota,
+    migration_policy: raw.migration_policy ?? null,
   };
 }
 
