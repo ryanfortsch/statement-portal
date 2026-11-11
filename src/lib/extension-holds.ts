@@ -39,6 +39,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { insertAdjustment, todayET, addDays } from '@/lib/checkout-schedule';
+import { isEarlyArrivalNote } from '@/lib/early-arrival-holds';
 
 const HOLD_BOT = 'guesty-hold';
 const DEFAULT_HORIZON_DAYS = 30;
@@ -123,6 +124,9 @@ function noteNames(note: string, tokens: string[]): boolean {
  */
 export function holdBelongsToGuest(note: string | null, guestName: string | null): boolean {
   const n = (note ?? '').toLowerCase();
+  // The NEXT guest's paid early arrival starts on this guest's checkout
+  // morning when the turn is same-day. It is theirs, never an extension.
+  if (isEarlyArrivalNote(n)) return false;
   if (/extens/.test(n)) return true;
   const tokens = nameTokens(guestName);
   return tokens.length > 0 && noteNames(n, tokens);
@@ -271,6 +275,10 @@ export async function detectExtensionHolds(
     if (seenStays.has(stayKey)) continue;
     const hold = holdByKey.get(`${stay.property_id}|${stay.check_out}`);
     if (!hold) continue;
+    // The next guest's paid early arrival abuts this checkout on a same-day
+    // turn; an extension payment on file at the house must not turn it into
+    // this guest staying on (early-arrival-holds.ts reads it instead).
+    if (isEarlyArrivalNote(hold.block_note)) continue;
     seenStays.add(stayKey);
     result.holdsFound += 1;
 
