@@ -680,9 +680,11 @@ export async function saveRecipientAction(formData: FormData): Promise<void> {
 
   const now = new Date().toISOString();
   // New forms explicitly choose daily enrollment (new recipients default off).
-  // An older open form preserves the stored preference instead of resetting it.
+  // Older edit forms preserve the preference; older add forms never inherit the
+  // migration's legacy-enrollment default without an explicit selection.
   const digestFields = formData.get('dailyDigestPreference') === 'present'
-    ? { daily_digest_enabled: formData.get('dailyDigestEnabled') === 'true' } : {};
+    ? { daily_digest_enabled: formData.get('dailyDigestEnabled') === 'true' }
+    : originalPhone ? {} : { daily_digest_enabled: false };
   const fields = { phone, display_name: displayName, region, property_ids: propertyIds, language, enabled, ...digestFields, updated_at: now };
 
   if (originalPhone) {

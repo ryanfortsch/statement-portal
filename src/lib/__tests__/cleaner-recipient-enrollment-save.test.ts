@@ -62,6 +62,14 @@ test('absent schema cannot silently drop the requested opt-out and save an enrol
   const h=actionFixture({missingColumn:true});await assert.rejects(h.save(form()),/err=save_failed/);
   assert.equal(h.writes.length,1);assert.equal(h.writes[0].fields.daily_digest_enabled,false);
 });
+test('an older open add form cannot inherit legacy daily enrollment',async()=>{
+  const h=actionFixture(), legacy=form();legacy.delete('dailyDigestPreference');
+  await assert.rejects(h.save(legacy),/saved=recipient/);
+  assert.equal(h.writes[0].op,'insert');assert.equal(h.writes[0].fields.daily_digest_enabled,false);
+  const missing=actionFixture({missingColumn:true});
+  await assert.rejects(missing.save(legacy),/err=save_failed/);
+  assert.equal(missing.writes.length,1);assert.equal(missing.writes[0].fields.daily_digest_enabled,false);
+});
 test('signed-out save stops before database writes',async()=>{
   const h=actionFixture({signedIn:false});await assert.rejects(h.save(form()),/auth\/signin/);assert.deepEqual(h.writes,[]);
 });
