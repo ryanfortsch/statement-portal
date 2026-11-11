@@ -428,7 +428,7 @@ try{
   await edit('#rooms input[placeholder^="One line"]',' Quiet upstairs room ');
   await click('rooms','Save room',true);await waitCalls(1);await finish(0,null,true);await waitText('Could not confirm the room save.');await ready(roomName);
   assert.equal(await field(roomName),'New guest room');assert.equal(await field(roomNotes),'Keep new room detail');assert.equal(await page.evaluate(()=>window.calls.length),1);
-  assert.deepEqual(await args(0),{propertyId:'synthetic-home',roomType:'bedroom',name:'New guest room',details:{beds:[{size:'twin',count:2},{size:'king',count:1}],tv:'Roku',amenities:['fan','desk'],quirks:['Low beam','Step down'],notes:'Keep new room detail'},guestSummary:'Quiet upstairs room'});
+  assert.deepEqual(await args(0),{propertyId:'synthetic-home',roomType:'bedroom',name:'New guest room',details:{beds:[{size:'twin',count:2},{size:'king',count:1}],tv:'Roku',tv_remote:null,sofa_linens:null,amenities:['fan','desk'],quirks:['Low beam','Step down'],notes:'Keep new room detail'},guestSummary:'Quiet upstairs room'});
   await click('rooms','Save room');await waitCalls(2);await finish(1);await clean();
   pass('new room recovery preserves every field and the existing bed/amenity parsing without automatic duplicate creates');
 

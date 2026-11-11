@@ -30,7 +30,9 @@ const rpcFetch: typeof fetch = async (url, init) => {
     ? `${str(p.p_token)}::uuid,${str(p.p_digest)}` : name === 'helm_channex_delivery_record'
     ? `${str(p.p_token)}::uuid,${str(p.p_digest)},${json(p.p_outcome)}` : null;
   assert.ok(args);
-  return Response.json(JSON.parse(sql(`set role service_role; select to_jsonb(public.${name}(${args}));`)));
+  const result = JSON.parse(sql(`set role service_role; select to_jsonb(public.${name}(${args}));`));
+  if (name === 'helm_channex_delivery_record' && loseRecordResponse) { loseRecordResponse = false; throw Error('Synthetic lost outcome response'); }
+  return Response.json(result);
 };
 const relation = (id: string) => ({ data: { id } });
 const reads = [
@@ -40,9 +42,10 @@ const reads = [
   { data: [], meta: { total: 0, page: 1 } },
 ];
 let readCount = 0, sendCount = 0;
-const token = randomUUID(), taskId = randomUUID();
+let token = randomUUID(), taskId = randomUUID();
+let loseRecordResponse = false;
 const provider: typeof fetch = async (_url, init) => {
-  if (init?.method === 'GET') return Response.json(reads[readCount++]);
+  if (init?.method === 'GET') return Response.json(reads[readCount++ % 4]);
   sendCount++;
   assert.equal(sql(`select state from helm_airbnb_bookings.delivery_attempts where token=${str(token)}::uuid;`), 'submitting');
   assert.equal(init?.body, sql(`select request_body from helm_airbnb_bookings.delivery_attempts where token=${str(token)}::uuid;`));
@@ -54,10 +57,30 @@ try {
   const result = await deliverInventoryOnce(store, transport, token);
   assert.equal(result.status, 'accepted'); assert.equal(sendCount, 1);
   assert.equal(sql(`select task_id::text from helm_airbnb_bookings.delivery_attempts where token=${str(token)}::uuid;`), taskId);
-  assert.equal((await deliverInventoryOnce(store, transport, token)).status, 'blocked');
-  assert.equal((await deliverInventoryOnce(store, transport, randomUUID())).status, 'blocked');
+  assert.equal((await deliverInventoryOnce(store, transport, token)).status, 'already-accepted');
+  assert.equal((await deliverInventoryOnce(store, transport, randomUUID())).status, 'already-accepted');
   assert.equal(sendCount, 1); assert.equal(readCount, 4);
+  const priorToken = token, priorBytes = sql(`select request_body from helm_airbnb_bookings.delivery_attempts where token=${str(token)}::uuid;`);
+  const availableDate = plan.days.find(d => d.available === 1)!.date;
+  sql(`insert into property_rate_days(property_id,date,closed) values('65_calderwood',${str(availableDate)},true)
+    on conflict(property_id,date) do update set closed=true;`);
+  assert.equal((await deliverInventoryOnce(store, transport, randomUUID())).status, 'stale');
+  const next = prepareInventory(JSON.parse(sql('select helm_channex_inventory_read();')), Date.now());
+  assert.ok(next.plan); assert.notEqual(next.plan.digest, plan.digest);
+  sql(`select helm_channex_inventory_plan_commit(${json({ captureVersion: next.state.captureVersion, configurationVersion: next.state.configurationVersion,
+    headVersion: next.state.headVersion, inputToken: next.state.inputToken })}, ${json(next.plan)});`);
+  assert.equal((await deliverInventoryOnce(store, transport, priorToken)).status, 'blocked');
+  assert.equal((await deliverInventoryOnce(store, transport, randomUUID())).status, 'blocked'); // pacing
+  sql("update helm_airbnb_bookings.delivery_scope set next_attempt_at='-infinity';");
+  token = randomUUID(); taskId = randomUUID(); loseRecordResponse = true;
+  await assert.rejects(deliverInventoryOnce(store, transport, token), /checkpoint uncertain/);
+  assert.equal(sql(`select state from helm_airbnb_bookings.delivery_attempts where token=${str(token)}::uuid;`), 'accepted');
+  assert.notEqual(sql(`select request_body from helm_airbnb_bookings.delivery_attempts where token=${str(token)}::uuid;`), priorBytes);
+  assert.equal((await deliverInventoryOnce(store, transport, token)).status, 'already-accepted');
+  assert.equal((await deliverInventoryOnce(store, transport, randomUUID())).status, 'already-accepted');
+  assert.equal(sql('select count(*) from helm_airbnb_bookings.delivery_attempts;'), '2');
+  assert.equal(sendCount, 2); assert.equal(readCount, 8);
 } finally {
   sql("delete from helm_airbnb_bookings.delivery_attempts; update helm_airbnb_bookings.delivery_scope set enabled=false,next_attempt_at='-infinity';");
 }
-console.log('PASS: real SQL claim, exact stored bytes, service RPC adapter, one-use barrier, provider acceptance and duplicate suppression');
+console.log('PASS: real SQL claim, exact stored bytes, service RPC adapter, one-use barrier, latest-plan acceptance, lost response recovery and duplicate suppression');

@@ -34,6 +34,40 @@ do $$begin
  or (select count(*) from channex_synthetic_delivery_results where result->>'status'='blocked')<>1
  then raise exception 'Concurrent dispatch was not fenced'; end if;
 end$$;
+select helm_channex_delivery_record((a->>'token')::uuid,a->>'requestDigest',
+ '{"kind":"accepted","taskId":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"}') from channex_synthetic_delivery_claim;
+select helm_create_booking('65_calderwood','direct','manual','block','2036-03-01','2036-03-03','{"hold_kind":"owner"}');
+select channex_synthetic_inventory_save(channex_synthetic_inventory_request());
+update helm_airbnb_bookings.delivery_scope set next_attempt_at='-infinity';
+truncate channex_synthetic_delivery_results;
+SQL
+PGAPPNAME=channex_delivery_next psql -X -q -v ON_ERROR_STOP=1 <<'SQL' >/dev/null &
+begin;
+set local statement_timeout='12s';
+insert into channex_synthetic_delivery_results select helm_channex_delivery_claim(gen_random_uuid());
+select pg_sleep(2);
+commit;
+SQL
+next_worker=$!
+ready=0
+for i in $(seq 1 30); do
+ if [[ "$(psql -X -Atc "select count(*) from pg_stat_activity where application_name='channex_delivery_next' and wait_event='PgSleep'")" == 1 ]]; then ready=1; break; fi
+ sleep 0.1
+done
+[[ $ready == 1 ]]
+psql -X -q -v ON_ERROR_STOP=1 <<'SQL' >/dev/null
+set statement_timeout='12s';
+insert into channex_synthetic_delivery_results select helm_channex_delivery_claim(gen_random_uuid());
+SQL
+wait "$next_worker"
+psql -X -q -v ON_ERROR_STOP=1 <<'SQL' >/dev/null
+do $$begin
+ if (select count(*) from channex_synthetic_delivery_results where result->>'status'='claimed')<>1
+ or (select count(*) from channex_synthetic_delivery_results where result->>'status'='blocked')<>1
+ or (select count(*) from helm_airbnb_bookings.delivery_attempts where state='accepted')<>1
+ or (select count(*) from helm_airbnb_bookings.delivery_attempts where state='leased')<>1
+ then raise exception 'Post-acceptance concurrent claims were not serialized'; end if;
+end$$;
 -- Only this guarded disposable DB retires synthetic attempts directly.
 delete from helm_airbnb_bookings.delivery_attempts;
 update helm_airbnb_bookings.delivery_scope set next_attempt_at='-infinity';

@@ -177,9 +177,11 @@ never key per-stay logic on `bookings.id`.
   lease and provider task receipt. Claim and one-use begin checkpoints recheck
   the planner's source/coverage/authority/clock guards. At most one unresolved
   attempt exists. Pre-send expiry is reclaimable; expiry after the send barrier,
-  timeouts and ambiguous responses quarantine the lane. Accepted task receipts
-  also remain unresolved, pending a separately reviewed settlement path. No
-  direct service table access, activation or settlement RPC is installed.
+  timeouts and ambiguous responses quarantine the lane. A confirmed acceptance
+  deduplicates the exact current plan (`already-accepted`, no provider IO) and
+  permits a later fresh plan after pacing and full revalidation. Accepted history
+  is retained but is not OTA delivery proof. No timeout retirement, task-status
+  polling, direct service table access, activation or settlement RPC is installed.
   `helm_channex_delivery_status()` returns gate state and counts, not payloads.
 - **`helm_channex_booking_audit_snapshot()`**: service-only, read-only bounded
   projection of all Calderwood calendar rows for the owner-triggered migration

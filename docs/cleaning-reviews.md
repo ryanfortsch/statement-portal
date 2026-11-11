@@ -12,9 +12,13 @@ asks one question: **How was the clean?** Five stars, one tap each, or "No
 clean to rate" for a walk of a house nobody cleaned. Complete waits for an
 answer. Staff and Field inspectors see the same block.
 
-- **Five stars** closes the question.
-- **Four or fewer** (`CLEANING_FLAG_MAX` in `cleaning-reviews-core.ts`) opens
-  "What was off?" and a photo row.
+Once a star is tapped, a note and a photo row sit under it at every rating,
+the way every other card takes a note (Delaney, 2026-11-10):
+
+- **Five stars**: "A note for the crew", optional, for what went right or a
+  heads-up.
+- **Four or fewer** (`CLEANING_FLAG_MAX` in `cleaning-reviews-core.ts`): the
+  same box asks "What was off?" in the signal color.
 
 The status line says where every rating goes: "in Friday's email".
 
@@ -35,7 +39,7 @@ The email is ours, composed by `composeWeeklyEmail` in both languages:
 
 - the week's average and count first ("Média 4,6 de 5 em 9 limpezas.");
 - every clean in walk order, its stars, home and day the crew's way;
-- under each at four or fewer, the reason and the photo links. The reason goes
+- under each clean with a note, at any rating, the note and the photo links. The note goes
   through the same model pass as the schedule's special-instructions line
   (`cleaner-note.ts`), falling back to the words as typed;
 - "Obrigada!" and no name. It never names the inspector.
@@ -54,9 +58,10 @@ reader's language with its English under it, and the addresses it would reach.
   cleaning role address (Rising Tide <cleaning@risingtidestr.com>,
   `cleaningReviewSender`, `CLEANING_FROM_EMAIL` overrides) with
   Ryan, Allie and Delaney on copy (the `cleaning_review` duty in `team.ts`,
-  shown on the card). Reply-To is all three of them
-  (`cleaningReviewReplyTo`), so a plain Reply reaches everyone; set
-  `CLEANING_REPLY_TO` to a shared mailbox once one exists. One
+  shown on the card). Reply-To is the cleaning address too
+  (`cleaningReviewReplyTo`): a Google Workspace group, created 2026-11-10,
+  whose members are Ryan, Allie and Delaney and which accepts outside mail,
+  so a plain Reply reaches all three. `CLEANING_REPLY_TO` overrides it. One
   idempotency key per report and reader, so a retry mails once.
 - **No email on file, no send.** The card says to add one under Cleaner
   settings (`/turnovers/settings`, the Email field on each recipient). The

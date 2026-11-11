@@ -78,7 +78,7 @@ export function CleaningReviewCard({
                     {houseDay(c.walkDate)} · {c.inspectorName}
                   </span>
                 </div>
-                {c.reason && needsCleaningNotice(c.stars) && (
+                {c.reason && (
                   <div style={{ fontSize: 14, color: 'var(--ink-2)', marginTop: 2, lineHeight: 1.45 }}>{c.reason}</div>
                 )}
                 {c.photoUrls.length > 0 && (

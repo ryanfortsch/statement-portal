@@ -32,7 +32,42 @@ select helm_channex_delivery_record((result->'attempt'->>'token')::uuid,result->
  '{"kind":"accepted","taskId":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}') from delivery_claim;
 select pg_temp.assert_true((select state from helm_airbnb_bookings.delivery_attempts)='accepted','acceptance saved idempotently, not called settled');
 update helm_airbnb_bookings.delivery_scope set enabled=true,next_attempt_at='-infinity';
-select pg_temp.assert_true(helm_channex_delivery_claim(gen_random_uuid())->>'status'='blocked','accepted task blocks lane across disable/enable');
+select pg_temp.assert_true(helm_channex_delivery_claim(gen_random_uuid())->>'status'='already-accepted','current accepted plan is deduplicated across disable/enable');
+select pg_temp.assert_true((select helm_channex_delivery_claim((result->'attempt'->>'token')::uuid)->>'status' from delivery_claim)='already-accepted','lost receipt response resolves without another permit');
+select pg_temp.assert_true(helm_channex_delivery_status()->>'unresolved'='0','acceptance is transport resolution, not OTA settlement');
+select pg_temp.assert_true(helm_channex_delivery_status()->>'settlementEnabled'='false','no OTA delivery attestation');
+-- Even a clean acceptance cannot attest stale sources, expired coverage or changed authority.
+update helm_airbnb_bookings.inventory_scope set fresh_until=0;
+select pg_temp.assert_true(helm_channex_delivery_claim(gen_random_uuid())->>'status'='stale','accepted plan still requires freshness');
+select channex_synthetic_inventory_save(channex_synthetic_inventory_request());
+select pg_temp.assert_true(helm_channex_delivery_claim(gen_random_uuid())->>'status'='already-accepted','refreshing exact accepted identity does not resend');
+update properties set calendar_authority='guesty' where id='65_calderwood';
+select pg_temp.assert_true(helm_channex_delivery_claim(gen_random_uuid())->>'status'='stale','Guesty authority fences accepted plan');
+update properties set calendar_authority='helm' where id='65_calderwood';
+select channex_synthetic_inventory_save(channex_synthetic_inventory_request());
+update helm_airbnb_bookings.inventory_scope set coverage='[]';
+select pg_temp.assert_true(helm_channex_delivery_claim(gen_random_uuid())->>'status'='stale','missing coverage fences follow-up');
+select channex_synthetic_inventory_setup();
+select channex_synthetic_inventory_save(channex_synthetic_inventory_request());
+-- A newer source is required to produce a new request, never replay old bytes.
+select helm_create_booking('65_calderwood','direct','manual','block','2035-01-01','2035-01-03','{"hold_kind":"owner"}');
+select pg_temp.assert_true(helm_channex_delivery_claim(gen_random_uuid())->>'status'='stale','source change requires recomputation');
+select channex_synthetic_inventory_save(channex_synthetic_inventory_request());
+select pg_temp.assert_true((select helm_channex_delivery_claim((result->'attempt'->>'token')::uuid)->>'status' from delivery_claim)='blocked','old accepted token cannot replay superseded plan');
+update helm_airbnb_bookings.delivery_scope set next_attempt_at=clock_timestamp()+interval '60 seconds';
+select pg_temp.assert_true(helm_channex_delivery_claim(gen_random_uuid())->>'status'='blocked','fresh follow-up still respects pacing');
+update helm_airbnb_bookings.delivery_scope set next_attempt_at='-infinity';
+create temporary table next_delivery_claim as select helm_channex_delivery_claim(gen_random_uuid()) result;
+select pg_temp.assert_true((select result->>'status' from next_delivery_claim)='claimed','clean acceptance permits a fresh newer plan');
+select pg_temp.assert_true((select count(*) from helm_airbnb_bookings.delivery_attempts)=2,'accepted history preserved alongside next lease');
+select pg_temp.assert_true((select result->'attempt'->>'planVersion' from next_delivery_claim)<>(select result->'attempt'->>'planVersion' from delivery_claim),'only newest plan leased');
+select helm_channex_delivery_begin((result->'attempt'->>'token')::uuid,result->'attempt'->>'requestDigest') from next_delivery_claim;
+select helm_channex_delivery_record((result->'attempt'->>'token')::uuid,result->'attempt'->>'requestDigest','{"kind":"uncertain"}') from next_delivery_claim;
+select helm_create_booking('65_calderwood','direct','manual','block','2035-02-01','2035-02-03','{"hold_kind":"owner"}');
+select channex_synthetic_inventory_save(channex_synthetic_inventory_request());
+update helm_airbnb_bookings.delivery_scope set next_attempt_at='-infinity';
+select pg_temp.assert_true(helm_channex_delivery_claim(gen_random_uuid())->>'status'='blocked','newest plan cannot bypass uncertain earlier request');
+select pg_temp.assert_true(helm_channex_delivery_status()->>'unresolved'='1','only ambiguous attempt is unresolved');
 do $$declare a jsonb:=(select result->'attempt' from delivery_claim);begin
  begin perform helm_channex_delivery_record((a->>'token')::uuid,a->>'requestDigest','{"kind":"rate-limited","retryAfterSeconds":60}');
   raise exception 'expected_conflict';exception when others then if sqlerrm='expected_conflict' then raise;end if;end;
@@ -68,4 +103,4 @@ select helm_channex_delivery_record((result->'attempt'->>'token')::uuid,result->
 update helm_airbnb_bookings.delivery_scope set next_attempt_at='-infinity';
 select pg_temp.assert_true(helm_channex_delivery_claim(gen_random_uuid())->>'status'='blocked','credential failure requires configuration review');
 rollback;
-select 'PASS: durable delivery, one-use send barrier, ambiguous quarantine, stale-plan rejection, backoff and permissions' as result;
+select 'PASS: durable delivery, one-use send barrier, acceptance progression, ambiguous quarantine, stale-plan rejection, backoff and permissions' as result;

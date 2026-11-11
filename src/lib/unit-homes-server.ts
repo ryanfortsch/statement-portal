@@ -18,3 +18,31 @@ export async function loadUnitParents(): Promise<Map<string, string>> {
     return new Map();
   }
 }
+
+/** What a split house's fact sheet prints about each of its units. */
+export type UnitFacts = {
+  id: string;
+  name: string;
+  bedrooms: number | null;
+  bathrooms: number | null;
+};
+
+/**
+ * The units of this house, with the counts each one carries on its own
+ * record. 17 Beach's main house has 3.5 baths and its guest house 1.5: the
+ * whole house's single Bathrooms figure cannot say that, its units can.
+ * Empty when the home has no units or on any failure.
+ */
+export async function loadUnitFacts(houseId: string): Promise<UnitFacts[]> {
+  if (!isServiceConfigured) return [];
+  try {
+    const parents = await loadUnitParents();
+    const ids = [...parents].filter(([, parent]) => parent === houseId).map(([unit]) => unit);
+    if (ids.length === 0) return [];
+    const { data, error } = await supabase.from('properties').select('id, name, bedrooms, bathrooms').in('id', ids).order('name');
+    if (error) throw error;
+    return (data ?? []) as UnitFacts[];
+  } catch {
+    return [];
+  }
+}

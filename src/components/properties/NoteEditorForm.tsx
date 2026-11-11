@@ -1,4 +1,5 @@
 import { RetainedPropertyForm } from './RetainedPropertyForm';
+import { NotePhotosField } from './NotePhotosField';
 
 /**
  * Shared form for creating + editing a property note. Server content with a
@@ -20,7 +21,7 @@ export function NoteEditorForm({
 }: {
   action: (formData: FormData) => Promise<void> | void;
   propertyId: string;
-  initial?: { title?: string | null; body?: string | null; tag?: string | null; guest_facing?: boolean | null; kind?: 'fact' | 'issue' | null };
+  initial?: { title?: string | null; body?: string | null; tag?: string | null; guest_facing?: boolean | null; kind?: 'fact' | 'issue' | null; photo_urls?: string[] | null };
   submitLabel: string;
   /** On the property page itself (InlineNoteDisclosure): no Cancel link,
    *  the disclosure's Close is the way out. */
@@ -68,6 +69,8 @@ export function NoteEditorForm({
           style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.5 }}
         />
       </Field>
+
+      <NotePhotosField propertyId={propertyId} initial={initial?.photo_urls} />
 
       <Field
         label="Tag"

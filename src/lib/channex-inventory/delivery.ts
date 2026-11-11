@@ -20,7 +20,7 @@ export const deliveryOutcomeSchema = z.discriminatedUnion('kind', [
 ]);
 export type DeliveryOutcome = z.infer<typeof deliveryOutcomeSchema>;
 export interface InventoryDeliveryStore {
-  claim(token: string): Promise<{ status: 'claimed' | 'existing'; attempt: DeliveryAttempt } | { status: 'disabled' | 'blocked' | 'stale' }>;
+  claim(token: string): Promise<{ status: 'claimed' | 'existing'; attempt: DeliveryAttempt } | { status: 'disabled' | 'blocked' | 'stale' | 'already-accepted' }>;
   begin(token: string, requestDigest: string): Promise<{ status: 'started'; expiresAt: number } | { status: 'blocked' }>;
   record(token: string, requestDigest: string, outcome: DeliveryOutcome): Promise<void>;
 }
@@ -75,8 +75,10 @@ export function createUnmappedInventoryTransport(key: string, fetcher: typeof fe
     } };
   } };
 }
-/** One attempt, no hidden retry. A lost begin response never permits IO. A lost
- * outcome response must be retried through record(), never through send(). */
+/** One attempt, no hidden retry. Already-accepted means the exact current plan
+ * has a durable Channex acceptance, not OTA delivery. It performs no provider IO.
+ * A lost begin response never permits IO. A lost outcome response must be retried
+ * through record(), never through send(). */
 export async function deliverInventoryOnce(store: InventoryDeliveryStore, transport: InventoryDeliveryTransport, token: string, clock = Date.now) {
   z.string().uuid().parse(token);
   const claimed = await store.claim(token);

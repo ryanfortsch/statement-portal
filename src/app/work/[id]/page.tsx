@@ -12,6 +12,7 @@ import { SlipFollowUpEditor } from './SlipFollowUpEditor';
 import { WorkVisitLinks } from './WorkVisitLinks';
 import { SlipComments } from './SlipComments';
 import { SlipTitleEditor } from './SlipTitleEditor';
+import { SlipDetailsEditor } from './SlipDetailsEditor';
 import { SlipBringListEditor } from './SlipBringListEditor';
 import { SlipClosePanel } from './SlipClosePanel';
 import { SlipOwnerActionEditor } from './SlipOwnerActionEditor';
@@ -206,27 +207,16 @@ export default async function WorkSlipDetailPage({
         </div>
       </Section>
 
-      {/* DESCRIPTION */}
-      {(slip.description || slip.action_summary) && (
-        <Section title="Details" eyebrow="What's needed">
-          {slip.action_summary && (
-            <div style={{ marginBottom: 14 }}>
-              <div className="eyebrow" style={{ marginBottom: 6, color: 'var(--signal)' }}>Action summary</div>
-              <p style={{ fontSize: 14, color: 'var(--ink)', lineHeight: 1.5, margin: 0 }}>
-                {slip.action_summary}
-              </p>
-            </div>
-          )}
-          {slip.description && (
-            <div>
-              <div className="eyebrow" style={{ marginBottom: 6 }}>Description</div>
-              <p style={{ fontSize: 14, color: 'var(--ink-2)', lineHeight: 1.55, margin: 0, whiteSpace: 'pre-wrap' }}>
-                {slip.description}
-              </p>
-            </div>
-          )}
-        </Section>
-      )}
+      {/* DETAILS: read and edited in place. Shown on every slip, so one with
+          no description can be given one. */}
+      <Section title="Details" eyebrow="What's needed">
+        <SlipDetailsEditor
+          key={`${slip.description ?? ''}|${slip.action_summary ?? ''}`}
+          slipId={slip.id}
+          initialDescription={slip.description}
+          initialActionSummary={slip.action_summary}
+        />
+      </Section>
 
       {/* OUT-OF-POCKET RECEIPT — where the money stands, always. */}
       {(slip.expense_cents ?? 0) > 0 && (
