@@ -54,6 +54,13 @@ const PUBLIC_PATH_PREFIXES = [
   // Short shoot-brief links (/b/<token>): the same knowledge-of-token entry as
   // /c/, kept out of SSO so a text opens straight to the brief.
   "/b/",
+  // The Stay Cape Ann guest app (/h/<token>): one permanent link per home,
+  // printed as a QR code in the house. The token on the RLS-locked
+  // guest_app_homes table is the credential, read only through the
+  // service-role client; the page shows the Wi-Fi password and how the house
+  // works, never a door, gate, garage or alarm code. /h/sw.js and
+  // /h/app-icon are its service worker and home-screen icon.
+  "/h/",
   "/clean/",
 ];
 
@@ -201,12 +208,13 @@ const PROJECTION_DELIVERABLE_RE = /^\/projections\/[0-9a-f-]+\/(render|guide|con
 
 /** Property deliverables pass the proxy so headless PDF rendering can reach
  * them. Home Guide and WiFi placard SELF-GUARD before reading credentials:
- * Helm staff session OR a short-lived, document-scoped render header.
+ * Helm staff session OR a short-lived, document-scoped render header. The
+ * guest app card does the same, because its QR opens the home's Wi-Fi.
  * The property edit page stays auth-gated. Property IDs are TEXT slugs
  * (e.g. "21_horton") so the character class is wider than UUIDs.
  * `trash-notice` is the per-home 4 x 6 fridge card; the fleet-wide print page
  * at /properties/trash-notices has no second segment, so it stays gated. */
-const PROPERTY_DELIVERABLE_RE = /^\/properties\/[a-z0-9_-]+\/(home-guide|wifi-placard|info-note|welcome-card|trash-notice)(\/.*)?$/;
+const PROPERTY_DELIVERABLE_RE = /^\/properties\/[a-z0-9_-]+\/(home-guide|wifi-placard|info-note|welcome-card|trash-notice|guest-app-card)(\/.*)?$/;
 
 /**
  * Bespoke notices live at `/properties/<id>/notice/<uuid>` (singular).

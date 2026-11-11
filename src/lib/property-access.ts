@@ -108,6 +108,29 @@ export async function readMessageAccess(propertyId: string): Promise<Pick<Proper
   } catch { throw Error('Message access read unavailable'); }
 }
 
+/**
+ * The two Wi-Fi passwords and nothing else, for the guest app (/h/<token>).
+ * A select of exactly these columns, so the public page never holds a door,
+ * gate, garage, alarm or thermostat code even in memory. Blank on any miss.
+ */
+export async function getGuestWifiPasswords(
+  propertyId: string,
+): Promise<{ password: string | null; password2: string | null }> {
+  if (!propertyId || !isPropertyAccessConfigured) return { password: null, password2: null };
+  try {
+    const { data, error } = await accessDb()
+      .from('property_access')
+      .select('wifi_password, wifi_password_2')
+      .eq('property_id', propertyId)
+      .maybeSingle();
+    if (error || !data) return { password: null, password2: null };
+    const row = data as { wifi_password: string | null; wifi_password_2: string | null };
+    return { password: row.wifi_password ?? null, password2: row.wifi_password_2 ?? null };
+  } catch {
+    return { password: null, password2: null };
+  }
+}
+
 /** Batched variant for list/packet views. Missing ids simply aren't in the map. */
 export async function getPropertyAccessMap(
   propertyIds: string[],

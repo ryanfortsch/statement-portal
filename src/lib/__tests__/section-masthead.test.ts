@@ -53,6 +53,7 @@ export const PRINTED_DOCUMENTS: string[] = [
   '/properties/[id]/info-note',
   '/properties/[id]/welcome-card',
   '/properties/[id]/trash-notice',
+  '/properties/[id]/guest-app-card',    // the 4 x 6 QR to the home's guest app
   '/properties/[id]/notice/[noticeId]', // a bespoke 4 x 6 Stay Cape Ann notice
   '/properties/trash-notices',          // the fleet's fridge cards as one print stack
   '/fieldwork/rate-card',               // the Reel rate card one-pager, printed to PDF

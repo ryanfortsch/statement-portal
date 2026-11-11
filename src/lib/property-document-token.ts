@@ -1,11 +1,13 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
-export type ProtectedPropertyDocument = 'home-guide' | 'wifi-placard';
+/** The documents that carry a credential: a Wi-Fi password, or (the guest
+ *  app card) a QR to the guest app link, which shows that password. */
+export type ProtectedPropertyDocument = 'home-guide' | 'wifi-placard' | 'guest-app-card';
 export const PROPERTY_RENDER_HEADER = 'x-helm-property-render';
 const TOKEN_TTL_SECONDS = 120;
 
 export function isProtectedPropertyDocument(type: string): type is ProtectedPropertyDocument {
-  return type === 'home-guide' || type === 'wifi-placard';
+  return type === 'home-guide' || type === 'wifi-placard' || type === 'guest-app-card';
 }
 
 function signature(propertyId: string, type: ProtectedPropertyDocument, expires: number, secret: string): string {
