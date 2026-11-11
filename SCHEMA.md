@@ -190,7 +190,13 @@ never key per-stay logic on `bookings.id`.
   no task-status polling, direct service table access, activation or settlement
   RPC is installed. `helm_channex_delivery_status()` returns gate state and counts,
   not payloads; `unresolved` includes superseded unknown history, not just the
-  current lane. All gates remain off.
+  current lane. `helm_channex_delivery_cycle_claim(token)` atomically selects
+  that lane or a bounded replacement after fresh planning, resuming the same
+  saved lease after restarts. Selection is not a send permit; claim and begin
+  still revalidate. `helm_channex_delivery_operations()` returns a service-only,
+  read-only snapshot for the owner status page: gates, current attempt, bounded
+  recent history and separate historical-unknown counts; no tokens, request
+  bytes, task IDs or guest data. All gates remain off.
 - **`helm_channex_booking_audit_snapshot()`**: service-only, read-only bounded
   projection of all Calderwood calendar rows for the owner-triggered migration
   comparison. IDs, dates, statuses, duplicate roots and confirmation codes only;
