@@ -260,6 +260,11 @@ function StayRow({
             same-day · in {row.nextCheckinTime && formatTime12(row.nextCheckinTime)}
           </span>
         )}
+        {row.nextArrivalEarly && (
+          <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+            paid early arrival (Guesty still says {row.nextArrivalEarly.bookedCheckIn})
+          </span>
+        )}
         {adj?.adjustedTime && (
           <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
             was {formatTime12(row.defaultTime)} · {adjustmentSourceLabel(adj.source)}

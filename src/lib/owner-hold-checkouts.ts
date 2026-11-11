@@ -50,6 +50,9 @@ export type HeldNight = {
   /** Guesty's ref range, inclusive last held day. Gives the stay a start
    *  date that does not move with the query window. */
   block_start?: string | null;
+  /** The ref's last held night, inclusive. Read by early-arrival-holds.ts
+   *  so a hold cut off by the query window still reaches its check-in. */
+  block_end?: string | null;
 };
 
 export type OwnerHoldCheckout = {
