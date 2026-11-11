@@ -1,5 +1,6 @@
 import 'server-only';
 import { z } from 'zod';
+import { cleanerReminderRecipientSchema, resolveCleanerReminderLink, withCleanerReminderLink } from '../cleaner-reminder-link.ts';
 import { guestNameIdentity, renderTemplate, templateFields, MERGE_FIELDS, MASK, type MergeContext } from '../automations-core.ts';
 import { CALDERWOOD_MESSAGE_WORKFLOWS, type SourceClocks } from './preparation-timing.ts';
 import { preparedPolicy } from './template-migration.ts';
@@ -11,10 +12,9 @@ const snapshot = z.object({
   property: z.object({ id: z.literal('65_calderwood'), name: text, wifi_name: text }).strict(),
   access: z.object({ smart_lock_code: text, key_code_location: text, wifi_password: text }).strict().nullable(),
   lockMapped: z.boolean(),
-  // Read only the recipient metadata needed to expose setup gaps. No phone or
-  // bearer portal token is needed by a rehearsal, even on the server.
-  cleanerRecipients: z.array(z.object({ enabled: z.boolean(), property_ids: z.array(z.string()).max(500),
-    region: z.string().min(1).max(100) }).strict()).max(200),
+  // Contact and token stay server-only. Only configuration status and a masked
+  // marker leave this reader; the private revision detects rotation mid-review.
+  cleanerRecipients: z.array(cleanerReminderRecipientSchema.strict()).max(200),
   bookings: z.array(z.object({ id: z.uuid(), property_id: z.literal('65_calderwood'),
     check_in: z.iso.date(), check_out: z.iso.date(), status: z.string(), guest_name: text }).strict()).max(5000),
 }).strict();
@@ -60,6 +60,7 @@ export function reviewPreparationInputs(input: PreparationRenderInputs) {
     cleaner: { configuredRecipients: covering.length, enabledRecipients: enabled.length,
       status: covering.length === 0 ? 'not_configured' as const : enabled.length === 0 ? 'disabled' as const
         : enabled.length > 1 ? 'multiple_recipients' as const : 'access_review' as const,
+      scheduleLinkConfigured: resolveCleanerReminderLink(input.property.id, input.cleanerRecipients) !== null,
       scheduleAccessVerified: false as const, recipientVerified: false as const },
   };
 }
@@ -93,11 +94,12 @@ export function rehearsePreparedMessages(rules: readonly PreparationRule[], inpu
       || templateFields(rule.body).some(f => !(MERGE_FIELDS as readonly string[]).includes(f))
       || /[{}]/.test(rule.body.replace(/\{\{\s*[a-zA-Z0-9_]+\s*\}\}/g, '')))
       return { key: flow.key, status: 'template_unavailable' as const, preview: null, missingFields: [] as string[], timeWordingReview: false, canSend: false as const };
-    const rendered = renderTemplate(rule.body, ctx);
+    const rendered = renderTemplate(rule.body, withCleanerReminderLink(ctx, input.property.id, rule, input.cleanerRecipients));
     // Also redact a known value if it was accidentally repeated as literal text.
     let preview = rendered.masked;
     for (const value of [b.guest_name, b.guest_name?.trim().split(/\s+/)[0], input.property.wifi_name,
-      input.access?.smart_lock_code, input.access?.key_code_location, input.access?.wifi_password]
+      input.access?.smart_lock_code, input.access?.key_code_location, input.access?.wifi_password,
+      ...input.cleanerRecipients.flatMap(r => [r.phone, r.portal_token])]
       .filter((v): v is string => Boolean(v?.trim())).sort((a, b) => b.length - a.length))
       preview = preview.replaceAll(value.trim(), MASK);
     const timeWordingReview = (['booking_confirmed', 'pre_arrival', 'cleaner_arrival'].includes(flow.key) && arrival !== '16:00')

@@ -65,8 +65,11 @@ export function PreparationReview() {
             ? 'No Calderwood cleaner recipient configured'
             : review.inputs.cleaner.status === 'disabled' ? 'Cleaner recipients are disabled'
             : review.inputs.cleaner.status === 'multiple_recipients' ? 'Multiple recipients need review'
+            : review.inputs.cleaner.scheduleLinkConfigured ? 'Scoped schedule link configured · sending off'
             : 'Recipient and schedule access need verification'}</p>
-          <p className="mt-2 text-sm leading-6" style={{ color: 'var(--ink-3)' }}>Confirm Luana’s destination, a Calderwood-only schedule link, and the arrival and checkout details she needs. The old Guesty report link has not been replaced.</p>
+          <p className="mt-2 text-sm leading-6" style={{ color: 'var(--ink-3)' }}>{review.inputs.cleaner.scheduleLinkConfigured
+            ? 'The reminder can resolve the active English Calderwood-only portal. Its private link is masked below. Confirm the source queue and delivery handover before sending.'
+            : 'Confirm Luana’s destination, an active English Calderwood-only schedule link, and the arrival and checkout details she needs. The reminder link remains unavailable.'}</p>
           <p className="mt-3 text-xs leading-5" style={{ color: 'var(--ink-3)' }}>A configured recipient alone does not verify the phone number, schedule access or SMS delivery.</p>
           <Link href="/turnovers/settings#schedule-recipients" className="mt-3 inline-block text-sm underline underline-offset-4">Review cleaner settings →</Link>
           <Link href="/channels/65_calderwood/cleaner-schedule" className="mt-3 block text-sm underline underline-offset-4">Preview arrivals and departures →</Link>
@@ -92,7 +95,7 @@ export function PreparationReview() {
                   <p className="mt-1 text-xs leading-5" style={{ color: 'var(--ink-3)' }}>Source wording captured · relative schedule recorded · sending off.</p>
                   <p className="mt-1 text-xs leading-5" style={{ color: 'var(--ink-3)' }}>Planned delivery: {flow.audience === 'guest' ? 'Automatic booking-channel message' : 'Automatic cleaner SMS'}.</p>
                   {r.migration.credentialFields && <p className="mt-1 text-xs leading-5" style={{ color: 'var(--signal)' }}>Door code and Wi-Fi values must resolve from protected records.</p>}
-                  {r.migration.cleanerLinkRequired && <p className="mt-1 text-xs leading-5" style={{ color: 'var(--signal)' }}>Cleaner schedule link still needs replacement and access verification.</p>}
+                  {r.migration.cleanerLinkRequired && <p className="mt-1 text-xs leading-5" style={{ color: 'var(--signal)' }}>{review?.inputs.cleaner.scheduleLinkConfigured ? 'Scoped cleaner link resolves in the masked rehearsal. Delivery handover remains.' : 'Cleaner schedule link still needs configuration and access verification.'}</p>}
                   {r.migration.dateFormatReview && <p className="mt-1 text-xs leading-5" style={{ color: 'var(--ink-3)' }}>The rehearsal uses Guesty’s observed date display, including the year.</p>}
                 </> : <>
                   <p className="mt-1 text-xs leading-5" style={{ color: 'var(--ink-3)' }}>{r.enabled ? 'Rule enabled' : 'Rule disabled'} · {r.characterCount} characters · {r.sendMode === 'approve' ? 'Approval mode' : 'Automatic mode'}</p>

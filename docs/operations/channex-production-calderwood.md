@@ -975,3 +975,32 @@ Luana must be added with exactly `65_calderwood`, region `bridgeport_ct`, a veri
 destination/language, and daily texts off. Do not disable Guesty or enable Helm
 automations as part of this configuration. Canonical guest counts and controlled
 message handover remain separate checks.
+
+## Cleaner reminder link resolution (November 11, 2026)
+
+The prepared `cleaner_schedule_url` field now resolves to the existing
+Calderwood arrivals/departures portal. It requires one enabled recipient,
+exactly `['65_calderwood']` scope, a valid existing token and phone, and English
+(the captured reminder wording's language). Regional access, multiple covering
+recipients, disabled access and unreviewed languages leave the field missing.
+This reads existing access; it creates no recipient, token, job or grant.
+
+Only property-specific Calderwood cleaner SMS reminder/arrival rules can receive
+the field. Guest rules and OTA paste cannot receive it. Rehearsals and operator
+test texts use a masked marker; normal ledger renders mask the bearer URL. The
+owner preparation endpoint reads recipient contact/token privately twice, so a
+rotation or recipient change invalidates the review. It returns configuration
+status only, never the credential, phone or private comparison digest.
+
+At a future authorized send, the cleaner path rechecks current access immediately
+before the provider request. A changed phone, token, scope, language or recipient
+set stops the old message; a slow/failed access read also stops it. Provider
+errors on this path are fixed text so an echoed request cannot disclose the
+link. Uncertain delivery is not automatically retried. A reminder still marked
+as handled by the source workflow remains parked, even after a generic approval.
+
+This does not activate Calderwood automations or change Guesty authority. A
+configured link is not proof of SMS delivery or an empty Guesty/provider queue.
+Source queue clearance, timing-policy execution, the explicit sender cutover and
+sharing the link remain separate handover steps. Daily digest enrollment is not
+required for this per-reservation link and is not modified.

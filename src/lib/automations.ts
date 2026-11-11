@@ -39,6 +39,7 @@ import { sendTransactionalViaResend } from '@/lib/resend';
 import { recordOutboundSms, recordOutboundEmail, ensureOtaThreadForBooking } from '@/lib/helm-inbox';
 import { otaChannelOfBooking, otaThreadUrl } from '@/lib/helm-inbox-core';
 import { RECIPIENT_COLS, shapeRecipient, type ScheduleRecipient } from '@/lib/cleaner-digest-core';
+import { deliverVerifiedCleanerReminder, withCleanerReminderLink } from '@/lib/cleaner-reminder-link';
 import { civicForProperty } from '@/lib/civic';
 import { loadGuestTimes } from '@/lib/property-rates';
 import { guestAppLinkForBooking } from '@/lib/guest-app-stays-db';
@@ -845,8 +846,19 @@ async function deliverEmail(
   return { to, providerMessageId: null, guestMessageId, note: null };
 }
 
-async function deliverCleanerSms(rendered: Rendered, bundle: PropertyBundle): Promise<Delivered> {
+async function deliverCleanerSms(rendered: Rendered, bundle: PropertyBundle, rule: AutomationRule, body: string): Promise<Delivered> {
   const from = quoFromNumber('ops');
+  if ([body, rule.subject].some(t => templateFields(t).includes('cleaner_schedule_url'))) {
+    return deliverVerifiedCleanerReminder(bundle.property.id, rule, bundle.recipients, {
+      recheck: loadEnabledRecipients,
+      send: async link => {
+        const msg = await sendMessage({ from, to: link.phone, content: rendered.text });
+        const recipient = bundle.recipients.find(r => toE164Phone(r.phone) === link.phone && r.portal_token === link.token)!;
+        return { to: recipient.display_name, providerMessageId: (msg as { id?: string } | null)?.id ?? null,
+          guestMessageId: null, note: null };
+      },
+    });
+  }
   const sent: string[] = [];
   const failed: string[] = [];
   let firstId: string | null = null;
@@ -899,8 +911,9 @@ async function dispatchRow(row: AutomationSendRow, opts: DispatchOptions): Promi
   const guest = booking ? await loadGuest(booking.guest_id) : null;
   const adjustment = booking ? await loadAdjustmentFor(booking.property_id, booking.check_in) : null;
   const body = opts.bodyOverride?.trim() || rule?.body || '';
-  const ctx =
+  const baseContext =
     booking && bundle ? await mergeContextFor(booking, bundle, guest, adjustment, rule?.timezone, linkModeFor(true, body, rule?.subject)) : {};
+  const ctx = withCleanerReminderLink(baseContext, booking?.property_id ?? '', rule, bundle?.recipients ?? [], true);
   const rendered = renderTemplate(body, ctx);
   // Rendered pair: .text for the wire only, .masked for the ledger and the inbox.
   const subject = rule ? renderSubject(rule.subject, ctx) : null;
@@ -981,7 +994,7 @@ async function dispatchRow(row: AutomationSendRow, opts: DispatchOptions): Promi
         break;
       }
       case 'cleaner_sms':
-        delivered = await deliverCleanerSms(rendered, bundle);
+        delivered = await deliverCleanerSms(rendered, bundle, rule, body);
         break;
       case 'ota_manual':
         // The operator pasted the text into the OTA app and pressed Approve.
@@ -1424,7 +1437,7 @@ export async function sendTestToOperator(propertyId: string, ruleId: string, pho
   const guest = await loadGuest(stay.guest_id);
   const adjustment = await loadAdjustmentFor(propertyId, stay.check_in);
   const ctx = await mergeContextFor(stay, bundle, guest, adjustment, rule.timezone, linkModeFor(false, rule.body));
-  const rendered = renderTemplate(rule.body, ctx);
+  const rendered = renderTemplate(rule.body, withCleanerReminderLink(ctx, propertyId, rule, bundle.recipients));
   const content = `TEST from Helm (${bundle.property.name}, ${rule.key}). Secrets masked.\n\n${rendered.masked}`;
   try {
     await sendMessage({ from: quoFromNumber('guests'), to, content });
@@ -1567,10 +1580,11 @@ export async function getAutomationsPanelView(propertyId: string): Promise<Autom
     const r = e.rule;
     let preview: PanelRule['preview'] = null;
     if (nextStay && ctx) {
-      const rendered = renderTemplate(r.body, ctx);
+      const ruleContext = withCleanerReminderLink(ctx, propertyId, r, bundle.recipients);
+      const rendered = renderTemplate(r.body, ruleContext);
       const fireAt = fireAtFor(r, nextStay, bundle.plan, adjustment, now);
       preview = {
-        subject: r.delivery === 'email' || r.delivery === 'sms_then_email' ? renderSubject(r.subject, ctx).masked : null,
+        subject: r.delivery === 'email' || r.delivery === 'sms_then_email' ? renderSubject(r.subject, ruleContext).masked : null,
         masked: rendered.masked,
         missing: rendered.missing,
         fireAt: fireAt ? fireAt.toISOString() : null,
