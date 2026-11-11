@@ -11,6 +11,7 @@ import { GuestyWritesNotice } from '@/components/channels/GuestyWritesNotice';
 import { loadHomeWriteScope } from '@/lib/channels';
 import { StayReport } from './StayReport';
 import { CleanerStayPortal } from '@/components/cleaner/CleanerStayPortal';
+import { SaveGuestCounts } from './SaveGuestCounts';
 
 export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Calderwood cleaner schedule preview · Helm', robots: { index: false, follow: false } };
@@ -39,6 +40,7 @@ export default async function CleanerSchedulePreview({ searchParams }: { searchP
       <nav aria-label="Preview view" className="mt-5 flex flex-wrap gap-4 text-sm underline underline-offset-4">
         <Link href="?">Owner review</Link><Link href="?view=cleaner&language=en">Cleaner view · English</Link><Link href="?view=cleaner&language=pt">Cleaner view · Português</Link>
       </nav>
+      {!cleanerView && <SaveGuestCounts available={report?.guestCountCheck?.status === 'verified' && report.stays.some(s => s.guestCountSource === 'guesty')} />}
       {report ? cleanerView ? <CleanerStayPortal report={report} language={language} embedded /> : <StayReport report={report} /> : <section role="alert" className="mt-7 rounded-xl border p-6" style={{ borderColor:'var(--signal)' }}>
         <h2 className="text-lg font-semibold">Schedule unavailable</h2>
         <p className="mt-2 text-sm">The stay details could not be verified. Reload to try again; this does not mean the calendar is empty.</p>

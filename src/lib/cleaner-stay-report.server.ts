@@ -13,7 +13,7 @@ import {
 
 const BOOKING_FIELDS = 'id,property_id,check_in,check_out,status,duplicate_of,num_guests,guest_name,source,first_seen_at,last_seen_at,external_confirmation_code';
 /** Shared canonical reader. Callers authorize before reading. No mutations. */
-async function readCleanerReport(db: SupabaseClient, from: string) {
+export async function readCleanerReport(db: SupabaseClient, from: string) {
   z.iso.date().parse(from);
   const through = addDays(from, 365);
   async function read<T>(query: (start: number, end: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>) {
