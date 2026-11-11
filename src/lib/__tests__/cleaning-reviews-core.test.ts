@@ -3,7 +3,8 @@
  *
  * Every rating rides in Friday's one email. It leads with the week's grade,
  * lists every clean with its stars, home and day the crew's way, and under
- * each at four or fewer prints the reason and the photo links, in one
+ * each with a note prints it and the photo links (at four or fewer the
+ * note is what was off), in one
  * language per email, and never a person's name.
  *
  * Run: npm test
@@ -60,7 +61,7 @@ describe("Friday's email", () => {
         reasonEn: 'hair was left in the tub',
         photoUrls: ['https://x.test/a.jpg', 'https://x.test/b.jpg'],
       },
-      { home: '20 Enon', walkDate: '2026-11-08', stars: 5, reasonPt: '', reasonEn: '', photoUrls: ['https://x.test/never.jpg'] },
+      { home: '20 Enon', walkDate: '2026-11-08', stars: 5, reasonPt: 'as camas ficaram perfeitas', reasonEn: 'beds were perfect', photoUrls: ['https://x.test/five.jpg'] },
     ],
   };
   const email = composeWeeklyEmail(week);
@@ -82,11 +83,19 @@ describe("Friday's email", () => {
     assert.ok(email.en.includes('21 Horton · Fri, Nov 6'));
   });
 
-  test('a flagged clean carries its reason and photos; a five-star one does not', () => {
+  test('a clean with a note carries it and its photos, at any rating', () => {
     assert.ok(email.pt.includes('Ficou cabelo na banheira.'));
     assert.ok(email.pt.includes('Fotos: https://x.test/a.jpg https://x.test/b.jpg'));
     assert.ok(email.en.includes('Photos: https://x.test/a.jpg'));
-    assert.ok(!email.pt.includes('never.jpg'), 'five stars prints no photos');
+    assert.ok(email.pt.includes('Fotos: https://x.test/five.jpg'), 'a five-star note keeps its photo');
+    assert.ok(email.en.includes('Beds were perfect.'), 'a five-star note prints');
+  });
+
+  test('a clean with no note is one line', () => {
+    const lines = email.en.split('\n');
+    const i = lines.findIndex((l) => l.includes('3 South'));
+    assert.ok(i >= 0);
+    assert.ok(!/Photos|\./.test(lines[i + 1] ?? ''), lines[i + 1]);
   });
 
   test('one language per email, no person named, no sign-off name', () => {

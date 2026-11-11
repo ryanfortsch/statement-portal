@@ -10,7 +10,7 @@ export type CaptureColumn = {
   key: string;
   label: string;
   section: string;
-  type: 'text' | 'int' | 'float' | 'phone';
+  type: 'text' | 'int' | 'float' | 'phone' | 'date';
   /** A couple of phrasings so the model learns the mapping. */
   hints: string;
   /**
@@ -47,7 +47,7 @@ export const CAPTURE_COLUMNS: CaptureColumn[] = [
   { key: 'cooling', label: 'Cooling', section: 'House and systems', type: 'text', hints: 'central A/C / mini-split / none' },
   { key: 'internet_provider', label: 'Internet provider', section: 'Connectivity', type: 'text', hints: 'Comcast / Verizon Fios' },
   { key: 'cable_provider', label: 'Cable / TV provider', section: 'Connectivity', type: 'text', hints: 'cable company' },
-  { key: 'num_tvs', label: 'Number of TVs', section: 'Connectivity', type: 'int', hints: 'count of TVs' },
+  { key: 'num_tvs', label: 'Number of TVs', section: 'Connectivity', type: 'int', hints: 'count of TVs (a number; each TV and its remote is recorded on its room)' },
   { key: 'smart_tv', label: 'Smart TV', section: 'Connectivity', type: 'text', hints: 'Roku / Samsung smart TV notes' },
 
   // ── Access & codes ──
@@ -82,8 +82,10 @@ export const CAPTURE_COLUMNS: CaptureColumn[] = [
   { key: 'parking_regulations', label: 'Parking regulations', section: 'Trash, parking and civic', type: 'text', hints: 'permit zone / street sweeping' },
   { key: 'gas_shutoff_location', label: 'Gas shutoff', section: 'Safety and permits', type: 'text', hints: 'gas shutoff valve location' },
   { key: 'water_shutoff_location', label: 'Water shutoff', section: 'Safety and permits', type: 'text', hints: 'main water shutoff location' },
+  { key: 'oil_shutoff_location', label: 'Oil shutoff', section: 'Safety and permits', type: 'text', hints: 'oil burner / oil tank shutoff switch or valve location' },
   { key: 'electrical_panel_location', label: 'Electrical panel', section: 'Safety and permits', type: 'text', hints: 'breaker box location' },
   { key: 'fire_extinguisher_locations', label: 'Fire extinguishers', section: 'Safety and permits', type: 'text', hints: 'extinguisher placement' },
+  { key: 'fire_extinguisher_inspected_on', label: 'Extinguishers inspected', section: 'Safety and permits', type: 'date', hints: 'date the fire extinguishers were last inspected / tagged' },
   { key: 'smoke_detector_locations', label: 'Smoke / CO detectors', section: 'Safety and permits', type: 'text', hints: 'detector placement' },
   { key: 'fire_exit_locations', label: 'Fire exits', section: 'Safety and permits', type: 'text', hints: 'egress routes' },
 
@@ -95,6 +97,30 @@ export const CAPTURE_COLUMNS: CaptureColumn[] = [
   { key: 'emergency_contact_phone', label: 'Emergency contact phone', section: 'Emergency contact', type: 'phone', hints: 'emergency contact number' },
   { key: 'emergency_contact_relationship', label: 'Emergency contact relationship', section: 'Emergency contact', type: 'text', hints: 'brother / neighbor / PM' },
 ];
+
+/**
+ * A typed date for a `date` column, as YYYY-MM-DD, or null when it does not
+ * read as one. Takes what a phone's date picker sends (2026-03-14) and what
+ * a person types (3/14/2026, 3/14/26, 2026/3/14). A month alone is not a
+ * date: an inspection tag carries a day.
+ */
+export function parseFactDate(raw: string): string | null {
+  const t = raw.trim();
+  let y: number, m: number, d: number;
+  let hit = t.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+  if (hit) {
+    [y, m, d] = [Number(hit[1]), Number(hit[2]), Number(hit[3])];
+  } else {
+    hit = t.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2}|\d{4})$/);
+    if (!hit) return null;
+    [m, d, y] = [Number(hit[1]), Number(hit[2]), Number(hit[3])];
+    if (y < 100) y += 2000;
+  }
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) return null;
+  if (y < 1990 || y > 2100) return null;
+  return `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
 
 export const CAPTURE_COLUMN_KEYS = new Set(CAPTURE_COLUMNS.map((c) => c.key));
 export function captureColumn(key: string): CaptureColumn | undefined {

@@ -159,6 +159,37 @@ export async function updateWorkSlipTitle(args: {
 }
 
 /**
+ * Edit a slip's Details: the action summary and the description, the two
+ * texts under "What's needed" (Delaney, 2026-11-10: a count of pillows and
+ * inserts had changed and the slip could only be read). An empty value
+ * clears that field. The organize pass never writes a description, and it
+ * writes an action summary only while the slip is unorganized and the
+ * summary empty, so an edit here is not overwritten.
+ */
+export async function updateWorkSlipDetails(args: {
+  id: string;
+  description: string;
+  actionSummary: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+  const description = args.description.replace(/\r\n/g, '\n').trim().slice(0, 8000);
+  const actionSummary = args.actionSummary.trim().slice(0, 600);
+
+  const { data, error } = await supabase
+    .from('work_slips')
+    .update({ description: description || null, action_summary: actionSummary || null })
+    .eq('id', args.id)
+    .select('id');
+  if (error) return { ok: false, error: error.message };
+  if (!data || data.length === 0) return { ok: false, error: 'That slip was not found.' };
+
+  revalidatePath('/work');
+  revalidatePath(`/work/${args.id}`);
+  return { ok: true };
+}
+
+/**
  * Save the "what to bring" list on a work slip. This is the materials a
  * contractor needs to COMPLETE the job (e.g. "P-trap washer, plunger"). It gets
  * rolled into the packet's supply-closet (85 Eastern) pick list so nothing's

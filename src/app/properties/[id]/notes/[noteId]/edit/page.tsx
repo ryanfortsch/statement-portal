@@ -44,8 +44,9 @@ export default async function EditPropertyNotePage({
     body: note.body,
     tag: note.tag,
     guest_facing: note.guest_facing,
-    kind,
-  } as const;
+    kind: kind as 'fact' | 'issue',
+    photo_urls: note.photo_urls ?? [],
+  };
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>

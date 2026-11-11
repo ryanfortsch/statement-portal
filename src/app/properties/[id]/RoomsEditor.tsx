@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
 import { saveRoomAction, deleteRoomAction } from './onboarding-actions';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
-import { ROOM_TYPES, type PropertyRoom, type RoomType } from '@/lib/property-rooms-shared';
+import { ROOM_TYPES, SOFA_BED_RE, roomSofaBeds, type PropertyRoom, type RoomType } from '@/lib/property-rooms-shared';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import { useConfirm } from '@/components/ConfirmDialog';
 
@@ -14,8 +14,11 @@ const DISCARD_ROOM = {
 } as const;
 
 /**
- * Room-by-room records for the Onboarding tab. Cards summarize each space
- * (beds, tv, amenities, quirks); an inline editor covers hand entry. The
+ * Room-by-room records for the Facts tab. Cards summarize each space (beds,
+ * TV and its remote, amenities, quirks); an inline editor covers hand entry.
+ * The room is where a TV and a sofa bed are located: the fact sheet lists
+ * TVs by room, and a sofa bed here puts the Pullout Bed + Linens card on the
+ * home's walks, naming this room (src/lib/pullout-beds.ts). The
  * walkthrough dictation is the fast path that fills these; this editor is
  * the manual one.
  */
@@ -96,6 +99,8 @@ function RoomCard({ room, onEdit, disabled }: { room: PropertyRoom; onEdit: () =
       </h4>
       {beds && <Fact label="Beds" value={beds} />}
       {d.tv && <Fact label="TV" value={d.tv} />}
+      {d.tv_remote && <Fact label="Remote" value={d.tv_remote} />}
+      {roomSofaBeds(room).length > 0 && <Fact label="Sofa bed sheets" value={d.sofa_linens || 'not recorded yet'} />}
       {(d.amenities?.length ?? 0) > 0 && <Fact label="Amenities" value={d.amenities!.join(', ')} />}
       {(d.quirks?.length ?? 0) > 0 && (
         <div style={{ fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.5 }}>
@@ -144,12 +149,15 @@ function RoomForm({
     (room?.details.beds ?? []).map((b) => (b.count > 1 ? `${b.count}x ${b.size}` : b.size)).join(', '),
   );
   const [tv, setTv] = useState(room?.details.tv ?? '');
+  const [tvRemote, setTvRemote] = useState(room?.details.tv_remote ?? '');
+  const [sofaLinens, setSofaLinens] = useState(room?.details.sofa_linens ?? '');
   const [amenities, setAmenities] = useState((room?.details.amenities ?? []).join(', '));
   const [quirks, setQuirks] = useState((room?.details.quirks ?? []).join('\n'));
   const [notes, setNotes] = useState(room?.details.notes ?? '');
   const [guestSummary, setGuestSummary] = useState(room?.guest_summary ?? '');
   const id = room?.id ?? 'new';
-  const snapshot = JSON.stringify([name, roomType, beds, tv, amenities, quirks, notes, guestSummary]);
+  const snapshot = JSON.stringify([name, roomType, beds, tv, tvRemote, sofaLinens, amenities, quirks, notes, guestSummary]);
+  const hasSofa = beds.split(',').some((b) => SOFA_BED_RE.test(b));
   const original = useRef(snapshot);
   const dirty = snapshot !== original.current;
   const saving = useRef(false);
@@ -186,8 +194,12 @@ function RoomForm({
         roomType,
         name,
         details: {
+          // Keys this form does not edit (from the walkthrough, say) ride along.
+          ...(room?.details ?? {}),
           beds: parsedBeds,
           tv: tv.trim() || null,
+          tv_remote: tv.trim() ? tvRemote.trim() || null : null,
+          sofa_linens: parsedBeds.some((b) => SOFA_BED_RE.test(b.size)) ? sofaLinens.trim() || null : null,
           amenities: amenities.split(',').map((s) => s.trim()).filter(Boolean),
           quirks: quirks.split('\n').map((s) => s.trim()).filter(Boolean),
           notes: notes.trim() || null,
@@ -251,8 +263,14 @@ function RoomForm({
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name, e.g. Primary bedroom" style={{ ...input, flex: '1 1 200px' }} />
       </div>
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-        <input value={beds} onChange={(e) => setBeds(e.target.value)} placeholder="Beds, e.g. king or 2x twin" style={{ ...input, flex: '1 1 180px' }} />
-        <input value={tv} onChange={(e) => setTv(e.target.value)} placeholder="TV, e.g. 55in Roku" style={{ ...input, flex: '1 1 180px' }} />
+        <input value={beds} onChange={(e) => setBeds(e.target.value)} placeholder="Beds, e.g. king, 2x twin, full sofa bed" style={{ ...input, flex: '1 1 180px' }} />
+      </div>
+      {hasSofa && (
+        <input value={sofaLinens} onChange={(e) => setSofaLinens(e.target.value)} placeholder="Where this sofa bed's sheets are kept" aria-label="Sofa bed sheets" style={input} />
+      )}
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        <input value={tv} onChange={(e) => setTv(e.target.value)} placeholder="TV, e.g. 55in Samsung smart TV" aria-label="TV" style={{ ...input, flex: '1 1 180px' }} />
+        <input value={tvRemote} onChange={(e) => setTvRemote(e.target.value)} placeholder="Remote and batteries, e.g. 2 AAA" aria-label="Remote and batteries" style={{ ...input, flex: '1 1 180px' }} />
       </div>
       <input value={amenities} onChange={(e) => setAmenities(e.target.value)} placeholder="Amenities, comma separated" style={input} />
       <textarea value={quirks} onChange={(e) => setQuirks(e.target.value)} rows={2} placeholder="Quirks, one per line" style={{ ...input, resize: 'vertical', fontFamily: 'inherit' }} />

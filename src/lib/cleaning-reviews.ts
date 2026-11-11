@@ -10,7 +10,6 @@ import { cleaningReviewCopy, cleaningReviewReplyTo, cleaningReviewSender, todayE
 import { getTeamMember } from '@/lib/team';
 import {
   composeWeeklyEmail,
-  needsCleaningNotice,
   parseStars,
   reportWeekEnd,
   STUCK_CLAIM_MS,
@@ -224,15 +223,14 @@ export async function draftWeeklyCleaningReport(today: string = todayET()): Prom
   // falls back to the words as typed, so a model outage never drops one.
   const cleans = await Promise.all(
     rows.map(async (r) => {
-      const flagged = needsCleaningNotice(r.stars);
-      const rendered = flagged && r.reason ? await renderOperatorNote(r.reason) : { pt: '', en: '' };
+      const rendered = r.reason ? await renderOperatorNote(r.reason) : { pt: '', en: '' };
       return {
         home: homes.get(r.property_id)?.name ?? r.property_id,
         walkDate: r.walk_date,
         stars: r.stars,
         reasonPt: rendered.pt,
         reasonEn: rendered.en,
-        photoUrls: flagged ? (r.photo_urls ?? []) : [],
+        photoUrls: r.photo_urls ?? [],
       };
     }),
   );
@@ -340,7 +338,7 @@ export async function loadCleaningReviewCards(now: Date = new Date()): Promise<C
         walkDate: r.walk_date,
         stars: r.stars,
         reason: r.reason ?? '',
-        photoUrls: needsCleaningNotice(r.stars) ? (r.photo_urls ?? []) : [],
+        photoUrls: r.photo_urls ?? [],
       })),
       language: audience.language,
       subject: en ? rep.subject_en : rep.subject_pt,

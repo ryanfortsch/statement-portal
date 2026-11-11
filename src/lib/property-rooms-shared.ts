@@ -30,6 +30,10 @@ export type RoomBed = { size: string; count: number };
 export type RoomDetails = {
   beds?: RoomBed[];
   tv?: string | null;
+  /** The TV's remote and the batteries it takes, e.g. "Samsung remote, 2 AAA". */
+  tv_remote?: string | null;
+  /** Where this room's sofa-bed sheets are kept, when it has one. */
+  sofa_linens?: string | null;
   amenities?: string[];
   quirks?: string[];
   notes?: string | null;
@@ -47,3 +51,21 @@ export type PropertyRoom = {
   created_at: string;
   updated_at: string;
 };
+
+/** A bed size that is a pullout: sofa bed, sleeper, pull-out couch, futon. */
+export const SOFA_BED_RE = /sofa|sleeper|pull[\s-]?out|futon|couch/i;
+
+/** The room's pullout beds, as written ("full sofa bed"), empty when none. */
+export function roomSofaBeds(room: Pick<PropertyRoom, 'details'>): string[] {
+  return (room.details?.beds ?? []).filter((b) => SOFA_BED_RE.test(b.size ?? '')).map((b) => (b.count > 1 ? `${b.count}x ${b.size}` : b.size));
+}
+
+/** One line per TV across the rooms, in room order: "Living room: 55in Samsung · remote 2 AAA". */
+export function tvLines(rooms: ReadonlyArray<Pick<PropertyRoom, 'name' | 'details'>>): string[] {
+  return rooms
+    .filter((r) => (r.details?.tv ?? '').trim())
+    .map((r) => {
+      const remote = (r.details?.tv_remote ?? '').trim();
+      return `${r.name}: ${(r.details.tv ?? '').trim()}${remote ? ` · remote: ${remote}` : ''}`;
+    });
+}

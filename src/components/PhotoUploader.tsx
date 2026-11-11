@@ -115,8 +115,8 @@ type UploadProgress = { completed: number; total: number; filename: string };
  * remove button) plus a "+ Photo" tile that opens the OS chooser on phones
  * (camera or photo library) and the file picker on desktop.
  *
- * The gallery picker stays separate from the explicit camera input, so
- * contractors can attach earlier shots or take a new photo on site.
+ * One picker for both: the phone's own sheet offers Take Photo beside the
+ * library, so earlier shots and a new one on site go through the same button.
  *
  * Selected photos upload sequentially to /api/upload. Successful URLs are
  * appended together via onChange, so parents persist once per batch. Failed
@@ -149,7 +149,6 @@ function PhotoUploaderInner({ value, onChange, folder, disabled, endpoint = '/ap
   // Same fullscreen viewer the read-only strips use — an uploaded photo you
   // can't open is half a photo (you can't check what you just shot).
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
-  const cameraRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const uploadRef = useRef<AbortController | null>(null);
@@ -317,13 +316,6 @@ function PhotoUploaderInner({ value, onChange, folder, disabled, endpoint = '/ap
         }}
       />
 
-      <input ref={cameraRef} type="file" accept="image/*" capture="environment" aria-label="Take a photo" style={{ display: 'none' }} disabled={disabled || uploading || restoring}
-        onChange={e => {
-          const items = Array.from(e.target.files ?? []).map(file => ({ id: crypto.randomUUID(), file }));
-          e.target.value = '';
-          void uploadFiles(items);
-        }} />
-
       {value.length > 0 && (
         <div
           style={{
@@ -397,9 +389,9 @@ function PhotoUploaderInner({ value, onChange, folder, disabled, endpoint = '/ap
         </div>
       )}
 
-      <button type="button" disabled={disabled || uploading || restoring} onClick={() => cameraRef.current?.click()}
-        style={{ ...retryButtonStyle, width: '100%', marginBottom: 8 }}>Take photo</button>
-
+      {/* One button. The phone's own picker offers Take Photo beside the
+          library (Delaney, 2026-11-10: a second "Take photo" button above
+          it was the same choice twice). */}
       <button
         type="button"
         onClick={() => inputRef.current?.click()}

@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { ACTIVE_WORK_SLIP_STATUSES } from './work-types';
+import { ACTIVE_WORK_SLIP_STATUSES } from './work-types.ts';
+import { roomSofaBeds, type RoomDetails } from './property-rooms-shared.ts';
 
 /**
  * Pullout beds: the property fact, the live guest request, and the card
@@ -80,7 +81,12 @@ export type PulloutContext = {
   /** Where the sheets live, or null when nobody has recorded it yet. */
   linensLocation: string | null;
   requests: PulloutRequest[];
+  /** Each room with a sofa bed on Rooms and beds, so a home with two (17
+   *  Beach's living room and its guest house) names both on the card. */
+  rooms?: PulloutRoom[];
 };
+
+export type PulloutRoom = { name: string; beds: string; linens: string | null };
 
 type PropertyPulloutRow = {
   has_pullout_bed: boolean | null;
@@ -116,13 +122,34 @@ export async function loadPulloutContext(
   if (error || !data) return empty;
 
   const prop = data as PropertyPulloutRow;
-  if (prop.has_pullout_bed !== true) return empty;
+  const rooms = await loadPulloutRooms(sb, propertyId);
+  // A sofa bed written on a room puts the card in the deck too, so the
+  // flag and the rooms cannot disagree about whether there is one.
+  if (prop.has_pullout_bed !== true && rooms.length === 0) return empty;
 
   return {
     hasPullout: true,
     linensLocation: prop.pullout_linens_location?.trim() || null,
     requests: await loadPulloutRequests(sb, propertyId),
+    rooms,
   };
+}
+
+/** Rooms on file with a sofa bed. Empty on any failure. */
+async function loadPulloutRooms(sb: SupabaseClient, propertyId: string): Promise<PulloutRoom[]> {
+  const { data, error } = await sb
+    .from('property_rooms')
+    .select('name, sort_order, details')
+    .eq('property_id', propertyId)
+    .order('sort_order');
+  if (error || !data) return [];
+  return pulloutRoomsFrom(data as Array<{ name: string; details: RoomDetails | null }>);
+}
+
+export function pulloutRoomsFrom(rows: ReadonlyArray<{ name: string; details: RoomDetails | null }>): PulloutRoom[] {
+  return rows
+    .map((r) => ({ name: r.name, beds: roomSofaBeds({ details: r.details ?? {} }).join(', '), linens: r.details?.sofa_linens?.trim() || null }))
+    .filter((r) => r.beds);
 }
 
 /**
@@ -178,6 +205,14 @@ export function pulloutCardNote(
         : `${ctx.requests.length} guests have asked for the pullout bed to be made up. Make it up before you leave.`,
     );
     for (const r of ctx.requests) lines.push(`· ${r.ask}`);
+  }
+  const rooms = ctx.rooms ?? [];
+  if (rooms.length > 1) lines.push(`${rooms.length} pullouts here. Check each one.`);
+  if (rooms.length > 0) {
+    // Each pullout by its room, with its own sheets when the room says
+    // where. These lines are frozen at Start; the house-wide sheets line
+    // below stays live.
+    for (const r of rooms) lines.push(`· ${r.name}: ${r.beds}${r.linens ? `. Its sheets: ${r.linens}` : ''}`);
   }
   lines.push(sheetsLine(ctx.linensLocation));
   return { note: lines.join('\n'), level: ctx.requests.length > 0 ? 'alert' : 'info' };

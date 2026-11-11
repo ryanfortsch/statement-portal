@@ -126,8 +126,8 @@ export function weeklyAverage(cleans: readonly Pick<WeeklyClean, 'stars'>[]): nu
 
 /**
  * The week in both languages. One line per clean (the stars, the home, the
- * day); a clean at four or fewer adds what was off and its photos under its
- * line. The average and the count lead, so the grade reads first.
+ * day); a clean with a note adds it and its photos under its line (at four
+ * or fewer the note is what was off). The average and the count lead, so the grade reads first.
  */
 export function composeWeeklyEmail(input: WeeklyEmailInput): WeeklyEmail {
   const cleans = [...input.cleans].sort(byWalk);
@@ -138,14 +138,17 @@ export function composeWeeklyEmail(input: WeeklyEmailInput): WeeklyEmail {
 
   const block = (c: WeeklyClean, lang: 'pt' | 'en'): string => {
     const head = `${starsGlyphs(c.stars)}  ${c.home} · ${lang === 'pt' ? ptDay(c.walkDate) : enDay(c.walkDate)}`;
-    if (!needsCleaningNotice(c.stars)) return head;
+    // A note and photos print whenever the inspector wrote one, at any
+    // rating: a five-star clean can carry a heads-up too (2026-11-10).
     const photos = c.photoUrls.filter(Boolean);
+    const said = (lang === 'pt' ? c.reasonPt : c.reasonEn).trim();
+    if (!said && photos.length === 0) return head;
     const lines = [
       head,
       sentence(lang === 'pt' ? c.reasonPt : c.reasonEn),
       photos.length ? `${lang === 'pt' ? 'Fotos' : 'Photos'}: ${photos.join(' ')}` : '',
     ].filter(Boolean);
-    // A flagged clean stands apart, so its reason reads with its home.
+    // A clean with a note stands apart, so its note reads with its home.
     return `\n${lines.join('\n')}\n`;
   };
   const tidy = (t: string) => t.replace(/\n{3,}/g, '\n\n').trim();
