@@ -191,6 +191,17 @@ test('changed render data discards the review and its private comparison digest 
   assert.equal(clean.format, 3);
   assert.equal('privateRenderRevision' in clean, false); assert.equal('renderInputs' in clean, false);
 });
+
+test('recipient rotation during the double review discards the entire rehearsal without exposing the token', async () => {
+  const f = fixture(), read = f.deps.context; let reads = 0;
+  f.deps.context = async () => {
+    const c = await read();
+    c.renderInputs.cleanerRecipients = [{ enabled: true, property_ids: ['65_calderwood'], region: 'bridgeport_ct',
+      ...{ phone: '+12025550100', portal_token: (++reads === 1 ? 'a' : 'b').repeat(32), language: 'en' } }];
+    return c;
+  };
+  await assert.rejects(reviewMessagePreparation(env, f.deps), /SOURCES_CHANGED/);
+});
 test('environment and dormant boundaries are checked before token and network access', async () => {
   const f = fixture(); let tokens = 0; f.deps.token = async () => { tokens++; return 'synthetic-token'; };
   await assert.rejects(reviewMessagePreparation({ ...env, VERCEL_ENV: 'preview' }, f.deps));

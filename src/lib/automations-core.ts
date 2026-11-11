@@ -410,9 +410,10 @@ export const MERGE_FIELD_HELP: Record<MergeField, string> = {
 /**
  * guest_app_link is here because a stay link shows that stay's door code
  * from 10 AM the day before check-in (src/lib/guest-app-stays.ts): stored
- * copies hold it masked, like the code itself.
+ * copies hold it masked, like the code itself. Cleaner schedule links also
+ * grant access, so previews, ledgers and operator test texts must mask them.
  */
-export const SECRET_FIELDS: ReadonlySet<string> = new Set<MergeField>(['door_code', 'wifi_password', 'guest_app_link']);
+export const SECRET_FIELDS: ReadonlySet<string> = new Set<MergeField>(['door_code', 'wifi_password', 'guest_app_link', 'cleaner_schedule_url']);
 export const MASK = '••••';
 
 export type MergeContext = Partial<Record<MergeField, string | null | undefined>>;
@@ -1245,6 +1246,15 @@ export function decideDispatch(input: DecisionInput): DispatchDecision {
   if (!rail) return { outcome: 'skipped_no_contact', rail: null, reason: rule.audience === 'cleaner' ? 'no cleaner recipient covers this home' : 'guest has no phone or email on file' };
   if (input.approved && input.approvedRail && input.approvedRail !== rail) {
     return { outcome: 'awaiting_approval', rail, reason: `now goes by ${rail === 'sms' ? 'SMS' : rail === 'email' ? 'email' : rail}: approve it again` };
+  }
+  // Cleaner bearer links never fall through to an OTA paste or guest rail.
+  if (input.rendered.missing.includes('cleaner_schedule_url') || (rule.audience !== 'cleaner'
+    && [rule.body, rule.subject].some(t => templateFields(t).includes('cleaner_schedule_url')))) {
+    return { outcome: 'awaiting_approval', rail, reason: 'cleaner schedule link requires verified cleaner access' };
+  }
+  if (rail === 'cleaner_sms' && rule.configured_in_ota
+    && [rule.body, rule.subject].some(t => templateFields(t).includes('cleaner_schedule_url'))) {
+    return { outcome: 'configured_in_ota', rail, reason: 'cleaner reminder remains with the source workflow' };
   }
   if (rail === 'ota_manual') {
     if (input.approved) return { outcome: 'send', rail, reason: null };

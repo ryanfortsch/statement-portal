@@ -7,6 +7,7 @@ import { ChannexRuntimeError, verifyDormantProductionStorage } from '@/lib/chann
 import { MessageHandoffError } from '@/lib/channex-bookings/message-identity';
 import { MessagePreparationError, reviewMessagePreparation } from '@/lib/channex-messaging/preparation';
 import { MESSAGE_RULE_FIELDS } from '@/lib/channex-messaging/preparation-rules';
+import { CLEANER_REMINDER_RECIPIENT_FIELDS } from '@/lib/cleaner-reminder-link';
 import { readMessageAccess } from '@/lib/property-access';
 
 export const dynamic = 'force-dynamic';
@@ -36,7 +37,7 @@ export async function GET() {
             .in('status', ['confirmed', 'completed']).order('id').range(from, to), { pageSize: 500, maxRows: 5000 }),
           selectAllPaged(async (from, to) => {
             const result = await supabaseAdmin.from('cleaner_schedule_recipients')
-              .select('enabled,property_ids,region')
+              .select(CLEANER_REMINDER_RECIPIENT_FIELDS)
               .or('property_ids.cs.{65_calderwood},region.eq.bridgeport_ct')
               .order('phone').range(from, to);
             if (!Array.isArray(result.data)) throw new MessagePreparationError('PREPARATION_READ_FAILED');
