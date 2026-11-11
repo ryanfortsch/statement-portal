@@ -6,7 +6,8 @@ import { listScheduleRecipients } from '@/lib/cleaner-digest';
 import type { ScheduleRecipient } from '@/lib/cleaner-digest-core';
 import { CAPE_ANN_REGION } from '@/lib/property-scope';
 import { sendTransactionalViaResend } from '@/lib/resend';
-import { fieldReplyTo, operationsEmails, todayET } from '@/lib/team-recipients';
+import { cleaningReviewCopy, cleaningReviewReplyTo, cleaningReviewSender, todayET } from '@/lib/team-recipients';
+import { getTeamMember } from '@/lib/team';
 import {
   composeWeeklyEmail,
   needsCleaningNotice,
@@ -315,6 +316,7 @@ export async function loadCleaningReviewCards(now: Date = new Date()): Promise<C
   const reviews = await reviewsInReports(reports.map((r) => r.id));
   const homes = await loadHomes([...new Set(reviews.map((r) => r.property_id))]);
   const staleBefore = now.getTime() - STUCK_CLAIM_MS;
+  const copy = cleaningReviewCopy().map((e) => getTeamMember(e)?.short ?? e);
   const cards: CleaningReviewCardData[] = [];
   for (const rep of reports) {
     const mine = reviews.filter((r) => r.report_id === rep.id);
@@ -350,6 +352,7 @@ export async function loadCleaningReviewCards(now: Date = new Date()): Promise<C
       lastError: rep.last_error,
       recipients: audience.to.map((r) => `${r.display_name} <${r.email}>`),
       missingEmail: audience.missingEmail,
+      copy,
     });
   }
   return cards;
@@ -388,8 +391,9 @@ async function release(id: string, lastError: string | null): Promise<void> {
 
 /**
  * Approve: send the week's email. The one place a cleaning review reaches
- * the crew. Each recipient gets it in their own language, from the Field
- * sender, with operations on copy and replies to the office. A send that
+ * the crew. Each recipient gets it in their own language, from the cleaning
+ * role address (cleaningReviewSender), with the cleaning_review duty on copy (team.ts) and replies to the
+ * office. A send that
  * reaches nobody releases the claim and says why.
  */
 export async function approveCleaningReview(id: string, operatorEmail: string): Promise<ReviewActionResult> {
@@ -414,8 +418,8 @@ export async function approveCleaningReview(id: string, operatorEmail: string): 
     await release(id, 'No cleaner email on file.');
     return { ok: false, error: 'No cleaner email on file. Add one under Cleaner settings.' };
   }
-  const cc = operationsEmails();
-  const replyTo = fieldReplyTo();
+  const cc = cleaningReviewCopy();
+  const replyTo = cleaningReviewReplyTo();
   const log: Array<{ email: string; name: string; ok: boolean; error?: string }> = [];
   for (const r of audience.to) {
     const en = r.language === 'en';
@@ -429,7 +433,7 @@ export async function approveCleaningReview(id: string, operatorEmail: string): 
         cc: cc.filter((e) => e.toLowerCase() !== r.email.toLowerCase()),
         replyTo,
         fromName: 'Rising Tide',
-        fromEmail: process.env.FIELD_FROM_EMAIL || undefined,
+        fromEmail: cleaningReviewSender(),
         idempotencyKey: `cleaning-report-${id}-${r.email.toLowerCase()}`,
       });
       log.push(ok ? { email: r.email, name: r.display_name, ok } : { email: r.email, name: r.display_name, ok, error: 'Resend refused the send.' });

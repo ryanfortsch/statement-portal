@@ -95,7 +95,7 @@ export function CleaningReviewCard({
         ),
       }}
       reply={{
-        label: noEmail ? `Email to the crew (${language})` : `Email to ${to} (${language})`,
+        label: `${noEmail ? 'Email to the crew' : `Email to ${to}`} (${language})${card.copy.length ? `, copy ${card.copy.join(', ')}` : ''}`,
         text: card.text,
         english:
           card.language === 'pt' ? (

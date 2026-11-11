@@ -26,13 +26,17 @@ export interface AirbnbRevisionReader {
   /** Adapter must re-fetch/compare exact revision before acknowledging it. */
   acknowledge(revision: AirbnbBookingRevision): Promise<void>;
 }
-function exactReceipt(raw: unknown, expected: AirbnbBookingRevision): AirbnbBookingReceipt {
+export function parseAirbnbBookingReceipt(raw: unknown): AirbnbBookingReceipt {
   const r = receiptSchema.parse(raw);
   const revision = parseAirbnbBookingRevision(r.revision);
-  if (JSON.stringify(revision) !== JSON.stringify(parseAirbnbBookingRevision(expected))) throw Error();
   const committedAt = revisionTime(r.committedAt), firstReceivedAt = revisionTime(r.firstReceivedAt);
   if (firstReceivedAt > committedAt) throw Error();
   return { ...r, revision, committedAt, firstReceivedAt };
+}
+function exactReceipt(raw: unknown, expected: AirbnbBookingRevision): AirbnbBookingReceipt {
+  const r = parseAirbnbBookingReceipt(raw);
+  if (JSON.stringify(r.revision) !== JSON.stringify(parseAirbnbBookingRevision(expected))) throw Error();
+  return r;
 }
 /** Webhook hints select a provider pull; untrusted webhook bodies are never saved.
  * Full-batch validation precedes writes. ACK follows commit AND independent read.
