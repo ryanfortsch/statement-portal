@@ -54,9 +54,10 @@ reader's language with its English under it, and the addresses it would reach.
   cleaning role address (Rising Tide <cleaning@risingtidestr.com>,
   `cleaningReviewSender`, `CLEANING_FROM_EMAIL` overrides) with
   Ryan, Allie and Delaney on copy (the `cleaning_review` duty in `team.ts`,
-  shown on the card). Reply-To is all three of them
-  (`cleaningReviewReplyTo`), so a plain Reply reaches everyone; set
-  `CLEANING_REPLY_TO` to a shared mailbox once one exists. One
+  shown on the card). Reply-To is the cleaning address too
+  (`cleaningReviewReplyTo`): a Google Workspace group, created 2026-11-10,
+  whose members are Ryan, Allie and Delaney and which accepts outside mail,
+  so a plain Reply reaches all three. `CLEANING_REPLY_TO` overrides it. One
   idempotency key per report and reader, so a retry mails once.
 - **No email on file, no send.** The card says to add one under Cleaner
   settings (`/turnovers/settings`, the Email field on each recipient). The

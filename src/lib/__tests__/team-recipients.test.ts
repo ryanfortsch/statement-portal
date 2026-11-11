@@ -139,16 +139,18 @@ describe("Friday's cleaning review email copy (2026-11-10)", () => {
       if (saved !== undefined) process.env.CLEANING_FROM_EMAIL = saved;
     }
   });
-  test('a reply reaches all three, or the shared mailbox once it is set', () => {
-    const saved = process.env.CLEANING_REPLY_TO;
+  test('a reply goes to the cleaning group, unless overridden', () => {
+    const saved = { to: process.env.CLEANING_REPLY_TO, from: process.env.CLEANING_FROM_EMAIL };
     delete process.env.CLEANING_REPLY_TO;
+    delete process.env.CLEANING_FROM_EMAIL;
     try {
-      assert.deepEqual(cleaningReviewReplyTo('2026-11-13'), ['ryan@risingtidestr.com', 'allie@risingtidestr.com', 'delaney@risingtidestr.com']);
-      process.env.CLEANING_REPLY_TO = 'cleaning@risingtidestr.com';
-      assert.deepEqual(cleaningReviewReplyTo('2026-11-13'), ['cleaning@risingtidestr.com']);
+      assert.deepEqual(cleaningReviewReplyTo(), ['cleaning@risingtidestr.com']);
+      process.env.CLEANING_REPLY_TO = 'office@example.com';
+      assert.deepEqual(cleaningReviewReplyTo(), ['office@example.com']);
     } finally {
-      if (saved === undefined) delete process.env.CLEANING_REPLY_TO;
-      else process.env.CLEANING_REPLY_TO = saved;
+      if (saved.to === undefined) delete process.env.CLEANING_REPLY_TO;
+      else process.env.CLEANING_REPLY_TO = saved.to;
+      if (saved.from !== undefined) process.env.CLEANING_FROM_EMAIL = saved.from;
     }
   });
   test('the sender takes its copy from the duty and its address from the role', () => {
