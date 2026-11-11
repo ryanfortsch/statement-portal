@@ -2,13 +2,14 @@
 import {z} from 'zod';
 import {isIsoDay,nightsBetween,shiftIsoDay} from './sca-quotes-types.ts';
 import {evidenceFresh} from './dynamic-pricing-evidence.ts';
+import {seasonalPricingPolicy,type PricingCustomizations} from './dynamic-pricing-customizations.ts';
 import type {PricingPolicy,PricingPreview,PricingSnapshot} from './dynamic-pricing.ts';
 export const pricingLengthOfStaySchema=z.array(z.object({nights:z.number().int().min(2).max(365),adjustmentPct:z.number().finite().min(-80).max(200)}).strict()).max(8).refine(v=>new Set(v.map(r=>r.nights)).size===v.length,'Stay-length thresholds must be unique');
 const weekdays=z.array(z.number().int().min(0).max(6)).min(1).max(7).refine(v=>new Set(v).size===v.length,'Duplicate weekdays');
 export const pricingArrivalDepartureSchema=z.object({arrival:weekdays,departure:weekdays}).strict();
 export type PricingStayRules={lengthOfStay:z.infer<typeof pricingLengthOfStaySchema>;arrivalDeparture:z.infer<typeof pricingArrivalDepartureSchema>};
 export const defaultPricingStayRules=():PricingStayRules=>({lengthOfStay:[],arrivalDeparture:{arrival:[0,1,2,3,4,5,6],departure:[0,1,2,3,4,5,6]}});
-export function previewPricingStay(snapshot:PricingSnapshot,preview:PricingPreview,policy:PricingPolicy,rules:PricingStayRules,arrival:string,departure:string){
+export function previewPricingStay(snapshot:PricingSnapshot,preview:PricingPreview,policy:PricingPolicy,rules:PricingStayRules,arrival:string,departure:string,custom?:PricingCustomizations){
   pricingLengthOfStaySchema.parse(rules.lengthOfStay);pricingArrivalDepartureSchema.parse(rules.arrivalDeparture);
   const valid=(s:string)=>isIsoDay(s)&&Number.isFinite(Date.parse(s))&&new Date(s).toISOString().slice(0,10)===s;
   if(!valid(arrival)||!valid(departure))throw Error('Choose valid arrival and departure dates');
@@ -28,7 +29,8 @@ export function previewPricingStay(snapshot:PricingSnapshot,preview:PricingPrevi
     if(!s||s.state!=='open'||s.protected||!evidenceFresh(s.observedAt,now)||p?.recommendedCents==null){incomplete++;continue;}
     if(!p.eligible)reviewNights++;
     const raw=Math.round(p.recommendedCents*(1+(selected?.adjustmentPct??0)/100));
-    const net=Math.max(policy.floorCents,Math.min(policy.ceilingCents,raw));
+    const bounds=seasonalPricingPolicy(policy,date,custom?.seasonalPrices);if(bounds.error){incomplete++;continue;}
+    const net=Math.max(bounds.policy.floorCents,Math.min(bounds.policy.ceilingCents,raw));
     if(net!==raw)limitedNights++;subtotalCents+=p.recommendedCents;totalCents+=net;
   }
   if(reviewNights)errors.push(`${reviewNights} nightly recommendations need review in the calendar`);

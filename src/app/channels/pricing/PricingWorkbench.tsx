@@ -1,5 +1,5 @@
 'use client';
-import { useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Button } from '@/components/Button';
 import { useConfirm } from '@/components/ConfirmDialog';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
@@ -10,6 +10,7 @@ import PricingHistory from './PricingHistory';
 import PricingCalendar from './PricingCalendar';
 import PricingIcon from './PricingIcon';
 import PricingOccupancy from './PricingOccupancy';
+import type {PricingCustomizations} from '@/lib/dynamic-pricing-customizations';
 import PricingPolicyFields,{NumberField} from './PricingPolicyFields';
 import './pricing.css';
 import {etStamp} from '@/lib/stable-time';
@@ -19,9 +20,10 @@ import type { capturePricingObservationAction,setPricingTrackingAction,savePrici
 
 export type PricingServices={save:typeof savePricingAction;refresh:typeof refreshPricingAction;review:typeof reviewPricingAction;publish:typeof publishPricingAction;undo:typeof undoPricingAction;evidence:typeof savePricingEvidenceAction;observe:typeof capturePricingObservationAction;tracking:typeof setPricingTrackingAction};
 const inputClass='mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm';
-export default function PricingWorkbench({propertyId,name,authority,navigation,initialPolicy,initialSnapshot,initialProfile,initialRuns,initialEvidenceVersion=0,initialObservations=[],initialTracking={enabled:false,version:0},scheduledCaptureEnabled=false,services,draftOnly=false,calendarTools,previewTransform,onOverride,additionalTools}:{
+export default function PricingWorkbench({propertyId,name,authority,navigation,initialPolicy,initialSnapshot,initialProfile,initialRuns,initialEvidenceVersion=0,initialObservations=[],initialTracking={enabled:false,version:0},scheduledCaptureEnabled=false,services,draftOnly=false,calendarTools,previewTransform,onOverride,additionalTools,draftCustomizations,extraRuleActions}:{
   propertyId:string;name:string;authority:'helm'|'guesty';navigation?:ReactNode;initialPolicy:PricingPolicy;initialSnapshot:PricingSnapshot;
   initialProfile:PricingProfile|null;initialRuns:PricingRunSummary[];initialEvidenceVersion?:number;services:PricingServices;draftOnly?:boolean;calendarTools?:ReactNode;previewTransform?:(preview:PricingPreview,policy:PricingPolicy,snapshot:PricingSnapshot)=>PricingPreview;onOverride?:(date:string)=>void;additionalTools?:(snapshot:PricingSnapshot,preview:PricingPreview|null,policy:PricingPolicy,closeMenu:()=>void)=>ReactNode;
+  draftCustomizations?:PricingCustomizations;extraRuleActions?:(closeRules:()=>void)=>ReactNode;
   initialObservations?:PricingObservationRecord[];initialTracking?:PricingTracking;scheduledCaptureEnabled?:boolean;
 }) {
   const [policy,setPolicy]=useState(initialPolicy),[snapshot,setSnapshot]=useState(initialSnapshot),[profile,setProfile]=useState(initialProfile);
@@ -33,17 +35,18 @@ export default function PricingWorkbench({propertyId,name,authority,navigation,i
   const [currentOnly,setCurrentOnly]=useState(draftOnly);
   const [section,setSection]=useState<'prices'|'market'|'occupancy'|'history'|'data'>('prices');const {ask}=useConfirm();
   const [ruleSection,setRuleSection]=useState<'strategy'|'adjustments'|'stays'|'events'|'connection'>('strategy');
-  const customizations=useRef<HTMLDialogElement>(null),[menuOpen,setMenuOpen]=useState(false);
-  const openCustomizations=(next:typeof ruleSection='strategy')=>{setRuleSection(next);customizations.current?.showModal();};
+  const customizations=useRef<HTMLDialogElement>(null),[menuOpen,setMenuOpen]=useState(false),[rulesOpen,setRulesOpen]=useState(false);
+  useEffect(()=>{if(rulesOpen)customizations.current?.showModal();else customizations.current?.close();},[rulesOpen]);
+  const openCustomizations=(next:typeof ruleSection='strategy')=>{setRuleSection(next);setRulesOpen(true);};
   function showSection(next:typeof section){setSection(next);setMenuOpen(false);}
   const listingMetrics=useMemo(()=>[30,60,90].map(n=>pricingOccupancyWindow(snapshot,snapshot.today,n as 30|60|90,new Date(snapshot.observedAt))),[snapshot]);
   const changed=JSON.stringify(policy)!==JSON.stringify(profile?.policy??initialPolicy)||mode!==(profile?.mode??'shadow');
   const dirty=!profile||changed;
   useUnsavedWorkGuard(changed);
   const computed=useMemo(()=>{const parsed=pricingPolicySchema.safeParse(policy);
-    return parsed.success?{preview:previewPricing(parsed.data,snapshot,new Date(snapshot.observedAt)),errors:[]}:
+    return parsed.success?{preview:previewPricing(parsed.data,snapshot,new Date(snapshot.observedAt),draftOnly?draftCustomizations:undefined),errors:[]}:
       {preview:null,errors:parsed.error.issues.map(i=>`${i.path.join('.')}: ${i.message}`)};
-  },[policy,snapshot]);
+  },[policy,snapshot,draftOnly,draftCustomizations]);
   const preview=computed.preview?(previewTransform?.(computed.preview,policy,snapshot)??computed.preview):null,eligible=preview?.days.filter(d=>d.eligible)??[];
   const dateRange=[snapshot.days[0]?.date,snapshot.days.at(-1)?.date].filter(Boolean).map(date=>new Date(date+'T12:00:00Z').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric',timeZone:'UTC'})).join(' – ');
   const modify=<K extends keyof PricingPolicy>(key:K,value:PricingPolicy[K])=>{setPolicy(p=>({...p,[key]:value}));setReview(null);};
@@ -106,9 +109,9 @@ export default function PricingWorkbench({propertyId,name,authority,navigation,i
         await refresh();captureRequest.current=null;setMessage(draftOnly?'Snapshot saved for this session.':'Snapshot saved.');})}
       onTracking={enabled=>void perform(async()=>{const r=await services.tracking({propertyId,enabled,version:tracking.version});if(!r.ok)throw Error(r.error);
         setTracking(r.value.tracking);setObservations(r.value.observations);setCollectorEnabled(r.value.scheduledCaptureEnabled);setMessage(enabled?'Daily history requested.':'Daily history stopped.');})}/></div>
-    <dialog ref={customizations} className="pricing-customizations-dialog" aria-labelledby="pricing-customizations-title" onClick={e=>{if(e.target===e.currentTarget)customizations.current?.close();}}>
-      <header><h2 id="pricing-customizations-title">Pricing rules</h2><Button variant="quiet" className="pricing-icon-button" aria-label="Close customizations" onClick={()=>customizations.current?.close()}><PricingIcon name="close"/></Button></header>
-      <div className="pricing-rules-layout"><nav className="pricing-rule-nav" aria-label="Rule categories">{([['strategy','Strategy'],['adjustments','Adjustments'],['stays','Minimum stays'],['events','Events'],['connection','Connection']] as const).filter(([id])=>!draftOnly||id!=='connection').map(([id,label])=><Button key={id} variant="quiet" aria-pressed={ruleSection===id} onClick={()=>setRuleSection(id)}>{label}<PricingIcon name="next"/></Button>)}</nav>
+    <dialog ref={customizations} className="pricing-customizations-dialog" aria-labelledby="pricing-customizations-title" onCancel={()=>setRulesOpen(false)} onClick={e=>{if(e.target===e.currentTarget)setRulesOpen(false);}}>
+      <header><h2 id="pricing-customizations-title">Pricing rules</h2><Button variant="quiet" className="pricing-icon-button" aria-label="Close customizations" onClick={()=>setRulesOpen(false)}><PricingIcon name="close"/></Button></header>
+      <div className="pricing-rules-layout"><nav className="pricing-rule-nav" aria-label="Rule categories">{([['strategy','Strategy'],['adjustments','Adjustments'],['stays','Minimum stays'],['events','Events'],['connection','Connection']] as const).filter(([id])=>!draftOnly||id!=='connection').map(([id,label])=><Button key={id} variant="quiet" aria-pressed={ruleSection===id} onClick={()=>setRuleSection(id)}>{label}<PricingIcon name="next"/></Button>)}{draftOnly&&extraRuleActions?.(()=>setRulesOpen(false))}</nav>
       <fieldset disabled={busy} className="pricing-rules-content"><PricingPolicyFields policy={policy} modify={modify} ruleSection={ruleSection} today={snapshot.today}/>
       <section hidden={ruleSection!=='connection'}><h3>Connection</h3><label className="text-sm font-medium">Pricing connection<select className={inputClass} value={mode} onChange={e=>{setMode(e.target.value as typeof mode);setReview(null);}}>
         <option value="shadow">Compare only</option><option value="helm_direct" disabled={authority!=='helm'}>Connect Helm direct rates</option></select></label>
@@ -118,7 +121,7 @@ export default function PricingWorkbench({propertyId,name,authority,navigation,i
       </fieldset></div>
       {computed.errors.length>0&&<p role="alert" className="pricing-feedback">{computed.errors.join(' · ')}</p>}
       {error&&<p role="alert" className="pricing-feedback">{error}</p>}
-      <footer><Button variant="quiet" onClick={()=>customizations.current?.close()}>Close</Button><Button variant="primary" disabled={busy||!preview} onClick={async()=>{if(await saveRules())customizations.current?.close();}}>{draftOnly?'Save draft':'Save rules'}</Button></footer>
+      <footer><Button variant="quiet" onClick={()=>setRulesOpen(false)}>Close</Button><Button variant="primary" disabled={busy||!preview} onClick={async()=>{if(await saveRules())setRulesOpen(false);}}>{draftOnly?'Save draft':'Save rules'}</Button></footer>
     </dialog>
     {!draftOnly&&section==='prices'&&profile?.mode==='helm_direct'&&<footer className="pricing-publish-bar" aria-label="Publish rates">
       <div><p className="text-sm font-medium">{review?`Review ready · ${eligible.length} nights`:`${eligible.length} nights ready for review`}</p>

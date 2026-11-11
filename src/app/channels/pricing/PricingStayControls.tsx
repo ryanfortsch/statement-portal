@@ -3,7 +3,7 @@ import {useRef,useState} from 'react';
 import {Button} from '@/components/Button';
 import {useConfirm} from '@/components/ConfirmDialog';
 import {hasUnsavedWork,useUnsavedWorkGuard} from '@/lib/unsaved-work';
-import {pricingDraftError,resolvePricingStayRules,type PricingDrafts} from '@/lib/dynamic-pricing-drafts';
+import {resolvePricingCustomizations,pricingDraftError,resolvePricingStayRules,type PricingDrafts} from '@/lib/dynamic-pricing-drafts';
 import {previewPricingStay,type PricingStayRules} from '@/lib/dynamic-pricing-stays';
 import {shiftIsoDay} from '@/lib/sca-quotes-types';
 import {pricingMoney} from '@/lib/dynamic-pricing-display';
@@ -18,7 +18,7 @@ export default function PricingStayControls({state,propertyId,snapshot,preview,p
   async function close(){if(dirty){dialog.current?.close();const yes=await ask({title:'Discard stay-rule changes?',body:'Your saved stay rules will remain unchanged.',confirmLabel:'Discard'});if(!yes){dialog.current?.showModal();return;}}dialog.current?.close();setOpen(false);closeMenu();}
   function modify<K extends keyof PricingStayRules>(key:K,value:PricingStayRules[K]|undefined){setWork({...work,homes:{...work.homes,[propertyId]:{...home,[key]:value}}});setError('');}
   let result:ReturnType<typeof previewPricingStay>|null=null,calculationError='';
-  if(open&&preview)try{result=previewPricingStay(snapshot,preview,policy,resolved.rules,arrival,departure);}catch(e){calculationError=pricingDraftError(e);}
+  if(open&&preview)try{result=previewPricingStay(snapshot,preview,policy,resolved.rules,arrival,departure,resolvePricingCustomizations(work,{kind:"listing",id:propertyId}).rules);}catch(e){calculationError=pricingDraftError(e);}
   return <><Button variant="quiet" onClick={()=>void show()}>Stay pricing</Button><dialog ref={dialog} className="pricing-draft-dialog pricing-stay-dialog" aria-label="Stay pricing" onCancel={e=>{e.preventDefault();void close();}}>
     <header><div><h2>Stay pricing</h2><p>Helm draft · Accommodation only</p></div><Button variant="quiet" aria-label="Close stay pricing" onClick={()=>void close()}><PricingIcon name="close"/></Button></header>
     <div className="pricing-draft-dialog-body"><div className="pricing-tabs" role="group" aria-label="Stay pricing views"><Button variant="quiet" className="pricing-tab" aria-pressed={view==='check'} onClick={()=>setView('check')}>Check a stay</Button><Button variant="quiet" className="pricing-tab" aria-pressed={view==='rules'} onClick={()=>setView('rules')}>Stay rules</Button></div>

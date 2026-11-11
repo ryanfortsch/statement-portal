@@ -486,6 +486,24 @@ body:has(.pricing-page-shell) { background: #f6f7f8; }
 .helm-pricing .pricing-los-row {display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:12px;align-items:end}
 .helm-pricing .pricing-los-row>.rt-quiet-btn {font-size:12px;padding-bottom:12px}
 .helm-pricing .pricing-stay-fields section>.rt-btn {align-self:flex-start}
+.helm-pricing .pricing-season-dialog {width:min(800px,calc(100vw - 28px))}
+.helm-pricing .pricing-season-dialog>header {position:sticky;top:0;background:white;z-index:3}
+.helm-pricing .pricing-season-dialog .pricing-draft-dialog-actions {position:sticky;bottom:-24px;background:white;padding:16px 0;margin-bottom:0;z-index:2;border-top:1px solid var(--pricing-line)}
+.helm-pricing .pricing-custom-fields {display:flex;flex-direction:column;gap:18px;min-width:0}
+.helm-pricing .pricing-custom-empty {padding:20px 0;color:var(--pricing-muted);font-size:13px}
+.helm-pricing .pricing-season-list {display:flex;flex-direction:column;gap:10px}
+.helm-pricing .pricing-season-card {border:1px solid var(--pricing-line);border-radius:8px;overflow:hidden}
+.helm-pricing .pricing-season-summary {width:100%;display:flex;justify-content:space-between;gap:16px;padding:16px;text-align:left;background:#fff;border-radius:0;white-space:normal}
+.helm-pricing .pricing-season-summary>span {display:flex;flex-direction:column;gap:4px}
+.helm-pricing .pricing-season-summary>span:last-child {text-align:right}
+.helm-pricing .pricing-season-summary b {font-size:13px;font-weight:550;font-variant-numeric:tabular-nums}
+.helm-pricing .pricing-season-summary small {font-size:11px;font-weight:400;color:var(--pricing-muted)}
+.helm-pricing .pricing-season-editor {padding:18px;display:flex;flex-direction:column;gap:18px;border-top:1px solid var(--pricing-line);background:#fafbfa}
+.helm-pricing .pricing-season-prices {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.helm-pricing .pricing-season-repeat {display:flex;align-items:center;gap:8px;font-size:12px}
+.helm-pricing .pricing-season-actions {display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.helm-pricing .pricing-season-editor>.rt-btn {align-self:flex-end}
+@media(max-width:540px){.helm-pricing .pricing-season-summary{flex-direction:column;gap:10px}.helm-pricing .pricing-season-summary>span:last-child{text-align:left}.helm-pricing .pricing-season-editor{padding:14px}.helm-pricing .pricing-season-prices{gap:8px}.helm-pricing .pricing-season-dialog .pricing-tabs{flex-wrap:wrap}}
 .helm-pricing .pricing-stay-result {border:1px solid var(--pricing-line);border-radius:9px;padding:20px}
 .helm-pricing .pricing-stay-result>div {display:flex;justify-content:space-between;align-items:center;gap:10px}
 .helm-pricing .pricing-stay-result h3 {font-size:18px;font-weight:600}

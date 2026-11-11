@@ -542,7 +542,8 @@ default calendar view; the Helm draft is an explicit toggle.
 | --- | --- | --- |
 | Portfolio | Internal names, sortable 7/30/60/90-day metrics, column picker, filters and local group filter | No fabricated market comparison; no bulk multi-calendar editor |
 | Price configuration | Base/min/max, current versus proposed calendar/table, exact nightly breakdown | Device-local settings; production storage not installed |
-| Recurring rules | Monthly/weekday factors, gradual last-minute discount, far-out premium, occupancy targets, recency switch, gap pricing, historical safety floor | Not the vendor's complete flat/fixed/market-driven presets; recency requires verified booking timestamps |
+| Recurring rules | Monthly/weekday factors, flat/gradual last-minute discounts and far-out premiums, custom weekends, occupancy targets, recency switch, gap pricing, historical safety floor | No fixed last-minute prices or full market-driven presets; recency requires verified booking timestamps |
+| Seasonal prices | Annual and dated seasons, fixed or relative base/min/max, default seasonal stays, inheritance and date/stay bound handling | No reusable seasonal pricing/min-stay profile library or seasonal arrival rules |
 | Minimum stays | Weekday/weekend, last-minute and far-out thresholds, gaps, adjacency, minimum booking value, event minimums; arrival/departure weekdays in stay preview | No restriction delivery, seasonal/last-minute arrival profiles or maximum stays |
 | Date overrides | Inclusive date ranges, selected weekdays, fixed nightly rate, percentage of recommendation or minimum stay; edit/remove | No expiry, fixed-price bounds bypass, date-specific base/min/max or drag-to-select range |
 | Groups | Account defaults, groups/subgroups, per-category listing overrides, source table, bulk assignments and date overrides at all four levels | Device-local settings, no server synchronization or live migration |
@@ -647,3 +648,75 @@ departure, missing/protected inventory, price bounds and review-required rates.
 Browser checks covered group/subgroup creation, 24-home assignments, inherited
 stay rules, local overrides, calculation errors, saved settings and the actual
 26-listing roster. Existing Calderwood base/min/max survived the storage upgrade.
+
+
+## November 11: seasonal prices, weekends and flat lead-time rules
+
+Property Rules now opens Seasonal prices, Weekend days and Lead-time style. The
+same fields are available in dashboard Groups & rules → Custom rules. These three
+optional categories inherit independently through account/group/subgroup/listing;
+explicit empty seasons disable inherited seasonal pricing. Existing device-local
+settings load unchanged. Bulk reset and cloning saved rules include these categories,
+and effective shared edits invalidate affected listing versions.
+
+Seasonal prices can be fixed dollars (listing/group) or percentage changes to each
+home's normal minimum/base/maximum (all scopes). Blank fields retain normal values.
+Annual seasons repeat by month/day; dated seasons supersede them without stacking.
+Annual seasons must split at December 31, matching the vendor workflow. Dated
+seasons may cross year end, up to 366 nights. Seasons with the same recurrence may
+not overlap; duplicate names/IDs and invalid dates reject. Leap-day annual bounds
+use month/day matching, without inventing February 29 in non-leap years.
+
+Each season can replace default weekday/weekend minimum stays. The existing
+last-minute/far-out/event/gap stay rules still apply afterward; this is not a full
+reusable seasonal minimum-stay profile. Monthly, weekday, market and other price
+factors still apply to seasonal base prices, visibly in the calculation steps.
+Date overrides and stay-length adjustments now use the applicable bounds for each
+night, including stays spanning season boundaries. Invalid inherited bounds block
+saving and identify affected configured homes; evaluation withholds the affected
+recommendation as a second safeguard. Unconfigured homes still need normal prices.
+
+Weekend selection governs normal, seasonal and lead-time minimum stays. It does
+not reinterpret weekday price factors. Empty selection treats every night as a
+weekday. Flat last-minute discounts include day N of a within-N-days window; gradual
+rules retain their existing taper. Flat far-out premiums start after their threshold;
+gradual premiums retain the start/end ramp. Percentages and thresholds remain in
+Adjustments. Neither new option enables market-driven coefficients or vendor data.
+
+The pure engine accepts these options only as an explicit fourth argument. Existing
+production profiles/schema and writer calls do not supply it. A frozen fingerprint
+from pre-change commit `93a6288d` verifies identical full legacy results across
+6,000 synthetic nights. The local adapter, calendar, date overrides and stay preview
+use the same resolved settings. Session observations identify the customized model
+as `helm-3-local-customizations`. Production delivery remains unchanged and disabled
+in this live-calendar prototype. No booking/fee/tax/payout writer was changed.
+
+Research:
+- [Seasonal settings and precedence](https://help.pricelabs.co/portal/en/kb/articles/seasonal-minimum-base-and-max-price-settings)
+- [Flat and gradual last-minute settings](https://help.pricelabs.co/portal/en/kb/articles/last-minute-prices)
+- [Far-out modes](https://help.pricelabs.co/portal/en/kb/articles/far-out-prices)
+- [Weekend definitions](https://help.pricelabs.co/portal/en/kb/articles/pricing-customizations)
+- [Seasonal pricing profiles, still broader than this implementation](https://help.pricelabs.co/portal/en/kb/articles/pricing-customizations-profiles)
+
+A PriceLabs plugin search returned no match in this session; the directory may have
+other integrations. Official documentation provides read endpoints for
+[neighborhood data](https://developers.pricelabs.co/customer-api/api-reference/customer-api/neighborhood-data/get-neighborhood-data-for-a-listing)
+and [available comp-set sources](https://developers.pricelabs.co/customer-api/api-reference/customer-api/neighborhood-data/get-neighborhood-data-sources),
+as well as [read-scoped MCP market tools](https://developers.pricelabs.co/mcp/tools/market-insights).
+These require authenticated access. No API was enabled, key created, subscription
+changed or PriceLabs customization saved. Market occupancy remains unavailable in
+Helm without a verified feed or qualified import; discovering documentation is not
+connecting data.
+
+Validation on integrated main `0c9d87f1d424e7f62dd9c3d24b7c8b5fcd491559`:
+4,449 tests pass, seven skipped, zero failures. Fourteen new cases cover legacy
+parity, recurrence and one-off priority, invalid/overlapping seasons, custom weekends,
+flat boundaries, protected inventory, seasonal bounds through overrides and stay
+totals, inheritance, version invalidation and session capture. Browser checks cover
+saving/reloading local rules, 24-home group controls, inherited account seasons,
+listing precedence, and an affected-home conflict when a shared seasonal base
+exceeds that home's maximum. The actual-data preview remains read-only.
+
+Remaining: licensed market and comp-set data, verified pickup, seasonal pricing and
+stay-profile libraries, fixed/market-driven presets, smart gaps, durable shared
+storage and verified channel delivery. No replacement savings are booked yet.

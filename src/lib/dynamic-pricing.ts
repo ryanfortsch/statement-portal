@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { pricingEvidenceSchema } from './dynamic-pricing-evidence.ts';
 import { analyzePricingEvidence, historicalSafetyFloor, marketPaceAdjustment } from './dynamic-pricing-model.ts';
 import { isIsoDay, shiftIsoDay, nightsBetween } from './sca-quotes-types.ts';
+import {pricingCustomizationSchema,seasonalPricingPolicy,type PricingCustomizations} from './dynamic-pricing-customizations.ts';
 
 export const PRICING_MODEL_VERSION = 'helm-3';
 const cents = z.number().int().min(100).max(10000000);
@@ -78,8 +79,9 @@ const fresh = (stamp: string, now:number) => Number.isFinite(Date.parse(stamp)) 
  * Occupancy excludes deliberate blocks and never interprets missing coverage as vacant.
  * The budget cap applies to the PRODUCT of discounts, before premiums and hard bounds.
  */
-export function previewPricing(policyInput: unknown, snapshotInput: unknown, now: Date = new Date()): PricingPreview {
+export function previewPricing(policyInput: unknown, snapshotInput: unknown, now: Date = new Date(), draftCustomizations?:PricingCustomizations): PricingPreview {
   const policy = pricingPolicySchema.parse(policyInput), snap = snapshotSchema.parse(snapshotInput), at = now.getTime();
+  const custom=draftCustomizations?pricingCustomizationSchema.parse(draftCustomizations):undefined,defaultPolicy=policy;
   if (!Number.isFinite(at)) throw Error('Invalid evaluation clock');
   const byDate = new Map(snap.days.map(d => [d.date,d]));
   if (byDate.size !== snap.days.length) throw Error('Duplicate calendar date');
@@ -126,8 +128,10 @@ export function previewPricing(policyInput: unknown, snapshotInput: unknown, now
     if(lead<0 || lead>499) { reasons.push('Outside the future pricing horizon'); return result; }
     if(day.state!=='open') { reasons.push(day.state==='unknown'?'Calendar coverage missing':'Unavailable night kept unchanged'); return result; }
     if(day.protected) { reasons.push('Operator override kept unchanged'); result.recommendedCents=day.currentCents; return result; }
+    const seasonal=seasonalPricingPolicy(defaultPolicy,day.date,custom?.seasonalPrices),policy=seasonal.policy;
+    if(seasonal.error){reasons.push(seasonal.error);return result;}
     let value=policy.baseCents;
-    steps.push({label:'Base price',adjustmentPct:0,resultCents:value});
+    steps.push({label:seasonal.season?`Season: ${seasonal.season.name} · Base price`:'Base price',adjustmentPct:0,resultCents:value});
     function apply(label:string,factor:number) { value*=factor; steps.push({label,adjustmentPct:(factor-1)*100,resultCents:Math.round(value)}); }
     const evidenceMarket=snap.evidence?.market.find(m=>m.date===day.date);
     if(policy.priceShape==='history'&&analysis?.shape.qualified) {
@@ -151,7 +155,9 @@ export function previewPricing(policyInput: unknown, snapshotInput: unknown, now
     const event=policy.events.find(e=>e.start<=day.date&&e.end>=day.date);
     if(event) apply(event.label,1+event.adjustmentPct/100);
     const beforeDiscounts=value;
-    if(lead<policy.lastMinuteDays) apply('Last minute',1-policy.lastMinuteDiscountPct/100*(1-lead/policy.lastMinuteDays));
+    if(custom?.leadTimeModes.lastMinute==='flat'){
+      if(lead<=policy.lastMinuteDays)apply('Last minute (flat)',1-policy.lastMinuteDiscountPct/100);
+    }else if(lead<policy.lastMinuteDays) apply('Last minute',1-policy.lastMinuteDiscountPct/100*(1-lead/policy.lastMinuteDays));
     const bucket=lead<=14?0:lead<=29?1:lead<=59?2:null;
     if(policy.occupancyEnabled && bucket!==null && occupancy[bucket].pct!==null) {
       // Bounded response to the operator's booking-pace target; no elasticity claim.
@@ -171,7 +177,7 @@ export function previewPricing(policyInput: unknown, snapshotInput: unknown, now
       const delta=clamp((occupancy[bucket].pct!-policy.occupancyTargets[bucket])*0.5,0,policy.occupancyMaxAdjustmentPct);
       if(delta>0) apply('Occupancy above target',1+delta/100);
     }
-    if(lead>policy.farOutStart) apply('Far-out premium',1+policy.farOutPremiumPct/100*clamp((lead-policy.farOutStart)/(policy.farOutEnd-policy.farOutStart),0,1));
+    if(lead>policy.farOutStart) apply(custom?.leadTimeModes.farOut==='flat'?'Far-out premium (flat)':'Far-out premium',1+policy.farOutPremiumPct/100*(custom?.leadTimeModes.farOut==='flat'?1:clamp((lead-policy.farOutStart)/(policy.farOutEnd-policy.farOutStart),0,1)));
     if(policy.safetyFloorEnabled&&lead>policy.safetyFloorAfterDays&&!event&&snap.evidence) {
       const safety=historicalSafetyFloor(snap.evidence,day.date,snap.today);
       if(safety!==null&&value<safety){value=safety;steps.push({label:'110% of matched last-year accommodation ADR',adjustmentPct:0,resultCents:value});}
@@ -180,9 +186,10 @@ export function previewPricing(policyInput: unknown, snapshotInput: unknown, now
       Math.ceil((discountFloor-1e-7)/100)*100); // rounding must not deepen a capped discount
     value=clamp(value,policy.floorCents,policy.ceilingCents); // rounding can never cross hard bounds
     steps.push({label:'Minimum, maximum and rounding',adjustmentPct:0,resultCents:value});
-    let minNights=dow===5||dow===6?policy.weekendMinNights:policy.weekdayMinNights;
-    for(const rule of [...policy.lastMinStays].sort((a,b)=>b.withinDays-a.withinDays)) if(lead<=rule.withinDays) minNights=dow===5||dow===6?rule.weekend:rule.weekday;
-    for(const rule of [...policy.farMinStays].sort((a,b)=>a.afterDays-b.afterDays)) if(lead>rule.afterDays) minNights=dow===5||dow===6?rule.weekend:rule.weekday;
+    const weekend=custom?custom.weekendDays.includes(dow):dow===5||dow===6;
+    let minNights=weekend?policy.weekendMinNights:policy.weekdayMinNights;
+    for(const rule of [...policy.lastMinStays].sort((a,b)=>b.withinDays-a.withinDays)) if(lead<=rule.withinDays) minNights=weekend?rule.weekend:rule.weekday;
+    for(const rule of [...policy.farMinStays].sort((a,b)=>a.afterDays-b.afterDays)) if(lead>rule.afterDays) minNights=weekend?rule.weekend:rule.weekday;
     if(policy.minimumBookingCents>0)minNights=Math.max(minNights,Math.ceil(policy.minimumBookingCents/value));
     const before=byDate.get(shiftIsoDay(day.date,-1));
     if(policy.adjacentMinNights&&before&&(before.state==='booked'||before.state==='blocked')&&fresh(before.observedAt,at))minNights=Math.min(minNights,policy.adjacentMinNights);
@@ -200,5 +207,5 @@ export function previewPricing(policyInput: unknown, snapshotInput: unknown, now
     result.eligible=reasons.length===0;
     return result;
   });
-  return {modelVersion:PRICING_MODEL_VERSION,days,occupancy,warnings};
+  return {modelVersion:custom?'helm-3-local-customizations':PRICING_MODEL_VERSION,days,occupancy,warnings};
 }

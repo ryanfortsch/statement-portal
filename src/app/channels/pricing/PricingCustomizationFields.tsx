@@ -1,0 +1,34 @@
+'use client';
+import {useState} from 'react';
+import {Button} from '@/components/Button';
+import {pricingMoney} from '@/lib/dynamic-pricing-display';
+import type {PricingCustomizations,PricingSeason} from '@/lib/dynamic-pricing-customizations';
+export type PricingCustomizationView='seasons'|'weekends'|'leadTime';
+export const pricingCustomizationViews=[['seasons','Seasonal prices'],['weekends','Weekend days'],['leadTime','Lead-time style']] as const;
+export default function PricingCustomizationFields({rules,sources,own,modify,onInherit,today,view,scope='listing'}:{rules:PricingCustomizations;sources:Record<keyof PricingCustomizations,string>;own:(keyof PricingCustomizations)[];modify:<K extends keyof PricingCustomizations>(key:K,value:PricingCustomizations[K])=>void;onInherit:(key:keyof PricingCustomizations)=>void;today:string;view:PricingCustomizationView;scope?:'account'|'group'|'listing'}){
+  const [expanded,setExpanded]=useState<string|null>(null);
+  const key=view==='seasons'?'seasonalPrices':view==='weekends'?'weekendDays':'leadTimeModes';
+  const update=(id:string,patch:Partial<PricingSeason>)=>modify('seasonalPrices',rules.seasonalPrices.map(s=>s.id===id?{...s,...patch}:s));
+  const amount=(value:number|null,kind:PricingSeason['kind'])=>value===null?'Default':kind==='fixed'?pricingMoney(value):`${value>0?'+':''}${value}%`;
+  const value=(s:PricingSeason,k:'base'|'min'|'max')=>s[k]===null?'':s.kind==='fixed'?s[k]/100:s[k];
+  return <section className="pricing-custom-fields"><div className="pricing-stay-section-head"><div><h3>{pricingCustomizationViews.find(([id])=>id===view)![1]}</h3><span>{sources[key]}</span></div>{own.includes(key)&&<Button variant="quiet" onClick={()=>onInherit(key)}>Inherit</Button>}</div>
+    {view==='seasons'&&<>
+      {rules.seasonalPrices.length===0&&<p className="pricing-custom-empty">Normal listing prices apply all year.</p>}
+      <div className="pricing-season-list">{rules.seasonalPrices.map(s=><article key={s.id} className="pricing-season-card">
+        <Button variant="quiet" className="pricing-season-summary" aria-expanded={expanded===s.id} onClick={()=>setExpanded(expanded===s.id?null:s.id)}><span><b>{s.name||'Untitled season'}</b><small>{s.repeat?`${s.start.slice(5)} – ${s.end.slice(5)} · Every year`:`${s.start} – ${s.end}`}</small></span><span><small>Min / Base / Max</small><b>{amount(s.min,s.kind)} / {amount(s.base,s.kind)} / {amount(s.max,s.kind)}</b></span></Button>
+        {expanded===s.id&&<div className="pricing-season-editor">
+          <div className="pricing-draft-fields"><label className="pricing-field">Season name<input value={s.name} maxLength={60} onChange={e=>update(s.id,{name:e.target.value})}/></label><label className="pricing-field">Price type<select value={s.kind} onChange={e=>update(s.id,{kind:e.target.value as PricingSeason['kind'],base:null,min:null,max:null})}><option value="percent">Change normal prices (%)</option><option value="fixed" disabled={scope==='account'}>Fixed prices ($)</option></select></label>
+          <label className="pricing-field">First night<input type="date" value={s.start} onChange={e=>update(s.id,{start:e.target.value})}/></label><label className="pricing-field">Last night<input type="date" value={s.end} onChange={e=>update(s.id,{end:e.target.value})}/></label></div>
+          <label className="pricing-season-repeat"><input type="checkbox" checked={s.repeat} onChange={e=>update(s.id,{repeat:e.target.checked})}/>Repeat every year</label>
+          <div className="pricing-season-prices">{(['min','base','max'] as const).map(k=><label className="pricing-field" key={k}>{k==='min'?'Minimum':k==='max'?'Maximum':'Base'} ({s.kind==='fixed'?'$':'%'})<input type="number" step={s.kind==='fixed'?0.01:1} placeholder="Default" value={value(s,k)} onChange={e=>update(s.id,{[k]:e.target.value===''?null:s.kind==='fixed'?Math.round(Number(e.target.value)*100):Number(e.target.value)})}/></label>)}</div>
+          <div className="pricing-draft-fields"><label className="pricing-field">Weekday minimum stay<input type="number" min={1} max={30} placeholder="Default" value={s.weekdayMin??''} onChange={e=>update(s.id,{weekdayMin:e.target.value===''?null:Number(e.target.value)})}/></label><label className="pricing-field">Weekend minimum stay<input type="number" min={1} max={30} placeholder="Default" value={s.weekendMin??''} onChange={e=>update(s.id,{weekendMin:e.target.value===''?null:Number(e.target.value)})}/></label></div>
+          <Button variant="quiet" onClick={()=>modify('seasonalPrices',rules.seasonalPrices.filter(r=>r.id!==s.id))}>Remove season</Button>
+        </div>}
+      </article>)}</div>
+      <div className="pricing-season-actions"><Button variant="secondary" size="sm" disabled={rules.seasonalPrices.length>=30} onClick={()=>{const id=crypto.randomUUID();let name='New season';for(let i=2;rules.seasonalPrices.some(s=>s.name.toLowerCase()===name.toLowerCase());i++)name=`New season ${i}`;modify('seasonalPrices',[...rules.seasonalPrices,{id,name,start:today,end:today,repeat:true,kind:'percent',base:null,min:null,max:null,weekdayMin:null,weekendMin:null}]);setExpanded(id);}}>Add season</Button>{rules.seasonalPrices.length>0&&<Button variant="quiet" size="sm" onClick={()=>modify('seasonalPrices',[])}>Use normal prices all year</Button>}</div>
+      <p className="pricing-draft-note">Blank values use normal listing settings. Dated seasons take priority over annual seasons. Other price factors and lead-time stay rules still apply.</p>
+    </>}
+    {view==='weekends'&&<><fieldset className="pricing-weekday-picker"><legend>Weekend nights</legend>{['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((d,i)=><label key={d}><input type="checkbox" aria-label={`Weekend ${d}`} checked={rules.weekendDays.includes(i)} onChange={e=>modify('weekendDays',e.target.checked?[...rules.weekendDays,i].sort():rules.weekendDays.filter(v=>v!==i))}/>{d}</label>)}</fieldset><p className="pricing-draft-note">Applies to default, seasonal, last-minute and far-out minimum stays. Day-of-week price adjustments keep their individual settings.</p></>}
+    {view==='leadTime'&&<><div className="pricing-draft-fields">{(['lastMinute','farOut'] as const).map(k=><label className="pricing-field" key={k}>{k==='lastMinute'?'Last-minute discount':'Far-out premium'}<select aria-label={k==='lastMinute'?'Last-minute style':'Far-out style'} value={rules.leadTimeModes[k]} onChange={e=>modify('leadTimeModes',{...rules.leadTimeModes,[k]:e.target.value as 'flat'|'gradual'})}><option value="gradual">Gradual</option><option value="flat">Flat</option></select></label>)}</div><p className="pricing-draft-note">Uses the percentages and day thresholds in Adjustments. Flat last-minute discounts include the last threshold day; flat far-out premiums start the day after their threshold.</p></>}
+  </section>;
+}

@@ -5,7 +5,7 @@ import {useConfirm} from '@/components/ConfirmDialog';
 import {hasUnsavedWork} from '@/lib/unsaved-work';
 import {etStamp} from '@/lib/stable-time';
 import type {PricingLivePortfolio,PricingLiveCalendar} from '@/lib/dynamic-pricing-live';
-import {pricingDraftError,applyPricingDraftOverrides,revisePricingDraftGroups,emptyPricingDrafts,neutralPricingDraft,pricingDraftsSchema,PRICING_DRAFT_STORAGE,pricingGroupId,pricingGroupName,pricingInGroup,pricingInheritedOverrides,type PricingDrafts} from '@/lib/dynamic-pricing-drafts';
+import {resolvePricingCustomizations,pricingSeasonConflicts,pricingDraftError,applyPricingDraftOverrides,revisePricingDraftGroups,emptyPricingDrafts,neutralPricingDraft,pricingDraftsSchema,PRICING_DRAFT_STORAGE,pricingGroupId,pricingGroupName,pricingInGroup,pricingInheritedOverrides,type PricingDrafts} from '@/lib/dynamic-pricing-drafts';
 import {createPricingDraftServices} from '@/lib/dynamic-pricing-draft-services';
 import PricingPortfolio from './PricingPortfolio';
 import PricingCalendar from './PricingCalendar';
@@ -13,6 +13,7 @@ import PricingWorkbench from './PricingWorkbench';
 import PricingDraftControls,{type PricingDraftControlsRef} from './PricingDraftControls';
 import PricingIcon from './PricingIcon';
 import PricingGroupManager from './PricingGroupManager';
+import PricingCustomizationControls from './PricingCustomizationControls';
 import PricingStayControls from './PricingStayControls';
 import './pricing.css';
 
@@ -31,7 +32,7 @@ export default function PricingLiveWorkspace({initialPortfolio,refreshAction,cal
     catch{setError('Saved drafts could not be loaded. They have not been replaced.');}
     setReady(true);
   },[]);
-  function persist(next:PricingDrafts){const disk=localStorage.getItem(PRICING_DRAFT_STORAGE);if(disk&&JSON.stringify(pricingDraftsSchema.parse(JSON.parse(disk)))!==JSON.stringify(stored.current))throw Error('Drafts changed in another tab. Reload before saving.');const parsed=pricingDraftsSchema.parse(revisePricingDraftGroups(stored.current,next));localStorage.setItem(PRICING_DRAFT_STORAGE,JSON.stringify(parsed));stored.current=parsed;setDrafts(parsed);return parsed;}
+  function persist(next:PricingDrafts){const disk=localStorage.getItem(PRICING_DRAFT_STORAGE);if(disk&&JSON.stringify(pricingDraftsSchema.parse(JSON.parse(disk)))!==JSON.stringify(stored.current))throw Error('Drafts changed in another tab. Reload before saving.');const parsed=pricingDraftsSchema.parse(revisePricingDraftGroups(stored.current,next));const conflicts=pricingSeasonConflicts(parsed);if(conflicts.length)throw Error(conflicts.map(c=>`${portfolio.rows.find(h=>h.id===c.id)?.name??"Listing"}: ${c.error}`).join(" · "));localStorage.setItem(PRICING_DRAFT_STORAGE,JSON.stringify(parsed));stored.current=parsed;setDrafts(parsed);return parsed;}
   function adapter(calendar:PricingLiveCalendar){const id=calendar.home.id;let service=adapters.current.get(id);if(!service){service=createPricingDraftServices(calendar,()=>stored.current,persist,calendarAction);adapters.current.set(id,service);}return service;}
   async function leave(){return !hasUnsavedWork()||await ask({title:'Discard unsaved changes?',body:'Saved drafts remain on this device.',confirmLabel:'Discard'});}
   async function open(id:string) {
@@ -65,10 +66,11 @@ export default function PricingLiveWorkspace({initialPortfolio,refreshAction,cal
   </div>;
 }
 function DraftProperty({calendar,navigation,services,drafts,commit}:{calendar:PricingLiveCalendar;navigation:React.ReactNode;services:DraftServices;drafts:PricingDrafts;commit:(s:PricingDrafts)=>void}) {
-  const [revision,setRevision]=useState(0),controls=useRef<PricingDraftControlsRef>(null),workspace=services.inspect(),home=drafts.homes[calendar.home.id];
+  const [revision,setRevision]=useState(0),controls=useRef<PricingDraftControlsRef>(null),workspace=services.inspect(),home=drafts.homes[calendar.home.id],custom=resolvePricingCustomizations(drafts,{kind:"listing",id:calendar.home.id}).rules;
   return <><PricingWorkbench key={revision} propertyId={calendar.home.id} name={calendar.home.name} authority={calendar.home.authority} navigation={navigation} services={services} draftOnly
+    draftCustomizations={custom} extraRuleActions={closeRules=><PricingCustomizationControls state={drafts} propertyId={calendar.home.id} today={calendar.snapshot.today} closeRules={closeRules} commit={next=>{commit(next);setRevision(v=>v+1);}}/>}
     initialPolicy={workspace.policy} initialSnapshot={workspace.snapshot} initialProfile={workspace.profile} initialRuns={[]} initialEvidenceVersion={workspace.evidenceVersion} initialObservations={workspace.observations}
-    previewTransform={(p,policy,snapshot)=>applyPricingDraftOverrides(p,policy,snapshot,home.overrides,pricingInheritedOverrides(drafts,calendar.home.id))}
+    previewTransform={(p,policy,snapshot)=>applyPricingDraftOverrides(p,policy,snapshot,home.overrides,pricingInheritedOverrides(drafts,calendar.home.id),custom)}
     additionalTools={(snapshot,preview,policy,closeMenu)=><PricingStayControls closeMenu={closeMenu} state={drafts} propertyId={calendar.home.id} snapshot={snapshot} preview={preview} policy={policy} commit={next=>{commit(next);setRevision(v=>v+1);}}/>}
     onOverride={date=>controls.current?.open(date)} calendarTools={<PricingDraftControls ref={controls} state={drafts} propertyId={calendar.home.id} today={calendar.snapshot.today} commit={next=>{commit(next);setRevision(v=>v+1);}}/>}/>
     <p className="pricing-draft-note">Rules and groups stay on this device. Imported data and comparison snapshots stay in this session.</p></>;

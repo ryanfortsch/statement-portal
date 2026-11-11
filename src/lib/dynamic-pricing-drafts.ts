@@ -3,6 +3,7 @@ import {z} from 'zod';
 import {defaultPricingPolicy,pricingPolicySchema,type PricingPolicy,type PricingPreview,type PricingSnapshot} from './dynamic-pricing.ts';
 import {isIsoDay,nightsBetween} from './sca-quotes-types.ts';
 import {pricingLengthOfStaySchema,pricingArrivalDepartureSchema,defaultPricingStayRules} from './dynamic-pricing-stays.ts';
+import {pricingSeasonsSchema,pricingWeekendDaysSchema,pricingLeadTimeModesSchema,defaultPricingCustomizations,seasonalPricingPolicy,type PricingCustomizations} from './dynamic-pricing-customizations.ts';
 import {evidenceFresh} from './dynamic-pricing-evidence.ts';
 const date=z.string().refine(d=>isIsoDay(d)&&Number.isFinite(Date.parse(d))&&new Date(d).toISOString().slice(0,10)===d,'Invalid date');
 export const pricingOverrideSchema=z.object({
@@ -40,7 +41,7 @@ export const PRICING_RULE_CATEGORIES={
 export type PricingRuleCategory=keyof typeof PRICING_RULE_CATEGORIES;
 export const pricingRuleCategories=Object.keys(PRICING_RULE_CATEGORIES) as PricingRuleCategory[];
 const categories=z.array(z.enum(pricingRuleCategories)).max(pricingRuleCategories.length).refine(v=>new Set(v).size===v.length,'Duplicate rule category');
-const sharedFields={lengthOfStay:pricingLengthOfStaySchema.optional(),arrivalDeparture:pricingArrivalDepartureSchema.optional(),policy:pricingPolicySchema,overrides:pricingOverridesSchema,ruleCategories:categories.optional()};
+const sharedFields={seasonalPrices:pricingSeasonsSchema.optional(),weekendDays:pricingWeekendDaysSchema.optional(),leadTimeModes:pricingLeadTimeModesSchema.optional(),lengthOfStay:pricingLengthOfStaySchema.optional(),arrivalDeparture:pricingArrivalDepartureSchema.optional(),policy:pricingPolicySchema,overrides:pricingOverridesSchema,ruleCategories:categories.optional()};
 const homeSchema=z.object({...sharedFields,version:z.number().int().positive(),groupId:z.string().nullable(),inheritRules:z.boolean()}).strict();
 const groupSchema=z.object({...sharedFields,id:z.string().min(1).max(100),name:z.string().trim().min(1).max(60),parentId:z.string().nullable().optional()}).strict();
 export const pricingDraftsSchema=z.object({version:z.literal(1),homes:z.record(z.string().min(1).max(100),homeSchema),groups:z.array(groupSchema).max(50),
@@ -98,7 +99,7 @@ export function assignPricingGroup(state:PricingDrafts,ids:string[],groupId:stri
   if(groupId&&!state.groups.some(g=>g.id===groupId))throw Error('Unknown group');
   const homes={...state.homes},assignments={...state.assignments};
   for(const id of new Set(ids)){
-    const old=homes[id];if(old){homes[id]={...old,...(inherit?{lengthOfStay:undefined,arrivalDeparture:undefined}:{}),policy:resolvePricingDraft(state,id),groupId,ruleCategories:inherit?[]:pricingHomeCategories(old),inheritRules:inherit||pricingHomeCategories(old).length===0,version:old.version+1};delete assignments[id];}
+    const old=homes[id];if(old){homes[id]={...old,...(inherit?{lengthOfStay:undefined,arrivalDeparture:undefined,seasonalPrices:undefined,weekendDays:undefined,leadTimeModes:undefined}:{}),policy:resolvePricingDraft(state,id),groupId,ruleCategories:inherit?[]:pricingHomeCategories(old),inheritRules:inherit||pricingHomeCategories(old).length===0,version:old.version+1};delete assignments[id];}
     else assignments[id]=groupId;
   }
   return pricingDraftsSchema.parse({...state,homes,assignments});
@@ -115,7 +116,7 @@ export function matchingPricingOverride(rows:PricingOverride[],day:string) {
   return rows.find(r=>day>=r.start&&day<=r.end&&r.weekdays.includes(new Date(day+'T12:00:00Z').getUTCDay()));
 }
 /** Listing dates take precedence over group dates. Hard price bounds and protected inventory always win. */
-export function applyPricingDraftOverrides(preview:PricingPreview,policy:PricingPolicy,snapshot:PricingSnapshot,listing:PricingOverride[],group:PricingOverride[]|{label:string;rows:PricingOverride[]}[]=[]):PricingPreview {
+export function applyPricingDraftOverrides(preview:PricingPreview,policy:PricingPolicy,snapshot:PricingSnapshot,listing:PricingOverride[],group:PricingOverride[]|{label:string;rows:PricingOverride[]}[]=[],custom?:PricingCustomizations):PricingPreview {
   pricingOverridesSchema.parse(listing);
   const levels:{label:string;rows:PricingOverride[]}[]=group.length&&'rows' in group[0]?group as {label:string;rows:PricingOverride[]}[]:[{label:'Group',rows:group as PricingOverride[]}];
   levels.forEach(l=>pricingOverridesSchema.parse(l.rows));
@@ -124,7 +125,8 @@ export function applyPricingDraftOverrides(preview:PricingPreview,policy:Pricing
     const source=calendar.get(day.date),local=matchingPricingOverride(listing,day.date),inherited=levels.map(l=>({label:l.label,row:matchingPricingOverride(l.rows,day.date)})).find(l=>l.row),override=local??inherited?.row,scope=local?'Listing':inherited?.label;
     if(!override||!source||source.protected||day.state!=='open'||day.date<snapshot.today||day.recommendedCents===null||!evidenceFresh(source.observedAt,now))return day;
     const raw=override.kind==='fixed'?override.value:override.kind==='percent'?Math.round(day.recommendedCents*(1+override.value/100)):day.recommendedCents;
-    const price=Math.max(policy.floorCents,Math.min(policy.ceilingCents,raw)),change=day.currentCents?Math.round((price/day.currentCents-1)*10000)/100:null;
+    const bounds=seasonalPricingPolicy(policy,day.date,custom?.seasonalPrices);if(bounds.error)return {...day,recommendedCents:null,eligible:false,reasons:[...day.reasons,bounds.error]};
+    const price=Math.max(bounds.policy.floorCents,Math.min(bounds.policy.ceilingCents,raw)),change=day.currentCents?Math.round((price/day.currentCents-1)*10000)/100:null;
     const reasons=[...day.reasons,`${scope} override: ${override.label}`];
     if(raw!==price)reasons.push('Override limited by minimum or maximum price');
     if(change!==null&&Math.abs(change)>policy.maxChangePct)reasons.push('Override exceeds maximum price-change threshold');
@@ -138,7 +140,7 @@ export function applyPricingDraftOverrides(preview:PricingPreview,policy:Pricing
 export function revisePricingDraftGroups(before:PricingDrafts,next:PricingDrafts):PricingDrafts {
   return {...next,homes:Object.fromEntries(Object.entries(next.homes).map(([id,h])=>{
     const old=before.homes[id];if(!old||old.version!==h.version)return [id,h];
-    const signature=(s:PricingDrafts)=>JSON.stringify([resolvePricingDraft(s,id),resolvePricingStayRules(s,{kind:'listing',id}),pricingInheritedOverrides(s,id),s.homes[id].overrides]);
+    const signature=(s:PricingDrafts)=>JSON.stringify([resolvePricingDraft(s,id),resolvePricingStayRules(s,{kind:'listing',id}),resolvePricingCustomizations(s,{kind:'listing',id}),pricingInheritedOverrides(s,id),s.homes[id].overrides]);
     return [id,signature(before)!==signature(next)?{...h,version:h.version+1}:h];
   }))};
 }
@@ -157,4 +159,24 @@ export function resolvePricingStayRules(state:PricingDrafts,scope:PricingRuleSco
   if(scope.kind==='listing')levels.push({label:'This listing',rule:state.homes[scope.id]});
   for(const {label,rule} of levels){if(rule?.lengthOfStay!==undefined){rules.lengthOfStay=rule.lengthOfStay;sources.lengthOfStay=label;}if(rule?.arrivalDeparture!==undefined){rules.arrivalDeparture=rule.arrivalDeparture;sources.arrivalDeparture=label;}}
   return {rules,sources};
+}
+
+/** These optional categories follow the same hierarchy; an empty array explicitly disables seasons. */
+export function resolvePricingCustomizations(state:PricingDrafts,scope:PricingRuleScope){
+  const rules=defaultPricingCustomizations(),sources={seasonalPrices:'Helm defaults',weekendDays:'Helm defaults',leadTimeModes:'Helm defaults'};
+  const levels:{label:string;rule:Partial<PricingCustomizations>|undefined}[]=[{label:'Account',rule:state.account}];
+  const groupId=scope.kind==='listing'?pricingGroupId(state,scope.id):scope.kind==='group'?scope.id:null;
+  levels.push(...pricingGroupChain(state,groupId).map(g=>({label:g.name,rule:g})));
+  if(scope.kind==='listing')levels.push({label:'This listing',rule:state.homes[scope.id]});
+  for(const {label,rule} of levels){
+    if(rule?.seasonalPrices!==undefined){rules.seasonalPrices=rule.seasonalPrices;sources.seasonalPrices=label;}
+    if(rule?.weekendDays!==undefined){rules.weekendDays=rule.weekendDays;sources.weekendDays=label;}
+    if(rule?.leadTimeModes!==undefined){rules.leadTimeModes=rule.leadTimeModes;sources.leadTimeModes=label;}
+  }
+  return {rules,sources};
+}
+export function pricingSeasonConflicts(state:PricingDrafts){
+  return Object.entries(state.homes).flatMap(([id,h])=>resolvePricingCustomizations(state,{kind:'listing',id}).rules.seasonalPrices.flatMap(season=>{
+    const {error}=seasonalPricingPolicy(h.policy,season.start,[season]);return error?[{id,error}]:[];
+  }));
 }

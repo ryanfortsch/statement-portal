@@ -2,7 +2,7 @@
 import {z} from 'zod';
 import {pricingPolicySchema,previewPricing} from './dynamic-pricing.ts';
 import {pricingEvidenceSchema,type PricingEvidence} from './dynamic-pricing-evidence.ts';
-import {applyPricingDraftOverrides,pricingInheritedOverrides,resolvePricingDraft,savePricingDraftPolicy,type PricingDrafts} from './dynamic-pricing-drafts.ts';
+import {resolvePricingCustomizations,applyPricingDraftOverrides,pricingInheritedOverrides,resolvePricingDraft,savePricingDraftPolicy,type PricingDrafts} from './dynamic-pricing-drafts.ts';
 import type {PricingLiveCalendar} from './dynamic-pricing-live.ts';
 import {makePricingObservation,type PricingObservationRecord} from './dynamic-pricing-observations.ts';
 import type {PricingServices} from '../app/channels/pricing/PricingWorkbench.tsx';
@@ -30,7 +30,9 @@ export function createPricingDraftServices(initial:PricingLiveCalendar,getDrafts
         const latest=await readCalendar(id);if(!latest.ok)return latest;if(latest.value.home.id!==id)return fail('Wrong listing');calendar=latest.value;
         const p=profile(),snap=snapshot(),state=getDrafts(),home=state.homes[id];
         const data=makePricingObservation(id,calendar.home.authority,p.policy,snap,p.version,evidenceVersion);
-        const proposed=applyPricingDraftOverrides(previewPricing(p.policy,snap,new Date(snap.observedAt)),p.policy,snap,home.overrides,pricingInheritedOverrides(state,id));
+        const custom=resolvePricingCustomizations(state,{kind:"listing",id}).rules;
+        const proposed=applyPricingDraftOverrides(previewPricing(p.policy,snap,new Date(snap.observedAt),custom),p.policy,snap,home.overrides,pricingInheritedOverrides(state,id),custom);
+        data.modelVersion=proposed.modelVersion;
         data.days=data.days.map(d=>{const r=proposed.days.find(r=>r.date===d.date)!;return {...d,recommendedCents:r.recommendedCents,minNights:r.minNights,eligible:r.eligible};});
         observations.unshift({id:i.requestId,data});observations.splice(14);requests.add(i.requestId);
       }return {ok:true,value:history()};},
