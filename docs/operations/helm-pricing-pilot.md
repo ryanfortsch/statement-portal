@@ -163,7 +163,7 @@ a conflicting short gap is flagged rather than silently published as fillable.
 | Minimum stays | Weekday/weekend, last-minute, far-out, booking-value heuristic, after-booking adjacency, gaps, events and hard minimum | Before-booking gap prevention and market-learned stay profiles |
 | Historical safety floor | 110% of matched weekday ADR around 52 weeks earlier, two samples required | Exact holiday matching; trusted accommodation-rate ingestion |
 | Recency | Inactive hook; unreliable import timestamps withheld | Complete source provenance and vendor-equivalent eligibility |
-| Pricing calendar / charts | Daily calendar, rate comparison, market occupancy, monthly property forecast, CSV export, dated price/forecast history | Portfolio aggregation |
+| Portfolio / calendar / charts | Multi-home dashboard with weighted occupancy and market comparison, daily calendar, rate comparison, monthly property forecast, CSV export, dated price/forecast history | Multi-calendar bulk editing; automatic market feed |
 | Diagnostics | Coverage, large changes, unfillable gaps, price-floor hits, walk-forward occupancy scores | Forward validation and calibrated uncertainty |
 | Price response / optimization | Explicit elasticity scenario and dynamic programming rate-path experiment | Learned causal response, cancellation/LOS effects and validated net revenue |
 | Evidence storage | Property-scoped, versioned, source/timestamp recorded in each review | Automated data ingestion and provenance audits |
@@ -284,6 +284,41 @@ publisher needs verified property/room/rate-plan relationships, currency/sell-mo
 checks, an immutable delivery journal, no blind retry after an uncertain outcome,
 and remote readback. The existing availability-only integration is unchanged.
 
+## Portfolio dashboard
+
+`/channels/pricing` now opens on all active managed homes. A property link opens
+the existing calendar at `?property=...`; All homes returns to the portfolio and
+asks before discarding unsaved rules. The synthetic demo contains six fictional
+homes, each with isolated rules, evidence, capture history and simulated publishing.
+Saved state and dashboard filters survive navigation between the dashboard and a home.
+
+The layout follows PriceLabs' [listing dashboard](https://help.pricelabs.co/portal/en/kb/articles/understanding-your-dashboard):
+one row per home, review action, prices, connection and visible occupancy comparison.
+Helm defaults to the next 30 nights and offers 7, 60 and 90. Search, connection
+filters and sorting work with All homes, Below market and Data gaps views.
+
+Metric definitions are explicit. PriceLabs' documented [Total Occupancy](https://help.pricelabs.co/portal/en/kb/articles/performance-metrics)
+includes blocks. Helm shows **booked / (booked + open)**, excluding deliberate
+blocks, and labels it Booked occupancy. It is not the same metric as PriceLabs
+Total Occupancy and is not a forecast of final occupancy. Market is the arithmetic
+mean of imported daily occupancy on the same bookable dates. A percentage-point
+gap compares those two figures. No market number is synthesized when evidence
+is absent, over 36 hours old, future-dated, or incomplete for the comparison.
+Missing or stale calendar dates withhold the home's percentage. A fully blocked
+home has no denominator, rather than 0% or 100% occupancy.
+
+Portfolio occupancy is weighted by bookable home-nights. The market comparison
+uses the same matched homes and dates on both sides; its coverage is shown
+separately from overall calendar coverage. Filters change rows, not summary
+totals. Source names and timestamps are available under the calculation disclosure.
+Market data still requires per-home imports; this adds no automatic market feed.
+
+The owner-gated server reads the existing workspace with at most four homes in
+flight and returns only summary fields. A failed home stays visible with unavailable
+data. Registry tokens, full calendars, historical records and customer identities
+are not serialized to the dashboard. No new SQL, production reads, live connections
+or rate publishing were performed while building this revision.
+
 ## Prospective comparison history
 
 Owners can record a comparison against a saved policy. Each append-only record
@@ -342,7 +377,8 @@ ingestion path before causal price-response claims are possible.
 ## Installation and review
 
 Entry: `/channels/pricing`, owner-only, searchable as **Helm pricing**.
-The workbench opens on a monthly calendar. Select a night for its current/proposed
+The landing page opens on the portfolio dashboard. Review prices opens a home's
+monthly calendar. Select a night for its current/proposed
 rate, minimum stay, reason for review and price calculation. The attention filter
 includes rate checks and missing data; it excludes routine bookings, blocks and
 manual overrides. Table view uses the same month and filter. Dates outside the

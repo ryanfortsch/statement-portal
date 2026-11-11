@@ -5,7 +5,7 @@ import {HelmFooter} from '@/components/HelmFooter';
 import {GuestyWritesNotice} from '@/components/channels/GuestyWritesNotice';
 import {requireOwnerEmail} from '@/lib/helm-access-server';
 import PricingDemo from './PricingDemo';
-import {createPricingDemo} from '@/lib/dynamic-pricing-demo';
+import {createPricingPortfolioDemo} from '@/lib/dynamic-pricing-demo';
 export const dynamic='force-dynamic';
 export default async function PricingDemoPage(){
   await requireOwnerEmail();
@@ -14,10 +14,10 @@ export default async function PricingDemoPage(){
       <GuestyWritesNotice scope={{kind:'unknown'}} />
     <div className="pricing-page-shell"><header className="pricing-page-heading">
       <HelmHero plain eyebrow="" title="Helm pricing" paddingTop={16} paddingBottom={16}/>
-      <Link href="/channels/pricing">Property pricing</Link>
+      <Link href="/channels/pricing">Your homes</Link>
       <p>Sample data</p>
     </header><main>
-      <PricingDemo fixture={createPricingDemo()}/>
+      <PricingDemo fixtures={createPricingPortfolioDemo()}/>
       <p className="pricing-demo-note">Sample data. Changes stay in this browser and reset on reload.</p>
     </main></div><HelmFooter module="Pricing" right="" /></>;
 }

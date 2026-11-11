@@ -27,11 +27,11 @@ await writeFile(join(scratch,'entry.tsx'),`
 import React from 'react';import {createRoot} from 'react-dom/client';
 import PricingWorkbench from '${root}/src/app/channels/pricing/PricingWorkbench.tsx';
 import {ConfirmProvider} from '${root}/src/components/ConfirmDialog.tsx';
-import {createPricingDemo} from '${root}/src/lib/dynamic-pricing-demo.ts';
+import {createPricingDemo,createPricingPortfolioDemo} from '${root}/src/lib/dynamic-pricing-demo.ts';
 import PricingDemo from '${root}/src/app/channels/pricing/demo/PricingDemo.tsx';
 const {policy,snapshot}=createPricingDemo();snapshot.evidence.propertyId='test_home';
 globalThis.pricingFixture={policy,snapshot};
-createRoot(document.getElementById('root')).render(<ConfirmProvider><main className="pricing-preview-shell"><header className="pricing-preview-toolbar"><h1><b>Helm</b><span>/</span>Pricing</h1><span title="Synthetic data. Changes stay in this browser and reset on reload.">Sample data</span></header>{new URLSearchParams(location.search).has('demo')?<PricingDemo fixture={createPricingDemo()}/>:<PricingWorkbench propertyId="test_home" name="Synthetic harbor home" authority={new URLSearchParams(location.search).has('guesty')?'guesty':'helm'} initialPolicy={policy} initialSnapshot={snapshot} initialProfile={null} initialRuns={[]}/>}</main></ConfirmProvider>);
+createRoot(document.getElementById('root')).render(<ConfirmProvider><main className="pricing-preview-shell"><header className="pricing-preview-toolbar"><h1><b>Helm</b><span>/</span>Pricing</h1><span title="Synthetic data. Changes stay in this browser and reset on reload.">Sample data</span></header>{new URLSearchParams(location.search).has('demo')?<PricingDemo fixtures={createPricingPortfolioDemo()}/>:<PricingWorkbench propertyId="test_home" name="Synthetic harbor home" authority={new URLSearchParams(location.search).has('guesty')?'guesty':'helm'} initialPolicy={policy} initialSnapshot={snapshot} initialProfile={null} initialRuns={[]}/>}</main></ConfirmProvider>);
 `);
 await new Promise((resolve,reject)=>{const c=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.tsx'),output:{path:scratch,filename:'bundle.js'},
   resolve:{extensions:['.ts','.tsx','.js'],modules:[join(root,'node_modules')],alias:{'@':join(root,'src'),'./actions$':join(scratch,'actions.ts'),'next/link$':join(scratch,'link.tsx')}},
