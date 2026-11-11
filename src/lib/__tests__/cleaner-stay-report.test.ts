@@ -66,7 +66,7 @@ test('refuses ambiguous adjustments, unresolved duplicates, invalid dates and br
 test('preview is owner gated before reads and cannot create access or send messages', () => {
   const page = readFileSync(new URL('../../app/channels/65_calderwood/cleaner-schedule/page.tsx',import.meta.url),'utf8');
   const reader = readFileSync(new URL('../cleaner-stay-report.server.ts',import.meta.url),'utf8');
-  assert.ok(page.indexOf('if (!await isOwnerSession())') < page.indexOf('report = await loadCalderwoodCleanerReport'));
+  assert.ok(page.indexOf('if (!await isOwnerSession())') < page.indexOf('try { report ='));
   assert.match(page,/Schedule unavailable/); assert.match(page,/not shared with Luana/);
   assert.doesNotMatch(reader,/\.insert\(|\.update\(|\.delete\(|\.rpc\(|portal_token|cleaner_schedule_recipients|sendMessage/);
   assert.match(reader,/findGhostStays/); assert.match(reader,/collapseStays/);
