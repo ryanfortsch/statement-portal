@@ -350,6 +350,17 @@ prices its own quotes; Helm's plan is a draft until cutover.
   an issue is resolved when fixed. The open guest-facing notes are the guest
   AI's knowledge base, sent through `/api/kb-facts`.
 - `property_notices`: the printed per-home placards (`src/lib/property-notices.ts`).
+- `guest_app_homes` (`20261111120000_guest_app_homes.sql`): one row per
+  home for the Stay Cape Ann guest app, keyed by `property_id`. `token` is
+  the permanent link (`/h/<token>`, printed on the guest app card), `enabled`
+  switches it off without changing it, `welcome_note` is the welcome under
+  the home's name, `open_count` / `last_opened_at` count guest opens (the
+  `guest_app_opened(token)` function, service role only), `rotated_at` stamps
+  a New link. RLS on, service role only; read and written through
+  `src/lib/guest-app-db.ts`. The app's facts are not stored here: each load
+  reads `properties`, the two Wi-Fi columns of `property_access`,
+  `property_rooms`, open guest-facing `property_notes`, the rate plan's
+  `checkin_time` and the first listing photo.
 - `property_launch_steps` + `sca_launches`: the Stay Cape Ann launch
   checklist.
 - `home_walkthroughs` (#1949, `20261018210000_home_walkthroughs.sql`): one

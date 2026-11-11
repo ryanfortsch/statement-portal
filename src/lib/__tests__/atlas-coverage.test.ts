@@ -61,6 +61,7 @@ export const OUTSIDE_THE_SHELL: string[] = [
   '/sign',            // staff document signing, token in the URL
   '/c',               // the cleaner schedule (Rosa's page), token in the URL; /clean redirects here from next.config.ts, no page
   '/b',               // shoot briefs, token in the URL
+  '/h',               // the Stay Cape Ann guest app, token in the URL (plus its manifest, icon and service worker)
   '/field',           // the contractor portal, its own session cookie
   '/book',            // the guest booking pages
   '/not-available',   // the proxy's landing for a gated route

@@ -7,6 +7,7 @@ import {
   type PropertyDeliverable,
 } from '@/lib/property-pdf';
 import { trashNoticeFor, TRASH_NOTICE_COLUMNS } from '@/lib/trash-notice';
+import { getGuestAppRow } from '@/lib/guest-app-db';
 import type { HelmPropertyRow } from '@/lib/properties';
 
 /**
@@ -23,7 +24,7 @@ import type { HelmPropertyRow } from '@/lib/properties';
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
-const VALID_TYPES: PropertyDeliverable[] = ['home-guide', 'wifi-placard', 'info-note', 'notice', 'welcome-card', 'trash-notice'];
+const VALID_TYPES: PropertyDeliverable[] = ['home-guide', 'wifi-placard', 'info-note', 'notice', 'welcome-card', 'trash-notice', 'guest-app-card'];
 
 // Was a hand-rolled client that fell back to the anon key when
 // SUPABASE_SERVICE_ROLE_KEY was unset -- reuse the canonical service-role
@@ -88,6 +89,15 @@ export async function GET(request: NextRequest) {
       if (!data) return NextResponse.json({ error: 'Property not found.' }, { status: 404 });
       const result = trashNoticeFor(data as unknown as HelmPropertyRow);
       if (!result.ok) return NextResponse.json({ error: result.skip.reason }, { status: 400 });
+    }
+
+    // The guest app card prints a QR to the home's guest app link; a home
+    // with the app off (or no link yet) gets a clear 400, not a blank card.
+    if (type === 'guest-app-card') {
+      const row = await getGuestAppRow(id);
+      if (!row?.enabled) {
+        return NextResponse.json({ error: 'Turn the guest app on for this home first.' }, { status: 400 });
+      }
     }
 
     // For bespoke notices, look up the title so the download filename

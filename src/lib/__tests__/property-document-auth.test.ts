@@ -48,9 +48,11 @@ describe('property document render authorization', () => {
     assert.equal(verifyPropertyDocumentToken(token, 'test-house', 'wifi-placard', undefined, now), false);
   });
 
-  test('only the two credential-bearing document types use this access grant', () => {
+  test('only the three credential-bearing document types use this access grant', () => {
     assert.equal(isProtectedPropertyDocument('wifi-placard'), true);
     assert.equal(isProtectedPropertyDocument('home-guide'), true);
+    // The guest app card's QR opens the guest app, which shows the Wi-Fi password.
+    assert.equal(isProtectedPropertyDocument('guest-app-card'), true);
     for (const type of ['notice', 'welcome-card', 'info-note', 'wifi-placard/edit', '']) {
       assert.equal(isProtectedPropertyDocument(type), false);
     }
@@ -60,7 +62,7 @@ describe('property document render authorization', () => {
 // Protect the call sites as well as the token implementation. These pages are
 // deliberately allowed through proxy.ts; deleting their guard reopens the leak.
 describe('credential-bearing pages guard before data access', () => {
-  for (const type of ['wifi-placard', 'home-guide']) {
+  for (const type of ['wifi-placard', 'home-guide', 'guest-app-card']) {
     test(`${type} authorizes before reading property credentials`, () => {
       const source = readFileSync(new URL(`../../app/properties/[id]/${type}/page.tsx`, import.meta.url), 'utf8');
       const guard = source.indexOf(`await requirePropertyDocumentAccess(id, '${type}')`);

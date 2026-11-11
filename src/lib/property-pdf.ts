@@ -20,6 +20,8 @@ import {
  *                    pitch with a QR to staycapeann.com/contact
  *   trash-notice  — 4" × 6" portrait, the fridge card naming the collection
  *                    day and the cart set-out (Gloucester only)
+ *   guest-app-card — 4" × 6" portrait, the QR to the home's Stay Cape Ann
+ *                    guest app (/h/<token>); self-guarded like the placard
  *
  * Same Puppeteer + Vercel-protection-bypass pattern as the Statements and
  * Projections PDFs. The deliverable render pages set their own @page rule;
@@ -32,7 +34,8 @@ export type PropertyDeliverable =
   | 'info-note'
   | 'notice'
   | 'welcome-card'
-  | 'trash-notice';
+  | 'trash-notice'
+  | 'guest-app-card';
 
 type Geometry = {
   viewportWidth: number;
@@ -48,6 +51,7 @@ const GEOMETRIES: Record<PropertyDeliverable, Geometry> = {
   'notice':        { viewportWidth: 384, viewportHeight: 576,  pdfWidth: '4in',   pdfHeight: '6in'  },
   'welcome-card':  { viewportWidth: 384, viewportHeight: 576,  pdfWidth: '4in',   pdfHeight: '6in'  },
   'trash-notice':  { viewportWidth: 384, viewportHeight: 576,  pdfWidth: '4in',   pdfHeight: '6in'  },
+  'guest-app-card': { viewportWidth: 384, viewportHeight: 576, pdfWidth: '4in',   pdfHeight: '6in'  },
 };
 
 const BACKGROUND_REQUESTS = new Set(['fetch', 'xhr', 'eventsource', 'websocket', 'ping', 'prefetch']);
@@ -157,6 +161,7 @@ export function propertyPdfFilename(
     'notice': 'Notice',
     'welcome-card': 'Welcome card',
     'trash-notice': 'Trash day notice',
+    'guest-app-card': 'Guest app card',
   };
   const baseLabel =
     type === 'notice' && noticeTitle
