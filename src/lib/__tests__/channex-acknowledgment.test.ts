@@ -92,10 +92,10 @@ test('masked data without explicit ACK, names masked, or null changed to mask re
     assert.equal((await h.run()).reason, 'REVISION_MISMATCH');
   }
 });
-test('optional state absence and explicit null stay distinct', async () => {
+test('legacy state absence stays readable but cannot confirm a new provider observation', async () => {
   const h = harness(); Reflect.deleteProperty(h.remote.attributes.customer, 'state');
   Reflect.deleteProperty(h.saved.revision.guestDetails, 'state');
-  assert.equal((await h.run()).status, 'confirmed');
+  assert.equal((await h.run()).reason, 'REVISION_MISMATCH');
   Object.assign(h.remote.attributes.customer, { state: null });
   assert.equal((await h.run()).reason, 'REVISION_MISMATCH');
   h.saved.revision.guestDetails.state = null;

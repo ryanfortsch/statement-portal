@@ -65,6 +65,10 @@ export function normalizeAirbnbBookingRevision(raw: unknown, mapping: AirbnbBook
     const scope = airbnbMappingSchema.parse(mapping);
     const row = record(raw), a = record(row.attributes);
     if (a.ota_name !== 'Airbnb' || !Array.isArray(a.rooms) || a.rooms.length !== 1) throw Error();
+    // Channex confirmed on November 11 UTC that Airbnb always supplies state,
+    // including explicit null. Keep old stored projections readable, but never
+    // accept a new incomplete provider projection or invent its missing value.
+    if (!Object.hasOwn(record(a.customer), 'state') || record(a.customer).state === undefined) throw Error();
     if (a.id !== undefined && a.id !== row.id) throw Error();
     const room = record(a.rooms[0]);
     if (room.checkin_date !== a.arrival_date || room.checkout_date !== a.departure_date) throw Error();
