@@ -380,31 +380,35 @@ ingestion path before causal price-response claims are possible.
 ## Installation and review
 
 Entry: `/channels/pricing`, owner-only, searchable as **Helm pricing**.
-The landing page opens on the portfolio dashboard. Review prices opens a home's
-monthly calendar. Select a night for its current/proposed
-rate, minimum stay, reason for review and price calculation. The attention filter
-includes rate checks and missing data; it excludes routine bookings, blocks and
-manual overrides. Table view uses the same month and filter. Dates outside the
-forecast appear unavailable rather than fabricated as open.
-The property layout follows the observed [PriceLabs calendar](https://help.pricelabs.co/portal/en/kb/articles/pricing-calendar):
-minimum/base/maximum inputs, Save & refresh and a Customizations sidebar
-sit beside the calendar. Base price has primary emphasis, with minimum and maximum
-beneath it. Edit opens a modal with the existing detailed rules and connection
-controls. On phones, the price inputs sit above the calendar. The title doubles
-as the listing switcher, with a back button alongside it. Switching preserves saved
-per-home state and guards unsaved changes. The demo resets scroll position on navigation.
+The landing page shows listings, 30/60/90-day occupancy and base prices. Each
+occupancy cell pairs the listing percentage and bar with a market percentage and
+tick on the same 0–100 scale. Missing values remain dashes. Min/max prices and
+connection details are optional columns. Filters and source methodology remain
+available without repeating them in every row.
 
-The calendar uses neutral surfaces and explicit booked, blocked, manual and review
-states. The arbitrary relative-price color bands and their legend have been removed.
-Current-month weeks entirely before today are omitted. Selecting a night
-opens a keyboard-accessible detail drawer; closing returns focus to that night.
+A listing name or row arrow opens its monthly calendar. The property workflow
+follows the observed [PriceLabs calendar](https://help.pricelabs.co/portal/en/kb/articles/pricing-calendar):
+base/min/max prices, save, rules and a monthly calendar. The permanent customization
+list is replaced with a Rules button. At narrower widths, the price controls move
+above a full-width calendar. The title doubles as the listing switcher, with a back
+button alongside it. Switching preserves saved per-home state and guards unsaved
+changes. The demo resets scroll position on navigation.
 
-Calendar, Neighborhood data and Booking insights are the primary views. The
-neighborhood view displays price and market occupancy comparisons. History and
-Data & model are under More. Draft rules and imports survive view changes.
-Save & refresh saves the policy and reloads current data; it does not publish.
+The calendar uses neutral surfaces, booked marks and hatched blocks, with one key.
+Minimum-stay labels are optional; each night's accessible name and detail drawer
+retain them. Select a night for its current/proposed rate, minimum stay, reason for
+review and price calculation. Closing the drawer returns focus to that night.
+The attention filter includes rate checks and missing data, excluding routine
+bookings, blocks and manual overrides. Table view uses the same month and filter.
+Current-month weeks entirely before today are omitted. Dates outside the forecast
+remain unavailable.
+
+Calendar, Market and Performance are the primary views. History and Data & model
+are under the More tools menu. Draft rules and imports survive view changes.
+Save stores the policy and reloads current data; it does not publish. A saved,
+unchanged policy has a disabled Saved button; Reload saved prices remains in More.
 The publishing footer appears only for an explicitly connected direct-rate profile;
-comparison mode retains access to connection settings in the header and customizations.
+comparison mode retains access to connection settings in the header and Rules.
 A fresh review resets the calendar filter and states its full date range:
 publication covers eligible nights across that range, not only the displayed month.
 The confirmation repeats the scope. Connection, review, confirmation and undo

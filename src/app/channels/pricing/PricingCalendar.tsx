@@ -16,6 +16,7 @@ export default function PricingCalendar({snapshot, preview}: {
 }) {
   const months = [...new Set(snapshot.days.map(d => d.date.slice(0,7)))];
   const [month,setMonth] = useState(months[0]), [layout,setLayout] = useState<'calendar'|'table'>('calendar');
+  const [showStays,setShowStays] = useState(false);
   const [filter,setFilter] = useState<'all'|'attention'>('all'), [selectedDate,setSelectedDate] = useState('');
   const dialog = useRef<HTMLDialogElement>(null);
   const activeMonth = months.includes(month) ? month : months[0];
@@ -53,7 +54,7 @@ export default function PricingCalendar({snapshot, preview}: {
       <div className="pricing-month-control"><Button size="sm" onClick={()=>{setMonth(months[0]);setFilter('all');}}>Today</Button><label className="sr-only" htmlFor="pricing-month">Month</label><select id="pricing-month" value={activeMonth} onChange={e => setMonth(e.target.value)}>{months.map(m => <option key={m} value={m}>{monthLabel(m)}</option>)}</select>
         <div><Button variant="quiet" className="pricing-icon-button" aria-label="Previous month" disabled={months.indexOf(activeMonth) === 0} onClick={() => setMonth(months[months.indexOf(activeMonth)-1])}><PricingIcon name="previous"/></Button><Button variant="quiet" className="pricing-icon-button" aria-label="Next month" disabled={months.indexOf(activeMonth) === months.length-1} onClick={() => setMonth(months[months.indexOf(activeMonth)+1])}><PricingIcon name="next"/></Button></div>
       </div>
-      <div className="pricing-display-controls">{attention.length>0&&<Button variant="quiet" className="pricing-attention" aria-pressed={filter==='attention'} onClick={jumpToAttention}>{attention.length} need review</Button>}<select aria-label="Show nights" value={filter} onChange={e => setFilter(e.target.value as typeof filter)}><option value="all">All dates</option><option value="attention">Needs review</option></select>
+      <div className="pricing-display-controls">{attention.length>0&&<Button variant="quiet" className="pricing-attention" aria-pressed={filter==='attention'} onClick={jumpToAttention} aria-label={`${attention.length} ${attention.length===1?'night needs':'nights need'} review`} title="Show nights needing review"><i className="pricing-dot"/>{attention.length}</Button>}<select aria-label="Show nights" value={filter} onChange={e => setFilter(e.target.value as typeof filter)}><option value="all">All dates</option><option value="attention">Needs review</option></select>
         <div className="pricing-view-switch" role="group" aria-label="Price display">{(['calendar','table'] as const).map(v => <Button key={v} variant="quiet" aria-label={v === 'calendar' ? 'Calendar' : 'Table'} title={v === 'calendar' ? 'Calendar' : 'Table'} aria-pressed={layout === v} onClick={() => setLayout(v)}><PricingIcon name={v}/></Button>)}</div>
       </div>
     </div>
@@ -67,9 +68,9 @@ export default function PricingCalendar({snapshot, preview}: {
             const matches = filter === 'all' || needsPricingAttention(cell.status!);
             const rate = cell.recommendation?.recommendedCents;
             return <Button key={cell.date} variant="quiet" className="pricing-day" data-status={cell.status} data-weekend={index % 7 === 5 || index % 7 === 6 || undefined} disabled={!matches}
-              aria-pressed={cell.date === selectedDate} aria-label={`${dateLabel(cell.date)}, ${labels[cell.status!]}${cell.day.state === 'open' ? `, ${money(rate)}` : ''}`} onClick={() => selectNight(cell.date)}>
+              aria-pressed={cell.date === selectedDate} aria-label={`${dateLabel(cell.date)}, ${labels[cell.status!]}${cell.day.state === 'open' ? `, ${money(rate)}, minimum ${cell.recommendation?.minNights??'unknown'} ${cell.recommendation?.minNights===1?'night':'nights'}` : ''}`} onClick={() => selectNight(cell.date)}>
               <span className="pricing-day-top"><span data-today={cell.date === snapshot.today || undefined}>{cell.dayNumber}</span>{cell.status === 'review' || cell.status === 'unknown' ? <span className="pricing-dot"/> : cell.status === 'manual' ? <PricingIcon name="lock"/> : null}</span>
-              {cell.day.state === 'open' ? <><span className="pricing-day-rate" data-long={(rate != null && rate >= 100000) || undefined}>{rate == null ? 'No price' : money(rate)}</span><span className="pricing-day-stay">{cell.status === 'manual' ? 'Manual' : <><span className="pricing-stay-full">{cell.recommendation?.minNights ?? '?'} night min</span><span className="pricing-stay-short">Min {cell.recommendation?.minNights ?? '?'}</span></>}</span></> : <span className="pricing-day-state"><span className="pricing-availability-mark"/>{labels[cell.status!]}</span>}
+              {cell.day.state === 'open' ? <><span className="pricing-day-rate" data-long={(rate != null && rate >= 100000) || undefined}>{rate == null ? '–' : money(rate)}</span>{showStays&&<span className="pricing-day-stay">{cell.recommendation?.minNights ?? '?'}n</span>}</> : <span className="pricing-day-state" aria-hidden="true">{cell.status==='booked'?<span className="pricing-booked-mark"/>:cell.status==='blocked'?<PricingIcon name="lock"/>:'?'}</span>}
             </Button>;
           })}
         </div>
@@ -77,7 +78,7 @@ export default function PricingCalendar({snapshot, preview}: {
         <td><Button variant="quiet" onClick={() => selectNight(cell!.date)}>{dateLabel(cell!.date)}</Button></td><td>{money(cell!.day!.currentCents)}</td><td><b>{money(cell!.recommendation?.recommendedCents)}</b></td><td>{cell!.recommendation?.minNights ?? 'N/A'}</td><td>{labels[cell!.status!]}</td>
       </tr>)}</tbody></table></div>}
       {!visible.length && <EmptyState rule={false}>No dates need review this month.</EmptyState>}
-      <div className="pricing-calendar-caption"><span>USD / night</span><span><i className="pricing-dot"/>Needs review <PricingIcon name="lock"/>Manual price</span></div>
+      {layout==='calendar'&&<div className="pricing-calendar-caption"><div className="pricing-calendar-key"><span><i className="pricing-booked-key"/>Booked</span><span><i className="pricing-blocked-key"/>Blocked</span><span><i className="pricing-dot"/>Review</span></div><label className="pricing-stay-toggle"><input type="checkbox" checked={showStays} onChange={e=>setShowStays(e.target.checked)}/>Min stay</label></div>}
     </div></div>
     <dialog ref={dialog} className="pricing-detail-dialog" aria-label="Nightly price details" onClick={e => {if(e.target === e.currentTarget) dialog.current?.close();}}>
       <div className="pricing-dialog-content"><Button variant="quiet" className="pricing-icon-button pricing-close-detail" aria-label="Close price details" onClick={() => dialog.current?.close()}><PricingIcon name="close"/></Button>{details()}</div>
