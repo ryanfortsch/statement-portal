@@ -9,7 +9,7 @@ import PricingInsights from './PricingInsights';
 import PricingHistory from './PricingHistory';
 import PricingCalendar from './PricingCalendar';
 import PricingIcon from './PricingIcon';
-import PricingOccupancy,{PricingOccupancyKey} from './PricingOccupancy';
+import PricingOccupancy from './PricingOccupancy';
 import './pricing.css';
 import {etStamp} from '@/lib/stable-time';
 import {pricingOccupancyWindow} from '@/lib/dynamic-pricing-portfolio';
@@ -97,7 +97,7 @@ export default function PricingWorkbench({propertyId,name,authority,navigation,i
           </div>
           <div className="pricing-configure-actions"><Button variant="primary" title="Save rules and refresh the preview. Does not publish rates." disabled={busy||!preview||!dirty} onClick={()=>void saveRules()}>{!dirty?'Saved':'Save'}</Button><Button variant="secondary" onClick={()=>openCustomizations()}><PricingIcon name="sliders"/>Rules</Button></div>
         </fieldset>
-        <div className="pricing-listing-metrics" aria-label="Listing occupancy"><div className="pricing-metrics-heading"><h3>Occupancy</h3><PricingOccupancyKey/></div>{listingMetrics.map(w=><div className="pricing-listing-metric" key={w.nights}><span>{w.nights} days</span><PricingOccupancy window={w}/></div>)}</div>
+        <div className="pricing-listing-metrics" aria-label="Listing occupancy"><div className="pricing-metrics-heading"><h3>Booked occupancy</h3></div>{listingMetrics.map(w=><div className="pricing-listing-metric" key={w.nights}><span>{w.nights} days</span><PricingOccupancy window={w}/></div>)}</div>
       </aside>
       <div className="pricing-calendar-workspace"><PricingCalendar key={review?.id??'draft'} snapshot={snapshot} preview={preview}/></div>
     </div>

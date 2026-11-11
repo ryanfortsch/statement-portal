@@ -380,24 +380,33 @@ ingestion path before causal price-response claims are possible.
 ## Installation and review
 
 Entry: `/channels/pricing`, owner-only, searchable as **Helm pricing**.
-The landing page shows listings, 30/60/90-day occupancy and base prices. The demo
-contains 24 fictional homes, including missing/stale evidence, a fully blocked home
-and a long listing name. Its header labels all data simulated; the dashboard also
-labels the market simulated. The live workspace labels market data as imports.
-No automatic market feed is connected.
+The dashboard opens with a portfolio overview and one selected period (7, 30, 60 or
+90 days). The overview shows occupancy versus market for matched homes/dates, open
+nights across complete calendars and the count of compared homes below market.
+Coverage counts remain visible. It covers the full portfolio even when the listing
+table is narrowed by search or filters.
 
-Each occupancy cell pairs the listing percentage and bar with a market percentage and
-tick on the same 0–100 scale. Missing values remain dashes. Min/max prices and
-connection details are optional columns. All listings, Below market and Data gaps
-are direct views with counts scoped to the current search, connection and horizon.
-Every data-column header toggles ascending/descending order, including min/base/max
-prices and connection. Filters also offer market occupancy, the occupancy gap and
-open nights for the selected horizon. Missing values stay last in both directions,
-with stable natural-name ties. Sort direction round-trips through property links.
+The 24-home demo includes missing/stale evidence, a fully blocked home and a long
+listing name. All demo data is simulated. The live workspace labels market data as
+imports. No automatic market feed is connected.
 
-The table uses compact rows, a bounded scroll area, sticky headers and a pinned
-listing column. Returning from a home preserves the demo table scroll and filters.
-Filters and source methodology remain available without repeating them in every row.
+The table has explicit Your occupancy, Market occupancy and Difference columns for
+the selected period, with equal-weight percentage values. Difference is in
+percentage points. It replaces the previous unlabeled pairs and per-row mini bars.
+The All listings / Below market / Data gaps category tabs were Helm additions, not
+a PriceLabs replica, and have been removed. Filtering remains in the Filters menu;
+affected homes carry specific notes such as Market outdated or Calendar incomplete.
+Open nights, min/max prices and connection are optional columns. Every data-column
+header toggles ascending/descending order; missing values stay last in either
+direction and ties use natural-name ordering. Sort direction and period round-trip
+through property links.
+
+The table keeps compact rows, a bounded scroll area, sticky headers and a pinned
+listing column. Returning from a home preserves demo scroll/filter state. The
+property occupancy panels label both values Your home and Market. The measure
+excludes owner blocks, consistent with the concept described in PriceLabs'
+[adjusted occupancy documentation](https://help.pricelabs.co/portal/en/kb/articles/performance-metrics).
+It does not claim parity with PriceLabs' data coverage or unavailable-night inference.
 
 A listing name or row arrow opens its monthly calendar. The property workflow
 follows the observed [PriceLabs calendar](https://help.pricelabs.co/portal/en/kb/articles/pricing-calendar):
