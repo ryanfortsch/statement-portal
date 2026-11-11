@@ -889,3 +889,34 @@ handover. The next expected 10-day reminder is 14 November for the 24 November
 arrival. No automation change, cancellation, resend or test message was requested.
 Private contacts, reservation identifiers and message bodies remain outside the
 repository. These facts supersede the older unanswered-support observations above.
+
+## Support decisions applied November 11, 2026
+
+Channex's latest response resolves the pre-ACK field-presence and lost-ACK status
+questions. The booking client now avoids a duplicate ACK when its exact preflight
+already reports acknowledgment, including all-null contacts that show no masks.
+Airbnb `state` must be explicitly present or null. Details and regression coverage
+are in `channex-preack-persistence-review.md`. Production ingestion/ACK and all
+calendar/message sending controls remain disabled; this closes a contract question,
+not the complete handover.
+
+Guesty's [latest reply on ticket 2193130](https://mail.google.com/mail/u/?authuser=ryan%40risingtidestr.com#all/1a1c8d514c8d9071)
+explicitly distinguishes unavailable future-SMS records from an empty queue.
+Support cannot retrieve the requested future scheduled timestamps in this attempt.
+They confirm that deactivating a workflow removes unsent messages from Guesty's
+internal scheduling queue, but cannot establish recall or independently verify
+dispatch for messages already handed to Vonage. All source workflows remain active.
+
+Their explanation of the DST-crossing send favors 240 elapsed hours, but they also
+state that the exact calculation rule is undocumented. Preserve `verify_source_queue`;
+do not turn this inference into a verified scheduling rule or change existing times.
+
+These are now known limits of the source evidence, not a pending promise of an
+empty-queue report. Do not repeatedly ask support the same question or mark the
+handover ready because no new email arrives. At cutover, internal deactivation and
+provider-dispatch clearance must be assessed separately for both guest and cleaner
+messages. A source message with uncertain dispatch must remain unresolved and must
+not produce a replacement Helm send on the assumption that it was cancelled.
+An elapsed waiting period alone is not proof of provider clearance. The existing
+no-duplicate/no-missed-message handover gates remain closed until a concrete
+per-message disposition and automated delivery path can be established.
