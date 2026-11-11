@@ -35,6 +35,8 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { receivesDailyDigest, authorizeDigestDelivery, readDigestEnrollment } from './cleaner-digest-enrollment';
+export { receivesDailyDigest } from './cleaner-digest-enrollment';
 import { quoFromNumber, sendMessage } from '@/lib/quo';
 import {
   buildCheckoutSchedule,
@@ -49,11 +51,9 @@ import { loadAddedNotesByProperty } from '@/lib/turnover-notes';
 import { resolveNoteBlocks, withOperatorNote } from '@/lib/cleaner-note';
 import { detectExtensionHolds } from '@/lib/extension-holds';
 import {
-  RECIPIENT_COLS,
   assembleSms,
   composeDigestBody,
   filterScheduleForRecipient,
-  shapeRecipient,
   updateMarker,
   type DigestLanguage,
   type PropertyRegionLookup,
@@ -202,7 +202,7 @@ export async function previewRecipientBodies(
   region: string = CAPE_ANN_REGION,
 ): Promise<{ day: ScheduleDay; bodies: RecipientBody[] }> {
   const [day] = await buildCheckoutSchedule(supabase, { startDate: serviceDate, days: 1, scope: { region } });
-  const recipients = (await listScheduleRecipients(supabase, region)).filter((r) => r.enabled);
+  const recipients = (await listScheduleRecipients(supabase, region)).filter(receivesDailyDigest);
   const bodies = await composeRecipientBodies(supabase, day, recipients);
   return { day, bodies };
 }
@@ -363,21 +363,20 @@ export async function listScheduleRecipients(
   supabase: SupabaseClient,
   region?: string,
 ): Promise<ScheduleRecipient[]> {
-  let q = supabase.from('cleaner_schedule_recipients').select(RECIPIENT_COLS).order('display_name');
-  if (region) q = q.eq('region', region);
-  const { data } = await q;
-  return ((data ?? []) as Array<Parameters<typeof shapeRecipient>[0]>).map(shapeRecipient);
+  const query = (fields: string) => {
+    let q = supabase.from('cleaner_schedule_recipients').select(fields).order('display_name');
+    if (region) q = q.eq('region', region);
+    return q;
+  };
+  return readDigestEnrollment(query);
 }
 
 /** The distinct regions that have at least one ENABLED recipient. Cape Ann
  *  is not implied here; see regionsForDigests. */
 export async function regionsWithEnabledRecipients(supabase: SupabaseClient): Promise<string[]> {
-  const { data } = await supabase
-    .from('cleaner_schedule_recipients')
-    .select('region')
-    .eq('enabled', true);
+  const recipients = (await listScheduleRecipients(supabase)).filter(receivesDailyDigest);
   const set = new Set<string>();
-  for (const r of (data ?? []) as Array<{ region: string | null }>) set.add(r.region || CAPE_ANN_REGION);
+  for (const r of recipients) set.add(r.region || CAPE_ANN_REGION);
   return sortRegions([...set]);
 }
 
@@ -485,7 +484,9 @@ export async function sendDigest(
       .eq('status', 'sending');
   };
 
-  const recipients = (await listScheduleRecipients(supabase, region)).filter((r) => r.enabled);
+  let recipients: ScheduleRecipient[];
+  try { recipients = (await listScheduleRecipients(supabase, region)).filter(receivesDailyDigest); }
+  catch { await revert(); return { ok: false, error: 'schedule_unavailable' }; }
   if (recipients.length === 0) {
     await revert();
     return { ok: false, error: 'no_recipients' };
@@ -525,6 +526,12 @@ export async function sendDigest(
 
   const results: DigestRow['sent_log'][number]['results'] = [];
   for (const { recipient: r, text, checkouts } of perRecipient) {
+    const authorized = await authorizeDigestDelivery(r, async () =>
+      (await listScheduleRecipients(supabase, region)).find(current => current.phone === r.phone) ?? null);
+    if (!authorized) {
+      results.push({ phone: r.phone, name: r.display_name, ok: false, error: 'Recipient enrollment or scope changed; not sent', language: r.language, checkouts });
+      continue;
+    }
     const content = assembleSms(text, portalLink(r.portal_token, digest.service_date), r.language);
     try {
       const msg = await sendMessage({ from, to: r.phone, content });
@@ -727,7 +734,7 @@ export async function autoSendTomorrowDigest(
     throw err;
   }
 
-  const enabled = (await listScheduleRecipients(supabase, region)).filter((r) => r.enabled);
+  const enabled = (await listScheduleRecipients(supabase, region)).filter(receivesDailyDigest);
   // A drifted row means Guesty moved the stay somewhere neither side of the
   // adjustment expects, and the overlay still wins. With a human on the
   // card that is a visible "re-check" chip they can act on. Unattended,

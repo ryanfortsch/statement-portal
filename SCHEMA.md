@@ -558,6 +558,11 @@ Message-ID. Written by `/api/cron/lease-leads`. Service role only.
   means every property in their region; `language` is `pt` or `en`;
   `email` is where Friday's cleaning review email goes (null = none), read
   apart from `RECIPIENT_COLS`. One digest row per `(service_date, region)`.
+  `daily_digest_enabled` (default true for existing enrollment) independently
+  controls the daily checkout summary. Daily sends require both it and `enabled`;
+  portal access and per-booking reminder eligibility still use `enabled`. New
+  recipient forms default daily texts off. The daily send rechecks enrollment,
+  phone, token, region, property scope and language immediately before Quo.
 - **`checkout_cleaning_skips`**: "no cleaning needed" on one checkout,
   keyed on the stay `(property_id, stay_check_in)`, one live row per stay
   (`cleared_at is null`). Set from `/turnovers/schedule`. A skipped stay
