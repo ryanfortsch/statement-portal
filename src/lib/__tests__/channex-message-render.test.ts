@@ -93,7 +93,7 @@ test('handover inputs distinguish stored values, missing data and mapped-lock st
   const value = raw();
   assert.deepEqual(reviewPreparationInputs(parsePreparationRenderInputs(value, [stay])), {
     entryCode: 'stored', wifiName: true, wifiPassword: true,
-    cleaner: { configuredRecipients: 0, enabledRecipients: 0, status: 'not_configured', scheduleAccessVerified: false, recipientVerified: false },
+    cleaner: { configuredRecipients: 0, enabledRecipients: 0, status: 'not_configured', scheduleLinkConfigured: false, scheduleAccessVerified: false, recipientVerified: false },
   });
   value.lockMapped = true;
   assert.equal(reviewPreparationInputs(parsePreparationRenderInputs(value, [stay])).entryCode, 'stay_code_review');
@@ -123,4 +123,29 @@ test('missing or malformed cleaner metadata cannot look like an empty successful
     [{ enabled: true, property_ids: [], region: null }], [{ enabled: true, property_ids: [], region: 'bridgeport_ct', portal_token: 'PRIVATE' }]]) {
     assert.throws(() => parsePreparationRenderInputs({ ...raw(), cleanerRecipients }, [stay]), /Message render inputs unavailable/);
   }
+});
+
+test('configured reminder link rehearses masked without exposing a phone, token or access attestation', () => {
+  const recipient = { enabled: true, property_ids: ['65_calderwood'], region: 'bridgeport_ct',
+    phone: '+12025550100', portal_token: 'a'.repeat(32), language: 'en' };
+  const input = parsePreparationRenderInputs({ ...raw(), cleanerRecipients: [recipient] }, [stay]);
+  const review = reviewPreparationInputs(input), result = rehearsePreparedMessages(rules(), input, stay, clocks);
+  assert.equal(review.cleaner.scheduleLinkConfigured, true);
+  assert.equal(review.cleaner.scheduleAccessVerified, false);
+  assert.equal(review.cleaner.recipientVerified, false);
+  const reminder = result.find(r => r.key === 'cleaner_reminder')!;
+  assert.deepEqual(reminder.missingFields, []); assert.ok(reminder.preview?.includes('••••'));
+  assert.equal(reminder.canSend, false);
+  for (const privateValue of [recipient.phone, recipient.portal_token, '/c/'])
+    assert.equal(JSON.stringify({ review, result }).includes(privateValue), false);
+});
+
+test('a literal contact or bearer token in captured wording is also removed from rehearsal output', () => {
+  const recipient = { enabled: true, property_ids: ['65_calderwood'], region: 'bridgeport_ct',
+    phone: '+12025550100', portal_token: 'a'.repeat(32), language: 'en' };
+  const input = parsePreparationRenderInputs({ ...raw(), cleanerRecipients: [recipient] }, [stay]);
+  const value = rules(); value[4].body += ` ${recipient.phone} https://helm.risingtidestr.com/c/${recipient.portal_token}/stays`;
+  value[4].migration_policy = { ...(value[4].migration_policy as object), bodySha256: createHash('sha256').update(value[4].body).digest('hex') };
+  const output = JSON.stringify(rehearsePreparedMessages(value, input, stay, clocks));
+  assert.equal(output.includes(recipient.phone), false); assert.equal(output.includes(recipient.portal_token), false);
 });
