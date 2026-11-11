@@ -124,3 +124,17 @@ test('delivery storage is explicit production only and never exposes database fa
   const db = createInventoryDeliveryStore(PRODUCTION_DB_URL, 'synthetic', async () => Response.json({ message: 'PRIVATE_SENTINEL' }, { status: 500 }));
   await assert.rejects(db.claim(randomUUID()), e => String(e).includes('do not resend') && !String(e).includes('PRIVATE_SENTINEL'));
 });
+
+test('durable acceptance returns without provider IO, even when the previous outcome response was lost', async () => {
+  const calls: string[] = [];
+  const db = createInventoryDeliveryStore(PRODUCTION_DB_URL, 'synthetic', async url => {
+    calls.push(String(url).split('/').at(-1)!);
+    return Response.json({ status: 'already-accepted' });
+  });
+  const result = await deliverInventoryOnce(db, { async prepare() { throw Error('must not read provider or send'); } }, randomUUID());
+  assert.deepEqual(result, { status: 'already-accepted' });
+  assert.deepEqual(calls, ['helm_channex_delivery_claim']);
+  const malformed = createInventoryDeliveryStore(PRODUCTION_DB_URL, 'synthetic', async () =>
+    Response.json({ status: 'already-accepted', attempt: fixture() }));
+  await assert.rejects(malformed.claim(randomUUID()));
+});

@@ -273,7 +273,7 @@ has a maximum 30-second lease; both claim and the one-use send checkpoint reuse
 the planner's complete validation. Concurrent workers cannot obtain two send
 permits. A lost checkpoint response does not authorize a POST. Source changes
 before the checkpoint fence the old plan; changes after it require a subsequent
-plan once the in-flight attempt has been settled.
+plan once Channex acceptance is durably recorded. An unknown outcome still blocks.
 
 The transport is currently limited to the closed, unmapped production target.
 Its GET preflight verifies property/room/rate identities and no channels, then
@@ -284,12 +284,21 @@ in an attempt or its error. Redirects, timeouts, 5xx responses, malformed replie
 partial responses and warnings are uncertain outcomes, not automatic retries.
 
 A clean task receipt means **accepted**, not completed or delivered to Airbnb.
-Accepted and uncertain attempts block the lane, including across restarts and
-scope disable/enable. The ledger deliberately has no settlement/retirement RPC
-until production task evidence is established. Equality from a calendar GET is
-not evidence that an earlier request can no longer execute. The staging task
-parser was based on an observed staging response; it has not been silently
-promoted into a production delivery guarantee.
+Migration `20261111010000_channex_availability_acceptance.sql` implements the
+confirmed acceptance contract. Accepted history no longer blocks a later fresh
+plan. An exact current accepted plan returns `already-accepted` without a new
+attempt, provider GET or POST. Superseded tokens cannot replay old bytes; source,
+coverage, authority and freshness are revalidated before either deduplication or
+a new send permit. New attempts still obey persisted pacing and serialization.
+
+Leased, submitting and uncertain attempts remain mutually exclusive. Timeouts and
+unknown outcomes still block across restarts and disable/enable. There is no
+automatic timeout retirement or production task poller. Latest-state recovery
+from uncertainty remains a separate unimplemented launch requirement. Calendar
+GET equality and an accepted receipt are not OTA delivery proof. The status
+counter `unresolved` counts transport uncertainty; `settlementEnabled` stays false.
+The migration refuses installation on enabled scopes or existing attempt history
+and preserves all gates and permissions.
 
 Only an exact documented 429 rejection permits a new attempt after a persisted
 backoff (at least 60 seconds, up to 24 hours). A 401 stops further claims pending
@@ -298,15 +307,16 @@ configuration review. There are at most five claims per 30 minutes and a
 retired; expired in-flight attempts become uncertain. Outcome recording is
 idempotent and may capture a late response even after disabling dispatch.
 
-Provider contract reference, checked 6 November 2026:
+Provider contract reference, rechecked 10 November 2026:
 [Channex ARI documentation](https://docs.channex.io/api-v.1-documentation/ari).
 The documented POST accepts dated availability and returns task identifiers;
 this batch does not claim a documented task-completion or OTA-delivery contract.
 
 Tests cover exact saved bytes across the TypeScript/SQL boundary, concurrent
 send checkpoints, concurrent canonical writes, stale plans, expired workers,
-lost responses, 429 pacing, credential rejection, strict payload shapes and
-permissions. Provider tests use synthetic replies. No live inventory POST is
+lost responses, exact-plan deduplication, a later changed 500-day plan, concurrent
+post-acceptance claims, expired coverage, 429 pacing, credential rejection,
+strict payload shapes and permissions. Provider tests use synthetic replies. No live inventory POST is
 needed or performed to deploy this dormant batch.
 
 ## Read-only booking comparison
@@ -663,13 +673,14 @@ clarifies the production availability contract:
   retain the latest intended absolute availability, and after a timeout resend
   the latest absolute state, never an old payload.
 
-This resolves the contract question; it does not retrofit that behavior into the
-current dormant ledger. Accepted/uncertain attempts still block its lane and
-there is no settlement RPC or task poller. Before enabling it, replace that
-incomplete lifecycle with reviewed acceptance/latest-state recovery, preserve
-serialization and freshness fencing, and expose uncertain channel state for
-operations. Historical calendar equality must not be called OTA delivery proof.
-Do not add a production task-status poller or simply unpark old attempts.
+The 10 November acceptance migration now permits fresh later plans after a clean
+acceptance and suppresses duplicate submissions of the exact current plan. The
+uncertain-outcome path remains quarantined: before enabling it, implement and
+review recovery from the latest intended absolute state, preserving serialization
+and freshness fencing, and expose uncertain channel state for operations. There
+is no settlement RPC or task poller. Historical calendar equality must not be
+called OTA delivery proof. Do not add a production task-status poller or simply
+unpark old attempts.
 
 Remaining launch work: connect this source-compatible renderer to reviewed
 canonical scheduling, verify entry/Wi-Fi/link/recipient inputs, obtain current
@@ -775,3 +786,24 @@ the authenticated API confirmed the new role. The release branch was then update
 against current main: 4,127 tests passed, seven optional checks skipped, and
 TypeScript plus changed-file lint passed. Deployment and merge results are tracked
 on the PR; this access correction alone does not establish a completed deployment.
+
+
+## Cleaner support evidence (10 November 2026 Eastern)
+
+Guesty confirmed that Cleaning updates - Luana is active, correctly scoped to
+Calderwood, and routes both SMS actions to the existing source recipient. They
+confirmed that the four supplied reservations qualify. For the historical
+2-8 November stay, the 10-day reminder was sent on 23 October at 17:03 and the
+arrival-day reminder on 2 November at 09:02, both in the listing's timezone.
+The 17:03 historical send is consistent with an elapsed 240-hour offset across
+DST; it does not establish the scheduled target or universal scheduling rule.
+Keep `verify_source_queue` unresolved and preserve the existing Guesty timings.
+
+For the other three future stays, support reported no sent logs and escalated
+the investigation. Absence of a sent log is not evidence of an empty future queue.
+A reply asked for actual pending status, scheduled timestamps/timezones, the DST
+rule, and a procedure proving the Guesty and SMS-provider queues are drained at
+handover. The next expected 10-day reminder is 14 November for the 24 November
+arrival. No automation change, cancellation, resend or test message was requested.
+Private contacts, reservation identifiers and message bodies remain outside the
+repository. These facts supersede the older unanswered-support observations above.

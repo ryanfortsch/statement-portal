@@ -22,6 +22,7 @@ const sql = [read('scripts/tests/channex-fixture.sql'), functions,
   read('supabase/migrations/20261106130000_channex_booking_audit.sql'),
   read('supabase/migrations/20261106140000_channex_existing_stay_guard.sql'),
   read('supabase/migrations/20261110150000_channex_preack_guest_details.sql'),
+  read('supabase/migrations/20261111010000_channex_availability_acceptance.sql'),
   read('scripts/tests/channex-booking-audit.sql'),
   read('scripts/tests/channex-bookings.sql'),
   read('scripts/tests/channex-existing-stays.sql'),
@@ -37,5 +38,11 @@ const guard = spawnSync(psql, ['-X', '-q', '-v', 'ON_ERROR_STOP=1'], {
 });
 if (guard.status === 0 || !guard.stderr.includes('disable_channex_ingestion_before_migration')) {
   throw Error('Pre-ACK migration did not refuse the active synthetic importer');
+}
+const deliveryGuard = spawnSync(psql, ['-X', '-q', '-v', 'ON_ERROR_STOP=1'], {
+  input: read('supabase/migrations/20261111010000_channex_availability_acceptance.sql'), encoding: 'utf8',
+});
+if (deliveryGuard.status === 0 || !deliveryGuard.stderr.includes('disable_empty_channex_delivery_before_migration')) {
+  throw Error('Acceptance migration did not refuse the active synthetic scope');
 }
 console.log('PASS: real Postgres booking receipts, canonical writers, inventory invalidation, and permissions');
