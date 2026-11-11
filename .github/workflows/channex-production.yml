@@ -16,6 +16,7 @@ on:
       - 'scripts/test-channex-database.mjs'
       - 'scripts/test-channex-planner.mts'
       - 'scripts/test-channex-delivery.mts'
+      - 'scripts/test-channex-cycle.mts'
       - 'scripts/test-channex-messages.mts'
       - 'scripts/test-channex-reconciliation.mts'
       - 'scripts/tests/channex*'
@@ -56,6 +57,7 @@ jobs:
       - run: node scripts/test-channex-database.mjs
       - run: node --import ./scripts/server-only-test-hook.mjs scripts/test-channex-planner.mts
       - run: node --import ./scripts/server-only-test-hook.mjs scripts/test-channex-delivery.mts
+      - run: node --import ./scripts/server-only-test-hook.mjs scripts/test-channex-cycle.mts
       - run: node --import ./scripts/server-only-test-hook.mjs scripts/test-channex-reconciliation.mts
       - run: bash scripts/tests/channex-concurrency.sh
       - run: bash scripts/tests/channex-inventory-concurrency.sh
