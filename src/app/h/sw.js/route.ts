@@ -7,6 +7,10 @@
  * always: a fact fixed on the property page reaches the guest the next time
  * they are online, and the cached copy is only the fallback.
  *
+ * A stay link (/h/s/<token>) is kept the same way. Its HTML holds no door
+ * code (the code comes from a POST to /h/s/<token>/code, and this worker
+ * passes every non-GET straight through), so the offline copy never does.
+ *
  * Scope is /h/ (the Service-Worker-Allowed header below), so it never
  * touches a Helm page. It caches Next's hashed static files for the same
  * pages, which are immutable by name.
@@ -26,7 +30,7 @@ self.addEventListener('fetch', (event) => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
-  const isGuide = req.mode === 'navigate' && /^\\/h\\/[a-f0-9]{16,64}\\/?$/.test(url.pathname);
+  const isGuide = req.mode === 'navigate' && /^\\/h\\/(?:s\\/[a-f0-9]{32}|[a-f0-9]{16,64})\\/?$/.test(url.pathname);
   const isStatic = url.pathname.startsWith('/_next/static/') || url.pathname === '/h/app-icon';
   if (isGuide) {
     event.respondWith((async () => {

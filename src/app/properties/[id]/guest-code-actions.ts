@@ -10,6 +10,8 @@ import {
   mapLockToProperty,
   removeLockCode,
 } from '@/lib/guest-locks';
+import { ensureStayLink, rotateStayLink } from '@/lib/guest-app-stays-db';
+import { easternMoment } from '@/lib/guest-app-stays';
 
 /**
  * Server actions for the Guest door codes panel (/properties/[id], Operations
@@ -91,4 +93,27 @@ export async function removeLockCodeAction(
   const r = await removeLockCode(accessCodeId, source);
   revalidatePath(`/properties/${propertyId}`);
   return r.ok ? { ok: true, message: 'Code removed from the lock.' } : { ok: false, message: r.error ?? 'Remove failed.' };
+}
+
+export type StayLinkActionResult = { ok: true; url: string; closes: string } | { ok: false; message: string };
+
+/**
+ * The stay's guest app link (/h/s/<token>), to paste into a message: the
+ * home's app plus this stay's door code, inside the stay window only
+ * (src/lib/guest-app-stays.ts). `fresh` retires the old link first, for a
+ * link that reached someone it should not have.
+ */
+export async function stayLinkAction(propertyId: string, bookingId: string, fresh = false): Promise<StayLinkActionResult> {
+  const session = await auth();
+  const by = session?.user?.email;
+  if (!by) return { ok: false, message: 'Not signed in' };
+  try {
+    const link = fresh ? await rotateStayLink(bookingId, { by, propertyId }) : await ensureStayLink(bookingId, { by, propertyId });
+    if (!link) {
+      return { ok: false, message: 'This stay cannot have a guest app link: the guest app is off for this home, or the stay is cancelled or over.' };
+    }
+    return { ok: true, url: link.url, closes: easternMoment(new Date(link.closesAt)) };
+  } catch {
+    return { ok: false, message: 'Could not make the link. Try again.' };
+  }
 }

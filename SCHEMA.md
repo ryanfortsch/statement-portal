@@ -382,6 +382,15 @@ prices its own quotes; Helm's plan is a draft until cutover.
   reads `properties`, the two Wi-Fi columns of `property_access`,
   `property_rooms`, open guest-facing `property_notes`, the rate plan's
   `checkin_time` and the first listing photo.
+- `guest_app_stays` (`20261111140000_guest_app_stays.sql`): one short-lived
+  guest app link per stay (`/h/s/<token>`). `token` is 32 hex characters,
+  `booking_id` is the canonical `bookings` row (a unique partial index keeps
+  one live link per booking), `revoked_at` ends a link (New link), and
+  `open_count` / `code_shown_count` count guest opens and door code reveals
+  (`guest_app_stay_seen(token, code)`, service role only). It stores no dates
+  and no code: the window comes from the booking and the rate plan on every
+  load, the code from `guest_access_codes`. RLS on, service role only; read
+  and written through `src/lib/guest-app-stays-db.ts`.
 - `property_launch_steps` + `sca_launches`: the Stay Cape Ann launch
   checklist.
 - `home_walkthroughs` (#1949, `20261018210000_home_walkthroughs.sql`): one

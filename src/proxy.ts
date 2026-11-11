@@ -59,7 +59,10 @@ const PUBLIC_PATH_PREFIXES = [
   // guest_app_homes table is the credential, read only through the
   // service-role client; the page shows the Wi-Fi password and how the house
   // works, never a door, gate, garage or alarm code. /h/sw.js and
-  // /h/app-icon are its service worker and home-screen icon.
+  // /h/app-icon are its service worker and home-screen icon. /h/s/<token> is
+  // one stay's link (guest_app_stays, 128-bit token): the same app plus the
+  // stay's Seam code, inside the stay window only, and only from a POST to
+  // /h/s/<token>/code (src/lib/guest-app-stays.ts).
   "/h/",
   "/clean/",
 ];
@@ -175,6 +178,11 @@ const PUBLIC_API_PREFIXES = [
   // form by token and lists the approved ones per listing. Every handler
   // calls authorizeStayConcierge; guest_testimonials is RLS-locked.
   "/api/testimonials",
+  // Stay-concierge bridge: the guest app link a message to one reservation
+  // carries (its stay link, else the home's permanent link). Mints the stay
+  // link; never returns a code. Self-guards via STAY_CONCIERGE_KEY (header
+  // only).
+  "/api/guest-app-links",
   // PMS bridge: staycapeann.com and stay-concierge read availability, price
   // a stay, create / cancel a reservation and read Helm-native guest threads
   // for a home whose calendar_authority is 'helm' (the Guesty replacement).
