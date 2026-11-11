@@ -383,13 +383,18 @@ Entry: `/channels/pricing`, owner-only, searchable as **Helm pricing**.
 The landing page shows listings, 30/60/90-day occupancy and base prices. Each
 occupancy cell pairs the listing percentage and bar with a market percentage and
 tick on the same 0–100 scale. Missing values remain dashes. Min/max prices and
-connection details are optional columns. Filters and source methodology remain
+connection details are optional columns. All listings, Below market and Data gaps
+are direct views with counts scoped to the current search, connection and horizon.
+Filters and source methodology remain
 available without repeating them in every row.
 
 A listing name or row arrow opens its monthly calendar. The property workflow
 follows the observed [PriceLabs calendar](https://help.pricelabs.co/portal/en/kb/articles/pricing-calendar):
 base/min/max prices, save, rules and a monthly calendar. The permanent customization
-list is replaced with a Rules button. At narrower widths, the price controls move
+list is replaced with a Rules button. The editor separates Strategy, Adjustments,
+Minimum stays, Events and Connection. Inactive occupancy targets stay hidden until
+that adjustment is enabled; advanced stay rules and the historical price floor
+expand on demand. Section switches retain all draft input. At narrower widths, the price controls move
 above a full-width calendar. The title doubles as the listing switcher, with a back
 button alongside it. Switching preserves saved per-home state and guards unsaved
 changes. The demo resets scroll position on navigation.
@@ -397,11 +402,19 @@ changes. The demo resets scroll position on navigation.
 The calendar uses neutral surfaces, booked marks and hatched blocks, with one key.
 Minimum-stay labels are optional; each night's accessible name and detail drawer
 retain them. Select a night for its current/proposed rate, minimum stay, reason for
-review and price calculation. Closing the drawer returns focus to that night.
+review and price calculation. Current and proposed rates sit side by side, with
+previous/next navigation through the visible dates. Closing the drawer returns
+focus to the night that opened it.
 The attention filter includes rate checks and missing data, excluding routine
 bookings, blocks and manual overrides. Table view uses the same month and filter.
 Current-month weeks entirely before today are omitted. Dates outside the forecast
 remain unavailable.
+
+The workspace uses a muted canvas and consistent bordered surfaces for the listing
+table, price settings, calendar and chart views. Currency prefixes remain visible
+inside price inputs. Market charts have 30/90/180-day display ranges; these do not
+change pricing calculations or the publication window. Performance preserves the
+existing occupancy forecasts and scenario ranges.
 
 Calendar, Market and Performance are the primary views. History and Data & model
 are under the More tools menu. Draft rules and imports survive view changes.

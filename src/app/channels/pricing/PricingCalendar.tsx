@@ -25,6 +25,7 @@ export default function PricingCalendar({snapshot, preview}: {
   const cells=todayIndex>=7?monthCells.slice(Math.floor(todayIndex/7)*7):monthCells;
   const visible = cells.filter(c => c?.day && (filter === 'all' || needsPricingAttention(c.status!)));
   const selected = visible.find(c => c!.date === selectedDate) ?? visible.find(c => c!.day!.state === 'open') ?? visible[0];
+  const selectedIndex=visible.findIndex(c=>c?.date===selected?.date);
   const recommendation = selected?.recommendation;
   const attention = snapshot.days.filter(d => needsPricingAttention(pricingNightStatus(d, preview?.days.find(r => r.date === d.date))));
   const steps = recommendation?.steps.filter((s,i,all) => !s.label.startsWith('Minimum stay:') && (i === 0 || s.resultCents !== all[i-1].resultCents)) ?? [];
@@ -41,12 +42,12 @@ export default function PricingCalendar({snapshot, preview}: {
     if (!selected) return <EmptyState rule={false}>Select a date to see its price.</EmptyState>;
     return <>
       <div className="pricing-detail-head"><p className="pricing-detail-status" data-status={selected.status}>{labels[selected.status!]}</p><h3>{dateLabel(selected.date)}</h3></div>
-      <div className="pricing-detail-price"><span>Proposed nightly rate</span><strong>{money(recommendation?.recommendedCents)}</strong>
-        <p>Current {money(selected.day!.currentCents)}{recommendation?.changePct != null && <span> · {recommendation.changePct > 0 ? '+' : ''}{recommendation.changePct.toFixed(1)}%</span>}</p>
+      <div className="pricing-detail-comparison"><div><span>Current</span><strong>{selected.day!.currentCents==null?'–':money(selected.day!.currentCents)}</strong></div><PricingIcon name="next"/><div><span>Proposed</span><strong>{recommendation?.recommendedCents==null?'–':money(recommendation.recommendedCents)}</strong></div>
+        {recommendation?.changePct!=null&&<p>{recommendation.changePct>0?'+':''}{recommendation.changePct.toFixed(1)}%<span>USD / night</span></p>}
       </div>
       {selected.day!.state === 'open' && <div className="pricing-detail-minimum"><span>Minimum stay</span><b>{recommendation?.minNights ?? 'Unknown'} {recommendation?.minNights === 1 ? 'night' : 'nights'}</b></div>}
       {!!recommendation?.reasons.length && <ul className="pricing-detail-reasons" data-status={selected.status}>{recommendation.reasons.map(r => <li key={r}>{r}</li>)}</ul>}
-      {!!steps.length && <div className="pricing-calculation"><h4>Price calculation</h4><ol>{steps.map((s,i) => <li key={i}><span>{s.label}{s.adjustmentPct !== 0 && <small>{s.adjustmentPct > 0 ? '+' : ''}{s.adjustmentPct.toFixed(1)}%</small>}</span><b>{money(s.resultCents)}</b></li>)}</ol></div>}
+      {!!steps.length && <div className="pricing-calculation"><h4>Price breakdown</h4><ol>{steps.map((s,i) => <li key={i}><span>{s.label}{s.adjustmentPct !== 0 && <small>{s.adjustmentPct > 0 ? '+' : ''}{s.adjustmentPct.toFixed(1)}%</small>}</span><b>{money(s.resultCents)}</b></li>)}</ol></div>}
     </>;
   }
   return <section aria-label="Nightly prices" className="pricing-calendar">
@@ -81,7 +82,7 @@ export default function PricingCalendar({snapshot, preview}: {
       {layout==='calendar'&&<div className="pricing-calendar-caption"><div className="pricing-calendar-key"><span><i className="pricing-booked-key"/>Booked</span><span><i className="pricing-blocked-key"/>Blocked</span><span><i className="pricing-dot"/>Review</span></div><label className="pricing-stay-toggle"><input type="checkbox" checked={showStays} onChange={e=>setShowStays(e.target.checked)}/>Min stay</label></div>}
     </div></div>
     <dialog ref={dialog} className="pricing-detail-dialog" aria-label="Nightly price details" onClick={e => {if(e.target === e.currentTarget) dialog.current?.close();}}>
-      <div className="pricing-dialog-content"><Button variant="quiet" className="pricing-icon-button pricing-close-detail" aria-label="Close price details" onClick={() => dialog.current?.close()}><PricingIcon name="close"/></Button>{details()}</div>
+      <div className="pricing-dialog-content"><div className="pricing-inspector-toolbar"><div><Button variant="quiet" className="pricing-icon-button" aria-label="Previous night" disabled={selectedIndex<=0} onClick={()=>setSelectedDate(visible[selectedIndex-1]!.date)}><PricingIcon name="previous"/></Button><Button variant="quiet" className="pricing-icon-button" aria-label="Next night" disabled={selectedIndex<0||selectedIndex>=visible.length-1} onClick={()=>setSelectedDate(visible[selectedIndex+1]!.date)}><PricingIcon name="next"/></Button></div><Button variant="quiet" className="pricing-icon-button" aria-label="Close price details" onClick={() => dialog.current?.close()}><PricingIcon name="close"/></Button></div>{details()}</div>
     </dialog>
   </section>;
 }

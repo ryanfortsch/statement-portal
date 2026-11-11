@@ -15,12 +15,11 @@ export default function PricingPortfolio({rows,onOpen,initialView=pricingPortfol
   const [sort,setSort]=useState(initialView.sort),[connection,setConnection]=useState(initialView.connection);
   const [metrics,setMetrics]=useState<PricingWindowDays[]>([30,60,90]);
   const [bounds,setBounds]=useState(false),[showConnection,setShowConnection]=useState(false);
-  const visible=rows.filter(r=>{
-    const w=r.windows[window];
-    return `${r.name} ${r.city} ${r.id}`.toLowerCase().includes(query.trim().toLowerCase())&&
-      (connection==='all'||connection===r.mode)&&
-      (filter==='all'||filter==='below'&&w.gapPp!==null&&w.gapPp<0||filter==='data'&&(w.unknown>0||w.marketIssue!==null||r.error!==null));
-  }).sort((a,b)=>{
+  const searched=rows.filter(r=>`${r.name} ${r.city} ${r.id}`.toLowerCase().includes(query.trim().toLowerCase())&&(connection==='all'||connection===r.mode));
+  const needsData=(r:PricingPortfolioRow)=>r.windows[window].unknown>0||r.windows[window].marketIssue!==null||r.error!==null;
+  const below=(r:PricingPortfolioRow)=>r.windows[window].gapPp!==null&&r.windows[window].gapPp!<0;
+  const counts={all:searched.length,below:searched.filter(below).length,data:searched.filter(needsData).length};
+  const visible=searched.filter(r=>filter==='all'||filter==='below'&&below(r)||filter==='data'&&needsData(r)).sort((a,b)=>{
     const aw=a.windows[window],bw=b.windows[window];
     if(sort==='occupancy')return (aw.occupancyPct??Infinity)-(bw.occupancyPct??Infinity)||a.name.localeCompare(b.name);
     if(sort==='gap')return (aw.gapPp??Infinity)-(bw.gapPp??Infinity)||a.name.localeCompare(b.name);
@@ -40,7 +39,6 @@ export default function PricingPortfolio({rows,onOpen,initialView=pricingPortfol
       <label className="portfolio-search"><span className="sr-only">Search listings</span><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg><input type="search" placeholder="Search listings" value={query} onChange={e=>setQuery(e.target.value)}/></label>
       <div className="portfolio-toolbar">
       <details className="pricing-menu" name="portfolio-options"><summary><PricingIcon name="sliders"/>Filters{filter!=='all'||connection!=='all'?<span className="pricing-filter-dot"/>:null}</summary><div className="pricing-menu-panel">
-        <label>Show listings<select value={filter} onChange={e=>setFilter(e.target.value as PricingPortfolioView['filter'])}><option value="all">All listings</option><option value="below">Below market</option><option value="data">Missing or stale data</option></select></label>
         <label>Pricing connection<select value={connection} onChange={e=>setConnection(e.target.value as PricingPortfolioView['connection'])}><option value="all">All connections</option><option value="helm_direct">Helm direct</option><option value="shadow">Compare only</option></select></label>
         <label>Compare over<select value={window} onChange={e=>setWindow(Number(e.target.value) as PricingWindowDays)}>{PRICING_WINDOWS.map(n=><option key={n} value={n}>Next {n} days</option>)}</select></label>
         <label>Sort listings<select value={sort} onChange={e=>setSort(e.target.value as PricingPortfolioView['sort'])}><option value="name">Name A–Z</option><option value="gap">Furthest below market</option><option value="occupancy">Lowest occupancy</option><option value="open">Most open nights</option></select></label>
@@ -50,19 +48,20 @@ export default function PricingPortfolio({rows,onOpen,initialView=pricingPortfol
       </div>
     </div>
     </header>
-    <div className="portfolio-table-key"><span>Occupancy</span><PricingOccupancyKey/></div>
+    <div className="portfolio-surface"><div className="portfolio-viewbar"><div className="portfolio-views" role="group" aria-label="Listing views">{([['all','All listings'],['below','Below market'],['data','Data gaps']] as const).map(([value,label])=><Button key={value} variant="quiet" aria-pressed={filter===value} onClick={()=>setFilter(value)}>{label}<span>{counts[value]}</span></Button>)}</div><div className="portfolio-table-key"><span>Occupancy</span><PricingOccupancyKey/></div></div>
     <div className="portfolio-table-wrap" tabIndex={0} role="region" aria-label="Listing prices and occupancy. Scroll horizontally for more columns."><table className="portfolio-table" style={{minWidth:230+metrics.length*120+92+44+(bounds?160:0)+(showConnection?150:0)}}><colgroup><col className="portfolio-listing-col"/>{metrics.map(n=><col key={n} className="portfolio-metric-col"/>)}{bounds&&<col className="portfolio-price-col"/>}<col className="portfolio-price-col"/>{bounds&&<col className="portfolio-price-col"/>}{showConnection&&<col className="portfolio-mode-col"/>}<col className="portfolio-action-col"/></colgroup><caption className="sr-only">Listing prices and adjusted occupancy compared with market</caption><thead><tr>
       <th scope="col" className="portfolio-sticky"><Button variant="quiet" onClick={()=>setSort('name')}>Listing {sort==='name'?'↑':''}</Button></th>
       {metrics.map(n=><th key={n} scope="col"><Button variant="quiet" onClick={()=>{setWindow(n);setSort('occupancy');}} title={`Sort by next ${n} days occupancy`}>{n} days {sort==='occupancy'&&window===n?'↑':''}</Button></th>)}
       {bounds&&<th scope="col">Min</th>}<th scope="col">Base price</th>{bounds&&<th scope="col">Max</th>}{showConnection&&<th scope="col">Connection</th>}<th scope="col"><span className="sr-only">Open calendar</span></th>
     </tr></thead><tbody>{visible.map(row=><tr key={row.id}>
       <td className="portfolio-home portfolio-sticky">{openLink(row)}<span className="portfolio-home-meta">{row.city}{row.bedrooms!==null?` · ${row.bedrooms} BR`:''}{(row.error||row.windows[30].unknown||row.windows[30].marketIssue)&&<span className="portfolio-data-note" title={row.error??(row.windows[30].unknown?'Calendar incomplete':row.windows[30].marketIssue==='stale'?'Market data expired':'Market data needed')}> · Data gap</span>}</span></td>
-      {metrics.map(n=><td key={n}><PricingOccupancy window={row.windows[n]}/></td>)}
+      {metrics.map(n=><td key={n} className="portfolio-occupancy-cell"><PricingOccupancy window={row.windows[n]}/></td>)}
       {bounds&&<td>{money(row.floorCents)}</td>}<td className="portfolio-base"><b title={!row.configured?'Draft base price':undefined}>{money(row.baseCents)}</b></td>{bounds&&<td>{money(row.ceilingCents)}</td>}
       {showConnection&&<td><span className="portfolio-connection-state" data-connected={row.mode==='helm_direct'||undefined}>{row.mode==='helm_direct'?'Helm direct':'Compare only'}</span><span className="portfolio-row-note">{row.lastAppliedAt?`Published ${etStamp(row.lastAppliedAt)}`:row.mode==='helm_direct'?'Manual publish':'Publishing off'}</span></td>}
       <td>{openLink(row,true)}</td>
     </tr>)}</tbody></table></div>
     {!visible.length&&<div className="portfolio-empty"><EmptyState>{rows.length?'No listings match these filters.':'No active listings found.'}</EmptyState></div>}
+    </div>
     <footer className="portfolio-footer"><details className="portfolio-method"><summary>Sources & methodology</summary>
       <p>Adjusted occupancy is booked nights divided by booked plus open nights, starting today in each home’s time zone. Owner blocks are excluded. These are on-the-books figures, not a prediction of final occupancy.</p>
       <p>Market is the average imported daily occupancy for the same bookable dates. Both sources need complete coverage, updated within 36 hours. Missing or stale data shows a dash.</p>
