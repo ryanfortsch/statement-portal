@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useState, useTransition, type ReactNode } from 'react';
 import {
   setLaunchStepStatus,
   setLaunchStepNotes,
@@ -44,6 +44,9 @@ type Props = {
   propertyName?: string;
   /** The home's Guesty listing id, for the open_guesty_listing deep link. */
   guestyListingId?: string | null;
+  /** A step's own tool, rendered under its text (the Cape Ann Elite
+   *  bank-account composer). The page decides who sees it. */
+  children?: ReactNode;
 };
 
 /** The four steps whose action maps to a real property column. For these
@@ -141,6 +144,7 @@ export function LaunchStepCard({
   activatedAt,
   propertyName,
   guestyListingId,
+  children,
 }: Props) {
   const softRefresh = useSoftRefresh();
   const [pending, startTransition] = useTransition();
@@ -302,6 +306,8 @@ export function LaunchStepCard({
                 </div>
               </div>
             )}
+
+            {children}
 
             {/* Deep-link: jumps to the surface where the step's actual
                 work happens (the property edit page, Stay Cape Ann

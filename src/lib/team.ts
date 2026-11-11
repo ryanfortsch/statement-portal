@@ -40,10 +40,12 @@ export type TeamAccess = 'owner' | 'staff';
  * (/api/cron/weekly-brief). Dotti (2026-11-09) and Ryan (2026-11-10).
  * `cleaning_review`: copied on Friday's cleaning review email to the crew
  * (docs/cleaning-reviews.md). Ryan, Allie and Delaney (Dotti, 2026-11-10).
+ * `cleaning_billing`: Cape Ann Elite's billing contact, copied on the
+ * bank-account email a new home sends them (src/lib/cleaner-bank-email.ts).
  * Notices resolve through `src/lib/team-recipients.ts`; nothing in the app
  * should name a teammate's inbox directly.
  */
-export type TeamDuty = 'field_pay' | 'creative' | 'countersign' | 'staff_copy' | 'dispatch' | 'disputes' | 'weekly_brief' | 'cleaning_review';
+export type TeamDuty = 'field_pay' | 'creative' | 'countersign' | 'staff_copy' | 'dispatch' | 'disputes' | 'weekly_brief' | 'cleaning_review' | 'cleaning_billing';
 
 export type TeamMember = {
   email: string;        // canonical id
@@ -99,7 +101,7 @@ export const TEAM_MEMBERS: TeamMember[] = [
     role: 'operations',
     access: 'owner',
     active: true,
-    duties: ['staff_copy', 'disputes', 'cleaning_review'],
+    duties: ['staff_copy', 'disputes', 'cleaning_review', 'cleaning_billing'],
   },
   {
     email: 'dotti@risingtidestr.com',
