@@ -15,11 +15,13 @@
  * server-only call from the masthead path entirely.
  */
 
-import { SessionProvider } from 'next-auth/react';
+import { useEffect } from 'react';
+import { SessionProvider, useSession } from 'next-auth/react';
 import type { Session } from 'next-auth';
 import { ConfirmProvider } from '@/components/ConfirmDialog';
 import { STAFF_VIEW, type HelmView } from '@/lib/helm-access';
 import { HelmViewProvider } from './HelmViewContext';
+import { isWorkspaceEmail, LAST_SIGN_IN_KEY, RESUME_ATTEMPT_KEY } from '@/lib/auth-resume';
 
 /**
  * The root layout hands in the server-side session so client chrome (the
@@ -47,9 +49,29 @@ export function Providers({
 }) {
   return (
     <SessionProvider session={session}>
+      <RememberSignIn />
       <HelmViewProvider view={view ?? STAFF_VIEW}>
         <ConfirmProvider>{children}</ConfirmProvider>
       </HelmViewProvider>
     </SessionProvider>
   );
+}
+
+/**
+ * Remembers who is signed in on this browser, so the sign-in page can bring
+ * the same person back silently if the phone drops the cookie
+ * (src/lib/auth-resume.ts). Sign out forgets it (UserMenu).
+ */
+function RememberSignIn() {
+  const email = useSession().data?.user?.email;
+  useEffect(() => {
+    if (!isWorkspaceEmail(email)) return;
+    try {
+      window.localStorage.setItem(LAST_SIGN_IN_KEY, email);
+      window.localStorage.removeItem(RESUME_ATTEMPT_KEY);
+    } catch {
+      // Private mode or blocked storage: nothing to remember with.
+    }
+  }, [email]);
+  return null;
 }

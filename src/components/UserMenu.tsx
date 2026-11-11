@@ -23,6 +23,7 @@ import { useEffect, useRef, useState } from 'react';
 import { signOut, useSession } from 'next-auth/react';
 import { useHelmView } from './HelmViewContext';
 import { useViewAsSwitch } from './useViewAsSwitch';
+import { LAST_SIGN_IN_KEY } from '@/lib/auth-resume';
 
 export function UserMenu() {
   const { data: session, status } = useSession();
@@ -126,11 +127,21 @@ export function UserMenu() {
               Back to owner view
             </MenuItem>
           )}
-          <MenuItem onPick={() => signOut({ callbackUrl: '/auth/signin' })}>Sign out</MenuItem>
+          <MenuItem onPick={signOutHere}>Sign out</MenuItem>
         </div>
       )}
     </div>
   );
+}
+
+/** Sign out and forget this browser's sign-in, so the sign-in page stays put. */
+function signOutHere() {
+  try {
+    window.localStorage.removeItem(LAST_SIGN_IN_KEY);
+  } catch {
+    // Nothing stored to forget.
+  }
+  void signOut({ callbackUrl: '/auth/signin' });
 }
 
 function MenuItem({ children, onPick, disabled }: { children: React.ReactNode; onPick: () => void; disabled?: boolean }) {
