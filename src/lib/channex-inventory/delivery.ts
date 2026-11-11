@@ -24,6 +24,9 @@ export interface InventoryDeliveryStore {
   begin(token: string, requestDigest: string): Promise<{ status: 'started'; expiresAt: number } | { status: 'blocked' }>;
   record(token: string, requestDigest: string, outcome: DeliveryOutcome): Promise<void>;
 }
+export interface InventoryRecoveryStore extends InventoryDeliveryStore {
+  recover(previousToken: string, token: string): ReturnType<InventoryDeliveryStore['claim']>;
+}
 export interface PreparedInventoryDelivery { send(): Promise<DeliveryOutcome> }
 export interface InventoryDeliveryTransport { prepare(attempt: DeliveryAttempt): Promise<PreparedInventoryDelivery> }
 function validAttempt(input: DeliveryAttempt, now: number) {
@@ -81,9 +84,19 @@ export function createUnmappedInventoryTransport(key: string, fetcher: typeof fe
  * through record(), never through send(). */
 export async function deliverInventoryOnce(store: InventoryDeliveryStore, transport: InventoryDeliveryTransport, token: string, clock = Date.now) {
   z.string().uuid().parse(token);
-  const claimed = await store.claim(token);
+  return dispatchInventoryClaim(store, transport, await store.claim(token), token, clock);
+}
+/** One explicit latest-state recovery, no retry loop. Persist distinct tokens and
+ * refresh the canonical plan first. SQL enforces cooldown, freshness and budget. */
+export async function recoverInventoryOnce(store: InventoryRecoveryStore, transport: InventoryDeliveryTransport, previousToken: string, token: string, clock = Date.now) {
+  z.string().uuid().parse(previousToken); z.string().uuid().parse(token);
+  if (previousToken === token) throw Error('Recovery requires a new token');
+  return dispatchInventoryClaim(store, transport, await store.recover(previousToken, token), token, clock);
+}
+async function dispatchInventoryClaim(store: InventoryDeliveryStore, transport: InventoryDeliveryTransport, claimed: Awaited<ReturnType<InventoryDeliveryStore['claim']>>, token: string, clock: () => number) {
   if (!('attempt' in claimed)) return { status: claimed.status };
   const a = validAttempt(claimed.attempt, clock());
+  if (a.token !== token) throw Error('Delivery claim token mismatch');
   const prepared = await transport.prepare(a);
   const begun = await store.begin(a.token, a.requestDigest);
   if (begun.status !== 'started' || begun.expiresAt !== a.expiresAt || clock() >= begun.expiresAt) return { status: 'blocked' as const };

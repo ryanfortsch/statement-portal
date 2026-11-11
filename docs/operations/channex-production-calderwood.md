@@ -106,7 +106,7 @@ that PriceLabs has connected or populated this production rate.
    read the revision feed, ACK bookings, publish dates or prove initial coverage.
    Keep staging credentials and the staging worker isolated. The production
    consumer still needs complete upstream coverage/recovery, provider acceptance
-   and latest-state recovery handling, and an operational failure surface before activation. The dormant
+   and reviewed recovery orchestration, and an operational failure surface before activation. The dormant
    dispatch ledger and transport below now preserve exact requests, leases,
    ambiguous outcomes and retry pacing. They are not wired to a production worker.
    Durable canonical-input planning is described below.
@@ -273,7 +273,8 @@ has a maximum 30-second lease; both claim and the one-use send checkpoint reuse
 the planner's complete validation. Concurrent workers cannot obtain two send
 permits. A lost checkpoint response does not authorize a POST. Source changes
 before the checkpoint fence the old plan; changes after it require a subsequent
-plan once Channex acceptance is durably recorded. An unknown outcome still blocks.
+plan once Channex acceptance is durably recorded. An unknown outcome blocks normal
+claims until the explicit recovery operation below or an authentic receipt.
 
 The transport is currently limited to the closed, unmapped production target.
 Its GET preflight verifies property/room/rate identities and no channels, then
@@ -291,14 +292,31 @@ attempt, provider GET or POST. Superseded tokens cannot replay old bytes; source
 coverage, authority and freshness are revalidated before either deduplication or
 a new send permit. New attempts still obey persisted pacing and serialization.
 
-Leased, submitting and uncertain attempts remain mutually exclusive. Timeouts and
-unknown outcomes still block across restarts and disable/enable. There is no
-automatic timeout retirement or production task poller. Latest-state recovery
-from uncertainty remains a separate unimplemented launch requirement. Calendar
-GET equality and an accepted receipt are not OTA delivery proof. The status
-counter `unresolved` counts transport uncertainty; `settlementEnabled` stays false.
-The migration refuses installation on enabled scopes or existing attempt history
-and preserves all gates and permissions.
+Migration `20261111020000_channex_latest_state_recovery.sql` adds an explicit,
+dormant recovery operation. `recoverInventoryOnce` uses a persisted previous token
+and distinct replacement token, then the same preflight and one-use send checkpoint.
+It requires the latest fully validated calendar plan, the old lease expiry plus
+60 seconds, persisted pacing and the existing five-claims-per-30-minutes limit.
+At most three consecutive recoveries are allowed; only a current accepted receipt
+resets that budget. Cooldown is a local worker guard, not proof that a Channex task
+has completed. No scheduler, public route or production task poller invokes recovery.
+
+Retirement and the new lease commit atomically. The original exact bytes and unknown
+outcome remain in history, linked to the replacement. A lost recovery response can
+resume only that same linked lease. Competing tokens cannot produce a second lease.
+An authentic late definitive response advances an ordering generation, invalidating
+prepared sends and exact-plan acceptance deduplication from the prior generation.
+If the replacement had already been accepted, the next claim reasserts the latest
+absolute state; it never replays the old request. Late 429 and 401 responses retain
+backoff and credential blocking. This does not guarantee unobserved OTA ordering.
+
+Only unsuperseded leased/submitting/uncertain attempts are mutually exclusive.
+The status counter `unresolved` includes superseded unknown history as well as the
+current attempt; it is not a count of currently occupied send lanes. Calendar GET
+equality and accepted receipts are not OTA delivery proof; `settlementEnabled`
+stays false. The migration refuses enabled scopes or existing attempt history and
+preserves all gates and permissions. Runtime recovery orchestration and a clear
+operational display of current versus historical uncertainty remain launch work.
 
 Only an exact documented 429 rejection permits a new attempt after a persisted
 backoff (at least 60 seconds, up to 24 hours). A 401 stops further claims pending
@@ -316,7 +334,9 @@ Tests cover exact saved bytes across the TypeScript/SQL boundary, concurrent
 send checkpoints, concurrent canonical writes, stale plans, expired workers,
 lost responses, exact-plan deduplication, a later changed 500-day plan, concurrent
 post-acceptance claims, expired coverage, 429 pacing, credential rejection,
-strict payload shapes and permissions. Provider tests use synthetic replies. No live inventory POST is
+competing recoveries, hard recovery exhaustion, lost recovery responses, late
+receipts before and after replacement acceptance, strict payload shapes and
+permissions. Provider tests use synthetic replies. No live inventory POST is
 needed or performed to deploy this dormant batch.
 
 ## Read-only booking comparison
@@ -675,9 +695,10 @@ clarifies the production availability contract:
 
 The 10 November acceptance migration now permits fresh later plans after a clean
 acceptance and suppresses duplicate submissions of the exact current plan. The
-uncertain-outcome path remains quarantined: before enabling it, implement and
-review recovery from the latest intended absolute state, preserving serialization
-and freshness fencing, and expose uncertain channel state for operations. There
+uncertain-outcome path now has dormant bounded recovery from the latest intended
+absolute state, preserving serialization, immutable history and freshness fencing.
+Before enabling it, review runtime recovery orchestration and expose current and
+historical uncertainty for operations. There
 is no settlement RPC or task poller. Historical calendar equality must not be
 called OTA delivery proof. Do not add a production task-status poller or simply
 unpark old attempts.
