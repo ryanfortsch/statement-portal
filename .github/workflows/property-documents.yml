@@ -29,6 +29,9 @@ on:
       - 'scripts/cleaner-stay-portal-smoke.mjs'
       - 'scripts/tests/layout-field-photos*'
       - 'scripts/tests/cleaner-digest-enrollment.sql'
+      - 'scripts/tests/calderwood-guest-count-save.sql'
+      - 'scripts/tests/calderwood-guest-count-concurrency.mjs'
+      - 'supabase/migrations/20261111160000_calderwood_guest_count_save.sql'
       - 'supabase/migrations/20261111140000_cleaner_daily_digest_enrollment.sql'
       - 'supabase/migrations/20260929151500_atomic_inspection_layout_and_field_photos.sql'
       - '.github/workflows/property-documents.yml'
@@ -146,3 +149,8 @@ jobs:
         run: bash scripts/tests/layout-field-photos-concurrency.sh
       - name: Verify cleaner daily enrollment preserves existing recipients
         run: psql -v ON_ERROR_STOP=1 -f scripts/tests/cleaner-digest-enrollment.sql
+      - name: Verify atomic, scoped guest count saves
+        run: |
+          createdb helm_synthetic_cleaner_counts
+          PGDATABASE=helm_synthetic_cleaner_counts psql -v ON_ERROR_STOP=1 -f scripts/tests/calderwood-guest-count-save.sql
+          PGDATABASE=helm_synthetic_cleaner_counts node scripts/tests/calderwood-guest-count-concurrency.mjs

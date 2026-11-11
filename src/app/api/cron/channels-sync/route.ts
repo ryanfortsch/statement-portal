@@ -8,6 +8,7 @@ import { loadHelmRunPropertyIds } from '@/lib/pms-guards';
 import { mirrorWindow, writeHelmCalendarMirror } from '@/lib/helm-calendar-mirror';
 import { ensureOtaThreadForBooking } from '@/lib/helm-inbox';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { detectExtensionHolds } from '@/lib/extension-holds';
 
 export const maxDuration = 300;
 export const dynamic = 'force-dynamic';
@@ -130,6 +131,26 @@ async function syncCalendarWindow(helmRunIds: ReadonlySet<string>): Promise<Reco
   }
 }
 
+/**
+ * A paid extension reaches Rosa's schedule only as a Guesty hold (the
+ * concierge never alters the reservation), and detectExtensionHolds is
+ * what moves the checkout. It ran only at the afternoon digest cron and
+ * just before the evening send, so an extension paid in the morning showed
+ * the old checkout on her live page until mid-afternoon. It runs here too,
+ * right after the mirror it reads was refreshed, so the schedule moves
+ * within half an hour of the hold (Dotti, 2026-11-11). Never throws: the
+ * iCal import's result does not depend on it.
+ */
+async function detectHoldsAfterRefresh(calendarDays: Record<string, unknown>): Promise<Record<string, unknown>> {
+  if ('error' in calendarDays || 'skipped' in calendarDays) return { skipped: 'calendar_not_refreshed' };
+  try {
+    const r = await detectExtensionHolds(supabaseAdmin);
+    return { applied: r.applied, proposed: r.proposed, retracted: r.retracted, errors: r.errors.slice(0, 3) };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 async function run(request: NextRequest) {
   const denied = await authorizeCron(request);
   if (denied) return denied;
@@ -146,8 +167,12 @@ async function run(request: NextRequest) {
     // in sync_status and returned, never thrown: a Guesty hiccup must not
     // mark the iCal import run as failed too.
     const calendarDays = await syncCalendarWindow(helmRunIds);
+    const extensionHolds = await detectHoldsAfterRefresh(calendarDays);
     const otaThreads = await ensureOtaThreads(helmRunIds);
-    return NextResponse.json({ ok: true, ...result, helm_calendar: helmCalendar, calendar_days: calendarDays, ota_threads: otaThreads });
+    return NextResponse.json({
+      ok: true, ...result, helm_calendar: helmCalendar, calendar_days: calendarDays,
+      extension_holds: extensionHolds, ota_threads: otaThreads,
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     // Tolerate the pre-migration window: while 20260507b hasn't been

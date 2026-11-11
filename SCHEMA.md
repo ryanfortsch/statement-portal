@@ -138,6 +138,11 @@ never key per-stay logic on `bookings.id`.
   `money_changed`, `feed_moved`, `note`) with `actor`, `before` and
   `after` jsonb. Written by the three RPCs and by the Channels actions.
   Read on the booking detail page. Service role only.
+  `helm_save_calderwood_guest_counts` fills missing `bookings.num_guests` and
+  appends `guest_changed` events atomically for the owner-only Calderwood cleaner
+  preview. It requires two fresh Guesty reads upstream, then rechecks authority,
+  unique source identity and unchanged canonical rows under locks. It leaves
+  existing counts alone; this is an explicit backfill, not continuous count sync.
 - **`helm_airbnb_bookings` private schema**: production Channex scope, remote-to-canonical
   booking links, allowlisted revision receipts, and configuration-check status. The
   November compatibility migration adds a strict guest contact/address/notes projection

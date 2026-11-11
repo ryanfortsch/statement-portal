@@ -24,7 +24,11 @@ import { StayCard } from './StayCard';
  *
  * No web-app manifest here: the installed app would open this link, which
  * stops working at checkout, and the manifest's start URL would put the
- * home's permanent token in a page the stay link alone can open.
+ * home's permanent token in a page the stay link alone can open. It has to
+ * be an explicit null: a page that leaves the key out inherits the root
+ * layout's Helm manifest, and a guest's Add to Home Screen then installs
+ * Helm and opens its sign-in page. The Helm name and standalone mode are
+ * overridden for the same reason.
  */
 export const dynamic = 'force-dynamic';
 
@@ -39,8 +43,12 @@ function appOf(view: Awaited<ReturnType<typeof loadGuestStay>>): GuestApp | null
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const { stay } = await params;
   const app = appOf(await load(stay));
+  const name = app?.title ?? 'Stay Cape Ann';
   return {
     title: app ? `${app.title} · Stay Cape Ann` : 'Stay Cape Ann',
+    applicationName: name,
+    manifest: null,
+    appleWebApp: { capable: false, title: name },
     description: 'Your stay: arrival steps, the door, Wi-Fi, checkout, and Cape Ann nearby.',
     robots: { index: false, follow: false, googleBot: { index: false, follow: false } },
     referrer: 'no-referrer',
