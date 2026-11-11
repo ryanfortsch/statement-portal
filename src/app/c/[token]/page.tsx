@@ -20,7 +20,7 @@ import { canReadCalderwoodStays, calderwoodAccessUnchanged, CLEANER_STAY_ACCESS_
  * (each recipient's link carries their own token) and bookmarkable: it
  * renders the LIVE merged schedule (bookings + Helm adjustments +
  * per-property times) on every load, so a text sent yesterday at 4pm is
- * still true at 7am. Portuguese-first, phone-first, zero chrome.
+ * still true at 7am. Uses the recipient's saved language, phone-first, zero chrome.
  *
  * Scoped to the recipient: the schedule is built from THEIR row's scope
  * (an explicit property list, or every home in their region), so Luana's
@@ -35,7 +35,7 @@ import { canReadCalderwoodStays, calderwoodAccessUnchanged, CLEANER_STAY_ACCESS_
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: 'Agenda de limpezas · Rising Tide',
+  title: 'Cleaning schedule · Agenda de limpezas · Rising Tide',
   robots: { index: false, follow: false, googleBot: { index: false, follow: false } },
 };
 
@@ -45,24 +45,27 @@ function etHourNow(): number {
   );
 }
 
-function ptDayShort(date: string): string {
-  return new Intl.DateTimeFormat('pt-BR', { weekday: 'short', day: 'numeric', timeZone: 'UTC' })
+function dayShort(date: string, english: boolean): string {
+  return new Intl.DateTimeFormat(english ? 'en-US' : 'pt-BR', { weekday: 'short', day: 'numeric', timeZone: 'UTC' })
     .format(new Date(`${date}T12:00:00Z`))
     .replace('.', '');
 }
 
-function ptDayLong(date: string): string {
-  return new Intl.DateTimeFormat('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' }).format(
+function dayLong(date: string, english: boolean): string {
+  return new Intl.DateTimeFormat(english ? 'en-US' : 'pt-BR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' }).format(
     new Date(`${date}T12:00:00Z`),
   );
 }
 
 /** "5 a 11 de out", or "26 de out a 1 de nov" across a month. */
-function ptRange(start: string, end: string): string {
+function dateRange(start: string, end: string, english: boolean): string {
   const f = (x: string) =>
-    new Intl.DateTimeFormat('pt-BR', { day: 'numeric', month: 'short', timeZone: 'UTC' })
+    new Intl.DateTimeFormat(english ? 'en-US' : 'pt-BR', { day: 'numeric', month: 'short', timeZone: 'UTC' })
       .format(new Date(`${x}T12:00:00Z`))
       .replace(/\./g, '');
+  if (english) return start.slice(0, 7) === end.slice(0, 7)
+    ? `${f(start)}–${Number(end.slice(8))}`
+    : `${f(start)}–${f(end)}`;
   return start.slice(0, 7) === end.slice(0, 7)
     ? `${Number(start.slice(8))} a ${f(end)}`
     : `${f(start)} a ${f(end)}`;
@@ -86,6 +89,7 @@ export default async function CleanerSchedulePage({
     .maybeSingle();
   if (!recipientRow) notFound();
   const recipient = shapeRecipient(recipientRow as Parameters<typeof shapeRecipient>[0]);
+  const english = recipient.language === 'en';
   const calderwoodPortal = recipient.property_ids.includes('65_calderwood');
   // The pilot's checkout link uses the same revocable access as its arrival
   // report. Existing regional crew links keep their original access contract.
@@ -107,21 +111,21 @@ export default async function CleanerSchedulePage({
     return (
       <>
         <style>{css}</style>
-        <div className="rt-cl-page">
+        <div className="rt-cl-page" lang={english ? 'en' : 'pt-BR'}>
           <header className="rt-cl-mast">
             <div className="rt-cl-brand">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/rising-tide-logo.png" alt="Rising Tide" />
               <div>
                 <div className="rt-cl-brandname">Rising Tide</div>
-                <div className="rt-cl-brandsub">Agenda de limpezas · cleaning schedule</div>
+                <div className="rt-cl-brandsub">{english ? 'Cleaning schedule' : 'Agenda de limpezas · cleaning schedule'}</div>
               </div>
             </div>
           </header>
           <div className="rt-cl-empty" style={{ borderColor: 'var(--signal)' }}>
             <div className="rt-cl-emptymark">!</div>
-            Agenda indisponível agora. Tente de novo em um minuto.
-            <span>Schedule unavailable right now. Please try again in a minute.</span>
+            {english ? 'Schedule unavailable right now. Please try again in a minute.' : 'Agenda indisponível agora. Tente de novo em um minuto.'}
+            {!english && <span>Schedule unavailable right now. Please try again in a minute.</span>}
           </div>
         </div>
       </>
@@ -198,14 +202,14 @@ export default async function CleanerSchedulePage({
   return (
     <>
       <style>{css}</style>
-      <div className="rt-cl-page">
+      <div className="rt-cl-page" lang={english ? 'en' : 'pt-BR'}>
         <header className="rt-cl-mast">
           <div className="rt-cl-brand">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/rising-tide-logo.png" alt="Rising Tide" />
             <div>
               <div className="rt-cl-brandname">Rising Tide</div>
-              <div className="rt-cl-brandsub">Agenda de limpezas · cleaning schedule</div>
+              <div className="rt-cl-brandsub">{english ? 'Cleaning schedule' : 'Agenda de limpezas · cleaning schedule'}</div>
             </div>
           </div>
         </header>
@@ -215,7 +219,7 @@ export default async function CleanerSchedulePage({
             <a
               href={win.prevStart === today ? `/c/${token}` : `?d=${win.prevStart}`}
               className="rt-cl-weeknav"
-              aria-label="Semana anterior / previous week"
+              aria-label={english ? 'Previous week' : 'Semana anterior / previous week'}
             >
               ‹
             </a>
@@ -223,10 +227,10 @@ export default async function CleanerSchedulePage({
             <span className="rt-cl-weeknav is-off" aria-hidden="true">‹</span>
           )}
           <div className="rt-cl-weeklabel">
-            {win.start === today ? 'esta semana' : ptRange(win.start, days[days.length - 1].date)}
+            {win.start === today ? (english ? 'this week' : 'esta semana') : dateRange(win.start, days[days.length - 1].date, english)}
           </div>
           {win.nextStart ? (
-            <a href={`?d=${win.nextStart}`} className="rt-cl-weeknav" aria-label="Próxima semana / next week">
+            <a href={`?d=${win.nextStart}`} className="rt-cl-weeknav" aria-label={english ? 'Next week' : 'Próxima semana / next week'}>
               ›
             </a>
           ) : (
@@ -235,13 +239,14 @@ export default async function CleanerSchedulePage({
         </div>
 
         {canReadCalderwoodStays(recipientRow) && <a href={`/c/${token}/stays`} style={{ display:'inline-flex', alignItems:'center', minHeight:44, marginTop:10, fontSize:13 }}>
-          {recipient.language === 'en' ? 'Arrivals & departures →' : 'Entradas e saídas →'}
+          {english ? 'Arrivals & departures →' : 'Entradas e saídas →'}
         </a>}
 
-        <nav className="rt-cl-days" aria-label="Dias">
+        <nav className="rt-cl-days" aria-label={english ? 'Days' : 'Dias'}>
           {days.map((day) => {
             const label =
-              day.date === today ? 'hoje' : day.date === addDays(today, 1) ? 'amanhã' : ptDayShort(day.date);
+              day.date === today ? (english ? 'today' : 'hoje')
+                : day.date === addDays(today, 1) ? (english ? 'tomorrow' : 'amanhã') : dayShort(day.date, english);
             const active = day.date === selected.date;
             return (
               <a key={day.date} href={`?d=${day.date}`} className={`rt-cl-day${active ? ' is-active' : ''}`}>
@@ -253,7 +258,7 @@ export default async function CleanerSchedulePage({
         </nav>
 
         <div className="rt-cl-datehead">
-          <h1>{ptDayLong(selected.date)}</h1>
+          <h1>{dayLong(selected.date, english)}</h1>
         </div>
 
         {/* Cancelled stops lead, as in the text: the crew had them planned. */}
@@ -269,7 +274,7 @@ export default async function CleanerSchedulePage({
                     {r.city ? `, ${r.city}` : ''}
                   </div>
                   <div className="rt-cl-tags">
-                    <span className="rt-cl-tag is-skip">não limpar · cancelado</span>
+                    <span className="rt-cl-tag is-skip">{english ? 'do not clean · cancelled' : 'não limpar · cancelado'}</span>
                   </div>
                 </div>
               </li>
@@ -280,7 +285,7 @@ export default async function CleanerSchedulePage({
         {selected.rows.length === 0 && !selected.skipped?.length ? (
           <div className="rt-cl-empty">
             <div className="rt-cl-emptymark">☀</div>
-            Nenhum check-out neste dia.
+            {english ? 'No checkouts on this day.' : 'Nenhum check-out neste dia.'}
           </div>
         ) : (
           <ol className="rt-cl-list">
@@ -290,8 +295,8 @@ export default async function CleanerSchedulePage({
               <li key={`${r.propertyId}|${r.checkIn}`} className="rt-cl-row">
                 <div className="rt-cl-time">
                   {clean ?? r.time}
-                  {clean && <div className="rt-cl-sub">saída {r.time}</div>}
-                  {!clean && r.adjustment?.adjustedTime && <div className="rt-cl-was">era {r.defaultTime}</div>}
+                  {clean && <div className="rt-cl-sub">{english ? 'checkout' : 'saída'} {r.time}</div>}
+                  {!clean && r.adjustment?.adjustedTime && <div className="rt-cl-was">{english ? 'was' : 'era'} {r.defaultTime}</div>}
                 </div>
                 <div className="rt-cl-body">
                   <div className="rt-cl-name">{r.propertyName}</div>
@@ -300,27 +305,26 @@ export default async function CleanerSchedulePage({
                     {r.city ? `, ${r.city}` : ''}
                   </div>
                   <div className="rt-cl-tags">
-                    {r.ownerHold && <span className="rt-cl-tag">uso do proprietário</span>}
+                    {r.ownerHold && <span className="rt-cl-tag">{english ? 'owner stay' : 'uso do proprietário'}</span>}
                     {r.sameDayTurnover && (
-                      <span className="rt-cl-tag is-sameday">mesmo dia · próx. entrada {r.nextCheckinTime}</span>
+                      <span className="rt-cl-tag is-sameday">{english ? 'same day · next check-in' : 'mesmo dia · próx. entrada'} {r.nextCheckinTime}</span>
                     )}
-                    {r.adjustment?.adjustedTime && <span className="rt-cl-tag">horário ajustado</span>}
+                    {r.adjustment?.adjustedTime && <span className="rt-cl-tag">{english ? 'time adjusted' : 'horário ajustado'}</span>}
                     {r.adjustment?.adjustedDate && r.adjustment.adjustedDate !== r.baseCheckOut && (
-                      <span className="rt-cl-tag">estadia estendida</span>
+                      <span className="rt-cl-tag">{english ? 'stay extended' : 'estadia estendida'}</span>
                     )}
                     {r.adjustment?.drifted && (
-                      <span className="rt-cl-tag is-drift">atenção: Guesty mudou, confirmar</span>
+                      <span className="rt-cl-tag is-drift">{english ? 'Guesty changed this stay · please confirm' : 'atenção: Guesty mudou, confirmar'}</span>
                     )}
                     {clean && clean < r.time && (
-                      <span className="rt-cl-tag is-sameday">atenção: saída só às {r.time}</span>
+                      <span className="rt-cl-tag is-sameday">{english ? 'wait until checkout at' : 'atenção: saída só às'} {r.time}</span>
                     )}
                     {pickupToday.has(r.propertyId) && (
-                      <span className="rt-cl-tag is-drift">coleta de lixo hoje: recolher as lixeiras</span>
+                      <span className="rt-cl-tag is-drift">{english ? 'trash pickup today · bring bins in' : 'coleta de lixo hoje: recolher as lixeiras'}</span>
                     )}
                     {/* No tag for the ordinary case: on this page every tag
                         means "do something", and a row with nothing to say
-                        says nothing. Tags are Portuguese only (#1641); the
-                        English stays in the brand line. */}
+                        says nothing. Tags follow the recipient's language. */}
                   </div>
                 </div>
               </li>
@@ -332,7 +336,7 @@ export default async function CleanerSchedulePage({
 
         <footer className="rt-cl-foot">
           Rising Tide STR · {recipient.region === CAPE_ANN_REGION ? 'Gloucester MA' : regionLabel(recipient.region)}
-          <span>Dúvidas? Fale com a equipe pelo número de sempre.</span>
+          <span>{english ? 'Questions? Contact the team using your usual number.' : 'Dúvidas? Fale com a equipe pelo número de sempre.'}</span>
         </footer>
       </div>
     </>
