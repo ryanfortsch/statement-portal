@@ -20,7 +20,7 @@ export default function PricingDraftControls({ref,state,propertyId,today,commit}
   const rows=scope==='group'?(group?.overrides??[]):home.overrides;
   function replaceRows(next:PricingOverride[]){return change(scope==='group'?{...state,groups:state.groups.map(g=>g.id===group?.id?{...g,overrides:next}:g)}:{...state,homes:{...state.homes,[propertyId]:{...home,overrides:next,version:home.version+1}}});}
   function saveOverride(){try{const row=pricingOverrideSchema.parse(form),next=pricingOverridesSchema.parse([...rows.filter(r=>r.id!==row.id),row]);if(replaceRows(next))setForm(null);}catch(e){setError(pricingDraftError(e));}}
-  async function confirmIn(dialog:typeof dates,options:AskOptions){dialog.current?.close();const yes=await ask(options);if(!yes)dialog.current?.showModal();return yes;}
+  async function confirmIn(dialog:typeof dates,options:AskOptions){dialog.current?.close();const yes=await ask(options);dialog.current?.showModal();return yes;}
   async function closeDates(){if(form&&!await confirmIn(dates,{title:'Discard this override?',body:'This date override has not been saved.',confirmLabel:'Discard'}))return;setForm(null);dates.current?.close();}
   const total=home.overrides.length+(group?.overrides.length??0);
   return <div className="pricing-draft-tools">
