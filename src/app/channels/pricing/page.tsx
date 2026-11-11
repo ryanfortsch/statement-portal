@@ -32,9 +32,10 @@ export default async function PricingPage({searchParams}:{searchParams:Promise<R
     </header><main>
     {error&&<p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-5">{error}</p>}
     {params.property&&!selected&&<EmptyState>Home not found in the active portfolio.</EmptyState>}
-    {params.property&&<PricingBackLink view={view} selectedId={selected?.id} homes={fleet.map(p=>({id:p.id,name:p.name}))}/>}
+    {params.property&&!workspace&&<PricingBackLink view={view} selectedId={selected?.id} homes={fleet.map(p=>({id:p.id,name:p.name}))}/>}
     {portfolio&&<PricingPortfolio rows={portfolio} initialView={view}/>}
     {workspace&&selected&&<PricingWorkbench key={selected.id} propertyId={selected.id} name={selected.name}
+      navigation={<PricingBackLink view={view} selectedId={selected.id} homes={fleet.map(p=>({id:p.id,name:p.name}))}/>}
       authority={selected.calendar_authority} initialPolicy={workspace.policy} initialSnapshot={workspace.snapshot}
       initialProfile={workspace.profile} initialRuns={workspace.runs} initialEvidenceVersion={workspace.context.evidence?.version??0}
       initialObservations={history?.observations} initialTracking={history?.tracking} scheduledCaptureEnabled={history?.scheduledCaptureEnabled} />}

@@ -1,5 +1,5 @@
 'use client';
-import {useMemo,useState} from 'react';
+import {useEffect,useMemo,useState} from 'react';
 import {Button} from '@/components/Button';
 import {useConfirm} from '@/components/ConfirmDialog';
 import {hasUnsavedWork} from '@/lib/unsaved-work';
@@ -19,6 +19,7 @@ export default function PricingDemo({fixtures}:{fixtures:ReturnType<typeof creat
   const [selected,setSelected]=useState<string|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
   const [evaluatedAt,setEvaluatedAt]=useState(fixtures[0]?.fixture.snapshot.observedAt??new Date().toISOString());
   const {ask}=useConfirm();
+  useEffect(()=>{window.scrollTo({top:0,behavior:'instant'});},[selected]);
   const rows=fixtures.map(f=>pricingPortfolioRow(f.home,workspaces[f.home.id],f.fixture.snapshot.today,new Date(evaluatedAt)));
   const home=fixtures.find(f=>f.home.id===selected)?.home,workspace=selected?workspaces[selected]:null;
   async function returnToPortfolio(next:string|null=null) {
@@ -30,10 +31,11 @@ export default function PricingDemo({fixtures}:{fixtures:ReturnType<typeof creat
     finally {setBusy(false);}
   }
   return <>
-    <div hidden={selected!==null}><PricingPortfolio rows={rows} sample onOpen={setSelected}/></div>
-    {home&&workspace&&<><div className="helm-pricing portfolio-back"><Button variant="quiet" size="sm" disabled={busy} onClick={()=>void returnToPortfolio()}><PricingIcon name="previous"/>All listings</Button><label className="pricing-demo-switch"><span className="sr-only">Switch listing</span><select value={home.id} disabled={busy} onChange={e=>void returnToPortfolio(e.target.value)}>{fixtures.map(f=><option key={f.home.id} value={f.home.id}>{f.home.name}</option>)}</select></label></div>
+    <div hidden={selected!==null}><PricingPortfolio rows={rows} onOpen={setSelected}/></div>
+    {home&&workspace&&<>
       {error&&<p role="alert">{error}</p>}
       <PricingWorkbench key={home.id} propertyId={home.id} name={home.name} authority={home.authority} initialPolicy={workspace.policy}
+        navigation={<div className="pricing-listing-navigation"><Button variant="quiet" className="pricing-back-button" aria-label="All listings" title="All listings" disabled={busy} onClick={()=>void returnToPortfolio()}><PricingIcon name="previous"/></Button><label className="pricing-title-select"><span className="sr-only">Switch listing</span><select value={home.id} disabled={busy} onChange={e=>void returnToPortfolio(e.target.value)}>{fixtures.map(f=><option key={f.home.id} value={f.home.id}>{f.home.name}</option>)}</select></label></div>}
         initialSnapshot={workspace.snapshot} initialProfile={workspace.profile} initialRuns={workspace.runs} initialEvidenceVersion={workspace.evidenceVersion}
         initialObservations={workspace.observations} initialTracking={workspace.tracking} services={services.get(home.id)!}/></>}
   </>;

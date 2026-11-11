@@ -1,4 +1,5 @@
 'use client';
+import PricingIcon from './PricingIcon';
 import {useTransition} from 'react';
 import Link from 'next/link';
 import {useRouter} from 'next/navigation';
@@ -14,10 +15,10 @@ export default function PricingBackLink({view,selectedId,homes=[]}:{view:Pricing
     startTransition(()=>router.push(pricingPortfolioHref(view,id)));
   }
   const href=pricingPortfolioHref(view);
-  return <div className="helm-pricing portfolio-back"><Link href={href} prefetch={false} onNavigate={event=>{
+  return <div className="pricing-listing-navigation"><Link className="pricing-back-button" aria-label="All listings" title="All listings" href={href} prefetch={false} onNavigate={event=>{
     if(!hasUnsavedWork())return;
     event.preventDefault();
     void ask({title:'Discard unsaved changes?',body:'Saved rules stay with this home. Unsaved edits will be discarded when you return to the dashboard.',confirmLabel:'Discard and return'})
       .then(discard=>{if(discard)router.push(href);});
-  }}>← All listings</Link>{selectedId&&<label className="pricing-demo-switch"><span className="sr-only">Switch listing</span><select value={selectedId} disabled={pending} onChange={e=>void switchHome(e.target.value)}>{homes.map(h=><option key={h.id} value={h.id}>{h.name}</option>)}</select></label>}</div>;
+  }}><PricingIcon name="previous"/></Link>{selectedId&&<label className="pricing-title-select"><span className="sr-only">Switch listing</span><select value={selectedId} disabled={pending} onChange={e=>void switchHome(e.target.value)}>{homes.map(h=><option key={h.id} value={h.id}>{h.name}</option>)}</select></label>}</div>;
 }

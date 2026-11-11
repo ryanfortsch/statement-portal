@@ -296,8 +296,9 @@ The layout follows PriceLabs' [listing dashboard](https://help.pricelabs.co/port
 one row per home, review action, prices, connection and visible occupancy comparison.
 The compact table shows 30-, 60- and 90-day adjusted occupancy together, with each
 market benchmark beside it. Metrics can add seven days or hide horizons. Search,
-Below market and missing-data quick filters, connection filters and sorting are
-functional. The listing column stays fixed when scrolling horizontally. There are
+a single Filters menu (including below-market, missing-data, connection and sorting
+controls), and metric selection are functional. The listing column stays fixed
+when scrolling horizontally. There are
 no portfolio summary cards or alternate mobile cards.
 
 Metric definitions are explicit. PriceLabs' documented [Total Occupancy](https://help.pricelabs.co/portal/en/kb/articles/performance-metrics)
@@ -386,20 +387,24 @@ includes rate checks and missing data; it excludes routine bookings, blocks and
 manual overrides. Table view uses the same month and filter. Dates outside the
 forecast appear unavailable rather than fabricated as open.
 The property layout follows the observed [PriceLabs calendar](https://help.pricelabs.co/portal/en/kb/articles/pricing-calendar):
-minimum/base/maximum inputs, Save & refresh and an Applied customizations sidebar
-sit beside the calendar. Edit opens a modal with the existing detailed rules and
-connection controls. On phones, the price inputs sit above the calendar. A listing
-switcher preserves saved per-home state and guards unsaved changes.
+minimum/base/maximum inputs, Save & refresh and a Customizations sidebar
+sit beside the calendar. Base price has primary emphasis, with minimum and maximum
+beneath it. Edit opens a modal with the existing detailed rules and connection
+controls. On phones, the price inputs sit above the calendar. The title doubles
+as the listing switcher, with a back button alongside it. Switching preserves saved
+per-home state and guards unsaved changes. The demo resets scroll position on navigation.
 
-Calendar colors describe prices relative to the base (below 85%, 85–115%, above
-115%), not inferred market demand. Booked, blocked, manual and review states remain
-separate. Current-month weeks entirely before today are omitted. Selecting a night
+The calendar uses neutral surfaces and explicit booked, blocked, manual and review
+states. The arbitrary relative-price color bands and their legend have been removed.
+Current-month weeks entirely before today are omitted. Selecting a night
 opens a keyboard-accessible detail drawer; closing returns focus to that night.
 
 Calendar, Neighborhood data and Booking insights are the primary views. The
 neighborhood view displays price and market occupancy comparisons. History and
 Data & model are under More. Draft rules and imports survive view changes.
 Save & refresh saves the policy and reloads current data; it does not publish.
+The publishing footer appears only for an explicitly connected direct-rate profile;
+comparison mode retains access to connection settings in the header and customizations.
 A fresh review resets the calendar filter and states its full date range:
 publication covers eligible nights across that range, not only the displayed month.
 The confirmation repeats the scope. Connection, review, confirmation and undo
