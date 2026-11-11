@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import ts from 'typescript';
 import { hasHelmSession } from '../helm-session.ts';
 import * as access from '../helm-access.ts';
+import * as authResume from '../auth-resume.ts';
 
 // Execute the real proxy with Auth.js and HTTP response boundaries isolated.
 const output = ts.transpileModule(readFileSync(new URL('../../proxy.ts', import.meta.url), 'utf8'), {
@@ -13,6 +14,7 @@ const compiled = { exports: {} as { default?: (req: unknown) => Response | undef
 const mocks: Record<string, unknown> = {
   '@/auth': { auth: (fn: unknown) => fn },
   '@/lib/helm-session': { hasHelmSession },
+  '@/lib/auth-resume': authResume,
   '@/lib/helm-access': access,
   'next/server': { NextResponse: { json: Response.json, redirect: (url: URL, status = 307) => Response.redirect(url, status) } },
 };

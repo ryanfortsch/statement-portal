@@ -71,6 +71,13 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       return session;
     },
   },
+  events: {
+    // Pairs with the proxy's "[auth] google callback" line, which says what
+    // the browser carried in (src/lib/auth-resume.ts). Who signed in, and when.
+    async signIn({ user }) {
+      console.info("[auth] signed in", JSON.stringify({ email: user?.email ?? null }));
+    },
+  },
   pages: {
     signIn: "/auth/signin",
   },
