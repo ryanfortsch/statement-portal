@@ -5,7 +5,7 @@ import { PRODUCTION_DB_URL } from '../channex-production-runtime.ts';
 import { deliveryAttemptSchema, deliveryOutcomeSchema, type InventoryDeliveryStore } from './delivery.ts';
 const claim = z.union([
   z.object({ status: z.enum(['claimed', 'existing']), attempt: deliveryAttemptSchema }).strict(),
-  z.object({ status: z.enum(['disabled', 'blocked', 'stale']) }).strict(),
+  z.object({ status: z.enum(['disabled', 'blocked', 'stale', 'already-accepted']) }).strict(),
 ]);
 const begin = z.union([z.object({ status: z.literal('started'), expiresAt: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER) }).strict(),
   z.object({ status: z.literal('blocked') }).strict()]);
