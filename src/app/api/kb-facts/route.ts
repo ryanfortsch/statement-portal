@@ -6,6 +6,9 @@ import { authorizeStayConcierge } from '@/lib/stay-concierge-auth';
 import { civicForProperty } from '@/lib/civic';
 import { isHelmRun } from '@/lib/property-scope';
 import type { HelmPropertyRow } from '@/lib/properties';
+import { selectAllPaged } from '@/lib/paged-select';
+import { guestRoomFacts } from '@/lib/kb-facts-rooms';
+import type { PropertyRoom } from '@/lib/property-rooms-shared';
 
 /**
  * Outbound sync endpoint: the guest-relevant property facts the stay-concierge
@@ -59,7 +62,19 @@ type PropertyRow = {
   smoking_policy: string | null;
   cancellation_policy: string | null;
   house_rules: string | null;
+  // House and systems, Connectivity (2026-11-10). See the payload below.
+  heating: string | null;
+  cooling: string | null;
+  thermostat_brand: string | null;
+  bedrooms: number | null;
+  bathrooms: number | null;
+  internet_provider: string | null;
+  cable_provider: string | null;
+  num_tvs: number | null;
+  smart_tv: string | null;
 };
+
+type RoomRow = Pick<PropertyRoom, 'id' | 'property_id' | 'room_type' | 'name' | 'sort_order' | 'details' | 'guest_summary' | 'created_at'>;
 
 type NoteRow = { property_id: string; title: string | null; body: string | null };
 
@@ -77,7 +92,7 @@ export async function GET(req: Request) {
   const { data: props, error } = await supabase
     .from('properties')
     .select(
-      'id, name, city, address, wifi_name, wifi_label, wifi_name_2, wifi_label_2, parking, trash_day, recycling_day, trash_notes, has_pack_n_play, has_high_chair, default_checkout_time, guesty_listing_id, title, region, calendar_authority, quiet_hours, max_occupancy, pet_policy, smoking_policy, cancellation_policy, house_rules',
+      'id, name, city, address, wifi_name, wifi_label, wifi_name_2, wifi_label_2, parking, trash_day, recycling_day, trash_notes, has_pack_n_play, has_high_chair, default_checkout_time, guesty_listing_id, title, region, calendar_authority, quiet_hours, max_occupancy, pet_policy, smoking_policy, cancellation_policy, house_rules, heating, cooling, thermostat_brand, bedrooms, bathrooms, internet_provider, cable_provider, num_tvs, smart_tv',
     )
     .eq('is_active', true);
   if (error) {
@@ -120,6 +135,41 @@ export async function GET(req: Request) {
   for (const n of (noteData ?? []) as NoteRow[]) {
     if (!notesByProp.has(n.property_id)) notesByProp.set(n.property_id, []);
     notesByProp.get(n.property_id)!.push(n);
+  }
+
+  // Rooms: beds, TVs and their remotes, sofa beds and where their sheets
+  // are, and the one-line guest summary (src/lib/kb-facts-rooms.ts names
+  // exactly what leaves; quirks and notes never do). Ordered like the
+  // property page so the KB section is stable between passes.
+  //
+  // A failed read fails the feed, as the properties read does. The
+  // concierge rewrites each home's whole synced section from this payload,
+  // so sending no rooms would erase the rooms it already has; a 500 makes
+  // its sync skip the pass and keep the last good section.
+  let roomRows: RoomRow[] = [];
+  if (ids.length > 0) {
+    try {
+      roomRows = await selectAllPaged<RoomRow>(
+        (from, to) =>
+          supabase
+            .from('property_rooms')
+            .select('id, property_id, room_type, name, sort_order, details, guest_summary, created_at')
+            .in('property_id', ids)
+            .order('property_id', { ascending: true })
+            .order('sort_order', { ascending: true })
+            .order('created_at', { ascending: true })
+            .order('id', { ascending: true })
+            .range(from, to),
+        { label: 'kb-facts rooms' },
+      );
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : 'rooms read failed' }, { status: 500 });
+    }
+  }
+  const roomsByProp = new Map<string, RoomRow[]>();
+  for (const r of roomRows) {
+    if (!roomsByProp.has(r.property_id)) roomsByProp.set(r.property_id, []);
+    roomsByProp.get(r.property_id)!.push(r);
   }
 
   const clean = (v: string | null | undefined): string => (v ?? '').trim();
@@ -226,6 +276,21 @@ export async function GET(req: Request) {
       smoking_policy: clean(p.smoking_policy),
       cancellation_policy: clean(p.cancellation_policy),
       house_rules: clean(p.house_rules),
+      // House and systems (2026-11-10). The guest AI answered heat and A/C
+      // questions from listing photos: "TBD (pending from host)" at 17 Beach
+      // while the Facts tab had the answer, and COOL at 4 Middle in late
+      // October. thermostat_code is deliberately NOT here: it is a
+      // credential, like the door codes this endpoint never sends.
+      heating: clean(p.heating),
+      cooling: clean(p.cooling),
+      thermostat_brand: clean(p.thermostat_brand),
+      bedrooms: p.bedrooms ?? null,
+      bathrooms: p.bathrooms ?? null,
+      internet_provider: clean(p.internet_provider),
+      cable_provider: clean(p.cable_provider),
+      num_tvs: p.num_tvs ?? null,
+      smart_tv: clean(p.smart_tv),
+      rooms: guestRoomFacts(roomsByProp.get(p.id) ?? []),
       guest_notes: (notesByProp.get(p.id) ?? [])
         .map((n) => ({ title: clean(n.title), body: clean(n.body) }))
         .filter((n) => n.title || n.body),
