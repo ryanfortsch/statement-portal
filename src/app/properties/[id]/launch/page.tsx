@@ -16,6 +16,7 @@ import { loadLaunchForProperty } from '@/lib/launch-context';
 import { ensureLaunchStepsSeeded } from './actions';
 import { LaunchStepCard } from './LaunchStepCard';
 import { StripeAccountCheck } from './StripeAccountCheck';
+import { CleanerBankEmail } from './CleanerBankEmail';
 
 export const dynamic = 'force-dynamic';
 
@@ -53,7 +54,8 @@ export default async function PropertyLaunchPage({ params }: { params: Promise<P
   const p = await getProperty(id);
   if (!p) notFound();
   // The Stripe account check reads which account a key reaches and its
-  // charge count: owner money mechanics, so owners only, and on a button.
+  // charge count, and the Cape Ann Elite email carries a full account
+  // number: owner money mechanics, so owners only.
   const owner = await isOwnerSession();
 
   // Backstop seed: if this property was created before the launch checklist
@@ -226,7 +228,13 @@ export default async function PropertyLaunchPage({ params }: { params: Promise<P
                   nextUp={next?.key === step.key}
                   canActivate={step.gate ? canActivate : undefined}
                   activatedAt={step.gate ? (p.activated_at ?? null) : undefined}
-                />
+                >
+                  {/* Carries a full account number, so owners only; staff
+                      see the step and mark it once an owner has sent it. */}
+                  {step.action === 'email_cleaner_bank' && owner && !effectiveByKey.get(step.key)?.resolved && (
+                    <CleanerBankEmail propertyId={p.id} bankLast4={p.bank_last4 ?? null} />
+                  )}
+                </LaunchStepCard>
               ))}
               {/* Stripe account-identity check rides the Financial phase:
                   it verifies the stripe_auto_payouts step's key reaches the

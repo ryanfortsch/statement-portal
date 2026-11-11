@@ -1,5 +1,6 @@
 import { auth } from "@/auth";
 import { hasHelmSession } from "@/lib/helm-session";
+import { describeSignInRequest } from "@/lib/auth-resume";
 import { NextResponse } from "next/server";
 import { apiRequiresOwner, effectiveRole, pathRequiresOwner, NOT_AVAILABLE_PATH, VIEW_AS_COOKIE } from "@/lib/helm-access";
 
@@ -245,6 +246,13 @@ export default auth((req) => {
 
   const { pathname } = req.nextUrl;
 
+  // Evidence for phones that keep losing their sign-in (src/lib/auth-resume.ts):
+  // the Google callback says whether a session cookie was already present.
+  if (pathname === "/api/auth/callback/google") {
+    logSignInEvidence("google callback", req);
+    return;
+  }
+
   // The "/field/" prefix covers contractor sub-routes; the marketplace home
   // is exactly "/field" (no trailing slash), so allow it explicitly too.
   if (pathname === "/field") return;
@@ -278,6 +286,8 @@ export default auth((req) => {
   }
 
   if (!hasHelmSession(req.auth)) {
+    // A prefetch is the router guessing, not a person being sent to sign in.
+    if (!req.headers?.get("next-router-prefetch")) logSignInEvidence("sign-in required", req, pathname);
     const url = req.nextUrl.clone();
     url.pathname = "/auth/signin";
     url.searchParams.set("callbackUrl", req.nextUrl.pathname + req.nextUrl.search);
@@ -295,6 +305,25 @@ export default auth((req) => {
     return NextResponse.redirect(url);
   }
 });
+
+/**
+ * One log line per forced sign-in: which Auth.js cookies the request carried
+ * and the browser kind. Cookie names only, never values. A session cookie
+ * present means the server refused it; absent means the device dropped it.
+ */
+function logSignInEvidence(
+  event: string,
+  req: { cookies: { getAll?: () => { name: string }[] }; headers?: Headers },
+  path?: string,
+) {
+  try {
+    const names = req.cookies.getAll?.().map((c) => c.name) ?? [];
+    const evidence = describeSignInRequest(names, req.headers?.get("user-agent"));
+    console.info(`[auth] ${event}`, JSON.stringify(path ? { path, ...evidence } : evidence));
+  } catch {
+    // Logging must never stand between a person and the sign-in page.
+  }
+}
 
 export const config = {
   // Run middleware on everything except Next.js internals and static assets.

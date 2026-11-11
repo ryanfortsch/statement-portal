@@ -1,5 +1,6 @@
 import { signIn } from "@/auth";
 import { ShipWheel } from "./ShipWheel";
+import { ResumeSignIn } from "./ResumeSignIn";
 
 type SearchParams = { callbackUrl?: string; error?: string };
 
@@ -47,6 +48,8 @@ export default async function SignInPage({
         <div style={{ marginBottom: 36, textAlign: "center" }}>
           <ShipWheel size={112} />
         </div>
+
+        <ResumeSignIn callbackUrl={callbackUrl} error={error} />
 
         {error && (
           <div
@@ -118,6 +121,9 @@ function errorMessage(code: string): string {
       return "Sign-in is restricted to @risingtidestr.com accounts.";
     case "Configuration":
       return "Auth is not configured. Check that AUTH_GOOGLE_ID, AUTH_GOOGLE_SECRET, and AUTH_SECRET are set.";
+    case "OAuthCallbackError":
+      // Usually the silent sign-in (ResumeSignIn): Google wants the person.
+      return "Google needs you to sign in again.";
     case "Verification":
       return "The sign-in link expired or was already used.";
     default:
