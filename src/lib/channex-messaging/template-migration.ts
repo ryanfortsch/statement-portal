@@ -2,18 +2,11 @@ import 'server-only';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { templateFields, MERGE_FIELDS } from '../automations-core.ts';
-import { CALDERWOOD_MESSAGE_WORKFLOWS, type CalderwoodMessageKey } from './preparation-timing.ts';
+import { CALDERWOOD_MESSAGE_WORKFLOWS, MIGRATION_TIMING, type CalderwoodMessageKey } from './preparation-timing.ts';
+export { MIGRATION_TIMING } from './preparation-timing.ts';
 
 // Captured source text is private input, never a source fixture or public artifact.
 // These offsets record the observed configuration. They do not authorize scheduling.
-export const MIGRATION_TIMING = {
-  booking_confirmed: { anchor: 'confirmed_at', minutes: 30 },
-  pre_arrival: { anchor: 'arrival', days: -1, dayMode: 'verify_source_queue' },
-  checkin_day: { anchor: 'arrival', minutes: -60 },
-  pre_checkout: { anchor: 'departure', days: -1, dayMode: 'verify_source_queue' },
-  cleaner_reminder: { anchor: 'arrival', days: -10, dayMode: 'verify_source_queue' },
-  cleaner_arrival: { anchor: 'arrival', minutes: -420 },
-} as const;
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
 const hash = z.string().regex(/^[a-f0-9]{64}$/);
 export const migrationPolicySchema = z.object({

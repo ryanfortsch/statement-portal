@@ -16,6 +16,21 @@ const ruleSchema = z.object({ id: z.uuid(), key: z.string().regex(/^[a-z][a-z0-9
 }).strict();
 export const MESSAGE_RULE_FIELDS = 'id,key,property_id,audience,trigger,offset_days,at_local,timezone,channel_exclusions,delivery,send_mode,min_nights,subject,body,enabled,configured_in_ota,migration_policy';
 export type PreparationRule = z.infer<typeof ruleSchema>;
+/** Keep review/render/scheduling validation aligned with the frozen SQL bundle. */
+export function preparedRulePolicy(r: PreparationRule, now?: number) {
+  const flow = CALDERWOOD_MESSAGE_WORKFLOWS.find(f => f.key === r.key);
+  const policy = preparedPolicy(r.key, r.body, r.migration_policy);
+  if (!flow || !policy || r.property_id !== '65_calderwood' || r.enabled || !r.configured_in_ota
+    || r.send_mode !== 'approve' || r.audience !== flow.audience || r.timezone !== 'America/New_York'
+    || r.trigger !== (flow.audience === 'cleaner' ? 'pre_arrival' : flow.key)
+    || r.delivery !== (flow.audience === 'cleaner' ? 'sms' : 'ota_manual')
+    || r.offset_days !== 0 || r.at_local !== null || r.subject !== null || r.min_nights !== null
+    || r.channel_exclusions.length !== 0 || !r.body.trim()
+    || templateFields(r.body).some(f => !(MERGE_FIELDS as readonly string[]).includes(f))
+    || /[{}]/.test(r.body.replace(/\{\{\s*[a-zA-Z0-9_]+\s*\}\}/g, ''))
+    || (now !== undefined && (!Number.isFinite(now) || Date.parse(policy.capturedAt) > now))) return null;
+  return policy;
+}
 export function parsePreparationRules(value: unknown) {
   const rows = z.array(ruleSchema).max(200).parse(value);
   if (new Set(rows.map(r => r.id)).size !== rows.length
@@ -29,8 +44,7 @@ export function reviewPreparationRules(value: unknown) {
     const r = rows.find(r => r.key === flow.key && r.property_id === '65_calderwood')
       ?? rows.find(r => r.key === flow.key && r.property_id === null);
     if (!r) return { ...flow, source: 'missing' as const, rule: null };
-    const policy = r.property_id === '65_calderwood' && !r.enabled && r.configured_in_ota
-      && r.send_mode === 'approve' ? preparedPolicy(r.key, r.body, r.migration_policy) : null;
+    const policy = preparedRulePolicy(r);
     const fields = templateFields(r.body);
     const unsupportedFieldCount = fields.filter(f => !(MERGE_FIELDS as readonly string[]).includes(f)).length;
     const malformed = /[{}]/.test(r.body.replace(/\{\{\s*[a-zA-Z0-9_]+\s*\}\}/g, ''));

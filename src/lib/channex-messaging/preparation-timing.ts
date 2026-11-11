@@ -10,6 +10,15 @@ export const CALDERWOOD_MESSAGE_WORKFLOWS = [
   { key: 'cleaner_arrival', label: 'Cleaner arrival-day reminder', audience: 'cleaner', offset: '7 hours before arrival' },
 ] as const;
 export type CalderwoodMessageKey = typeof CALDERWOOD_MESSAGE_WORKFLOWS[number]['key'];
+/** One offset contract for capture validation, rehearsal and the migration planner. */
+export const MIGRATION_TIMING = {
+  booking_confirmed: { anchor: 'confirmed_at', minutes: 30 },
+  pre_arrival: { anchor: 'arrival', days: -1, dayMode: 'verify_source_queue' },
+  checkin_day: { anchor: 'arrival', minutes: -60 },
+  pre_checkout: { anchor: 'departure', days: -1, dayMode: 'verify_source_queue' },
+  cleaner_reminder: { anchor: 'arrival', days: -10, dayMode: 'verify_source_queue' },
+  cleaner_arrival: { anchor: 'arrival', minutes: -420 },
+} as const;
 export const MESSAGE_TIMEZONE = 'America/New_York';
 const local = new Intl.DateTimeFormat('en-CA', { timeZone: MESSAGE_TIMEZONE,
   year: 'numeric', month: '2-digit', day: '2-digit', hourCycle: 'h23', hour: '2-digit', minute: '2-digit' });
@@ -60,11 +69,11 @@ export function reviewCalderwoodTiming(input: SourceClocks, now: number) {
     return calendarAt === elapsedAt ? { at: calendarAt, conflict: null }
       : { at: null, conflict: { calendarAt, elapsedAt } };
   };
-  const candidates = [
-    { at: minutes(confirmed, 30), conflict: null }, days(arrival, 1),
-    { at: minutes(arrival, -60), conflict: null }, days(departure, 1), days(arrival, 10),
-    { at: minutes(arrival, -420), conflict: null },
-  ];
+  const candidates = CALDERWOOD_MESSAGE_WORKFLOWS.map(flow => {
+    const policy = MIGRATION_TIMING[flow.key];
+    const anchor = policy.anchor === 'confirmed_at' ? confirmed : policy.anchor === 'arrival' ? arrival : departure;
+    return 'minutes' in policy ? { at: minutes(anchor, policy.minutes), conflict: null } : days(anchor, -policy.days);
+  });
   return CALDERWOOD_MESSAGE_WORKFLOWS.map((flow, i) => {
     const { at, conflict } = candidates[i];
     return { key: flow.key, at, conflict, canSend: false as const,

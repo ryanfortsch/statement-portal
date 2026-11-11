@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { cleanerReminderRecipientSchema, resolveCleanerReminderLink, withCleanerReminderLink } from '../cleaner-reminder-link.ts';
 import { guestNameIdentity, renderTemplate, templateFields, MERGE_FIELDS, MASK, type MergeContext } from '../automations-core.ts';
 import { CALDERWOOD_MESSAGE_WORKFLOWS, type SourceClocks } from './preparation-timing.ts';
-import { preparedPolicy } from './template-migration.ts';
+import { preparedRulePolicy } from './preparation-rules.ts';
 import type { PreparationRule } from './preparation-rules.ts';
 import type { GuestyHandoffStay } from '../channex-bookings/message-identity.ts';
 
@@ -90,7 +90,7 @@ export function rehearsePreparedMessages(rules: readonly PreparationRule[], inpu
     const rule = rules.find(r => r.property_id === '65_calderwood' && r.key === flow.key);
     if (!rule || rule.enabled || !rule.configured_in_ota || rule.send_mode !== 'approve'
       || rule.audience !== flow.audience || rule.timezone !== 'America/New_York'
-      || !preparedPolicy(rule.key, rule.body, rule.migration_policy)
+      || !preparedRulePolicy(rule)
       || templateFields(rule.body).some(f => !(MERGE_FIELDS as readonly string[]).includes(f))
       || /[{}]/.test(rule.body.replace(/\{\{\s*[a-zA-Z0-9_]+\s*\}\}/g, '')))
       return { key: flow.key, status: 'template_unavailable' as const, preview: null, missingFields: [] as string[], timeWordingReview: false, canSend: false as const };
