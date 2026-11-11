@@ -334,7 +334,13 @@ describe('the stay link\'s table and offline copy', () => {
   });
 
   test('a stay page offers no install manifest (it would leak the home token)', () => {
-    assert.ok(!read('src/app/h/s/[stay]/page.tsx').includes('manifest:'));
+    const page = read('src/app/h/s/[stay]/page.tsx');
+    // Explicitly null: leaving the key out inherits Helm's own manifest from
+    // the root layout, and Add to Home Screen would install Helm.
+    assert.equal(page.match(/manifest:/g)?.length, 1);
+    assert.match(page, /manifest: null,/);
+    assert.match(page, /applicationName: name,/);
+    assert.match(page, /appleWebApp: \{ capable: false, title: name \}/);
   });
 });
 
