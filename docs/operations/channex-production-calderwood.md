@@ -106,7 +106,7 @@ that PriceLabs has connected or populated this production rate.
    read the revision feed, ACK bookings, publish dates or prove initial coverage.
    Keep staging credentials and the staging worker isolated. The production
    consumer still needs complete upstream coverage/recovery, provider acceptance
-   and reviewed recovery orchestration, and an operational failure surface before activation. The dormant
+   and a reviewed live-channel transport before activation. The dormant
    dispatch ledger and transport below now preserve exact requests, leases,
    ambiguous outcomes and retry pacing. They are not wired to a production worker.
    Durable canonical-input planning is described below.
@@ -315,8 +315,27 @@ The status counter `unresolved` includes superseded unknown history as well as t
 current attempt; it is not a count of currently occupied send lanes. Calendar GET
 equality and accepted receipts are not OTA delivery proof; `settlementEnabled`
 stays false. The migration refuses enabled scopes or existing attempt history and
-preserves all gates and permissions. Runtime recovery orchestration and a clear
-operational display of current versus historical uncertainty remain launch work.
+preserves all gates and permissions.
+
+Migration `20261111030000_channex_availability_cycle.sql` adds a dormant bounded
+worker composition. `runInventoryCycle` reads and commits a fresh canonical plan,
+then `helm_channex_delivery_cycle_claim` atomically selects the current lease or a
+latest-state recovery under the same lock order. A restarted worker proposes a
+new random token but resumes the durable active lease. A lost selection response
+cannot create a competing replacement. The selected token then goes through the
+normal claim, provider preflight and one-use begin barrier; selection alone never
+permits IO. No loop, scheduler, public action or production cron invokes this cycle.
+Its current transport still requires the property to be closed and unmapped.
+
+The owner-only `/channels/65_calderwood/sync-status` page reads the separate
+`helm_channex_delivery_operations()` snapshot. It shows the current attempt,
+accepted count, earlier unknown outcomes, recovery budget and up to eight recent
+attempts. Database timestamps are displayed in Eastern time. Missing, malformed or
+stale status is explicitly unavailable, never an empty queue. The projection is
+service-only and omits tokens, provider task IDs, payloads, credentials and guest
+records. Refresh is a read-only GET. There are no activation or retry buttons.
+The original dormant inspection status contract remains unchanged; neither
+acceptance nor the new page proves channel delivery.
 
 Only an exact documented 429 rejection permits a new attempt after a persisted
 backoff (at least 60 seconds, up to 24 hours). A 401 stops further claims pending
@@ -335,9 +354,10 @@ send checkpoints, concurrent canonical writes, stale plans, expired workers,
 lost responses, exact-plan deduplication, a later changed 500-day plan, concurrent
 post-acceptance claims, expired coverage, 429 pacing, credential rejection,
 competing recoveries, hard recovery exhaustion, lost recovery responses, late
-receipts before and after replacement acceptance, strict payload shapes and
-permissions. Provider tests use synthetic replies. No live inventory POST is
-needed or performed to deploy this dormant batch.
+receipts before and after replacement acceptance, restarted and competing cycle
+selection, lost selection and receipt responses across the complete planner/RPC/
+transport path, strict payload shapes and permissions. Provider tests use synthetic
+replies. No live inventory POST is needed or performed to deploy this dormant batch.
 
 ## Read-only booking comparison
 
@@ -697,9 +717,11 @@ The 10 November acceptance migration now permits fresh later plans after a clean
 acceptance and suppresses duplicate submissions of the exact current plan. The
 uncertain-outcome path now has dormant bounded recovery from the latest intended
 absolute state, preserving serialization, immutable history and freshness fencing.
-Before enabling it, review runtime recovery orchestration and expose current and
-historical uncertainty for operations. There
-is no settlement RPC or task poller. Historical calendar equality must not be
+The bounded cycle now composes fresh planning, restart-safe selection and the
+existing send barriers; the owner status page separates current and historical
+uncertainty. Both remain dormant. Before enabling a production scheduler, finish
+live-channel preflight, source coverage and handover checks. There is no settlement
+RPC or task poller. Historical calendar equality must not be
 called OTA delivery proof. Do not add a production task-status poller or simply
 unpark old attempts.
 

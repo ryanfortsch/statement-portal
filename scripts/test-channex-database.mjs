@@ -24,12 +24,14 @@ const sql = [read('scripts/tests/channex-fixture.sql'), functions,
   read('supabase/migrations/20261110150000_channex_preack_guest_details.sql'),
   read('supabase/migrations/20261111010000_channex_availability_acceptance.sql'),
   read('supabase/migrations/20261111020000_channex_latest_state_recovery.sql'),
+  read('supabase/migrations/20261111030000_channex_availability_cycle.sql'),
   read('scripts/tests/channex-booking-audit.sql'),
   read('scripts/tests/channex-bookings.sql'),
   read('scripts/tests/channex-existing-stays.sql'),
   read('scripts/tests/channex-inventory.sql'),
   read('scripts/tests/channex-delivery.sql'),
-  read('scripts/tests/channex-delivery-recovery.sql')].join('\n');
+  read('scripts/tests/channex-delivery-recovery.sql'),
+  read('scripts/tests/channex-delivery-cycle.sql')].join('\n');
 const result = spawnSync(psql, ['-X', '-q', '-v', 'ON_ERROR_STOP=1'], { input: sql, encoding: 'utf8' });
 if (result.status) { process.stderr.write(result.stderr); process.exit(result.status); }
 // A release must refuse to replace the contract on an active importer. This
@@ -52,5 +54,11 @@ const recoveryGuard = spawnSync(psql, ['-X', '-q', '-v', 'ON_ERROR_STOP=1'], {
 });
 if (recoveryGuard.status === 0 || !recoveryGuard.stderr.includes('disable_empty_channex_recovery_before_migration')) {
   throw Error('Recovery migration did not refuse the active synthetic scope');
+}
+const cycleGuard = spawnSync(psql, ['-X', '-q', '-v', 'ON_ERROR_STOP=1'], {
+  input: read('supabase/migrations/20261111030000_channex_availability_cycle.sql'), encoding: 'utf8',
+});
+if (cycleGuard.status === 0 || !cycleGuard.stderr.includes('disable_empty_channex_cycle_before_migration')) {
+  throw Error('Cycle migration did not refuse the active synthetic scope');
 }
 console.log('PASS: real Postgres booking receipts, canonical writers, inventory invalidation, and permissions');

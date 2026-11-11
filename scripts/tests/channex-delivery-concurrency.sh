@@ -173,3 +173,38 @@ do $$begin
 end$$;
 select 'PASS: competing recoveries create one replacement; late receipts fence prepared sends without deadlock' as result;
 SQL
+# Restarted cycles race with different proposed tokens but share one durable lease.
+psql -X -q -v ON_ERROR_STOP=1 <<'SQL' >/dev/null
+delete from helm_airbnb_bookings.delivery_attempts;
+update helm_airbnb_bookings.delivery_scope set next_attempt_at='-infinity',consecutive_recoveries=0;
+select channex_synthetic_inventory_save(channex_synthetic_inventory_request());
+truncate channex_synthetic_delivery_results;
+SQL
+PGAPPNAME=channex_cycle_first psql -X -q -v ON_ERROR_STOP=1 <<'SQL' >/dev/null &
+begin;
+set local statement_timeout='12s';
+insert into channex_synthetic_delivery_results select helm_channex_delivery_cycle_claim(gen_random_uuid());
+select pg_sleep(2);
+commit;
+SQL
+cycle_first=$!
+ready=0
+for i in $(seq 1 30); do
+ if [[ "$(psql -X -Atc "select count(*) from pg_stat_activity where application_name='channex_cycle_first' and wait_event='PgSleep'")" == 1 ]]; then ready=1; break; fi
+ sleep 0.1
+done
+[[ $ready == 1 ]]
+psql -X -q -v ON_ERROR_STOP=1 <<'SQL' >/dev/null
+set statement_timeout='12s';
+insert into channex_synthetic_delivery_results select helm_channex_delivery_cycle_claim(gen_random_uuid());
+SQL
+wait "$cycle_first"
+psql -X -q -v ON_ERROR_STOP=1 <<'SQL'
+do $$begin
+ if (select count(*) from channex_synthetic_delivery_results where result->>'status'='selected')<>2
+ or (select count(distinct result->>'token') from channex_synthetic_delivery_results)<>1
+ or (select count(*) from helm_airbnb_bookings.delivery_attempts)<>1
+ then raise exception 'Concurrent cycles did not converge on one durable lease'; end if;
+end$$;
+select 'PASS: competing restart cycles select the same saved attempt without duplicate claims' as result;
+SQL
