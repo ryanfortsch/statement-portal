@@ -14,7 +14,6 @@ import type { CardQuoteBlock, GuestQuoteContext } from '@/lib/guest-quote-contex
 import { ApprovalCard, BodyText, sentAgoLabel, type CardController } from '@/components/messaging/card/ApprovalCard';
 import { ApprovalQueue, type QueueCardHelpers } from '@/components/messaging/card/ApprovalQueue';
 import {
-  Pill,
   PrimaryButton,
   PrimaryLink,
   SecondaryButton,
@@ -484,16 +483,25 @@ function GuestCard({
               Stripe lookup →
             </a>
           )}
+          {/* One face for the header's metadata, the eyebrow (UX audit
+              2026-11-07, finding 4): a system-initiated card's kind reads in
+              its tone colour, not in a box. */}
           {!isScheduled &&
             (badge ? (
-              <Pill label={badge.label} tone={badge.tone} title="System-initiated message. Review and approve before it sends" />
+              <span className="eyebrow" style={{ color: badge.tone, fontWeight: 600 }} title="System-initiated message. Review and approve before it sends">
+                {badge.label}
+              </span>
             ) : (
               <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>{topicLabel}</span>
             ))}
+          {/* At most one red line. A hold that stopped the guest's extension
+              is what an overrule is decided from, so it takes the red; the
+              destination then reads quiet, still there, no longer a second
+              alarm. */}
           {destination && (
             <span
               className="eyebrow"
-              style={{ color: 'var(--signal)', fontWeight: 600, textTransform: 'none', letterSpacing: '0.02em', fontSize: 11, overflowWrap: 'anywhere' }}
+              style={{ color: hold ? 'var(--ink-3)' : 'var(--signal)', fontWeight: 600, textTransform: 'none', letterSpacing: '0.02em', fontSize: 11, overflowWrap: 'anywhere' }}
             >
               {destination}
             </span>
@@ -622,8 +630,13 @@ function GuestCard({
   );
 }
 
+/** The channel in the header's one face, the eyebrow, coloured by channel. */
 function ChannelBadge({ channel }: { channel: string }) {
-  return <Pill label={channel} tone={channelTone(channel)} title={`Sent / received via ${channel}`} />;
+  return (
+    <span className="eyebrow" style={{ color: channelTone(channel), fontWeight: 600 }} title={`Sent / received via ${channel}`}>
+      {channel}
+    </span>
+  );
 }
 
 /** What a staff login sees where an owner sees Send a price: the quote form

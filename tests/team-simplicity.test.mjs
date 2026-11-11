@@ -43,10 +43,11 @@ async function schedule({ status='sent', failed=false, offline=false, noRecipien
   });
   return renderToStaticMarkup(await ScheduleDigestCard({notice}));
 }
-test('a successfully sent schedule is folded with settings available inside', async () => {
+test('a successfully sent schedule is folded and names who it texts', async () => {
   const html = await schedule();
-  assert.match(html, /<details><summary[^>]*>View schedule and settings/);
-  assert.match(html, /Schedule settings/); assert.match(html, /Original schedule/);
+  assert.match(html, /<details><summary[^>]*>View schedule</);
+  assert.match(html, /Texts Test cleaner/); assert.match(html, /Sends only when you approve it/);
+  assert.match(html, /href="\/turnovers\/settings#schedule-recipients"/); assert.match(html, /Original schedule/);
 });
 test('pending, failed and unavailable schedules stay open; unavailable sends are disabled', async () => {
   for (const options of [{status:'pending'},{failed:true},{offline:true},{notice:{err:'save_failed'}}]) {
@@ -55,8 +56,9 @@ test('pending, failed and unavailable schedules stay open; unavailable sends are
     if(options.offline) { assert.match(html, /live schedule could not be loaded/); assert.match(html, /<button disabled="">Send an update/); }
   }
   const recipients = await schedule({status:'pending',noRecipients:true});
-  assert.match(recipients, /Choose a recipient in Schedule settings/);
-  assert.match(recipients, /<details open=""[^>]*><summary[^>]*>Schedule settings/);
+  assert.match(recipients, /Nobody gets this text yet/);
+  assert.match(recipients, /Cleaner settings/);
+  assert.match(recipients, /<button disabled="">Approve &amp; send via Quo/);
 });
 test('answered owner questions stay folded while pending questions and errors stay visible', async () => {
   const card = (status, id) => ({ status,propertyId:id,propertyName:id,checkIn:'2026-10-30',checkOut:'2026-10-31',checkoutTime:'10:00' });

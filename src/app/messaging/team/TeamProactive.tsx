@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { Button } from '@/components/Button';
 import { ProactiveRemindersPanel, type ProactiveReminderActions } from '@/components/ProactiveRemindersPanel';
 
 /**
@@ -13,30 +14,13 @@ import { ProactiveRemindersPanel, type ProactiveReminderActions } from '@/compon
 export function TeamProactive({ cleaner, contractor }: { cleaner: ProactiveReminderActions; contractor: ProactiveReminderActions }) {
   const [audience, setAudience] = useState<'cleaner' | 'contractor'>('cleaner');
   const pick = (
-    <span role="radiogroup" aria-label="Proactive messages for" style={{ display: 'inline-flex', border: '1px solid var(--rule)' }}>
+    <span role="radiogroup" aria-label="Proactive messages for" style={{ display: 'inline-flex', gap: 6 }}>
       {(['cleaner', 'contractor'] as const).map((a) => {
         const on = a === audience;
         return (
-          <button
-            key={a}
-            type="button"
-            role="radio"
-            aria-checked={on}
-            onClick={() => setAudience(a)}
-            style={{
-              fontSize: 10,
-              letterSpacing: '0.14em',
-              textTransform: 'uppercase',
-              fontWeight: 600,
-              padding: '6px 10px',
-              border: 'none',
-              cursor: 'pointer',
-              background: on ? 'var(--ink)' : 'var(--paper)',
-              color: on ? 'var(--paper)' : 'var(--ink-3)',
-            }}
-          >
+          <Button key={a} size="sm" variant={on ? 'primary' : 'secondary'} role="radio" aria-checked={on} onClick={() => setAudience(a)}>
             {a === 'cleaner' ? 'Cleaners' : 'Contractors'}
-          </button>
+          </Button>
         );
       })}
     </span>

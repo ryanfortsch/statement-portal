@@ -3,7 +3,7 @@ import { auth } from '@/auth';
 import { sessionView } from '@/lib/helm-access-server';
 import { supabaseAdmin as db } from '@/lib/supabase-admin';
 import { revalidatePath } from 'next/cache';
-import { sourceKeyFromUrl, validateAppointment } from '@/lib/appointment-agenda';
+import { MEETING_ANSWERS, meetingAttendanceDetails, sourceKeyFromUrl, validateAppointment, type MeetingAnswer } from '@/lib/appointment-agenda';
 
 export async function saveAppointment(args: { id: string; expectedVersion: number; details: unknown }): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   const [session, view] = await Promise.all([auth(), sessionView()]);
@@ -39,4 +39,33 @@ export async function saveAppointment(args: { id: string; expectedVersion: numbe
   revalidatePath('/appointments');
   revalidatePath(`/appointments/${args.id}`);
   return { ok: true, id: args.id };
+}
+
+/** One tap on a CRM meeting row: going or not going. Saved to the signed-in
+ *  person's own agenda through the same private store and RPC as a review,
+ *  as an answer record that names only the meeting. The shared contact
+ *  meeting and its reminder texts are never written. */
+export async function answerMeetingAttendance(args: { meetingId: string; attendance: MeetingAnswer; answer?: { id: string; version: number } }): Promise<{ ok: true } | { ok: false; error: string }> {
+  const [session, view] = await Promise.all([auth(), sessionView()]);
+  const email = session?.user?.email?.trim().toLowerCase();
+  if (!email?.endsWith('@risingtidestr.com') || view.viewingAsStaff) return { ok: false, error: 'Open your own signed-in agenda to answer.' };
+  if (typeof args.meetingId !== 'string' || !/^[a-f0-9-]{36}$/i.test(args.meetingId) || !MEETING_ANSWERS.includes(args.attendance)) return { ok: false, error: 'Reload the agenda before answering.' };
+  if (args.answer && (typeof args.answer.id !== 'string' || !/^[a-f0-9-]{36}$/i.test(args.answer.id) || !Number.isSafeInteger(args.answer.version) || args.answer.version < 1)) return { ok: false, error: 'Reload the agenda before answering.' };
+  // The same role scope as a review: staff answer only meetings they created.
+  let query = db.from('contact_meetings').select('id').eq('id', args.meetingId);
+  if (view.role !== 'owner') query = query.eq('created_by_email', email);
+  const meeting = await query.maybeSingle();
+  if (meeting.error || !meeting.data) return { ok: false, error: 'This contact meeting is unavailable.' };
+  const id = args.answer ? args.answer.id : crypto.randomUUID();
+  const { data, error } = await db.rpc('save_agenda_appointment', {
+    p_user_email: email, p_id: id, p_expected_version: args.answer ? args.answer.version : 0,
+    p_details: meetingAttendanceDetails(args.meetingId, args.attendance),
+  });
+  if (error || !data) {
+    const stale = ['This source already belongs', 'Appointment changed.', 'Appointment unavailable'].some(s => error?.message.includes(s));
+    return { ok: false, error: stale ? 'Your answer changed in another tab. Reload and tap again.' : 'Could not save your answer. Retry.' };
+  }
+  revalidatePath('/');
+  revalidatePath('/appointments');
+  return { ok: true };
 }

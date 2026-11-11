@@ -259,7 +259,9 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
                 </form>
               </div>
             )}
-            {sendable && (
+            {/* The send verbs print once: while the Next card above carries
+                them (a draft), this row is its one status line. */}
+            {sendable && !nextStep?.actions && (
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
                 <form action={sendQuote}>
                   <input type="hidden" name="id" value={q.id} />

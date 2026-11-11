@@ -5,6 +5,31 @@
 import { z } from 'zod';
 import { nights, record, revisionTime } from './primitives.ts';
 
+// Persist only operational guest fields. Never copy customer/payment objects or
+// raw_message wholesale. A masked or suspicious value requires manual review;
+// it must never replace an unmasked receipt or be acknowledged as complete.
+const guestText = z.string().max(2000).refine(v => !v.includes('***') &&
+  !/(?:\d[ -]?){13,19}/.test(v) &&
+  !/\b(?:cvv|cvc|card.?number|security.?code|password|passport|social.?security)\b/i.test(v));
+// A telephone may legitimately contain 13–15 digits. Validate that field as a
+// phone, preserving its exact formatting, instead of treating it as free text.
+const guestPhone = z.string().max(64).regex(/^\+?[0-9 ().-]*$/)
+  .refine(v => v.replace(/[^0-9]/g, '').length <= 15);
+export const guestDetailsSchema = z.object({
+  name: guestText.nullable(), surname: guestText.nullable(), mail: guestText.nullable(),
+  phone: guestPhone.nullable(), address: guestText.nullable(), city: guestText.nullable(),
+  state: guestText.nullable().optional(), country: guestText.nullable(), zip: guestText.nullable(), notes: guestText.nullable(),
+}).strict();
+/** Shared provider projection; no origin/mapping/ACK authority is granted here. */
+export function projectChannexGuestDetails(a: Record<string, unknown>) {
+  const customer = record(a.customer);
+  // Absence is not proof of an empty field. Require the full provider projection.
+  try { return guestDetailsSchema.parse(Object.fromEntries([
+    ...['name', 'surname', 'mail', 'phone', 'address', 'city', 'country', 'zip'].map(k => [k, customer[k]]),
+    ...(Object.hasOwn(customer, 'state') ? [['state', customer.state]] : []),
+    ['notes', a.notes],
+  ])); } catch { throw Error('Channex guest details incomplete; values withheld'); }
+}
 const uuid = z.string().uuid();
 export const airbnbMappingSchema = z.object({
   environment: z.enum(['staging', 'production']),
@@ -21,7 +46,7 @@ const revisionSchema = z.object({
 
 export const airbnbRevisionSchema = revisionSchema.extend({
   environment: z.enum(['staging', 'production']), mappingGeneration: z.number().int().positive().safe(),
-  channel: z.literal('airbnb'),
+  channel: z.literal('airbnb'), guestDetails: guestDetailsSchema,
 }).strict();
 export type AirbnbBookingRevision = z.infer<typeof airbnbRevisionSchema>;
 export function parseAirbnbBookingRevision(raw: unknown): AirbnbBookingRevision {
@@ -53,7 +78,7 @@ export function normalizeAirbnbBookingRevision(raw: unknown, mapping: AirbnbBook
         revision.ratePlanId !== scope.ratePlanId || /^HELMTEST-/i.test(revision.reservationCode)) throw Error();
     nights(revision.checkIn, revision.checkOut);
     return { ...revision, providerReceivedAt: revisionTime(revision.providerReceivedAt),
-      environment: scope.environment, mappingGeneration: scope.generation, channel: 'airbnb' as const };
+      environment: scope.environment, mappingGeneration: scope.generation, channel: 'airbnb' as const, guestDetails: projectChannexGuestDetails(a) };
   } catch {
     // Never echo the raw provider payload, which may include guest/payment details.
     throw Error('Airbnb booking revision rejected: invalid identity, mapping, or stay');

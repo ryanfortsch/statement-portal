@@ -48,9 +48,6 @@ const initialsFor = (e: string): string => teamMemberForAnyEmail(e)?.initials ??
 const hueFor = (e: string): string => teamMemberForAnyEmail(e)?.hue ?? hueForEmail(e);
 const identityFor = (e: string): string => teamMemberForAnyEmail(e)?.email ?? e;
 
-/** The legend's channel key, in the colors the turnover list and the
- *  occupancy calendar already give each channel (lib/channel-style.ts). */
-const CHANNEL_KEY = ['airbnb', 'vrbo', 'booking_com', 'direct'];
 
 export function VisitGrid({ today, days, homes, stays, myEmail, dispatcher = false, parentOf }: Props) {
   const { ask, choose } = useConfirm();
@@ -155,8 +152,10 @@ export function VisitGrid({ today, days, homes, stays, myEmail, dispatcher = fal
       );
     if (t.kind === 'release') {
       // Someone else's plan, or one with a note, keeps its day: only the
-      // name comes off (plan-actions decides the same way on the server).
-      return run(rid, t.keep && t.stay.plan ? { ...t.stay.plan, assignee: null } : null, () => releaseWalk(t.planId));
+      // name comes off. A plan that goes is removed outright: the grid
+      // decides for whom the tap plans (a dispatcher planning for Delaney
+      // lets go of Delaney's own tap), which the server cannot see.
+      return run(rid, t.keep && t.stay.plan ? { ...t.stay.plan, assignee: null } : null, () => releaseWalk(t.planId, t.keep ? {} : { remove: true }));
     }
     if (t.kind === 'take') {
       const who = nameFor(t.holder);
@@ -260,36 +259,8 @@ export function VisitGrid({ today, days, homes, stays, myEmail, dispatcher = fal
         </div>
       </div>
 
-      <div className="rt-vg-legend">
-        <span><span className="rt-vg-sw" style={{ background: 'rgba(63,153,34,0.22)' }} /> open, needs someone</span>
-        <span><span className="rt-vg-sw" style={{ background: 'rgba(30,46,52,0.14)' }} /> guest in house</span>
-        <span>
-          <span className="rt-vg-sw" style={{ background: 'repeating-linear-gradient(45deg, rgba(30,46,52,0.16) 0 4px, rgba(30,46,52,0.05) 4px 8px)' }} /> owner / hold
-        </span>
-        <span><span style={{ width: 3, height: 14, background: 'var(--signal)', flexShrink: 0 }} /> guest arrives</span>
-        <span>
-          {CHANNEL_KEY.map((c) => (
-            <Fragment key={c}>
-              <span className="rt-vg-ch-sw" style={{ background: channelAccent(c) }} />
-              {channelLabel(c)}
-            </Fragment>
-          ))}
-        </span>
-        <span>
-          <span className="rt-vg-mark" style={{ ['--vg-hue' as string]: hueFor(actor), width: 18, height: 18, fontSize: 9, boxShadow: 'none' }}>{initialsFor(actor)}</span>
-          who&rsquo;s going
-        </span>
-        {grid.mine > 0 && (
-          <span style={{ marginLeft: 'auto', color: 'var(--ink)', fontWeight: 600 }}>
-            {actor === myEmail ? 'Yours' : nameFor(actor)} · {grid.mine}
-          </span>
-        )}
-      </div>
-      <p style={{ margin: '6px 0 0', fontSize: 12, color: 'var(--ink-3)' }}>
-        {actor === myEmail
-          ? 'Tap an open day to walk it. Tap your mark to let it go.'
-          : `Tap an open day to send ${nameFor(actor)}. Tap the mark to take it back.`}
-      </p>
+      {/* No legend and no instruction line: the grid speaks through its
+          marks, and every cell carries the sentence as its title. */}
 
       {error && (
         <div
@@ -405,6 +376,9 @@ function cellText(home: string, cell: GridCell, today: string): string {
   const when = dayLong(cell.date);
   const who = cell.badges.map((b) => (b.kind === 'walked' ? `walked by ${b.name}${b.on ? ` ${dayWord(b.on, today)}` : ''}` : b.kind === 'walking' ? (b.on ? `${b.name} started walking it ${dayWord(b.on, today)} and never finished` : `${b.name} walking now`) : b.kind === 'field' ? b.name : b.kind === 'unassigned' ? b.name : `${b.name}${b.late ? ', was due earlier' : ''}`));
   const lead = `${home} · ${when}`;
+  if (cell.state !== 'open' && cell.tap.kind === 'release') {
+    return `${lead}: you're down to walk it ${dayWord(cell.date, today)}, but ${cell.state === 'occupied' ? 'a guest is in the house' : 'the house is on hold'}. Tap to let it go.`;
+  }
   if (cell.state === 'occupied') return `${lead}: guest in house${who.length ? ` · ${who.join(', ')}` : ''}`;
   if (cell.state === 'blocked') return `${lead}: owner / hold${cell.hold === 'long' ? ', no end in view' : ''}${who.length ? ` · ${who.join(', ')}` : ''}`;
   const events = [cell.leaving ? 'guest leaves' : null, cell.arriving ? `${cell.channel ? `${channelLabel(cell.channel)} ` : ''}guest arrives` : null].filter(Boolean).join(', ');

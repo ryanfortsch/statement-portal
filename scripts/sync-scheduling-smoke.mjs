@@ -20,7 +20,7 @@ for(const [name,path] of [
  ['confirm-dialog','src/components/ConfirmDialog.tsx'],['confirm-question','src/lib/confirm-question.ts'],
  ['button','src/components/Button.tsx'],
  ['button-class','src/lib/button-class.ts'],
- ['watchdog','src/lib/use-pending-watchdog.ts'],
+ ['watchdog','src/lib/use-pending-watchdog.ts'],['pass-watch','src/lib/use-pass-watch.ts'],
 ])await writeFile(join(scratch,name+'.js'),compile(await readFile(join(root,path),'utf8')));
 await writeFile(join(scratch,'skew.js'),'export const reloadedForNewDeployment=()=>Promise.resolve(false);');
 await writeFile(join(scratch,'actions.js'),`
@@ -28,6 +28,8 @@ export const save=(kind,args)=>new Promise((resolve,reject)=>window.calls.push({
 export const setInspectionPlan=a=>save('planSave',a),deleteInspectionPlan=id=>save('planDelete',id);
 export const sendJobAction=(prev,data)=>save('adhoc',[...data.entries()]);
 export const planRunsNow=()=>save('planRuns',null),publishRun=id=>save('publish',id);
+// Plan now's background pass is watched (usePassWatch); answer at once that it is done.
+export const planPendingCount=()=>Promise.resolve({ok:true,pending:0,suggested:1});
 export const emailWorkOrder=a=>save('draft',a),markRunScheduled=a=>save('schedule',a);
 export const updateWorkSlipStatus=a=>save('done',a),resolveInspectionNote=id=>save('resolveWalk',id);
 export const togglePropertyNoteResolved=(propertyId,noteId,resolveOnly)=>save('resolveProperty',{propertyId,noteId,resolveOnly});
@@ -66,7 +68,7 @@ function Fixture(){const [mounted,setMounted]=useState(true),[plan,setPlan]=useS
  </>;
 }createRoot(document.getElementById('root')).render(<Fixture/>);
 `));
-const alias={'@/lib/version-skew':'skew','@/lib/use-pending-watchdog':'watchdog','@/lib/button-class':'button-class','@/components/Button':'button','@/components/ConfirmDialog':'confirm-dialog','@/lib/confirm-question':'confirm-question','@/lib/copy-email':'copy-email','@/components/CopiedEmailNotice':'copied-notice','@/lib/always-cc':'always-cc','./actions':'actions','../actions':'actions','./plan-actions':'actions','./runs-actions':'actions','@/app/work/actions':'actions','@/app/inspections/actions':'actions','@/app/properties/actions':'actions','../OfferToPicker':'offer','@/lib/field-job-kinds':'jobkinds','@/lib/use-soft-refresh':'refresh','@/lib/unsaved-work':'unsaved','@/lib/manual-sync-result':'summary','@/lib/operating-date':'opdate','@/lib/gmail-links':'gmaillinks','@/lib/team':'team','@/components/TeamPicker':'picker','next/navigation':'router','next/link':'link','next-auth/react':'session'};
+const alias={'@/lib/version-skew':'skew','@/lib/use-pending-watchdog':'watchdog','@/lib/use-pass-watch':'pass-watch','@/lib/button-class':'button-class','@/components/Button':'button','@/components/ConfirmDialog':'confirm-dialog','@/lib/confirm-question':'confirm-question','@/lib/copy-email':'copy-email','@/components/CopiedEmailNotice':'copied-notice','@/lib/always-cc':'always-cc','./actions':'actions','../actions':'actions','./plan-actions':'actions','./runs-actions':'actions','@/app/work/actions':'actions','@/app/inspections/actions':'actions','@/app/properties/actions':'actions','../OfferToPicker':'offer','@/lib/field-job-kinds':'jobkinds','@/lib/use-soft-refresh':'refresh','@/lib/unsaved-work':'unsaved','@/lib/manual-sync-result':'summary','@/lib/operating-date':'opdate','@/lib/gmail-links':'gmaillinks','@/lib/team':'team','@/components/TeamPicker':'picker','next/navigation':'router','next/link':'link','next-auth/react':'session'};
 await new Promise((resolve,reject)=>{const compiler=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.js'),output:{path:scratch,filename:'bundle.js'},resolve:{modules:[join(root,'node_modules')],alias:Object.fromEntries(Object.entries(alias).map(([k,v])=>[k,join(scratch,v+'.js')]))},performance:{hints:false}});compiler.run((err,stats)=>compiler.close(()=>err||stats?.hasErrors()?reject(err||Error(stats.toString({all:false,errors:true}))):resolve()));});
 if(process.argv.includes('--compile-only')){console.log('Sync and scheduling fixture compiled.');await rm(scratch,{recursive:true,force:true});process.exit(0);}
 const server=createServer(async(req,res)=>{if(req.method!=='GET'){res.writeHead(405).end();return;}res.setHeader('Cache-Control','no-store');res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'");if(req.url==='/bundle.js'){res.setHeader('Content-Type','text/javascript; charset=utf-8');res.end(await readFile(join(scratch,'bundle.js')));}else{res.setHeader('Content-Type','text/html; charset=utf-8');res.end('<!doctype html><title>Synthetic sync and scheduling</title><style>body{font:14px system-ui;--ink:#222;--paper:#fff;--rule:#ccc}section{margin:20px}button{margin:4px}input,textarea,select{margin:4px}</style><div id="root"></div><script src="/bundle.js"></script>');}});
@@ -155,7 +157,7 @@ await click('#adhoc','Discard changes');await clean();assert.equal(await value('
 pass('the kind select keeps the shared fields, swaps the kind-only ones, posts the kind and discards back to the starting kind');
 
 await reset('runs');await click('#runs','Plan now',true);await waitCalls(1);assert.equal((await calls())[0].kind,'planRuns');assert.equal(await beforeUnload(),true);await finish(0,{ok:false,error:'Planning denied'});await waitText('Planning denied');await ready('#runs button');
-await click('#runs','Plan now');await waitCalls(2);await finish(1,null,true);await waitText('Could not confirm planning');await ready('#runs button');await click('#runs','Plan now');await waitCalls(3);await finish(2,{ok:true,created:2,kept:3,noVacancy:1,classifying:4});await clean();await waitText('2 planned');await waitText('3 unchanged');await waitText('triaging 4');assert.equal(await page.$('#runs [role="alert"]'),null);
+await click('#runs','Plan now');await waitCalls(2);await finish(1,null,true);await waitText('Could not confirm planning');await ready('#runs button');await click('#runs','Plan now');await waitCalls(3);await finish(2,{ok:true,created:2,kept:3,noVacancy:1,classifying:4});await clean();await waitText('Planned 2 runs.');await waitText('3 already planned.');await waitText('1 home waits for an empty day.');await waitText('Sorting 4 work items');assert.doesNotMatch(await body(),/check back|triaging/i);assert.equal(await page.$('#runs [role="alert"]'),null);
 pass('maintenance planning blocks repeat clicks, reports returned and thrown failures, and preserves the real planning summary on success');
 // Publish takes two taps since #1828: Publish arms an inline Confirm / Cancel; a failed attempt keeps the confirm step with Retry publish.
 await click('#runs','Publish');assert.equal((await calls()).length,3);await waitText('Post this run for a contractor to claim');await click('#runs','Cancel');assert.equal(await page.$$eval('#runs button',bs=>bs.some(b=>b.textContent==='Confirm')),false);

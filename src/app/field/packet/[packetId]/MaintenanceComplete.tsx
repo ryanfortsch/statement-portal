@@ -139,7 +139,7 @@ export function MaintenanceComplete({
               losing it. */}
           {expense && (
             <div style={{ marginTop: 8 }}>
-              <ReceiptAmountField value={expense} onChange={setExpense} where="added to this trip's payout" />
+              <ReceiptAmountField value={expense} onChange={setExpense} where="added to this job's payout" />
             </div>
           )}
         </div>

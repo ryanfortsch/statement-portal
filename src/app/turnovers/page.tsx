@@ -46,19 +46,6 @@ async function readSyncStatus(): Promise<{ lastSyncedAt: Date | null; isStale: b
   return { lastSyncedAt, isStale };
 }
 
-async function readPropertyName(propertyId: string): Promise<string | null> {
-  try {
-    const { data } = await supabase
-      .from('properties')
-      .select('name')
-      .eq('id', propertyId)
-      .maybeSingle();
-    return (data as { name: string } | null)?.name ?? null;
-  } catch {
-    return null;
-  }
-}
-
 // Out-of-region homes (properties.region != cape_ann) stay out of the filter
 // options, exactly as they stay out of the pipeline. The gate is
 // the registry column, read through lib/property-scope.ts, not a literal set.
@@ -181,7 +168,7 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
         <HelmMasthead />
         <TurnoverTabs current="pipeline" />
         <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56 }}>
-          <div className="eyebrow">Turnovers</div>
+          <div className="eyebrow">Board</div>
           <p style={{ marginTop: 14, color: 'var(--ink-3)' }}>
             Ask Ryan: this page is not set up.
           </p>
@@ -190,11 +177,10 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
     );
   }
 
-  const [{ lastSyncedAt, isStale }, data, session, filterPropertyName, propertyOptions, cleaningDays, dispatcher, unitParents] = await Promise.all([
+  const [{ lastSyncedAt, isStale }, data, session, propertyOptions, cleaningDays, dispatcher, unitParents] = await Promise.all([
     readSyncStatus(),
     loadOperationsData(gridRange, '14d', propertyFilter, 0, undefined, { departures: true }),
     auth(),
-    propertyFilter ? readPropertyName(propertyFilter) : Promise.resolve<string | null>(null),
     readPropertyOptions(),
     readCleaningDays(RANGE_DAYS[range] + 1, propertyFilter),
     // Whether this login plans walks for others (team.ts, `dispatch`): the
@@ -241,43 +227,8 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
           brought here and made tappable: a tap plans the walk for the person
           tapping (lib/visit-grid.ts), and the list below, the home feed and
           the Field board all read that same plan. It leads the page; the
-          property filter's banner above it reads for the grid and the list both. */}
+          property filter in the board's controls row narrows the grid too. */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingTop: 28, paddingBottom: 40 }}>
-        {propertyFilter && (
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 12,
-              padding: '10px 14px',
-              border: '1px solid var(--signal)',
-              background: 'rgba(200, 90, 58, 0.06)',
-              fontSize: 12,
-              marginBottom: 18,
-            }}
-          >
-            <span style={{ color: 'var(--signal)', fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase', fontSize: 10 }}>
-              Filter
-            </span>
-            <span style={{ color: 'var(--ink)', flex: 1 }}>
-              Showing only <strong>{filterPropertyName ?? propertyFilter}</strong>
-            </span>
-            <Link
-              href={opsHref({ property: null })}
-              style={{
-                fontSize: 11,
-                letterSpacing: '.16em',
-                textTransform: 'uppercase',
-                color: 'var(--ink-3)',
-                textDecoration: 'underline',
-                textUnderlineOffset: 3,
-              }}
-            >
-              Clear
-            </Link>
-          </div>
-        )}
-
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 10 }}>
           <div className="eyebrow">Who&rsquo;s going where</div>
           <span style={{ fontSize: 10, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>Next two weeks</span>
@@ -287,10 +238,12 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
 
       {/* THE BOARD. One bordered row carries the summary on the left and
           the range tabs and property filter on the right, so each control
-          sits on the list it filters; the state counts and the sync line
-          drop underneath as small dim text. Below the grid since 2026-10-30:
+          sits on the list it filters; the state counts drop underneath as
+          small dim text. Below the grid since 2026-10-30:
           the first thing on the page is who is going where. */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 56, width: '100%' }}>
+        {/* The tab's own word, so the page prints what the strip says. */}
+        <div className="eyebrow" style={{ marginBottom: 10 }}>Board</div>
         <div
           style={{
             borderTop: '1px solid var(--ink)',
@@ -393,23 +346,25 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
           </div>
         )}
 
-        <div
-          className="flex items-center justify-end"
-          style={{
-            marginTop: 8,
-            fontSize: 10,
-            color: 'var(--ink-4)',
-            letterSpacing: '0.08em',
-            textTransform: 'uppercase',
-            gap: 12,
-            flexWrap: 'wrap',
-          }}
-        >
-          {/* The two header links that sat here are gone: a walk with no
-              check-in behind it starts from "Walk a home now" at the foot of
-              the list, and Field has its own masthead tab. */}
-          <AutoRefresh shouldRefresh={isStale} initialLabel={initialFooter} />
-        </div>
+        {/* The sync line prints only when the feed is stale: it then names
+            the age, runs the refresh and says how it went. A fresh page
+            says nothing about its sync. */}
+        {isStale && (
+          <div
+            className="flex items-center justify-end"
+            style={{
+              marginTop: 8,
+              fontSize: 10,
+              color: 'var(--ink-4)',
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+              gap: 12,
+              flexWrap: 'wrap',
+            }}
+          >
+            <AutoRefresh shouldRefresh initialLabel={initialFooter} />
+          </div>
+        )}
 
         {board.total === 0 ? (
           <div style={{ borderTop: '1px solid var(--ink)', padding: '24px 0', fontSize: 13, color: 'var(--ink-4)' }}>

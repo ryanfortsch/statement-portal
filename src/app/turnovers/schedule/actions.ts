@@ -195,6 +195,10 @@ export async function toggleAutosendAction(formData: FormData): Promise<void> {
   await setAutosend(supabase, String(formData.get('enabled') || '') === 'true', email);
   revalidatePath(CARD);
   revalidatePath(PAGE);
+  revalidatePath(SETTINGS);
+  // The switch lives on Cleaner settings (2026-11-07 audit); an older card
+  // or schedule tab still lands where it posted from.
+  if (String(formData.get('back') || '') === 'settings') redirect(`${SETTINGS}?at=autosend&saved=1#schedule-autosend`);
   redirect(digestBack(formData));
 }
 
@@ -618,7 +622,8 @@ export async function ensureTomorrowDraft(formData?: FormData): Promise<void> {
  * Add or edit a cleaner_schedule_recipients row on Cleaner settings, so
  * Luana can be added without SQL. Fields: phone (required; stored E.164),
  * displayName, region, propertyIds (multi; none = every home in region),
- * language (pt|en), enabled, and originalPhone when editing (phone is the
+ * language (pt|en), enabled, email (where Friday's cleaning review email
+ * goes; blank clears it), and originalPhone when editing (phone is the
  * primary key, so a changed number is an update keyed by the old one). A
  * new row mints its own 16-hex portal token; an existing row's token is
  * never rotated, or the link already on a phone would strand.
@@ -636,6 +641,8 @@ export async function saveRecipientAction(formData: FormData): Promise<void> {
   if (!displayName) redirect(`${SETTINGS}?err=bad_name${anchor}`);
   const language = normalizeLanguage(String(formData.get('language') || ''));
   const enabled = String(formData.get('enabled') || '') === 'true';
+  const rawEmail = String(formData.get('email') || '').trim().toLowerCase().slice(0, 200);
+  if (rawEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawEmail)) redirect(`${SETTINGS}?err=bad_email${anchor}`);
 
   const propertyIds = [...new Set(
     formData
@@ -688,9 +695,16 @@ export async function saveRecipientAction(formData: FormData): Promise<void> {
       .insert({ ...fields, portal_token: randomBytes(8).toString('hex'), created_at: now });
     if (error) redirect(`${SETTINGS}?err=${error.code === '23505' ? 'phone_taken' : 'save_failed'}${anchor}`);
   }
+  // The email rides its own write, so the row above saves before the
+  // migration adds the column; only then does a missing column fail.
+  const emailWrite = await supabase.from('cleaner_schedule_recipients').update({ email: rawEmail || null }).eq('phone', phone);
+  if (emailWrite.error && !['42703', 'PGRST204'].includes(emailWrite.error.code ?? '')) {
+    redirect(`${SETTINGS}?err=save_failed${anchor}`);
+  }
   revalidatePath(PAGE);
   revalidatePath(SETTINGS);
   revalidatePath(CARD);
+  revalidatePath('/messaging/team');
   redirect(`${SETTINGS}?saved=recipient${anchor}`);
 }
 

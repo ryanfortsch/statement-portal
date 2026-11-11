@@ -159,3 +159,34 @@ export function statementFloor(input: StatementFloorInput): StatementFloor {
     recordAnnual,
   };
 }
+
+/**
+ * A SETTLED HOME'S YEAR IS ITS RECORD (2026-11-09).
+ *
+ * Until now the record was only a floor: a home pacing toward a bigger year
+ * kept the bigger year. In November the months ahead are November and
+ * December, a holiday week or two, so "pace" meant two winter months of
+ * bookings scaled up to market occupancy (up to 2.5x) and divided by the
+ * curve's ~10% winter share: a ten-to-twenty-fold extrapolation from a
+ * handful of stays. On 2026-11-09 it set 53 Rocky Neck at $38,335 of fee a
+ * year against $31,997 on its six closed statements, 19 Rackliffe at $59,247
+ * against $37,620 and 21 Horton at $51,607 against $32,963. Two homes with no
+ * forward bookings (16 Waterman, 79 Main) took the portfolio average of those
+ * paces, $31,533, against $24,982 and $21,174 on their own records. Dotti:
+ * correct it.
+ *
+ * So from RECORD_ONLY_AT_MONTHS closed full months the whole record IS the
+ * annual gross, and neither the forward pace nor the portfolio average can
+ * raise it. Bookings still speak month by month: Part A blends what is on the
+ * books into each month it touches. A home still ramping (two or three
+ * months) keeps the larger of its pace and its floor, as before, and a home
+ * with fewer has only its pace.
+ */
+export function isSettled(floor: StatementFloor): boolean {
+  return floor.months.length >= RECORD_ONLY_AT_MONTHS && floor.annual > 0;
+}
+
+/** The annual gross Part B spreads: the record for a settled home, else the larger of pace and floor. */
+export function annualGrossFor(paceAnnual: number, floor: StatementFloor): number {
+  return isSettled(floor) ? floor.annual : Math.max(paceAnnual, floor.annual);
+}

@@ -71,3 +71,37 @@ export function fieldPayNotice(today: string = todayET()): { to: string; cc: str
 export function creativeLeadEmail(today: string = todayET()): string {
   return dutyEmails('creative', today)[0] ?? officeNotice(today).to;
 }
+
+/** Who is copied on Friday's cleaning review email to the crew, in roster
+ *  order. With nobody holding the duty, operations stands in. */
+export function cleaningReviewCopy(today: string = todayET()): string[] {
+  const copy = dutyEmails('cleaning_review', today);
+  return copy.length ? copy : operationsEmails(today);
+}
+
+/**
+ * The address Friday's cleaning review email is sent from (Dotti,
+ * 2026-11-10: "cleaning@risingtidestr.com"). A role address, not a
+ * teammate's inbox: Resend sends from any address on the verified domain,
+ * so it needs no mailbox to send. Replies still land on fieldReplyTo().
+ * CLEANING_FROM_EMAIL overrides it.
+ */
+export function cleaningReviewSender(): string {
+  return process.env.CLEANING_FROM_EMAIL || 'cleaning@risingtidestr.com';
+}
+
+/**
+ * Where the crew's reply to Friday's cleaning email lands. Plain Reply reaches
+ * everyone who holds the cleaning_review duty, so no one teammate's inbox is the
+ * only place it can go. Once a shared mailbox exists (a Workspace group behind
+ * the cleaning role address), set CLEANING_REPLY_TO to it and replies go there.
+ */
+export function cleaningReviewReplyTo(today: string = todayET()): string[] {
+  const shared = process.env.CLEANING_REPLY_TO?.trim();
+  return shared ? [shared] : cleaningReviewCopy(today);
+}
+
+/** Who receives the Tuesday brief (/api/cron/weekly-brief), in roster order. */
+export function weeklyBriefEmails(today: string = todayET()): string[] {
+  return dutyEmails('weekly_brief', today);
+}

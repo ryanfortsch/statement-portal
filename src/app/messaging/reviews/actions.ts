@@ -5,7 +5,7 @@ import type { MarkHandledCapture } from '@/lib/stay-concierge';
 import { approveDraft, editDraft, markHandled, undoDecision, type ActionResult } from '../actions';
 
 /**
- * The Guest reviews lens's server actions (2026-10-30): the Inbox's calls,
+ * The Review cards lens's server actions (2026-10-30): the Inbox's calls,
  * revalidating this route. Approve is wired on a review-reply card only. The
  * concierge posts that reply onto the review through Guesty and refuses a
  * host-review card outright (409), so a wrong wire fails closed there, never

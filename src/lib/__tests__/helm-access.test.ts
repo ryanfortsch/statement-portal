@@ -311,7 +311,11 @@ describe('the money server actions refuse a staff session', () => {
     const rates = read('src/app/properties/[id]/rates-actions.ts');
     assert.ok(rates.includes('An owner sets the prices on a home Helm runs.'), 'the rate plan stays owners only on a Helm-run home');
     assert.ok(read('src/app/channels/calendar/page.tsx').includes('canPrice={owner}'), 'the fleet grid hides the price field from staff');
-    assert.ok(read('src/app/channels/[propertyId]/calendar/page.tsx').includes('canPrice={owner}'), 'and so does the month grid');
+    // The per-home month grid folded into the hub (2026-11-08): its Set a
+    // range form offers the nightly rate to owners only.
+    const range = read('src/app/channels/[propertyId]/CalendarRangeTools.tsx');
+    assert.ok(/\{owner && \(\s*<Field label=\{<Tick name="touch_price"/.test(range), 'Set a range hides the nightly rate from staff');
+    assert.ok(read('src/app/channels/[propertyId]/page.tsx').includes('owner={owner}'), 'and the hub passes the session role to it');
     assert.ok(read('src/app/channels/[propertyId]/page.tsx').includes('canPrice={owner}'), 'and the channel page calendar');
   });
 
@@ -457,17 +461,16 @@ describe('the section strips never offer a tab the proxy would bounce', () => {
     });
   }
 
-  test('FieldTabs lands staff on the Roster for creative and never offers Shoots & Pay', () => {
+  test('FieldTabs offers Shoots & Pay to owners only, and staff reach creative through the Roster', () => {
     const src = read('src/components/FieldTabs.tsx');
     assert.ok(src.startsWith("'use client';"), 'FieldTabs reads the role on the client');
     assert.ok(src.includes("const owner = useHelmRole() === 'owner';"));
-    assert.ok(src.includes('const hasShoots = (t: ContractorTrade) => TRADE_META[t].hasShoots && owner;'));
-    assert.ok(
-      src.includes("TRADE_META[t].hasPackets ? 'packets' : hasShoots(t) ? 'shoots' : 'contractors'"),
-      'the creative home lens must consult the role',
-    );
-    assert.ok(src.includes("hasShoots(trade) ? { id: 'shoots', label: 'Shoots & Pay' } : null"), 'the Shoots & Pay lens must consult the role');
-    assert.ok(!src.includes("TRADE_META[t].hasShoots ? 'shoots'"), 'no path to the pay ledger may skip the role');
+    assert.ok(src.includes("owner ? { id: 'shoots', label: 'Shoots & Pay' } : null"), 'the Shoots & Pay tab must consult the role');
+    assert.ok(src.includes('return <SectionTabs current={current} tabs={tabs} />;'), 'every tab goes through SectionTabs, which filters by the gate list');
+    assert.ok(!src.includes('secondRow'), 'one row: no lens row printing links of its own');
+    // The trade chip that replaced the Creative tab is a Roster link, which staff may open.
+    const roster = read('src/app/fieldwork/roster/page.tsx');
+    assert.ok(roster.includes('href={`/fieldwork/roster?trade=${t}`}'), 'the Roster carries a chip per trade');
   });
 
   test('PropertiesTabBar reads the session and drops Prospects and Contracts for staff', () => {
@@ -530,6 +533,17 @@ describe('no card or link on a staff page lands on /not-available', () => {
     const roster = read('src/app/fieldwork/roster/page.tsx');
     assert.ok(roster.includes("{trade === 'creative' && owner && ("), 'Shoots & pay is owners only');
     assert.ok(roster.includes(": 'Everyone who shoots for us. To send someone to a home, ask Ryan.'"), 'the staff sentence must not send them to Shoots & pay');
+  });
+
+  test('the Stripe sub-strip (Balance charges, Disputes) renders on the lookup for owners only', () => {
+    const lookup = read('src/app/payments/page.tsx');
+    assert.ok(lookup.includes('const owner = await isOwnerSession();'), 'the lookup page reads the role on the server');
+    assert.ok(lookup.includes('{owner && <StripeTabs current="lookup" />}'), 'staff keep the lookup alone');
+    const strip = read('src/components/StripeTabs.tsx');
+    for (const href of ['/payments/balance-charges', '/payments/disputes']) {
+      assert.ok(strip.includes(`href: '${href}'`), `${href} is on the strip`);
+      assert.ok(pathRequiresOwner(href), `${href} is gated, so SectionTabs drops it for staff too`);
+    }
   });
 
   test('/not-available names every area the gate list covers', () => {

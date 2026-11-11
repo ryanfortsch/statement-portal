@@ -5,7 +5,7 @@ import type { AirbnbBookingMapping } from '../channex-bookings/revision.ts';
 const id = (n: number) => `20000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const mapping: AirbnbBookingMapping = { environment: 'production', propertyId: id(1), roomTypeId: id(2), ratePlanId: id(3), generation: 1 };
 function row(n = 4, status = 'new') {
-  return { id: id(n), attributes: { booking_id: id(5), property_id: id(1), ota_name: 'Airbnb', ota_reservation_code: 'SYNTHETIC123', status,
+  return { id: id(n), attributes: { notes: null, customer: { name: 'Synthetic', surname: null, mail: 'guest@example.invalid', phone: null, address: null, city: null, country: null, zip: null }, booking_id: id(5), property_id: id(1), ota_name: 'Airbnb', ota_reservation_code: 'SYNTHETIC123', status,
     arrival_date: '2027-02-01', departure_date: '2027-02-04', inserted_at: `2026-10-23T12:00:00.${String(n).padStart(6, '0')}Z`,
     rooms: [{ room_type_id: id(2), rate_plan_id: id(3), checkin_date: '2027-02-01', checkout_date: '2027-02-04' }] } };
 }
@@ -86,4 +86,39 @@ test('invalid config and failed inspect stop before saving; upstream errors are 
   h.client.inspect = async () => { throw Error('PRIVATE_SENTINEL'); };
   await assert.rejects(() => ingestAirbnbBookingRevisions(h.client, h.store, mapping), e => e instanceof Error && !e.message.includes('PRIVATE_SENTINEL'));
   assert.equal(h.receipts.size, 0);
+});
+test('contact readback mismatch and failed commit never ACK', async () => {
+  const h = harness(), read = h.store.receipt;
+  h.store.receipt = async key => {
+    const r = await read(key) as AirbnbBookingReceipt;
+    r.revision.guestDetails.mail = null;
+    return r;
+  };
+  await assert.rejects(() => ingestAirbnbBookingRevisions(h.client, h.store, mapping));
+  assert.ok(!h.events.some(e => e.startsWith('ack:')));
+  const failed = harness();
+  failed.store.commit = async () => { throw Error('rollback'); };
+  await assert.rejects(() => ingestAirbnbBookingRevisions(failed.client, failed.store, mapping));
+  assert.equal(failed.receipts.size, 0);
+  assert.ok(!failed.events.some(e => e.startsWith('ack:')));
+});
+test('masked replay preserves the original unmasked receipt and does not ACK again', async () => {
+  const raw = row(), h = harness([raw]);
+  await ingestAirbnbBookingRevisions(h.client, h.store, mapping);
+  const original = structuredClone(h.receipts.get(id(4)));
+  raw.attributes.customer.mail = '***';
+  await assert.rejects(() => ingestAirbnbBookingRevisions(h.client, h.store, mapping));
+  assert.deepEqual(h.receipts.get(id(4)), original);
+  assert.equal(h.events.filter(e => e.startsWith('ack:')).length, 1);
+});
+test('legacy receipt without guest projection cannot satisfy the new acknowledgment gate', async () => {
+  const h = harness(), commit = h.store.commit;
+  h.store.commit = async revision => {
+    const receipt = await commit(revision) as AirbnbBookingReceipt;
+    const legacy = { ...receipt.revision } as Record<string, unknown>;
+    delete legacy.guestDetails;
+    return { ...receipt, revision: legacy };
+  };
+  await assert.rejects(() => ingestAirbnbBookingRevisions(h.client, h.store, mapping));
+  assert.equal(h.events.some(e => e.startsWith('ack:')), false);
 });

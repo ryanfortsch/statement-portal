@@ -5,7 +5,8 @@ import { sessionRole } from '@/lib/helm-access-server';
 /** Tab switch over the Properties index: the managed roster at
  *  /properties (with Coming online, the homes on a Launch list, above it),
  *  the guest gear grid at /properties/guest-gear (which home holds which
- *  pack 'n play or high chair, and where), the prospect funnel at
+ *  pack 'n play or high chair, and where), every home's Stay Cape Ann
+ *  launcher at /properties/stay-cape-ann, the prospect funnel at
  *  /properties/prospects, the management-contract register at
  *  /properties/contracts, and the winter lease leads at /properties/leases.
  *  Server-rendered Links (no client JS) so each tab is a plain
@@ -15,11 +16,12 @@ import { sessionRole } from '@/lib/helm-access-server';
  *  so a staff login sees Properties only. The bar reads the
  *  session itself rather than taking a role prop, so a page that mounts it
  *  cannot forget to pass one; the gate list decides which tabs survive. */
-export async function PropertiesTabBar({ active }: { active: 'properties' | 'guest-gear' | 'prospects' | 'contracts' | 'leases' }) {
+export async function PropertiesTabBar({ active }: { active: 'properties' | 'guest-gear' | 'stay-cape-ann' | 'prospects' | 'contracts' | 'leases' }) {
   const role = (await sessionRole()) ?? 'staff';
   const tabs = [
     { id: 'properties' as const, label: 'Properties', href: '/properties' },
     { id: 'guest-gear' as const, label: 'Guest gear', href: '/properties/guest-gear' },
+    { id: 'stay-cape-ann' as const, label: 'Stay Cape Ann listings', href: '/properties/stay-cape-ann' },
     { id: 'prospects' as const, label: 'Prospects', href: '/properties/prospects' },
     { id: 'contracts' as const, label: 'Contracts', href: '/properties/contracts' },
     { id: 'leases' as const, label: 'Leases', href: '/properties/leases' },

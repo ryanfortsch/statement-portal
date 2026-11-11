@@ -3,7 +3,7 @@ import { RefreshNavCounts } from '@/components/NavTabCount';
 import Link from 'next/link';
 import { loadFieldReview } from '@/lib/field-review';
 import { RetryDashboard } from '@/components/RetryDashboard';
-import { TRADE_META } from '@/lib/field-types';
+import { NAV_TRADES, TRADE_META } from '@/lib/field-types';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { FieldTabs } from '@/components/FieldTabs';
 import { HelmFooter } from '@/components/HelmFooter';
@@ -194,9 +194,9 @@ export default async function PacketsBoard({
   // new date, a Record, or a Dismiss - so it belongs in the brief, not just the
   // Drafts list below.
   const expiredDrafts = drafts.filter((p) => daysUntilET(p.visit_date) < 0);
-  // Needs review is scoped to the lit trade, so its count is the number on
-  // the row-1 pill. The other trades' submitted packets are one line below
-  // it, a link each, instead of a second list that disagreed with the pill.
+  // Needs review is scoped to the lit trade chip. The other trades'
+  // submitted packets are one line below it, a link each, so the Jobs
+  // tab's badge (every trade's count) always adds up from this page.
   const visibleReviews = reviewPackets === null ? null : reviewPackets.filter((p) => parseTrade(p.trade) === trade);
   const elsewhereByTrade: Partial<Record<ContractorTrade, number>> = {};
   for (const p of reviewPackets ?? []) {
@@ -240,6 +240,14 @@ export default async function PacketsBoard({
         <SentFlash sent={sp.sent} who={sp.who} skipped={sp.skipped} />
 
         <nav aria-label="Filter field visits" className="rt-field-filters" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 20 }}>
+          {/* The trade is the first filter: it was the strip's first row
+              until the strip became one row (UX audit, 2026-11-07). Only
+              the trades that dispatch jobs; creative is on the Roster and
+              Shoots & Pay. */}
+          {NAV_TRADES.filter((t) => TRADE_META[t].hasPackets).map((t) => (
+            <Link key={t} href={`/fieldwork/packets?trade=${t}`} aria-current={t === trade ? 'page' : undefined}>{TRADE_META[t].label}</Link>
+          ))}
+          <span aria-hidden style={{ width: 1, alignSelf: 'stretch', background: 'var(--rule)', margin: '0 4px' }} />
           <Link href={focusHref('all')} aria-current={focus === 'all' ? 'page' : undefined}>All visits</Link>
           {[
             { id: 'late', label: 'Late visits', count: atRiskPackets.length },
@@ -253,8 +261,7 @@ export default async function PacketsBoard({
           <h2 id="review-heading" style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', marginBottom: 8 }}>
             Needs review{visibleReviews ? ` · ${visibleReviews.length}` : ''}
           </h2>
-          <p style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 12 }}>Submitted jobs awaiting {owner ? 'your' : "Ryan's"} approval</p>
-          {visibleReviews === null ? <div role="status">Couldn’t load packets awaiting review. <RetryDashboard /></div>
+          {visibleReviews === null ? <div role="status">Couldn’t load jobs awaiting review. <RetryDashboard /></div>
             : visibleReviews.length === 0 ? <p style={{ fontSize: 13, color: 'var(--ink-3)' }}>No {TRADE_META[trade].singular} jobs awaiting approval.</p>
             : <div style={{ border: '1px solid var(--rule)', borderRadius: 10, overflow: 'hidden' }}>
               {visibleReviews.map(p => <div key={p.id} style={{ padding: '14px 18px', borderBottom: '1px solid var(--rule)', display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
@@ -382,7 +389,7 @@ export default async function PacketsBoard({
           </details>
         )}
       </section>
-      <HelmFooter module="Field" right={`${TRADE_META[trade].singular.charAt(0).toUpperCase()}${TRADE_META[trade].singular.slice(1)} packets`} />
+      <HelmFooter module="Field" right={`${TRADE_META[trade].singular.charAt(0).toUpperCase()}${TRADE_META[trade].singular.slice(1)} jobs`} />
     </div>
   );
 }
@@ -393,8 +400,8 @@ export default async function PacketsBoard({
 function releaseConfirm(name: string | null, visitPassed: boolean): string {
   const whose = name ? `${name.split(' ')[0]}'s claim` : 'this claim';
   return visitPassed
-    ? `Release ${whose}? The visit day has passed, so the packet lands in Drafts to re-date. Nobody is texted.`
-    : `Release ${whose}? The packet goes back on the board and the roster is texted again.`;
+    ? `Release ${whose}? The visit day has passed, so the job lands in Drafts to re-date. Nobody is texted.`
+    : `Release ${whose}? The job goes back on the board and the roster is texted again.`;
 }
 
 function DraftRow({ p }: { p: PacketRow }) {
@@ -441,11 +448,6 @@ function LiveRow({ p, who, dim, assigned = false, owner = false }: { p: PacketRo
     >
       <Link href={`/fieldwork/packets/${p.id}`} style={{ flex: 1, minWidth: 200, textDecoration: 'none', color: 'var(--ink)' }}>
         <span className="font-serif" style={{ fontSize: 17 }}>{p.title}</span>
-        {p.trade !== 'inspection' && (
-          <span style={{ fontSize: 9, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--tide-deep)', border: '1px solid var(--rule)', borderRadius: 999, padding: '1px 6px', marginLeft: 8, verticalAlign: 'middle' }}>
-            {TRADE_META[parseTrade(p.trade)].singular}
-          </span>
-        )}
         {p.kind === 'setup' && (
           <span style={{ fontSize: 9, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--signal)', border: '1px solid var(--rule)', borderRadius: 999, padding: '1px 6px', marginLeft: 8, verticalAlign: 'middle' }}>
             setup

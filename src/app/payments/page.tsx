@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { Suspense } from 'react';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { FinancialsTabs } from '@/components/FinancialsTabs';
+import { StripeTabs } from '@/components/StripeTabs';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { lookupPayments } from '@/lib/stripe-payments-lookup';
@@ -101,19 +102,14 @@ export default async function PaymentsPage({
       <HelmHero
         plain
         eyebrow="Helm · Stripe"
-        title="Stripe lookup"
+        title="Stripe"
         line="Read live from each home's own Stripe. Guesty shows $0 paid on every direct booking."
       />
+      {/* Balance charges and Disputes are owner pages; staff keep the lookup
+          alone, so the sub-strip is decided here on the server. */}
+      {owner && <StripeTabs current="lookup" />}
 
-      <section className="max-w-[1100px] mx-auto px-10 w-full" style={{ paddingBottom: 56 }}>
-        {owner && (
-          <div style={{ marginBottom: 16, fontSize: 12, color: 'var(--ink-3)' }}>
-            Saved-card balances for far-future stays are charged from{' '}
-            <Link href="/payments/balance-charges" style={{ color: 'var(--tide-deep)' }}>Balance charges</Link>.
-            Card disputes and their deadlines:{' '}
-            <Link href="/payments/disputes" style={{ color: 'var(--tide-deep)' }}>Disputes</Link>.
-          </div>
-        )}
+      <section className="max-w-[1100px] mx-auto px-10 w-full" style={{ paddingBottom: 56, paddingTop: 20 }}>
         <PaymentsSearchForm
           properties={fleet.map((p) => ({ id: p.id, name: p.name }))}
           initial={search}
@@ -137,7 +133,7 @@ export default async function PaymentsPage({
         )}
       </section>
 
-      <HelmFooter module="Stripe lookup" right="Read-only · straight from Stripe" />
+      <HelmFooter module="Stripe" right="Read-only · straight from Stripe" />
     </div>
   );
 }

@@ -10,6 +10,7 @@ function harness() {
     roomTypeId:m.roomTypeId,ratePlanId:m.ratePlanId,generation:1,importEnabled:false,captureEnabled:false,
     calendarAuthority:'guesty',receipts:0,inventoryEvents:0};
   const inventory = { format: 1, planningEnabled: false, publishingEnabled: false, headVersion: 0, plans: 0, coverageSources: 0, maxDays: 500 };
+  const delivery = { format: 1, enabled: false, attempts: 0, unresolved: 0, settlementEnabled: false };
   const calls: { name: string; args: Record<string,unknown> }[] = [];
   const urls: string[] = [];
   const relation = (id: string) => ({data:{id}});
@@ -20,13 +21,13 @@ function harness() {
     {data:[],meta:{total:0,page:1}},
   ];
   const rpc = async(name:string,args:Record<string,unknown>) => {
-    calls.push({name,args});return {data:name==='helm_channex_storage_status'?storage:name==='helm_channex_inventory_status'?inventory:true,error:null};
+    calls.push({name,args});return {data:name==='helm_channex_storage_status'?storage:name==='helm_channex_inventory_status'?inventory:name==='helm_channex_delivery_status'?delivery:true,error:null};
   };
   const fetcher:typeof fetch = async(url,init) => {
     assert.equal(init?.method,'GET');assert.equal(init?.redirect,'error');
     urls.push(String(url));return Response.json(rows[urls.length-1]);
   };
-  return {storage,inventory,calls,urls,rpc,fetcher};
+  return {storage,inventory,delivery,calls,urls,rpc,fetcher};
 }
 test('production runtime proves provider access and dormant storage, persists only bounded health',async()=>{
  const h=harness();const r=await inspectProductionRuntime(env,h.rpc,h.fetcher);
@@ -35,8 +36,17 @@ test('production runtime proves provider access and dormant storage, persists on
  assert.equal(h.urls.some(u=>u.includes('booking_revisions')),false);
  assert.deepEqual(h.calls,[{name:'helm_channex_storage_status',args:{}},
   {name:'helm_channex_inventory_status',args:{}},
+  {name:'helm_channex_delivery_status',args:{}},
   {name:'helm_channex_runtime_checkpoint',args:{p_ok:true,p_code:'OK'}}]);
  assert.equal(JSON.stringify(r).includes('synthetic-'),false);
+});
+
+test('delivery attempts or unexpected enablement block inspection before provider IO',async()=>{
+ for(const patch of [{enabled:true},{attempts:1},{unresolved:1},{settlementEnabled:true}]){
+  const h=harness();Object.assign(h.delivery,patch);
+  await assert.rejects(inspectProductionRuntime(env,h.rpc,h.fetcher),e=>e instanceof ChannexRuntimeError&&e.code==='STORAGE_NOT_READY');
+  assert.equal(h.urls.length,0);assert.equal(h.calls.some(c=>c.name==='helm_channex_delivery_claim'),false);
+ }
 });
 test('preview, wrong database, staging modes and missing credentials never read or write',async()=>{
  for(const patch of [{VERCEL_ENV:'preview'},{VERCEL_ENV:undefined},{CHANNEX_PRODUCTION_MODE:'consume'},

@@ -22,7 +22,8 @@ const read = (repoPath: string): string =>
 const code = (src: string): string => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
 
 const page = code(read('src/app/statements/page.tsx'));
-const upload = code(read('src/app/statements/upload/page.tsx'));
+// The upload form lives beside its page; the card opens the same component.
+const upload = code(read('src/app/statements/upload/StatementUploadForm.tsx'));
 const card = code(read('src/components/PlatformCSVUploadCard.tsx'));
 
 describe('the Guesty reservations CSV has one name and one door', () => {
@@ -53,8 +54,8 @@ describe('a data gap is a flag', () => {
 describe('verbs say what they do', () => {
   test('Check sent emails says it can add flags', () => {
     assert.ok(!page.includes('Reconcile Sends'), '"Reconcile Sends" is back');
-    assert.match(page, /label=\{reconciling \? 'Checking…' : 'Check sent emails'\}/);
-    assert.match(page, /meta="flags a mismatch"/);
+    assert.match(page, /\{reconciling \? 'Checking…' : 'Check sent emails'\}/);
+    assert.match(page, /<ButtonMeta>&middot; flags a mismatch<\/ButtonMeta>/);
     assert.match(page, /A mismatch adds a flag to that property&apos;s card\./);
   });
 

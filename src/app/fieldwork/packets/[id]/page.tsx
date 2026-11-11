@@ -265,6 +265,30 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
   });
   const trackPct = packet.stops.length ? Math.round((doneCount / packet.stops.length) * 100) : 0;
 
+  // One click to make the route follow the cleaner. Only offered when the
+  // vendor has actually announced times for this day AND the resulting order
+  // would differ from what is stored, so it never appears as a no-op.
+  const orderByCleaner = canAddStop && (() => {
+    const movable = packet.stops.filter((s) => !s.started_at && s.status !== 'complete' && s.status !== 'skipped');
+    const announced = movable.filter((s) => vendorTimes.get(s.property_id));
+    if (announced.length < 2) return false;
+    const wanted = [
+      ...packet.stops.filter((s) => s.started_at || s.status === 'complete' || s.status === 'skipped'),
+      ...announced.slice().sort((a, b) =>
+        vendorTimes.get(a.property_id)!.localeCompare(vendorTimes.get(b.property_id)!)),
+      ...movable.filter((s) => !vendorTimes.get(s.property_id)),
+    ].map((s) => s.id);
+    const current = packet.stops.map((s) => s.id);
+    if (wanted.every((id, i) => id === current[i])) return false;
+    return true;
+  })();
+  // Which levers this page offers, so an empty menu never renders.
+  const canAssign = isLive && dispatcher && isAssignableStatus(packet.status) && assignable.length > 0;
+  const showChange =
+    orderByCleaner ||
+    (isLive && (attachEditable || (owner && (packet.status === 'claimed' || packet.status === 'in_progress')) || canAddStop));
+  const showHand = canAssign || (isLive && packet.status !== 'submitted');
+
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
@@ -512,7 +536,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
               {ageLabel(packet.published_at) && <span>{ageLabel(packet.published_at)}</span>}
               {deadlineLabel(packet.claim_deadline) && <><span>·</span><span>{deadlineLabel(packet.claim_deadline)}</span></>}
             </div>
-            {eligible.length > 0 && <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 6, lineHeight: 1.45 }}>{TIER_KEY}</div>}
+            {eligible.length > 0 && !canAssign && <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 6, lineHeight: 1.45 }}>{TIER_KEY}</div>}
           </div>
         )}
 
@@ -705,7 +729,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
             rel="noopener noreferrer"
             style={{ fontSize: 12, color: 'var(--tide-deep)', fontWeight: 600, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6, border: '1px solid var(--rule)', borderRadius: 999, padding: '7px 14px', background: 'var(--paper-2, #fff)' }}
           >
-            Preview as inspector ↗
+            Preview as contractor ↗
           </Link>
         </div>
 
@@ -729,7 +753,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                     // refuses past dates server-side, so don't offer a button
                     // that would no-op. The When menu below relists it.
                     <span style={{ fontSize: 12, color: '#7a5512', fontWeight: 600 }}>
-                      Visit day has passed. Set a new day under When, then publish.
+                      Visit day has passed. Set a new day under Change the job, then publish.
                     </span>
                   ) : dispatcher ? (
                     <form action={publishPacket}>
@@ -746,12 +770,12 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                       that does rides in the confirm, not a caption. */}
                   <PendingButton
                     label={readyToClose ? `Submit for ${inspectorFirst}` : `Wrap up & submit for ${inspectorFirst}`}
-                    busyLabel="Closing out the trip…"
+                    busyLabel="Closing out the job…"
                     className={buttonClass('primary')}
                     confirm={
                       readyToClose
-                        ? `Submit for ${inspectorFirst}? Every stop is done but they never tapped Submit. This closes the trip out like their own tap: stops the clock, pulls the door codes, and moves it to ${owner ? 'your review' : 'review'}.`
-                        : `Wrap up for ${inspectorFirst}? ${packet.stops.length - doneCount} stop${packet.stops.length - doneCount === 1 ? ' is' : 's are'} still open. This marks ${packet.stops.length - doneCount === 1 ? 'it' : 'them'} complete, closes the trip out (stops the clock, pulls the door codes), and moves it to ${owner ? 'your review' : 'review'}.`
+                        ? `Submit for ${inspectorFirst}? Every stop is done but they never tapped Submit. This closes the job out like their own tap: stops the clock, pulls the door codes, and moves it to ${owner ? 'your review' : 'review'}.`
+                        : `Wrap up for ${inspectorFirst}? ${packet.stops.length - doneCount} stop${packet.stops.length - doneCount === 1 ? ' is' : 's are'} still open. This marks ${packet.stops.length - doneCount === 1 ? 'it' : 'them'} complete, closes the job out (stops the clock, pulls the door codes), and moves it to ${owner ? 'your review' : 'review'}.`
                     }
                   />
                 </form>
@@ -771,238 +795,241 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
             </div>
           )}
 
-          {/* Quiet utilities — rarely used, so they whisper. */}
-          {isLive && (
+          {/* Two menus hold the levers (UX audit, 2026-11-07): Change the job
+              (when, pay, stops, windows, the cleaner's order) and Hand it off
+              (assign, unpublish, release, cancel). Each lever keeps its own
+              gate; a menu with nothing in it does not render. */}
+          {(showChange || showHand) && (
             <div style={{ display: 'flex', gap: 18, alignItems: 'baseline', flexWrap: 'wrap', marginTop: 14 }}>
-              {dispatcher && (isAssignableStatus(packet.status)) && assignable.length > 0 && (
+              {showChange && (
                 <details style={{ position: 'relative' }}>
-                  <summary style={quietSummary}>{packet.status === 'claimed' ? 'Reassign' : 'Assign directly'} ▾</summary>
-                  <div style={menuCard}>
-                    <div style={{ fontSize: 10.5, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-4)', fontWeight: 600, padding: '2px 0 6px' }}>
-                      Hand this trip to
-                    </div>
-                    {assignable.map((c, i) => (
-                      <form key={c.id} action={assignPacket} style={{ margin: 0, borderTop: i ? '1px solid var(--rule)' : 'none' }}>
+                  <summary style={quietSummary}>Change the job ▾</summary>
+                  <div style={{ ...menuCard, minWidth: 320, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {isLive && (
+                      <>
+                        {/* WHEN: the day, the earliest start and the complete-by
+                            deadline in one menu. Three menus for three columns of one
+                            row read as three different things (UI/UX audit). Before a
+                            claim the day and start move together; once claimed, the day
+                            is fixed and a new start time emails the contractor. */}
+                        {attachEditable && (
+                          <details>
+                            <summary style={quietSummary}>When ▾</summary>
+                            <div style={{ ...subPanel, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                              {(editable || packet.status === 'published') ? (
+                                <form action={setPacketVisitDate} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                  <input type="hidden" name="packet_id" value={packet.id} />
+                                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                                    <label style={menuLabel}>
+                                      Day
+                                      <input type="date" name="visit_date" defaultValue={packet.visit_date} style={{ ...priceInput, width: 150 }} />
+                                    </label>
+                                    <label style={menuLabel}>
+                                      Earliest start <span style={{ fontWeight: 400 }}>(blank = any time)</span>
+                                      <input type="time" name="visit_time" defaultValue={packet.visit_time ?? ''} style={{ ...priceInput, width: 110 }} />
+                                    </label>
+                                  </div>
+                                  <div><PendingButton label="Move" busyLabel="Moving…" className={buttonClass('secondary')} spinnerTone="ink" /></div>
+                                </form>
+                              ) : (
+                                // Clear is its own form: an empty visit_time field is what
+                                // clears, and a named submitter cannot override the input.
+                                <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                                  <form action={setPacketStartTime} style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap', margin: 0 }}>
+                                    <input type="hidden" name="packet_id" value={packet.id} />
+                                    <label style={menuLabel}>
+                                      Earliest start <span style={{ fontWeight: 400 }}>(blank = any time)</span>
+                                      <input type="time" name="visit_time" defaultValue={packet.visit_time?.slice(0, 5) ?? ''} style={{ ...priceInput, width: 110 }} />
+                                    </label>
+                                    <PendingButton label={`Set & email ${inspectorFirst}`} busyLabel="Setting…" className={buttonClass('secondary')} spinnerTone="ink" />
+                                  </form>
+                                  {packet.visit_time && (
+                                    <form action={setPacketStartTime} style={{ margin: 0 }}>
+                                      <input type="hidden" name="packet_id" value={packet.id} />
+                                      <input type="hidden" name="visit_time" value="" />
+                                      <PendingButton label="Clear" busyLabel="Clearing…" className={buttonClass('secondary')} style={{ color: 'var(--ink-4)' }} spinnerTone="ink" />
+                                    </form>
+                                  )}
+                                </div>
+                              )}
+                              <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap', borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
+                                <form action={setPacketCompleteBy} style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap', margin: 0 }}>
+                                  <input type="hidden" name="packet_id" value={packet.id} />
+                                  <label style={menuLabel}>
+                                    Complete by <span style={{ fontWeight: 400 }}>(the board flags them late after it)</span>
+                                    <input type="time" name="complete_by" defaultValue={packet.complete_by?.slice(0, 5) ?? ''} style={{ ...priceInput, width: 110 }} />
+                                  </label>
+                                  <PendingButton label="Set" busyLabel="Setting…" className={buttonClass('secondary')} spinnerTone="ink" />
+                                </form>
+                                {packet.complete_by && (
+                                  <form action={setPacketCompleteBy} style={{ margin: 0 }}>
+                                    <input type="hidden" name="packet_id" value={packet.id} />
+                                    <input type="hidden" name="complete_by" value="" />
+                                    <PendingButton label="Clear" busyLabel="Clearing…" className={buttonClass('secondary')} style={{ color: 'var(--ink-4)' }} spinnerTone="ink" />
+                                  </form>
+                                )}
+                              </div>
+                            </div>
+                          </details>
+                        )}
+                        {owner && (packet.status === 'claimed' || packet.status === 'in_progress') && (
+                          <details>
+                            {/* Raise only: the posted figure is what the contractor
+                                agreed to, so the input will not go below it. Lowering
+                                means releasing the claim. */}
+                            <summary style={quietSummary}>Raise pay ▾</summary>
+                            <div style={subPanel}>
+                              <form action={raisePacketEstimate} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                <input type="hidden" name="packet_id" value={packet.id} />
+                                <span style={{ fontSize: 14, color: 'var(--ink-4)' }}>$</span>
+                                <input type="number" name="price_dollars" min={Math.round(packet.posted_price_cents / 100) + 1} step={1} defaultValue={Math.round(packet.posted_price_cents / 100)} aria-label={`New pay, above the agreed ${dollars(packet.posted_price_cents)}`} style={{ ...priceInput, width: 90 }} />
+                                <input name="reason" placeholder="reason (optional)" maxLength={500} style={{ ...priceInput, width: 150 }} />
+                                <PendingButton label="Raise pay" busyLabel="Saving…" className={buttonClass('secondary')} spinnerTone="ink" confirm={`Raise ${inspectorFirst}'s pay above the agreed ${dollars(packet.posted_price_cents)}? We email them the new amount.`} />
+                              </form>
+                            </div>
+                          </details>
+                        )}
+                        {canAddStop && addableProps.length > 0 && (
+                          <details>
+                            <summary style={quietSummary}>Add a stop ▾</summary>
+                            <div style={subPanel}>
+                              <form action={addPacketStop} style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 250 }}>
+                                <input type="hidden" name="packet_id" value={packet.id} />
+                                {/* The same kinds, in the same words, as the Send a job form. */}
+                                <select name="stop_kind" defaultValue="inspection" style={{ ...priceInput, width: '100%' }}>
+                                  {(Object.keys(JOB_KIND_LABEL) as JobKind[]).map((k) => (
+                                    <option key={k} value={k}>{JOB_KIND_LABEL[k]}</option>
+                                  ))}
+                                </select>
+                                <select name="property_id" required defaultValue="" style={{ ...priceInput, width: '100%' }}>
+                                  <option value="" disabled>Choose a property…</option>
+                                  {addableProps.map((p) => (
+                                    <option key={p.id} value={p.id}>
+                                      {p.name || p.address}
+                                      {p.kind === 'prospect' ? ' · prospect' : ''}
+                                    </option>
+                                  ))}
+                                </select>
+                                <input name="instructions" placeholder="What to do (inspection: blank = full walk)" maxLength={500} style={{ ...priceInput, width: '100%' }} />
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                  <span style={{ fontSize: 14, color: 'var(--ink-4)' }}>$</span>
+                                  <input type="number" name="price_dollars" min={1} step={1} placeholder="pay" required aria-label="Pay for this stop, in dollars" style={{ ...priceInput, width: 80 }} />
+                                  <PendingButton
+                                    label="Add stop"
+                                    busyLabel="Adding…"
+                                    className={buttonClass('secondary')}
+                                    spinnerTone="ink"
+                                    confirm={isWorkingStatus(packet.status) ? `Add this stop? It joins ${inspectorFirst}'s route and pay, and we email them the change.` : undefined}
+                                  />
+                                </div>
+                              </form>
+                            </div>
+                          </details>
+                        )}
+                        {canAddStop && (
+                          <form action={syncPacketWindows} style={{ margin: 0 }} title="Re-check each stop's window (vacant / after checkout / before check-in) against current bookings">
+                            <input type="hidden" name="packet_id" value={packet.id} />
+                            <PendingButton label="Sync windows" busyLabel="Syncing…" style={quietCtl} spinnerTone="ink" />
+                          </form>
+                        )}
+                      </>
+                    )}
+                    {orderByCleaner && (
+                      <form action={orderStopsByCleaningTime} style={{ margin: 0 }}>
                         <input type="hidden" name="packet_id" value={packet.id} />
-                        <input type="hidden" name="contractor_id" value={c.id} />
                         <PendingButton
-                          busyLabel="Assigning…"
+                          label={`Order stops by ${VENDOR_LABEL}'s times`}
+                          busyLabel="Reordering…"
                           spinnerTone="ink"
-                          style={menuRow}
-                          label={
-                            // Inner wrapper keeps the name / tier space-between layout;
-                            // the shared button centers its own children.
-                            <span style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 14 }}>
-                              <span style={{ fontSize: 13.5, color: 'var(--ink)' }}>{c.full_name}</span>
-                              <span style={{ fontSize: 11.5, color: 'var(--ink-4)' }}>
-                                {TIER_LABEL[c.tier]}{c.miles != null ? ` · ${c.miles < 1 ? '<1' : Math.round(c.miles)} mi` : ''}
-                              </span>
-                            </span>
+                          style={quietCtl}
+                        />
+                      </form>
+                    )}
+                  </div>
+                </details>
+              )}
+              {showHand && (
+                <details style={{ position: 'relative' }}>
+                  <summary style={quietSummary}>Hand it off ▾</summary>
+                  <div style={{ ...menuCard, display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-start' }}>
+                    {dispatcher && (isAssignableStatus(packet.status)) && assignable.length > 0 && (
+                      <details>
+                        <summary style={quietSummary}>{packet.status === 'claimed' ? 'Reassign' : 'Assign directly'} ▾</summary>
+                        <div style={subPanel}>
+                          <div style={{ fontSize: 10.5, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-4)', fontWeight: 600, padding: '2px 0 6px' }}>
+                            Hand this job to
+                          </div>
+                          {assignable.map((c, i) => (
+                            <form key={c.id} action={assignPacket} style={{ margin: 0, borderTop: i ? '1px solid var(--rule)' : 'none' }}>
+                              <input type="hidden" name="packet_id" value={packet.id} />
+                              <input type="hidden" name="contractor_id" value={c.id} />
+                              <PendingButton
+                                busyLabel="Assigning…"
+                                spinnerTone="ink"
+                                style={menuRow}
+                                label={
+                                  // Inner wrapper keeps the name / tier space-between layout;
+                                  // the shared button centers its own children.
+                                  <span style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 14 }}>
+                                    <span style={{ fontSize: 13.5, color: 'var(--ink)' }}>{c.full_name}</span>
+                                    <span style={{ fontSize: 11.5, color: 'var(--ink-4)' }}>
+                                      {TIER_LABEL[c.tier]}{c.miles != null ? ` · ${c.miles < 1 ? '<1' : Math.round(c.miles)} mi` : ''}
+                                    </span>
+                                  </span>
+                                }
+                              />
+                            </form>
+                          ))}
+                          <div style={{ fontSize: 10.5, color: 'var(--ink-4)', lineHeight: 1.45, borderTop: '1px solid var(--rule)', paddingTop: 8, marginTop: 4, maxWidth: 280 }}>{TIER_KEY}</div>
+                        </div>
+                      </details>
+                    )}
+                    {/* Each of these changes what a contractor sees or can do, so
+                        the click says what it does before it does it. */}
+                    {packet.status === 'published' && (
+                      <form action={unpublishPacket} style={{ margin: 0 }}>
+                        <input type="hidden" name="packet_id" value={packet.id} />
+                        <PendingButton label="Unpublish" busyLabel="Unpublishing…" style={quietCtl} spinnerTone="ink" confirm="Unpublish this job? It leaves the contractors' boards and goes back to a draft. Nobody is texted." />
+                      </form>
+                    )}
+                    {packet.status === 'claimed' && (
+                      <form action={releasePacket} style={{ margin: 0 }}>
+                        <input type="hidden" name="packet_id" value={packet.id} />
+                        <PendingButton
+                          label="Release claim"
+                          busyLabel="Releasing…"
+                          style={quietCtl}
+                          spinnerTone="ink"
+                          confirm={
+                            packet.visit_date < todayET()
+                              ? `Release ${inspectorFirst}'s claim? The visit day has passed, so the job lands in Drafts to re-date. Nobody is texted.`
+                              : `Release ${inspectorFirst}'s claim? The job goes back on the board and the roster is texted again.`
                           }
                         />
                       </form>
-                    ))}
-                    <div style={{ fontSize: 10.5, color: 'var(--ink-4)', lineHeight: 1.45, borderTop: '1px solid var(--rule)', paddingTop: 8, marginTop: 4, maxWidth: 280 }}>{TIER_KEY}</div>
-                  </div>
-                </details>
-              )}
-              {/* WHEN: the day, the earliest start and the complete-by
-                  deadline in one menu. Three menus for three columns of one
-                  row read as three different things (UI/UX audit). Before a
-                  claim the day and start move together; once claimed, the day
-                  is fixed and a new start time emails the contractor. */}
-              {attachEditable && (
-                <details style={{ position: 'relative' }}>
-                  <summary style={quietSummary}>When ▾</summary>
-                  <div style={{ ...menuCard, minWidth: 300, display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    {(editable || packet.status === 'published') ? (
-                      <form action={setPacketVisitDate} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        <input type="hidden" name="packet_id" value={packet.id} />
-                        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                          <label style={menuLabel}>
-                            Day
-                            <input type="date" name="visit_date" defaultValue={packet.visit_date} style={{ ...priceInput, width: 150 }} />
-                          </label>
-                          <label style={menuLabel}>
-                            Earliest start <span style={{ fontWeight: 400 }}>(blank = any time)</span>
-                            <input type="time" name="visit_time" defaultValue={packet.visit_time ?? ''} style={{ ...priceInput, width: 110 }} />
-                          </label>
-                        </div>
-                        <div><PendingButton label="Move" busyLabel="Moving…" className={buttonClass('secondary')} spinnerTone="ink" /></div>
-                      </form>
-                    ) : (
-                      // Clear is its own form: an empty visit_time field is what
-                      // clears, and a named submitter cannot override the input.
-                      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                        <form action={setPacketStartTime} style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap', margin: 0 }}>
-                          <input type="hidden" name="packet_id" value={packet.id} />
-                          <label style={menuLabel}>
-                            Earliest start <span style={{ fontWeight: 400 }}>(blank = any time)</span>
-                            <input type="time" name="visit_time" defaultValue={packet.visit_time?.slice(0, 5) ?? ''} style={{ ...priceInput, width: 110 }} />
-                          </label>
-                          <PendingButton label={`Set & email ${inspectorFirst}`} busyLabel="Setting…" className={buttonClass('secondary')} spinnerTone="ink" />
-                        </form>
-                        {packet.visit_time && (
-                          <form action={setPacketStartTime} style={{ margin: 0 }}>
-                            <input type="hidden" name="packet_id" value={packet.id} />
-                            <input type="hidden" name="visit_time" value="" />
-                            <PendingButton label="Clear" busyLabel="Clearing…" className={buttonClass('secondary')} style={{ color: 'var(--ink-4)' }} spinnerTone="ink" />
-                          </form>
-                        )}
-                      </div>
                     )}
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap', borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
-                      <form action={setPacketCompleteBy} style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap', margin: 0 }}>
+                    {packet.status !== 'submitted' && (
+                      <form action={cancelPacket} style={{ margin: 0 }}>
                         <input type="hidden" name="packet_id" value={packet.id} />
-                        <label style={menuLabel}>
-                          Complete by <span style={{ fontWeight: 400 }}>(the board flags them late after it)</span>
-                          <input type="time" name="complete_by" defaultValue={packet.complete_by?.slice(0, 5) ?? ''} style={{ ...priceInput, width: 110 }} />
-                        </label>
-                        <PendingButton label="Set" busyLabel="Setting…" className={buttonClass('secondary')} spinnerTone="ink" />
-                      </form>
-                      {packet.complete_by && (
-                        <form action={setPacketCompleteBy} style={{ margin: 0 }}>
-                          <input type="hidden" name="packet_id" value={packet.id} />
-                          <input type="hidden" name="complete_by" value="" />
-                          <PendingButton label="Clear" busyLabel="Clearing…" className={buttonClass('secondary')} style={{ color: 'var(--ink-4)' }} spinnerTone="ink" />
-                        </form>
-                      )}
-                    </div>
-                  </div>
-                </details>
-              )}
-              {owner && (packet.status === 'claimed' || packet.status === 'in_progress') && (
-                <details style={{ position: 'relative' }}>
-                  {/* Raise only: the posted figure is what the contractor
-                      agreed to, so the input will not go below it. Lowering
-                      means releasing the claim. */}
-                  <summary style={quietSummary}>Raise pay ▾</summary>
-                  <div style={menuCard}>
-                    <form action={raisePacketEstimate} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                      <input type="hidden" name="packet_id" value={packet.id} />
-                      <span style={{ fontSize: 14, color: 'var(--ink-4)' }}>$</span>
-                      <input type="number" name="price_dollars" min={Math.round(packet.posted_price_cents / 100) + 1} step={1} defaultValue={Math.round(packet.posted_price_cents / 100)} aria-label={`New pay, above the agreed ${dollars(packet.posted_price_cents)}`} style={{ ...priceInput, width: 90 }} />
-                      <input name="reason" placeholder="reason (optional)" maxLength={500} style={{ ...priceInput, width: 150 }} />
-                      <PendingButton label="Raise pay" busyLabel="Saving…" className={buttonClass('secondary')} spinnerTone="ink" confirm={`Raise ${inspectorFirst}'s pay above the agreed ${dollars(packet.posted_price_cents)}? We email them the new amount.`} />
-                    </form>
-                  </div>
-                </details>
-              )}
-              {canAddStop && addableProps.length > 0 && (
-                <details style={{ position: 'relative' }}>
-                  <summary style={quietSummary}>Add a stop ▾</summary>
-                  <div style={menuCard}>
-                    <form action={addPacketStop} style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 250 }}>
-                      <input type="hidden" name="packet_id" value={packet.id} />
-                      {/* The same kinds, in the same words, as the Send a job form. */}
-                      <select name="stop_kind" defaultValue="inspection" style={{ ...priceInput, width: '100%' }}>
-                        {(Object.keys(JOB_KIND_LABEL) as JobKind[]).map((k) => (
-                          <option key={k} value={k}>{JOB_KIND_LABEL[k]}</option>
-                        ))}
-                      </select>
-                      <select name="property_id" required defaultValue="" style={{ ...priceInput, width: '100%' }}>
-                        <option value="" disabled>Choose a property…</option>
-                        {addableProps.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.name || p.address}
-                            {p.kind === 'prospect' ? ' · prospect' : ''}
-                          </option>
-                        ))}
-                      </select>
-                      <input name="instructions" placeholder="What to do (inspection: blank = full walk)" maxLength={500} style={{ ...priceInput, width: '100%' }} />
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ fontSize: 14, color: 'var(--ink-4)' }}>$</span>
-                        <input type="number" name="price_dollars" min={1} step={1} placeholder="pay" required aria-label="Pay for this stop, in dollars" style={{ ...priceInput, width: 80 }} />
                         <PendingButton
-                          label="Add stop"
-                          busyLabel="Adding…"
-                          className={buttonClass('secondary')}
+                          label="Cancel job"
+                          busyLabel="Cancelling…"
+                          style={{ ...quietCtl, color: 'var(--signal)' }}
                           spinnerTone="ink"
-                          confirm={isWorkingStatus(packet.status) ? `Add this stop? It joins ${inspectorFirst}'s route and pay, and we email them the change.` : undefined}
+                          confirm={
+                            isWorkingStatus(packet.status)
+                              ? `Cancel this job? It comes off ${inspectorFirst}'s board and the door codes are pulled. This cannot be undone.`
+                              : 'Cancel this job? It comes off the board. This cannot be undone.'
+                          }
                         />
-                      </div>
-                    </form>
+                      </form>
+                    )}
                   </div>
                 </details>
-              )}
-              {canAddStop && (
-                <form action={syncPacketWindows} style={{ margin: 0 }} title="Re-check each stop's window (vacant / after checkout / before check-in) against current bookings">
-                  <input type="hidden" name="packet_id" value={packet.id} />
-                  <PendingButton label="Sync windows" busyLabel="Syncing…" style={quietCtl} spinnerTone="ink" />
-                </form>
-              )}
-              {/* Each of these changes what a contractor sees or can do, so
-                  the click says what it does before it does it. */}
-              {packet.status === 'published' && (
-                <form action={unpublishPacket} style={{ margin: 0 }}>
-                  <input type="hidden" name="packet_id" value={packet.id} />
-                  <PendingButton label="Unpublish" busyLabel="Unpublishing…" style={quietCtl} spinnerTone="ink" confirm="Unpublish this packet? It leaves the contractors' boards and goes back to a draft. Nobody is texted." />
-                </form>
-              )}
-              {packet.status === 'claimed' && (
-                <form action={releasePacket} style={{ margin: 0 }}>
-                  <input type="hidden" name="packet_id" value={packet.id} />
-                  <PendingButton
-                    label="Release claim"
-                    busyLabel="Releasing…"
-                    style={quietCtl}
-                    spinnerTone="ink"
-                    confirm={
-                      packet.visit_date < todayET()
-                        ? `Release ${inspectorFirst}'s claim? The visit day has passed, so the packet lands in Drafts to re-date. Nobody is texted.`
-                        : `Release ${inspectorFirst}'s claim? The packet goes back on the board and the roster is texted again.`
-                    }
-                  />
-                </form>
-              )}
-              {packet.status !== 'submitted' && (
-                <form action={cancelPacket} style={{ margin: 0 }}>
-                  <input type="hidden" name="packet_id" value={packet.id} />
-                  <PendingButton
-                    label="Cancel packet"
-                    busyLabel="Cancelling…"
-                    style={{ ...quietCtl, color: 'var(--signal)' }}
-                    spinnerTone="ink"
-                    confirm={
-                      isWorkingStatus(packet.status)
-                        ? `Cancel this packet? It comes off ${inspectorFirst}'s board and the door codes are pulled. This cannot be undone.`
-                        : 'Cancel this packet? It comes off the board. This cannot be undone.'
-                    }
-                  />
-                </form>
               )}
             </div>
           )}
         </div>
-
-        {/* One click to make the route follow the cleaner. Only offered when
-            the vendor has actually announced times for this day AND the
-            resulting order would differ from what is stored, so it never
-            appears as a no-op button. */}
-        {canAddStop && (() => {
-          const movable = packet.stops.filter((s) => !s.started_at && s.status !== 'complete' && s.status !== 'skipped');
-          const announced = movable.filter((s) => vendorTimes.get(s.property_id));
-          if (announced.length < 2) return null;
-          const wanted = [
-            ...packet.stops.filter((s) => s.started_at || s.status === 'complete' || s.status === 'skipped'),
-            ...announced.slice().sort((a, b) =>
-              vendorTimes.get(a.property_id)!.localeCompare(vendorTimes.get(b.property_id)!)),
-            ...movable.filter((s) => !vendorTimes.get(s.property_id)),
-          ].map((s) => s.id);
-          const current = packet.stops.map((s) => s.id);
-          if (wanted.every((id, i) => id === current[i])) return null;
-          return (
-            <form action={orderStopsByCleaningTime} style={{ margin: '0 0 10px' }}>
-              <input type="hidden" name="packet_id" value={packet.id} />
-              <PendingButton
-                label={`Order stops by ${VENDOR_LABEL}'s times`}
-                busyLabel="Reordering…"
-                spinnerTone="ink"
-                style={{ ...quietCtl, color: '#875a17', borderColor: '#d6a51e' }}
-              />
-            </form>
-          );
-        })()}
 
         {/* Stops — StopList owns the order (drag ⋮⋮ to reorder, optimistic);
             each row's content stays server-rendered and is passed in by id. */}
@@ -1139,6 +1166,8 @@ const menuCard: React.CSSProperties = {
   boxShadow: '0 10px 28px rgba(11,37,69,0.14)',
   padding: '10px 16px',
 };
+// A lever's own panel inside a menu: opens in place, under its summary.
+const subPanel: React.CSSProperties = { marginTop: 8 };
 const menuRow: React.CSSProperties = {
   width: '100%',
   display: 'flex',

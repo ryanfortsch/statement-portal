@@ -8,7 +8,6 @@ export type FeedSection =
   | 'week'
   | 'replies'
   | 'holds'
-  | 'cleanings'
   | 'unassigned'
   | 'queues'
   | 'payments'
@@ -17,7 +16,6 @@ export type FeedSection =
 const DAY: readonly FeedSection[] = [
   'week',
   'holds',
-  'cleanings',
   'work',
   'replies',
   'unassigned',

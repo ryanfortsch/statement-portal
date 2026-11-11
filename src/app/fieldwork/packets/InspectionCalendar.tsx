@@ -311,7 +311,7 @@ export function InspectionCalendar({ days, rows, assignable }: Pick<InspectionCa
                 value={priceStr}
                 placeholder={String(suggestedDollars)}
                 onChange={(e) => setPriceStr(e.target.value)}
-                aria-label="Packet price"
+                aria-label="Job price"
                 style={{ width: 56, font: 'inherit', fontSize: 14, color: 'var(--ink)', background: 'transparent', border: 'none', outline: 'none', padding: 0 }}
               />
             </div>

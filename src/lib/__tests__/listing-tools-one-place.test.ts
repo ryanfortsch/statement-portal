@@ -87,7 +87,9 @@ test('the Listing Copy Studio is retired: one publish path per listing, reviewed
   assert.ok(index.includes('/properties/stay-cape-ann?filter=review'));
   assert.ok(!/\.(insert|update|upsert|delete)\(/.test(index), 'the index never writes');
   assert.ok(!index.includes("from '../[id]/stay-cape-ann/actions'"), 'the index calls no launcher action');
-  assert.ok(read('src/app/properties/page.tsx').includes('href="/properties/stay-cape-ann"'));
+  // Reached from the Properties strip as a tab (2026-11-07; it was a lone
+  // link between the tab bar and the map).
+  assert.ok(read('src/app/properties/PropertiesTabBar.tsx').includes("href: '/properties/stay-cape-ann' }"));
   assert.ok(read('src/lib/helm-modules.ts').includes("href: '/properties/stay-cape-ann',"));
   // One verb on a live listing.
   const client = read('src/app/properties/[id]/stay-cape-ann/ScaLaunchClient.tsx');

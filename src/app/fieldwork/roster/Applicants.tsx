@@ -175,7 +175,7 @@ export function Applicants({
               ))}
             </div>
             <p style={{ margin: '12px 0 0', fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.6 }}>
-              What a new hire is signing up for, from a published packet to the payment, is written down in the Playbook:{' '}
+              What a new hire is signing up for, from a published job to the payment, is written down in the Playbook:{' '}
               <Link href="/playbook/field-packets-from-publish-to-pay" style={{ color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}>
                 Field packets, from publish to pay
               </Link>

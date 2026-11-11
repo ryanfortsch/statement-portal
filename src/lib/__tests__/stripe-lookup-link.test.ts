@@ -33,9 +33,9 @@ test('the guest card and the booking record link to the lookup for every login',
 
 test('the page is named for what it does and shows progress while it searches', () => {
   const page = read('src/app/payments/page.tsx');
-  assert.ok(page.includes('title="Stripe lookup"'), 'the hero says Stripe lookup');
+  assert.ok(page.includes('title="Stripe"'), 'the hero says Stripe (UX audit 2026-11-07: a person says Stripe, not Stripe lookup)');
   assert.ok(page.includes('<Suspense key={searchKey}'), 'the results stream behind a fallback that says it is searching');
-  assert.ok(read('src/components/FinancialsTabs.tsx').includes("label: 'Stripe lookup'"), 'the Money strip says Stripe lookup');
+  assert.ok(read('src/components/FinancialsTabs.tsx').includes("label: 'Stripe'"), 'the Money strip says Stripe');
   // The lookup is open to staff, read-only; charging a saved card is not.
   const access = read('src/lib/helm-access.ts');
   assert.ok(!access.includes("  '/payments',"), '/payments is staff-open');

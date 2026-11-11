@@ -128,13 +128,14 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
 /* ─── Turnovers: the board (BoardLine) ───────────────────────────────────
    One line per house per day. Desktop (wider than 900px): one grid per row
    with fixed columns, so the columns line up down the whole board:
-   house | Out · In | cleaner | walk | verb. Every item names its own column
-   (and row 1), so a row with no cleaner or no walk keeps the others in place.
+   house | Out · In | cleaner (and a walk state the strip counts) | verb.
+   Every item names its own column (and row 1), so a row with no cleaner keeps
+   the others in place. Who walks and when is the week grid's, above.
    Narrower: two lines, the house and its verb, then the facts wrapping under
    them (see the max-width: 900px block below). */
 .rt-tb-row {
   display: grid;
-  grid-template-columns: minmax(140px, 1fr) 200px 196px 170px 112px;
+  grid-template-columns: minmax(140px, 1fr) 200px 340px 112px;
   align-items: center;
   column-gap: 16px;
   padding: 0 6px;
@@ -194,16 +195,14 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
   color: var(--signal);
 }
 .rt-tb-slot { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.rt-tb-cleaner { grid-column: 3; grid-row: 1; }
-.rt-tb-walk { grid-column: 4; grid-row: 1; }
+.rt-tb-status { grid-column: 3; grid-row: 1; display: flex; align-items: center; gap: 14px; min-width: 0; }
 .rt-tb-slot[data-tone="ok"] { color: var(--ink-3); }
 .rt-tb-slot[data-tone="done"] { color: var(--positive); }
 .rt-tb-slot[data-tone="warn"] { color: var(--signal); font-weight: 600; }
 .rt-tb-slot[data-tone="bad"] { color: var(--negative); font-weight: 600; }
 .rt-tb-slot[data-tone="live"] { color: #c0772f; font-weight: 600; }
 .rt-tb-slot[data-tone="mute"] { color: var(--ink-4); }
-.rt-tb-slot a { color: inherit; text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
-.rt-tb-verb { grid-column: 5; grid-row: 1; justify-self: end; display: flex; align-items: center; }
+.rt-tb-verb { grid-column: 4; grid-row: 1; justify-self: end; display: flex; align-items: center; }
 /* The verbs (Start walk, Plan walk, Mark ready, Undo ready) are the house
    Button's small faces (.rt-btn--sm): primary for Start walk, secondary for
    the rest. */
@@ -276,12 +275,11 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
     padding-left: 18px;
   }
   .rt-tb-slot { white-space: normal; overflow: visible; }
+  .rt-tb-status { display: contents; }
   .rt-tb-exp { grid-row: 3; padding-left: 0; }
-  /* Thumb-sized targets: the toggle, the verb, the quiet buttons, and the
-     Field link in the walk column. */
+  /* Thumb-sized targets: the toggle, the verb and the quiet buttons. */
   .rt-tb-toggle,
   .rt-tb-verblink { min-height: 44px; }
-  .rt-tb-slot a { display: inline-flex; align-items: center; min-height: 44px; }
 }
 /* The expanded full TurnoverRail. Flush inside the dense expansion (the old
    176px indent aligned it under the legacy date column, which no longer
@@ -412,6 +410,16 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
      phone leaves roughly 60px for the name, so the name overflowed straight
      through the flag and the third day was orphaned onto its own row. One
      full-width day per screen, divided by rules instead of columns. */
+  /* The operations goals strip is three cells with the guest rating first
+     and widest. On a phone the rating takes the first row alone and the two
+     others share the second, so the lead cell stays the lead; the strip's
+     odd-count rule above would have given the LAST cell the full row. */
+  .rt-ops-scorecard > *:first-child { grid-column: 1 / -1; }
+  .rt-ops-scorecard > *:nth-child(3):last-child { grid-column: auto; }
+  .rt-ops-scorecard > *:first-child .rt-helm-stat,
+  .rt-ops-scorecard > *:nth-child(3) .rt-helm-stat { border-right: none !important; }
+  .rt-ops-scorecard > *:nth-child(2) .rt-helm-stat { border-right: 1px solid var(--rule) !important; }
+  .rt-ops-scorecard > *:first-child .rt-helm-stat { border-bottom: 1px solid var(--rule); }
   .rt-cleanings-strip { grid-template-columns: 1fr !important; }
   .rt-cleanings-day {
     border-right: none !important;
@@ -1173,6 +1181,7 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
 .rt-agenda-when > span { color: var(--ink-3); }
 .rt-agenda-title { display: block; font-size: 15px; font-weight: 500; color: var(--ink); text-decoration: none; line-height: 1.4; }
 .rt-agenda-context { display: block; font-size: 12px; line-height: 1.5; color: var(--ink-3); margin-top: 3px; }
+.rt-agenda-attendance { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 4px; }
 .rt-agenda-attention, .rt-agenda-warning { color: var(--signal); }
 .rt-agenda-warning { display: block; font-size: 12px; line-height: 1.5; margin: 6px 0; }
 .rt-agenda-row-details > summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font-size: 12px; color: var(--ink-3); }
@@ -1194,7 +1203,6 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
 .rt-agenda-brief-arrow { font-size: 13px; color: var(--ink-3); }
 .rt-agenda-home-footer { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 16px; font-size: 11px; color: var(--ink-3); }
 .rt-agenda-home-footer > a { display: inline-flex; align-items: center; min-height: 44px; }
-.rt-agenda-home-footer > span { margin-left: auto; }
 .rt-agenda-home-footer .rt-agenda-coverage { border: 0; margin: 0; font-size: 11px; }
 .rt-agenda-home-footer .rt-agenda-coverage[open] { flex-basis: 100%; }
 .rt-agenda-home-footer .rt-agenda-coverage > summary { padding: 12px 0; }
@@ -1421,7 +1429,7 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
 .rt-inbox-search-panel { border: 1px solid var(--rule); background: var(--paper); padding: 16px; margin-bottom: 12px; }
 .rt-inbox-search-panel input { width: 100%; min-height: 44px; border: 1px solid var(--rule); padding: 10px; background: var(--paper); font-size: 16px; }
 .rt-inbox-search-filters { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
-.rt-inbox-search-panel select, .rt-inbox-search-panel button { min-height: 44px; padding: 8px; border: 1px solid var(--rule); background: transparent; font-size: 13px; }
+.rt-inbox-search-panel select { min-height: 44px; padding: 8px; border: 1px solid var(--rule); background: transparent; font-size: 13px; }
 .rt-inbox-search-scope, .rt-inbox-search-count { font-size: 12px; color: var(--ink-3); margin: 12px 0; }
 .rt-inbox-search-warning { color: var(--signal); font-size: 13px; }
 .rt-inbox-search-results { margin: 0; padding: 0; list-style: none; }

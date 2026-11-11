@@ -132,3 +132,38 @@ describe('a Guesty-run home keeps the tab quiet (2026-10-19)', () => {
     }
   });
 });
+
+describe('a Guesty-run home opens on Guest documents (2026-11-08)', () => {
+  const page = read(PAGE);
+  const layout = page.slice(page.indexOf('function GuestTabSections('), page.indexOf('/** A right-aligned action row'));
+
+  test('the tab hands its four sections to one layout, keyed on the page predicate', () => {
+    const tab = guestTab();
+    assert.ok(tab.includes('<GuestTabSections\n            helmRun={helmRun}'), 'the tab does not use the layout');
+    for (const slot of ['listing={<>', 'documents={<>', 'pricing={<>', 'automations={<>']) {
+      assert.ok(tab.includes(slot), `no ${slot} slot`);
+    }
+    assert.ok(page.includes('const helmRun = isHelmRun('), 'the page predicate moved');
+  });
+
+  test('a Helm-run home reads in order, with no fold', () => {
+    const helm = layout.slice(layout.indexOf('if (helmRun) {'), layout.indexOf('return (\n    <>\n      {documents}'));
+    const order = ['{listing}', '{documents}', '{pricing}', '{automations}'];
+    let at = -1;
+    for (const mark of order) {
+      const i = helm.indexOf(mark);
+      assert.ok(i > at, `${mark} is missing or out of order on a Helm-run home`);
+      at = i;
+    }
+    assert.ok(!helm.includes('<details'), 'a Helm-run home folds');
+  });
+
+  test('a Guesty-run home leads with the documents and folds the three drafts, closed', () => {
+    const guesty = layout.slice(layout.indexOf('return (\n    <>\n      {documents}'));
+    const details = guesty.indexOf('<details id="helm-drafts" open={waiting > 0}');
+    assert.ok(guesty.indexOf('{documents}') < details && details > 0, 'the documents do not lead');
+    const fold = guesty.slice(details, guesty.indexOf('</details>'));
+    for (const part of ['{listing}', '{pricing}', '{automations}']) assert.ok(fold.includes(part), `${part} sits outside the fold`);
+    assert.ok(fold.includes('Take effect once Helm runs this home'));
+  });
+});

@@ -339,6 +339,25 @@ describe('who is going, and what a tap does', () => {
     assert.equal(other.tap.kind, 'take');
     if (other.tap.kind === 'take') assert.equal(other.tap.holderDay, '2026-10-16');
   });
+  test('a mark on a day a guest is in the house still lets its holder go (53 Rocky Neck, 2026-11-10)', () => {
+    // 84 Thatcher has one guest all window; a walk for the stay after was
+    // planned on 10-22, under that guest. The cell is booked, never
+    // claimable, and the mark used to be stuck there for good.
+    const stays = [...STAYS, stay({ reservationId: 'P', propertyId: '84_thatcher', checkIn: '2026-11-05', checkOut: '2026-11-08', plan: { id: 'p9', date: '2026-10-22', assignee: ME, plannedBy: ME, hasNotes: true } })];
+    const at = (who: string) => gridFor(who, stays).rows.find((r) => r.propertyId === '84_thatcher')!.cells.find((c) => c.date === '2026-10-22')!;
+    const mine = at(ME);
+    assert.equal(mine.state, 'occupied');
+    assert.deepEqual(mine.badges.map((b) => [b.kind, b.initials, b.mine]), [['plan', 'DJ', true]]);
+    assert.equal(mine.tap.kind, 'release', 'the holder can let it go');
+    if (mine.tap.kind === 'release') {
+      assert.equal(mine.tap.planId, 'p9');
+      assert.equal(mine.tap.keep, false, 'the day is dead, so the plan goes whole, note or not');
+    }
+    assert.equal(at(DOTTI).tap.kind, 'none', 'nobody else claims or takes a booked day');
+    assert.equal(at(ME).needs, false);
+    const neighbour = gridFor(ME, stays).rows.find((r) => r.propertyId === '84_thatcher')!.cells.find((c) => c.date === '2026-10-23')!;
+    assert.equal(neighbour.tap.kind, 'none', 'only the day the mark sits on');
+  });
   test('a packet out to the Field roster with no taker: the day asks, but a tap would walk it twice', () => {
     const c = cell(ME, '36_granite', '2026-10-19');
     assert.equal(c.fieldOpen, true);

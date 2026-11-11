@@ -1,0 +1,47 @@
+# Home, Work and Appointments: UX audit, 2026-11-07
+
+Read against the code on `claude/helm-audit-ux-refinement-167a60` (main at #2151). Paths relative to `src/`.
+
+### Still good
+
+- The feed is one ordered day: `lib/home-feed-order.ts:17-27` fixes the order, every section is `null` when empty, and work already under a day in Scheduled work does not print again in On your plate (`components/ForMeFeed.tsx`, the `onWeek` set). One hide meaning: `FeedClearButton` is "Hide from my feed" and nothing else.
+- Concierge alerts are one line to `/messaging#alerts` (`ConciergeAlerts.tsx:70-93`); "Today" with Ask Helm folded beside it (`HomeHeading.tsx`).
+- The Work board holds its order while you close things, counts belong to the tab you are on, every row has one verb ("✓ Done", optimistic), a mixed selection is refused in one sentence, and the empty state has one "Show all" verb (`app/work/QueueClient.tsx:375-452, 539-556, 2296-2303`).
+- Work type is one question with six words and the hint printed under the chips (`app/work/[id]/SlipLaneEditor.tsx:62-95`); the lane is derived, never stored.
+- Appointments validate at the mutation boundary, never auto-merge similar titles, and detect overlaps on Eastern wall clocks (`lib/appointment-agenda.ts:85-122, 143-150, 193-204`).
+
+### Findings
+
+1. **A CRM meeting is a permanent review item and ends up as two records.** `lib/appointment-agenda.ts:125-129`: `meetingReviewReason` returns a sentence in every branch, and `:130-137` files every meeting as `tentative` + `coverage_needed`. So each CRM meeting reads "Tentative" on Home and sits under "Needs confirmation or scheduling" on `/appointments` with "Attendance to confirm" until the person taps "Review for my agenda" (`AppointmentAgenda.tsx:106`), which creates a private copy; the form then warns "The original CRM record and any reminder texts still need correction on the contact page" (`AppointmentForm.tsx:44`). Two places for one meeting, and the owners' meetings never leave review. Proposal: flag a CRM meeting only on a real conflict (the address check); otherwise it is an ordinary dated row with "Open contact →", and attendance for it is a one-tap answer recorded against the meeting id, not a copy. [structural] M
+
+2. **"Upcoming" renders its chrome with nothing in it, and the feed's All clear can never show.** `ForMeFeed.tsx` builds `week:` as a fragment that always contains `<AppointmentAgendaSection />`, so `shown.length === 0` is unreachable and the "All clear" `EmptyState` is dead code. An empty agenda still prints the heading, "All →", "+ Add", "No upcoming appointments to show.", a sources `<details>` ("Automatic sync is off") and a lone "Eastern time" span (`AppointmentAgenda.tsx:19-37`). Proposal: with no preview rows the block is one line, "No appointments in the next 30 days · + Add", plus the source line only when a source is not available (the docs require that one); "Eastern time" moves into the eyebrow; the All clear path comes back. [new-since-10/19] S
+
+3. **The three `/appointments` pages have no Helm chrome and no way in but Home.** `app/appointments/page.tsx:6-10`, `new/page.tsx:17`, `[id]/page.tsx:8` are bare `<main>` blocks with "← Today"; there is no `layout.tsx` in the folder, the root layout renders no masthead, and `helm-modules.ts` has no appointments entry, so Cmd+K cannot find them. The index also carries two headings for one list: "Your business agenda" then "Upcoming appointments". Proposal: an `appointments/layout.tsx` like `work/layout.tsx:13-24` (masthead, footer), one title, an atlas entry hidden from nav. [new-since-10/19] S
+
+4. **Add appointment is 14 controls with a required Source and an intro paragraph.** `AppointmentForm.tsx:43` ("Save business appointments to your own agenda. This does not invite anyone..."), `:52-62` (title, date, start, end, Timing select, Status select, Attendance select, property, place, people, "What still needs confirming?" with its helper line, notes, Source required, Source link), `validateAppointment:98` refuses an empty source. Proposal: five fields (Appointment, Date, Time, Property, Notes) with the rest behind one "+ Details"; a hand-entered appointment gets its source stamped silently; the two paragraphs go, the CRM note stays only on the review path. [new-since-10/19] M
+
+5. **Full agenda says each status twice and hides the verb.** Group heading "Needs confirmation or scheduling · N" (`AppointmentAgenda.tsx:43-44`) over rows that each repeat "Needs confirmation" (`:77`); "Edit / reschedule" lives behind a `<details>` summary (`:88-92, 106`) beside "Reviewed Nov 3" (`:105`). Proposal: inside a group the row drops the status word; "Edit / reschedule" is the row's visible verb; "Reviewed <date>" goes. [new-since-10/19] S
+
+6. **Two names for one thing on the board: "work item" and "slip".** `QueueClient.tsx:503` "+ Work item", `:547-550` "No work items match", `:1165` "linked reports · one issue", `:1236` "Grouped with other slips", `:2300-2303` "N slips and N to-dos selected", "Pick slips or office to-dos", Organize's "Filed N slips into lanes" (`:1950`), `MaintenanceWorkPanel.tsx:61` "Work slip ·", `app/work/page.tsx:138` footer "Work Queue". Proposal: "work item" everywhere a person reads; "slip" stays in code. [still-open-from-10/17] S
+
+7. **Eight button faces on one board; the expanded home header prints a fact twice.** Faces: `Button` primary/secondary, `Pill`, `BoardTab`, the raw 🖨 (`:1016-1035`), the raw ▾ menu (`:2016-2033`), `BulkBtn` (`:2397-2425`), the expander (`:688-708`), `SelectCheckbox`. Expanded header: summary line already says "N high priority" (`:869`), then "N HIGH" caps again (`:979-990`), "N OWNER DECISIONS", "N open", Draft Owner Email, Property ↗, 🖨, "+ Work item". Proposal: 🖨 and ▾ take the Button face ("Print"); the caps go; BulkBtn becomes Button sm on the dark bar. [still-open-from-10/17] S
+
+8. **"Next actions" explainer, and a More select still holding 11 of 17 filters.** `:523` "Due this week, overdue, high priority, and work in progress. Waiting items without a follow-up date also appear here."; `:516-531` the select. Home's signal links to `?filter=overdue` / `?filter=week` (`HomeSignals.tsx:252`), which land with no lit pill. Proposal: cut the explainer; Overdue becomes a pill when > 0; "My items", "My week", "This week", "Due today", "High priority" leave (Next actions and Scheduled already cover them); the select keeps Owner decisions, Snoozed, Needs coordinator, Blocked. [still-open-from-10/17] M
+
+9. **Slip page prints status and lane twice and keeps a third button face.** Hero pills STATUS, priority, lane (`app/work/[id]/page.tsx:159-161`); Stat "Status" repeats `slip.status` (`:188-198`); Work type's eyebrow repeats `LANE_LABELS[lane]` (`:312-318`); explainer "The coordinator follows through. The worker and work type below describe how it gets done." (`:210`). `SlipOwnerActionEditor.tsx:381-399` draws its own solid/ghost buttons beside `Button` and the chips. Proposal: drop the hero pill row (Wrap up's eyebrow is the status, Work type's is the lane, priority is a chip), drop the sentence, owner input uses Button. [still-open-from-10/17] S
+
+10. **Office to-do page: a second close surface, three hint sentences, and Delete.** `TaskDetail.tsx:405-437` Status chips Open / In progress / Blocked with "Not started." "Someone is on it."; `:449-466` Mark Done / Dismiss with "Dismiss closes it without doing it..."; `:528-562` "Delete to-do" → "Delete for good" / "Keep it", which a slip does not have; "Mark Done" vs the bar's "Mark done" (`QueueClient.tsx:2359`). Proposal: one "In progress" chip, no hints, no Delete (Dismiss is the answer), one spelling. [still-open-from-10/17] S
+
+11. **"Turnovers →" twice, and one window under two names.** `HomeSignals.tsx:257-262` tile "Turnovers · next 7 days" with sub "All turnovers →" (the tile is already a link), then `CleaningsStrip.tsx:155-167` "Turnovers →" directly beneath; "Open work · this week" (`:243`) and "Scheduled work · N · Next 7 days" (feed) are the same window per `lib/home-week.ts:9-11`. Proposal: the tile's sub says what the number cannot (same-day turnovers) or goes; "next 7 days" on both. [new-since-10/19] S
+
+12. **Maintenance planner still speaks developer.** `RunsRail.tsx:544` "triaging N new slips in the background; check back in a few minutes" (the wording Organize fixed with its watcher, `QueueClient.tsx:1957-1979`); `:603-618` "Waiting for enough work or an empty day: 21 Horton (3), ..." and "N new slips have no one decided to do them yet." Proposal: Plan now shares Organize's watcher and reports what it planned; the backlog sentence becomes one count linking to the board's Handyman lane. [still-open-from-10/17] S
+
+### Pages to merge, demote or delete
+
+| Page | Action | Why |
+|---|---|---|
+| `/appointments`, `/appointments/new`, `/appointments/[id]` | Demote: keep, but under Helm chrome and in the atlas hidden from nav | Three bare pages reachable only from one Home link (finding 3) |
+| `/work/tasks/[id]` | Merge its close model with the slip page (finding 10); the 10/17 "tasks become slips with no property" stays deferred | Two editing models for one Wrap up |
+| `/?tab=activity` (Recent Activity) | Keep | Loads only when opened; payments received live here by design |
+
+Nothing in this section is a candidate for deletion. Home is in good shape; the appointments agenda (#2084 to #2092) is the newest surface and carries most of the new weight.

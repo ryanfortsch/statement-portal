@@ -128,7 +128,7 @@ export const HELM_MODULES: HelmModule[] = [
     id: 'payments',
     href: '/payments',
     number: '01',
-    title: 'Stripe lookup',
+    title: 'Stripe',
     description:
       "Did this guest pay? Guest payments read live from the property's own Stripe account (Guesty reports $0 on every direct booking). Read-only. Balance charges live under it.",
     status: 'active',
@@ -208,13 +208,28 @@ export const HELM_MODULES: HelmModule[] = [
     group: 'operations',
     section: 'operations',
   },
+  // The signed-in person's own page: their guest rating, open work and the
+  // cleans they rated. Reached from the avatar menu; registered so Cmd+K
+  // finds it. An owner reads a teammate's with ?as=.
+  {
+    id: 'me',
+    href: '/me',
+    number: '02b',
+    title: 'My page',
+    description: 'Your numbers: the guests\' rating of the stays you walked, the fleet\'s last 30 days, your open work, and the cleans you rated.',
+    status: 'active',
+    primary: false,
+    hidden: true,
+    group: 'operations',
+    section: 'operations',
+  },
   // A Turnovers tab (TurnoverTabs), so no menu entry of its own. Registered
   // for search; the daily digest approval lives on the Team inbox.
   {
     id: 'checkout-schedule',
     href: '/turnovers/schedule',
     number: '02b',
-    title: 'Cleaner Schedule',
+    title: 'Schedule',
     description: 'Checkout schedule the cleaners can trust: Guesty bookings merged with late checkouts and extensions Helm knows about. Feeds the daily digest text to Rosa and her live mobile page.',
     status: 'active',
     primary: false,
@@ -254,7 +269,7 @@ export const HELM_MODULES: HelmModule[] = [
   },
   // Not a tab any more: each checkout's cleaner verdict prints on its board
   // row. What is left is the crew's visits no row can show, reached from
-  // the board and the home feed's "Cleanings to check".
+  // the board and the home page's cleanings strip.
   {
     id: 'cleanings',
     href: '/turnovers/cleanings',
@@ -273,7 +288,7 @@ export const HELM_MODULES: HelmModule[] = [
     href: '/fieldwork/packets',
     number: '03',
     title: 'Field',
-    description: 'External contractor portal. Pool nearby inspections into priced packets, publish them to 1099 inspectors, and review completed work.',
+    description: 'External contractor portal. Pool nearby inspections into priced jobs, publish them to 1099 inspectors, and review completed work.',
     status: 'active',
     primary: true,
     group: 'operations',
@@ -406,10 +421,10 @@ export const HELM_MODULES: HelmModule[] = [
     primary: true,
     group: 'relationships',
   },
-  // Every home's Stay Cape Ann launcher on one read-only list, reached from
-  // the Properties surface. It replaced the Listing Copy Studio and the
-  // fleet Bedroom Photos page (2026-10-18), which both redirect here.
-  // Registered here for search, surfaced in-context (hidden from menus).
+  // Every home's Stay Cape Ann launcher on one read-only list, a tab on the
+  // Properties strip. It replaced the Listing Copy Studio and the fleet
+  // Bedroom Photos page (2026-10-18), which both redirect here. Registered
+  // here for search, hidden from menus.
   {
     id: 'stay-cape-ann-listings',
     href: '/properties/stay-cape-ann',
@@ -592,16 +607,18 @@ export const HELM_MODULES: HelmModule[] = [
     group: 'relationships',
     section: 'messaging',
   },
-  // The Guest reviews lens of the Guests tab (2026-10-30): our reviews OF
-  // guests (stop Guesty's automatic 5-star review on a red stay, post our own
-  // on day 13) and our public replies to their below-five reviews. Hidden
-  // from the nav lists like the other lenses; the lens row and search reach it.
+  // The Review cards lens of the Guests tab (2026-10-30; "Guest reviews"
+  // until 2026-11-07, so that "Reviews" means the Growth tab only): our
+  // reviews OF guests (stop Guesty's automatic 5-star review on a red stay,
+  // post our own on day 13) and our public replies to their below-five
+  // reviews. Hidden from the nav lists like the other lenses; the lens row
+  // and search reach it.
   {
     id: 'messaging-reviews',
     href: '/messaging/reviews',
     number: '08i',
-    title: 'Guest Reviews',
-    description: "Reviews in both directions: stop Guesty's automatic 5-star review of a guest whose stay went red, post our own review of them before the window closes, and reply publicly to a review under five stars. The Guest reviews lens of the Messaging Guests tab.",
+    title: 'Review Cards',
+    description: "Reviews in both directions: stop Guesty's automatic 5-star review of a guest whose stay went red, post our own review of them before the window closes, and reply publicly to a review under five stars. The Review cards lens of the Messaging Guests tab; their reviews of us are the Reviews tab on Growth.",
     status: 'active',
     primary: false,
     hidden: true,
@@ -736,8 +753,9 @@ export const HELM_MODULES: HelmModule[] = [
     id: 'guest-contacts',
     href: '/guests/contacts',
     number: '13a',
-    title: 'Guest Contacts',
-    description: 'The guest contact list: subscribers, campaigns, and each guest\'s record. Where The Weekly is sent from.',
+    // "Guest list", so Contacts means the CRM only (UX audit 2026-11-07).
+    title: 'Guest list',
+    description: 'Every guest who booked or signed up: subscribers, campaigns, and each guest\'s record. Where The Weekly is sent from.',
     status: 'active',
     primary: false,
     hidden: true,
@@ -819,6 +837,21 @@ export const HELM_MODULES: HelmModule[] = [
     description: 'Owners, vendors, leads. Every call, text, email and visit logged in one place, as each contact\'s activity.',
     status: 'active',
     primary: false,
+    group: 'relationships',
+  },
+  // The signed-in person's business appointments (#2084 to #2092): the
+  // agenda behind the home's Upcoming block, private to each login. Reached
+  // from Home and Cmd+K; hidden from the menus (it is one page and two
+  // forms, not a section anyone browses to) and lights no masthead tab.
+  {
+    id: 'appointments',
+    href: '/appointments',
+    number: '07a',
+    title: 'Appointments',
+    description: 'Your business appointments for the next 30 days: meetings, inspections, team coverage, and what still needs a date. Private to your login.',
+    status: 'active',
+    primary: false,
+    hidden: true,
     group: 'relationships',
   },
   // Channels is the Helm-native PMS, and until a Cape Ann home is Helm-run

@@ -14,7 +14,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { attachChoices, splitUnplacedForHome, textDay, textLine, unfiledTextError, worthFiling } from '../cleaner-unplaced.ts';
+import { attachChoices, textDay, textLine, unfiledTextError, worthFiling } from '../cleaner-unplaced.ts';
 
 const read = (repoPath: string): string =>
   readFileSync(new URL(`../../../${repoPath}`, import.meta.url), 'utf8');
@@ -155,28 +155,17 @@ describe('the wiring', () => {
     assert.match(cleaner.slice(filed), /at: msg\.createdAt/, 'the sweep no longer files the text\'s own time');
   });
 
-  test('the home feed shows it under Cleanings to check', () => {
+  test('the home counts them in one line under the cleanings strip, never prints them', () => {
+    const strip = read('src/components/CleaningsStrip.tsx');
+    assert.ok(strip.includes('loadUnplacedCleanerTexts()'), 'the strip no longer counts the texts');
+    assert.ok(strip.includes('href="/turnovers/cleanings#cleaner-texts"'), 'the count no longer opens the texts');
+    assert.ok(!strip.includes('<UnplacedCleanerTextRow'), 'the strip prints the texts themselves');
     const feed = read('src/components/ForMeFeed.tsx');
-    assert.ok(feed.includes('loadUnplacedCleanerTexts()'), 'the feed no longer loads the texts');
-    const cleanings = feed.slice(feed.indexOf('    cleanings:'), feed.indexOf('    unassigned:'));
-    assert.ok(cleanings.includes('<UnplacedCleanerTextRow'), 'the row left the Cleanings to check section');
+    assert.ok(!feed.includes('UnplacedCleanerTextRow'), 'the feed prints cleaner texts again');
   });
 });
 
-describe('where an open text asks', () => {
-  test("today's and yesterday's ask on the home; older ones are counted onto the cleanings page", () => {
-    const cards = [{ id: 'a', day: '2026-11-06' }, { id: 'b', day: '2026-11-05' }, { id: 'c', day: '2026-11-02' }, { id: 'd', day: '2026-11-02' }];
-    const { home, older } = splitUnplacedForHome(cards, '2026-11-06');
-    assert.deepEqual(home.map((c) => c.id), ['a', 'b']);
-    assert.equal(older, 2);
-  });
-
-  test('past the home limit the rest are counted, never dropped', () => {
-    const cards = Array.from({ length: 8 }, (_, i) => ({ id: String(i), day: '2026-11-06' }));
-    const { home, older } = splitUnplacedForHome(cards, '2026-11-06', 6);
-    assert.equal(home.length + older, 8);
-  });
-
+describe('where an open text waits', () => {
   test('the cleanings page lists every open text, and Attach refreshes it', () => {
     const page = read('src/app/turnovers/cleanings/page.tsx');
     assert.ok(page.includes('loadUnplacedCleanerTexts()'), 'the cleanings page no longer loads the texts');

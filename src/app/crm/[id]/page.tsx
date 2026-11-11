@@ -11,6 +11,7 @@ import { ACTIVE_WORK_SLIP_STATUSES } from '@/lib/work-types';
 import { ContactDetail } from './ContactDetail';
 import { listContactMeetings } from '@/lib/meetings';
 import type { ContactMeetingRow } from '@/lib/meetings-core';
+import { guestListHrefForContact } from '@/lib/person-record-link-server';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,6 +25,7 @@ async function getData(id: string): Promise<{
   properties: PropertyMini[];
   linkedSlips: ContactSlip[];
   meetings: { upcoming: ContactMeetingRow[]; past: ContactMeetingRow[] };
+  guestListHref: string | null;
 } | null> {
   const { data: contact } = await supabase
     .from('contacts')
@@ -36,7 +38,7 @@ async function getData(id: string): Promise<{
   const linkedIds = c.linked_property_ids ?? [];
   const todayIso = new Date().toISOString().slice(0, 10);
 
-  const [{ data: touches }, { data: properties }, { data: slipsData }, meetings] = await Promise.all([
+  const [{ data: touches }, { data: properties }, { data: slipsData }, meetings, guestListHref] = await Promise.all([
     supabase
       .from('contact_touches')
       .select('*')
@@ -54,6 +56,8 @@ async function getData(id: string): Promise<{
           .order('created_at', { ascending: false })
       : Promise.resolve({ data: [] as WorkSlipRow[] }),
     listContactMeetings(id).catch(() => ({ upcoming: [] as ContactMeetingRow[], past: [] as ContactMeetingRow[] })),
+    // The same person on the Guest list: one exact-email read that fails quiet.
+    guestListHrefForContact(c.emails),
   ]);
 
   const propertyMap = new Map<string, string>(
@@ -70,6 +74,7 @@ async function getData(id: string): Promise<{
     properties: (properties ?? []) as PropertyMini[],
     linkedSlips,
     meetings,
+    guestListHref,
   };
 }
 
@@ -85,7 +90,7 @@ export default async function ContactDetailPage({ params }: { params: Promise<Pa
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
 
-      <div className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 24, width: '100%' }}>
+      <div className="max-w-[1100px] mx-auto px-10 flex items-baseline justify-between gap-4 flex-wrap" style={{ paddingTop: 24, width: '100%' }}>
         <Link
           href="/crm"
           style={{
@@ -98,6 +103,22 @@ export default async function ContactDetailPage({ params }: { params: Promise<Pa
         >
           ← All Contacts
         </Link>
+        {/* The same person's Guest list record, when exactly one holds one
+            of this contact's emails (src/lib/person-record-link.ts). */}
+        {data.guestListHref && (
+          <Link
+            href={data.guestListHref}
+            style={{
+              fontSize: 11,
+              letterSpacing: '.18em',
+              textTransform: 'uppercase',
+              color: 'var(--ink-3)',
+              textDecoration: 'none',
+            }}
+          >
+            Guest list record →
+          </Link>
+        )}
       </div>
 
       <ContactDetail

@@ -193,6 +193,9 @@ export async function sendTransactionalViaResend(args: {
    *  carrying ~20MB of base64 photos needs upload time, not just API
    *  latency. */
   timeoutMs?: number;
+  /** Resend drops a second send carrying the same key within 24 hours, so
+   *  a cron that fires twice mails once. */
+  idempotencyKey?: string;
 }): Promise<boolean> {
   if (!process.env.RESEND_API_KEY) return false;
 
@@ -211,10 +214,12 @@ export async function sendTransactionalViaResend(args: {
   if (args.replyTo) body.reply_to = Array.isArray(args.replyTo) ? args.replyTo : [args.replyTo];
   if (args.attachments && args.attachments.length > 0) body.attachments = args.attachments;
 
+  const headers = authHeaders();
+  if (args.idempotencyKey) headers['Idempotency-Key'] = args.idempotencyKey;
   const res = await fetch(`${RESEND_API}/emails`, {
     signal: AbortSignal.timeout(args.timeoutMs ?? 10_000),
     method: 'POST',
-    headers: authHeaders(),
+    headers,
     body: JSON.stringify(body),
   });
 

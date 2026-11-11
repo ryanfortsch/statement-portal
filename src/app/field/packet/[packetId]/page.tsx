@@ -70,7 +70,7 @@ function mapsUrl(s: PacketStopDetail): string | null {
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = {
-  title: 'Packet · Rising Tide Field',
+  title: 'Job · Rising Tide Field',
   robots: { index: false, follow: false, googleBot: { index: false, follow: false } },
 };
 
@@ -565,9 +565,7 @@ function AccessLines({ a }: { a: AccessBundle }) {
   }
   return (
     <div>
-      <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 7 }}>
-        How to get in
-      </div>
+      <div style={sheetHead}>How to get in</div>
       {/* Roomier rows: each value is a tap-to-copy chip, and 6px between
           38px+ chips made mis-taps easy with winter gloves at a keypad. */}
       <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '12px 14px', fontSize: 13, alignItems: 'center' }}>
@@ -588,6 +586,9 @@ function AccessLines({ a }: { a: AccessBundle }) {
     </div>
   );
 }
+
+/** A section label inside the Getting in sheet. */
+const sheetHead: React.CSSProperties = { fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 7 };
 
 /** One alert slot with a real severity, so several messages don't all shout in
  *  the same red. blocker = you can't proceed (only the account-paused case);
@@ -687,7 +688,7 @@ export default async function PacketPage({
     return (
       <FieldShell contractorName={contractor.full_name}>
         <Alert tone="info">
-          This packet was just claimed by another inspector. Here are others near you on the{' '}
+          This job was just claimed by another inspector. Here are others near you on the{' '}
           <Link href="/field" style={{ color: 'var(--signal)' }}>home page</Link>.
         </Alert>
       </FieldShell>
@@ -881,12 +882,14 @@ export default async function PacketPage({
         <div style={{ marginBottom: 24, display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
           <span className="font-mono" style={{ fontSize: 15, color: 'var(--ink-3)' }}>{dollars(effectiveBaseCents(packet))}</span>
           {!isPayoutFinal(packet) && <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>estimated</span>}
-          {packet.bonus_cents > 0 && (
+          {/* Once approved, the bar at the bottom says the bonus and the
+              receipts with the payout; the header leaves them to it. */}
+          {packet.bonus_cents > 0 && packet.status !== 'approved' && (
             <span style={{ fontSize: 13, color: 'var(--signal)', fontWeight: 600 }} title={packet.bonus_reason ?? undefined}>
               + {dollars(packet.bonus_cents)} bonus
             </span>
           )}
-          {packet.expenses_cents > 0 && (
+          {packet.expenses_cents > 0 && packet.status !== 'approved' && (
             <span style={{ fontSize: 13, color: 'var(--tide-deep)', fontWeight: 600 }} title="Receipts you recorded, added to this payout">
               + {dollars(packet.expenses_cents)} receipts
             </span>
@@ -942,12 +945,12 @@ export default async function PacketPage({
       )}
       {sp.stale && (
         <Alert tone="warn">
-          A guest moved into one of these homes since this packet posted, so it was updated. Review the new details and pay before claiming.
+          A guest moved into one of these homes since this job posted, so it was updated. Review the new details and pay before claiming.
         </Alert>
       )}
       {(sp.expired || (!isMine && packet.status === 'published' && visitPassed)) && (
         <Alert tone="warn">
-          This packet&apos;s visit day has passed, so it can&apos;t be claimed. Current work near you is on the{' '}
+          This job&apos;s visit day has passed, so it can&apos;t be claimed. Current work near you is on the{' '}
           <Link href="/field" style={{ color: 'var(--signal)' }}>home page</Link>.
         </Alert>
       )}
@@ -1075,34 +1078,33 @@ export default async function PacketPage({
               {stopCode(s, codedProps, packet.entry_code) && (
                 <CopyCode value={stopCode(s, codedProps, packet.entry_code)!} label="Code" pill />
               )}
-              {/* Only when there's MORE than the code — a lockbox, gate, alarm.
-                  Repeating the code behind a disclosure was noise. */}
-              {s.access && hasAccessExtras(s.access) && (
+              {/* Everything about getting in beyond the code, in one sheet:
+                  lockbox, gate, alarm and parking, the arrival note, the
+                  home's supply closet. Three chips of information were one
+                  question (UX audit, 2026-11-07). Only when there is MORE
+                  than the code: repeating the code behind it was noise. */}
+              {((s.access && hasAccessExtras(s.access)) || s.access?.arrival || s.property.supply_closet_location) && (
                 <details className="rt-chip-details" style={{ display: 'inline-block', maxWidth: '100%' }}>
-                  <summary style={{ ...chip, listStyle: 'none' }}>How to get in</summary>
-                  <div style={{ fontSize: 13.5, color: 'var(--ink)', lineHeight: 1.55, border: '1px solid var(--rule)', background: 'var(--paper-2, #fff)', borderRadius: 10, padding: '10px 12px', marginTop: 6, maxWidth: 560 }}>
-                    <AccessLines a={s.access} />
+                  <summary style={{ ...chip, listStyle: 'none' }}>Getting in</summary>
+                  <div style={{ fontSize: 13.5, color: 'var(--ink)', lineHeight: 1.55, border: '1px solid var(--rule)', background: 'var(--paper-2, #fff)', borderRadius: 10, padding: '10px 12px', marginTop: 6, maxWidth: 560, display: 'flex', flexDirection: 'column', gap: 14 }}>
+                    {s.access && hasAccessExtras(s.access) && <AccessLines a={s.access} />}
+                    {s.access?.arrival && (
+                      <div>
+                        <div style={sheetHead}>Arrival &amp; parking</div>
+                        <div style={{ whiteSpace: 'pre-wrap' }}>{s.access.arrival}</div>
+                      </div>
+                    )}
+                    {s.property.supply_closet_location && (
+                      <div>
+                        <div style={sheetHead}>Supply closet</div>
+                        <div style={{ whiteSpace: 'pre-wrap' }}>{s.property.supply_closet_location}</div>
+                      </div>
+                    )}
                   </div>
                 </details>
               )}
               {working && !stopCode(s, codedProps, packet.entry_code) && !s.access && (
                 <a href={`tel:${OFFICE_TEL}`} style={signalPill}>Call for entry</a>
-              )}
-              {s.access?.arrival && (
-                <details className="rt-chip-details" style={{ display: 'inline-block', maxWidth: '100%' }}>
-                  <summary style={{ ...chip, listStyle: 'none' }}>ⓘ Arrival &amp; parking</summary>
-                  <div style={{ fontSize: 13.5, color: 'var(--ink)', lineHeight: 1.55, border: '1px solid var(--rule)', background: 'var(--paper-2, #fff)', borderRadius: 10, padding: '10px 12px', marginTop: 6, maxWidth: 560, whiteSpace: 'pre-wrap' }}>
-                    {s.access.arrival}
-                  </div>
-                </details>
-              )}
-              {s.property.supply_closet_location && (
-                <details className="rt-chip-details" style={{ display: 'inline-block', maxWidth: '100%' }}>
-                  <summary style={{ ...chip, listStyle: 'none' }}>📦 Supply closet</summary>
-                  <div style={{ fontSize: 13.5, color: 'var(--ink)', lineHeight: 1.55, border: '1px solid var(--rule)', background: 'var(--paper-2, #fff)', borderRadius: 10, padding: '10px 12px', marginTop: 6, maxWidth: 560, whiteSpace: 'pre-wrap' }}>
-                    {s.property.supply_closet_location}
-                  </div>
-                </details>
               )}
               {/* The one receipt rail for this stop, task or no task. */}
               {receiptsOpen && (
@@ -1349,7 +1351,7 @@ export default async function PacketPage({
             <form action={claimPacket}>
               <input type="hidden" name="packet_id" value={packet.id} />
               <PendingButton
-                label={`Claim this packet · est. ${dollars(packet.posted_price_cents)}`}
+                label={`Claim this job · est. ${dollars(packet.posted_price_cents)}`}
                 busyLabel="Claiming…"
                 style={{
                   width: '100%',
@@ -1374,14 +1376,14 @@ export default async function PacketPage({
               // closed to paid packets for good, whatever its check says.
               <p style={{ color: 'var(--signal)', fontSize: 14, margin: 0 }}>
                 {isEmployee(contractor)
-                  ? "You're on payroll, so paid packets aren't claimed here."
+                  ? "You're on payroll, so paid jobs aren't claimed here."
                   : bgCheck.tone === 'waiting'
-                    ? `${bgCheck.line} You can claim this packet once it's running.`
+                    ? `${bgCheck.line} You can claim this job once it's running.`
                     : bgCheck.line}
               </p>
             ) : (
               <Link href="/field/onboarding" style={{ color: 'var(--signal)', fontSize: 14 }}>
-                Finish your account setup to claim this packet →
+                Finish your account setup to claim this job →
               </Link>
             )
           )}
@@ -1389,7 +1391,7 @@ export default async function PacketPage({
             <form action={submitPacket}>
               <input type="hidden" name="packet_id" value={packet.id} />
               <PendingButton
-                label={changesRequested ? 'Resubmit packet' : 'Submit completed packet'}
+                label={changesRequested ? 'Resubmit job' : 'Submit completed job'}
                 busyLabel="Submitting…"
                 style={{
                   width: '100%',

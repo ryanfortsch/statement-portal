@@ -68,12 +68,26 @@ supabase/migrations/   302 migrations
 scripts/               parity harnesses and one-off tools (see Testing below)
 ```
 
-**36 cron routes, 35 schedules, and that is correct.** `/api/cron/reviews-to-slips` is a manual
+**38 cron routes, 37 schedules, and that is correct.** `/api/cron/reviews-to-slips` is a manual
 and backfill trigger on purpose; the recurring work runs at the end of `/api/cron/sync-guesty`.
 Do not "fix" it by adding a schedule.
 `/api/cron/channex-production` checks the disabled production Channex configuration
 every 15 minutes. It does not ingest or acknowledge bookings, publish availability,
 change Guesty authority or send messages. See `docs/operations/channex-production-calderwood.md`.
+`/api/cron/weekly-brief` is the Tuesday brief (since 2026-11-09): a printable PDF emailed to
+whoever holds the `weekly_brief` duty in `team.ts` (Ryan and Dotti). Page one is Delaney's three goals (the
+home band's own read) and the check-ins for Tuesday through Monday by day; page two is what guests
+told us in the seven days before (every review below five stars, lowest first, then the five-star
+ones with a private note or a category below five, Guesty reviews plus direct testimonials, with
+the work slip's status where one was filed); then one page per home
+with open work, its slips in priority order (high, then overdue, then this week, then oldest) and
+its open "Flagged at the house" notes (`src/lib/weekly-brief.ts`). The homes with a check-in that
+week come first, in arrival order, then the rest by street; an appointment slip whose day has
+passed (an inspection, a meeting) prints at the page's foot under "Past dates, to close out"
+instead of leading it as overdue (`isPastAppointment`). Vercel crons are UTC-only, so
+it fires at 10:00 and 11:00 UTC and only the run at 6 AM Eastern sends. `?format=pdf` previews it
+without sending; `?force=1` sends now. Chromium prints the HTML string directly, so the document
+has no URL to guard. It reads no money.
 
 Load-bearing `src/lib` modules by importing files outside tests, 2026-10-22: `supabase-admin`
 (253), `properties` (73), `stay-concierge` (71), `helm-access-server` (58), `field-db` (51),
@@ -88,7 +102,7 @@ as modules land, so read it as where the weight sits today.
 
 | Route | What it is |
 |---|---|
-| `/` | The signed-in person's day. Ask Helm beside the compact Today title; the For Me feed in the order a day is worked (`src/lib/home-feed-order.ts`: Upcoming appointments first (30 days, explicit confirmation/attendance and source coverage, `src/lib/appointment-agenda.ts`), then my planned walks and dated work for seven days (`src/lib/home-week.ts`), then the clock-bound team items, my work, replies, office queues, payments; owners keep the clean-after card first); Today at the houses; two signals (Open work · this week, Turnovers · next 7 days) plus payout for owners; the cleanings strip. Concierge alerts are one line linking to `/messaging#alerts`. The feed's × only ever hides a row from your own feed |
+| `/` | The signed-in person's day. Ask Helm beside the compact Today title; for the operations seat and owners, the Operations goals band above the feed (Delaney's three numbers, measured live, the guest rating leading: the 90-day rating against 4.98, the Work board against under 120 open and none over 60 days, and missing information, the blank Facts rows across the managed homes; `src/lib/ops-scorecard.ts`, no money read); the For Me feed in the order a day is worked (`src/lib/home-feed-order.ts`: Upcoming appointments first (30 days, explicit confirmation/attendance and source coverage, `src/lib/appointment-agenda.ts`), then my planned walks and dated work for seven days (`src/lib/home-week.ts`), then the clock-bound team items, my work, replies, office queues, payments; owners keep the clean-after card first); two signals (Open work · this week, Turnovers · next 7 days) plus payout for owners; the strip "At the houses", the home's one place for the houses (`CleaningsStrip.tsx`): three days of Cape Ann Elite's route with a missing or mistimed cleaner flagged in its day, and in Today the guest on each line, a tick where the home was walked, and one line each for an off-route checkout, an arrival or a walk with no stay (`todayExtras` in `src/lib/home-houses.ts`); a cleaner text Helm could not place is one count line under it (since 2026-11-08). Concierge alerts are one line linking to `/messaging#alerts`. The feed's × only ever hides a row from your own feed |
 | `/statements` | Monthly owner statements. Ingest, reconcile, close, send |
 | `/revenue` | Portfolio revenue snapshot: stays, ADR, occupancy, owner payout |
 | `/forecast` | The business plan as an interactive model; the scenario is a link (`?year=2027&new=3,2,0`). Contracts that may end is the prospects pipeline in reverse: a home carries the chance its contract ends and the month it would be gone (`properties.contract_end_pct` / `_month`), and Monthly Detail takes that share of its fee off from then while the per-property table keeps the if-it-stays figure (`src/lib/forecast-contract-endings.ts`). Its Actuals section (`#actuals`) holds the company card and operating upload and the "Where it goes" ledger (`overhead_expenses`) |
@@ -98,8 +112,9 @@ as modules land, so read it as where the weight sits today.
 | `/turnovers` | Who's going where first: the week grid (`src/lib/visit-grid.ts`, `VisitGrid.tsx`), one row per home and one column per day for two weeks, a mark for whoever is going (a planned walk, a Field contractor, the walker). A tap on an open day before an arrival writes the stay's `inspection_plans` row for the person tapping (`claimWalk` in `plan-actions.ts`), the one record the board's walk column, the home feed and the Field packet board all read; a tap on your own mark releases it; another's mark asks first. Under it the turnover board: one line per house per day (house, `Out 10:00 · In 4:00`, the cleaner verdict, the walk, one verb), today plus tomorrow by default. The model is `src/lib/turnover-board.ts`; the six-stage rail opens only on lock-monitored homes |
 | `/turnovers/calendar` | The occupancy calendar, 7, 14 or 30 days. The only place it renders; the pipeline links to it |
 | `/turnovers/schedule` | Cleaner checkout schedule, merged with late checkouts and extensions. Each row links to its board row and back |
-| `/turnovers/cleanings` | From Cape Ann Elite: only what no board row can show (a visit booked where nobody checks out, unannounced days). Not a tab; reached from the board and the home feed. Every checkout's verdict prints on its board row; a three-day strip of the same data sits on the home page |
-| `/inspections` | Property inspection runs |
+| `/turnovers/cleanings` | From Cape Ann Elite: only what no board row can show (a visit booked where nobody checks out, unannounced days). Not a tab; reached from the board and the home's cleanings strip. It also lists the cleaner texts Helm could not place, each with its house picker. Every checkout's verdict prints on its board row; a three-day strip of the same data sits on the home page |
+| `/inspections` | Property inspection runs. The review screen ends on **How was the clean?** (1 to 5 stars, or "No clean to rate"); four or fewer asks what was off and for photos and files a Portuguese note to the crew as a pending Team inbox card (`docs/cleaning-reviews.md`) |
+| `/me` | My page, from the avatar menu: the signed-in person's own numbers. Their guest rating (the guests' stars on the stays they walked before, staff walks and old Field packets as one chain, `src/lib/inspector-reviews-core.ts`), the fleet's trailing 30 days, their open work (the board's "mine"), and the cleans they rated. Staff see only their own; an owner reads a teammate's with `?as=` |
 | `/fieldwork/*` | Contractor-facing ops: packets (one "Send a job" form at `/fieldwork/packets/new`; the maintenance bundler on the Handymen board), roster (hiring folded in as Applicants at the top; `/fieldwork/hiring` redirects there), shoots (creative pay ledger), trades (the outside vendor directory), close (the field's handoff before the statement close; staff add items, owners file them through the receipt path) |
 | `/field` | The external 1099 contractor portal. Separate auth plane, magic-link tokens |
 | `/work` | Work slips per property plus office to-dos (the `tasks` table). A slip belongs to a house; an office to-do does not. Both share one priority scale (Low / Normal / High), the close verbs (Mark done, Dismiss, Reopen) and a page where each field saves on its own. The strip is Board and Maintenance |
@@ -118,7 +133,7 @@ as modules land, so read it as where the weight sits today.
 | `/competitors` | Other Cape Ann managers, inventory tracking. Owners only: owner-of-record research is prospecting |
 | `/playbook` | SOPs and institutional knowledge |
 | `/onboarding` | Owner intake forms, token-gated, public |
-| `/today` | Retired into the home on 2026-10-18 and redirects to `/`. Today's check-ins, checkouts and walks are the home's "Today at the houses" section; sync health and Helm-run homes are on `/messaging/status` |
+| `/today` | Retired into the home on 2026-10-18 and redirects to `/`. Today's check-ins, checkouts and walks are the Today column of the home's "At the houses" strip; sync health and Helm-run homes are on `/messaging/status` |
 | `/search` | Long-form view behind the Cmd+K palette |
 
 **Work slips are filed into lanes, and the lane is never stored.** `src/lib/work-slip-lanes.ts`
@@ -270,6 +285,26 @@ unclear day or home is a question on the card. A home is matched by street numbe
 word with dates stripped, never by a bare number, because "Wed 10/21" is not 21 Horton.
 `vendor-visit-guard.test.ts` holds the never-write-before-approve rule.
 
+**A cleaning rating never reaches the crew by itself** (`docs/cleaning-reviews.md`, since
+2026-11-07; one weekly email since 2026-11-10). Every walk ends on one question, How was the
+clean?, and `completeInspection` stores the answer once per walk in `cleaning_reviews` through
+`saveCleaningReview`, which sends nothing. Four or fewer (`CLEANING_FLAG_MAX` in
+`src/lib/cleaning-reviews-core.ts`) also asks what was off and for photos. Every Friday at 12:00
+UTC `/api/cron/cleaning-review-email` drafts ONE email of every rating no report has carried,
+through Thursday (`draftWeeklyCleaningReport`, idempotent per `week_end`, stamping
+`cleaning_reviews.report_id`): the week's average and count, every clean with its stars, home and
+day, and the reason and photo links under each at four or fewer, in Portuguese with the English
+beside it (`composeWeeklyEmail`; reasons go through `cleaner-note.ts`'s model pass; never a
+person's name). It files the `cleaning_review_reports` row `pending` as a Cleaning card under
+Cleaners on the Team inbox. Only Approve sends, through `approveCleaningReview`: claim the report,
+email each enabled schedule recipient covering those homes who has an email on file
+(`cleaner_schedule_recipients.email`, set on Cleaner settings and read apart from
+`RECIPIENT_COLS` so the daily text never depends on it), one language per recipient, from
+`cleaning@risingtidestr.com` (`cleaningReviewSender`), the `cleaning_review` duty on copy (Ryan,
+Allie, Delaney), replies to the office. Edit stores the operator's words verbatim; Mark handled clears the
+week with a reason; Undo brings it back. `cleaning-review-guard.test.ts` keeps the send inside
+approve and the cron to drafting.
+
 
 The home appointment agenda also has `/appointments` for capture, review,
 rescheduling and cancellation. Saved business appointments are private to the
@@ -346,7 +381,8 @@ other caller.
 since 2026-10-13). `team.ts` says who runs operations (role `operations`), who approves Field
 pay and answers contractor questions (`duties: ['field_pay']`, Ryan), who runs the creative
 program (`duties: ['creative']`, Dotti), who countersigns staff documents (`countersign`, Ryan)
-and who is copied on them (`staff_copy`, Allie); a member with a `starts` date joins every list
+and who is copied on them (`staff_copy`, Allie), who is copied on Friday's cleaning review email
+(`cleaning_review`: Ryan, Allie, Delaney); a member with a `starts` date joins every list
 on that day. `officeNotice()` is the Field office (first operations seat, the rest and field pay
 on copy), `operationsEmails()` is the CC on contractor-facing mail, `fieldReplyTo()` is the one
 inbox a contractor's reply lands in, `creativeLeadEmail()` the shoot and view-count reminders.
@@ -1067,7 +1103,7 @@ counted 2026-10-22).
   defaulted), `SUPPLY_CLOSET_CODE` (prints on a claimed packet; unset hides the line; never in
   source)
 - **Email routing**, all defaulted: `STAFF_NOTIFY_EMAILS` (agreement, contract and quote notices),
-  `AUTOMATIONS_REPLY_TO`, `FIELD_FROM_EMAIL`, `READINESS_FROM_EMAIL`, `READINESS_REVIEW_TO`,
+  `AUTOMATIONS_REPLY_TO`, `FIELD_FROM_EMAIL`, `CLEANING_FROM_EMAIL`, `CLEANING_REPLY_TO`, `READINESS_FROM_EMAIL`, `READINESS_REVIEW_TO`,
   `READINESS_REVIEW_CC`
 - **Direct guest testimonials**: `GOOGLE_REVIEW_URL`, optional. The Google Business Profile
   review link the staycapeann.com testimonial form's thank-you page offers; unset, the page
@@ -1210,3 +1246,10 @@ are defined in `AGENTS.md`.
     env var (`empty-state.test.ts`); when something is not set up, say "Ask Ryan: ...".
   A smoke fixture that compiles a component using them must register them; the alias list is in
   `scripts/confirm-dialog-smoke.mjs`, the controls fixture.
+- **A new page starts from the shell** (round two of the audit, 2026-11-07): `HelmMasthead` and
+  `HelmFooter` through the section's `layout.tsx`, `HelmHero plain` with the nav name as its
+  title, `SectionTabs` for its strip, `Button`, `EmptyState` and one of the existing date
+  helpers, with no eyebrow, chip or button style of its own, and an entry in `helm-modules.ts`
+  (hidden from nav when it must be) so Cmd+K can reach it. `atlas-coverage.test.ts` and
+  `section-masthead.test.ts` hold the last two. The never-sweep rule above stays as written:
+  an existing page adopts these when it is touched for another reason.

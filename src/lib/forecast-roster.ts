@@ -29,6 +29,12 @@ export type RosterSource = {
   activatedAt: string | null;
   /** The smart forecast's projected annual management fee for the year. */
   projectedMgmtFee: number;
+  /**
+   * The whole-house home this listing is a unit of (17 Beach's front unit
+   * and guest house, 36 Granite's north unit, the Middle Road unit), or
+   * null for a whole home. Absent means null.
+   */
+  sharesInventoryWith?: string | null;
 };
 
 /** What the hardcoded roster already knows about a home, keyed by id. */
@@ -57,6 +63,12 @@ function activationYearMonth(iso: string | null): { year: number; month: number 
  * The homes that cost money in `year`, each with the month it starts.
  *
  *   RT-owned            excluded (its own P&L, out of the model's scope)
+ *   a unit of a home    excluded (Dotti, 2026-11-07: "Whole homes only").
+ *                       The card's supplies rate and Cooper's content line
+ *                       were calibrated on whole homes, 15 to 17 of them in
+ *                       July and August 2026, and a unit's nights are the
+ *                       whole house's nights already counted; four unit
+ *                       rows were scaling both lines as four more homes.
  *   activated after     excluded (not on the books yet)
  *   activated in year   starts that month
  *   activated before    starts in January
@@ -77,6 +89,7 @@ export function rosterFromRegistry(
   const out: ManagedProperty[] = [];
   for (const h of homes) {
     if (h.isRtOwned) continue;
+    if (h.sharesInventoryWith) continue;
     const act = activationYearMonth(h.activatedAt);
     if (act && act.year > year) continue;
     const k = known[h.id];

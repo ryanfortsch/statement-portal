@@ -1,5 +1,4 @@
 import { reviewCountsByConversation } from '@/lib/inbox-search';
-import { RecentMessageOutcomesSection } from '@/components/RecentMessageOutcomesSection';
 import { Suspense } from 'react';
 import type { ReactNode } from 'react';
 import { HelmMasthead } from '@/components/HelmMasthead';
@@ -22,12 +21,12 @@ import {
 import { loadGuestQuoteContext } from '@/lib/guest-quote-context';
 import { listHelmConversations } from '@/lib/helm-inbox';
 import { mergeConversationLists } from '@/lib/helm-inbox-core';
-import { PropertyFactsToFile } from '@/components/PropertyFactsToFile';
 import { InboxHealth } from '@/components/InboxHealth';
 import { InboxBottomTools } from '@/components/InboxBottomTools';
 import { ConciergeAlertList } from '@/components/ConciergeAlerts';
 import { MessagingQueue } from './MessagingQueue';
 import { DecidedRecently } from '@/components/messaging/card/DecidedRecently';
+import { loadFollowupFeed } from '@/components/messaging/card/followup-feed';
 import { undoDecision } from './actions';
 import { guestFirstFromDraft, prettifySlug } from './format';
 import { ConversationsBrowser } from './Conversations';
@@ -94,14 +93,13 @@ function NotReachable({ message, retry = false }: { message: string; retry?: boo
 }
 
 // Reversible decisions from the last hours (rejects, mark-handleds), a quiet
-// ledger with an Undo directly under the queue. The moment-of-decision undo
-// is the toast inside MessagingQueue; this is the fallback for anything
-// older. Renders nothing when there are none, and nothing when the service
-// is unreachable (the queue shows that).
+// ledger with an Undo directly under the queue, and the past week's resolved
+// messages that filed work or a note, one Filed line each. The
+// moment-of-decision undo is the toast inside MessagingQueue; this is the
+// fallback for anything older. Renders nothing when there are none.
 async function RecentDecisionsSection() {
-  const recent = await listRecentApprovals(12);
-  if (!recent.ok) return null;
-  const items = recent.data.approvals
+  const [recent, followups] = await Promise.all([listRecentApprovals(12), loadFollowupFeed(['guests'])]);
+  const items = (recent.ok ? recent.data.approvals : [])
     .filter((a) => a.reversible)
     .map((a) => ({
       id: a.id,
@@ -112,7 +110,7 @@ async function RecentDecisionsSection() {
       at: a.resolved_at || a.created_at,
       decidedBy: a.decided_by,
     }));
-  return <DecidedRecently items={items} undo={undoDecision} />;
+  return <DecidedRecently items={items} undo={undoDecision} followups={followups} />;
 }
 
 // Urgent boundary: the pending-approval queue + reminders. Awaits ONLY the
@@ -205,8 +203,8 @@ async function ConversationsSection({ searchParams }: { searchParams: Promise<Re
 // Everything analytical and every "teach the AI" surface (Performance and
 // its learned-facts editor, the weekly reflection proposals, the property
 // facts to file) lives on the Quality lens (/messaging/quality) since
-// 2026-10-17. The Inbox is the working page: it ends at Conversations and
-// keeps one line pointing there.
+// 2026-10-17. The Inbox is the working page: it ends at Conversations; the
+// count of facts to file is the pill on the Quality lens label.
 
 export default function MessagingPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   if (!isStayConciergeConfigured()) {
@@ -236,8 +234,6 @@ export default function MessagingPage({ searchParams }: { searchParams: Promise<
       <Suspense fallback={null}>
         <ConversationsSection searchParams={searchParams} />
       </Suspense>
-      <Suspense fallback={null}><PropertyFactsToFile /></Suspense>
-      <Suspense fallback={null}><RecentMessageOutcomesSection audience="guests" /></Suspense>
       <InboxBottomTools />
     </Shell>
   );

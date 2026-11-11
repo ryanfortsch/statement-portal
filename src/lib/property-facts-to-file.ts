@@ -1,9 +1,10 @@
 import type { HelmRole } from '@/lib/helm-access';
 
 /**
- * "N property facts to file": the one line the four queue pages keep after
- * the proposed-property-update cards moved to the Quality lens
- * (/messaging/quality, 2026-10-17). Pure helpers; the concierge read lives in
+ * "N property facts to file": the count on the Quality lens label after the
+ * proposed-property-update cards moved to that lens (/messaging/quality,
+ * 2026-10-17; a line on the queue pages until 2026-11-07, a pill on the lens
+ * since). Pure helpers; the concierge read lives in
  * components/PropertyFactsToFile.tsx so this file stays import-free for the
  * test runner.
  */

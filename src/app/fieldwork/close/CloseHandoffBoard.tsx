@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { statementsHref } from '@/lib/statements-month';
 import { useConfirm } from '@/components/ConfirmDialog';
+import { Button } from '@/components/Button';
 import {
   HANDOFF_KINDS,
   HANDOFF_STATUS_LABEL,
@@ -44,16 +45,6 @@ const LABEL: React.CSSProperties = {
   color: 'var(--ink-4)',
   display: 'block',
   marginBottom: 4,
-};
-const TINY: React.CSSProperties = {
-  fontSize: 9, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase',
-  border: '1px solid var(--rule)', background: 'transparent', color: 'var(--ink-3)',
-  padding: '3px 8px', cursor: 'pointer',
-};
-const PRIMARY: React.CSSProperties = {
-  fontSize: 10, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase',
-  color: 'var(--paper)', background: 'var(--ink)', border: '1px solid var(--ink)',
-  padding: '8px 14px', cursor: 'pointer',
 };
 
 function statusColor(status: HandoffItem['status']): string {
@@ -212,9 +203,9 @@ export function CloseHandoffBoard({
               statement: the owner-only footer used to be the only place. */}
         </div>
         {summary.open > 0 && (
-          <button type="button" onClick={sendMonth} disabled={busy !== null} style={PRIMARY}>
-            {busy === 'send' ? 'Sending…' : `Mark ${monthLabel(month).split(' ')[0]} sent (${summary.open})`}
-          </button>
+          <Button variant="primary" onClick={sendMonth} disabled={busy !== null && busy !== 'send'} pending={busy === 'send'} pendingLabel="Sending">
+            {`Mark ${monthLabel(month).split(' ')[0]} sent (${summary.open})`}
+          </Button>
         )}
       </div>
 
@@ -266,7 +257,7 @@ export function CloseHandoffBoard({
           <input value={description} onChange={(e) => setDescription(e.target.value)} style={FIELD} required maxLength={300} placeholder={meta.hint} />
         </label>
         <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button type="submit" disabled={busy !== null || !propertyId} style={PRIMARY}>{busy === 'add' ? 'Adding…' : 'Add'}</button>
+          <Button type="submit" variant="primary" disabled={(busy !== null && busy !== 'add') || !propertyId} pending={busy === 'add'} pendingLabel="Adding" watchdog={false}>Add</Button>
         </div>
       </form>
 
@@ -306,14 +297,14 @@ export function CloseHandoffBoard({
                     {HANDOFF_STATUS_LABEL[item.status]}
                   </span>
                   <span style={{ display: 'inline-flex', gap: 6, whiteSpace: 'nowrap' }}>
-                    {item.file_path && <button type="button" onClick={() => view(item)} disabled={busy !== null} style={TINY}>View</button>}
-                    {live && (mine || owner) && item.status === 'open' && <button type="button" onClick={() => act(item, 'sent')} disabled={busy !== null} style={TINY}>Send</button>}
-                    {live && (mine || owner) && item.status === 'sent' && <button type="button" onClick={() => act(item, 'reopen')} disabled={busy !== null} style={TINY}>Reopen</button>}
-                    {live && (mine || owner) && <button type="button" onClick={() => remove(item)} disabled={busy !== null} style={TINY}>Delete</button>}
+                    {item.file_path && <Button size="sm" onClick={() => view(item)} disabled={busy !== null}>View</Button>}
+                    {live && (mine || owner) && item.status === 'open' && <Button size="sm" onClick={() => act(item, 'sent')} disabled={busy !== null}>Send</Button>}
+                    {live && (mine || owner) && item.status === 'sent' && <Button size="sm" onClick={() => act(item, 'reopen')} disabled={busy !== null}>Reopen</Button>}
+                    {live && (mine || owner) && <Button size="sm" variant="danger" onClick={() => remove(item)} disabled={busy !== null}>Delete</Button>}
                     {live && owner && asideFor !== item.id && (
-                      <button type="button" onClick={() => { setAsideFor(item.id); setAsideNote(''); }} disabled={busy !== null} style={TINY}>
+                      <Button size="sm" onClick={() => { setAsideFor(item.id); setAsideNote(''); }} disabled={busy !== null}>
                         Set aside
-                      </button>
+                      </Button>
                     )}
                   </span>
                 </div>
@@ -327,10 +318,10 @@ export function CloseHandoffBoard({
                       autoFocus
                       style={{ ...FIELD, width: 'auto', flex: '1 1 220px' }}
                     />
-                    <button type="button" onClick={() => void setAside(item)} disabled={busy !== null} style={{ ...TINY, color: 'var(--ink)', borderColor: 'var(--ink)' }}>
-                      {busy === item.id ? 'Setting aside…' : 'Set aside'}
-                    </button>
-                    <button type="button" onClick={() => { setAsideFor(null); setAsideNote(''); }} disabled={busy !== null} style={{ ...TINY, border: 'none' }}>Cancel</button>
+                    <Button size="sm" variant="primary" onClick={() => void setAside(item)} disabled={busy !== null && busy !== item.id} pending={busy === item.id} pendingLabel="Setting aside">
+                      Set aside
+                    </Button>
+                    <Button size="sm" variant="quiet" onClick={() => { setAsideFor(null); setAsideNote(''); }} disabled={busy !== null}>Cancel</Button>
                   </div>
                 )}
                 </div>

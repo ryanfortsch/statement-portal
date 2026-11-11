@@ -822,8 +822,7 @@ export function StayCard({ row, bar, onClose }: { row: CalendarRowVM; bar: Calen
       </dl>
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 22 }}>
         <Link href={`/channels/bookings/${bar.id}`} style={primaryLink}>Open record</Link>
-        <Link href={`/channels/${p.id}`} style={ghostLink}>Property hub</Link>
-        <Link href={`/channels/${p.id}/calendar?month=${bar.check_in.slice(0, 7)}`} style={ghostLink}>Month grid</Link>
+        <Link href={`/channels/${p.id}?month=${bar.check_in.slice(0, 7)}#calendar`} style={ghostLink}>Property hub</Link>
       </div>
     </DrawerShell>
   );

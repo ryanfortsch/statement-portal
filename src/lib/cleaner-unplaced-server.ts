@@ -1,5 +1,5 @@
 /**
- * Reads for the home feed's unplaced cleaner texts (cleaner-unplaced.ts has
+ * Reads for the unplaced cleaner texts (cleaner-unplaced.ts has
  * the rules). The writes are the two server actions in
  * src/app/turnovers/unplaced-cleaner-actions.ts.
  */
@@ -41,8 +41,7 @@ type Row = {
 
 /**
  * Open texts from the last two weeks, newest first, each with its house
- * picker. The home asks about the fresh ones (splitUnplacedForHome); the
- * cleanings page lists them all. A text that has since been placed some other way (a replay after a
+ * picker. The cleanings page lists them all; the home strip counts them. A text that has since been placed some other way (a replay after a
  * roster fix, the Quo sweep) drops off on its own: its message id already
  * carries a completion or a slip. Fails soft to nothing, so a missing table
  * or a slow read never costs the home page its feed.

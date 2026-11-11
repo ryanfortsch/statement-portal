@@ -19,6 +19,7 @@ import type { SearchResults } from '@/lib/search';
 import { CONTACT_TYPE_LABELS } from '@/lib/crm';
 import { displayNameForEmail } from '@/lib/team';
 import { categoryLabel, excerptFor } from '@/lib/playbook';
+import { formatPhone } from '@/lib/person-record-link';
 
 type FlatItem = {
   group: string;
@@ -40,6 +41,7 @@ const EMPTY: SearchResults = {
   pages: [],
   properties: [],
   contacts: [],
+  guests: [],
   slips: [],
   tasks: [],
   playbook: [],
@@ -114,6 +116,16 @@ export function UniversalSearch({ placeholder = 'Search Helm or jump to a page�
         secondary: [c.organization, c.emails && c.emails[0]].filter(Boolean).join(' · '),
         pill: CONTACT_TYPE_LABELS[c.type as keyof typeof CONTACT_TYPE_LABELS],
         pillColor: contactTypeColor(c.type),
+      });
+    }
+    for (const g of results.guests ?? []) {
+      items.push({
+        group: 'Guests',
+        href: g.href,
+        primary: g.name,
+        secondary: [g.email, g.phone && formatPhone(g.phone)].filter(Boolean).join(' · '),
+        pill: g.record === 'crm' ? 'Contact' : 'Guest list',
+        pillColor: 'var(--ink-4)',
       });
     }
     for (const s of results.slips) {

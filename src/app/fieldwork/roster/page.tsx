@@ -10,7 +10,8 @@ import { operatingDate } from '@/lib/operating-date';
 import { getContractorRatings, TIER_RANK, type RatingTier } from '@/lib/field-ratings';
 import { loadW9Summaries } from '@/lib/field-w9';
 import { loadPaymentSummaries } from '@/lib/field-pay';
-import { dollars, parseTrade, navTrade, isEmployee, TRADE_META, type ContractorRow } from '@/lib/field-types';
+import { dollars, parseTrade, navTrade, isEmployee, NAV_TRADES, TRADE_META, type ContractorRow } from '@/lib/field-types';
+import { buttonClass } from '@/lib/button-class';
 import { getVendor1099Report } from '@/lib/vendor-1099';
 import { loadRateCards, type RateCard } from '@/lib/creative-rates';
 import { isOwnerSession } from '@/lib/helm-access-server';
@@ -84,11 +85,14 @@ type BooksVal = { ytd: number; w9: boolean; over: boolean };
 export default async function ContractorsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ trade?: string }>;
+  searchParams: Promise<{ trade?: string; w9?: string }>;
 }) {
-  // A trade with no tab (cleaning) is clamped to Inspectors, the way the
-  // packet page clamps it, so the strip always has a lit tab.
-  const trade = navTrade(parseTrade((await searchParams).trade));
+  // A trade with no chip (cleaning) is clamped to Inspectors, the way the
+  // packet page clamps it, so the filter line always has a lit trade.
+  const sp = await searchParams;
+  const trade = navTrade(parseTrade(sp.trade));
+  // The W-9 needed filter: the chore list the old box held, as cards.
+  const w9Only = sp.w9 === 'needed';
   const meta = TRADE_META[trade];
   // Pay, W-9 and the contractor-admin buttons are owner controls. The
   // actions refuse a staff session; the cards hide them for one too.
@@ -158,8 +162,8 @@ export default async function ContractorsPage({
   const retired = ordered.filter((c) => c.status === 'archived');
 
   // Active contractors still missing a W-9 (same on-file test the card uses:
-  // an in-app W-9 or the books flag). The recurring pre-1099 chore, surfaced as
-  // one workspace instead of hunting card to card.
+  // an in-app W-9 or the books flag). The recurring pre-1099 chore, as a
+  // roster filter instead of hunting card to card.
   const needsW9 = ordered.filter((c) => {
     if (c.status !== 'active') return false;
     const hasW9 = w9s.has(c.id) || !!booksByKey.get(c.vendor_key ? norm(c.vendor_key) : norm(c.full_name))?.w9;
@@ -177,7 +181,7 @@ export default async function ContractorsPage({
             {/* What the invitee's portal looks like at each stage — workshop it
                 here before any invite goes out. */}
             <Link href={`/field?office=1&trade=${trade}`} target="_blank" style={{ fontSize: 13, color: 'var(--tide-deep)', textDecoration: 'none' }}>
-              Preview their portal →
+              Preview as contractor →
             </Link>
             {/* The pay ledger is an owner page: no link to it for staff. */}
             {trade === 'creative' && owner && (
@@ -196,6 +200,22 @@ export default async function ContractorsPage({
               ? `Everyone on the ${meta.label.toLowerCase()} roster: standing, reliability, pay to date, W-9.`
               : `Everyone on the ${meta.label.toLowerCase()} roster: standing and reliability.`}
         </p>
+
+        {/* The trade is the first filter: it was the strip's first row until
+            the strip became one row (UX audit, 2026-11-07). W-9 needed is
+            the second: the chore list the old box at the top held, as the
+            cards themselves, each with its own Mark on file. */}
+        <nav aria-label="Filter the roster" className="rt-field-filters" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 18 }}>
+          {NAV_TRADES.map((t) => (
+            <Link key={t} href={`/fieldwork/roster?trade=${t}`} aria-current={t === trade && !w9Only ? 'page' : undefined}>{TRADE_META[t].label}</Link>
+          ))}
+          {(needsW9.length > 0 || w9Only) && (
+            <>
+              <span aria-hidden style={{ width: 1, alignSelf: 'stretch', background: 'var(--rule)', margin: '0 4px' }} />
+              <Link href={`/fieldwork/roster?trade=${trade}&w9=needed`} aria-current={w9Only ? 'page' : undefined}>W-9 needed · {needsW9.length}</Link>
+            </>
+          )}
+        </nav>
 
         {/* Hiring lives here now: the applicants for this trade first, with
             the one invite door. The retired Hiring page redirects here. */}
@@ -218,39 +238,12 @@ export default async function ContractorsPage({
           </details>
         )}
 
-        {/* W-9 workspace: clear the recurring pre-1099 chore in one place. */}
-        {needsW9.length > 0 && (
-          <div style={{ border: '1px solid var(--signal)', borderRadius: 12, background: 'rgba(200,90,58,0.05)', padding: '14px 18px', marginBottom: 20 }}>
-            <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--signal)', fontWeight: 600, marginBottom: 4 }}>
-              W-9 needed · {needsW9.length}
-            </div>
-            <p style={{ fontSize: 13, color: 'var(--ink-3)', margin: '0 0 12px', lineHeight: 1.5 }}>
-              Active {meta.label.toLowerCase()} without a W-9 on file; one is needed before a 1099 goes out. Mark each as you collect it.
-            </p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {needsW9.map((c) => (
-                <div key={c.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                  <div style={{ minWidth: 0 }}>
-                    <span style={{ fontSize: 14, color: 'var(--ink)' }}>{c.full_name}</span>
-                    <span style={{ fontSize: 12, color: 'var(--ink-4)' }}> · {c.email}</span>
-                  </div>
-                  {owner && (
-                    <form action={setContractorW9} style={{ margin: 0 }}>
-                      <input type="hidden" name="contractor_id" value={c.id} />
-                      <input type="hidden" name="on_file" value="true" />
-                      <SubmitButton label="Mark on file" busyLabel="Marking…" style={actBtn} spinnerTone="ink" />
-                    </form>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
         {contractors.length === 0 ? (
           <p style={{ color: 'var(--ink-4)', fontSize: 14 }}>No {meta.label.toLowerCase()} yet.</p>
+        ) : w9Only && needsW9.length === 0 ? (
+          <p style={{ color: 'var(--ink-4)', fontSize: 14 }}>Every active {meta.singular} has a W-9 on file.</p>
         ) : (
-          working.map((c) => (
+          (w9Only ? needsW9 : working).map((c) => (
             <ContractorCard
               key={c.id}
               c={c}
@@ -276,7 +269,7 @@ export default async function ContractorsPage({
 
         {/* Retired: off the working roster, one click away. Their record stays
             whole -- pay history, W-9, and books totals still feed the 1099. */}
-        {retired.length > 0 && (
+        {retired.length > 0 && !w9Only && (
           <details style={{ marginTop: 18 }}>
             <summary style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-4)', cursor: 'pointer', padding: '6px 0' }}>
               Retired · {retired.length}
@@ -342,12 +335,12 @@ function fmtVisitDay(d: string): string {
 
 /** The status pill: where they stand, with the background check folded in
  *  while it is the thing between them and a claim. */
-function standingOf(c: ContractorRow): { label: string; color: string } {
+function standingOf(c: ContractorRow): { label: string; color: string; carriesCheck: boolean } {
   const status = STATUS_LABEL[c.status] ?? c.status;
   const tint = STATUS_TINT[c.status] ?? 'var(--ink-4)';
   const bg = c.background_check_status;
-  if (c.status === 'archived' || isEmployee(c) || bg === 'cleared') return { label: status, color: tint };
-  return { label: `${status} · check ${(BG_LABEL[bg] ?? bg).toLowerCase()}`, color: bg === 'failed' ? BG_TINT.failed : tint };
+  if (c.status === 'archived' || isEmployee(c) || bg === 'cleared') return { label: status, color: tint, carriesCheck: false };
+  return { label: `${status} · check ${(BG_LABEL[bg] ?? bg).toLowerCase()}`, color: bg === 'failed' ? BG_TINT.failed : tint, carriesCheck: true };
 }
 
 function ContractorCard({
@@ -410,9 +403,6 @@ function ContractorCard({
           <div style={{ minWidth: 0 }}>
             <div className="font-serif" style={{ fontSize: 17, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               {c.full_name}
-              {c.trade && c.trade !== 'inspection' && (
-                <span style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--tide-deep)', border: '1px solid var(--rule)', borderRadius: 999, padding: '1px 7px' }}>{c.trade}</span>
-              )}
             </div>
             <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 2 }}>{c.email}{c.phone ? ` · ${c.phone}` : ''}</div>
           </div>
@@ -501,7 +491,7 @@ function ContractorCard({
                     <form action={markContractorPaid} style={{ marginTop: 5, display: 'flex', gap: 5, alignItems: 'center' }}>
                       <input type="hidden" name="contractor_id" value={c.id} />
                       <input name="reference" placeholder="ref #" style={{ font: 'inherit', fontSize: 11, width: 56, border: '1px solid var(--rule)', background: 'var(--paper-2, #fff)', padding: '3px 5px', color: 'var(--ink)', borderRadius: 4 }} />
-                      <SubmitButton label={`Mark ${dollars(ps!.owedCents)} paid`} busyLabel="Recording…" style={payBtn} />
+                      <SubmitButton label={`Mark ${dollars(ps!.owedCents)} paid`} busyLabel="Recording…" className={buttonClass('primary', 'sm')} />
                     </form>
                   )
                 )}
@@ -515,15 +505,51 @@ function ContractorCard({
         {owner && (
           <RecordRow label="Books YTD">
             <span>{dollars(booksCents)}{books?.over ? ' · 1099' : ''}</span>
-            {' · '}
-            {w9OnFile ? (
-              <span style={{ color: 'var(--positive)', fontSize: 12 }}>W-9 on file</span>
+            {owner && Math.abs(gap) > 5000 && (
+              <span style={{ color: 'var(--signal)' }}>
+                {' · '}Field {dollars(ps!.paidCents)} vs books {dollars(booksCents)}, gap {dollars(Math.abs(gap))}
+              </span>
+            )}
+          </RecordRow>
+        )}
+
+        {/* The W-9, once: the summary says whether it is on file; this line
+            holds the details (owner money: legal name, classification, TIN
+            last four, address) or the one verb that records it. Staff read
+            the summary only, as before. */}
+        {owner && !isEmployee(c) && (
+          <RecordRow label="W-9">
+            {owner && w9 && (
+              <span>
+                <span style={{ color: 'var(--ink-3)' }}>{w9.legalName}</span>{w9.businessName ? ` (${w9.businessName})` : ''} · {w9.taxClassification} · {w9.tinType.toUpperCase()} ••••{w9.tinLast4 ?? '????'} · <RevealW9 contractorId={c.id} /> · {w9.address}
+              </span>
+            )}
+            {!w9 && (books?.w9 ? (
+              <span style={{ color: 'var(--ink-3)' }}>On file in the books</span>
             ) : (
               <form action={setContractorW9} style={{ display: 'inline' }}>
                 <input type="hidden" name="contractor_id" value={c.id} />
                 <input type="hidden" name="on_file" value="true" />
-                <SubmitButton label="Mark W-9 on file" busyLabel="Marking…" style={linkBtn} spinnerTone="ink" />
+                <SubmitButton label="Mark on file" busyLabel="Marking…" className={buttonClass('secondary', 'sm')} spinnerTone="ink" />
               </form>
+            ))}
+          </RecordRow>
+        )}
+
+        {/* The background check, once: its state rides the status pill while
+            it stands between them and a claim, and prints here only once the
+            pill no longer carries it. The authorization is its own fact. */}
+        {!isEmployee(c) && (
+          <RecordRow label="Background">
+            {!standing.carriesCheck && (
+              <span style={{ color: BG_TINT[c.background_check_status] ?? 'var(--ink-4)' }}>{BG_LABEL[c.background_check_status] ?? c.background_check_status} · </span>
+            )}
+            {c.bg_authorized_at ? (
+              <span>
+                Authorization signed{c.bg_authorized_name ? ` by ${c.bg_authorized_name}` : ''} · {new Date(c.bg_authorized_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+              </span>
+            ) : (
+              <span style={{ color: 'var(--signal)' }}>Authorization not on file</span>
             )}
           </RecordRow>
         )}
@@ -532,139 +558,121 @@ function ContractorCard({
       {/* Creative only: the talent's rate card (standard or custom). */}
       {rate && <TalentRateStrip c={c} card={rate.card} isCustom={rate.isCustom} />}
 
-      {/* Quiet compliance + access strip. The W-9 summary (legal name, tax
-          classification, TIN last four, home address), the payment method
-          and the pay-versus-books gap are owner money; staff see the
-          background-check and access lines only. */}
-      <div style={{ marginTop: 13, paddingTop: 12, borderTop: '1px solid var(--rule)', fontSize: 11.5, color: 'var(--ink-4)', lineHeight: 1.7 }}>
-        {owner && w9 && (
-          <div>
-            <span style={{ color: 'var(--ink-3)' }}>{w9.legalName}</span>{w9.businessName ? ` (${w9.businessName})` : ''} · {w9.taxClassification} · {w9.tinType.toUpperCase()} ••••{w9.tinLast4 ?? '????'}{owner ? <> · <RevealW9 contractorId={c.id} /></> : null} · {w9.address}
-          </div>
+      {/* Two verbs stay in sight: their portal link and Pause or Reactivate.
+          Everything else folds under More (UX audit, 2026-11-07). */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--rule)' }}>
+        <CopyCode value="Copy portal link" copyValue={`${base}/field/${c.portal_token}`} mono={false} />
+        {/* Pause and reactivate are staff's (2026-10-19). Reactivating a
+            retired person restores their access, so that one is the owners'. */}
+        {c.status === 'active' && (
+          <form action={setContractorStatus} style={{ margin: 0 }}>
+            <input type="hidden" name="contractor_id" value={c.id} />
+            <input type="hidden" name="status" value="paused" />
+            <SubmitButton label="Pause" busyLabel="Pausing…" className={buttonClass('secondary', 'sm')} spinnerTone="ink" />
+          </form>
         )}
-        {owner && pm && (
-          <div>
-            Pays via {pm.method}{pm.hint ? ` · ${pm.hint}` : ''}
-            {owner && pm.hasDetails && pm.method === 'Direct deposit (ACH)' ? <> · <RevealPay contractorId={c.id} /></> : null}
-          </div>
+        {(c.status === 'paused' || (owner && c.status === 'archived')) && (
+          <form action={setContractorStatus} style={{ margin: 0 }}>
+            <input type="hidden" name="contractor_id" value={c.id} />
+            <input type="hidden" name="status" value="active" />
+            <SubmitButton label="Reactivate" busyLabel="Reactivating…" className={buttonClass('secondary', 'sm')} spinnerTone="ink" />
+          </form>
         )}
-        {owner && Math.abs(gap) > 5000 && (
-          <div style={{ color: 'var(--signal)' }}>
-            Field {dollars(ps!.paidCents)} vs books {dollars(booksCents)} · gap {dollars(Math.abs(gap))}
-          </div>
-        )}
-        <div>
-          BG authorization:{' '}
-          {c.bg_authorized_at ? (
-            <span style={{ color: 'var(--positive)' }}>
-              signed{c.bg_authorized_name ? ` by ${c.bg_authorized_name}` : ''} · {new Date(c.bg_authorized_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-            </span>
-          ) : (
-            <span style={{ color: 'var(--signal)' }}>not on file</span>
-          )}
-        </div>
       </div>
 
-      {/* Actions */}
-      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center', marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--rule)' }}>
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-          {/* The check's state rides the status pill; this row changes it.
-              Staff run the hiring lifecycle since 2026-10-19 (Dotti), so the
-              ops manager clears a check; each change confirms first.
-              Running and cleared text and email the contractor (the portal
-              home promises both); failed sends nothing, so the office calls. */}
-          <span style={{ fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>Background</span>
-          {(['pending', 'cleared', 'failed'] as const)
-            .filter((s) => s !== c.background_check_status)
-            .map((s) => {
-              const word = (BG_LABEL[s] ?? s).toLowerCase();
-              const first = c.full_name.split(' ')[0];
-              const tell = c.phone ? 'text and email' : 'email';
-              const effect =
-                s === 'failed'
-                  ? `Mark ${first}'s check failed? They can no longer claim work, and nothing is sent to them: call them.`
-                  : s === 'pending'
-                    ? `Mark ${first}'s check running? They can claim work from now, and we ${tell} them that it is running.`
-                    : `Mark ${first}'s check cleared? We ${tell} them that they are all set.`;
-              return (
-                <form key={s} action={setContractorBackgroundCheck} style={{ margin: 0 }} title={`Mark background check ${word}`}>
-                  <input type="hidden" name="contractor_id" value={c.id} />
-                  <input type="hidden" name="bg_status" value={s} />
-                  <SubmitButton label={word} busyLabel="Marking…" confirm={effect} style={s === 'cleared' ? { ...actBtn, color: 'var(--positive)', borderColor: 'var(--positive)' } : actBtn} spinnerTone="ink" />
-                </form>
-              );
-            })}
-        </div>
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginLeft: 'auto' }}>
-          {/* Their portal link, first-class next to the other row actions
-              (was buried in the quiet compliance strip below). */}
-          <CopyCode value="Copy portal link" copyValue={`${base}/field/${c.portal_token}`} mono={false} />
-          {/* Pause, reactivate, the property board grant and Resend invite
-              are staff's (2026-10-19). Employment, Rotate link and Retire stay
-              with the owners: Retire pulls door codes and republishes their
-              work, and the server refuses it for staff. */}
-          {c.status === 'active' && (
-            <form action={setContractorStatus} style={{ margin: 0 }}>
-              <input type="hidden" name="contractor_id" value={c.id} />
-              <input type="hidden" name="status" value="paused" />
-              <SubmitButton label="Pause" busyLabel="Pausing…" style={actBtn} spinnerTone="ink" />
-            </form>
+      <details style={{ marginTop: 10 }}>
+        <summary style={foldSummary}>More ▾</summary>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 8 }}>
+          {owner && pm && (
+            <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>
+              Pays via {pm.method}{pm.hint ? ` · ${pm.hint}` : ''}
+              {owner && pm.hasDetails && pm.method === 'Direct deposit (ACH)' ? <> · <RevealPay contractorId={c.id} /></> : null}
+            </div>
           )}
-          {(c.status === 'paused' || (owner && c.status === 'archived')) && (
-            <form action={setContractorStatus} style={{ margin: 0 }}>
-              <input type="hidden" name="contractor_id" value={c.id} />
-              <input type="hidden" name="status" value="active" />
-              <SubmitButton label="Reactivate" busyLabel="Reactivating…" style={actBtn} spinnerTone="ink" />
-            </form>
+          {/* The check's state is above; these change it. Staff run the
+              hiring lifecycle since 2026-10-19 (Dotti), so the ops manager
+              clears a check; each change confirms first. Running and cleared
+              text and email the contractor (the portal home promises both);
+              failed sends nothing, so the office calls. */}
+          {!isEmployee(c) && (
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--ink-4)', marginRight: 4 }}>Background check</span>
+              {(['pending', 'cleared', 'failed'] as const)
+                .filter((s) => s !== c.background_check_status)
+                .map((s) => {
+                  const word = (BG_LABEL[s] ?? s).toLowerCase();
+                  const first = c.full_name.split(' ')[0];
+                  const tell = c.phone ? 'text and email' : 'email';
+                  const effect =
+                    s === 'failed'
+                      ? `Mark ${first}'s check failed? They can no longer claim work, and nothing is sent to them: call them.`
+                      : s === 'pending'
+                        ? `Mark ${first}'s check running? They can claim work from now, and we ${tell} them that it is running.`
+                        : `Mark ${first}'s check cleared? We ${tell} them that they are all set.`;
+                  return (
+                    <form key={s} action={setContractorBackgroundCheck} style={{ margin: 0 }} title={`Mark background check ${word}`}>
+                      <input type="hidden" name="contractor_id" value={c.id} />
+                      <input type="hidden" name="bg_status" value={s} />
+                      <SubmitButton label={`Mark ${word}`} busyLabel="Marking…" confirm={effect} className={buttonClass('secondary', 'sm')} spinnerTone="ink" />
+                    </form>
+                  );
+                })}
+            </div>
           )}
-          {owner && (
-            <form action={setContractorEmployment} style={{ margin: 0 }} title={isEmployee(c) ? 'Back to a 1099 contractor: paid packets, new-work texts and streak bonuses resume.' : 'On payroll: the record and the work board stay, but no paid packet, new-work text or streak bonus from here on. Approve and pay anything outstanding first.'}>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+            {/* The property board grant and Resend invite are staff's
+                (2026-10-19). Employment, Rotate link and Retire stay with the
+                owners: Retire pulls door codes and republishes their work,
+                and the server refuses it for staff. */}
+            {owner && (
+              <form action={setContractorEmployment} style={{ margin: 0 }} title={isEmployee(c) ? 'Back to a 1099 contractor: paid packets, new-work texts and streak bonuses resume.' : 'On payroll: the record and the work board stay, but no paid packet, new-work text or streak bonus from here on. Approve and pay anything outstanding first.'}>
+                <input type="hidden" name="contractor_id" value={c.id} />
+                <input type="hidden" name="employment_status" value={isEmployee(c) ? 'contractor' : 'employee'} />
+                <SubmitButton label={isEmployee(c) ? 'Mark contractor' : 'Mark employee'} busyLabel="Saving…" className={buttonClass('secondary', 'sm')} spinnerTone="ink" />
+              </form>
+            )}
+            <form action={setContractorWorkBoard} style={{ margin: 0 }} title="The all-properties work-slip board in their Field portal. It reveals the full portfolio, so grant deliberately.">
               <input type="hidden" name="contractor_id" value={c.id} />
-              <input type="hidden" name="employment_status" value={isEmployee(c) ? 'contractor' : 'employee'} />
-              <SubmitButton label={isEmployee(c) ? 'Mark contractor' : 'Mark employee'} busyLabel="Saving…" style={isEmployee(c) ? { ...actBtn, color: 'var(--tide-deep)', borderColor: 'var(--tide-deep)' } : actBtn} spinnerTone="ink" />
-            </form>
-          )}
-          <form action={setContractorWorkBoard} style={{ margin: 0 }} title="The all-properties work-slip board in their Field portal. It reveals the full portfolio, so grant deliberately.">
-            <input type="hidden" name="contractor_id" value={c.id} />
-            <input type="hidden" name="grant" value={c.work_board_access ? 'false' : 'true'} />
-            <SubmitButton
-              label={c.work_board_access ? 'Revoke property board' : 'Grant property board'}
-              busyLabel="Saving…"
-              style={c.work_board_access ? { ...actBtn, color: 'var(--positive)', borderColor: 'var(--positive)' } : actBtn}
-              spinnerTone="ink"
-            />
-          </form>
-          <form action={resendInvite} style={{ margin: 0 }}>
-            <input type="hidden" name="contractor_id" value={c.id} />
-            <SubmitButton label="Resend invite" busyLabel="Resending…" style={actBtn} spinnerTone="ink" />
-          </form>
-          {owner && (
-            <form action={rotateContractorToken} style={{ margin: 0 }}>
-              <input type="hidden" name="contractor_id" value={c.id} />
+              <input type="hidden" name="grant" value={c.work_board_access ? 'false' : 'true'} />
               <SubmitButton
-                label="Rotate link"
-                busyLabel="Rotating…"
-                style={actBtn}
+                label={c.work_board_access ? 'Revoke property board' : 'Grant property board'}
+                busyLabel="Saving…"
+                className={buttonClass('secondary', 'sm')}
                 spinnerTone="ink"
-                confirm={`Rotate ${c.full_name.split(' ')[0]}'s link? The old link and every signed-in session stop working, and we email them a fresh one.`}
               />
             </form>
-          )}
-          {owner && c.status !== 'archived' && (
-            <form action={setContractorStatus} style={{ margin: 0 }}>
+            <form action={resendInvite} style={{ margin: 0 }}>
               <input type="hidden" name="contractor_id" value={c.id} />
-              <input type="hidden" name="status" value="archived" />
-              <SubmitButton
-                label="Retire"
-                busyLabel="Retiring…"
-                style={{ ...actBtn, color: 'var(--signal)', borderColor: 'var(--signal)' }}
-                spinnerTone="ink"
-                confirm={`Retire ${c.full_name}? Their portal link and signed-in sessions stop working, any live door codes are pulled, and work they were holding goes back on the board with the roster texted. Reactivate brings them back.`}
-              />
+              <SubmitButton label="Resend invite" busyLabel="Resending…" className={buttonClass('secondary', 'sm')} spinnerTone="ink" />
             </form>
-          )}
+            {owner && (
+              <form action={rotateContractorToken} style={{ margin: 0 }}>
+                <input type="hidden" name="contractor_id" value={c.id} />
+                <SubmitButton
+                  label="Rotate link"
+                  busyLabel="Rotating…"
+                  className={buttonClass('secondary', 'sm')}
+                  spinnerTone="ink"
+                  confirm={`Rotate ${c.full_name.split(' ')[0]}'s link? The old link and every signed-in session stop working, and we email them a fresh one.`}
+                />
+              </form>
+            )}
+            {owner && c.status !== 'archived' && (
+              <form action={setContractorStatus} style={{ margin: 0 }}>
+                <input type="hidden" name="contractor_id" value={c.id} />
+                <input type="hidden" name="status" value="archived" />
+                <SubmitButton
+                  label="Retire"
+                  busyLabel="Retiring…"
+                  className={buttonClass('danger', 'sm')}
+                  spinnerTone="ink"
+                  confirm={`Retire ${c.full_name}? Their portal link and signed-in sessions stop working, any live door codes are pulled, and work they were holding goes back on the board with the roster texted. Reactivate brings them back.`}
+                />
+              </form>
+            )}
+          </div>
         </div>
-      </div>
+      </details>
       </div>
     </details>
   );
@@ -678,34 +686,4 @@ const foldSummary: React.CSSProperties = {
   listStyle: 'none',
   userSelect: 'none',
   padding: '6px 0',
-};
-const actBtn: React.CSSProperties = {
-  background: 'var(--paper)',
-  border: '1px solid var(--rule)',
-  borderRadius: 999,
-  cursor: 'pointer',
-  color: 'var(--ink-3)',
-  fontSize: 11,
-  fontWeight: 500,
-  padding: '4px 12px',
-};
-const payBtn: React.CSSProperties = {
-  background: 'var(--positive)',
-  color: 'var(--paper)',
-  border: 'none',
-  borderRadius: 5,
-  cursor: 'pointer',
-  fontSize: 11,
-  fontWeight: 600,
-  padding: '4px 10px',
-  whiteSpace: 'nowrap',
-};
-const linkBtn: React.CSSProperties = {
-  background: 'none',
-  border: 'none',
-  cursor: 'pointer',
-  color: 'var(--signal)',
-  fontSize: 11,
-  textDecoration: 'underline',
-  padding: 0,
 };

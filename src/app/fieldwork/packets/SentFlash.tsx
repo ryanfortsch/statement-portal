@@ -27,11 +27,11 @@ export function SentFlash({ sent, who, skipped }: { sent?: string; who?: string;
   return (
     <div style={{ marginTop: 18, border: '1px solid var(--positive)', background: 'rgba(63,153,34,0.08)', color: 'var(--positive)', padding: '10px 14px', borderRadius: 8, fontSize: 13, lineHeight: 1.5 }}>
       {who
-        ? `Packet sent to ${who}. Only they can see and claim it, and nobody else was texted.`
-        : "Packet sent. It's out to contractors below."}
+        ? `Job sent to ${who}. Only they can see and claim it, and nobody else was texted.`
+        : "Job sent. It's out to contractors below."}
       {skipped && (
         <div style={{ marginTop: 4, color: '#7a5512' }}>
-          Left off this trip: {skipped}.
+          Left off this job: {skipped}.
         </div>
       )}
     </div>

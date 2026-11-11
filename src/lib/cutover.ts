@@ -397,7 +397,7 @@ export function evaluateCutoverPreflight(facts: CutoverFacts): CutoverPreflight 
             .map((d) => `${d.a.check_in} to ${d.a.check_out} overlaps ${d.b.check_in} to ${d.b.check_out} (${d.overlap_nights} night${d.overlap_nights === 1 ? '' : 's'})`)
             .join('; ') + (doubles.length > 3 ? `; and ${doubles.length - 3} more.` : '.'),
     acknowledgement: false,
-    href: `/channels/${facts.propertyId}/calendar`,
+    href: `/channels/${facts.propertyId}#calendar`,
   });
 
   // 5b. what the flip hands over (cutover-carryover.ts)

@@ -377,7 +377,7 @@ export function PacketInstructions({ packetId, instructions, editable }: { packe
     if (!instructions) return null;
     return (
       <div style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.5, marginBottom: 16 }}>
-        <span style={{ color: 'var(--ink-4)' }}>Packet note: </span>{instructions}
+        <span style={{ color: 'var(--ink-4)' }}>Job note: </span>{instructions}
       </div>
     );
   }
@@ -385,7 +385,7 @@ export function PacketInstructions({ packetId, instructions, editable }: { packe
     return (
       <div style={{ marginBottom: 16 }}>
         <button type="button" onClick={() => setShow(true)} style={quietBtn}>
-          + add a note for the whole trip
+          + add a note for the whole job
         </button>
       </div>
     );
@@ -393,11 +393,11 @@ export function PacketInstructions({ packetId, instructions, editable }: { packe
   return (
     <div style={{ marginBottom: 16, maxWidth: 540 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10, marginBottom: 4 }}>
-        <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>Instructions for the whole packet (optional)</span>
+        <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>Instructions for the whole job (optional)</span>
 
       </div>
-      <PacketTextEditor value={instructions ?? ''} label="Instructions for the whole packet" rows={2}
-        placeholder="A note the inspector sees across all stops on this trip" style={box}
+      <PacketTextEditor value={instructions ?? ''} label="Instructions for the whole job" rows={2}
+        placeholder="A note the inspector sees across all stops on this job" style={box}
         save={(text) => setPacketInstructions(packetId, text)} />
     </div>
   );

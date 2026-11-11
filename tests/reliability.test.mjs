@@ -163,7 +163,7 @@ async function dashboard({ dbError = null, opsError = false } = {}) {
 }
 async function homePage(searchParams = {}) {
   const mocks = { 'react': React, '@/lib/helm-access-server': { isOwnerSession: async () => true, sessionDispatches: async () => true } };
-  for (const name of ['HelmMasthead', 'HelmFooter', 'CleaningsStrip', 'AiStatusBanner']) mocks[`@/components/${name}`] = { [name]: blank };
+  for (const name of ['HelmMasthead', 'HelmFooter', 'CleaningsStrip', 'OpsScorecard', 'AiStatusBanner']) mocks[`@/components/${name}`] = { [name]: blank };
   mocks['@/components/ConciergeAlerts'] = { ConciergeAlertsLine: blank };
   mocks['@/components/HomeHeading'] = { HomeHeading: ({ children }) => React.createElement('header', null, React.createElement('h1', null, 'Today'), children) };
   mocks['@/components/HomeFeedTabs'] = { HomeFeedTabs: ({ active }) => React.createElement('nav', null, `tabs:${active}`) };
@@ -191,7 +191,7 @@ test('dashboard says a failed turnovers read, never a quiet week', async () => {
 });
 test('the signals are two numbers that say their window, plus payout for owners', async () => {
   const html = await dashboard();
-  assert.match(html, /Open work · this week/); assert.match(html, /Turnovers · next 7 days/);
+  assert.match(html, /Open work · next 7 days/); assert.match(html, /Turnovers · next 7 days/);
   assert.doesNotMatch(html, /Upcoming Inspections|Five-Star Reviews|Today&rsquo;s signals/);
 });
 

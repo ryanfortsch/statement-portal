@@ -6,15 +6,17 @@
  * Every recent guest (in-house, upcoming, recently checked out) as a ledger
  * row — guest, property, channel, stay dates, latest activity — that
  * expands in place into the full thread (ThreadPanel) with a manual-reply
- * composer. Search and stay-status filters up top. The list itself comes
- * down with the page render (concierge caches the Guesty gather), so this
- * component only fetches when a thread is opened.
+ * composer. One filter row up top: the stay words plus Needs review, and a
+ * search. The list itself comes down with the page render (concierge caches
+ * the Guesty gather), so this component only fetches when a thread is opened.
  *
  * The list reaches past its default window (2026-10-18): "Show earlier stays"
- * steps back 120 days of check-ins at a time, and Dates jumps to the window
- * asked for, both through the concierge (stay-concierge #90). Search covers
- * everything loaded. Past two years, or when a window is too full to list,
- * it says older conversations are in Guesty, with a link, instead of ending.
+ * steps back 120 days of check-ins at a time, and Pick dates beside it (the
+ * check-in range, folded behind that foot row since the UX audit of
+ * 2026-11-07) jumps to the window asked for, both through the concierge
+ * (stay-concierge #90). Search covers everything loaded. Past two years, or
+ * when a window is too full to list, it says older conversations are in
+ * Guesty, with a link, instead of ending.
  */
 
 import { reviewAskContext } from '@/lib/review-ask-context';
@@ -65,13 +67,16 @@ function todayYmd(): string {
 
 const DEFAULT_VISIBLE = 8;
 
-type StayFilter = 'all' | 'in_house' | 'upcoming' | 'checked_out';
+/** The stay words, plus Needs review as the fifth word of the same row: a
+ *  thread with a message awaiting review, whatever its stay status. */
+type StayFilter = 'all' | 'in_house' | 'upcoming' | 'checked_out' | 'needs_review';
 
 const FILTERS: { id: StayFilter; label: string }[] = [
   { id: 'all', label: 'All' },
   { id: 'in_house', label: 'In house' },
   { id: 'upcoming', label: 'Upcoming' },
   { id: 'checked_out', label: 'Checked out' },
+  { id: 'needs_review', label: 'Needs review' },
 ];
 
 const STAY_CHIP: Record<string, { label: string; tone: string }> = {
@@ -94,7 +99,6 @@ export function ConversationsBrowser({ initialConversations, initialError, initi
   const [reachError, setReachError] = useState<string | null>(null);
   const [reaching, startReach] = useTransition();
   const [query, setQuery] = useState('');
-  const [reviewOnly, setReviewOnly] = useState(false);
   const [filter, setFilter] = useState<StayFilter>('all');
   const [openId, setOpenId] = useState<string | null>(initialOpenId);
   const [showAll, setShowAll] = useState(false);
@@ -113,10 +117,10 @@ export function ConversationsBrowser({ initialConversations, initialError, initi
     const seen = new Set<string>();
     return [...base, ...extra].filter((c) => (seen.has(c.conversation_id) ? false : (seen.add(c.conversation_id), true)));
   }, [initialConversations, extra, picked]);
-  const matching = useMemo(() => all.filter(c =>
-    (filter === 'all' || c.stay_status === filter) && matchesInboxText(query, [c.guest_full, c.property_name, prettifySlug(c.listing_id), c.channel, c.last_preview])
-  ), [all, query, filter]);
   const reviewCountsAvailable = all.every(c => c.review_count !== undefined);
+  const matching = useMemo(() => all.filter(c =>
+    (filter === 'all' || filter === 'needs_review' || c.stay_status === filter) && matchesInboxText(query, [c.guest_full, c.property_name, prettifySlug(c.listing_id), c.channel, c.last_preview])
+  ), [all, query, filter]);
   const earliest = windows.reduce((min, w) => (w.from < min ? w.from : min), windows[0].from);
   const latest = windows.reduce((max, w) => (w.to > max ? w.to : max), windows[0].to);
   const atFloor = reachedFloor(earliest, today);
@@ -154,8 +158,7 @@ export function ConversationsBrowser({ initialConversations, initialError, initi
     setReachError(null);
   };
   const datesProblem = dateFrom || dateTo ? windowProblem(dateFrom, dateTo) : null;
-  const readyCount = matching.filter(c => (c.review_count || 0) > 0).length;
-  const filtered = reviewOnly && reviewCountsAvailable ? matching.filter(c => (c.review_count || 0) > 0) : matching;
+  const filtered = filter === 'needs_review' && reviewCountsAvailable ? matching.filter(c => (c.review_count || 0) > 0) : matching;
 
   // The open thread must stay visible no matter what happens to the list
   // around it: slice truncation, a search that excludes it, a filter chip,
@@ -200,12 +203,16 @@ export function ConversationsBrowser({ initialConversations, initialError, initi
         <div role="tablist" aria-label="Stay status" style={{ display: 'inline-flex', border: '1px solid var(--rule)', overflow: 'hidden' }}>
           {FILTERS.map((f) => {
             const active = f.id === filter;
+            // An older concierge sends no review counts; the word then waits.
+            const unavailable = f.id === 'needs_review' && !reviewCountsAvailable;
             return (
               <button
                 key={f.id}
                 type="button"
                 role="tab"
                 aria-selected={active}
+                disabled={unavailable}
+                title={unavailable ? 'Review counts unavailable' : undefined}
                 onClick={() => {
                   setFilter(f.id);
                   setShowAll(false);
@@ -217,9 +224,9 @@ export function ConversationsBrowser({ initialConversations, initialError, initi
                   textTransform: 'uppercase',
                   fontWeight: 600,
                   border: 'none',
-                  cursor: 'pointer',
+                  cursor: unavailable ? 'not-allowed' : 'pointer',
                   background: active ? 'var(--ink)' : 'var(--paper)',
-                  color: active ? 'var(--paper)' : 'var(--ink-3)',
+                  color: active ? 'var(--paper)' : unavailable ? 'var(--ink-4)' : 'var(--ink-3)',
                   borderRight: '1px solid var(--rule)',
                 }}
               >
@@ -248,47 +255,14 @@ export function ConversationsBrowser({ initialConversations, initialError, initi
             color: 'var(--ink)',
           }}
         />
-        <button type="button" className="rt-quiet-btn" aria-expanded={showDates} onClick={() => setShowDates((v) => !v)}>
-          {showDates ? 'Hide dates' : 'Dates'}
-        </button>
-        {picked && (
-          <button type="button" className="rt-quiet-btn" onClick={backToRecent}>
-            Back to recent stays
-          </button>
-        )}
       </div>
 
-      {showDates && (
-        <form
-          aria-label="Check-in dates"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!windowProblem(dateFrom, dateTo)) reach(dateFrom, dateTo, 'dates');
-          }}
-          style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', margin: '0 0 12px', fontSize: 13, color: 'var(--ink-3)' }}
-        >
-          <span className="eyebrow" style={{ color: 'var(--ink-3)' }}>Check-ins from</span>
-          <input type="date" value={dateFrom} max={today} onChange={(e) => setDateFrom(e.target.value)} aria-label="Check-ins from" style={{ padding: '6px 8px', border: '1px solid var(--rule)', background: 'var(--paper)', fontFamily: 'inherit', fontSize: 13 }} />
-          <span>to</span>
-          <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} aria-label="Check-ins to" style={{ padding: '6px 8px', border: '1px solid var(--rule)', background: 'var(--paper)', fontFamily: 'inherit', fontSize: 13 }} />
-          <button
-            type="submit"
-            disabled={reaching || !dateFrom || !dateTo || !!datesProblem}
-            style={{ fontSize: 10, letterSpacing: '0.18em', textTransform: 'uppercase', fontWeight: 600, color: 'var(--ink-2)', background: 'var(--paper)', border: '1px solid var(--ink-3)', padding: '8px 14px', cursor: 'pointer' }}
-          >
-            {reaching ? 'Loading…' : 'Show'}
-          </button>
-          {datesProblem && <span role="status" style={{ color: 'var(--signal)' }}>{datesProblem}</span>}
-        </form>
-      )}
-
-      <div className="rt-conversation-status-filter">
-        <button type="button" disabled={!reviewCountsAvailable} aria-pressed={reviewOnly} onClick={() => { setReviewOnly(v => !v); setShowAll(false); }}>{reviewCountsAvailable ? `Needs review (${readyCount})` : 'Review counts unavailable'}</button>
-        {/* No running count: Show all N at the foot of the list carries it. */}
-        {openRow && !visible.some(c => c.conversation_id === openRow.conversation_id) && (
+      {/* No running count: Show all N at the foot of the list carries it. */}
+      {openRow && !visible.some(c => c.conversation_id === openRow.conversation_id) && (
+        <div className="rt-conversation-status-filter">
           <span role="status">Open conversation kept below</span>
-        )}
-      </div>
+        </div>
+      )}
 
       <ul style={{ listStyle: 'none', margin: 0, padding: 0, borderTop: '1px solid var(--rule)' }}>
         {rows.length === 0 && (
@@ -332,12 +306,21 @@ export function ConversationsBrowser({ initialConversations, initialError, initi
       )}
 
       {/* The list never just ends: it steps back a window at a time, and
-          past what Helm reaches it says where the rest is. */}
+          past what Helm reaches it says where the rest is. The check-in
+          range lives here too, behind Pick dates, beside the step back. */}
       <div style={{ display: 'flex', gap: 14, alignItems: 'baseline', flexWrap: 'wrap', paddingTop: 14, fontSize: 12, color: 'var(--ink-3)' }}>
         <span>Check-ins {formatWindow(earliest, latest)}.</span>
         {!atFloor && (
           <button type="button" className="rt-quiet-btn" onClick={stepBack} disabled={reaching} aria-busy={reaching || undefined}>
             {reaching ? 'Loading earlier stays…' : `Show earlier stays (before ${shortDay(earliest)})`}
+          </button>
+        )}
+        <button type="button" className="rt-quiet-btn" aria-expanded={showDates} onClick={() => setShowDates((v) => !v)}>
+          {showDates ? 'Hide dates' : 'Pick dates'}
+        </button>
+        {picked && (
+          <button type="button" className="rt-quiet-btn" onClick={backToRecent}>
+            Back to recent stays
           </button>
         )}
         {(atFloor || anyTruncated || reachError) && (
@@ -350,6 +333,30 @@ export function ConversationsBrowser({ initialConversations, initialError, initi
           </span>
         )}
       </div>
+
+      {showDates && (
+        <form
+          aria-label="Check-in dates"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!windowProblem(dateFrom, dateTo)) reach(dateFrom, dateTo, 'dates');
+          }}
+          style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', margin: '12px 0 0', fontSize: 13, color: 'var(--ink-3)' }}
+        >
+          <span className="eyebrow" style={{ color: 'var(--ink-3)' }}>Check-ins from</span>
+          <input type="date" value={dateFrom} max={today} onChange={(e) => setDateFrom(e.target.value)} aria-label="Check-ins from" style={{ padding: '6px 8px', border: '1px solid var(--rule)', background: 'var(--paper)', fontFamily: 'inherit', fontSize: 13 }} />
+          <span>to</span>
+          <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} aria-label="Check-ins to" style={{ padding: '6px 8px', border: '1px solid var(--rule)', background: 'var(--paper)', fontFamily: 'inherit', fontSize: 13 }} />
+          <button
+            type="submit"
+            disabled={reaching || !dateFrom || !dateTo || !!datesProblem}
+            style={{ fontSize: 10, letterSpacing: '0.18em', textTransform: 'uppercase', fontWeight: 600, color: 'var(--ink-2)', background: 'var(--paper)', border: '1px solid var(--ink-3)', padding: '8px 14px', cursor: 'pointer' }}
+          >
+            {reaching ? 'Loading…' : 'Show'}
+          </button>
+          {datesProblem && <span role="status" style={{ color: 'var(--signal)' }}>{datesProblem}</span>}
+        </form>
+      )}
     </Section>
   );
 }

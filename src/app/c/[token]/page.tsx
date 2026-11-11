@@ -67,12 +67,6 @@ function ptRange(start: string, end: string): string {
     : `${f(start)} a ${f(end)}`;
 }
 
-function enDay(date: string): string {
-  return new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' }).format(
-    new Date(`${date}T12:00:00Z`),
-  );
-}
-
 export default async function CleanerSchedulePage({
   params,
   searchParams,
@@ -219,7 +213,6 @@ export default async function CleanerSchedulePage({
           )}
           <div className="rt-cl-weeklabel">
             {win.start === today ? 'esta semana' : ptRange(win.start, days[days.length - 1].date)}
-            <span>{win.start === today ? 'this week' : `${enDay(win.start)} to ${enDay(days[days.length - 1].date)}`}</span>
           </div>
           {win.nextStart ? (
             <a href={`?d=${win.nextStart}`} className="rt-cl-weeknav" aria-label="Próxima semana / next week">
@@ -246,7 +239,6 @@ export default async function CleanerSchedulePage({
 
         <div className="rt-cl-datehead">
           <h1>{ptDayLong(selected.date)}</h1>
-          <div className="rt-cl-dateen">{enDay(selected.date)} · sempre ao vivo / always live</div>
         </div>
 
         {/* Cancelled stops lead, as in the text: the crew had them planned. */}
@@ -274,7 +266,6 @@ export default async function CleanerSchedulePage({
           <div className="rt-cl-empty">
             <div className="rt-cl-emptymark">☀</div>
             Nenhum check-out neste dia.
-            <span>No checkouts this day.</span>
           </div>
         ) : (
           <ol className="rt-cl-list">

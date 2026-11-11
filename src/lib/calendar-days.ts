@@ -286,11 +286,13 @@ export async function syncCalendarDays(
   }
 
   // The properties the day table can actually hold rows for. The listing
-  // map also carries two owners' out-of-region homes (65 Calderwood, 3246
-  // NE 27th) that were never `properties` rows, so their upsert violated
-  // the FK on every run and kept the whole feed reading 'error' while the
-  // fleet synced fine underneath. If this read fails we cannot tell, so we
-  // fall back to trying everything, as before.
+  // map used to carry two out-of-region homes (65 Calderwood, 3246 NE 27th)
+  // that were not `properties` rows, so their upsert violated the FK on
+  // every run and kept the whole feed reading 'error' while the fleet synced
+  // fine underneath. Both have rows now (2026-09-26 and 2026-11-07), but the
+  // guard stays: a listing mapped ahead of its row must not take the feed
+  // down. If this read fails we cannot tell, so we fall back to trying
+  // everything, as before.
   let knownProperties: Set<string> | null = null;
   {
     const { data: propRows, error: propErr } = await supabaseAdmin.from('properties').select('id');

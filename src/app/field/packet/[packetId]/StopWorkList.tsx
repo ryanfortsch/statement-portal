@@ -321,7 +321,7 @@ export function StopWorkList({
                         here before the chip existed keeps its amount. */}
                     {expense && (
                       <div style={{ marginTop: 8 }}>
-                        <ReceiptAmountField value={expense} onChange={setExpense} disabled={!formDraft.ready || saving || !!failedId} where="added to this trip's payout" />
+                        <ReceiptAmountField value={expense} onChange={setExpense} disabled={!formDraft.ready || saving || !!failedId} where="added to this job's payout" />
                       </div>
                     )}
                     {err && !failedId && <div style={{ color: 'var(--signal)', fontSize: 13, marginTop: 8 }}>{err}</div>}
@@ -429,7 +429,7 @@ export function StopWorkList({
           and the slip closes on the office's approval, not on the tap. */}
       {!readOnly && doneIds.size > 0 && (
         <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 8, lineHeight: 1.45 }}>
-          Ticked here counts toward this trip. The office closes each one when they approve the trip.
+          Ticked here counts toward this job. The office closes each one when they approve the job.
         </div>
       )}
     </div>

@@ -38,7 +38,7 @@ try{
  browser=await puppeteer.launch({executablePath:process.env.CHROME_EXECUTABLE_PATH||(process.platform==='darwin'?'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome':await chromium.executablePath()),headless:true,args:process.platform==='darwin'?['--no-sandbox']:chromium.args});
  const page=await browser.newPage();page.setDefaultTimeout(10000);await page.setViewport({width:1280,height:900});
  const errors=[];page.on('pageerror',e=>errors.push(e.message));await page.setRequestInterception(true);page.on('request',r=>r.url().startsWith(origin+'/')?r.continue():r.abort());
- await page.goto(origin);await page.waitForSelector('[aria-label="Property work slip"]');
+ await page.goto(origin);await page.waitForSelector('[aria-label="Property work item"]');
  assert.equal(await page.$('[aria-label="Work and notes"]'),null);
  assert.equal(await page.$eval('input[type="radio"]',e=>e.checked),true);
  assert.match(await page.$eval('body',e=>e.innerText),/Work slip isn’t ready yet. Helm is retrying./);
@@ -50,7 +50,7 @@ try{
  assert.equal(await page.$('[aria-label="Work and notes"]'),null);
  await page.evaluate(()=>window.update({...window.initial,maintenance_work:{status:'filed',slip_id:'synthetic-slip',title:'Old title',error:''}},[{id:'synthetic-slip',title:'Repair kitchen door lock and handle',status:'open',assigned_to_type:'unassigned',assigned_to_label:null,assigned_to_email:null,scheduled_date:null,completed_at:null,from_guest_request_key:'guest-maintenance:msg:home',from_quo_message_id:null,from_gmail_message_id:null}]));
  await page.waitForSelector('a[href="/work/synthetic-slip"]');
- await page.click('[aria-label="Property work slip"] > summary');
+ await page.click('[aria-label="Property work item"] > summary');
  assert.match(await page.$eval('body',e=>e.innerText),/Unassigned/);
  assert.equal((await page.$$('a[href="/work/synthetic-slip"]')).length,1);
  assert.equal(await page.$('[aria-label="Work and notes"]'),null);
@@ -58,7 +58,7 @@ try{
  await page.screenshot({path:'/private/tmp/helm-maintenance-desktop.png',fullPage:true});
  await page.setViewport({width:390,height:844});await page.screenshot({path:'/private/tmp/helm-maintenance-mobile.png',fullPage:true});
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
- await page.$$eval('button',bs=>bs.find(b=>b.textContent==='Dismiss slip').click());
+ await page.$$eval('button',bs=>bs.find(b=>b.textContent==='Dismiss work item').click());
  assert.equal(await page.evaluate(()=>window.dismissed),true);
  assert.deepEqual(errors,[]);console.log('PASS: one work panel, default Create/Skip, retry explanation, proposed work, confirmed link and assignee, dismiss, mobile width');
 }finally{await browser?.close();server.close();await rm(scratch,{recursive:true,force:true});}

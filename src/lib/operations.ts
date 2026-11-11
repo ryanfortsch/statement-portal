@@ -1112,10 +1112,17 @@ export async function loadOperationsData(
     // done long ago (e.g. prep for a guest who later cancelled, leaving a
     // 10+ day gap) from drifting onto the next confirmed turnover. With no
     // previous checkout we fall back to the same N-day cap.
+    // A walk planned for an earlier day (the week grid lets anyone claim
+    // any open day before the arrival) opens the window from that day, so
+    // walking a quiet house on the day it was planned counts; never before
+    // the previous guest left.
     const PREP_WINDOW_DAYS = 3;
     const tightStart = addDaysStr(checkInDate, -PREP_WINDOW_DAYS);
     const looseStart = previousCheckout ? addDaysStr(previousCheckout, -1) : null;
-    const prepStart = looseStart && looseStart > tightStart ? looseStart : tightStart;
+    const planDay = plansByReservation.get(r.guesty_reservation_id)?.planned_for_date ?? null;
+    const plannedStart =
+      planDay && planDay < tightStart && (!previousCheckout || planDay >= previousCheckout) ? planDay : tightStart;
+    const prepStart = looseStart && looseStart > plannedStart ? looseStart : plannedStart;
 
     const matchingInspection =
       inspections.find((i) => {

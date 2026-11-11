@@ -326,6 +326,29 @@ export function QuoteComposer({
     <div className="rt-composer" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 340px', gap: 48, alignItems: 'start' }}>
       {/* ── Left: the form ── */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 36 }}>
+        {/* A quote is for someone, so the guest comes first (UX audit
+            2026-10-17, still open 2026-11-07). */}
+        <FormBlock title="Guest" id="guest">
+          <div className="rt-form-grid3" style={grid3}>
+            <Field label="First name">
+              <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder="Emily" style={inputStyle} />
+            </Field>
+            <Field label="Last name">
+              <input type="text" value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder="Hancock" style={inputStyle} />
+            </Field>
+            <div />
+          </div>
+          <div className="rt-form-grid3" style={grid3}>
+            <Field label="Email" hint="Needed to email the quote.">
+              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="guest@example.com" style={inputStyle} />
+            </Field>
+            <Field label="Phone" hint="Needed to text the quote.">
+              <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="914-262-4310" style={inputStyle} />
+            </Field>
+            <div />
+          </div>
+        </FormBlock>
+
         <FormBlock title="Property">
           <Field label="Stay Cape Ann home" required>
             <select value={propertyId} onChange={(e) => setPropertyId(e.target.value)} style={inputStyle}>
@@ -402,35 +425,48 @@ export function QuoteComposer({
           )}
         </FormBlock>
 
-        <FormBlock title="Price" hint="Nightly and total are the same number two ways; edit either.">
+        <FormBlock title="Price">
           <div className="rt-form-grid3" style={grid3}>
-            <Field label="Nightly rate ($)">
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                value={anchor === 'nightly' ? nightlyStr : nights > 0 ? dollarsStr(nightlyCents) : ''}
-                onChange={(e) => {
-                  setAnchor('nightly');
-                  setNightlyStr(e.target.value);
-                }}
-                placeholder="450"
-                style={inputStyle}
-              />
-            </Field>
-            <Field label="Accommodation total ($)">
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                value={anchor === 'total' ? accommodationStr : nights > 0 && nightlyStr ? dollarsStr(accommodationCents) : ''}
-                onChange={(e) => {
-                  setAnchor('total');
-                  setAccommodationStr(e.target.value);
-                }}
-                placeholder="3150"
-                style={inputStyle}
-              />
+            {/* One price, typed per night or as the accommodation total; the
+                toggle picks which, and the hint reads the other back. The
+                anchor is whichever was typed last, as before; switching the
+                toggle carries the derived figure across so nothing vanishes. */}
+            <Field
+              label={anchor === 'nightly' ? 'Nightly rate ($)' : 'Accommodation total ($)'}
+              hint={
+                nights > 0 && (anchor === 'nightly' ? nightlyStr : accommodationStr)
+                  ? anchor === 'nightly'
+                    ? `${fmtCents(accommodationCents)} for ${nights} night${nights === 1 ? '' : 's'}`
+                    : `${fmtCents(nightlyCents)} a night`
+                  : undefined
+              }
+            >
+              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 8 }}>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={anchor === 'nightly' ? nightlyStr : accommodationStr}
+                  onChange={(e) => (anchor === 'nightly' ? setNightlyStr(e.target.value) : setAccommodationStr(e.target.value))}
+                  placeholder={anchor === 'nightly' ? '450' : '3150'}
+                  style={inputStyle}
+                />
+                <select
+                  value={anchor}
+                  aria-label="Price as"
+                  onChange={(e) => {
+                    const next = e.target.value as 'nightly' | 'total';
+                    if (next === anchor) return;
+                    if (next === 'total') setAccommodationStr(nights > 0 && nightlyStr ? dollarsStr(accommodationCents) : accommodationStr);
+                    else setNightlyStr(nights > 0 && accommodationStr ? dollarsStr(nightlyCents) : nightlyStr);
+                    setAnchor(next);
+                  }}
+                  style={inputStyle}
+                >
+                  <option value="nightly">per night</option>
+                  <option value="total">total</option>
+                </select>
+              </div>
             </Field>
             <Field label="Cleaning fee ($)">
               <input type="number" min={0} step="0.01" value={cleaningStr} onChange={(e) => setCleaningStr(e.target.value)} placeholder="250" style={inputStyle} />
@@ -562,27 +598,6 @@ export function QuoteComposer({
               </Field>
             </div>
           )}
-        </FormBlock>
-
-        <FormBlock title="Guest" id="guest">
-          <div className="rt-form-grid3" style={grid3}>
-            <Field label="First name">
-              <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder="Emily" style={inputStyle} />
-            </Field>
-            <Field label="Last name">
-              <input type="text" value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder="Hancock" style={inputStyle} />
-            </Field>
-            <div />
-          </div>
-          <div className="rt-form-grid3" style={grid3}>
-            <Field label="Email" hint="Needed to email the quote.">
-              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="guest@example.com" style={inputStyle} />
-            </Field>
-            <Field label="Phone" hint="Needed to text the quote.">
-              <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="914-262-4310" style={inputStyle} />
-            </Field>
-            <div />
-          </div>
         </FormBlock>
 
         <FormBlock title="Message to the guest" hint="Shown on the quote page and in the email as a note from Allie. The email and text already open with the guest's first name, so start with the substance; if you greet them yourself, use their own name.">

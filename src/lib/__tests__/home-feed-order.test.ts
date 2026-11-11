@@ -9,7 +9,7 @@ const read = (repoPath: string): string =>
 describe('the home feed reads as the signed-in person\'s day', () => {
   test('staff: time-sensitive items lead, then my actions, then updates', () => {
     const order = homeFeedOrder('staff');
-    assert.deepEqual(order, ['week', 'holds', 'cleanings', 'work', 'replies', 'unassigned', 'queues', 'payments', 'updates']);
+    assert.deepEqual(order, ['week', 'holds', 'work', 'replies', 'unassigned', 'queues', 'payments', 'updates']);
   });
 
   test('owners keep the clean-after card first and the rest of the day after it', () => {
@@ -74,7 +74,7 @@ describe('one × with one meaning', () => {
 
   test('cards that clear by being answered carry no ×', () => {
     const feed = read('src/components/ForMeFeed.tsx');
-    for (const fn of ['function HoldRow', 'function CleaningFlagRow', 'function QueueRow', 'function PaymentKeyProblemRow', 'function MeetingFeedRow', 'function PlannedWalkRow']) {
+    for (const fn of ['function HoldRow', 'function QueueRow', 'function PaymentKeyProblemRow', 'function MeetingFeedRow', 'function PlannedWalkRow']) {
       const at = feed.indexOf(fn);
       if (at < 0) continue; // HoldRow lives with the cleaner card
       const body = feed.slice(at, feed.indexOf('\nfunction ', at + fn.length));
@@ -83,7 +83,30 @@ describe('one × with one meaning', () => {
   });
 });
 
+test('cleanings are the strip, said once: the feed has no cleanings section', () => {
+  // 2026-11-08 (Dotti): the feed's "Cleanings to check" repeated the strip's
+  // "no cleaner booked" lines and printed cleaner chatter with a house picker.
+  const feed = read('src/components/ForMeFeed.tsx');
+  assert.ok(!feed.includes('Cleanings to check'), 'the feed section came back');
+  assert.ok(!feed.includes('CleaningFlagRow'), 'the feed prints cleaning flags the strip already shows');
+  const strip = read('src/components/CleaningsStrip.tsx');
+  assert.ok(strip.includes("no_appointment: 'no cleaner booked'"), 'the strip no longer says when no cleaner is booked');
+  assert.ok(strip.includes("early: 'cleaner before checkout'") && strip.includes("late: 'cleaner after check-in'"), 'the strip no longer flags a mistimed cleaner');
+});
+
 test('a packet row says its stop count once', () => {
   const feed = read('src/components/ForMeFeed.tsx');
   assert.ok(feed.includes('p.stop_count && !/\\bstops?\\b/i.test(p.title)'), 'a title that already counts its stops is not counted again');
+});
+
+test('home says each thing once: no empty Upcoming frame, no repeated overdue count, no channel label', () => {
+  // 2026-11-08 (Dotti): simplify the home page.
+  const agenda = read('src/components/agenda/AppointmentAgenda.tsx');
+  assert.ok(agenda.includes('if (!full && preview.length === 0 && overlaps.size === 0)'), 'an Upcoming with nothing to preview prints its full frame again');
+  assert.ok(!agenda.includes('Open the agenda for visits'), 'the instruction sentence came back');
+  assert.ok(agenda.includes('agendaSourceGap(data.sources) && <div className="rt-agenda-home-footer">{sourceDetails}</div>'), 'the one-line Upcoming lost its source line');
+  const signals = read('src/components/HomeSignals.tsx');
+  assert.ok(signals.includes("stats.overdueWork === stats.weekWork ? 'all overdue'"), 'the work tile repeats its own number as the overdue count');
+  const strip = read('src/components/CleaningsStrip.tsx');
+  assert.ok(!strip.includes('channel'), 'a house line prints the booking channel again');
 });

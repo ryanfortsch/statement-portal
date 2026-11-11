@@ -216,41 +216,6 @@ export default async function ProjectionDetailPage({
   // not yet promoted; 'locked' until both prerequisites land.
   const promoteState = promoted ? 'done' : promoteUnlocked ? 'active' : 'locked';
 
-  // ─── Pipeline progress bar (hero) ──────────────────────────────────────
-  // Mirrors the five vertical Stages below as a compact horizontal status
-  // bar that replaces the old "Cover range" hero KPI. "Done" = filled
-  // signal dot; "active" = the first not-yet-done stage (ring); everything
-  // after that = "locked" (muted). One source of truth: the same booleans
-  // the Stage cards use, just summarised.
-  const pipelineSteps: { label: string; state: 'done' | 'active' | 'locked' }[] = (() => {
-    // Guide + Contract + Signing collapsed into one pipeline step
-    // since they were always one logical phase (the contract
-    // workflow). "Done" = fully countersigned OR a staff manual mark.
-    // The Gmail-touch flags (guideSent / contractSent) only fire when
-    // the deliverables go out via an email Gmail can log — but staff
-    // might paste the signing URL into a text / DM, or close out the
-    // deal entirely off-platform; the contract still got executed.
-    // The countersign timestamp is the authoritative auto signal,
-    // contract_marked_done_at is the manual fallback for the
-    // off-platform path.
-    const flags = [
-      { label: 'Projection', done: projectionSent },
-      { label: 'Guide & Contract', done: contractStageDone },
-      { label: 'Onboarding', done: onboardingDone },
-      { label: 'Promote', done: promoted },
-    ];
-    let activeAssigned = false;
-    return flags.map((f) => {
-      if (f.done) return { label: f.label, state: 'done' as const };
-      if (!activeAssigned) {
-        activeAssigned = true;
-        return { label: f.label, state: 'active' as const };
-      }
-      return { label: f.label, state: 'locked' as const };
-    });
-  })();
-  const doneCount = pipelineSteps.filter((s) => s.state === 'done').length;
-
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
@@ -292,7 +257,7 @@ export default async function ProjectionDetailPage({
         </h1>
         <p style={{ marginTop: 8, fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.5 }}>
           Prepared for{' '}
-          <span style={{ color: 'var(--tide-deep)', fontStyle: 'italic' }}>
+          <span style={{ color: 'var(--tide-deep)' }}>
             {projection.prospect_name}
           </span>
         </p>
@@ -333,12 +298,6 @@ export default async function ProjectionDetailPage({
             ))}
           </div>
         )}
-        {/* Where is this deal? Close likelihood is a plain field in the
-            edit form now (the forecast reads it); the hero only says
-            which stage the deal is at. */}
-        <div style={{ marginTop: 26 }}>
-          <PipelineProgressBar steps={pipelineSteps} doneCount={doneCount} />
-        </div>
       </section>
 
       <ProspectTexts texts={prospectTexts} touches={projection.gmail_touches} name={projection.prospect_first_name ?? projection.prospect_name} />
@@ -475,9 +434,6 @@ export default async function ProjectionDetailPage({
           >
             <span aria-hidden style={{ fontSize: 10, color: 'var(--ink-4)' }}>▸</span>
             <span className="eyebrow">Edit prospect details</span>
-            <span style={{ fontSize: 11, color: 'var(--ink-4)', fontStyle: 'italic' }}>
-              owners, property, assumptions, contract terms, overrides
-            </span>
           </summary>
           <div style={{ paddingTop: 18 }}>
             {projection.contract_signed_at && <ContractTermsLockedNotice held={termsLockedNotice} othersSave />}
@@ -546,11 +502,6 @@ export default async function ProjectionDetailPage({
               <p style={{ margin: '0 0 10px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: 480 }}>
                 Back to the standard contract. The record stays.
               </p>
-              {projection.contract_signed_at && (
-                <p style={{ margin: '0 0 10px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: 480, fontStyle: 'italic' }}>
-                  Locked while the owner&rsquo;s signature is on file.
-                </p>
-              )}
               <ResetContractButton projectionId={id} hasOverrides={hasContractEdits && !projection.contract_signed_at} />
             </div>
 
@@ -978,7 +929,7 @@ function SealedCopies({ projection }: { projection: ProjectionRow }) {
         </div>
       ))}
       {missingSigned && (
-        <div style={{ color: 'var(--ink-3)', fontStyle: 'italic' }}>
+        <div style={{ color: 'var(--ink-3)' }}>
           {projection.contract_signed_at! < '2026-10-15'
             ? 'No sealed copy: signed before Helm kept them. The emailed PDF and the Drive copy are the record.'
             : 'No sealed copy: the PDF did not render when the owner signed. Check the copy emailed to the owner.'}
@@ -1053,9 +1004,6 @@ function OwnerEmailRow({ projection, notice }: { projection: ProjectionRow; noti
           spinnerTone="ink"
           style={{ ...ghostButtonStyle, fontSize: 10, padding: '7px 12px' }}
         />
-        {email && (
-          <span style={{ color: 'var(--ink-4)', fontStyle: 'italic' }}>The signed and executed copies email here.</span>
-        )}
       </form>
     </div>
   );
@@ -1129,7 +1077,7 @@ function OnboardingStageBody({
         </p>
       )}
       {onboardingTouch && !submitted && (
-        <p style={{ marginTop: 0, marginBottom: 12, fontSize: 11, color: 'var(--ink-4)', fontStyle: 'italic' }}>
+        <p style={{ marginTop: 0, marginBottom: 12, fontSize: 11, color: 'var(--ink-4)' }}>
           {onboardingTouch}
         </p>
       )}
@@ -1147,9 +1095,6 @@ function OnboardingStageBody({
       <div style={{ marginTop: 18, paddingTop: 16, borderTop: '1px solid var(--rule)' }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 6 }}>
           <span className="eyebrow">Property Readiness Checklist</span>
-          <span style={{ fontSize: 11, color: 'var(--ink-4)', fontStyle: 'italic' }}>
-            optional · walk-through punch list
-          </span>
         </div>
         <p style={{ margin: '0 0 12px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 720 }}>
           Room-by-room punch list to turn the property from owner-ready to guest-ready. Quantities
@@ -1298,7 +1243,7 @@ function ActivityLog({ projection }: { projection: ProjectionRow }) {
       >
         <span aria-hidden style={{ fontSize: 10, color: 'var(--ink-4)' }}>▸</span>
         <span className="eyebrow">Activity log</span>
-        <span style={{ fontSize: 11, color: 'var(--ink-4)', fontStyle: 'italic' }}>
+        <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>
           {events.length} milestone{events.length === 1 ? '' : 's'}
         </span>
       </summary>
@@ -1548,137 +1493,6 @@ function OnboardingSummary({ data }: { data: NonNullable<ProjectionRow['onboardi
     </div>
   );
 }
-
-// ─── Pipeline progress bar ─────────────────────────────────────────────────
-/**
- * Horizontal five-step status bar used in the identity strip. Each step gets
- * a dot + label; the dot's visual state mirrors the vertical Stage cards
- * below — filled signal = done, signal ring = active, muted outline =
- * locked. A 2px connector between dots flips to signal once the preceding
- * step is done, so the bar fills in left-to-right as the deal progresses.
- *
- * The container is set to grid `repeat(N, 1fr)` so every step shares the
- * same width regardless of label length, which keeps the connector math
- * (calc with -50%) simple and consistent.
- */
-function PipelineProgressBar({
-  steps,
-  doneCount,
-}: {
-  steps: { label: string; state: 'done' | 'active' | 'locked' }[];
-  doneCount: number;
-}) {
-  const allDone = doneCount === steps.length;
-  return (
-    <div>
-      <style>{pipelineProgressBarCss}</style>
-      <div className="eyebrow" style={{ marginBottom: 14 }}>
-        Pipeline ·{' '}
-        <span style={{ color: allDone ? 'var(--positive)' : 'var(--ink-3)' }}>
-          {doneCount} of {steps.length} complete
-        </span>
-      </div>
-      <ol className="rt-pbar" style={{ gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))` }}>
-        {steps.map((s, i) => (
-          <li
-            key={s.label}
-            className="rt-pbar-step"
-            data-state={s.state}
-            data-prev={i > 0 ? steps[i - 1].state : undefined}
-          >
-            <span className="rt-pbar-dot" aria-hidden />
-            <span className="rt-pbar-label">{s.label}</span>
-          </li>
-        ))}
-      </ol>
-    </div>
-  );
-}
-
-const pipelineProgressBarCss = `
-  .rt-pbar {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: grid;
-    gap: 0;
-  }
-  .rt-pbar-step {
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 10px;
-    min-width: 0;
-  }
-  /* Connector: 2px line from the previous step's dot center to this step's
-     dot center, sitting behind the dots. left/right use calc(-50% + dot-r)
-     and calc(50% + dot-r) to land exactly at dot edges since every step is
-     1fr wide. */
-  .rt-pbar-step:not(:first-child)::before {
-    content: '';
-    position: absolute;
-    left: calc(-50% + 8px);
-    right: calc(50% + 8px);
-    top: 5px;
-    height: 2px;
-    background: var(--rule);
-    z-index: 0;
-  }
-  .rt-pbar-step[data-prev="done"]:not(:first-child)::before {
-    background: var(--signal);
-  }
-  .rt-pbar-dot {
-    position: relative;
-    z-index: 1;
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    background: var(--paper);
-    border: 2px solid var(--ink-4);
-    flex-shrink: 0;
-  }
-  .rt-pbar-step[data-state="done"] .rt-pbar-dot {
-    background: var(--signal);
-    border-color: var(--signal);
-  }
-  .rt-pbar-step[data-state="active"] .rt-pbar-dot {
-    background: var(--paper);
-    border-color: var(--signal);
-    box-shadow: 0 0 0 3px var(--paper), 0 0 0 4px var(--signal);
-  }
-  .rt-pbar-label {
-    font-family: var(--font-inter), system-ui, sans-serif;
-    font-size: 11px;
-    letter-spacing: 0.04em;
-    text-align: center;
-    line-height: 1.25;
-    color: var(--ink-4);
-    /* Wrap freely so multi-word labels ("Guide & Contract") don't overflow
-       into neighboring columns on narrow viewports. nowrap on desktop
-       where there's room. */
-    word-break: break-word;
-    hyphens: auto;
-    padding: 0 4px;
-  }
-  .rt-pbar-step[data-state="done"] .rt-pbar-label {
-    color: var(--ink);
-    font-weight: 500;
-  }
-  .rt-pbar-step[data-state="active"] .rt-pbar-label {
-    color: var(--signal);
-    font-weight: 600;
-  }
-  /* Mobile: shrink the labels a touch and let the bar breathe. The
-     column grid stays equal-width so the connectors still line up. */
-  @media (max-width: 640px) {
-    .rt-pbar-label {
-      font-size: 10px;
-      letter-spacing: 0.02em;
-      padding: 0 2px;
-    }
-  }
-`;
 
 // ─── Shared styles ─────────────────────────────────────────────────────────
 const ghostButtonStyle: React.CSSProperties = {

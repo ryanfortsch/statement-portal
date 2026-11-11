@@ -62,7 +62,7 @@ import type {
 /** System sentinel for auto-planned packets. */
 const RUNS_BOT_EMAIL = 'runs@helm.system';
 
-const SUGGESTION_PREFIX = 'maintrun:';
+export const SUGGESTION_PREFIX = 'maintrun:';
 /** Look this many days ahead for an empty day. */
 const HORIZON_DAYS = 21;
 /** "Substantive enough" gate: a run is worth a dedicated visit when the

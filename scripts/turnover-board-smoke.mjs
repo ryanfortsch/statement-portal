@@ -106,19 +106,21 @@ assert.equal(new Set(geo.filter(g=>g.cleanerX!==null).map(g=>g.cleanerX)).size,1
 pass('desktop: one line per house, columns aligned, no role="button" wrapper');
 
 const sameDay=await text(sel('same_day_home'));
-for(const words of ['Same day','Out 10:00 · In 4:00','Cleaner booked 10:30','Not walked','Start walk','Prep'])assert.ok(sameDay.includes(words),`the same-day line says "${words}"`);
+for(const words of ['Same day','Out 10:00 · In 4:00','Cleaner booked 10:30','Start walk','Prep'])assert.ok(sameDay.includes(words),`the same-day line says "${words}"`);
+// Who walks and when is the week grid's: the line prints a walk only as a state the strip counts (2026-11-07 audit, finding 1).
+assert.ok(!sameDay.includes('Not walked'),'an unwalked house does not print "Not walked" on the line');
 assert.ok((await text(sel('lock_home'))).includes('Cleaning now'));
 assert.ok((await text(sel('later_home'))).includes('Out 11:00 · In Thu 4:00'));
-assert.ok((await text(sel('later_home'))).includes('Plan walk'));
+assert.equal(await page.$$eval(sel('later_home')+' .rt-tb-verb *',es=>es.length),0,'a walk not yet due has no Plan verb: planning is the week grid\'s');
 const vacant=await text(sel('vacant_home'));
 assert.ok(vacant.includes('Out 10:00 · Vacant')&&vacant.includes('No cleaner booked'));
 assert.equal(await page.$$eval(sel('vacant_home')+' .rt-tb-verb *',es=>es.length),0,'a checkout with nobody behind it has no verb');
 assert.ok((await text(sel('walked_home'))).includes('Summary'));
-assert.equal(await page.$eval(sel('field_home')+' .rt-tb-walk a',a=>a.textContent+' '+a.getAttribute('href')),'Field · Alex Synthetic /fieldwork/packets/packet-1','a Field walk names who has it and links the packet');
+assert.equal(await page.$(sel('field_home')+' .rt-tb-facts a'),null,'the line does not repeat the grid\'s Field mark');
 assert.equal(await page.$$eval(sel('field_home')+' .rt-tb-verb *',es=>es.length),0,'a live packet holds back Start');
 assert.ok(await page.$('#out-same_day_home-'+TODAY),'the schedule anchor exists on the paired row');
 assert.equal((await text(sel('same_day_home'))).includes('Arriving Synthetic'),false,'names wait for the opened row');
-pass('each line prints the pair, the cleaner, the walk and one verb in the model\'s words');
+pass('each line prints the pair, the cleaner and one verb in the model\'s words');
 
 await clickText(sel('same_day_home')+' .rt-tb-verb','Start walk');await waitCalls(1);
 assert.deepEqual((await calls())[0],{kind:'start',args:{property_id:'same_day_home'}});
@@ -131,7 +133,10 @@ assert.equal(await expanded('same_day_home'),'true');
 const controls=await page.$eval(sel('same_day_home')+' .rt-tb-toggle',e=>e.getAttribute('aria-controls'));
 assert.ok(controls&&await page.$('#'+controls),'aria-controls names the opened region');
 const opened=await text('#'+controls);
-for(const words of ['Leaving','Leaving Synthetic','Arriving','Arriving Synthetic','Out','Cleaned','Walked','Mark ready','Set up the pack-n-play','Checkout schedule'])assert.ok(opened.includes(words),`the opened row says "${words}"`);
+for(const words of ['Leaving','Leaving Synthetic','Arriving','Arriving Synthetic','Out','Cleaned','Walked','Mark ready','Schedule'])assert.ok(opened.includes(words),`the opened row says "${words}"`);
+// The Prep flag on the line carries the slips in its title; the opened row does not print them again (2026-11-07 audit, finding 6).
+assert.equal(await page.$eval(sel('same_day_home')+' .rt-tb-flag',e=>e.getAttribute('title')),'Set up the pack-n-play','the Prep flag names the slip');
+assert.ok(!opened.includes('Set up the pack-n-play'),'the opened row does not repeat the prep slip');
 assert.equal(await page.$eval('#'+controls+' a[href^="/turnovers/schedule"]',a=>a.getAttribute('href')),'/turnovers/schedule#stay-same_day_home-2026-10-14','the opened row links to its checkout on the schedule');
 assert.doesNotMatch(opened,/smart lock|Cleaner in|Guest-ready/,'a lockless home shows three steps and no apology');
 pass('a lockless home opens to Out · Cleaned · Walked with who leaves and who arrives');
@@ -155,19 +160,21 @@ assert.deepEqual(steps,['Out','Cleaned'],'no walk without an arrival');
 await page.keyboard.press('Space');assert.equal(await expanded('vacant_home'),'false','Space closes');
 pass('the toggle is a keyboard button; a vacant checkout opens to Out and Cleaned only');
 
-await clickText(sel('later_home')+' .rt-tb-verb','Plan walk');await page.waitForSelector('[role="dialog"]');
-pass('Plan walk opens the walk planner');
+await toggle('field_home');
+assert.equal(await page.$eval(sel('field_home')+' .rt-tb-exp a[href="/fieldwork/packets/packet-1"]',a=>a.getAttribute('href')),'/fieldwork/packets/packet-1','the opened row links the Field packet');
+assert.equal(await page.$$eval(sel('field_home')+' .rt-tb-exp button',bs=>bs.filter(b=>/Plan walk/.test(b.textContent)).length),0,'a live packet offers no planner');
+await toggle('later_home');
+await clickText(sel('later_home')+' .rt-tb-exp','+ Plan walk');await page.waitForSelector('[role="dialog"]');
+pass('the opened row links the Field packet and opens the walk planner (notes, another walker)');
 
 // ── phone ──
 await load(375,812);
-const phone=await page.$$eval('.rt-tb-row',rs=>rs.map(r=>{const b=s=>{const e=r.querySelector(s);return e?e.getBoundingClientRect():null;};const t=b('.rt-tb-toggle'),f=b('.rt-tb-pair'),v=r.querySelector('.rt-tb-verb button, .rt-tb-verb a'),l=r.querySelector('.rt-tb-facts a');return {toggleBottom:t.bottom,toggleH:t.height,factsTop:f.top,verbH:v?v.getBoundingClientRect().height:null,linkH:l?l.getBoundingClientRect().height:null};}));
+const phone=await page.$$eval('.rt-tb-row',rs=>rs.map(r=>{const b=s=>{const e=r.querySelector(s);return e?e.getBoundingClientRect():null;};const t=b('.rt-tb-toggle'),f=b('.rt-tb-pair'),v=r.querySelector('.rt-tb-verb button, .rt-tb-verb a');return {toggleBottom:t.bottom,toggleH:t.height,factsTop:f.top,verbH:v?v.getBoundingClientRect().height:null};}));
 for(const p of phone){
  assert.ok(p.factsTop>=p.toggleBottom-1,'the facts wrap to a second line under the house');
  assert.ok(p.toggleH>=44,'the toggle is a 44px target');
  if(p.verbH!==null)assert.ok(p.verbH>=44,'the verb is a 44px target');
- if(p.linkH!==null)assert.ok(p.linkH>=44,'a link in the facts line is a 44px target');
-}
-assert.ok(phone.some(p=>p.linkH!==null),'the fixture has a Field link to measure');
+ }
 assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),'no sideways scroll on a phone');
 await toggle('lock_home');
 assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),'the opened rail fits a phone');

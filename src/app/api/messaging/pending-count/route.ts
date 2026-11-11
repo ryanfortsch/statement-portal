@@ -40,6 +40,7 @@ async function pendingDigestCount(): Promise<number | null> {
 
 import { countPendingOwnerHoldQuestions } from '@/lib/owner-hold-questions';
 import { countPendingVendorVisits } from '@/lib/vendor-visit-cards';
+import { countPendingCleaningReviews } from '@/lib/cleaning-reviews';
 import { sessionRole } from '@/lib/helm-access-server';
 
 export async function GET() {
@@ -50,11 +51,11 @@ export async function GET() {
   // Owner blocks waiting on "clean after?" sit on the cleaner page above
   // the digest, so they count on the Cleaners badge like a pending digest.
   if (!isStayConciergeConfigured()) {
-    const [digests, ownerHolds] = await Promise.all([pendingDigestCount(), countPendingOwnerHoldQuestions(supabase)]);
-    const cleaners = digests !== null && ownerHolds !== null ? digests + ownerHolds : null;
+    const [digests, ownerHolds, cleaningReviews] = await Promise.all([pendingDigestCount(), countPendingOwnerHoldQuestions(supabase), countPendingCleaningReviews()]);
+    const cleaners = digests !== null && ownerHolds !== null && cleaningReviews !== null ? digests + ownerHolds + cleaningReviews : null;
     return NextResponse.json({ count: cleaners, guests: 0, owners: 0, cleaners, contractors: 0, reviews: 0 });
   }
-  const [guestRes, ownerRes, cleanerRes, contractorRes, digests, ownerHolds, vendorVisits] = await Promise.all([
+  const [guestRes, ownerRes, cleanerRes, contractorRes, digests, ownerHolds, vendorVisits, cleaningReviews] = await Promise.all([
     listApprovals(),
     owner ? listOwnerApprovals() : Promise.resolve(null),
     listCleanerApprovals(),
@@ -62,6 +63,7 @@ export async function GET() {
     pendingDigestCount(),
     countPendingOwnerHoldQuestions(supabase),
     countPendingVendorVisits(),
+    countPendingCleaningReviews(),
   ]);
   // Mirror the messaging PAGES' own filters exactly. Each prior tweak
   // (data.count, then approvals.length, then resolved_at filter) failed to
@@ -83,7 +85,7 @@ export async function GET() {
   // pending cards. If those numbers ever diverge again, the fix is to mirror
   // whatever filter the page added -- not to invent a new definition here.
   const notScheduled = (a: { status: string }) => a.status !== 'scheduled';
-  // The Guest reviews lens (/messaging/reviews) shows the host-review and
+  // The Review cards lens (/messaging/reviews) shows the host-review and
   // review-reply cards and the Inbox leaves them out, so each count mirrors
   // its own page, same rule as above.
   const onReviewLens = (a: { guesty_message_id: string; topic: string }) =>
@@ -91,8 +93,10 @@ export async function GET() {
   const guests = guestRes.ok ? guestRes.data.approvals.filter((a) => notScheduled(a) && !onReviewLens(a)).length : null;
   const reviews = guestRes.ok ? guestRes.data.approvals.filter((a) => notScheduled(a) && onReviewLens(a)).length : null;
   const owners = !owner ? 0 : ownerRes?.ok ? ownerRes.data.approvals.filter(notScheduled).length : null;
-  const cleaners = cleanerRes.ok && digests !== null && ownerHolds !== null
-    ? cleanerRes.data.approvals.filter(notScheduled).length + digests + ownerHolds
+  // A cleaning review's crew note (four stars or fewer) is a card under the
+  // Cleaners filter (docs/cleaning-reviews.md), so it counts with them.
+  const cleaners = cleanerRes.ok && digests !== null && ownerHolds !== null && cleaningReviews !== null
+    ? cleanerRes.data.approvals.filter(notScheduled).length + digests + ownerHolds + cleaningReviews
     : null;
   // A trade vendor's confirmed day is a Vendor card under the Contractors
   // filter (docs/vendor-visit-holds.md), so it counts with them.

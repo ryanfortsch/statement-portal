@@ -70,14 +70,20 @@ describe('one priority scale', () => {
 });
 
 describe('an office to-do is closed the way a slip is', () => {
-  test('the status chips offer no closed state; Wrap up closes', () => {
+  test('the status chip offers no closed state; Wrap up closes', () => {
     for (const s of TASK_CLOSED_STATUSES) assert.ok(!TASK_PICKER_STATUSES.includes(s), `${s} is a pickable status`);
     assert.equal(TASK_STATUS_LABELS.archived, 'Dismissed');
     const page = code(read('src/app/work/tasks/[id]/TaskDetail.tsx'));
-    assert.ok(page.includes('TASK_PICKER_STATUSES.map'), 'the status chips render the picker list');
+    // One chip since the 2026-11-07 audit: In progress, pressed or not.
+    // Open is the chip unpressed; no hint sentence under it.
+    assert.ok(page.includes("saveField('status', saved.status === 'in_progress' ? 'open' : 'in_progress')"), 'the one status chip toggles In progress');
+    assert.ok(!page.includes('TASK_PICKER_STATUSES'), 'no row of status chips');
+    assert.ok(!page.includes('STATUS_HINTS'), 'no hint sentence under the chip');
     assert.ok(!/<option value="archived"/.test(page), 'Archived is not an option');
-    // The verb is a Button's text since Phase 4 (2026-10-18), not a string literal.
-    assert.ok(/>\s*Mark Done\s*</.test(page) || page.includes("'Mark Done'"), 'Mark Done is on the page');
+    // The verb is a Button's text since Phase 4 (2026-10-18), not a string
+    // literal, and it is spelled as the board's bulk bar spells it.
+    assert.ok(/>\s*Mark done\s*</.test(page), 'Mark done is on the page');
+    assert.ok(!page.includes('Mark Done'), 'one spelling of the verb');
     assert.ok(/saveField\('status', TASK_DISMISSED_STATUS\)/.test(page), 'Dismiss writes the dismissed status');
   });
 
@@ -91,13 +97,11 @@ describe('an office to-do is closed the way a slip is', () => {
     assert.ok(page.includes('DESCRIPTION_AUTOSAVE_MS'), 'the description saves as you type');
   });
 
-  test('delete asks once, in words, on the page', () => {
+  test('the page has no Delete: Dismiss is the answer, as on a slip', () => {
     const page = code(read('src/app/work/tasks/[id]/TaskDetail.tsx'));
-    const handler = page.slice(page.indexOf('function handleDelete()'), page.indexOf('const propertyNames'));
-    assert.ok(handler.length > 0, 'handleDelete is where it was');
-    assert.ok(!handler.includes('confirm('), 'no native confirm stands in front of delete');
-    assert.ok(page.includes('This cannot be undone.'), 'the confirm says it is for good');
-    assert.ok(page.includes('Delete for good'), 'the second tap is named');
+    assert.ok(!/\bdeleteTask\b/.test(page), 'the page does not call the delete action (comments keep their own delete)');
+    assert.ok(!page.includes('Delete to-do'), 'no Delete verb on the page');
+    assert.ok(!page.includes('Delete for good'), 'no second delete tap either');
   });
 
   test('comments carry short names and the back link restores the to-do tab', () => {
@@ -132,6 +136,6 @@ describe('the board says which is which', () => {
     const run = board.slice(board.indexOf('function runBulk('), board.indexOf('const propertyMap'));
     assert.ok(/if \(slipIds\.length > 0 && taskIds\.length > 0\) return;/.test(run), 'runBulk stops on a mixed selection');
     assert.ok(!run.includes("=== 'normal' ?"), 'no priority is rewritten on the way to tasks');
-    assert.ok(board.includes('Pick slips or office to-dos, not both.'), 'the bar says why in one line');
+    assert.ok(board.includes('Pick work items or office to-dos, not both.'), 'the bar says why in one line');
   });
 });

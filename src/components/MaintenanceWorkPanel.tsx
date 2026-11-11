@@ -43,11 +43,11 @@ export function MaintenanceWorkControls({ id, work, outcome, create, busy, dismi
       <div style={{ display: 'flex', gap: 14, alignItems: 'center', marginTop: 8, fontSize: 12 }}>
         {!outcome && <a href={`/work/${encodeURIComponent(work.slip_id)}`} style={{ color: 'var(--ink-2)' }}>Open work slip ↗</a>}
         {!completed && !!work.slip_id && <button type="button" className="eyebrow" disabled={busy || dismissing} onClick={onDismiss}
-          style={{ background: 'none', border: 0, color: 'var(--ink-3)', cursor: 'pointer', textDecoration: 'underline' }}>{dismissing ? 'Dismissing…' : 'Dismiss slip'}</button>}
+          style={{ background: 'none', border: 0, color: 'var(--ink-3)', cursor: 'pointer', textDecoration: 'underline' }}>{dismissing ? 'Dismissing…' : 'Dismiss work item'}</button>}
       </div>
     ) : (
       <fieldset style={{ border: 0, padding: 0, margin: '10px 0 0', display: 'flex', flexWrap: 'wrap', gap: 18, fontSize: 12 }} disabled={busy}>
-        <legend className="sr-only">Property work slip</legend>
+        <legend className="sr-only">Property work item</legend>
         <label><input type="radio" name={`work-${id}`} checked={create} onChange={() => onCreateChange(true)} /> Create when I approve</label>
         <label><input type="radio" name={`work-${id}`} checked={!create} onChange={() => onCreateChange(false)} /> Skip</label>
       </fieldset>
@@ -58,7 +58,7 @@ export function MaintenanceWorkControls({ id, work, outcome, create, busy, dismi
 
 export function MaintenanceWorkPanel(props: Props) {
   const state = maintenanceWorkState(props);
-  return <InboxFollowup ariaLabel="Property work slip" title={`Work slip · ${state.title}`} attention={state.attention} status={state.status}>
+  return <InboxFollowup ariaLabel="Property work item" title={`Work item · ${state.title}`} attention={state.attention} status={state.status}>
     <MaintenanceWorkControls {...props} />
   </InboxFollowup>;
 }

@@ -67,7 +67,8 @@ describe('every door names its month', () => {
     const upload = read('src/app/statements/upload/page.tsx');
     assert.match(upload, /return previousCalendarMonth\(\);/);
     assert.ok(!upload.includes('currentMonthString'), 'the upload page defaults to the current month again');
-    assert.match(upload, /<Link href=\{statementsHref\(result\.month\)\}/, '"View Statements" no longer returns to the processed month');
+    // The form (shared with the statement card) carries the result view.
+    assert.match(read('src/app/statements/upload/StatementUploadForm.tsx'), /<Link href=\{statementsHref\(result\.month\)\}/, '"View Statements" no longer returns to the processed month');
   });
 
   test('the inputs cards and the upload page share one default', () => {

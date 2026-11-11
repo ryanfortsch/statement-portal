@@ -83,6 +83,9 @@ import { getAutomationsPanelView } from '@/lib/automations';
 import { isHelmRun, isCapeAnnOps } from '@/lib/property-scope';
 import { shiftIsoDay, todayInEastern } from '@/lib/sca-quotes-types';
 import type { OwnerCard } from '@/app/properties/actions';
+import { createPropertyNote } from '@/app/properties/actions';
+import { NoteEditorForm } from '@/components/properties/NoteEditorForm';
+import { InlineNoteDisclosure } from '@/components/properties/InlineNoteDisclosure';
 import { isOwnerSession } from '@/lib/helm-access-server';
 import { sessionMailbox } from '@/lib/gmail-draft';
 
@@ -895,14 +898,19 @@ export default async function PropertyDetailPage({
                   ? ` · showing ${propertyFlags.flags.length}`
                   : ''}
               </span>
-              <Link
-                href={`/properties/${p.id}/notes/new?kind=issue`}
+              {/* A plain anchor, not Link: the hash opens the inline form
+                  (InlineNoteDisclosure listens for hashchange). */}
+              <a
+                href="#new-issue"
                 style={{ fontSize: 11, color: 'var(--tide-deep)', textDecoration: 'none', letterSpacing: '.04em' }}
               >
                 + Flag an issue
-              </Link>
+              </a>
             </span>
           </div>
+          <InlineNoteDisclosure id="new-issue" key={`issue-${propertyFlags.total ?? 'x'}-${propertyFlags.flags.length}`}>
+            <NoteEditorForm action={createPropertyNote.bind(null, p.id)} propertyId={p.id} initial={{ kind: 'issue' }} submitLabel="Flag the issue" inline />
+          </InlineNoteDisclosure>
           {propertyFlags.total === null && (
             <p role="status" style={{ margin: '0 0 14px', fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.5 }}>
               We couldn&rsquo;t load all flags for this house.{' '}
@@ -1227,20 +1235,23 @@ export default async function PropertyDetailPage({
           return `${total} ${total === 1 ? 'fact' : 'facts'}${kb ? ` · ${kb} in the Guest KB` : ''}`;
         })()}
         headerAction={
-          <Link href={`/properties/${p.id}/notes/new?kind=fact`} style={primaryActionStyle}>
+          <a href="#new-fact" style={primaryActionStyle}>
             + Add a fact
-          </Link>
+          </a>
         }
       >
+        <InlineNoteDisclosure id="new-fact" key={`fact-${knownFacts.length}`}>
+          <NoteEditorForm action={createPropertyNote.bind(null, p.id)} propertyId={p.id} initial={{ kind: 'fact' }} submitLabel="Add the fact" inline />
+        </InlineNoteDisclosure>
         {knownFacts.length === 0 ? (
           <div style={{ padding: '14px 0', color: 'var(--ink-3)', fontSize: 13 }}>
             Nothing written down for {p.name} yet: a thermostat quirk, a sticky door, a neighbor, a vendor.{' '}
-            <Link
-              href={`/properties/${p.id}/notes/new?kind=fact`}
+            <a
+              href="#new-fact"
               style={{ color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}
             >
               Add the first fact
-            </Link>
+            </a>
           </div>
         ) : (
           <div style={{ borderTop: '1px solid var(--ink)' }}>
@@ -1293,24 +1304,32 @@ export default async function PropertyDetailPage({
         )}
       </CollapsibleSection>
 
-      <CollapsibleSection
-        title="Climate automation"
-        summary={climateProfile?.enabled ? 'on' : 'not set up'}
-      >
-        {/* The Seam thermostat list is a fleet-wide external call. It used
-            to run in this page's Promise.all, so every arrival at every
-            property waited on Seam to fill a device picker inside a section
-            that renders collapsed. Streamed instead. */}
-        <Suspense
-          fallback={
-            <div style={{ padding: '4px 0 16px', color: 'var(--ink-3)', fontSize: 13 }}>
-              Loading thermostats…
-            </div>
-          }
+      {/* Only a home with something to automate gets the fold: a climate
+          profile on file, or a smart thermostat recorded on its fact sheet
+          (the door to the first profile). Every other home used to open a
+          fold that read "No thermostats connected" while thermostats wait
+          on Ecobee, and paid a fleet-wide Seam call to say so. The gate
+          reads what the page already loaded; Seam is asked only inside. */}
+      {(climateProfile || p.thermostat_brand || p.thermostat_code) && (
+        <CollapsibleSection
+          title="Climate automation"
+          summary={climateProfile?.enabled ? 'on' : 'not set up'}
         >
-          <ClimatePanelLoader propertyId={p.id} profile={climateProfile} />
-        </Suspense>
-      </CollapsibleSection>
+          {/* The Seam thermostat list is a fleet-wide external call. It used
+              to run in this page's Promise.all, so every arrival at every
+              property waited on Seam to fill a device picker inside a section
+              that renders collapsed. Streamed instead. */}
+          <Suspense
+            fallback={
+              <div style={{ padding: '4px 0 16px', color: 'var(--ink-3)', fontSize: 13 }}>
+                Loading thermostats…
+              </div>
+            }
+          >
+            <ClimatePanelLoader propertyId={p.id} profile={climateProfile} />
+          </Suspense>
+        </CollapsibleSection>
+      )}
 
       <CollapsibleSection
         title="Rental season"
@@ -1323,53 +1342,6 @@ export default async function PropertyDetailPage({
         />
       </CollapsibleSection>
 
-      <CollapsibleSection title="Reference" summary="IDs · timestamps · external links">
-        <dl style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px 64px', fontSize: 13, marginBottom: 24 }}>
-          <Detail term="Helm ID" definition={p.id} mono />
-          <Detail term="Code" definition={p.code || '—'} />
-          <Detail term="Title" definition={p.title || '—'} />
-          <Detail term="Type" definition={p.type_of_unit || '—'} />
-          <Detail term="Tags" definition={p.tags || '—'} />
-          <Detail term="Timezone" definition={p.timezone || '—'} />
-          <Detail
-            term="Coordinates"
-            definition={
-              p.latitude != null && p.longitude != null
-                ? `${Number(p.latitude).toFixed(4)}°, ${Number(p.longitude).toFixed(4)}°`
-                : '—'
-            }
-          />
-          <Detail term="Guesty Listing ID" definition={p.guesty_listing_id || '—'} mono />
-          <Detail term="Activated" definition={formatDate(p.activated_at)} />
-          <Detail term="Created" definition={formatDate(p.created_at)} />
-          <Detail term="Last Synced" definition={formatRelative(p.last_synced_at)} />
-          <Detail term="Perfection ID" definition={p.perfection_id || '—'} mono />
-        </dl>
-        <div style={{ paddingTop: 14, borderTop: '1px dotted var(--rule)' }}>
-          <a
-            href="https://inspect.risingtidestr.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 8,
-              border: '1px solid var(--rule)',
-              padding: '8px 14px',
-              fontSize: 11,
-              letterSpacing: '.16em',
-              textTransform: 'uppercase',
-              fontWeight: 500,
-              color: 'var(--ink)',
-              textDecoration: 'none',
-            }}
-          >
-            Open Perfection ↗
-          </a>
-        </div>
-      </CollapsibleSection>
-
-
       {/* TOOLS: the launchers, as one quiet line at the foot of the tab.
           They are navigation, not content, and as tiles they pushed the
           first fact below the fold. */}
@@ -1381,9 +1353,16 @@ export default async function PropertyDetailPage({
             hang off two Setup catalog items and vanished with the tab. */}
         <ToolLink href={`/properties/${p.id}/order-checklist`}>Outfitting order</ToolLink>
         <ToolLink href={`/properties/${p.id}/launch`}>Launch</ToolLink>
-        {/* A helm-run home has no live Guesty listing to compare with. */}
-        {!helmRun && <ToolLink href={`/properties/${p.id}/sync-guesty`}>Guesty fields</ToolLink>}
       </ToolsLine>
+
+      {/* REFERENCE: the ids a sync or a bug report needs, one quiet line.
+          It was a twelve-term fold with an "Open Perfection" button;
+          inspections are native at /inspections now. */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 30, width: '100%' }}>
+        <p className="font-mono" style={{ margin: 0, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.02em' }}>
+          Helm ID {p.id} · Guesty ID {p.guesty_listing_id || 'none'} · Last synced {formatRelative(p.last_synced_at)}
+        </p>
+      </section>
 
         </TabSection>
 
@@ -1393,10 +1372,11 @@ export default async function PropertyDetailPage({
       <CollapsibleSection title="Owner" summary={ownerSummary} defaultOpen>
         {/* The deal terms that used to lead every visit as four stat tiles.
             They are owner facts, not live state, so they belong beside the
-            owner rather than above the tab strip. Cleaning Est is a manual
-            fallback that revenue snapshots override with a real rolling
-            figure once the property has closed statements, so it is labelled
-            as the estimate it is rather than presented as a measured cost. */}
+            owner rather than above the tab strip. The cleaning figure is a
+            manual estimate that revenue snapshots override with a real
+            rolling figure once the property has closed statements, so it is
+            labelled as the estimate it is rather than presented as a
+            measured cost. */}
         <div
           style={{
             display: 'grid',
@@ -1408,9 +1388,8 @@ export default async function PropertyDetailPage({
         >
           {owner && <Stat label="Mgmt Fee" value={p.is_rising_tide_owned ? 'RT owned' : `${p.management_fee_pct}%`} />}
           <Stat
-            label="Cleaning Est"
+            label="Cleaning per turn (estimate)"
             value={p.cleaning_cost_estimate != null ? `$${p.cleaning_cost_estimate}` : 'Not set'}
-            sub={p.cleaning_cost_estimate != null ? 'manual fallback' : undefined}
             href={`/properties/${p.id}/edit#cleaning`}
           />
           {owner && (
@@ -1921,6 +1900,13 @@ export default async function PropertyDetailPage({
             taxes), then what Helm sends them (Automations). */}
         <TabSection tab="guest">
           <ScaStatusLine propertyId={p.id} launch={scaLaunch} live={scaLive} listingId={scaListingId} />
+          {/* On a Guesty-run home Helm's listing, pricing and automations are
+              drafts nothing reads yet, so they fold under one line and the
+              tab opens on Guest documents. A Helm-run home reads in order. */}
+          <GuestTabSections
+            helmRun={helmRun}
+            waiting={automationsView?.counts.awaiting ?? 0}
+            listing={<>
           {/* The listing as a guest reads it: each block opens its own
               editor. Deep link ?tab=guest#listing (the old ?tab=listing
               aliases here). */}
@@ -1958,6 +1944,8 @@ export default async function PropertyDetailPage({
             {/* A helm-run home has no live Guesty listing to compare with. */}
             {!helmRun && <ToolLink href={`/properties/${p.id}/sync-guesty`}>Guesty fields</ToolLink>}
           </ToolsLine>
+            </>}
+            documents={<>
       {/* GUEST DOCUMENTS: the printed pieces for the house. Each opens with
           one screen-only bar (Back, Print, Download PDF) that never prints;
           its Back lands here. */}
@@ -2169,6 +2157,8 @@ export default async function PropertyDetailPage({
           )}
         </div>
       </GuestSection>
+            </>}
+            pricing={<>
           {/* WHAT THEY PAY: Helm's rate plan, taxes and day overrides, as
               three questions, a calendar and a Price a stay line. On a
               Guesty-run home (every home today) the head says once that this
@@ -2216,6 +2206,8 @@ export default async function PropertyDetailPage({
               />
             )}
           </GuestSection>
+            </>}
+            automations={<>
           {/* WHAT HELM SENDS THEM: opens on the next sends and to whom; the
               rules sit behind Edit rules, in a drawer. */}
           <GuestSection
@@ -2232,6 +2224,8 @@ export default async function PropertyDetailPage({
           >
             <AutomationsPanel propertyId={p.id} view={automationsView} />
           </GuestSection>
+            </>}
+          />
         </TabSection>
 
       </PropertyTabs>
@@ -2422,6 +2416,59 @@ function GuestSection({
       </div>
       {children}
     </section>
+  );
+}
+
+/**
+ * The Guest & listing tab's order. A Helm-run home reads top to bottom: the
+ * listing, the guest documents, what they pay, what Helm sends. On a
+ * Guesty-run home (every home today) the listing, pricing and automations
+ * are Helm's drafts, so the tab opens on the guest documents and the three
+ * fold under one closed line that opens to them unchanged. A send waiting
+ * for approval opens the fold, so the tab's badge never points at a closed
+ * line. Deep links (#listing, #rates, #automations) open it through
+ * HashOpenScript.
+ */
+function GuestTabSections({
+  helmRun,
+  waiting,
+  listing,
+  documents,
+  pricing,
+  automations,
+}: {
+  helmRun: boolean;
+  waiting: number;
+  listing: React.ReactNode;
+  documents: React.ReactNode;
+  pricing: React.ReactNode;
+  automations: React.ReactNode;
+}) {
+  if (helmRun) {
+    return (
+      <>
+        {listing}
+        {documents}
+        {pricing}
+        {automations}
+      </>
+    );
+  }
+  return (
+    <>
+      {documents}
+      <details id="helm-drafts" open={waiting > 0} style={{ width: '100%', paddingTop: 18, paddingBottom: 24 }}>
+        <summary className="max-w-[1100px] mx-auto px-10" style={{ cursor: 'pointer', fontSize: 14, paddingTop: 12, paddingBottom: 12, width: '100%' }}>
+          Listing, pricing and automations
+          <span style={{ marginLeft: 12, fontSize: 12, color: 'var(--ink-3)' }}>
+            {waiting > 0 ? `${waiting} waiting for approval · ` : ''}Take effect once Helm runs this home
+          </span>
+        </summary>
+        {listing}
+        {pricing}
+        {automations}
+      </details>
+    </>
   );
 }
 

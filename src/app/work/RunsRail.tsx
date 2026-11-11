@@ -27,7 +27,8 @@ import { copiedEmailText, shortAddresses, writeClipboard } from '@/lib/copy-emai
 import { CopiedEmailNotice } from '@/components/CopiedEmailNotice';
 import { alwaysCcFor } from '@/lib/always-cc';
 import type { RunsBoardData, MaintenanceRunCard, RosterPerson, VendorNeededSlip } from '@/lib/work-types';
-import { planRunsNow, publishRun, emailWorkOrder, markRunScheduled } from './runs-actions';
+import { planRunsNow, planPendingCount, publishRun, emailWorkOrder, markRunScheduled } from './runs-actions';
+import { usePassWatch } from '@/lib/use-pass-watch';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import { useConfirm } from '@/components/ConfirmDialog';
@@ -502,11 +503,29 @@ function VendorGroup({ propertyName, slips, roster, myMailbox }: { propertyName:
   );
 }
 
+/** The board's Handyman lane: every open work item that needs real tools,
+ *  parts or time (lib/work-slip-lanes.ts). */
+const HANDYMAN_LANE_HREF = '/work?filter=all&lane=handyman';
+
+const items = (n: number) => `${n} work item${n === 1 ? '' : 's'}`;
+const runs = (n: number) => `${n} run${n === 1 ? '' : 's'}`;
+
+/** What Plan now did, in plain words: "Planned 2 runs. 3 already planned.
+ *  1 home waits for an empty day." Empty when nothing changed. */
+function planSummary(res: { created: number; kept: number; noVacancy: number }): string {
+  const parts: string[] = [];
+  if (res.created) parts.push(`Planned ${runs(res.created)}.`);
+  if (res.kept) parts.push(`${res.kept} already planned.`);
+  if (res.noVacancy) parts.push(`${res.noVacancy} ${res.noVacancy === 1 ? 'home waits' : 'homes wait'} for an empty day.`);
+  return parts.join(' ');
+}
+
 export function RunsRail({ data, standalone, myMailbox }: { data: RunsBoardData; standalone?: boolean; myMailbox: string | null }) {
   const softRefresh = useSoftRefresh();
   const [planning, startPlanning] = useTransition();
   const planLock = useRef(false);
   const [planError, setPlanError] = useState('');
+  const { watching, watch: watchPass } = usePassWatch();
   useUnsavedWorkGuard(planning);
   const [note, setNote] = useState('');
 
@@ -523,6 +542,8 @@ export function RunsRail({ data, standalone, myMailbox }: { data: RunsBoardData;
     }));
   }, [data.vendorNeeded]);
 
+  const backlogCount = data.backlog.reduce((n, b) => n + b.count, 0);
+
   const hasAnything =
     data.runs.length > 0 ||
     data.vendorNeeded.length > 0 ||
@@ -530,19 +551,38 @@ export function RunsRail({ data, standalone, myMailbox }: { data: RunsBoardData;
     data.unclassifiedCount > 0;
 
   function onPlanNow() {
-    if (planLock.current) return;
+    if (planLock.current || watching) return;
     planLock.current = true;
     setNote(''); setPlanError('');
     startPlanning(async () => {
       try {
         const res = await planRunsNow();
         if (!res.ok) { setPlanError(res.error); return; }
-        const parts: string[] = [];
-        if (res.created) parts.push(`${res.created} planned`);
-        if (res.kept) parts.push(`${res.kept} unchanged`);
-        if (res.noVacancy) parts.push(`${res.noVacancy} waiting on an empty day`);
-        if (res.classifying) parts.push(`triaging ${res.classifying} new slips in the background; check back in a few minutes`);
-        setNote(parts.length ? parts.join(' · ') : 'Nothing to plan right now');
+        const said = planSummary(res);
+        if (res.classifying) {
+          // The planner sorts new work items after the response and plans
+          // again; watch it the way Organize does and say what it planned.
+          setNote([said, `Sorting ${items(res.classifying)}…`].filter(Boolean).join(' '));
+          watchPass({
+            started: res.classifying,
+            poll: async () => {
+              const r = await planPendingCount();
+              return r.ok ? r : null;
+            },
+            onProgress: (sorted) => { if (sorted > 0) setNote(`Sorting… ${sorted} of ${res.classifying} sorted.`); },
+            onDone: (sorted, left, reading) => {
+              const ready = reading ? ` ${runs(reading.suggested)} ready to publish.` : '';
+              setNote(left === 0
+                ? `Sorted ${items(sorted)}.${ready}`
+                : `Sorted ${sorted} of ${items(res.classifying)}.${ready} The nightly plan takes the rest.`);
+              softRefresh();
+            },
+            // The re-plan runs after the last item is sorted.
+            settleTicks: 1,
+          });
+        } else {
+          setNote(said || 'Nothing to plan right now.');
+        }
         softRefresh();
       } catch {
         setPlanError('Could not confirm planning. Check the current runs before retrying.');
@@ -566,7 +606,7 @@ export function RunsRail({ data, standalone, myMailbox }: { data: RunsBoardData;
           {note && <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>{note}</span>}
           {planError && <span role="alert" style={{ fontSize: 11, color: 'var(--negative)' }}>{planError}</span>}
           {/* No watchdog: the planner can run past 30 seconds on a full week. */}
-          <Button size="sm" onClick={onPlanNow} pending={planning} pendingLabel="Planning" watchdog={false}>
+          <Button size="sm" onClick={onPlanNow} pending={planning || watching} pendingLabel="Planning" watchdog={false}>
             Plan now
           </Button>
         </div>
@@ -595,22 +635,17 @@ export function RunsRail({ data, standalone, myMailbox }: { data: RunsBoardData;
           </p>
         )}
 
-        {(data.backlog.length > 0 || data.unclassifiedCount > 0) && (
-          <p style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 14 }}>
-            {data.backlog.length > 0 && (
-              <>
-                Waiting for enough work or an empty day:{' '}
-                {data.backlog
-                  .slice(0, 5)
-                  .map((b) => `${b.propertyName} (${b.count})`)
-                  .join(', ')}
-                {data.backlog.length > 5 ? ` +${data.backlog.length - 5} more` : ''}
-                .
-              </>
-            )}{' '}
-            {data.unclassifiedCount > 0 && (
-              <>{data.unclassifiedCount} new {data.unclassifiedCount === 1 ? 'slip has' : 'slips have'} no one decided to do them yet.</>
+        {/* The backlog is one count, linking to the board's Handyman lane;
+            the homes and their counts are on the board. */}
+        {(backlogCount > 0 || data.unclassifiedCount > 0) && (
+          <p style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 14 }}>
+            {backlogCount > 0 && (
+              <Link href={HANDYMAN_LANE_HREF} style={{ color: 'var(--ink-2)' }}>
+                {items(backlogCount)} waiting for a handyman run →
+              </Link>
             )}
+            {backlogCount > 0 && data.unclassifiedCount > 0 && ' · '}
+            {data.unclassifiedCount > 0 && `${items(data.unclassifiedCount)} not sorted yet`}
           </p>
         )}
       </div>

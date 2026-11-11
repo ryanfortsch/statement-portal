@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { Button } from '@/components/Button';
 import { useEffect, useRef, useState } from 'react';
 import { INBOX_AUDIENCES, searchInbox, type InboxAudience, type InboxFilter, type InboxSearchData } from '@/lib/inbox-search';
 
@@ -36,7 +37,7 @@ export function InboxSearch() {
       if (!open) { setOpen(true); void load(); }
       else { setOpen(false); request.current?.abort(); request.current = null; }
     }}>{open ? 'Close search' : 'Search all inboxes'}</button>
-    {open && <button type="button" className="rt-inbox-search-toggle" disabled={loading} onClick={() => void load()}>Refresh results</button>}</div>
+    {open && <Button variant="quiet" size="sm" disabled={loading} onClick={() => void load()}>Refresh results</Button>}</div>
     {open && <section id="inbox-search-panel" aria-label="Search all inboxes" className="rt-inbox-search-panel">
       <label className="sr-only" htmlFor="inbox-search-query">Search person, property, or message</label>
       <input id="inbox-search-query" type="search" autoFocus value={query} placeholder="Person, property, or message…" onChange={e => { setQuery(e.target.value); setLimit(20); }} />
@@ -50,9 +51,9 @@ export function InboxSearch() {
       </div>
       <p className="rt-inbox-search-scope">Current drafts and latest decisions from the past 7 days.</p>
       {loading && <p role="status">Loading messages…</p>}
-      {error && <p role="alert">{error} <button type="button" onClick={() => void load()}>Retry</button></p>}
+      {error && <p role="alert">{error} <Button variant="quiet" size="sm" onClick={() => void load()}>Retry</Button></p>}
       {data && <>
-        {!!data.unavailable.length && <p role="status" className="rt-inbox-search-warning">Results are incomplete: {data.unavailable.join(', ')} unavailable. <button type="button" onClick={() => void load()}>Retry</button></p>}
+        {!!data.unavailable.length && <p role="status" className="rt-inbox-search-warning">Results are incomplete: {data.unavailable.join(', ')} unavailable. <Button variant="quiet" size="sm" onClick={() => void load()}>Retry</Button></p>}
         {!!data.limited.length && <p className="rt-inbox-search-scope">Recent results are capped for {data.limited.join(', ')}. Older matches may be missing.</p>}
         <p role="status" className="rt-inbox-search-count">{matches.length} matching {matches.length === 1 ? 'message' : 'messages'}{matches.length > limit ? ` · showing ${limit}` : ''}</p>
         {!matches.length && <p>{data.unavailable.length ? 'No matches in the available results.' : 'No matches in this search range.'}</p>}
@@ -66,7 +67,7 @@ export function InboxSearch() {
             </div>
           </details>
         </li>)}</ul>
-        {matches.length > limit && <button type="button" onClick={() => setLimit(value => value + 20)}>Show more</button>}
+        {matches.length > limit && <Button size="sm" onClick={() => setLimit(value => value + 20)}>Show more</Button>}
       </>}
     </section>}
   </div>;

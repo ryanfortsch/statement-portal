@@ -12,6 +12,28 @@ import {
 import { loadRecentStays, stayWindowsForReviews, type RecentStay } from '@/lib/recent-stays';
 import { TestimonialsBlock } from './TestimonialsBlock';
 import { shortDay, type AskTone } from '@/lib/review-ask-state';
+import { isStayConciergeConfigured, listApprovals } from '@/lib/stay-concierge';
+import { isReviewLensKind, proactiveKind } from '@/app/messaging/format';
+
+/**
+ * The review cards waiting in Messaging (/messaging/reviews): our reviews
+ * of guests and replies to theirs. Counted the way that tab's pill counts
+ * them (/api/messaging/pending-count): the guest approvals on the review
+ * lens that are not scheduled. Null when the concierge cannot answer, so an
+ * outage never prints a zero.
+ */
+async function reviewCardsWaiting(): Promise<number | null> {
+  if (!isStayConciergeConfigured()) return null;
+  try {
+    const res = await listApprovals();
+    if (!res.ok) return null;
+    return res.data.approvals.filter(
+      (a) => a.status !== 'scheduled' && isReviewLensKind(proactiveKind(a.guesty_message_id, a.topic)),
+    ).length;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * The Reviews tab of the Growth strip, at the bare /guests.
@@ -83,10 +105,11 @@ export async function ReviewsTab({ params }: { params: ReviewsTabParams }) {
     : DEFAULT_WINDOW;
   const view: View = params.view === 'stays' ? 'stays' : 'reviews';
 
-  const [stats, channels, propertyOptions] = await Promise.all([
+  const [stats, channels, propertyOptions, cardsWaiting] = await Promise.all([
     getReviewWindowStats(days),
     listReviewChannels(),
     getPropertyOptions(),
+    reviewCardsWaiting(),
   ]);
   const propertyMap = propertyMapFromOptions(propertyOptions);
   const reviews =
@@ -117,6 +140,13 @@ export async function ReviewsTab({ params }: { params: ReviewsTabParams }) {
           <div className="eyebrow">Window</div>
           <WindowSwitcher current={days} view={view} />
         </div>
+        {/* Reviews are read here and worked in Messaging: the one bridge. */}
+        {cardsWaiting != null && cardsWaiting > 0 && (
+          <p style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--ink-3)' }}>
+            {cardsWaiting} review card{cardsWaiting === 1 ? '' : 's'} waiting &middot;{' '}
+            <Link href="/messaging/reviews" style={{ color: 'var(--tide-deep)' }}>Messaging</Link>
+          </p>
+        )}
         <div
           className="rt-helm-stat-strip"
           style={{

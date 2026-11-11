@@ -105,6 +105,17 @@ export function UserMenu() {
             </div>
             <div style={{ fontSize: 13, color: 'var(--ink-2)', marginTop: 4, overflowWrap: 'anywhere' }}>{email}</div>
           </div>
+          {/* The signed-in person's own numbers: their guest rating, open
+              work and the cleans they rated. One page, reached from here. */}
+          <a
+            href="/me"
+            role="menuitem"
+            onClick={() => setOpen(false)}
+            className="hover:bg-[var(--paper-2)]"
+            style={{ display: 'block', padding: '9px 16px', fontSize: 14, color: 'var(--ink)', textDecoration: 'none' }}
+          >
+            My page
+          </a>
           {view.mayViewAsStaff && (
             <MenuItem disabled={pending} onPick={() => { setOpen(false); toStaff(); }}>
               View as staff

@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { FinancialsTabs } from '@/components/FinancialsTabs';
+import { StripeTabs } from '@/components/StripeTabs';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { SubmitButton } from '@/components/SubmitButton';
@@ -116,6 +117,7 @@ export default async function BalanceChargesPage({
       <HelmMasthead />
       <FinancialsTabs current="payments" />
       <HelmHero plain eyebrow="Helm · Stripe" title="Balance charges" />
+      <StripeTabs current="balance-charges" />
 
       <main className="max-w-[1100px] mx-auto px-10 pb-20 flex-1" style={{ width: '100%' }}>
         <div style={{ marginBottom: 24 }}>

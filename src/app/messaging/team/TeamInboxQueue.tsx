@@ -18,6 +18,9 @@ import { TEAM_AUDIENCES, teamHref, type TeamAudience } from '@/lib/team-inbox';
 import type { VendorVisitCardData } from '@/lib/vendor-visit-cards';
 import { VendorVisitCard } from './VendorVisitCard';
 import { undoVendorVisitAction } from './vendor-visit-actions';
+import type { CleaningReviewCardData } from '@/lib/cleaning-reviews-core';
+import { CleaningReviewCard } from './CleaningReviewCard';
+import { undoCleaningReviewAction } from './cleaning-review-actions';
 
 type PropertyOption = { id: string; name: string };
 
@@ -25,12 +28,13 @@ type PropertyOption = { id: string; name: string };
 // feeds every 15s.
 const PAGE_REFRESH_MS = 60_000;
 
-const AUDIENCE_TONE = { cleaner: '#1f5e6b', contractor: '#7a5c3a', vendor_visit: '#5a4a7a' } as const;
+const AUDIENCE_TONE = { cleaner: '#1f5e6b', contractor: '#7a5c3a', vendor_visit: '#5a4a7a', cleaning_review: '#1f5e6b' } as const;
 
 type Row =
   | { id: string; status: string; send_at: string; created_at: string; kind: 'cleaner'; approval: CleanerApproval }
   | { id: string; status: string; send_at: string; created_at: string; kind: 'contractor'; approval: ContractorApproval }
-  | { id: string; status: string; send_at: string; created_at: string; kind: 'vendor_visit'; card: VendorVisitCardData };
+  | { id: string; status: string; send_at: string; created_at: string; kind: 'vendor_visit'; card: VendorVisitCardData }
+  | { id: string; status: string; send_at: string; created_at: string; kind: 'cleaning_review'; card: CleaningReviewCardData };
 
 /**
  * The Team inbox (2026-10-18): the cleaner and contractor queues as one list,
@@ -51,11 +55,15 @@ export function TeamInboxQueue({
   audience,
   aiPaused,
   vendorVisits = [],
+  cleaningReviews = [],
 }: {
   initialCleaners: CleanerApproval[];
   initialContractors: ContractorApproval[];
   /** Trade vendors' confirmed days waiting on a hold (Helm-native). */
   vendorVisits?: VendorVisitCardData[];
+  /** Inspectors' ratings of the clean, four stars or fewer, whose crew note
+   *  waits on Approve (Helm-native, docs/cleaning-reviews.md). */
+  cleaningReviews?: CleaningReviewCardData[];
   contractorContext?: Record<string, ApprovalContext>;
   properties: PropertyOption[];
   audience: TeamAudience;
@@ -71,7 +79,7 @@ export function TeamInboxQueue({
   const { softRefresh } = useQueueRefresh(PAGE_REFRESH_MS);
   // The vendor cards come with the page, not a polled feed: when the set
   // changes (approved, handled, a new one), the Team pill reads again.
-  const visitRevision = vendorVisits.map((v) => v.id).join(',');
+  const visitRevision = [...vendorVisits.map((v) => v.id), ...cleaningReviews.map((c) => c.id)].join(',');
   useEffect(() => {
     invalidatePendingCounts();
   }, [visitRevision]);
@@ -87,11 +95,14 @@ export function TeamInboxQueue({
     ...cleaners.approvals.map((a) => ({ id: a.id, status: a.status, send_at: a.send_at, created_at: a.created_at, kind: 'cleaner' as const, approval: a })),
     ...contractors.approvals.map((a) => ({ id: a.id, status: a.status, send_at: a.send_at, created_at: a.created_at, kind: 'contractor' as const, approval: a })),
     ...vendorVisits.map((c) => ({ id: c.id, status: 'pending', send_at: '', created_at: c.messageAt, kind: 'vendor_visit' as const, card: c })),
+    ...cleaningReviews.map((c) => ({ id: c.id, status: 'pending', send_at: '', created_at: c.createdAt, kind: 'cleaning_review' as const, card: c })),
   ].sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
   const waiting = (kind: Row['kind']) => all.filter((r) => r.kind === kind && r.status !== 'scheduled').length;
   const crew = waiting('contractor') + waiting('vendor_visit');
-  const counts = { all: waiting('cleaner') + crew, cleaners: waiting('cleaner'), contractors: crew };
-  const shown = audience === 'all' ? all : all.filter((r) => (audience === 'cleaners' ? r.kind === 'cleaner' : r.kind !== 'cleaner'));
+  const cleanerSide = waiting('cleaner') + waiting('cleaning_review');
+  const counts = { all: cleanerSide + crew, cleaners: cleanerSide, contractors: crew };
+  // A cleaning review rides with the cleaners; everything else with the crew.
+  const shown = audience === 'all' ? all : all.filter((r) => (audience === 'cleaners' ? r.kind === 'cleaner' || r.kind === 'cleaning_review' : r.kind !== 'cleaner' && r.kind !== 'cleaning_review'));
 
   return (
     <ApprovalQueue
@@ -100,7 +111,8 @@ export function TeamInboxQueue({
       // Two feeds behind one Refresh: either one failing is a failure.
       refreshStatus={combineQueueStatus(cleaners.refreshStatus, contractors.refreshStatus)}
       undo={(id, kind) =>
-        kind === 'vendor_visit' ? undoVendorVisitAction(id) : kind === 'contractor' ? undoContractorDecision(id) : undoCleanerDecision(id)
+        kind === 'cleaning_review' ? undoCleaningReviewAction(id)
+          : kind === 'vendor_visit' ? undoVendorVisitAction(id) : kind === 'contractor' ? undoContractorDecision(id) : undoCleanerDecision(id)
       }
       emptyMessage={
         audience === 'cleaners'
@@ -120,6 +132,16 @@ export function TeamInboxQueue({
               properties={properties}
               helpers={tagged}
               audienceChip={<Pill label="Vendor" tone={AUDIENCE_TONE.vendor_visit} />}
+            />
+          );
+        }
+        if (row.kind === 'cleaning_review') {
+          return (
+            <CleaningReviewCard
+              key={`${row.id}:${row.card.text}`}
+              card={row.card}
+              helpers={tagged}
+              audienceChip={<Pill label="Cleaning" tone={AUDIENCE_TONE.cleaning_review} />}
             />
           );
         }

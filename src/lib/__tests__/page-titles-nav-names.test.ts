@@ -64,12 +64,11 @@ const PAGES: Array<[string, string]> = [
   ['src/app/channels/bookings/new/page.tsx', "title={isBlock ? 'New block' : 'New booking'}"],
   ['src/app/channels/bookings/[id]/page.tsx', 'title={title}'],
   ['src/app/channels/[propertyId]/page.tsx', 'title={property.name}'],
-  ['src/app/channels/[propertyId]/calendar/page.tsx', 'title={property.name}'],
   ['src/app/marketing/page.tsx', 'title="Marketing"'],
   ['src/app/marketing/airdna/page.tsx', 'title="AirDNA market data"'],
   ['src/app/competitors/page.tsx', 'title="Competitors"'],
   ['src/app/competitors/[id]/page.tsx', 'title={competitor.meta.name}'],
-  ['src/app/payments/page.tsx', 'title="Stripe lookup"'],
+  ['src/app/payments/page.tsx', 'title="Stripe"'],
   ['src/app/payments/balance-charges/page.tsx', 'title="Balance charges"'],
   ['src/app/books/[entity_id]/page.tsx', 'title={entity.short}'],
   ['src/app/books/accounts/page.tsx', 'title="Chart of accounts"'],
@@ -79,6 +78,8 @@ const PAGES: Array<[string, string]> = [
   ['src/app/playbook/page.tsx', 'title="Playbook"'],
   ['src/app/crm/page.tsx', 'title="Contacts"'],
   ['src/app/inspections/[id]/page.tsx', 'title={property.name}'],
+  // A page about one person opens on their name, like a detail page.
+  ['src/app/me/page.tsx', 'title={person.short}'],
 ];
 
 for (const [page, title] of PAGES) {

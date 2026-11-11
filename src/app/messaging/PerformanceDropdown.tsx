@@ -43,16 +43,11 @@ type Props = {
 
 type Window = { label: string; hours: number };
 
-// Everything below the queue lives in this one section now, split across
-// three tabs: the score (Overview), the activity log (Last 24 hours), and
-// the learning loop (Learning). Per Dotti 2026-07-21.
-type Tab = 'overview' | 'recent' | 'learning';
-
-const TABS: { id: Tab; label: string }[] = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'recent', label: 'Last 24 hours' },
-  { id: 'learning', label: 'Learning' },
-];
+// One number and its chart at the top; everything else (the breakdown
+// tiles, the tier strip, the last 24 hours, what the AI has learned and the
+// weekly fact audit) behind one Learning disclosure (UX audit 2026-11-07,
+// slice 3). Before that: three tabs inside a fold that defaulted open, per
+// Dotti 2026-07-21. Nothing here computes a metric; the concierge does.
 
 const WINDOWS: Window[] = [
   { label: '24h', hours: 24 },
@@ -78,11 +73,6 @@ export function PerformanceDropdown({
   auditError,
   rollup,
 }: Props) {
-  // Default open. The user came to /messaging to see this; the dropdown
-  // chip was too easy to miss. Keeping the open/close affordance for
-  // density when she's done.
-  const [open, setOpen] = useState(true);
-  const [tab, setTab] = useState<Tab>('overview');
   const [stats, setStats] = useState<MessagingStats | null>(initialStats);
   const [error, setError] = useState<string | null>(initialError);
   const [currentWindow, setCurrentWindow] = useState<Window>(DEFAULT_WINDOW);
@@ -102,140 +92,89 @@ export function PerformanceDropdown({
     });
   };
 
-  const handleToggle = () => {
-    const next = !open;
-    setOpen(next);
-    // When opening, refresh the stats if the cached window doesn't match
-    // the user's current selection. Initial server fetch is 7d, so this
-    // only re-fetches if the user changed window before opening.
-    if (next && stats?.window_hours !== currentWindow.hours) {
-      loadWindow(currentWindow);
-    }
-  };
-
-  const eyebrow = !open
-    ? 'score · activity · learning'
-    : tab === 'overview'
-      ? `${currentWindow.label} · how the AI is doing`
-      : tab === 'recent'
-        ? `${initialRecent.length} resolved · rolling 24h`
-        : 'what the AI has learned';
-
   return (
-    <Section
-      title="Performance"
-      eyebrow={eyebrow}
-      paddingTop={36}
-      right={
-        <button
-          type="button"
-          onClick={handleToggle}
-          style={{
-            fontSize: 10,
-            letterSpacing: '0.16em',
-            textTransform: 'uppercase',
-            fontWeight: 500,
-            color: 'var(--ink-3)',
-            background: 'transparent',
-            border: '1px solid var(--rule)',
-            padding: '6px 12px',
-            cursor: 'pointer',
-          }}
-          aria-expanded={open}
-        >
-          {open ? 'Hide ▴' : 'Show ▾'}
-        </button>
-      }
-    >
-      {!open ? (
-        <div
-          style={{
-            borderTop: '1px solid var(--rule)',
-            padding: '16px 0',
-            fontSize: 13,
-            color: 'var(--ink-3)',
-          }}
-        >
-          One-shot rate, the last day, what the AI has learned.
+    <Section title="Performance" eyebrow={`${currentWindow.label} · how the AI is doing`} paddingTop={36}>
+      <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 16 }}>
+        {!stats && error ? (
+          <ErrorState message={error} />
+        ) : !stats ? (
+          <LoadingState />
+        ) : (
+          <Headline
+            stats={stats}
+            window={currentWindow}
+            windows={WINDOWS}
+            onWindowChange={loadWindow}
+            loading={isPending}
+          />
+        )}
+
+        {/* Trend: the rolling one-shot rate over the last 30 days, right under
+            the number, so "is it getting better?" is the second thing read. */}
+        <div style={{ padding: '24px 0', borderBottom: '1px solid var(--rule)' }}>
+          <TrendChart initialSeries={initialTimeseries} initialAvailableTopics={initialAvailableTopics} />
         </div>
-      ) : (
-        <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 16 }}>
-          <TabBar current={tab} onChange={setTab} />
-          <div style={{ marginTop: 20 }}>
-            {tab === 'overview' &&
-              (!stats && error ? (
-                <ErrorState message={error} />
-              ) : !stats ? (
-                <LoadingState />
-              ) : (
-                <StatsBody
-                  stats={stats}
-                  window={currentWindow}
-                  windows={WINDOWS}
-                  onWindowChange={loadWindow}
-                  loading={isPending}
-                  timeseries={initialTimeseries}
-                  availableTopics={initialAvailableTopics}
-                  rollup={rollup}
-                />
-              ))}
-            {tab === 'recent' && <RecentList recent={initialRecent} />}
-            {tab === 'learning' && (
-              <>
-                {stats ? (
-                  <LearningSection stats={stats} facts={initialFacts} totalFacts={totalFacts} />
-                ) : (
-                  <div style={{ padding: '4px 0 16px', fontSize: 13, color: 'var(--ink-3)' }}>
-                    {error || 'Learning stats are unavailable right now.'}
-                  </div>
-                )}
-                <div style={{ marginTop: 28 }}>
-                  <FactAuditCard initial={audit} initialError={auditError} bare />
-                </div>
-              </>
+
+        <details className="rt-msg-learning" style={{ borderBottom: '1px solid var(--rule)' }}>
+          <summary
+            style={{ cursor: 'pointer', padding: '16px 0', display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}
+          >
+            <span className="font-serif" style={{ fontSize: 18, fontWeight: 500, color: 'var(--ink)' }}>
+              Learning
+            </span>
+            <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
+              the breakdown · last 24 hours · what the AI has learned
+            </span>
+          </summary>
+          <div style={{ padding: '8px 0 24px' }}>
+            {stats && <Breakdown stats={stats} rollup={rollup} />}
+
+            <LearningHeading
+              title="Last 24 hours"
+              eyebrow={`${initialRecent.length} resolved · rolling 24h`}
+            />
+            <RecentList recent={initialRecent} />
+
+            <LearningHeading title="What the AI has learned" />
+            {stats ? (
+              <LearningSection stats={stats} facts={initialFacts} totalFacts={totalFacts} />
+            ) : (
+              <div style={{ padding: '4px 0 16px', fontSize: 13, color: 'var(--ink-3)' }}>
+                {error || 'Learning stats are unavailable right now.'}
+              </div>
             )}
+            <div style={{ marginTop: 28 }}>
+              <FactAuditCard initial={audit} initialError={auditError} bare />
+            </div>
           </div>
-        </div>
-      )}
+        </details>
+      </div>
     </Section>
   );
 }
 
-/** The section's inner tab bar. Same welded segmented-control vocabulary as
- * the stats WindowToggle, sized up a step since it switches whole panels. */
-function TabBar({ current, onChange }: { current: Tab; onChange: (t: Tab) => void }) {
+/** A sub-heading inside the Learning disclosure. */
+function LearningHeading({ title, eyebrow }: { title: string; eyebrow?: string }) {
   return (
     <div
-      role="tablist"
-      aria-label="Performance panels"
-      style={{ display: 'inline-flex', border: '1px solid var(--ink)', overflow: 'hidden' }}
+      style={{
+        display: 'flex',
+        alignItems: 'baseline',
+        gap: 12,
+        flexWrap: 'wrap',
+        margin: '28px 0 12px',
+        paddingTop: 16,
+        borderTop: '1px solid var(--rule)',
+      }}
     >
-      {TABS.map((t) => {
-        const active = t.id === current;
-        return (
-          <button
-            key={t.id}
-            type="button"
-            role="tab"
-            aria-selected={active}
-            onClick={() => onChange(t.id)}
-            style={{
-              padding: '9px 16px',
-              fontSize: 11,
-              letterSpacing: '0.16em',
-              textTransform: 'uppercase',
-              fontWeight: 600,
-              border: 'none',
-              cursor: 'pointer',
-              background: active ? 'var(--ink)' : 'var(--paper)',
-              color: active ? 'var(--paper)' : 'var(--ink)',
-              borderRight: '1px solid var(--ink)',
-            }}
-          >
-            {t.label}
-          </button>
-        );
-      })}
+      <span className="eyebrow" style={{ color: 'var(--ink)', fontWeight: 600 }}>
+        {title}
+      </span>
+      {eyebrow && (
+        <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
+          {eyebrow}
+        </span>
+      )}
     </div>
   );
 }
@@ -322,24 +261,19 @@ function LoadingState() {
   );
 }
 
-function StatsBody({
+/** The one number: the window toggle, the hero rate and its subtitle. */
+function Headline({
   stats,
   window,
   windows,
   onWindowChange,
   loading,
-  timeseries,
-  availableTopics,
-  rollup,
 }: {
   stats: MessagingStats;
   window: Window;
   windows: Window[];
   onWindowChange: (w: Window) => void;
   loading: boolean;
-  timeseries: TimeseriesPoint[];
-  availableTopics: TopicRollup[];
-  rollup: CourtesyRollup | null;
 }) {
   const oneShotPct =
     stats.one_shot_rate == null ? null : Math.round(stats.one_shot_rate * 100);
@@ -360,9 +294,7 @@ function StatsBody({
       {/* Hero one-shot rate */}
       <div
         style={{
-          padding: '24px 0',
-          borderBottom: '1px solid var(--rule)',
-          marginBottom: 20,
+          padding: '24px 0 0',
         }}
         className="rt-msg-stats-hero"
       >
@@ -396,7 +328,18 @@ function StatsBody({
         </div>
         <OneShotSubtitle stats={stats} />
       </div>
+    </div>
+  );
+}
 
+/** Everything behind the one number, inside Learning: the old headline, the
+ *  rollup, the six tiles and the volume and tier strip. */
+function Breakdown({ stats, rollup }: { stats: MessagingStats; rollup: CourtesyRollup | null }) {
+  const oneShotPct =
+    stats.one_shot_rate == null ? null : Math.round(stats.one_shot_rate * 100);
+  const sub = stats.substantive ?? null;
+  return (
+    <div>
       {/* The old headline, kept as a secondary readout so the change is
           legible rather than looking like a regression. It counts courtesy
           acks and auto-sends, which is why it reads ~20 points higher and
@@ -422,16 +365,6 @@ function StatsBody({
       )}
 
       {rollup && <RollupStrip rollup={rollup} />}
-
-      {/* Trend: rolling one-shot rate over the last 30 days. Sits between
-          the hero and the KPI grid so the "is it getting better?" answer
-          is the second thing the operator reads. */}
-      <div style={{ padding: '24px 0', borderBottom: '1px solid var(--rule)', marginBottom: 20 }}>
-        <TrendChart
-          initialSeries={timeseries}
-          initialAvailableTopics={availableTopics}
-        />
-      </div>
 
       {/* KPI grid: shipped, coached, handled, rejected, expired, escalated */}
       <div

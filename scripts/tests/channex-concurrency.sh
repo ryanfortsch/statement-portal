@@ -73,3 +73,42 @@ do $$begin
 end$$;
 select 'PASS: concurrent manual and provider modification of the same booking' as result;
 SQL
+
+# A canonical creator can commit the identity while import is waiting for the
+# property lock. The importer must inspect identity AFTER acquiring that lock,
+# even when its incoming cancellation/changed dates would not overlap the stay.
+PGAPPNAME=channex_synthetic_identity psql -X -q -v ON_ERROR_STOP=1 <<'SQL' >/dev/null &
+begin;
+set local statement_timeout='12s';
+select pg_advisory_xact_lock(hashtext('helm_bookings:65_calderwood'));
+select pg_sleep(2);
+select helm_create_booking('65_calderwood','airbnb','ical_import','confirmed','2028-06-01','2028-06-03',
+ '{"external_confirmation_code":"SYNTHETIC90"}');
+commit;
+SQL
+identity_writer=$!
+ready=0
+for i in $(seq 1 30); do
+ if [[ "$(psql -X -Atc "select count(*) from pg_stat_activity where application_name='channex_synthetic_identity' and wait_event='PgSleep'")" == 1 ]];then ready=1;break;fi
+ sleep 0.1
+done
+[[ $ready == 1 ]]
+psql -X -q -v ON_ERROR_STOP=1 <<'SQL' >/dev/null
+set statement_timeout='12s';
+do $$begin
+ begin
+  perform helm_airbnb_revision_commit(channex_synthetic_revision(90,'2026-11-06T15:01:30.000001Z','cancelled',90)
+   ||'{"checkIn":"2028-07-01","checkOut":"2028-07-03"}');
+  raise exception 'expected identity collision';
+ exception when others then if sqlerrm<>'existing_airbnb_stay_requires_handoff' then raise;end if;end;
+end$$;
+SQL
+wait "$identity_writer"
+psql -X -q -v ON_ERROR_STOP=1 <<'SQL'
+do $$begin
+ if (select count(*) from bookings where external_confirmation_code='SYNTHETIC90')<>1
+ or exists(select 1 from helm_airbnb_bookings.receipts where revision_id='10000000-0000-4000-8000-000000000090')
+ then raise exception 'Existing stay duplicated or acknowledged';end if;
+end$$;
+select 'PASS: concurrent canonical creation is observed before first revision import' as result;
+SQL

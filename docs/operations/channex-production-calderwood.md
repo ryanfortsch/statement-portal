@@ -105,9 +105,11 @@ that PriceLabs has connected or populated this production rate.
    are available, but the deployed mode only inspects configuration. It does not
    read the revision feed, ACK bookings, publish dates or prove initial coverage.
    Keep staging credentials and the staging worker isolated. The production
-   consumer still needs complete upstream coverage/recovery, provider dispatch and
-   reconciliation, retry/lease handling and an operational failure surface before
-   activation. Durable canonical-input planning is described below.
+   consumer still needs complete upstream coverage/recovery, provider acceptance
+   and latest-state recovery handling, and an operational failure surface before activation. The dormant
+   dispatch ledger and transport below now preserve exact requests, leases,
+   ambiguous outcomes and retry pacing. They are not wired to a production worker.
+   Durable canonical-input planning is described below.
 2. Map PriceLabs to the actual production rate plan, preserving one price and
    minimum-stay writer. Verify daily rates, restrictions, fees, markups and the
    existing Airbnb listing identity. Do not copy the staging $100 test rate.
@@ -131,8 +133,11 @@ fixed-host reader, commit/readback/ACK engine and RPC store. The engine validate
 an entire batch before writing, preserves microsecond ordering and requires the
 independent durable receipt to exactly match the commit response before ACK.
 ACK is explicitly disabled by default. A provider failure after a committed
-write is recoverable by replaying the original receipt. No raw provider payload,
-guest contact data, price or payment data is stored in this receipt path.
+write must be reconciled against the original receipt. The November 10 migration
+adds an allowlisted guest/contact/notes projection to the private receipt before
+ACK. Raw provider payloads, prices and payment data remain excluded. A masked
+revision cannot replace the original receipt. See
+`channex-preack-persistence-review.md` for the retention and activation gates.
 
 The three `20261106103000`–`20261106103200` migrations add the tables described in
 `SCHEMA.md`, a disabled Calderwood mapping and service-only RPCs. Import requires
@@ -148,7 +153,7 @@ or an effective owner session. It requires `CHANNEX_PRODUCTION_MODE=inspect`,
 Vercel production, the exact production database, and both server credentials.
 Preview/staging or an unexpected enabled scope, authority, mapping or nonzero
 receipt/event count is refused. It also verifies that availability planning and
-publishing are disabled, with no plans or source-coverage claims. It verifies
+publishing are disabled, with no plans, delivery attempts or source-coverage claims. It verifies
 dormant storage, then reads only the
 reviewed property, room, rate and empty channels. It saves a bounded status code,
 last attempt/success time and consecutive failure count through service-only
@@ -253,3 +258,520 @@ Production application/deployment evidence is recorded separately after rollout.
 - [Room count and guest spaces](https://help.channex.io/en/articles/8463205-create-a-room)
 - [Rate-plan defaults and daily values](https://docs.channex.io/api-v.1-documentation/rate-plans-collection)
 - [Existing recovery implementation](channex-data-protection-and-recovery.md)
+
+## Availability delivery ledger
+
+Migration `20261106120000_channex_inventory_delivery.sql` installs a disabled
+send scope and private attempt history. The production inspection endpoint only
+checks its bounded status; it never claims, begins or sends an attempt.
+`src/lib/channex-inventory/delivery.ts` and `delivery-store.ts` provide the dormant
+worker composition. No scheduler or public route invokes this writer.
+
+The database builds the exact 500-day availability-only request from the saved
+plan. It stores those bytes and their SHA-256 before any provider call. A claim
+has a maximum 30-second lease; both claim and the one-use send checkpoint reuse
+the planner's complete validation. Concurrent workers cannot obtain two send
+permits. A lost checkpoint response does not authorize a POST. Source changes
+before the checkpoint fence the old plan; changes after it require a subsequent
+plan once the in-flight attempt has been settled.
+
+The transport is currently limited to the closed, unmapped production target.
+Its GET preflight verifies property/room/rate identities and no channels, then
+POSTs only the saved availability bytes. It never sends rates, minimum stays,
+stop-sell flags, bookings or messages. Live channel dispatch needs a separately
+reviewed channel-aware preflight. The API key is a server argument, never stored
+in an attempt or its error. Redirects, timeouts, 5xx responses, malformed replies,
+partial responses and warnings are uncertain outcomes, not automatic retries.
+
+A clean task receipt means **accepted**, not completed or delivered to Airbnb.
+Accepted and uncertain attempts block the lane, including across restarts and
+scope disable/enable. The ledger deliberately has no settlement/retirement RPC
+until production task evidence is established. Equality from a calendar GET is
+not evidence that an earlier request can no longer execute. The staging task
+parser was based on an observed staging response; it has not been silently
+promoted into a production delivery guarantee.
+
+Only an exact documented 429 rejection permits a new attempt after a persisted
+backoff (at least 60 seconds, up to 24 hours). A 401 stops further claims pending
+configuration review. There are at most five claims per 30 minutes and a
+60-second minimum spacing. Expired leases before the send checkpoint can be
+retired; expired in-flight attempts become uncertain. Outcome recording is
+idempotent and may capture a late response even after disabling dispatch.
+
+Provider contract reference, checked 6 November 2026:
+[Channex ARI documentation](https://docs.channex.io/api-v.1-documentation/ari).
+The documented POST accepts dated availability and returns task identifiers;
+this batch does not claim a documented task-completion or OTA-delivery contract.
+
+Tests cover exact saved bytes across the TypeScript/SQL boundary, concurrent
+send checkpoints, concurrent canonical writes, stale plans, expired workers,
+lost responses, 429 pacing, credential rejection, strict payload shapes and
+permissions. Provider tests use synthetic replies. No live inventory POST is
+needed or performed to deploy this dormant batch.
+
+## Read-only booking comparison
+
+`GET /api/channex/reconciliation` is a manual, effective-owner-only diagnostic.
+It is not public, scheduled or called by the configuration cron. It requires
+production inspection mode and the same dormant storage, Guesty authority,
+closed rate and empty-channel preflight. It does not create canonical links,
+import/ACK revisions, grant source coverage, write checkpoints or send anything.
+
+The service-only `helm_channex_booking_audit_snapshot()` RPC reads one bounded
+SQL snapshot of Calderwood's calendar rows: IDs, source/channel, status, dates,
+duplicate root, hold kind and confirmation code. It excludes guest contact,
+financial and message fields. The 5001st row makes truncation observable and is
+rejected by TypeScript. Duplicate roots must be present, in scope and canonical.
+
+The provider reader traverses the documented booking collection twice, including
+all dates and statuses. Each page must agree on total/limit and have the exact
+expected size; duplicate identities, wrong mappings, partial pages, warnings and
+read errors fail. Each scan is capped at 50 pages / 5,000 bookings and both share
+a 90-second deadline. Only the small booking projection survives parsing. The
+booking's creation timestamp is never passed off as revision ordering evidence.
+
+The two normalized collections must agree and the canonical before/after
+fingerprints must agree. Differences use exact channel/confirmation identities;
+dates alone never match two stays. The report flags missing stays, ambiguous
+codes, differing dates/status, hold conflicts and other overlapping stays. The
+500-day availability horizon is reviewed with 30 days of buffer neighbours on
+each side. Other-channel stays and independent holds, including duplicate OTA
+closures, remain visible. Cancellations cannot delete holds through this audit.
+Only aggregate counts, IDs and fingerprints leave the endpoint; no confirmation
+codes, names, payment information or raw provider responses are returned.
+
+**Matching observations are not an atomic provider snapshot or a coverage grant.**
+A row may change and change back between scans, and the current Guesty mirror's
+upstream completeness/freshness is not established here. `paginationComplete`
+means traversal completed; `completeCoverage` and `readyForCutover` are always
+false. An empty Channex account is expected to show missing local Airbnb stays
+until the reviewed channel transition/import. Never cancel those stays based on
+absence. A changing source returns `SOURCES_CHANGED` and requires a fresh audit.
+
+This diagnostic uses the [booking collection](https://docs.channex.io/api-v.1-documentation/bookings-collection)
+and [pagination/filter contract](https://docs.channex.io/api-v.1-documentation/api-reference),
+checked 6 November 2026. It is distinct from revision-feed consumption. The
+remaining initial-link adoption and durable complete-source coverage mechanism
+must validate the final handoff; this report does not enable publishing.
+
+## Existing-stay handoff safeguards
+
+Migration `20261106140000_channex_existing_stay_guard.sql` closes an initial-import
+gap: the first observed revision can have changed dates or be a cancellation, so
+date-overlap rejection alone cannot protect an existing Guesty/iCal stay. Before
+creating anything, the receipt RPC now rejects an existing same-property Airbnb
+confirmation identity across every date, status and duplicate row. Case/whitespace
+normalization is used only to stop ambiguous creation. It never merges records.
+The collision raises `existing_airbnb_stay_requires_handoff`; the original booking,
+message history, inventory events and receipts remain unchanged. No receipt means
+the ingestion engine cannot ACK that revision. A mapped stay whose confirmation
+code or hold identity has changed also stops for review.
+
+The existing canonical property lock is acquired before the collision read. A
+concurrent canonical creator that commits while import is waiting is observed.
+This does **not** establish a fence against every legacy direct-SQL/iCal writer:
+the reviewed cutover must drain/retire those writers and implement deliberate
+source conversion before import is enabled. The new index is not a global unique
+constraint; Helm intentionally retains source duplicates. This migration does not
+convert the four observed iCal stays to manual bookings or attach a channel.
+
+The owner audit now includes `existingStayHandoff`, restricted to canonical stays
+overlapping today through the 500-day horizon. Completed historical stays,
+duplicates, cancelled stays and checkout-today stays are excluded from that count;
+they still participate in broader identity/conflict checks. It identifies missing
+provider records, mismatched or ambiguous identities, changed dates/cancellations,
+conflicting holds and other-channel stays. Exact matches still require an explicit
+handoff that preserves the canonical ID. The report contains IDs and states only,
+not confirmation codes, guest contact information or message content.
+
+`messageHistoryReviewRequired` remains true and `readyForAutomaticImport` remains
+false, even for an exact match. On 6 November the existing Helm mirror contained
+four current/upcoming Airbnb stays, all iCal imports with confirmation codes; no
+Helm automation rows or guest threads were attached to those stays, and property
+automations were disabled. That is not evidence that Guesty sent no messages.
+Guesty's delivered/scheduled message state must be reconciled before enabling
+automatic guest and cleaner delivery; keep the existing 3 PM key-code timing.
+
+Validation includes the whole application suite, real PostgreSQL tests for first
+new/modified/cancelled revisions, normalized aliases, past/cancelled and duplicate
+records, unchanged original rows and sent-message ledger entries, cross-property
+isolation, mapped identity changes, and concurrent canonical creation. All use
+synthetic data. No live booking write, provider ACK or message is used for testing.
+
+## Existing-stay message review — November 6, 2026
+
+Owners can inspect `/api/channex/message-handoff` while production remains in
+`inspect` mode. This GET reads current/upcoming canonical Calderwood stays,
+discovers their Guesty IDs from the scoped mirror, and rechecks the exact account,
+listing, confirmation code, dates, status and Airbnb platform against Guesty.
+It then inventories conversation metadata twice and rechecks both stay sources.
+Ambiguous identities, incomplete pagination, shared conversations and changing
+observations never authorize a handoff. No guest text, contact details, door codes,
+raw provider response or credentials appear in the result. Token-cache refresh
+may occur through the existing Guesty client; no booking/message ledger is written.
+
+The reader adapts the previously rehearsed staging conversation collector. Its
+fixed destination is Guesty's Open API; all provider operations are GETs. The
+temporary reservation-detail read uses the still-supported [field-projected
+legacy detail endpoint](https://open-api-docs.guesty.com/reference/reservationsv2get)
+to avoid collecting financial/contact fields. That endpoint is deprecated; this
+bounded migration diagnostic is not a new long-term reservation sync.
+
+The [post endpoint](https://open-api-docs.guesty.com/reference/get_communication-conversations-conversationid-posts)
+provides records, not proof that a workflow was delivered. A record timestamp,
+an empty thread, or a successful read must never seed `automation_sends` as sent
+or unsent. Cleaner history, the four guest workflows' completion/pending states,
+recipient coverage and source queue stop/drain need their own evidence. The
+response stays `readyForAutomaticMessaging: false` and provides exact source
+conversation links for that review. Preserve the user's existing Guesty timing,
+including the 3 PM key-code send and its delay hold. This diagnostic has no
+scheduler, sender, import, authority switch or Channex connection action.
+
+The first live inspection stopped before provider access because four historical
+mirror records have non-API identifiers from older imports. Those records remain
+in identity collision detection; only a uniquely matched, valid Guesty ObjectId
+may become an API destination. Synthetic IDs, URL-like IDs and ambiguous codes
+cannot be requested. Anonymous access to the deployed endpoint returned 401.
+
+## Automatic message transport preparation — November 6, 2026
+
+The owner review succeeded against four current/upcoming stays and 22 conversation
+records, with both observations agreeing. A separate read-only browser review of
+each stay's Guest auto messages panel found six completed guest automations and
+ten enabled scheduled messages. The three future key-code messages remain at
+3 PM; the current stay's key-code history shows completion at 3:01 PM. These are
+Guesty's UI states at review time, not recipient delivery receipts or a cutover
+grant. Refresh them before switching senders. Cleaner recipient history remains
+unverified; an empty manually scheduled Inbox view is not an empty automation queue.
+
+`src/lib/channex-messaging/transport.ts` and `worker.ts` carry forward the isolated
+staging transport and execution protocol, with server-only imports and sends
+disabled by default. They are not imported by a route, cron, scheduler or the live
+automation dispatcher. That initial transport change had no production ledger
+adapter or activation. The November 7 ledger work below adds database concurrency
+checks; neither batch enables a scheduler or permits live automatic sends.
+
+Before a single POST the transport reads the exact thread and verifies its
+property, channel, booking, provider and open state, including relationship types.
+The worker requires a matching rendered-body digest and current context revision,
+then a successful durable claim. Uncertain claim responses never reach POST.
+After the send barrier, a timeout, malformed response or lost receipt write stays
+unresolved and is never retried automatically. An accepted provider message ID may
+be checked with GET; an exact matching record is called `recorded`, not `delivered`.
+Keys and message bodies stay out of results and errors. Both dispatch and worker
+reconciliation require explicit enablement; transport-only receipt inspection is
+GET-only. There is no credential loader or automatic staging fallback.
+
+Channex Messages & Reviews was installed for 65 Calderwood on November 7 after
+Ryan authorized the displayed USD 0.50/month charge within the USD 1/month support
+quote. The production Applications screen confirmed Installed (1). This does not
+attach Airbnb or establish channel delivery. Guesty authority and all message
+timings remain unchanged. Guesty support ticket 2193130 has been escalated to a
+human for cleaner history/retention and queue stop/drain evidence; no human reply
+was present at the November 7 check. Evan's availability completion/recovery
+question also remained unanswered.
+
+## Persistent message queue — November 7, 2026
+
+`20261107090000_channex_message_queue.sql` adds an empty private schema and four
+service-only RPCs. `store.ts` supplies the strict production adapter: pinned
+Calderwood/Airbnb scope, narrow results and redacted failures. The job extends the
+existing canonical automation row; no second planner or schedule is created.
+Registration requires a future unsent canonical row and canonical Channex booking
+mapping. SQL reserves it from legacy SMS/email dispatch, including older
+deployments and replacement-rule inserts. Claim rechecks current stay dates and
+status, authority, effective rule, source stop/drain proof, route generation,
+due/expiry times, manual hold and the current renderer dependency digest.
+
+One successful claim permits one POST. A repeat, including the same attempt ID,
+cannot authorize another send. Receipts persist separately from the schedule so
+a cancellation cannot erase provider evidence or be revived by a late response.
+Unknown outcomes remain parked; accepted IDs can be reconciled with GET only.
+Hold/release is version checked and audited without changing the Guesty fire time.
+The hold RPC is service-only; a future owner action must supply an authenticated
+actor. Once a claim commits, later edits/holds cannot recall an in-flight POST.
+
+Synthetic PostgreSQL tests exercise the actual RPC adapter and worker against a
+fake provider, including lost claim/receipt replies, timeout/restart, access-code
+and template changes, hold/release, historical receipt rejection, legacy rail
+exclusion and simultaneous workers/canonical cancellation. CI runs these alongside
+the existing booking/inventory/delivery database checks. No live message is sent
+by tests or by this migration.
+
+This remains **inactive**: no source proof is minted, scope/job rows are not
+seeded, and no route/cron imports the production worker or store. Before activation
+we still need the reviewed source handoff, a current-data renderer and preparation
+flow, unchanged Guesty schedules, owner hold controls, cleaner SMS acceptance,
+and end-to-end channel delivery. Timing and dependency checks intentionally block
+stale jobs; there is no automatic rebind/retry or historical-message replay.
+
+## Owner message preparation review (2026-11-07)
+
+`/channels/65_calderwood/message-preparation` is linked from the owner's Calderwood
+hub. Its explicit read button calls `GET /api/channex/message-preparation`, behind
+the normal proxy and a second owner-session check. It has no save/send/activation
+control, is not scheduled, and returns private/no-store responses. There is no
+schema migration, scope seed, queue registration or renderer activation in this
+batch. The production queue above remains dormant.
+
+The read compares all six expected workflows against the effective property/fleet
+rules, including disabled property overrides. It reports missing templates,
+inheritance, delivery/mode, malformed or unsupported merge fields and current
+generic timing. It never returns template bodies, guest names, confirmation codes,
+contacts or access credentials, and never infers text parity from a matching key.
+Only recognized merge-field names, body lengths and SHA-256 digests leave the
+server. The production metadata check found four disabled fleet rules and zero
+property overrides; the separate key-code and two cleaner workflows were absent.
+Generic confirmation is immediate, pre-arrival is fixed at 10 AM, and checkout
+reminder is fixed at 5 PM. These are **not** the migration schedule.
+
+The live Guesty workflow previews were rechecked November 7: Calderwood Messaging
+has four enabled booking-channel messages (+30 minutes, -1 day arrival, -60 minutes
+arrival, -1 day departure). Cleaning updates - Luana has two enabled phone-book SMS
+messages (-10 days and -7 hours arrival). This confirms the relative offsets,
+not full template capture, message conditions or queued/delivered history. Native
+accessibility previews can truncate long bodies; never use them as full template
+evidence. The cleaner reminder's Guesty report link also needs a replacement at
+handover.
+
+Up to twelve exactly matched active/upcoming Airbnb stays enter a bounded two-pass
+observation (500-day window, maximum 28 GETs, 80 seconds). The projected legacy
+reservation detail endpoint supplies explicit local ETA/ETD and listing defaults;
+it is a temporary migration-review dependency, **not a production scheduler**.
+V3 detail in batches of ten supplies actual `confirmedAt`; unrelated raw V3
+guest/financial data stays inside the reader and is discarded. No created/import
+timestamp substitutes for confirmation. See the current Guesty documentation:
+
+- https://open-api-docs.guesty.com/reference/reservationsv2get
+- https://open-api-docs.guesty.com/reference/reservationsopenapicontroller_getreservationsbyids
+- https://help.guesty.com/hc/en-gb/articles/9365081186205-Managing-automated-messages-for-guests-owners-and-team-members
+
+Omitted overrides remain unknown; only explicit null permits the listing default.
+New York DST gaps/overlaps are withheld. If elapsed-day and calendar-day offsets
+disagree, both candidates are shown for Guesty queued-time verification. Past/due
+messages retain their original timestamps and are never replayed. Context changes,
+source identity changes, unequal scans and incomplete reads discard the report.
+Matching scans do not establish atomic source completeness or source stop/drain.
+
+The next implementation step at that point was exact template capture and the
+canonical relative-timing/renderer integration, followed by reviewed queue preparation.
+Support ticket 2193130 still needed the human cleaner-SMS history/queue/drain answer;
+Evan's availability-task completion clarification had not yet been located at the
+start of that batch. The provider-reply update below supersedes this status.
+
+## Six prepared canonical templates (2026-11-07)
+
+All six source bodies were captured privately from Guesty. The complete pre-arrival
+body required opening its editor because the list preview was truncated; no Guesty
+workflow was saved or changed. Customer text remains outside this public repository.
+
+`template-migration.ts` compiles that complete capture offline. It preserves literal
+wording, maps supported Guesty fields to the existing canonical renderer, replaces
+embedded Wi-Fi values with protected merge fields, and replaces the old Guesty
+cleaner report URL with `cleaner_schedule_url`. Missing/unknown tokens, incomplete
+captures and ambiguous credential/link substitutions fail without printing content.
+Dates map to canonical long-date fields and **still need rendered source comparison**;
+the cleaner link has no inferred destination or automatic context fallback. Literal
+arrival/checkout wording also needs review for a reservation with custom times.
+
+`20261107200000_channex_prepared_templates.sql` adds `migration_policy` to the
+existing `message_automations` rules. It records the captured-source SHA-256, compiled
+body SHA-256, capture instant and six exact offsets (+30 confirmation minutes,
+-1 arrival day, -60 arrival minutes, -1 departure day, -10 arrival days, -420 arrival
+minutes). Day offsets retain `verify_source_queue` semantics at DST. This is a
+versioned preparation record, not an alternate schedule or a send authorization.
+
+The service-only `helm_channex_prepare_templates` RPC requires Guesty authority,
+disabled property automation, no existing send history and no Channex message scope.
+It installs exactly six disabled property rules in one transaction; an identical
+retry reuses their IDs. Partial/conflicting bundles cannot overwrite existing work.
+Prepared rules cannot be changed, deleted, enabled, rerouted or inserted into the
+send ledger by legacy UI or workers, including fleet-rule bypasses. Releasing the
+preparation requires the later reviewed scheduling/delivery implementation.
+
+The legacy `delivery` and `offset_days` columns remain inert compatibility values:
+guest rules use `ota_manual`, cleaner rules `sms`, all disabled/covered/approval-mode.
+**This does not introduce a manual messaging fallback.** The intended rails remain
+automatic Channex booking-channel messages and automatic cleaner SMS. The owner
+review reads the preparation policy, explicitly says sending is off, and shows
+outstanding code/Wi-Fi, date-rendering and cleaner-link dependencies. It also sorts
+stays by check-in date. No messages, schedules, holds or source proofs are created.
+
+Offline operator command (capture and output must remain outside the repository):
+
+```
+node --import ./scripts/server-only-test-hook.mjs scripts/prepare-channex-templates.mts /private/path/capture.json /private/path/new-install.sql
+```
+
+The command creates a new mode-0600 SQL file and does not connect to a service. Apply
+the exact reviewed migration before the application reads the new column, then run
+the private install SQL through the existing authorized database connection. Verify
+six policy/body matches, disabled authority/automation/delivery guards and zero new
+ledger rows. Never commit the generated SQL, captured bodies or credential values.
+
+Validation includes the shared renderer's secret masking/missing fields, all-or-none
+capture validation, changed-policy rejection, disabled override behavior, real
+PostgreSQL installation/rollback/permission checks, old-UI and fleet bypass refusal,
+and two simultaneous installers creating exactly six rules. Existing worker hold,
+cancellation, unknown-response and concurrent-claim tests continue to run.
+
+Remaining work is the verified current-data renderer and canonical scheduling
+activation, rendered-date/credential/link checks, refreshed Guesty history and
+pending/hold/stop-drain evidence (including cleaner SMS), and end-to-end channel
+delivery. The new prepared rules must not be presented as launch-ready messaging.
+
+## Masked current-data rehearsal and provider replies (2026-11-07)
+
+The owner preparation endpoint now returns format 2: all six prepared templates
+can be expanded for each exactly matched current/upcoming stay. The private
+server read includes only the property label, Wi-Fi name, required protected
+access fields, active-lock presence and matched canonical guest names/dates.
+Names and credentials are replaced with labels **before** rendering; known
+literal repeats are masked as well. Missing values remain visible as missing.
+Both context reads must agree, including a private render-input fingerprint that
+is never returned. Read errors, duplicate/changed identities and changed inputs
+discard the whole review. No new send body, queue row or schedule is persisted.
+
+An available static code is only a field-presence observation, not proof that it
+opens the door. An active lock mapping requires a separately verified stay code;
+a key-location note cannot fill that field. Wi-Fi values still require source
+comparison. The cleaner schedule URL remains missing until its replacement and
+recipient access are verified. Custom or unknown arrival/departure times flag
+messages containing standard-time wording for review. Every rehearsal returns
+`canSend: false`; fields present must not be interpreted as delivery readiness.
+
+Guesty's support export was downloaded privately with explicit permission. Its
+guest conversation records support source-wording comparisons and an English
+date display with short month, ordinal day and year. The rehearsal uses this
+scoped date formatter; generic Helm dates and the dormant production sender are
+unchanged. The export's conversation status is **not** an individual delivery
+receipt, and its post timestamps are not source scheduled-send timestamps.
+Guesty explicitly said cleaner messages are unsupported in this report. The
+approved follow-up on ticket 2193130 was sent asking whether disabling the
+workflow cancels already queued SMS and how their agent can verify queue drain
+and cleaner history. No automation change was requested. The CSV and captured
+customer text remain outside the repository.
+
+Evan's reply, sent at 2026-11-07T03:10:32Z and located in a separate conversation,
+clarifies the production availability contract:
+
+- Task status is available in the property UI/log, but
+  `GET /api/v1/tasks/{id}` is **not a supported PMS contract**, even if present
+  in OpenAPI. A successful availability POST means accepted into Channex;
+  delivery to channels is asynchronous.
+- There is no availability request/idempotency key. Serialize by property,
+  retain the latest intended absolute availability, and after a timeout resend
+  the latest absolute state, never an old payload.
+
+This resolves the contract question; it does not retrofit that behavior into the
+current dormant ledger. Accepted/uncertain attempts still block its lane and
+there is no settlement RPC or task poller. Before enabling it, replace that
+incomplete lifecycle with reviewed acceptance/latest-state recovery, preserve
+serialization and freshness fencing, and expose uncertain channel state for
+operations. Historical calendar equality must not be called OTA delivery proof.
+Do not add a production task-status poller or simply unpark old attempts.
+
+Remaining launch work: connect this source-compatible renderer to reviewed
+canonical scheduling, verify entry/Wi-Fi/link/recipient inputs, obtain current
+Guesty sent/pending/hold and stop-drain evidence for both audiences, and prove
+automatic channel and cleaner-SMS delivery. Guesty remains authoritative; all
+production Channex booking, inventory and messaging writers stay off.
+
+## Message inputs and cleaner setup review (2026-11-07 Eastern)
+
+Format 3 adds an owner-only input summary beside the masked per-stay rehearsals.
+Door-code presence, mapped-lock stay-code review, and Wi-Fi field presence are
+shown separately. Cleaner metadata is read with a bounded, ordered query and
+checked twice with the other private inputs. An empty property list covers only
+the recipient's region; explicit lists cover only their named homes. Missing,
+disabled, multiple and unverified recipients remain distinct. The query never
+selects a cleaner phone, name or bearer portal token, and no schedule link is
+rendered or declared verified by this review. Read failures cannot look like an
+empty successful result. A concurrent scope/enablement change invalidates the
+whole review.
+
+A private, guarded one-time operation filled three previously blank Calderwood
+fields from existing source data: the current Guesty listing's `lockCode`, and
+the Wi-Fi network/password embedded in the captured Guesty check-in message.
+Guesty's corresponding Wi-Fi listing fields were empty; the template is their
+source. The code was read twice with matching listing/account identity, and the
+captured template hash had to match the installed disabled preparation. The
+transaction required Guesty authority, disabled home automation, no mapped active
+lock, blank destinations, and RLS-protected credential storage. Door code and
+password live only in `property_access`; no secret was added to source or tests.
+Readback matched all three source values. This did not change a physical lock or
+network, and is not a physical-access test.
+
+The same live review found no recipient explicitly scoped to Calderwood and no
+region-wide Bridgeport recipient. Luana's destination and an appropriate
+Calderwood-only schedule link therefore remain unconfigured/unverified. The
+existing cleaner portal is checkout-oriented, so its arrival/checkout coverage
+must be reviewed before replacing the Guesty future-reservations report. No
+recipient, portal token, scope, queue, schedule or send was created. The Guesty
+cleaner queue follow-up remains unanswered at this observation.
+
+## Cleaner future-stay preview (2026-11-07 Eastern)
+
+`/channels/65_calderwood/cleaner-schedule` is an owner-only, read-only preview
+linked from Message handover. It pairs current and future guest stays' arrival
+and departure dates, guest counts (unknown stays unknown), usual home times and
+active checkout adjustments. A stay arriving at the one-year horizon remains
+visible even if its departure is later. Extensions whose base departure has
+already passed are refetched by exact property/stay keys; cancelled and duplicate
+rows cannot be reintroduced by an adjustment. Proposed changes, drift and
+conflicting source copies are flagged rather than silently applied. Cleaning
+skips remain visible without erasing the stay. Owner holds and actual cleaning
+assignments remain on the existing cleaning schedule.
+
+The reader uses bounded, ordered, property-scoped pagination, validates every
+input and reuses the checkout schedule's duplicate and two-witness ghost-stay
+guards. Null/failed reads show unavailable, never an empty successful calendar.
+Only the minimal report projection renders: no guest identity, confirmation
+code, contact, note, money, credential or portal token. No new public route,
+recipient, access grant, schedule job or message is created, and this preview
+does not set the cleaner handover readiness flags or replace the Guesty URL.
+
+Source cleaner routing was inspected without saving changes. Recipient and
+workflow evidence is retained privately, outside the repository. No recipient
+was installed. Helm delivery and cleaner access are not yet configured.
+The approved cleaner-queue support follow-up has no newer answer at this check.
+
+Validation: 3,976 local tests pass, seven optional checks skipped, TypeScript
+passes, and all 29 synthetic queue-action browser checks pass. The latter had
+two stale expectations for the previous "slips" label; only those expectations
+were updated to the current "work items" wording, preserving all action guards.
+
+Initial live verification found all four expected stays with null canonical
+guest counts. The property's 15:00 check-in setting is the deliberate cleaner ready-by
+deadline (see the listing-sync fill-empty contract); Guesty's guest-facing
+arrival remains 16:00. The report labels this value "Ready by" explicitly. No
+stored times or automation timings were changed. The production route redirects
+anonymous requests to sign-in, and the owner check precedes the private reads.
+
+The next preview batch fills missing guest counts from live Guesty detail without
+persisting them into canonical bookings. It resolves unique confirmation codes
+and source IDs against the property-scoped mirror, checks the account, listing,
+status and exact dates, then requires two independent count reads to agree.
+The report, local identities and calendar authority must still match after the
+reads, including when the source fails. Changed local context makes the schedule
+unavailable; failed or ambiguous source reads leave missing counts explicitly
+unverified. Existing canonical counts are preserved. The source lookup runs only
+while Guesty owns the calendar, is limited to 12 missing-count stays, uses a
+20-second source-read deadline and 32 KiB response limit, and reuses the sync's
+valid cached token without refreshing or writing credentials. The page labels
+source-verified counts and shows the check time in Eastern time.
+
+Read-only live verification matched all four current/future stays on eight
+Guesty reads, with the 15:00 ready-by deadline preserved. No bookings, recipients,
+access grants, message queues or automation settings changed. Cleaner delivery
+still needs Helm recipient/access setup and source queue clearance;
+the support follow-up remains unanswered at this check. Local validation:
+3,992 tests pass, seven optional checks skipped, TypeScript and changed-file
+lint pass, and the synthetic preview renders the verified/unknown count states.
+
+The initial Vercel preview for PR #2171 was rejected while the deploying account
+had viewer-only access. On 10 November, the team owner restored Developer access;
+the authenticated API confirmed the new role. The release branch was then updated
+against current main: 4,127 tests passed, seven optional checks skipped, and
+TypeScript plus changed-file lint passed. Deployment and merge results are tracked
+on the PR; this access correction alone does not establish a completed deployment.

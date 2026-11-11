@@ -139,7 +139,11 @@ never key per-stay logic on `bookings.id`.
   `after` jsonb. Written by the three RPCs and by the Channels actions.
   Read on the booking detail page. Service role only.
 - **`helm_airbnb_bookings` private schema**: production Channex scope, remote-to-canonical
-  booking links, sanitized revision receipts, and configuration-check status. Scope is
+  booking links, allowlisted revision receipts, and configuration-check status. The
+  November compatibility migration adds a strict guest contact/address/notes projection
+  inside the private receipt, not public booking fields; raw provider/payment data
+  remain excluded. See `docs/operations/channex-preack-persistence-review.md` for
+  activation gates and retention review. Scope is
   pinned to Calderwood's reviewed property/room/rate and starts **disabled**. No direct
   service-role table access. `helm_airbnb_revision_commit` validates the active scope,
   Helm calendar authority and inventory capture, then uses the canonical booking RPCs
@@ -147,6 +151,11 @@ never key per-stay logic on `bookings.id`.
   receipt; older revisions are stale; changed identities and ambiguous ordering fail.
   No current runtime calls the commit/ACK path. This is not another stay ledger or
   proof of initial booking coverage. See the Channex production operations document.
+  First revisions refuse any existing same-property Airbnb confirmation identity
+  across all dates, statuses and duplicate rows (`existing_airbnb_stay_requires_handoff`).
+  The normalized-code index supports conservative collision detection, not automatic
+  adoption or a uniqueness constraint. Mapped records also require unchanged code and
+  no hold identity. Existing-stay source conversion is not implemented or enabled.
 - **`helm_inventory_capture_scopes` / `helm_booking_inventory_events`**: disabled by
   default; versioned, append-only availability invalidations. When enabled, canonical
   booking changes, availability rules, dated closures, rental periods and authority
@@ -159,8 +168,24 @@ never key per-stay logic on `bookings.id`.
   500 dated availability values and source/version fingerprints. No prices,
   minimum stays, guest fields or provider credentials. Atomic compare-and-save
   rejects changed bookings/configuration, missing coverage and expired windows;
-  identical retries resolve to the same plan. No dispatch/publishing RPC exists.
+  identical retries resolve to the same plan. The separate delivery gate below
+  is off; the deployed inspection mode never claims or sends a plan.
   `helm_channex_inventory_status()` exposes bounded configuration counts only.
+- **`helm_airbnb_bookings.delivery_scope` / `delivery_attempts`**: dormant,
+  service-RPC-only availability send ledger. Each attempt pins the immutable
+  plan, exact credential-free request bytes and SHA-256, configuration version,
+  lease and provider task receipt. Claim and one-use begin checkpoints recheck
+  the planner's source/coverage/authority/clock guards. At most one unresolved
+  attempt exists. Pre-send expiry is reclaimable; expiry after the send barrier,
+  timeouts and ambiguous responses quarantine the lane. Accepted task receipts
+  also remain unresolved, pending a separately reviewed settlement path. No
+  direct service table access, activation or settlement RPC is installed.
+  `helm_channex_delivery_status()` returns gate state and counts, not payloads.
+- **`helm_channex_booking_audit_snapshot()`**: service-only, read-only bounded
+  projection of all Calderwood calendar rows for the owner-triggered migration
+  comparison. IDs, dates, statuses, duplicate roots and confirmation codes only;
+  no guest contact or financial fields. It creates no table, link, coverage claim
+  or activation. A 5001st row causes the consumer to reject truncation.
 - **`guests`**: the Helm-native guest record (name, email, phone, notes,
   `source`). `bookings.guest_id` points here for direct and manual stays.
   It is NOT `audience_contacts` (the marketing list) and NOT `contacts`
@@ -503,8 +528,9 @@ Message-ID. Written by `/api/cron/lease-leads`. Service role only.
   reservation churn.
 - **`cleaner_schedule_recipients`** + **`cleaner_schedule_digests`**: now
   scoped by `region` (FK to `regions`). A recipient's `property_ids = '{}'`
-  means every property in their region; `language` is `pt` or `en`. One
-  digest row per `(service_date, region)`.
+  means every property in their region; `language` is `pt` or `en`;
+  `email` is where Friday's cleaning review email goes (null = none), read
+  apart from `RECIPIENT_COLS`. One digest row per `(service_date, region)`.
 - **`checkout_cleaning_skips`**: "no cleaning needed" on one checkout,
   keyed on the stay `(property_id, stay_check_in)`, one live row per stay
   (`cleared_at is null`). Set from `/turnovers/schedule`. A skipped stay
@@ -545,6 +571,12 @@ runs itself.
   `min_nights`, `subject`, `body` with merge fields, `enabled` (ships
   false), `configured_in_ota` (the operator says the OTA's own scheduled
   message already covers it, so Helm records rather than sends).
+  `migration_policy` is nullable; the Calderwood Guesty migration stores its
+  captured-source/body digests and exact relative offset on these same canonical
+  rows. Prepared rows are disabled, immutable and blocked from the send ledger
+  by SQL, including legacy/fleet paths. `helm_channex_prepare_templates` accepts
+  all six prepared rows atomically and only reuses an identical retry. It cannot
+  activate delivery. No source bodies or credentials are stored in the policy.
 - **`automation_sends`**: the per-stay send ledger, unique on
   `(booking_id, automation_id)` so a stay never gets the same message
   twice. `fire_at`, `status` (`scheduled`, `sending`, `awaiting_approval`,
@@ -558,6 +590,18 @@ runs itself.
   `/api/cron/automations` planner (every 15 minutes) only plans for homes
   with `automations_enabled` AND `calendar_authority = 'helm'`; fleet
   defaults never fire for a Guesty-run home.
+- **`helm_channex_messages` private schema** (dormant): Calderwood production
+  scope, per-send jobs and hold audit events. Jobs extend `automation_sends`,
+  with a second uniqueness fence on `(booking_id, automation_key)`; they store
+  body/context digests and provider IDs, never clear message bodies or keys.
+  The service-only `helm_channex_message_read/claim/finish/set_hold` RPCs bind
+  each one-use attempt to its canonical stay, reviewed source handoff, current
+  renderer dependencies and route generation. Unknown attempts cannot retry;
+  exact provider readback is `recorded`, not proof of recipient delivery.
+  Reserved rows are excluded from legacy dispatch and protected by SQL triggers,
+  including replacement-rule inserts. No route/job seeds, activation, scheduler
+  or source-proof creation RPC ships with this migration. See the Channex
+  production operations document for remaining handoff requirements.
 - **`guest_threads`**: one thread per stay per channel (`sms`, `email`,
   `airbnb`, `vrbo`, `booking_com`, `direct`), keyed to `booking_id`,
   `guest_id` and `property_id`, with `external_thread_key` (E.164 for
@@ -616,6 +660,21 @@ live in `property_access` and per-stay `guest_access_codes`.
 - `inspection_templates`: dead, no reader or writer in `src/`.
 - `inspection_plans`: per-user upcoming walks. Read by the home
   ForMeFeed's "Planned walks" section.
+- `cleaning_reviews`: the inspector's 1 to 5 stars for the clean behind a
+  walk, one row per `inspection_id`, with the reason and photos, and
+  `report_id`, the weekly email it rode in (null until Friday's draft).
+  The `notice_*` columns are the per-walk texts from 2026-11-07 to
+  2026-11-10; nothing writes them now. Written by `completeInspection`
+  through `lib/cleaning-reviews.ts`. Read by the weekly draft, the Team
+  inbox and `/me`. Service role only, RLS on.
+  `20261107120000_cleaning_reviews.sql`.
+- `cleaning_review_reports`: one weekly cleaning review email per
+  `week_end` (the Thursday before a Friday send): the subject and body in
+  Portuguese and English, `edited`, and `status` (`pending`, `approving`,
+  `sent`, `handled`) with the claim, decision and `sent_to`. Drafted by
+  `/api/cron/cleaning-review-email`, sent only on Approve from the Team
+  inbox, both in `lib/cleaning-reviews.ts`, the only file that sends.
+  Service role only, RLS on. `20261110120000_cleaning_review_reports.sql`.
 - `inspection_packets` + `packet_stops` + `packet_events`: the Field
   module's pooled inspection contracts for 1099 inspectors.
 

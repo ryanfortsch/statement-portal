@@ -6,9 +6,9 @@
  * was eleven outfittings, not a run rate. So outfitting is a one-time
  * charge in a new home's start month, the per-home supplies rate is fitted
  * without the linen orders, the photographer on the card rides the
- * Contractors line, the landscapers ride Repairs, and a month the operating
- * export has not reached projects its operating lines instead of reading
- * them as $0.
+ * Onboarding line (a bench line from 2026-10-15 to 2026-11-07), the
+ * landscapers ride Repairs, and a month the operating export has not
+ * reached projects its operating lines instead of reading them as $0.
  *
  * Run: npm test   (node --test, native TypeScript, no bundler, no database)
  */
@@ -18,33 +18,33 @@ import {
   calcYear,
   ccOperatingDetail,
   contractorCost,
+  creativeCost,
   listingCost,
   payrollCost,
-  photoCost,
   rentCost,
   BANK_FEES_MONTHLY,
   CC_LISTING_ANNUAL,
   CC_REPAIRS_SHARE,
   CC_SUPPLY_ANNUAL_PER_PROP,
   CC_SUPPLY_SEASON,
-  CONTRACTOR_FIELD_PROP_COUNT,
-  CONTRACTOR_PHOTO_MONTHLY,
   NEW_ORDER_2026,
   OFFICE_RENT_MONTHLY,
   OFFICE_START_MONTH,
   ONBOARDING_COST,
+  ONBOARDING_OUTFIT_COST,
+  ONBOARDING_PHOTO_COST,
   SEASON,
 } from '../forecast-model.ts';
 import { routeCardRow } from '../forecast-card-detail.ts';
 import { canonicalVendor, categorizeOverhead } from '../overhead-categories.ts';
 
 describe('the vendors September 2026 brought to the card', () => {
-  test('the photographer is a contractor and rides the bench line', () => {
+  test('the photographer is a contractor in the ledger and onboarding on the forecast', () => {
     assert.equal(
       categorizeOverhead({ account: 'card', description: 'LIGHTSHED PHOTOGRAPHY', amount: -415, chaseCategory: 'Merchandise & Inventory' }),
       'Contractors',
     );
-    assert.equal(routeCardRow('Contractors', 'LIGHTSHED PHOTOGRAPHY'), 'contractors');
+    assert.equal(routeCardRow('Contractors', 'LIGHTSHED PHOTOGRAPHY'), 'onboarding');
     assert.equal(canonicalVendor('LIGHTSHED PHOTOGRAPHY'), 'Lightshed Photography');
   });
 
@@ -111,44 +111,53 @@ describe('the second Furnished Finder listing', () => {
   });
 });
 
-describe('listing photography on the bench', () => {
-  test('starts in August 2026 and scales with the fleet', () => {
-    assert.equal(photoCost(2026, 7, 16), 0);
-    assert.equal(photoCost(2026, 8, 16), CONTRACTOR_PHOTO_MONTHLY);
-    // June: outside the January to April 2027 off-season ruling of 2026-10-21.
-    assert.equal(photoCost(2027, 6, 8), CONTRACTOR_PHOTO_MONTHLY / 2);
-    const withPhoto = contractorCost(2026, 9, CONTRACTOR_FIELD_PROP_COUNT, SEASON.CA[8]);
-    const without = withPhoto - photoCost(2026, 9, CONTRACTOR_FIELD_PROP_COUNT);
-    assert.ok(Math.abs(withPhoto - without - CONTRACTOR_PHOTO_MONTHLY) < 1e-9);
+describe('the listing shoot is part of onboarding', () => {
+  test('one shoot per new home, inside the start-month charge', () => {
+    assert.equal(ONBOARDING_PHOTO_COST, 400);
+    assert.equal(ONBOARDING_COST, ONBOARDING_OUTFIT_COST + ONBOARDING_PHOTO_COST);
+    // Nothing recurs with the month: the bench from November 2026 is the
+    // misc blend alone, in every year.
+    assert.equal(contractorCost(2026, 11, 16, SEASON.CA[10]), 250);
+    assert.equal(contractorCost(2028, 6, 24, SEASON.CA[5]), 250);
   });
 });
 
 describe('a month the operating export has not reached', () => {
+  // September 2026 as it first arrived: the card's Lightshed shoots ($757)
+  // on the Onboarding line, nothing on the bench, Cooper absent because the
+  // operating export stops before the month.
   const cardOnly = {
     month: '2026-09', revenue: 40000,
     exp_office: 471, exp_software: 2952, exp_debt: 0, exp_insurance: 0, exp_accounting: 0, exp_bank: 0,
-    exp_cc_ops: 5503, exp_contractors: 757, exp_payroll: 0, exp_onboard_presigned: 0, exp_onboard_new: 0,
+    exp_cc_ops: 5503, exp_contractors: 0, exp_payroll: 0, exp_onboard_presigned: 0, exp_onboard_new: 757,
     cc_detail: { supplies: 2892, repairs: 1037, vehicle_insurance: 518.56, travel_other: 365.47, marketing: 577, telecom: 112.97 },
     operating_covered: false,
   };
 
-  test('projects rent, the operating bench, payroll and bank fees; keeps the card as measured', () => {
+  test('projects rent, the operating bench, Cooper, payroll and bank fees; keeps the card as measured', () => {
     const acts = [] as (typeof cardOnly)[];
     acts[8] = cardOnly;
     const r = calcYear(0, 2026, acts, 9);
     const sep = r.monthly[8];
     assert.equal(sep.is_actual, true);
     assert.equal(sep.actual_card_only, true);
-    assert.equal(sep.exp_office, 471 + rentCost(9, OFFICE_START_MONTH));
-    assert.equal(rentCost(9, OFFICE_START_MONTH), OFFICE_RENT_MONTHLY);
+    assert.equal(sep.exp_office, 471 + rentCost(2026, 9, OFFICE_START_MONTH));
+    assert.equal(rentCost(2026, 9, OFFICE_START_MONTH), OFFICE_RENT_MONTHLY);
     const n = sep.active_count;
-    const wantBench = 757 + contractorCost(2026, 9, n, SEASON.CA[8]) - photoCost(2026, 9, n);
+    const wantBench = contractorCost(2026, 9, n, SEASON.CA[8]);
     assert.ok(Math.abs(sep.exp_contractors - wantBench) < 1e-6, `${sep.exp_contractors} vs ${wantBench}`);
     assert.equal(sep.exp_payroll, payrollCost(2026, 9));
     assert.equal(sep.exp_bank, BANK_FEES_MONTHLY);
     assert.equal(sep.exp_software, 2952);
-    assert.equal(sep.exp_cc_ops, 5503);
-    assert.deepEqual(sep.cc_detail, cardOnly.cc_detail);
+    assert.equal(sep.exp_onboard_new, 757, 'the measured shoots stay on the Onboarding line');
+    // Cooper is paid from the operating account, so his projected term is
+    // added to the measured card marketing, in the bucket and in the total.
+    const creative = creativeCost(2026, 9, n);
+    assert.ok(creative > 0);
+    assert.ok(Math.abs(sep.exp_cc_ops - (5503 + creative)) < 1e-6, `${sep.exp_cc_ops} vs ${5503 + creative}`);
+    assert.ok(sep.cc_detail);
+    assert.ok(Math.abs(sep.cc_detail.marketing - (577 + creative)) < 1e-6);
+    assert.deepEqual({ ...sep.cc_detail, marketing: 577 }, cardOnly.cc_detail, 'every other bucket is the card as measured');
     const sum =
       sep.exp_office + sep.exp_software + sep.exp_debt + sep.exp_insurance + sep.exp_accounting +
       sep.exp_bank + sep.exp_cc_ops + sep.exp_contractors + sep.exp_payroll +
@@ -167,6 +176,8 @@ describe('a month the operating export has not reached', () => {
     assert.equal(r.monthly[7].actual_card_only, false);
     assert.equal(r.monthly[7].exp_office, 1221);
     assert.equal(r.monthly[7].exp_contractors, 11188);
+    assert.equal(r.monthly[7].exp_cc_ops, 5503, 'a covered month reads Cooper from the bank, never the model');
+    assert.deepEqual(r.monthly[7].cc_detail, cardOnly.cc_detail);
     assert.equal(r.monthly[6].actual_card_only, false);
     assert.equal(r.monthly[6].exp_office, 750);
     assert.equal(r.monthly[6].exp_contractors, 4890);

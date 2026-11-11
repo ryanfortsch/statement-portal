@@ -5,21 +5,13 @@ import { HelmFooter } from '@/components/HelmFooter';
 import { Section } from '@/components/Section';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { CAPE_ANN_REGION } from '@/lib/property-scope';
-import { startInspection } from './actions';
 
-/** The list shows the viewer's region, the same gate the start form uses:
- *  a null region reads as Cape Ann (lib/property-scope.ts). PostgREST filter
- *  on the embedded properties row. */
+/** The list shows the viewer's region, the same gate the board's start form
+ *  uses: a null region reads as Cape Ann (lib/property-scope.ts). PostgREST
+ *  filter on the embedded properties row. */
 const REGION_FILTER = `region.is.null,region.eq.${CAPE_ANN_REGION}`;
 
 export const dynamic = 'force-dynamic';
-
-type PropertyOption = {
-  id: string;
-  name: string;
-  title: string | null;
-  city: string;
-};
 
 type RecentInspection = {
   id: string;
@@ -33,22 +25,6 @@ type RecentInspection = {
   na_count: number;
   property_name: string;
 };
-
-async function getProperties(): Promise<PropertyOption[]> {
-  const { data } = await supabase
-    .from('properties')
-    .select('id, name, title, city')
-    .eq('is_active', true)
-    // Cape Ann crew inspects Cape Ann homes; an out-of-region home
-    // (properties.region) has its own people. See lib/property-scope.ts.
-    .eq('region', 'cape_ann')
-    .order('name');
-  // Natural-sort by street number so the dropdown reads
-  // "3 Locust, 3 South, 4 Brier Neck, 17 Beach, 20 Enon, 20 Hammond, 21 Horton…"
-  // instead of the lexical "17, 20, 20, 21, 3, 3, 30…" Postgres returns.
-  const collator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
-  return ((data ?? []) as PropertyOption[]).sort((a, b) => collator.compare(a.name, b.name));
-}
 
 const PAGE_SIZE = 10;
 
@@ -107,8 +83,7 @@ export default async function InspectionsPage({
 }) {
   const params = await searchParams;
   const page = Math.max(1, parseInt(params.page ?? '1', 10) || 1);
-  const [properties, { rows: recents, hasOlder }, totalCount] = await Promise.all([
-    getProperties(),
+  const [{ rows: recents, hasOlder }, totalCount] = await Promise.all([
     getRecentInspections(page),
     getInspectionCount(),
   ]);
@@ -118,80 +93,22 @@ export default async function InspectionsPage({
       <HelmMasthead />
       <TurnoverTabs current="inspections" />
 
-      {/* The page is the form: the tab's name, a home, Start. The greeting
-          and the paragraph that stood here described a fixed checklist the
-          decks stopped being; the stepper explains itself card by card. */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 32, paddingBottom: 56, width: '100%' }}>
+      {/* The tab's name, then the one way in: a walk starts from the board,
+          where "Walk a home now" sits under the rows. This page is the
+          history of walks. */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 32, paddingBottom: 32, width: '100%' }}>
         <div className="eyebrow" style={{ marginBottom: 14 }}>Walks</div>
-        <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)', padding: '24px 0' }}>
-          <form action={startInspection} className="flex items-end gap-4 flex-wrap">
-            <div style={{ flex: 1, minWidth: 280 }}>
-              <label htmlFor="property_id" className="eyebrow" style={{ display: 'block', marginBottom: 8 }}>
-                Walk a home
-              </label>
-              <select
-                id="property_id"
-                name="property_id"
-                required
-                defaultValue=""
-                className="font-serif"
-                style={{
-                  width: '100%',
-                  background: 'transparent',
-                  border: '1px solid var(--rule)',
-                  color: 'var(--ink)',
-                  fontSize: 18,
-                  fontWeight: 400,
-                  padding: '10px 32px 10px 14px',
-                  outline: 'none',
-                  cursor: 'pointer',
-                  appearance: 'none',
-                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%23506068' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3C/svg%3E")`,
-                  backgroundRepeat: 'no-repeat',
-                  backgroundPosition: 'right 12px center',
-                  backgroundSize: '18px',
-                }}
-              >
-                <option value="" disabled>Choose a home…</option>
-                {properties.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <button
-              type="submit"
-              style={{
-                background: 'var(--ink)',
-                color: 'var(--paper)',
-                fontSize: 12,
-                fontWeight: 600,
-                letterSpacing: '.18em',
-                textTransform: 'uppercase',
-                padding: '14px 28px',
-                border: 'none',
-                cursor: 'pointer',
-              }}
-            >
-              Start
-            </button>
-          </form>
-        </div>
+        <Link href="/turnovers#walk-home-now" style={{ fontSize: 13, color: 'var(--ink-3)', textDecoration: 'underline', textUnderlineOffset: 3 }}>
+          Walk a home now, from the board →
+        </Link>
       </section>
 
       {/* RECENTS */}
       <Section
         title="Recent walks"
-        eyebrow={
-          totalCount > 0
-            ? page > 1
-              ? `page ${page} · ${totalCount} total`
-              : `last ${recents.length} · ${totalCount} total`
-            : undefined
-        }
+        eyebrow={page > 1 ? `page ${page}` : undefined}
         empty={totalCount === 0}
-        emptyMessage="No walks yet. Start one above."
+        emptyMessage="No walks yet."
         paddingBottom={80}
       >
         <div style={{ borderTop: '1px solid var(--ink)' }}>

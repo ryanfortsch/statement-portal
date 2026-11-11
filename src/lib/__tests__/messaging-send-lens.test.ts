@@ -9,7 +9,7 @@
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { buildPaymentLinkSms } from '../payment-links-text.ts';
 
 const read = (repoPath: string): string =>
@@ -30,8 +30,18 @@ describe('the Send lens', () => {
     }
   });
 
+  test('the guest Proactive panel is the shared one, with Recurring and One-time', () => {
+    const page = read('src/app/messaging/send/page.tsx');
+    assert.ok(!existsSync(new URL('../../../src/app/messaging/RemindersSection.tsx', import.meta.url)), 'the twin guest panel is gone');
+    assert.ok(!page.includes('RemindersSection'), 'Send renders the twin');
+    assert.ok(page.includes('<ProactiveRemindersPanel\n          audience="guest"'), 'Send renders the shared panel for guests');
+    const panel = read('src/components/ProactiveRemindersPanel.tsx');
+    assert.ok(panel.includes("(['recurring', 'once'] as Mode[]).map((m) =>"), 'every audience, guests included, keeps One-time');
+    assert.ok(panel.includes('start_date: stay.effective_start || stay.check_in'), 'a guest reminder still runs the stay window');
+  });
+
   test('no explainer, house buttons', () => {
-    for (const file of ['src/app/messaging/RemindersSection.tsx', 'src/components/ProactiveRemindersPanel.tsx']) {
+    for (const file of ['src/components/ProactiveRemindersPanel.tsx']) {
       const src = read(file);
       assert.ok(!src.includes('Click <b>Show</b> to set one up'), `${file} keeps the explainer`);
       assert.ok(!/<button type="button" onClick=\{loadRecurring\}/.test(src), `${file}: Refresh is unstyled`);

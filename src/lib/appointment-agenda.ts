@@ -30,6 +30,11 @@ export type AppointmentInput = {
   reviewReason: string | null;
   /** Explicitly reviewed provider revisions; polling alone never acknowledges changes. */
   sourceRevisions?: Record<string, string>;
+  /** A private attendance answer for one CRM meeting (its only source key is
+   *  that meeting). It never renders as a row of its own and copies nothing
+   *  from the meeting: the live CRM row keeps its own date, time and place
+   *  and takes only this person's attendance from the answer. */
+  attendanceOnly?: true;
 };
 export type AgendaEntry = AppointmentInput & {
   id: string;
@@ -38,6 +43,8 @@ export type AgendaEntry = AppointmentInput & {
   updatedAt: string | null;
   editable: boolean;
   sourceUpdates?: Array<{ key: string; revision: string; summary: string; url: string | null }>;
+  /** On a CRM meeting row: the signed-in person's saved attendance answer. */
+  attendanceAnswer?: { id: string; version: number };
 };
 export type SourceCoverage = {
   name: string;
@@ -59,6 +66,19 @@ export function agendaSourceStatus(sources: SourceCoverage[]): string {
   if (automatic.length && automatic.every(s => s.state === 'not_connected')) return 'Automatic sync is off';
   if (gaps.some(s => s.state === 'not_connected')) return 'Some sources not connected';
   return 'Source updates need review';
+}
+/** A source that should be feeding the agenda and is not. A deliberate
+ *  exclusion (a personal calendar) is information, not a gap. */
+export function agendaSourceGap(sources: SourceCoverage[]): boolean {
+  return sources.some(s => !s.excluded && s.state !== 'available');
+}
+/** Whether the home's Upcoming block has anything to print: an appointment
+ *  in the window (dated or awaiting a date), or a source gap, which stays
+ *  visible by the agenda's rules. With neither the feed leaves the block
+ *  out, so its All clear can show. */
+export function homeAgendaSpeaks(data: AgendaData): boolean {
+  const groups = agendaGroups(data.entries, data.today, data.through);
+  return groups.scheduled.length + groups.review.length + groups.other.length > 0 || agendaSourceGap(data.sources);
 }
 export type AgendaData = {
   entries: AgendaEntry[];
@@ -85,6 +105,10 @@ export function safeSourceUrl(value: string | null): string | null {
 export function validateAppointment(value: unknown): { ok: true; value: AppointmentInput } | { ok: false; error: string } {
   if (!value || typeof value !== 'object') return { ok: false, error: 'Enter an appointment.' };
   const v = value as Record<string, unknown>;
+  if (v.attendanceOnly !== undefined && (v.attendanceOnly !== true || !Array.isArray(v.sourceKeys) || v.sourceKeys.length !== 1 ||
+    typeof v.sourceKeys[0] !== 'string' || !MEETING_KEY.test(v.sourceKeys[0]) || v.sourceRevisions !== undefined)) {
+    return { ok: false, error: 'An attendance answer belongs to exactly one contact meeting.' };
+  }
   if (v.sourceRevisions !== undefined && (!v.sourceRevisions || typeof v.sourceRevisions !== 'object' || Array.isArray(v.sourceRevisions) ||
     Object.keys(v.sourceRevisions).length > 40 || Object.entries(v.sourceRevisions).some(([key, revision]) =>
       !/^(gcal|gmail|quo):[^\s]{1,400}$/.test(key) || typeof revision !== 'string' || !/^[a-f0-9]{64}$/.test(revision)))) {
@@ -118,14 +142,29 @@ export function validateAppointment(value: unknown): { ok: true; value: Appointm
     propertyName: text('propertyName'), location: text('location'), people: text('people'), notes: text('notes'),
     sourceLabel, sourceUrl, sourceKeys: [...new Set(v.sourceKeys as string[])].sort(), reviewReason: text('reviewReason'),
     ...(v.sourceRevisions ? { sourceRevisions: v.sourceRevisions as Record<string, string> } : {}),
+    ...(v.attendanceOnly ? { attendanceOnly: true as const } : {}),
   } };
 }
+export const MEETING_KEY = /^helm:meeting:[a-f0-9-]{36}$/i;
+/** The two one-tap answers on a CRM meeting row. */
+export const MEETING_ANSWERS = ['attending', 'not_attending'] as const;
+export type MeetingAnswer = typeof MEETING_ANSWERS[number];
+/** The private record behind a one-tap answer. Generic title and source on
+ *  purpose: nothing of the shared meeting is copied into it, so the meeting's
+ *  own date, time and place keep coming from the CRM row. */
+export function meetingAttendanceDetails(meetingId: string, attendance: MeetingAnswer): AppointmentInput {
+  return { title: 'Attendance answer', date: null, time: null, endTime: null, timeKind: 'exact', status: 'tentative', attendance,
+    propertyName: null, location: null, people: null, notes: null, sourceLabel: 'Attendance answer', sourceUrl: null,
+    sourceKeys: [`helm:meeting:${meetingId}`], reviewReason: null, attendanceOnly: true };
+}
 
-/** A conflicting address is a review task, never an automatic reassignment. */
+/** A conflicting address is a review task, never an automatic reassignment.
+ *  Otherwise a CRM meeting or an owner-booked record is an ordinary dated row:
+ *  it stays tentative with attendance open (the CRM records neither), and the
+ *  row asks for attendance in one tap instead of filing it under review. */
 export function meetingReviewReason(m: MeetingCard): string | null {
   if (appointmentAddressConflict(m.propertyName, m.title, m.location)) return 'The title/location names a different street number from the filed property. Verify the source, date and attendance.';
-  if (m.kind === 'appointment') return 'Owner-booked record: confirm the current date, time window and whether our team is needed.';
-  return 'CRM records do not record attendance or confirmation. Check the source before relying on this time.';
+  return null;
 }
 export function meetingToAgenda(m: MeetingCard): AgendaEntry {
   return {
@@ -139,14 +178,21 @@ export function meetingToAgenda(m: MeetingCard): AgendaEntry {
 
 /** Reviewed records explicitly link their original source(s). Cancelled and
  * rescheduled replacements suppress old rows BEFORE filtering by date. Never
- * merge two similar titles: they can be different inspections. */
+ * merge two similar titles: they can be different inspections. An attendance
+ * answer never suppresses its meeting: it sets that row's attendance only. */
 export function mergeAgenda(saved: AgendaEntry[], inherited: AgendaEntry[]): AgendaEntry[] {
-  const claimed = new Set(saved.flatMap(e => e.sourceKeys));
+  const answers = new Map(saved.filter(e => e.attendanceOnly).map(e => [e.sourceKeys[0], e]));
+  const records = saved.filter(e => !e.attendanceOnly);
+  const claimed = new Set(records.flatMap(e => e.sourceKeys));
   const byIdentity = new Map<string, AgendaEntry>();
-  for (const e of [...saved].sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''))) {
+  for (const e of [...records].sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''))) {
     if (!e.sourceKeys.some(k => byIdentity.has(k))) for (const k of e.sourceKeys) byIdentity.set(k, e);
   }
-  return [...new Set(byIdentity.values()), ...inherited.filter(e => !e.sourceKeys.some(k => claimed.has(k)))];
+  const answered = (e: AgendaEntry): AgendaEntry => {
+    const a = e.id.startsWith('meeting:') ? answers.get(`helm:${e.id}`) : undefined;
+    return a ? { ...e, attendance: a.attendance, attendanceAnswer: { id: a.id, version: a.version } } : e;
+  };
+  return [...new Set(byIdentity.values()), ...inherited.filter(e => !e.sourceKeys.some(k => claimed.has(k))).map(answered)];
 }
 export function agendaWindow(now = new Date()) {
   const today = operatingDate(now);

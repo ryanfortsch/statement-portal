@@ -28,7 +28,7 @@ export function OfferToPicker({ contractors, onChange }: { contractors: Offerabl
           (optional)
         </span>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 8 }} role="group" aria-label="Who this packet is offered to">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 8 }} role="group" aria-label="Who this job is offered to">
         {contractors.map((c) => {
           const on = offerTo.includes(c.id);
           return (

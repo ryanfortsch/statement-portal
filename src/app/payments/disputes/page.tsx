@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { FinancialsTabs } from '@/components/FinancialsTabs';
+import { StripeTabs } from '@/components/StripeTabs';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { isOwnerSession } from '@/lib/helm-access-server';
@@ -73,6 +74,7 @@ export default async function DisputesPage() {
             : 'Nothing waiting on our evidence.'
         }
       />
+      <StripeTabs current="disputes" />
       <section className="max-w-[1100px] mx-auto px-10 w-full" style={{ paddingBottom: 56 }}>
         <p style={{ ...quiet, margin: '0 0 16px' }}>
           The last 120 days, from each home&apos;s own Stripe account. Each one waiting on us is also a to-do, due the day

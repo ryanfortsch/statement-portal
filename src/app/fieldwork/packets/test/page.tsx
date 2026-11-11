@@ -1,6 +1,5 @@
 import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
-import { FieldTabs } from '@/components/FieldTabs';
 import { HelmFooter } from '@/components/HelmFooter';
 import { isFieldConfigured } from '@/lib/field-db';
 import { loadFieldTestState, type FieldTestPacket } from '@/lib/field-test';
@@ -39,12 +38,11 @@ export default async function FieldTestPage() {
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
-      <FieldTabs current="packets" trade="inspection" />
       <section className="max-w-[900px] mx-auto px-10" style={{ width: '100%', paddingTop: 28, paddingBottom: 48 }}>
         <div className="font-serif" style={{ fontSize: 26, fontWeight: 400 }}>Field test console</div>
         <p style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 4, marginBottom: 20, maxWidth: 640 }}>
           Drive the whole Field flow end to end, on every side. Seed creates two onboarded test contractors (an
-          inspector and a maintenance pro), a few test work slips, and one published packet of each trade ready to
+          inspector and a maintenance pro), a few test work slips, and one published job of each trade ready to
           claim. Reset wipes all of it (and the old Demo Inspector). No real contractors are texted; the test
           contractors have no phone.
         </p>
@@ -60,28 +58,28 @@ export default async function FieldTestPage() {
                 busyLabel="Wiping…"
                 style={btnGhost}
                 spinnerTone="ink"
-                confirm="Wipe the test data? This deletes the test contractors, their packets, inspections and work slips, and the old Demo Inspector. Real contractors and packets are untouched."
+                confirm="Wipe the test data? This deletes the test contractors, their jobs, inspections and work slips, and the old Demo Inspector. Real contractors and jobs are untouched."
               />
             </form>
           )}
         </div>
 
-        {/* Runbook */}
-        <div style={{ border: '1px solid var(--rule)', borderRadius: 10, padding: '16px 20px', marginBottom: 28, background: 'var(--paper-2, #fff)' }}>
-          <div style={{ fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 10 }}>
+        {/* Runbook, folded: the console is a tool, not a page to read. */}
+        <details style={{ border: '1px solid var(--rule)', borderRadius: 10, padding: '16px 20px', marginBottom: 28, background: 'var(--paper-2, #fff)' }}>
+          <summary style={{ cursor: 'pointer', fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>
             The full loop
-          </div>
-          <ol style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.7 }}>
+          </summary>
+          <ol style={{ margin: '12px 0 0', paddingLeft: 18, fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.7 }}>
             <li><strong>Seed</strong> the test data above.</li>
             <li>Open a contractor portal link below in a <strong>separate browser / incognito window</strong> (so it doesn&apos;t collide with your staff login).</li>
             <li><strong>Test onboarding</strong>: open the <em>&ldquo;not onboarded&rdquo;</em> inspector&apos;s link. You&apos;ll see the new-inspector setup (W-9 + agreement + home address). Complete it and that inspector goes active and can claim. (This is exactly what a new Perfection inspector walks through.)</li>
-            <li>As the already-<strong>onboarded inspector</strong>: claim the test inspection packet, run the inspection, submit.</li>
-            <li>As the <strong>maintenance</strong> pro: claim the test maintenance packet, mark each job done with a note, submit.</li>
-            <li>Back here as staff: on the <Link href="/fieldwork/packets" style={{ color: 'var(--tide-deep)' }}>packets board</Link>, <strong>Approve</strong> each submitted packet, then <strong>Mark paid</strong>.</li>
+            <li>As the already-<strong>onboarded inspector</strong>: claim the test inspection job, run the inspection, submit.</li>
+            <li>As the <strong>maintenance</strong> pro: claim the test maintenance job, mark each repair done with a note, submit.</li>
+            <li>Back here as staff: on the <Link href="/fieldwork/packets" style={{ color: 'var(--tide-deep)' }}>Jobs board</Link>, <strong>Approve</strong> each submitted job, then <strong>Mark paid</strong>.</li>
             <li>Try the operator side yourself too: bundle from the calendar or the <Link href="/fieldwork/packets?trade=maintenance#maintenance-jobs" style={{ color: 'var(--tide-deep)' }}>Handymen board</Link>.</li>
             <li><strong>Reset</strong> when you&apos;re done.</li>
           </ol>
-        </div>
+        </details>
 
         {/* Contractors */}
         {state.contractors.length > 0 && (
@@ -114,11 +112,11 @@ export default async function FieldTestPage() {
           </div>
         )}
 
-        {/* Packets */}
+        {/* Jobs */}
         {state.packets.length > 0 && (
           <div style={{ marginBottom: 24 }}>
             <h2 style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 10 }}>
-              Test packets
+              Test jobs
             </h2>
             {state.packets.map((p) => (
               <PacketRow key={p.id} p={p} />
@@ -135,7 +133,7 @@ export default async function FieldTestPage() {
 
         {!state.seeded && state.hasLegacyDemo && (
           <p style={{ fontSize: 13, color: 'var(--ink-3)' }}>
-            A legacy &ldquo;Demo Inspector&rdquo; and its packets are still in the system. Reset above will clear them.
+            A legacy &ldquo;Demo Inspector&rdquo; and its jobs are still in the system. Reset above will clear them.
           </p>
         )}
       </section>

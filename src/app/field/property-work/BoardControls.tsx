@@ -60,7 +60,7 @@ export function BoardSlipDone({ slipId }: { slipId: string }) {
             {/* The portal's one receipt field. A board slip's receipt rides
                 the trip they are on (or just finished) at that home;
                 otherwise the office adds it to their next payout. */}
-            <ReceiptAmountField where="rides your trip at this home, else your next payout" />
+            <ReceiptAmountField where="rides your job at this home, else your next payout" />
           </div>
         </div>
       )}

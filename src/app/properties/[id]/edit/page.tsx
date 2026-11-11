@@ -91,7 +91,7 @@ export default async function PropertyEditPage({
           {p.name}
         </h1>
         <p style={{ marginTop: 12, fontSize: 14, color: 'var(--ink-3)', maxWidth: 640, lineHeight: 1.6 }}>
-          The groups are the Facts tab&rsquo;s, in its order. Leave a field blank to clear it.
+          Leave a field blank to clear it.
         </p>
       </section>
 

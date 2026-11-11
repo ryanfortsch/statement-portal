@@ -55,7 +55,7 @@ test("the owner's decision comes before what they found, the utilities and the s
   const approve = src.indexOf('<form action={approvePacket}', decision);
   const paid = src.indexOf('<form action={markPacketPaid}');
   assert.ok(decision > -1 && approve > decision && paid > decision);
-  for (const later of ['Inspection summary', '{owner && (homedReceipts.length', 'Preview as inspector', 'When ▾', '<StopList']) {
+  for (const later of ['Inspection summary', '{owner && (homedReceipts.length', 'Preview as contractor', 'When ▾', '<StopList']) {
     const at = src.indexOf(later);
     assert.ok(at > approve && at > paid, `${later} must follow the decision`);
   }
@@ -69,4 +69,24 @@ test('the levers staff hold stay theirs', () => {
     assert.ok(src.includes(lever), `missing ${lever}`);
   }
   assert.match(src, /\{owner && \(packet\.status === 'claimed' \|\| packet\.status === 'in_progress'\) && \(\s*<details[\s\S]{0,900}?action=\{raisePacketEstimate\}/, 'Raise pay stays owners only');
+});
+
+test('the levers sit in two menus, and the one loud verb stays outside them', () => {
+  // UX audit, 2026-11-07: Change the job (when, pay, stops, windows, the
+  // cleaner's order) and Hand it off (assign, unpublish, release, cancel).
+  const change = src.indexOf('Change the job ▾');
+  const hand = src.indexOf('Hand it off ▾');
+  assert.ok(change > 0 && hand > change, 'both menus render, Change the job first');
+  for (const lever of ['action={setPacketVisitDate}', 'action={raisePacketEstimate}', 'action={addPacketStop}', 'action={syncPacketWindows}', 'action={orderStopsByCleaningTime}']) {
+    const at = src.indexOf(lever);
+    assert.ok(at > change && at < hand, `${lever} is in Change the job`);
+  }
+  for (const lever of ['action={assignPacket}', 'action={unpublishPacket}', 'action={releasePacket}', 'action={cancelPacket}']) {
+    assert.ok(src.indexOf(lever) > hand, `${lever} is in Hand it off`);
+  }
+  for (const verb of ['action={publishPacket}', 'action={submitPacketForContractor}']) {
+    assert.ok(src.indexOf(verb) < change, `${verb} stays a button outside the menus`);
+  }
+  // The tier key prints once: inside Assign when it is offered.
+  assert.ok(src.includes('{eligible.length > 0 && !canAssign && <div'), 'the coverage line drops the key when Assign carries it');
 });

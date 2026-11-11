@@ -93,7 +93,7 @@ export const ACTUALS_TRAILING_12MO: ExpenseLine[] = [
     label: 'Office rent (85 Eastern)',
     total12mo: -5250.00,
     avgMonthly: -437.50,
-    note: 'Lease started Mar 2026, so the window holds only six payments. $750/mo recurring going forward, plus one $1,500 two-month catch-up.',
+    note: 'Historical window: downstairs lease began March 2026 at $750/mo, including a $1,500 two-month catch-up. Suite 107 later added $250/mo ($80 partial July); ongoing projected rent is $1,000/mo. Historical payment totals are unchanged.',
     inScope: true,
   },
   {
@@ -173,7 +173,7 @@ export const ACTUALS_TRAILING_12MO: ExpenseLine[] = [
     label: 'Cooper (creative)',
     total12mo: -300.00,
     avgMonthly: -25.00,
-    note: 'NEW as of 2026-07-29, so the window catches one payment. Paid $300/wk on the Chase "Basic Online Payroll" rail; $2,300 through 08/25/2026. Forward run rate ~$1,300/mo.',
+    note: 'NEW as of 2026-07-29, so the window catches one payment. Paid $300/wk on the Chase "Basic Online Payroll" rail; $2,300 through 08/25/2026. Forward run rate ~$1,300/mo. Filed under Marketing & advertising on the forecast since 2026-11-07, not the Contractors line.',
     inScope: true,
   },
   {

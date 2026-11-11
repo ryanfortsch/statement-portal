@@ -131,7 +131,10 @@ describe('the home feed renders This week through this module', () => {
 
   test('appointments have a separate 30-day source-aware agenda', () => {
     const feed = read('src/components/ForMeFeed.tsx');
-    assert.ok(feed.includes('<AppointmentAgendaSection />'));
+    // The feed loads the agenda once and hands it to the block, so it can
+    // leave the block out (and show All clear) when the agenda is silent.
+    assert.ok(feed.includes('<AppointmentAgendaSection data={agenda} />'));
+    assert.ok(feed.includes('homeAgendaSpeaks(agenda) || weekDays.length > 0'), 'the week section is null when the agenda and the week are both empty');
     assert.ok(!feed.includes('loadMeetingCards('), 'appointments are not duplicated in dated work');
     const agenda = read('src/lib/appointment-agenda-server.ts');
     assert.ok(agenda.includes('days: AGENDA_DAYS'));

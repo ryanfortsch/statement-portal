@@ -26,8 +26,9 @@ import { SaveQueue } from '@/lib/save-queue';
 import { readInspectionDrafts } from '@/lib/inspection-drafts';
 import { INSPECTION_SUPPLIES } from '@/lib/inspection-supplies';
 import { PULLOUT_BED_ITEM_ID, withSheetsLine } from '@/lib/pullout-beds';
-import { SLIP_OUTCOME_HINT, SLIP_OUTCOME_LABEL, type SlipOutcome } from '@/lib/field-slip-outcomes';
+import { SLIP_OUTCOME_LABEL, type SlipOutcome } from '@/lib/field-slip-outcomes';
 import { stepperForwardLabel, ISSUE_BECOMES_WORK_ORDER, ISSUE_HINT_SEEN_KEY } from '@/lib/stepper-words';
+import { CLEANING_FLAG_MAX, CLEANING_STARS, type CleaningStars } from '@/lib/cleaning-reviews-core';
 
 /**
  * One deck card. For zone-mapped properties the same template item can
@@ -249,6 +250,17 @@ export function Stepper({
   // Slip verification: each listed slip's answer. Absent = Still open, which
   // the walk itself confirms on complete.
   const [slipVerdicts, setSlipVerdicts] = useState<Map<string, 'done' | 'handled'>>(() => new Map());
+  // How was the clean? One answer per walk: 1 to 5 stars, or "No clean to
+  // rate". Four or fewer also asks what was off and for photos; Complete
+  // stores it, and Friday's email to the crew carries the week's ratings
+  // after approval (cleaning-reviews-core.ts). The walk cannot complete until
+  // this is answered.
+  const [cleaningStars, setCleaningStars] = useState<CleaningStars | null>(null);
+  const [cleaningSkipped, setCleaningSkipped] = useState(false);
+  const [cleaningReason, setCleaningReason] = useState('');
+  const [cleaningPhotos, setCleaningPhotos] = useState<string[]>([]);
+  const [cleaningUploading, setCleaningUploading] = useState(false);
+  const cleaningAnswered = cleaningSkipped || cleaningStars !== null;
   function toggleSupply(key: string) {
     setSuppliesLow((prev) => {
       const next = new Set(prev);
@@ -523,6 +535,8 @@ export function Stepper({
       await completeInspection(inspectionId, {
         packetId,
         suppliesLow: Array.from(suppliesLow),
+        // The clean's stars, or null for "No clean to rate".
+        cleaning: cleaningStars ? { stars: cleaningStars, reason: cleaningReason, photoUrls: cleaningPhotos } : null,
         // Every listed slip gets a verdict: done on this trip, already
         // handled, or (untouched) still open, which the walk confirms.
         slipsDone: verifySlips.filter((w) => slipVerdicts.get(w.id) === 'done').map((w) => w.id),
@@ -671,6 +685,22 @@ export function Stepper({
             })}
           </div>
 
+          {/* HOW WAS THE CLEAN? One tap. Four or fewer opens what was off
+              and photos; the rating rides in Friday's email to the crew. */}
+          <CleanRating
+            inspectionId={inspectionId}
+            stars={cleaningStars}
+            skipped={cleaningSkipped}
+            reason={cleaningReason}
+            photos={cleaningPhotos}
+            disabled={isCompleting}
+            onStars={(n) => { setCleaningStars(n); setCleaningSkipped(false); }}
+            onSkip={() => { setCleaningSkipped(true); setCleaningStars(null); }}
+            onReason={setCleaningReason}
+            onPhotos={setCleaningPhotos}
+            onUploadingChange={setCleaningUploading}
+          />
+
           {/* SUPPLIES CHECK — defaults to all OK; flipped toggles become
               one Rising Tide restock work slip per supply on Complete. */}
           <SuppliesCheck low={suppliesLow} onToggle={toggleSupply} bedrooms={propertyBedrooms} />
@@ -679,11 +709,8 @@ export function Stepper({
             <div style={{ marginTop: 22 }}>
               {/* The packet page's words for the same slips: Done on this
                   trip, Already handled, Still open. */}
-              <div style={{ fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 4 }}>
+              <div style={{ fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 10 }}>
                 Also open at this home
-              </div>
-              <div style={{ fontSize: 12.5, color: 'var(--ink-4)', marginBottom: 10, lineHeight: 1.5 }}>
-                Say which you did on this walk, and which were already taken care of.
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {verifySlips.map((w) => {
@@ -738,9 +765,6 @@ export function Stepper({
                             </button>
                           );
                         })}
-                      </div>
-                      <div style={{ fontSize: 11.5, color: verdict === 'open' ? 'var(--ink-4)' : 'var(--positive)', marginTop: 6 }}>
-                        {SLIP_OUTCOME_HINT[verdict]}
                       </div>
                     </div>
                   );
@@ -814,10 +838,10 @@ export function Stepper({
             <button
               type="button"
               onClick={complete}
-              disabled={isCompleting || markedCount === 0 || failedKeys.length > 0 || savingCount > 0}
-              style={{ ...primaryBtn(), opacity: markedCount === 0 || failedKeys.length > 0 || savingCount > 0 ? 0.5 : 1 }}
+              disabled={isCompleting || markedCount === 0 || failedKeys.length > 0 || savingCount > 0 || !cleaningAnswered || cleaningUploading}
+              style={{ ...primaryBtn(), opacity: markedCount === 0 || failedKeys.length > 0 || savingCount > 0 || !cleaningAnswered || cleaningUploading ? 0.5 : 1 }}
             >
-              {isCompleting ? 'Completing…' : savingCount > 0 ? 'Saving marks…' : 'Complete walk →'}
+              {isCompleting ? 'Completing…' : savingCount > 0 ? 'Saving marks…' : cleaningUploading ? 'Uploading photos…' : !cleaningAnswered ? 'Rate the clean first' : 'Complete walk →'}
             </button>
           </div>
         </section>
@@ -1489,6 +1513,142 @@ function primaryBtn(): React.CSSProperties {
     minHeight: 48,
     flex: 1,
   };
+}
+
+/**
+ * How was the clean? Five taps, one answer. Five stars closes the question.
+ * Four or fewer (CLEANING_FLAG_MAX) opens what was off and a photo row, and
+ * says in one line what Complete does with it: every rating rides in
+ * Friday's email to the crew, sent after approval on the Team inbox. "No
+ * clean to rate" is the exit for a walk
+ * of a house nobody cleaned.
+ */
+function CleanRating({
+  inspectionId,
+  stars,
+  skipped,
+  reason,
+  photos,
+  disabled,
+  onStars,
+  onSkip,
+  onReason,
+  onPhotos,
+  onUploadingChange,
+}: {
+  inspectionId: string;
+  stars: CleaningStars | null;
+  skipped: boolean;
+  reason: string;
+  photos: string[];
+  disabled: boolean;
+  onStars: (n: CleaningStars) => void;
+  onSkip: () => void;
+  onReason: (text: string) => void;
+  onPhotos: (urls: string[]) => void;
+  onUploadingChange: (uploading: boolean) => void;
+}) {
+  const flagged = stars !== null && stars <= CLEANING_FLAG_MAX;
+  const status = skipped ? 'no clean to rate' : stars === null ? 'tap a star' : `${stars} of 5 · in Friday's email`;
+  return (
+    <div style={{ marginTop: 40 }}>
+      <div className="flex items-baseline justify-between" style={{ marginBottom: 6, gap: 12 }}>
+        <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
+          How was the clean?
+        </h2>
+        <span className="eyebrow" style={{ color: flagged ? 'var(--signal)' : 'var(--ink-4)', textAlign: 'right' }}>{status}</span>
+      </div>
+      <div role="radiogroup" aria-label="Stars for the clean" style={{ display: 'flex', gap: 6, borderTop: '1px solid var(--ink)', paddingTop: 14 }}>
+        {CLEANING_STARS.map((n) => {
+          const on = stars !== null && n <= stars;
+          return (
+            <button
+              key={n}
+              type="button"
+              role="radio"
+              aria-checked={stars === n}
+              aria-label={`${n} of 5`}
+              disabled={disabled}
+              onClick={() => onStars(n)}
+              style={{
+                flex: 1,
+                minHeight: 56,
+                maxHeight: 64,
+                display: 'grid',
+                placeItems: 'center',
+                border: `1px solid ${on ? 'var(--signal)' : 'var(--rule)'}`,
+                background: on ? 'rgba(148,109,46,0.08)' : 'var(--paper-2, #fff)',
+                color: on ? 'var(--signal)' : 'var(--rule)',
+                borderRadius: 10,
+                fontSize: 26,
+                lineHeight: 1,
+                cursor: disabled ? 'default' : 'pointer',
+                padding: 0,
+              }}
+            >
+              ★
+            </button>
+          );
+        })}
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+        <span>Redo it</span>
+        <span>Perfect</span>
+      </div>
+
+      {flagged && (
+        <div style={{ marginTop: 20, borderLeft: '3px solid var(--signal)', padding: '12px 16px', background: 'rgba(148,109,46,0.06)' }}>
+          <label htmlFor="clean-reason" style={{ display: 'block', fontSize: 14, color: 'var(--ink)', fontWeight: 500 }}>
+            What was off?
+          </label>
+          <textarea
+            id="clean-reason"
+            value={reason}
+            onChange={(e) => onReason(e.target.value.slice(0, 600))}
+            disabled={disabled}
+            rows={3}
+            placeholder="Hair in the tub, crumbs under the toaster"
+            style={{
+              display: 'block',
+              width: '100%',
+              marginTop: 10,
+              font: 'inherit',
+              fontSize: 14,
+              padding: '10px 12px',
+              border: '1px solid var(--rule)',
+              background: 'var(--paper-2, #fff)',
+              color: 'var(--ink)',
+              resize: 'vertical',
+            }}
+          />
+          <div style={{ marginTop: 10 }}>
+            <PhotoUploader
+              draftKey={`clean:${inspectionId}`}
+              value={photos}
+              onChange={onPhotos}
+              folder={`inspections/${inspectionId.slice(0, 8)}/clean`}
+              disabled={disabled}
+              onUploadingChange={onUploadingChange}
+            />
+          </div>
+          <div style={{ marginTop: 12, fontSize: 12.5, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+            Approving it on Team texts the crew in Portuguese{photos.length ? ' with these photos' : ''}.
+          </div>
+        </div>
+      )}
+
+      {!skipped && (
+        <button
+          type="button"
+          onClick={onSkip}
+          disabled={disabled}
+          style={{ marginTop: 14, background: 'none', border: 'none', padding: 0, font: 'inherit', fontSize: 12.5, color: 'var(--ink-4)', textDecoration: 'underline', textUnderlineOffset: 3, cursor: 'pointer' }}
+        >
+          No clean to rate
+        </button>
+      )}
+    </div>
+  );
 }
 
 function SuppliesCheck({

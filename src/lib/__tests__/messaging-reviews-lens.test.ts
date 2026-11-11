@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 /**
- * The Guest reviews lens's invariants, read from the source (2026-10-30):
+ * The Review cards lens's invariants, read from the source (2026-10-30;
+ * named Guest reviews until 2026-11-07):
  * the Inbox and the guests count leave its cards out, the lens never wires
  * Approve on a host-review card, and the lens row and atlas know the route.
  * Each line here is thin across files and easy to lose in a refactor.
@@ -38,7 +39,14 @@ test('a host-review card never gets Approve, Send later, Coach or Redraft', () =
 
 test('the lens is on the Guests row with its count, and in the atlas', () => {
   const tabs = read('src/components/MessagingTabs.tsx');
-  assert.match(tabs, /\{ id: 'reviews', label: 'Guest reviews', href: '\/messaging\/reviews' \}/);
+  assert.match(tabs, /\{ id: 'reviews', label: 'Review cards', href: '\/messaging\/reviews' \}/);
+  // "Reviews" is the Growth tab; this lens is named for its cards, and its
+  // rules block points at the ledger of their reviews of us.
+  assert.doesNotMatch(tabs, /label: 'Guest reviews'/);
+  assert.match(read('src/lib/helm-modules.ts'), /title: 'Review Cards'/);
+  const reviewsPage = read('src/app/messaging/reviews/page.tsx');
+  assert.match(reviewsPage, /<Section title="Review cards"/);
+  assert.match(reviewsPage, /<Link href="\/guests" className="rt-inline-action">Reviews ledger →<\/Link>/);
   assert.match(tabs, /l\.id === 'reviews' && <MessagingTabCount category="reviews" \/>/);
   const modules = read('src/lib/helm-modules.ts');
   assert.match(modules, /href: '\/messaging\/reviews'/);

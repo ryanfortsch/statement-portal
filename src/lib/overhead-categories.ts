@@ -123,9 +123,11 @@ const VENDOR_RULES: Rule[] = [
   //
   // Lightshed Photography is the one contractor paid on the CARD: listing
   // shoots at $342 to $415, five of them between 2026-07-31 and 2026-09-30.
-  // It is creative work like Cooper's and the forecast projects it on the
-  // Contractors line (CONTRACTOR_PHOTO_MONTHLY); as 'Other' it sat in
-  // Travel & other, which read $757 of photography in September 2026.
+  // The ledger keeps it here; the forecast files it as onboarding (a shoot
+  // is part of bringing a home online, ruling of 2026-11-07) and files
+  // Cooper under marketing, both through routeCardRow in
+  // forecast-card-detail.ts. As 'Other' it sat in Travel & other, which
+  // read $757 of photography in September 2026.
   { category: 'Contractors', matches: ['DELANEY', 'COOPER', 'BASIC ONLINE PAYROLL', 'MAGGIE BUTLER', 'NICOLE WHITTEN', 'MARK BELL', 'OWEN BRILL', 'MORGAN DENHART', 'IAN DROMETER', 'LUKE WALLACE', 'SANDY MAID', 'ONYX INFRASTRUCTURE', 'TOMER', 'MORRIS HOME SERVICES', 'LIGHTSHED'] },
   // Gusto debits read "ORIG CO NAME:GUSTO ... CO ENTRY DESCR:NET|TAX|FEE". All
   // three are the payroll line: NET is the direct deposit, TAX the withheld

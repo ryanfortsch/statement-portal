@@ -291,7 +291,7 @@ try{
   },body,twice);
   await reset('task');assert.equal(await guard(),false);await click('task','Edit Title');await edit(taskTitle,'Updated task');
   assert.equal(await guard(),true);assert.equal(await beforeUnload(),true);await click('task','Save',true);await waitCalls(1);
-  assert.equal(await page.$eval(taskTitle,e=>e.disabled),true);assert.equal(await disabled('task','Delete to-do'),true);
+  assert.equal(await page.$eval(taskTitle,e=>e.disabled),true);assert.equal(await disabled('task','Mark done'),true);
   assert.deepEqual(await args(0),{id:'synthetic-task',title:'Updated task'});
   await finish(0,{ok:false,error:'Title save failed'});await waitText('Title: Title save failed');await ready(taskTitle);
   assert.equal(await field(taskTitle),'Updated task');assert.equal(await guard(),true);
@@ -311,25 +311,26 @@ try{
   await finish(1);await waitText('Saved.');await clean();
   pass('the description saves after a pause, never locks the box, and waits after a failure for the next keystroke');
 
-  await reset('task');assert.deepEqual(await taskPressed(),['Normal','Open']);
+  await reset('task');assert.deepEqual(await taskPressed(),['Normal']);
   await click('task','High',true);await waitCalls(1);assert.deepEqual(await args(0),{id:'synthetic-task',priority:'high'});assert.equal(await disabled('task','Low'),true);
-  await finish(0,null,true);await waitText('Priority: Could not confirm the change.');await ready(taskDescription);assert.deepEqual(await taskPressed(),['Normal','Open']);
-  await click('task','Retry');await waitCalls(2);assert.equal((await args(1)).priority,'high');await finish(1);await clean();assert.deepEqual(await taskPressed(),['High','Open']);
-  await click('task','Blocked');await waitCalls(3);assert.deepEqual(await args(2),{id:'synthetic-task',status:'blocked'});await finish(2);await clean();
-  await waitText('Waiting on something outside the office.');assert.deepEqual(await taskPressed(),['High','Blocked']);
+  await finish(0,null,true);await waitText('Priority: Could not confirm the change.');await ready(taskDescription);assert.deepEqual(await taskPressed(),['Normal']);
+  await click('task','Retry');await waitCalls(2);assert.equal((await args(1)).priority,'high');await finish(1);await clean();assert.deepEqual(await taskPressed(),['High']);
+  await click('task','In progress');await waitCalls(3);assert.deepEqual(await args(2),{id:'synthetic-task',status:'in_progress'});await finish(2);await clean();
+  assert.deepEqual(await taskPressed(),['High','In progress']);
   await edit('#task input[aria-label="Due date"]','2026-10-09');await waitCalls(4);assert.deepEqual(await args(3),{id:'synthetic-task',due_date:'2026-10-09'});await finish(3);await clean();
   assert.equal(await page.evaluate(()=>window.calls.length),4);
   pass('priority, status and due date each save on their own tap, show only the confirmed value, and retry their exact target');
 
-  await reset('task');await click('task','Mark Done',true);await waitCalls(1);assert.deepEqual(await args(0),{id:'synthetic-task',status:'done'});
+  await reset('task');await click('task','Mark done',true);await waitCalls(1);assert.deepEqual(await args(0),{id:'synthetic-task',status:'done'});
   await finish(0,{ok:false,error:'Close refused'});await waitText('Status: Close refused');
   assert.equal(await page.$$eval('#task [role="alert"]',es=>es.length),1);
-  await click('task','Mark Done');await waitCalls(2);await finish(1);await clean();await waitText('Reopen puts it back on the list.');
-  assert.equal(await page.$$eval('#task button',bs=>bs.some(b=>b.textContent.trim()==='Blocked')),false);
+  await click('task','Mark done');await waitCalls(2);await finish(1);await clean();await waitText('Completed');
+  assert.equal(await page.$$eval('#task button',bs=>bs.some(b=>b.textContent.trim()==='In progress')),false);
   await click('task','Reopen');await waitCalls(3);assert.equal((await args(2)).status,'open');await finish(2);await clean();
-  await click('task','Dismiss');await waitCalls(4);assert.equal((await args(3)).status,'archived');await finish(3);await clean();await waitText('Dismissed: closed without doing it.');
+  await click('task','Dismiss');await waitCalls(4);assert.equal((await args(3)).status,'archived');await finish(3);await clean();await waitText('Dismissed');
   assert.equal(await page.$$eval('#task option',os=>os.some(o=>/archived/i.test(o.textContent))),false);
-  pass('Mark Done, Dismiss and Reopen are the only close verbs, each saving on its own and recovering a refusal');
+  assert.equal(await page.$$eval('#task button',bs=>bs.some(b=>/^Delete/.test(b.textContent.trim()) && b.getAttribute('aria-label')!=='Delete comment')),false);
+  pass('Mark done, Dismiss and Reopen are the only close verbs, each saving on its own and recovering a refusal; there is no Delete');
 
   await reset('task');await edit(taskComment,'  Keep this comment.\nA second line.  ');await click('task','Post comment',true);await waitCalls(1);
   assert.equal(await page.$eval(taskComment,e=>e.disabled),true);assert.deepEqual(await taskRows(),['Comment a','Comment b','Comment other']);
@@ -358,15 +359,6 @@ try{
   assert.equal(await field(taskComment),'Unfinished comment');assert.equal(await guard(),true);
   await click('task','Discard comment draft');await clean();
   pass('saving a to-do field cannot release a pending or failed comment draft guard');
-
-  await reset('task');await click('task','Delete to-do');assert.equal(await page.evaluate(()=>window.calls.length),0);
-  await waitText('Delete this to-do and its 3 comments? This cannot be undone.');await click('task','Keep it');assert.equal(await page.evaluate(()=>window.calls.length),0);
-  await click('task','Delete to-do');await click('task','Delete for good',true);await waitCalls(1);
-  assert.equal((await page.evaluate(()=>window.calls[0].kind)),'deleteTask');assert.deepEqual(await args(0),{id:'synthetic-task'});
-  assert.equal(await disabled('task','Post comment'),true);assert.equal(await disabled('task','Edit Title'),true);assert.equal(await page.$eval(taskDescription,e=>e.disabled),true);
-  await finish(0,null,true);await waitText('Synthetic lost response');await ready(taskDescription);await clean();
-  assert.equal(await page.evaluate(()=>window.confirmations.length),0);
-  pass('delete asks once on the page, says it cannot be undone, blocks competing writes, and unlocks after failure');
 
   const bookTitle='#playbook input[placeholder^="e.g. Onboard"]';
   const bookBody='#playbook textarea';

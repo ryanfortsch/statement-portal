@@ -8,17 +8,20 @@ import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { isCapeAnnOps, regionLabel, CAPE_ANN_REGION } from '@/lib/property-scope';
 import {
   listScheduleRecipients,
+  getScheduleSettings,
   portalLink,
   describeRecipientScope,
   type ScheduleRecipient,
 } from '@/lib/cleaner-digest';
-import { saveRecipientAction, saveDefaultTimesAction } from '../schedule/actions';
+import { formatTime12 } from '@/lib/checkout-schedule';
+import { saveRecipientAction, saveDefaultTimesAction, toggleAutosendAction } from '../schedule/actions';
 import { RecipientToggle } from '../schedule/RecipientToggle';
 
 /**
- * Cleaner settings: the two admin sections that used to sit at the foot of
- * the schedule workroom. Who gets the daily text (the
- * cleaner_schedule_recipients rows, each with its live page link) and the
+ * Cleaner settings: who gets the daily text (the
+ * cleaner_schedule_recipients rows, each with its live page link), whether
+ * it sends on its own (cleaner_schedule_settings.autosend_enabled, off by
+ * policy; it moved here from the Team inbox card on 2026-11-08), and the
  * per-home default times the schedule falls back to when no adjustment is
  * set. The actions stay in ../schedule/actions.ts and land back here.
  *
@@ -32,6 +35,7 @@ const ERR_COPY: Record<string, string> = {
   bad_time: 'That time did not parse - use HH:MM or "11am".',
   bad_phone: 'That phone did not parse - ten digits, US.',
   bad_name: 'A recipient needs a display name.',
+  bad_email: 'That email did not look right. Check it and save again.',
   bad_property: 'One of those property ids is not in the registry.',
   bad_region: 'That region is not in the registry.',
   mixed_region: 'Those homes are in different regions. A recipient gets one region\'s digest: add one row per region.',
@@ -72,10 +76,14 @@ const inputStyle: React.CSSProperties = {
  */
 function RecipientForm({
   recipient,
+  email,
   regions,
   properties,
 }: {
   recipient: ScheduleRecipient | null;
+  /** Where Friday's cleaning review email goes; read apart from the row so
+   *  the daily text never depends on the column. */
+  email?: string | null;
   regions: string[];
   properties: Array<{ id: string; name: string; region: string | null }>;
 }) {
@@ -96,6 +104,10 @@ function RecipientForm({
       <label style={labelStyle}>
         Name
         <input name="displayName" defaultValue={recipient?.display_name ?? ''} placeholder="First name" required style={{ ...inputStyle, fontFamily: 'inherit', width: 140 }} />
+      </label>
+      <label style={labelStyle}>
+        Email (Friday&apos;s cleaning review)
+        <input name="email" type="email" defaultValue={email ?? ''} placeholder="name@example.com" style={{ ...inputStyle, fontFamily: 'inherit', width: 220 }} />
       </label>
       <label style={labelStyle}>
         Region
@@ -149,21 +161,34 @@ export default async function CleanerSettingsPage({
   // that section where the anchor scrolls to. A default-times save lands
   // on its row with ?saved=1 or ?err=, and the head carries that.
   const atRecipients = first(sp.at) === 'recipients';
+  // The automatic-sending switch lands with at=autosend.
+  const atAutosend = first(sp.at) === 'autosend';
   const errNotice: Notice | null = err ? { tone: 'bad', text: ERR_COPY[err] ?? `Error: ${err}` } : null;
   const recipientNotice: Notice | null = atRecipients
     ? errNotice ?? (first(sp.saved) ? { tone: 'ok', text: 'Recipient saved.' } : null)
     : null;
-  const headNotice: Notice | null = atRecipients
+  const autosendNotice: Notice | null = atAutosend && first(sp.saved) ? { tone: 'ok', text: 'Saved.' } : null;
+  const headNotice: Notice | null = atRecipients || atAutosend
     ? null
     : errNotice ?? (first(sp.saved) ? { tone: 'ok', text: 'Saved.' } : null);
 
-  const [recipients, propsRes] = await Promise.all([
+  const [recipients, propsRes, settings, emailRes] = await Promise.all([
     listScheduleRecipients(supabase).catch(() => []),
     supabase
       .from('properties')
       .select('id, name, default_checkout_time, default_checkin_time, is_active, kind, region')
       .order('name'),
+    // Unknown is not off: a failed read shows no switch rather than one
+    // that might flip the setting the wrong way.
+    getScheduleSettings(supabase).catch(() => null),
+    // Apart from RECIPIENT_COLS: before the email column exists this read
+    // fails alone and the forms show an empty email field.
+    supabase.from('cleaner_schedule_recipients').select('phone, email'),
   ]);
+  const emails = new Map(
+    ((emailRes.error ? [] : emailRes.data ?? []) as Array<{ phone: string; email: string | null }>).map((r) => [r.phone, r.email]),
+  );
+  const sendHour = settings ? formatTime12(`${String(settings.send_hour_et).padStart(2, '0')}:00`) : null;
 
   // Every active managed home, all regions: the recipient form's picker and
   // the region options. The Cape Ann filter is for the default-times list,
@@ -212,6 +237,7 @@ export default async function CleanerSettingsPage({
                   {regionLabel(r.region)} · {describeRecipientScope(r, regionLabel, (id) => allPropNames.get(id) ?? id)}
                 </span>
                 <span className="eyebrow" style={{ fontSize: 10 }}>{r.language === 'en' ? 'English' : 'Português'}</span>
+                {emails.get(r.phone) && <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>{emails.get(r.phone)}</span>}
                 <a
                   href={portalLink(r.portal_token)}
                   target="_blank"
@@ -223,10 +249,10 @@ export default async function CleanerSettingsPage({
               </div>
               <details style={{ marginTop: -6 }}>
                 <summary style={{ cursor: 'pointer', listStyle: 'none', fontSize: 11, color: 'var(--ink-4)', padding: '0 0 8px' }}>
-                  edit scope, language, phone ▾
+                  edit email, scope, language, phone ▾
                 </summary>
                 <div style={{ padding: '4px 0 16px' }}>
-                  <RecipientForm recipient={r} regions={regionOptions} properties={allProps} />
+                  <RecipientForm recipient={r} email={emails.get(r.phone)} regions={regionOptions} properties={allProps} />
                 </div>
               </details>
             </div>
@@ -239,6 +265,34 @@ export default async function CleanerSettingsPage({
               <RecipientForm recipient={null} regions={regionOptions} properties={allProps} />
             </div>
           </details>
+        </div>
+      </Section>
+
+      <Section id="schedule-autosend" title="Automatic sending" eyebrow="The daily text" paddingTop={8} paddingBottom={12}>
+        <div style={{ borderTop: '1px solid var(--ink)', paddingTop: 12, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', fontSize: 13, color: 'var(--ink-3)', scrollMarginTop: 100 }}>
+          <NoticeLine notice={autosendNotice} style={{ flexBasis: '100%' }} />
+          {settings && sendHour ? (
+            <>
+              <span>
+                {settings.autosend_enabled
+                  ? `Sends automatically at ${sendHour} ET.`
+                  : 'Sends only when you approve it on the Team inbox.'}
+              </span>
+              {/* A skipped day never sends; a day sent by hand never sends twice. */}
+              <form action={toggleAutosendAction}>
+                <input type="hidden" name="enabled" value={settings.autosend_enabled ? 'false' : 'true'} />
+                <input type="hidden" name="back" value="settings" />
+                <SubmitButton
+                  label={settings.autosend_enabled ? 'Turn off automatic sending' : `Send automatically at ${sendHour}`}
+                  busyLabel="Saving..."
+                  spinnerTone="ink"
+                  className="rt-quiet-btn"
+                />
+              </form>
+            </>
+          ) : (
+            <span role="status">Couldn&rsquo;t read this setting. Reload to try again.</span>
+          )}
         </div>
       </Section>
 
@@ -280,7 +334,7 @@ export default async function CleanerSettingsPage({
       </Section>
 
       <div style={{ flex: 1 }} />
-      <HelmFooter left="Turnovers · Cleaner settings" right="Recipients and default times" />
+      <HelmFooter left="Turnovers · Cleaner settings" right="Recipients, automatic sending and default times" />
     </div>
   );
 }
