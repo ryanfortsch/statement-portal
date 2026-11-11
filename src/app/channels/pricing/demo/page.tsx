@@ -15,7 +15,7 @@ export default async function PricingDemoPage(){
     <div className="pricing-page-shell"><header className="pricing-page-heading">
       <HelmHero plain eyebrow="" title="Helm pricing" paddingTop={16} paddingBottom={16}/>
       <Link href="/channels/pricing">Your homes</Link>
-      <p>Sample data</p>
+      <p>Demo · simulated data</p>
     </header><main>
       <PricingDemo fixtures={createPricingPortfolioDemo()}/>
       <p className="pricing-demo-note">Sample data. Changes stay in this browser and reset on reload.</p>

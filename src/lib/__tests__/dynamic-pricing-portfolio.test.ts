@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {pricingOccupancyWindow,pricingPortfolioRow,pricingPortfolioTotals,pricingPortfolioView,pricingPortfolioHref,type PricingPortfolioHome} from '../dynamic-pricing-portfolio.ts';
+import {pricingOccupancyWindow,pricingPortfolioRow,pricingPortfolioTotals,pricingPortfolioView,pricingPortfolioHref,sortPricingPortfolioRows,type PricingPortfolioHome,type PricingPortfolioSort} from '../dynamic-pricing-portfolio.ts';
 import {createPricingDemo,createPricingPortfolioDemo,createPricingDemoServices} from '../dynamic-pricing-demo.ts';
 import {shiftIsoDay} from '../sca-quotes-types.ts';
 
@@ -14,7 +14,7 @@ function fixture(states:('booked'|'open'|'blocked'|'unknown')[]) {
 }
 
 test('dashboard links round-trip the selected view without permitting external destinations or invalid filters',()=>{
-  const view=pricingPortfolioView({period:'60',q:'Harbor & beach',filter:'below',sort:'gap',connection:'helm_direct'});
+  const view=pricingPortfolioView({period:'60',q:'Harbor & beach',filter:'below',sort:'base',direction:'desc',connection:'helm_direct'});
   const homeLink=pricingPortfolioHref(view,'sample/home'),url=new URL(homeLink,'https://helm.example');
   assert.equal(url.pathname,'/channels/pricing');assert.equal(url.searchParams.get('property'),'sample/home');
   const back=pricingPortfolioHref(pricingPortfolioView(Object.fromEntries(url.searchParams)));
@@ -22,6 +22,42 @@ test('dashboard links round-trip the selected view without permitting external d
   assert.deepEqual(pricingPortfolioView(Object.fromEntries(new URL(back,'https://helm.example').searchParams)),view);
   assert.deepEqual(pricingPortfolioView({period:'300',filter:'https://elsewhere',sort:['gap'],q:['ignored'],connection:'other'}),pricingPortfolioView());
   assert.equal(pricingPortfolioHref(pricingPortfolioView()),'/channels/pricing');
+  assert.equal(pricingPortfolioView({sort:'open'}).direction,'desc');
+  assert.equal(pricingPortfolioView({sort:'base',direction:'invalid'}).direction,'asc');
+});
+
+test('numeric column sorts toggle direction, preserve zero, and keep missing values last without mutating rows',()=>{
+  const f=fixture(Array(90).fill('open'));
+  const make=(id:string,value:number|null)=>{
+    const row={...pricingPortfolioRow(home,f,f.snapshot.today,now),id,name:id};
+    row.baseCents=value;row.floorCents=value;row.ceilingCents=value;
+    Object.assign(row.windows[30],{occupancyPct:value,marketPct:value,gapPp:value,open:value??0,unknown:value===null?1:0});
+    return row;
+  };
+  const rows=[make('Missing',null),make('High',70),make('Zero',0),make('Low',20)],original=structuredClone(rows);
+  for(const sort of ['base','floor','ceiling','occupancy','market','gap','open'] as PricingPortfolioSort[]) {
+    assert.deepEqual(sortPricingPortfolioRows(rows,{sort,direction:'asc',window:30}).map(r=>r.id),['Zero','Low','High','Missing'],sort);
+    assert.deepEqual(sortPricingPortfolioRows(rows,{sort,direction:'desc',window:30}).map(r=>r.id),['High','Low','Zero','Missing'],sort);
+  }
+  assert.deepEqual(rows,original);
+});
+
+test('occupancy sorting uses the selected horizon, and ties keep a deterministic natural-name order',()=>{
+  const f=fixture(Array(90).fill('open'));
+  const rows=['Home 10','Home 2','Home 1'].map((name,i)=>{
+    const row={...pricingPortfolioRow(home,f,f.snapshot.today,now),id:`row-${i}`,name};
+    row.windows[30].occupancyPct=[80,20,50][i];row.windows[60].occupancyPct=[10,90,60][i];
+    row.baseCents=10000;return row;
+  });
+  const names=(sort:PricingPortfolioSort,direction:'asc'|'desc',window:30|60=30)=>sortPricingPortfolioRows(rows,{sort,direction,window}).map(r=>r.name);
+  assert.deepEqual(names('occupancy','asc'),['Home 2','Home 1','Home 10']);
+  assert.deepEqual(names('occupancy','asc',60),['Home 10','Home 1','Home 2']);
+  assert.deepEqual(names('name','asc'),['Home 1','Home 2','Home 10']);
+  assert.deepEqual(names('name','desc'),['Home 10','Home 2','Home 1']);
+  assert.deepEqual(names('base','desc'),['Home 1','Home 2','Home 10']);
+  rows[0].mode='helm_direct';rows[2].mode='helm_direct';
+  assert.deepEqual(names('connection','asc'),['Home 2','Home 1','Home 10']);
+  assert.deepEqual(names('connection','desc'),['Home 1','Home 10','Home 2']);
 });
 
 test('forward occupancy excludes deliberate blocks and compares the same bookable dates',()=>{
@@ -96,11 +132,18 @@ test('row summaries reject cross-home evidence and keep unavailable data distinc
 test('portfolio sample uses the property calendar day and independently represents missing/stale data',()=>{
   assert.equal(createPricingDemo(new Date('2026-11-11T00:30:00Z')).snapshot.today,'2026-11-10');
   const f=createPricingPortfolioDemo(now);
-  assert.equal(new Set(f.map(v=>v.home.id)).size,6);
+  assert.equal(f.length,24);assert.equal(new Set(f.map(v=>v.home.id)).size,24);
   const rows=f.map(v=>pricingPortfolioRow(v.home,{...v.fixture,profile:null,runs:[]},v.fixture.snapshot.today,now));
   assert.equal(rows[4].windows[30].marketIssue,'stale');assert.equal(rows[5].windows[30].occupancyPct,null);
   assert.equal(rows[0].windows[30].end,shiftIsoDay('2026-11-10',29));
   assert.ok(rows[0].windows[30].gapPp!<0);assert.ok(rows[1].windows[30].gapPp!>0);
+  assert.equal(rows[18].windows[30].marketIssue,'missing');
+  assert.equal(rows[23].windows[30].bookable,0);assert.equal(rows[23].windows[30].occupancyPct,null);
+  for(const direction of ['asc','desc'] as const) {
+    const sorted=sortPricingPortfolioRows(rows,{sort:'occupancy',window:30,direction});
+    assert.equal(sorted.length,24);assert.equal(new Set(sorted.map(r=>r.id)).size,24);
+    assert.ok(sorted.slice(-2).every(r=>r.windows[30].occupancyPct===null));
+  }
 });
 
 test('multi-home demo saves and publishes only the selected home, with Guesty remaining comparison-only',async()=>{

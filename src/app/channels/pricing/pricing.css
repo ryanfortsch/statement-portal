@@ -1,8 +1,8 @@
 /* A single, scoped system for the pricing workspace. */
 .helm-pricing {
-  --pricing-ink: #233c35;
+  --pricing-ink: #26333b;
   --pricing-muted: #697280;
-  --pricing-line: #dfe5e1;
+  --pricing-line: #e1e5e7;
   --pricing-accent: #2d6255;
   --pricing-surface: #f3f6f3;
   container: pricing / inline-size;
@@ -29,10 +29,10 @@
 .helm-pricing .pricing-icon-button:hover:not(:disabled) { background: #eef1f5; }
 .helm-pricing .pricing-dot { width: 5px; height: 5px; border-radius: 50%; background: #a47b36; display: inline-block; flex-shrink: 0; }
 /* Listing table */
-.pricing-portfolio { padding-top: 30px; }
-.helm-pricing .portfolio-heading { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 28px; }
-.helm-pricing .portfolio-heading h2 { display: flex; align-items: center; gap: 10px; font-size: 28px; line-height: 1.2; font-weight: 600; letter-spacing: -.7px; white-space: nowrap; }
-.helm-pricing .portfolio-count { border-radius: 5px; padding: 4px 7px; background: #e7ece8; font-size: 12px; font-weight: 500; letter-spacing: 0; color: #657182; }
+.pricing-portfolio { padding-top: 24px; --portfolio-listing-width: 230px; }
+.helm-pricing .portfolio-heading { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 22px; }
+.helm-pricing .portfolio-heading h2 { display: flex; align-items: center; gap: 10px; font-size: 25px; line-height: 1.2; font-weight: 600; letter-spacing: -.7px; white-space: nowrap; }
+.helm-pricing .portfolio-count { border-radius: 5px; padding: 4px 7px; background: #edf0f2; font-size: 12px; font-weight: 500; letter-spacing: 0; color: #657182; }
 .helm-pricing .portfolio-controls { display: flex; align-items: center; gap: 10px; }
 .helm-pricing .portfolio-search { display: flex; align-items: center; gap: 9px; width: 220px; min-width: 0; border: 1px solid #e1e5e9; border-radius: 7px; padding-left: 11px; background: #fff; }
 .helm-pricing .portfolio-search:focus-within { border-color: #9dacbf; box-shadow: 0 0 0 3px #f0f3f8; }
@@ -42,36 +42,47 @@
 .helm-pricing .portfolio-search input::placeholder { color: #667488; }
 .helm-pricing .portfolio-toolbar { display: flex; align-items: center; gap: 8px; }
 .helm-pricing .portfolio-table-key { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-bottom: 0; color: #667488; font-size: 11px; }
-.helm-pricing .portfolio-table-wrap { overflow: auto; scrollbar-width: thin; scrollbar-color: #ccd3df #f8f9fb; border: 0; border-radius: 0 0 12px 12px; }
+.helm-pricing .portfolio-table-wrap { overflow: auto; max-height: max(320px,calc(100dvh - 300px)); overscroll-behavior: contain; scroll-padding: 44px 0 0 var(--portfolio-listing-width); scrollbar-width: thin; scrollbar-color: #cbd2d7 #f8f9fb; border: 0; }
 .helm-pricing .portfolio-table { width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 0; text-align: left; }
-.helm-pricing .portfolio-listing-col { width: 230px; }
+.helm-pricing .portfolio-listing-col { width: var(--portfolio-listing-width); }
 .helm-pricing .portfolio-action-col { width: 44px; }
 .helm-pricing .portfolio-metric-col { width: 120px; }
 .helm-pricing .portfolio-price-col { width: 92px; }
 .helm-pricing .portfolio-mode-col { width: 150px; }
-.helm-pricing .portfolio-table th { background: #fafbf9; padding: 14px 20px; font-size: 11px; font-weight: 500; color: #657182; border-bottom: 1px solid var(--pricing-line); white-space: nowrap; vertical-align: middle; }
-.helm-pricing .portfolio-table th .rt-quiet-btn { font: inherit; padding: 0; color: inherit; }
-.helm-pricing .portfolio-table td { border-bottom: 1px solid #eff0f3; padding: 19px 20px; height: 82px; vertical-align: middle; font-size: 13px; background: white; }
+.helm-pricing .portfolio-table th { position: sticky; top: 0; z-index: 3; background: #f7f8fa; padding: 12px 16px; font-size: 11px; font-weight: 500; color: #657182; border-bottom: 1px solid var(--pricing-line); white-space: nowrap; vertical-align: middle; }
+.helm-pricing .portfolio-table th .rt-quiet-btn { display: flex; align-items: center; gap: 7px; width: 100%; font: inherit; padding: 0; color: inherit; text-align: left; }
+.helm-pricing .portfolio-table td { border-bottom: 1px solid #eff0f3; padding: 12px 16px; height: 64px; vertical-align: middle; font-size: 13px; background: white; }
 .helm-pricing .portfolio-table :is(th,td):last-child { padding-left: 0; padding-right: 10px; }
 .helm-pricing .portfolio-table tbody tr:last-child td { border-bottom: 0; }
-.helm-pricing .portfolio-table tr:hover td { background: #f2f7f3; }
+.helm-pricing .portfolio-table tr:hover td { background: #f4f7f8; }
 .helm-pricing .portfolio-table .portfolio-sticky { position: sticky; left: 0; z-index: 2; }
-.helm-pricing .portfolio-home-link { display: block; padding: 0; text-align: left; color: #253344; font-size: 14px; font-weight: 600; line-height: 1.4; }
+.helm-pricing .portfolio-home-link { display: block; padding: 0; text-align: left; color: #26333b; font-size: 13px; font-weight: 550; line-height: 1.4; }
 .helm-pricing .portfolio-home-link:hover { color: #3b7172; }
-.helm-pricing .portfolio-home-meta { display: block; font-size: 11px; line-height: 1.5; color: #667488; margin-top: 5px; }
+.helm-pricing .portfolio-home-meta { display: block; font-size: 11px; line-height: 1.5; color: #74808a; margin-top: 3px; }
 .helm-pricing .portfolio-data-note { color: #98632f; white-space: nowrap; }
 .helm-pricing .portfolio-review { display: inline-flex; align-items: center; justify-content: center; color: #81909f; }
 .helm-pricing .portfolio-table td b { font-weight: 550; }
-.helm-pricing .portfolio-base b { font-size: 16px; color: #344252; }
+.helm-pricing .portfolio-base b { font-size: 14px; color: #344252; }
 .helm-pricing .portfolio-row-note { display: block; margin-top: 4px; color: #667488; font-size: 11px; line-height: 1.4; }
 .helm-pricing .portfolio-connection-state { display: flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 12px; color: #626e7d; }
 .helm-pricing .portfolio-connection-state::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: #b8bec7; }
 .helm-pricing .portfolio-connection-state[data-connected]::before { background: #518874; }
-.helm-pricing .portfolio-footer { display: flex; justify-content: space-between; gap: 24px; padding-top: 18px; font-size: 11px; color: #667488; }
+.helm-pricing .portfolio-footer { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; padding-top: 12px; font-size: 11px; color: #667488; }
 .helm-pricing .portfolio-method { font-size: 11px; line-height: 1.7; }
 .helm-pricing .portfolio-method summary { cursor: pointer; }
 .helm-pricing .portfolio-method :is(p,ul) { max-width: 800px; margin-top: 14px; }
 .helm-pricing .portfolio-empty { padding: 36px 0; }
+.helm-pricing .portfolio-table thead .portfolio-sticky { z-index: 4; }
+.helm-pricing .portfolio-sort-icon { margin-left: auto; color: #a5adb4; font-size: 12px; font-weight: 400; }
+.helm-pricing .portfolio-sort-icon[data-active] { color: #2d6255; }
+.helm-pricing .portfolio-table th[aria-sort] { color: #243d35; }
+.helm-pricing .portfolio-table th .rt-quiet-btn:hover { color: #1c5745; }
+.helm-pricing .portfolio-table-footer { display: flex; justify-content: space-between; gap: 16px; padding: 11px 16px; border-top: 1px solid var(--pricing-line); font-size: 11px; color: #73808a; background: #fff; border-radius: 0 0 8px 8px; }
+.helm-pricing .portfolio-source-status { white-space: nowrap; font-size: 11px; color: #6c7781; }
+.helm-pricing.pricing-portfolio .pricing-occupancy-values b { font-size: 14px; letter-spacing: -.2px; }
+.helm-pricing.pricing-portfolio .pricing-occupancy-values span { font-size: 11px; }
+.helm-pricing.pricing-portfolio .pricing-occupancy-track { height: 3px; margin-top: 7px; }
+.helm-pricing.pricing-portfolio .pricing-occupancy-track > span { top: -2px; height: 7px; }
 /* Occupancy: listing fill and a market tick share the same scale. */
 .helm-pricing .pricing-occupancy { min-width: 0; width: 100%; }
 .helm-pricing .pricing-occupancy-values { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
@@ -230,8 +241,8 @@
 .helm-pricing .pricing-chart-disclosure { padding: 16px 0; font-size: 12px; color: #667488; }
 html:has(.helm-pricing dialog[open]) { overflow: hidden; }
 /* Shared application shell, without altering other Helm pages. */
-body:has(.pricing-page-shell) { background: #f3f5f2; }
-.pricing-page-shell { max-width: 1440px; margin: 0 auto; padding: 0 32px 40px; background: #f3f5f2; }
+body:has(.pricing-page-shell) { background: #f6f7f8; }
+.pricing-page-shell { max-width: 1440px; margin: 0 auto; padding: 0 32px 40px; background: #f6f7f8; }
 .pricing-page-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid #e7e9ee; }
 .pricing-page-heading .rt-helm-hero { width: auto !important; margin: 0; padding-left: 0; padding-right: 0; }
 .pricing-page-heading .rt-helm-hero .eyebrow { display: none; }
@@ -239,10 +250,10 @@ body:has(.pricing-page-shell) { background: #f3f5f2; }
 .pricing-page-heading > :is(a,p) { font-size: 12px; color: #667488; }
 .pricing-demo-note { font-size: 12px; color: #667488; padding-top: 20px; }
 /* Table and secondary views use the same contained surfaces. */
-.helm-pricing .portfolio-surface { border: 1px solid var(--pricing-line); border-radius: 12px; background: white; box-shadow: 0 2px 5px #1d382405; }
-.helm-pricing .portfolio-viewbar { display: flex; justify-content: space-between; align-items: center; gap: 18px; padding: 0 20px; border-bottom: 1px solid var(--pricing-line); }
+.helm-pricing .portfolio-surface { border: 1px solid var(--pricing-line); border-radius: 8px; background: white; }
+.helm-pricing .portfolio-viewbar { display: flex; justify-content: space-between; align-items: center; gap: 18px; padding: 0 16px; border-bottom: 1px solid var(--pricing-line); }
 .helm-pricing .portfolio-views { display: flex; align-items: center; gap: 20px; }
-.helm-pricing .portfolio-views > button { display: inline-flex; align-items: center; gap: 7px; position: relative; white-space: nowrap; border-radius: 0; padding: 18px 0; font-size: 12px; color: #66746d; }
+.helm-pricing .portfolio-views > button { display: inline-flex; align-items: center; gap: 7px; position: relative; white-space: nowrap; border-radius: 0; padding: 15px 0; font-size: 12px; color: #66727a; }
 .helm-pricing .portfolio-views > button > span { font-size: 10px; color: #6d7a72; }
 .helm-pricing .portfolio-views > button[aria-pressed=true] { color: #28594d; }
 .helm-pricing .portfolio-views > button[aria-pressed=true]::after { position: absolute; content: ''; height: 2px; background: #28594d; bottom: 0; left: 0; right: 0; }
@@ -300,7 +311,6 @@ body:has(.pricing-page-shell) { background: #f3f5f2; }
   .helm-pricing .pricing-listing-metric { display: block; margin: 0; }
   .helm-pricing .pricing-listing-metric > span { display: block; margin-bottom: 6px; }
   .helm-pricing .pricing-days > * { min-height: 92px; }
-  .helm-pricing .portfolio-table-key > span:first-child { display: none; }
 }
 @container pricing (max-width: 580px) {
   .helm-pricing .portfolio-heading { flex-wrap: wrap; gap: 20px; margin-bottom: 20px; }
@@ -311,7 +321,8 @@ body:has(.pricing-page-shell) { background: #f3f5f2; }
   .helm-pricing .portfolio-views { gap: 18px; }
   .helm-pricing .portfolio-views > button { font-size: 11px; padding: 16px 0; }
   .helm-pricing .portfolio-table-key { width: 100%; justify-content: flex-start; padding-top: 10px; }
-  .helm-pricing .portfolio-table .portfolio-sticky { width: 190px; box-shadow: 1px 0 #e7e9ee; }
+  .helm-pricing .portfolio-surface { --portfolio-listing-width: 190px; }
+  .helm-pricing .portfolio-table .portfolio-sticky { box-shadow: 1px 0 #e7e9ee; }
   .helm-pricing .pricing-workbench-header { padding: 23px 0; gap: 8px; }
   .pricing-listing-navigation { gap: 6px; }
   .pricing-title-select select { font-size: 21px; max-width: 205px; }

@@ -5,13 +5,16 @@ import {shiftIsoDay} from './sca-quotes-types.ts';
 
 export const PRICING_WINDOWS = [7,30,60,90] as const;
 export type PricingWindowDays = typeof PRICING_WINDOWS[number];
-export type PricingPortfolioView = {window:PricingWindowDays;query:string;filter:'all'|'below'|'data';sort:'name'|'occupancy'|'gap'|'open';connection:'all'|'shadow'|'helm_direct'};
+export const PRICING_SORTS = ['name','occupancy','market','gap','open','base','floor','ceiling','connection'] as const;
+export type PricingPortfolioSort = typeof PRICING_SORTS[number];
+export type PricingPortfolioView = {window:PricingWindowDays;query:string;filter:'all'|'below'|'data';sort:PricingPortfolioSort;direction:'asc'|'desc';connection:'all'|'shadow'|'helm_direct'};
 export function pricingPortfolioView(params:Record<string,string|string[]|undefined>={}):PricingPortfolioView {
   const period=Number(params.period);
+  const sort=PRICING_SORTS.includes(params.sort as PricingPortfolioSort)?params.sort as PricingPortfolioSort:'name';
   return {window:PRICING_WINDOWS.includes(period as PricingWindowDays)?period as PricingWindowDays:30,
     query:typeof params.q==='string'?params.q.slice(0,120):'',
     filter:params.filter==='below'||params.filter==='data'?params.filter:'all',
-    sort:params.sort==='occupancy'||params.sort==='gap'||params.sort==='open'?params.sort:'name',
+    sort,direction:params.direction==='asc'||params.direction==='desc'?params.direction:sort==='open'?'desc':'asc',
     connection:params.connection==='shadow'||params.connection==='helm_direct'?params.connection:'all'};
 }
 /** Only local pricing links; preserve the dashboard view when opening and leaving a home. */
@@ -22,6 +25,7 @@ export function pricingPortfolioHref(view:PricingPortfolioView,property?:string)
   if(view.query)params.set('q',view.query);
   if(view.filter!=='all')params.set('filter',view.filter);
   if(view.sort!=='name')params.set('sort',view.sort);
+  if(view.direction!==(view.sort==='open'?'desc':'asc'))params.set('direction',view.direction);
   if(view.connection!=='all')params.set('connection',view.connection);
   return '/channels/pricing'+(params.size?'?'+params.toString():'');
 }
@@ -38,6 +42,31 @@ export type PricingPortfolioRow = PricingPortfolioHome & {
   observedAt:string|null; marketObservedAt:string|null; marketSource:string; lastAppliedAt:string|null;
   error:string|null; windows:Record<PricingWindowDays,PricingWindow>;
 };
+
+/** Missing measurements stay last in either direction; ties have a stable natural-name order. */
+export function sortPricingPortfolioRows(rows:PricingPortfolioRow[],view:Pick<PricingPortfolioView,'sort'|'direction'|'window'>):PricingPortfolioRow[] {
+  const text=(a:string,b:string)=>a.localeCompare(b,'en',{numeric:true,sensitivity:'base'});
+  const value=(row:PricingPortfolioRow):string|number|null=>{
+    const w=row.windows[view.window];
+    switch(view.sort) {
+      case 'name':return row.name;
+      case 'connection':return row.mode==='helm_direct'?'Helm direct':'Compare only';
+      case 'base':return row.baseCents;
+      case 'floor':return row.floorCents;
+      case 'ceiling':return row.ceilingCents;
+      case 'market':return w.marketPct;
+      case 'gap':return w.gapPp;
+      case 'open':return w.unknown?null:w.open;
+      default:return w.occupancyPct;
+    }
+  };
+  return [...rows].sort((a,b)=>{
+    const av=value(a),bv=value(b),tie=text(a.name,b.name)||text(a.id,b.id);
+    if(av===null||bv===null)return av===bv?tie:av===null?1:-1;
+    const order=typeof av==='string'&&typeof bv==='string'?text(av,bv):Number(av)-Number(bv);
+    return order*(view.direction==='desc'?-1:1)||tie;
+  });
+}
 export type PortfolioPricingInput = {
   snapshot:PricingSnapshot; policy:PricingPolicy;
   profile:{mode:'shadow'|'helm_direct'}|null;

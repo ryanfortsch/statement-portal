@@ -31,7 +31,7 @@ export default function PricingDemo({fixtures}:{fixtures:ReturnType<typeof creat
     finally {setBusy(false);}
   }
   return <>
-    <div hidden={selected!==null}><PricingPortfolio rows={rows} onOpen={setSelected}/></div>
+    <div hidden={selected!==null}><PricingPortfolio rows={rows} onOpen={setSelected} demo/></div>
     {home&&workspace&&<>
       {error&&<p role="alert">{error}</p>}
       <PricingWorkbench key={home.id} propertyId={home.id} name={home.name} authority={home.authority} initialPolicy={workspace.policy}

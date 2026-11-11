@@ -380,13 +380,24 @@ ingestion path before causal price-response claims are possible.
 ## Installation and review
 
 Entry: `/channels/pricing`, owner-only, searchable as **Helm pricing**.
-The landing page shows listings, 30/60/90-day occupancy and base prices. Each
-occupancy cell pairs the listing percentage and bar with a market percentage and
+The landing page shows listings, 30/60/90-day occupancy and base prices. The demo
+contains 24 fictional homes, including missing/stale evidence, a fully blocked home
+and a long listing name. Its header labels all data simulated; the dashboard also
+labels the market simulated. The live workspace labels market data as imports.
+No automatic market feed is connected.
+
+Each occupancy cell pairs the listing percentage and bar with a market percentage and
 tick on the same 0–100 scale. Missing values remain dashes. Min/max prices and
 connection details are optional columns. All listings, Below market and Data gaps
 are direct views with counts scoped to the current search, connection and horizon.
-Filters and source methodology remain
-available without repeating them in every row.
+Every data-column header toggles ascending/descending order, including min/base/max
+prices and connection. Filters also offer market occupancy, the occupancy gap and
+open nights for the selected horizon. Missing values stay last in both directions,
+with stable natural-name ties. Sort direction round-trips through property links.
+
+The table uses compact rows, a bounded scroll area, sticky headers and a pinned
+listing column. Returning from a home preserves the demo table scroll and filters.
+Filters and source methodology remain available without repeating them in every row.
 
 A listing name or row arrow opens its monthly calendar. The property workflow
 follows the observed [PriceLabs calendar](https://help.pricelabs.co/portal/en/kb/articles/pricing-calendar):

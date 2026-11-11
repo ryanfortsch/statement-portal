@@ -67,7 +67,7 @@ export function createPricingDemoServices(fixture:ReturnType<typeof createPricin
     };
 }
 
-/** Six fictional homes with different demand, prices, closures and evidence coverage. */
+/** 24 fictional homes, including long names, missing markets and closed inventory. */
 export function createPricingPortfolioDemo(now=new Date()) {
   const definitions:[string,string,number,number,number,number,'helm'|'guesty'][]=[
     ['Harbor house','Gloucester',3,44500,48,64,'helm'],
@@ -76,19 +76,38 @@ export function createPricingPortfolioDemo(now=new Date()) {
     ['Cove apartment','Beverly',1,19500,64,52,'guesty'],
     ['Garden house','Rockport',3,36500,58,62,'guesty'],
     ['Seaside bungalow','Gloucester',2,32000,60,60,'helm'],
+    ['Atlantic lookout','Gloucester',4,58000,72,64,'helm'],
+    ['Birch lane cottage','Essex',2,24000,44,52,'guesty'],
+    ['Cedar point','Manchester',3,42500,82,70,'helm'],
+    ['Dune house','Ipswich',4,55000,62,66,'guesty'],
+    ['East shore studio','Gloucester',1,16500,88,56,'helm'],
+    ['Fern hollow','Essex',3,31000,32,50,'guesty'],
+    ['Granite pier','Rockport',2,29500,68,60,'helm'],
+    ['Heron landing','Ipswich',3,37500,54,62,'guesty'],
+    ['Island view','Gloucester',5,79500,40,58,'helm'],
+    ['Juniper cottage','Rockport',2,26000,74,64,'guesty'],
+    ['Kingfisher house','Manchester',4,65000,78,68,'helm'],
+    ['Long beach cottage with guest house','Rockport',5,92500,46,60,'guesty'],
+    ['Marshside','Essex',3,33500,56,58,'helm'],
+    ['North harbor','Gloucester',2,27500,92,66,'guesty'],
+    ['Orchard house','Beverly',4,49000,66,62,'helm'],
+    ['Pebble cove','Rockport',2,30500,52,56,'guesty'],
+    ['Quarry retreat','Gloucester',3,35500,38,54,'helm'],
+    ['Willow bay','Ipswich',3,39000,62,60,'guesty'],
   ];
   return definitions.map(([name,city,bedrooms,base,occupancy,market,authority],index)=>{
     const home:PricingPortfolioHome={id:`demo_home_${index}`,name,city,bedrooms,authority};
     const fixture=createPricingDemo(now);
     fixture.policy=defaultPricingPolicy(base,Math.round(base/1000)*500,base*3);
     fixture.snapshot.days=fixture.snapshot.days.map((day,i)=>({...day,
-      state:index===5&&i<3?'unknown':i%19===15?'blocked':(i*37+index*13)%100<occupancy?'booked':'open',
+      state:index===23?'blocked':index===5&&i<3?'unknown':i%19===15?'blocked':(i*37+index*13)%100<occupancy?'booked':'open',
       currentCents:base,protected:i===9,
     }));
     fixture.snapshot.evidence!.propertyId=home.id;
     fixture.snapshot.evidence!.marketSource=`Synthetic ${city} market`;
     fixture.snapshot.evidence!.market=fixture.snapshot.evidence!.market.map((m,i)=>({...m,occupancyPct:Math.max(0,market-i/8),p25Cents:Math.round(base*.7),p50Cents:base,p75Cents:Math.round(base*1.3),p90Cents:Math.round(base*1.7),vendorCents:base}));
     if(index===4)fixture.snapshot.evidence!.marketObservedAt=new Date(now.getTime()-72*3600000).toISOString();
+    if(index===18){fixture.snapshot.evidence!.market=[];fixture.snapshot.evidence!.marketSource='';fixture.snapshot.evidence!.marketObservedAt=null;}
     return {home,fixture};
   });
 }
