@@ -920,3 +920,34 @@ not produce a replacement Helm send on the assumption that it was cancelled.
 An elapsed waiting period alone is not proof of provider clearance. The existing
 no-duplicate/no-missed-message handover gates remain closed until a concrete
 per-message disposition and automated delivery path can be established.
+
+## Scoped cleaner arrival portal (November 11, 2026)
+
+The replacement arrival/departure view is implemented at `/c/<recipient-token>/stays`.
+It uses an existing enabled cleaner recipient explicitly scoped to exactly
+`['65_calderwood']`; empty regional lists, broader lists, missing/disabled records,
+and malformed tokens are refused before reading stays. The recipient is read again
+after the report to reject scope changes, revocation or token rotation during the
+read. Queries select only the token, enabled flag, scope and language, never a
+phone or display name. No recipient or token is created by this feature.
+
+The phone layout supports English and Portuguese. It pairs arrivals/departures,
+shows the existing ready-by deadline, guest counts when present, and checkout
+adjustment/cleaning-skip/date-review warnings. It reads only the existing canonical
+report: no Guesty OAuth or API call is made by a public request, and unknown counts
+remain visibly unknown. Guest names, contact information, IDs, codes and prices
+are stripped from the public projection. Failed reads are unavailable, not empty.
+The page is dynamic and excluded from indexing; the token is not sent as a referrer.
+
+The existing checkout schedule links to this view only for qualifying recipients.
+Other recipients' portal scope and checkout schedules are unchanged. The owner
+preview offers English/Portuguese cleaner views using that same canonical reader,
+so source-enriched counts from the separate owner review are not misrepresented
+as available to the cleaner. Owner preview does not issue a bearer link.
+
+Before replacing the Guesty URL, configure and verify the intended recipient,
+inspect the actual authorized link and language, and confirm canonical guest counts
+where still unknown. Recipient enablement also affects the existing regional
+digest; do not treat it as a portal-only toggle. This release does not install a
+recipient, share a link, activate a schedule, send a message or satisfy source SMS
+clearance. Guesty remains the sender and calendar authority.

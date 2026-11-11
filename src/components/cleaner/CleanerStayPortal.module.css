@@ -1,0 +1,15 @@
+.portal { max-width:760px; margin:auto; padding:24px clamp(16px,4vw,36px) 48px; color:var(--ink); font-family:var(--font-inter,system-ui),sans-serif; }
+.mast { display:flex; align-items:center; gap:12px; padding-bottom:22px; border-bottom:1px solid var(--rule); }
+.mark { display:grid; place-items:center; width:40px; height:40px; border-radius:12px; background:var(--ink); color:var(--paper); font-family:Georgia,serif; font-size:24px; }
+.mast strong { font-size:18px; letter-spacing:-.03em; }.mast p { margin:3px 0 0; font-size:12px; color:var(--ink-3); }
+.heading { padding:28px 0 20px; }.heading h1,.heading h2 { font-family:var(--font-fraunces,Georgia),serif; font-size:clamp(28px,6vw,38px); line-height:1.15; letter-spacing:-.035em; font-weight:500; margin:8px 0 12px; }
+.heading p { font-size:13px; color:var(--ink-3); margin:0; }.heading .eyebrow { text-transform:uppercase; letter-spacing:.14em; font-size:11px; font-weight:600; }
+.note { background:var(--paper-2); border:1px solid var(--rule); border-radius:12px; padding:16px 18px; font-size:13px; line-height:1.6; margin:0 0 22px; color:var(--ink-3); }
+.stays { list-style:none; padding:0; margin:0; display:grid; gap:14px; }.card { border:1px solid var(--rule); border-radius:16px; overflow:hidden; background:var(--paper); box-shadow:0 2px 5px #0b254505; }
+.dates { display:grid; grid-template-columns:1fr 24px 1fr; align-items:center; gap:16px; padding:22px; }.label { font-size:11px; text-transform:uppercase; letter-spacing:.12em; color:var(--ink-3); display:block; margin-bottom:9px; }
+.dates time { font-size:18px; font-weight:600; letter-spacing:-.025em; font-variant-numeric:tabular-nums; }.dates p { margin:8px 0 0; font-size:13px; color:var(--ink-3); }.arrow { color:var(--ink-4); text-align:center; }
+.cardFoot { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; border-top:1px solid var(--rule); padding:12px 22px; }.cardFoot p { display:flex; align-items:baseline; gap:8px; margin:0; font-size:12px; color:var(--ink-3); }.cardFoot strong { color:var(--ink); font-size:16px; }.cardFoot small { font-size:11px; }
+.badges { display:flex; flex-wrap:wrap; gap:6px; }.badges span { background:var(--paper-2); border-radius:5px; padding:5px 7px; font-size:11px; color:var(--ink-3); }.badges .attention { color:var(--signal); border:1px solid var(--signal); }
+.footer { margin-top:28px; font-size:12px; color:var(--ink-3); line-height:1.7; }.footer a { display:inline-flex; align-items:center; min-height:44px; gap:12px; padding:0 16px; border:1px solid var(--rule); border-radius:8px; color:var(--ink); text-decoration:none; font-weight:600; }.footer a:hover { border-color:var(--ink); }.footer a:focus-visible { outline:2px solid var(--ink); outline-offset:3px; }
+.empty { text-align:center; padding:36px 20px; border:1px dashed var(--rule); border-radius:12px; color:var(--ink-3); font-size:14px; }
+@media(max-width:420px) { .dates { gap:8px; padding:18px 16px; grid-template-columns:1fr 16px 1fr; }.dates time { font-size:14px; }.dates p { font-size:12px; }.cardFoot { padding:12px 16px; }.heading h1,.heading h2 { font-size:28px; } }
