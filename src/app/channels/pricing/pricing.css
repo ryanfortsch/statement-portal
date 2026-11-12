@@ -336,7 +336,7 @@
 html:has(.helm-pricing dialog[open]) { overflow: hidden; }
 /* Shared application shell, without altering other Helm pages. */
 body:has(.pricing-page-shell) { background: #f6f7f8; }
-.pricing-page-shell { max-width: 1440px; margin: 0 auto; padding: 0 32px 40px; background: #f6f7f8; }
+.pricing-page-shell { width:100%; min-width:0; max-width: 1440px; margin: 0 auto; padding: 0 32px 40px; background: #f6f7f8; }
 .pricing-page-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid #e7e9ee; }
 .pricing-page-heading .rt-helm-hero { width: auto !important; margin: 0; padding-left: 0; padding-right: 0; }
 .pricing-page-heading .rt-helm-hero .eyebrow { display: none; }
@@ -705,7 +705,7 @@ body:has(.pricing-page-shell) { background: #f6f7f8; }
   .helm-pricing.pricing-workbench-v2 .pricing-configure { gap:10px; flex-wrap:wrap; }
   .helm-pricing.pricing-workbench-v2 .pricing-base-fields { width:100%; gap:8px; }
   .helm-pricing.pricing-workbench-v2 .pricing-listing-metrics { grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; padding:10px 0; }
-  .helm-pricing.pricing-workbench-v2 .pricing-metrics-heading { display:none; }
+  .helm-pricing.pricing-workbench-v2 .pricing-metrics-heading { display:block; grid-column:1/-1; }
   .helm-pricing .pricing-market-availability { grid-column:1/-1; max-width:none; }
   .helm-pricing.pricing-workbench-v2 .pricing-title-select select { max-width:240px; font-size:22px; }
   .helm-pricing.pricing-workbench-v2 .pricing-calendar { padding:10px 8px; }
@@ -740,9 +740,9 @@ body:has(.pricing-page-shell) { background: #f6f7f8; }
   .helm-pricing .pricing-portfolio-tools { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px 10px; }
   .helm-pricing .pricing-portfolio-tools > .pricing-portfolio-views { grid-column:1; grid-row:1; width:auto; gap:14px; }
   .helm-pricing .pricing-portfolio-tools > .pricing-icon-button { grid-column:2; grid-row:1; justify-self:end; }
-  .helm-pricing .pricing-portfolio-tools > .pricing-group-filter { grid-column:1; grid-row:2; justify-content:flex-start; min-width:0; }
+  .helm-pricing .pricing-portfolio-tools > .pricing-group-filter { grid-column:1/-1; grid-row:2; justify-content:flex-start; min-width:0; }
   .helm-pricing .pricing-portfolio-tools > .pricing-group-filter select { min-width:0; max-width:165px; }
-  .helm-pricing .pricing-portfolio-tools > .rt-btn { grid-column:2; grid-row:2; }
+  .helm-pricing .pricing-portfolio-tools > .rt-btn { grid-column:auto; grid-row:auto; }
   .helm-pricing .pricing-portfolio-v2 .portfolio-command-row .portfolio-controls { flex-wrap:nowrap; }
   .helm-pricing .pricing-portfolio-v2 .portfolio-command-row .portfolio-search { flex:1; width:auto; }
 }
