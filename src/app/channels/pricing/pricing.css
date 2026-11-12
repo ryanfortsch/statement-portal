@@ -778,3 +778,16 @@ body:has(.pricing-page-shell) { background: #f6f7f8; }
 @container pricing (max-width:749px) {
   .helm-pricing .pricing-minimum-summary { display:flex; width:auto; gap:12px; padding:4px 0; }
 }
+
+.helm-pricing .pricing-shared-settings { display:flex; justify-content:flex-end; padding:0; }
+.helm-pricing .pricing-shared-dialog { width:min(850px,calc(100vw - 32px)); }
+.helm-pricing .pricing-shared-body { padding:20px 24px; overflow:auto; max-height:65vh; font-size:12px; }
+.helm-pricing .pricing-shared-body p { margin-bottom:14px; color:#65746d; }
+.helm-pricing .pricing-shared-body details { margin-top:16px; }
+.helm-pricing .pricing-shared-body h3 { font-size:13px; font-weight:600; margin:16px 0 8px; }
+.helm-pricing .pricing-shared-body td { overflow-wrap:anywhere; }
+.helm-pricing .pricing-recovery { display:flex; align-items:end; gap:12px; margin-top:12px; }
+.helm-pricing .pricing-recovery label { display:grid; gap:6px; }
+.helm-pricing .pricing-recovery select { max-width:100%; padding:8px; border:1px solid #dce3df; border-radius:5px; }
+
+.helm-pricing .pricing-shared-slot:empty { display:none; }

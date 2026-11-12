@@ -320,6 +320,16 @@ All service role only. Money is integer cents.
   `src/lib/occupancy-tax.ts` (keyed by property id) and the Guesty
   listing's own tax config are what the statements pipeline and live Guesty
   quotes use today; changing a rate still means all of them agree.
+- **`helm_pricing_drafts` / `helm_pricing_draft_versions`**: shared owner
+  draft settings (migration `20261112190000_helm_pricing_shared_drafts.sql`, applied
+  November 12, 2026). One workspace snapshot contains listing policies, groups/subgroups,
+  account defaults, date overrides and PriceLabs settings provenance. Every save
+  increments a revision and appends an immutable recovery receipt. The service role
+  can select; writes go only through `helm_save_pricing_drafts`, with expected
+  revision and an idempotent request UUID. RLS blocks browser roles. Server actions
+  require owner access and validate known managed property IDs plus rule schemas.
+  Independent of the two pricing-publisher migrations below; never used by rate
+  delivery, booking, or payment writers. No market/history snapshots are stored.
 - **`property_pricing_profiles` / `property_pricing_runs` / `property_pricing_evidence`**: optional Helm pricing
   pilot (migration `20261108110000_helm_dynamic_pricing.sql`). Owner policies and
   versioned comparison/direct connection; immutable review inputs and recommendations,

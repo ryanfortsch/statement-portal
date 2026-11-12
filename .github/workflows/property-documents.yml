@@ -29,6 +29,10 @@ on:
       - 'scripts/cleaner-stay-portal-smoke.mjs'
       - 'scripts/tests/layout-field-photos*'
       - 'scripts/tests/cleaner-digest-enrollment.sql'
+      - 'scripts/tests/pricing-shared*'
+      - 'scripts/pricing-shared-smoke.mjs'
+      - 'scripts/pricing-ui-fixture.mjs'
+      - 'supabase/migrations/20261112190000_helm_pricing_shared_drafts.sql'
       - 'scripts/tests/calderwood-guest-count-save.sql'
       - 'scripts/tests/calderwood-guest-count-concurrency.mjs'
       - 'supabase/migrations/20261111160000_calderwood_guest_count_save.sql'
@@ -113,6 +117,8 @@ jobs:
         run: node scripts/work-slip-routing-smoke.mjs
       - name: Verify owner input, CRM activity, tasks, Playbook, and room recovery
         run: node scripts/editor-recovery-smoke.mjs
+      - name: Verify shared pricing drafts, retries and conflict recovery
+        run: node scripts/pricing-shared-smoke.mjs
       - run: npx tsc --noEmit
       - name: Show local app log on failure
         if: failure()
@@ -154,3 +160,8 @@ jobs:
           createdb helm_synthetic_cleaner_counts
           PGDATABASE=helm_synthetic_cleaner_counts psql -v ON_ERROR_STOP=1 -f scripts/tests/calderwood-guest-count-save.sql
           PGDATABASE=helm_synthetic_cleaner_counts node scripts/tests/calderwood-guest-count-concurrency.mjs
+      - name: Verify shared pricing drafts and concurrent saves
+        run: |
+          createdb helm_synthetic_pricing_settings
+          PGDATABASE=helm_synthetic_pricing_settings psql -v ON_ERROR_STOP=1 -f scripts/tests/pricing-shared-settings.sql
+          PGDATABASE=helm_synthetic_pricing_settings node scripts/tests/pricing-shared-concurrency.mjs

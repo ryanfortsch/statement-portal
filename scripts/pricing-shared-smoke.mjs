@@ -1,0 +1,62 @@
+// Real shared-settings UI with synthetic asynchronous services; no credentials or external calls.
+import assert from 'node:assert/strict';
+import {createRequire} from 'node:module';
+import {readFile,writeFile,mkdtemp,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {createServer} from 'node:http';
+import puppeteer from 'puppeteer-core';
+import chromium from '@sparticuz/chromium';
+const require=createRequire(import.meta.url),{webpack}=require('next/dist/compiled/webpack/webpack');
+const root=process.cwd(),scratch=await mkdtemp(join(tmpdir(),'helm-shared-pricing-'));
+await writeFile(join(scratch,'loader.cjs'),`const ts=require(${JSON.stringify(require.resolve('typescript'))});module.exports=s=>ts.transpileModule(s,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext,jsx:ts.JsxEmit.ReactJSX}}).outputText;`);
+await writeFile(join(scratch,'entry.tsx'),`
+import React,{useState} from 'react';import {createRoot} from 'react-dom/client';
+import Shared from '${root}/src/app/channels/pricing/PricingSharedSettings.tsx';
+import {emptyPricingDrafts,neutralPricingDraft,PRICING_DRAFT_STORAGE} from '${root}/src/lib/dynamic-pricing-drafts.ts';
+import {emptyPricingSharedRecord,replacePricingBrowserSettings,PRICING_SHARED_BASE_STORAGE} from '${root}/src/lib/dynamic-pricing-shared.ts';
+import {useUnsavedWorkGuard} from '${root}/src/lib/unsaved-work.ts';
+window.calls=[];window.settings=(base=20000)=>({version:1,homes:{sample:{policy:neutralPricingDraft(base,10000,80000),version:1,groupId:null,inheritRules:false,overrides:[]}},groups:[]});
+window.record=(base=20000,revision=1)=>({revision,settings:window.settings(base),updated_at:'2026-11-12T12:00:00Z',updated_by:'owner@synthetic.test'});
+const seed=new URLSearchParams(location.search).get('seed');localStorage.clear();
+if(seed!=='empty')localStorage.setItem(PRICING_DRAFT_STORAGE,JSON.stringify(window.settings()));
+if(seed==='clean')localStorage.setItem(PRICING_SHARED_BASE_STORAGE,JSON.stringify(window.record()));
+const services={read:()=>new Promise((resolve,reject)=>window.calls.push({kind:'read',resolve,reject})),save:input=>new Promise((resolve,reject)=>window.calls.push({kind:'save',input,resolve,reject}))};
+function Fixture(){const [state,setState]=useState(()=>seed==='empty'?emptyPricingDrafts():window.settings()),[dirty,setDirty]=useState(false);useUnsavedWorkGuard(dirty);window.draft=state;window.setDirty=setDirty;window.edit=base=>{const next=window.settings(base);localStorage.setItem(PRICING_DRAFT_STORAGE,JSON.stringify(next));setState(next);};
+return <main className="helm-pricing"><Shared state={state} homes={[{id:'sample',name:'12 Sample'}]} services={services} replace={next=>setState(replacePricingBrowserSettings(localStorage,state,next))}/><output id="base">{state.homes.sample?.policy.baseCents??'empty'}</output></main>;}createRoot(document.getElementById('root')).render(<React.StrictMode><Fixture/></React.StrictMode>);
+`);
+await new Promise((resolve,reject)=>{const compiler=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.tsx'),output:{path:scratch,filename:'bundle.js'},resolve:{extensions:['.ts','.tsx','.js'],modules:[join(root,'node_modules')],alias:{'@':join(root,'src')}},module:{rules:[{test:/\.tsx?$/,exclude:/node_modules/,use:join(scratch,'loader.cjs')}]},performance:{hints:false}});compiler.run((err,stats)=>compiler.close(()=>err||stats?.hasErrors()?reject(err||Error(stats.toString({all:false,errors:true}))):resolve()));});
+const server=createServer(async(req,res)=>{if(req.method!=='GET'){res.writeHead(405).end();return;}res.setHeader('Cache-Control','no-store');res.setHeader('Content-Security-Policy',"default-src 'self';script-src 'self';style-src 'self' 'unsafe-inline';connect-src 'none'");if(req.url==='/bundle.js'){res.setHeader('Content-Type','text/javascript');res.end(await readFile(join(scratch,'bundle.js')));}else if(req.url==='/style.css'){res.setHeader('Content-Type','text/css');res.end(await readFile(join(root,'src/app/channels/pricing/pricing.css')));}else{res.setHeader('Content-Type','text/html');res.end('<!doctype html><meta name="viewport" content="width=device-width"><link rel="stylesheet" href="/style.css"><style>body{font:14px system-ui;background:#f6f7f8;padding:24px}button{padding:8px 14px;border:1px solid #dce3df;border-radius:6px;background:white}dialog{border:1px solid #ddd;border-radius:10px}dialog header,dialog footer{padding:12px;display:flex;gap:10px;justify-content:space-between}table{width:100%;text-align:left}th,td{padding:8px}</style><div id="root"></div><script src="/bundle.js"></script>');}});
+await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
+const origin='http://127.0.0.1:'+server.address().port;let browser,page,checks=0;
+try {
+ browser=await puppeteer.launch({executablePath:process.env.CHROME_EXECUTABLE_PATH||(process.platform==='darwin'?'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome':await chromium.executablePath()),headless:true,args:process.platform==='darwin'?['--no-sandbox']:chromium.args});
+ page=await browser.newPage();page.setDefaultTimeout(10000);await page.setViewport({width:1280,height:850});
+ const errors=[];page.on('dialog',dialog=>dialog.accept());page.on('pageerror',e=>errors.push(e.message));await page.setRequestInterception(true);page.on('request',r=>r.url().startsWith(origin+'/')?r.continue():r.abort());
+ const click=(label,twice=false)=>page.$$eval('button',(bs,label,twice)=>{const b=bs.filter(b=>b.checkVisibility()).find(b=>b.textContent.trim()===label||b.getAttribute('aria-label')===label);if(!b)throw Error('Missing '+label);b.click();if(twice)b.click();},label,twice);
+ const waitText=t=>page.waitForFunction(t=>document.body.innerText.includes(t),{},t);
+ const count=()=>page.evaluate(()=>window.calls.length);
+ const waitCalls=n=>page.waitForFunction(n=>window.calls.length===n,{},n);
+ const finish=(index,base=20000,revision=1)=>page.evaluate((index,base,revision)=>window.calls[index].resolve({ok:true,value:window.record(base,revision)}),index,base,revision);
+ const reset=async(seed='local')=>{await page.goto(origin+'/?seed='+seed);await waitCalls(2);};
+ const base=()=>page.$eval('#base',e=>e.textContent);
+ const saved=()=>page.waitForFunction(()=>!document.querySelector('.pricing-shared-settings>button').disabled);
+ const pass=m=>{checks++;console.log('PASS '+m);};
+ // Strict Mode mounts twice: an obsolete completion cannot win over the later request.
+ await reset('empty');await finish(1,25000,2);await saved();assert.equal(await base(),'25000');await finish(0,20000,1);assert.equal(await base(),'25000');pass('fresh device loads shared settings and ignores stale mount response');
+ await reset('clean');await page.evaluate(()=>window.edit(30000));await page.waitForFunction(()=>document.querySelector('#base').textContent==='30000');await finish(1,25000,2);await saved();assert.equal(await base(),'30000');await waitText('Review settings');pass('edits made during loading survive a newer server response');
+ await click('Review settings');await waitText('$300');await click('Use Helm settings');await page.waitForFunction(()=>!document.querySelector('dialog').open);assert.equal(await base(),'25000');
+ await click('Saved to Helm');await page.$eval('details:last-of-type',d=>d.open=true);await page.select('.pricing-recovery select','0');await click('Load copy');assert.equal(await base(),'30000');await waitText('Recovery copy loaded');await click('Close shared settings');pass('shared replacement keeps a restorable browser recovery copy');
+ await reset();await finish(1,20000,1);await saved();await page.evaluate(()=>window.edit(30000));await click('Save to Helm',true);await waitCalls(3);pass('duplicate click sends one save');
+ await page.evaluate(()=>window.calls[2].reject(Error('Synthetic lost response')));await waitText('Save not confirmed');await page.evaluate(()=>window.edit(35000));await click('Retry save');await waitCalls(4);
+ assert.equal(await page.evaluate(()=>JSON.stringify(window.calls[2].input)===JSON.stringify(window.calls[3].input)),true);
+ await finish(3,30000,2);await saved();assert.equal(await base(),'35000');await waitText('Save to Helm');pass('lost-response retry uses identical request, preserving newer browser edits');
+ await click('Save to Helm');await waitCalls(5);assert.equal(await page.evaluate(()=>window.calls[4].input.settings.homes.sample.policy.baseCents),35000);
+ await page.evaluate(()=>window.calls[4].resolve({ok:false,conflict:true,error:'Conflict'}));await waitCalls(6);await finish(5,40000,3);await saved();assert.equal(await base(),'35000');await waitText('Another save arrived');await click('Replace Helm settings');await waitCalls(7);
+ assert.equal(await page.evaluate(()=>window.calls[6].input.expectedRevision),3);assert.equal(await page.evaluate(()=>window.calls[6].input.requestId!==window.calls[4].input.requestId),true);await finish(6,35000,4);await saved();pass('concurrent save requires explicit comparison before replacing the latest revision');
+ await page.evaluate(()=>{window.edit(36000);window.setDirty(true);});await click('Save to Helm');await waitText('Save the open property changes first');assert.equal(await count(),7);await click('Use Helm settings');await waitText('Save or discard the open property changes first');assert.equal(await base(),'36000');pass('unsaved property form prevents shared save and replacement');
+ await reset();await page.evaluate(()=>window.calls[1].resolve({ok:false,error:'Shared settings unavailable'}));await saved();assert.equal(await base(),'20000');await click('Settings need attention');await click('Refresh');await waitCalls(3);await finish(2,25000,2);await saved();await waitText('Replace Helm settings');assert.equal(await base(),'20000');pass('unavailable storage retains browser data and can be retried');
+ await page.setViewport({width:390,height:844});await page.screenshot({path:join(tmpdir(),'helm-pricing-shared-review-phone.png')});
+ const geometry=await page.$eval('dialog',d=>({width:d.getBoundingClientRect().width,viewport:innerWidth,scroll:d.scrollWidth,client:d.clientWidth}));assert.ok(geometry.width<=geometry.viewport);assert.ok(geometry.scroll<=geometry.client+2);pass('review dialog fits a phone without horizontal overflow');
+ assert.deepEqual(errors,[]);console.log('Shared pricing UI: '+checks+' checks passed.');
+} catch(error) {console.error(await page?.$eval('body',e=>e.innerText));throw error;} finally {await browser?.close();await new Promise(resolve=>server.close(resolve));await rm(scratch,{recursive:true,force:true});}
