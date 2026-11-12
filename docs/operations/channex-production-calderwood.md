@@ -1254,6 +1254,23 @@ The documentation does **not** establish how assigning this existing after-booki
 template treats a booking whose trigger is already past, or a booking made during
 the switch. Those cases still need verification before any assignment.
 
+Channex replied on November 12 that it could not confirm native quick-reply
+coexistence or whether those outgoing messages appear in its history/webhooks;
+both need testing. This is an unanswered compatibility question, not provider
+approval or evidence that the native option is incompatible. No further timestamp
+field or supported message-origin contract was supplied.
+
+Before relying on that option, prepare a controlled test using an explicitly
+authorized test listing/reservation and recipient. Record the native scheduled
+time, actual Airbnb message ID/time, Channex history/webhook observations, and
+whether repeats or booking modifications introduce a second confirmation. Check
+new, already-confirmed and last-minute cases, with exactly one sender assigned.
+If native messages have no reliable Channex delivery evidence, define the native
+timeline as the audited confirmation record and review that ownership split;
+absence from Channex must never trigger a replacement confirmation from Helm.
+This test remains unexecuted and does not authorize connecting or messaging the
+live Calderwood listing for experimentation.
+
 ### Next handover work, in dependency order
 
 1. **Finish the native-confirmation assessment.** Verify Calderwood's exact listing
