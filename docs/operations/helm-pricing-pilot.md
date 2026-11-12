@@ -46,11 +46,13 @@ updates, unsaved forms and narrow-screen comparison. No customer data is used.
 
 ## Shared research checkpoint
 
-`codex/helm-pricing-market-evidence` prepares durable, per-property imports of daily
-PriceLabs Neighborhood Data and historical inventory. It requires the separate
-research-only migration `20261112210000_helm_pricing_research.sql` before activation.
-**Prepared, not applied.** No PriceLabs API, paid product, automatic feed or live
-rate delivery is enabled by this work.
+`codex/helm-pricing-market-evidence` adds durable, per-property imports of daily
+PriceLabs Neighborhood Data and historical inventory. The user approved the
+research-only migration `20261112210000_helm_pricing_research.sql` on November 12,
+2026, and it was applied that day with its migration receipt in the same
+transaction. Both research tables have RLS enabled. Application rollout and the
+first production import check follow this database step. No PriceLabs API, paid
+product, automatic feed or live rate delivery is enabled by this work.
 
 The owner saves an export with its original observation time and comparable-set
 label. Helm validates scope, dates and numeric fields, retains immutable import
@@ -68,8 +70,8 @@ imports remain blank. After 36 hours, imported asking-price and occupancy series
 are withheld; the source and original observation date remain visible. Property
 freshness is reevaluated each minute and on refresh/import.
 
-Activation: apply only the reviewed research migration, publish, then import a
-current daily export for its exact listing. Verify its source, observed time,
+Activation: the research migration is applied. Publish, then import a current
+daily export for its exact listing. Verify its source, observed time,
 dashboard result and a second-browser reload before expanding to more homes.
 Existing downloaded exports must keep their original observation times. Never
 redate an old export to bypass expiry or copy one property's comparison set across
