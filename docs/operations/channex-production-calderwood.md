@@ -1221,14 +1221,61 @@ timing policy exists. Imported stays cannot be classified as new merely because
 Helm first sees them after activation. Arrival/departure overrides, DST semantics,
 source queue drainage and the live sender handover remain separate launch work.
 
-An alternative worth checking before changing the timing policy is Airbnb's own
-scheduled confirmation reply. Its [official guide](https://www.airbnb.com/resources/hosting-homes/a/using-quick-replies-to-save-time-73)
-supports automatic replies after booking, but the exact 30-minute option has not
-been verified in this account. Its [scheduled-reply help](https://www.airbnb.com/help/article/2897)
-says schedules apply to current and upcoming reservations and describes last-minute
-exceptions. Any adoption must first verify the precise timing, existing-stay
-behavior, message history and one-sender ownership. No Airbnb template or schedule
-was created or changed, and this is not an approved fallback.
+Airbnb's native after-booking schedule is now a verified timing option, but not
+an activated or approved replacement sender. On November 12, a read-only check
+of Hosting → Messages → Messaging settings → Manage quick replies found an
+existing **Reservation Confirmation** template with **0 listings** and the exact
+schedule **30 minutes after a guest books**. Its editor showed a last-modified
+date of January 23, 2025. No template, assignment or schedule was saved or changed.
+This verifies the account supports the requested offset; it does not prove delivery,
+Calderwood coverage, current reservation queue contents or other hosts' schedules.
+
+The existing template's wording differs from the retained Calderwood Guesty
+confirmation. It must not be assigned wholesale as if it were an approved text
+replacement. A proposed Calderwood-only native confirmation would preserve the
+captured wording and +30-minute trigger. The other guest messages and cleaner SMS
+remain separate workflows; this option does not resolve their missing inputs.
+
+Airbnb's [scheduled-reply help](https://www.airbnb.com/help/article/2897), checked
+November 12, says schedules apply to current and upcoming reservations and use
+the listing time zone. Last-minute/short-stay settings can skip messages or send
+them at another time. The reservation timeline shows sent, skipped and future
+replies, including who scheduled them; co-host templates are not all shared.
+The documentation does **not** establish how assigning this existing after-booking
+template treats a booking whose trigger is already past, or a booking made during
+the switch. Those cases still need verification before any assignment.
+
+### Next handover work, in dependency order
+
+1. **Finish the native-confirmation assessment.** Verify Calderwood's exact listing
+   identity, applicable host/team/co-host schedules, last-minute setting, and the
+   behavior of old bookings and bookings arriving during the transition. Prepare
+   the exact captured text without assigning a listing. A future native sender
+   needs retained evidence and an explicit ownership boundary; a screenshot of a
+   timing option alone cannot authorize it.
+2. **Complete the production scheduling path.** Implement and review the persistent
+   binding writer and trusted loader described above, then the reviewed template
+   release and bounded runtime caller. Existing stays use retained Guesty timings;
+   new stays still need an authoritative policy for arrival/departure overrides.
+   If native confirmation is adopted, Helm's confirmation rule must remain unable
+   to enqueue or dispatch. Do not invent a confirmation timestamp to make the
+   other three guest workflows pass the current all-clock gate. Review that
+   separation explicitly, including replay and concurrent-change tests.
+3. **Resolve source ownership before switching senders.** Obtain Guesty's engineering
+   answer on internal workers and SMS provider expiry/retries, reconcile existing
+   guest/cleaner history, and record the actual stop/hold boundary. No guessed
+   waiting interval counts as evidence that provider dispatch has drained.
+4. **Run the reviewed Calderwood cutover and verify it.** Recheck booking and hold
+   coverage, the Channex route, PriceLabs ownership and channel mappings. Enable
+   only the reviewed senders and verify the first eligible real booking's calendar
+   and message outcomes against the provider timelines. Preserve a rollback plan
+   that cannot start two senders. This is future execution, not a completed test.
+
+The native option removes uncertainty about the available 30-minute control. It
+does not make the dormant coordinator production-ready or remove the separate
+calendar, cleaner SMS and sender-handover requirements. Guesty still runs the
+live calendar and messages; no native confirmation assignment is authorized by
+this document.
 
 Guesty escalated the in-flight worker and Vonage expiry/retry questions to its
 developers on November 12. No bounded queue-drain or safe waiting interval has
