@@ -538,7 +538,8 @@ export type LinkProperty = { id: string; name: string; title: string; hasKey: bo
 export async function loadLinkProperties(): Promise<LinkProperty[]> {
   if (!isServiceConfigured) return [];
   const keys = getStripeKeysMap();
-  const { data } = await supabase.from('properties').select('id, name, title').order('name');
+  // A partner home's guests are its host's: no Rising Tide payment link.
+  const { data } = await supabase.from('properties').select('id, name, title').neq('kind', 'partner').order('name');
   return ((data ?? []) as Array<{ id: string; name: string | null; title: string | null }>).map((p) => ({
     id: p.id,
     name: (p.name || p.id).trim(),

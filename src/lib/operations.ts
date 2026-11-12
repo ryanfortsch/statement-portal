@@ -500,15 +500,18 @@ export async function loadOperationsData(
   // out-of-region list did.
   const { data: propData, error: propErr } = await supabase
     .from('properties')
-    .select('id, name, title, city, region, is_active')
+    .select('id, name, title, city, region, is_active, kind')
     .order('name');
   if (propErr) {
     throw new Error(`Failed to load properties: ${propErr.message}`);
   }
-  const allProps = (propData ?? []) as Array<PropertyMini & { region: string | null; is_active: boolean | null }>;
+  // kind rides the select so isCapeAnnOps can drop a partner home: it is in
+  // Cape Ann and inactive like an offboarding home, but its host runs it, so
+  // its stays are never our turnovers.
+  const allProps = (propData ?? []) as Array<PropertyMini & { region: string | null; is_active: boolean | null; kind: string | null }>;
   const properties = allProps
     .filter((p) => p.is_active !== false && isCapeAnnOps(p) && (!propertyId || p.id === propertyId))
-    .map(({ region: _region, is_active: _active, ...p }) => p);
+    .map(({ region: _region, is_active: _active, kind: _kind, ...p }) => p);
   const capeAnnIds = new Set(allProps.filter(isCapeAnnOps).map((p) => p.id));
 
   const { data: resData, error: resErr } = await supabase

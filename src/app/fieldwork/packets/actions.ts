@@ -810,12 +810,14 @@ export async function addPacketStop(formData: FormData): Promise<void> {
       .order('walk_order', { ascending: false })
       .limit(1)
       .maybeSingle(),
-    fieldDb().from('properties').select('name, address').eq('id', propertyId).maybeSingle(),
+    fieldDb().from('properties').select('name, address, kind').eq('id', propertyId).maybeSingle(),
   ]);
   const packet = pk as { title: string; visit_date: string; posted_price_cents: number; status: string; awarded_contractor_id: string | null } | null;
   if (!packet || !['draft', 'published', 'claimed', 'in_progress'].includes(packet.status)) return;
   const nextOrder = ((last as { walk_order: number } | null)?.walk_order ?? -1) + 1;
-  const p = prop as { name: string | null; address: string | null } | null;
+  const p = prop as { name: string | null; address: string | null; kind: string | null } | null;
+  // A partner home's host runs it: no contractor stop is ever added there.
+  if (p?.kind === 'partner') return;
   const propName = p?.name || p?.address || 'a stop';
 
   // A one-off or setup is a TASK, not an inspection: it rides as a work slip so

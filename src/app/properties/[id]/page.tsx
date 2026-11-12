@@ -461,7 +461,7 @@ export default async function PropertyDetailPage({
     }),
     getClimateProfile(p.id),
     getGuestCodeView(p.id),
-    getPropertyCleaners(p.id, { region: (p as unknown as { region?: string | null }).region ?? null }),
+    getPropertyCleaners(p.id, { region: (p as unknown as { region?: string | null }).region ?? null, kind: p.kind }),
     getPropertyRooms(p.id),
     getContractFacts(p.projection_id ?? null),
     getPropertyContracts(p.id),
@@ -1948,7 +1948,7 @@ export default async function PropertyDetailPage({
               // How we sell it: the selling points the campaign AI reads on
               // every draft (property_marketing). Cape Ann homes only: the
               // campaigns sell nothing else.
-              sellIt={isCapeAnnOps({ region: pmsRegion }) ? howWeSellIt : null}
+              sellIt={isCapeAnnOps({ region: pmsRegion, kind: p.kind }) ? howWeSellIt : null}
               // The live staycapeann.com copy, read-only while Helm has none.
               sca={scaSnapshot}
             />
@@ -1963,7 +1963,7 @@ export default async function PropertyDetailPage({
       {/* GUEST APP: the home's one permanent link to its Stay Cape Ann guest
           app (/h/<token>), for the QR card in the house and for messages.
           Cape Ann homes only: the app wears the Stay Cape Ann brand. */}
-      {isCapeAnnOps({ region: pmsRegion }) && (
+      {isCapeAnnOps({ region: pmsRegion, kind: p.kind }) && (
         <GuestSection id="guest-app" title="Guest app" note="Wi-Fi, checkout, how the house works and Cape Ann nearby, on the guest's phone">
           <Suspense fallback={<p style={{ margin: 0, fontSize: 12, color: 'var(--ink-3)' }}>Loading the guest app…</p>}>
             <GuestAppPanelLoader propertyId={p.id} />
@@ -2051,7 +2051,7 @@ export default async function PropertyDetailPage({
             </div>
           </div>
           {/* Guest app card tile: the 4 x 6 QR to this home's guest app. */}
-          {isCapeAnnOps({ region: pmsRegion }) && (
+          {isCapeAnnOps({ region: pmsRegion, kind: p.kind }) && (
             <Suspense fallback={null}>
               <GuestAppCardTile propertyId={p.id} actionStyle={primaryActionStyle} />
             </Suspense>

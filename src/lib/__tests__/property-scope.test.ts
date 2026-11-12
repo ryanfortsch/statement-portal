@@ -20,15 +20,15 @@ import {
 
 describe('isCapeAnnOps', () => {
   test('cape_ann and a missing region both read as Cape Ann ops', () => {
-    assert.equal(isCapeAnnOps({ region: 'cape_ann' }), true);
-    assert.equal(isCapeAnnOps({ region: null }), true);
-    assert.equal(isCapeAnnOps({ region: undefined }), true);
-    assert.equal(isCapeAnnOps({}), true);
+    assert.equal(isCapeAnnOps({ region: 'cape_ann', kind: 'managed' }), true);
+    assert.equal(isCapeAnnOps({ region: null, kind: null }), true);
+    assert.equal(isCapeAnnOps({ region: undefined, kind: undefined }), true);
+    assert.equal(isCapeAnnOps({ kind: null }), true);
   });
 
   test('an out-of-region home is not Cape Ann ops', () => {
-    assert.equal(isCapeAnnOps({ region: 'bridgeport_ct' }), false);
-    assert.equal(isCapeAnnOps({ region: 'lighthouse_point_fl' }), false);
+    assert.equal(isCapeAnnOps({ region: 'bridgeport_ct', kind: 'managed' }), false);
+    assert.equal(isCapeAnnOps({ region: 'lighthouse_point_fl', kind: 'managed' }), false);
   });
 });
 
@@ -45,10 +45,10 @@ describe('calendar authority', () => {
 
 describe('id sets', () => {
   const rows = [
-    { id: '21_horton', region: 'cape_ann', calendar_authority: 'guesty' },
-    { id: '65_calderwood', region: 'bridgeport_ct', calendar_authority: 'helm' },
-    { id: '3246_ne_27th', region: 'lighthouse_point_fl', calendar_authority: 'guesty' },
-    { id: '7_sumac', region: null, calendar_authority: null },
+    { id: '21_horton', region: 'cape_ann', calendar_authority: 'guesty', kind: 'managed' },
+    { id: '65_calderwood', region: 'bridgeport_ct', calendar_authority: 'helm', kind: 'managed' },
+    { id: '3246_ne_27th', region: 'lighthouse_point_fl', calendar_authority: 'guesty', kind: 'managed' },
+    { id: '7_sumac', region: null, calendar_authority: null, kind: 'managed' },
   ];
   test('capeAnnIds keeps cape_ann and null-region rows', () => {
     assert.deepEqual([...capeAnnIds(rows)].sort(), ['21_horton', '7_sumac']);

@@ -96,7 +96,7 @@ export async function reportFieldWorkSlip(_prev: ReportState, formData: FormData
   const visit = visits.find((v) => v.propertyId === propertyId);
   if (!visit) {
     const anyHome = canFlagAnyHome(contractor)
-      ? ((await fieldDb().from('properties').select('id, name').eq('id', propertyId).maybeSingle()).data as { id: string; name: string } | null)
+      ? ((await fieldDb().from('properties').select('id, name').eq('id', propertyId).neq('kind', 'partner').maybeSingle()).data as { id: string; name: string } | null)
       : null;
     if (!anyHome) {
       return { ok: false, error: "That home is past its 72-hour window now. Call the office and we'll add it." };

@@ -14,7 +14,7 @@ export type PropertyOption = { id: string; name: string };
  * it by mistake.
  */
 export async function getPropertyOptions(): Promise<PropertyOption[]> {
-  const { data, error } = await supabaseAdmin.from('properties').select('id, name').order('name');
+  const { data, error } = await supabaseAdmin.from('properties').select('id, name').neq('kind', 'partner').order('name');
   if (error) return [];
   return (data ?? []) as PropertyOption[];
 }

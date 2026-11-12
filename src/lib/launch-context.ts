@@ -46,7 +46,7 @@ export type LaunchPropertyLite = Pick<
 > &
   /** Optional: callers that already selected the scope columns pass them
    *  through; otherwise loadLaunchForFleet reads them itself. */
-  Partial<Pick<ScopedProperty, 'region' | 'calendar_authority'>>;
+  Partial<Pick<ScopedProperty, 'region' | 'calendar_authority' | 'kind'>>;
 
 export type LaunchFacts = {
   /** Check-in date of the earliest confirmed stay that has already begun, or null. */
@@ -174,13 +174,13 @@ async function loadListingTags(ids: string[]): Promise<Map<string, string[]>> {
 /** Scope columns for the ids, so a caller's narrower select still gets a
  *  correct n_a derive. A failed read leaves the map empty: the derive then
  *  treats the home as a Guesty-run Cape Ann home, which asks, never lies. */
-async function loadScope(ids: string[]): Promise<Map<string, Pick<ScopedProperty, 'region' | 'calendar_authority'>>> {
-  const out = new Map<string, Pick<ScopedProperty, 'region' | 'calendar_authority'>>();
+async function loadScope(ids: string[]): Promise<Map<string, Pick<ScopedProperty, 'region' | 'calendar_authority' | 'kind'>>> {
+  const out = new Map<string, Pick<ScopedProperty, 'region' | 'calendar_authority' | 'kind'>>();
   if (!isServiceConfigured || ids.length === 0) return out;
   try {
-    const { data } = await supabase.from('properties').select('id, region, calendar_authority').in('id', ids);
-    for (const r of (data ?? []) as Array<{ id: string; region: string | null; calendar_authority: string | null }>) {
-      out.set(r.id, { region: r.region, calendar_authority: r.calendar_authority });
+    const { data } = await supabase.from('properties').select('id, region, calendar_authority, kind').in('id', ids);
+    for (const r of (data ?? []) as Array<{ id: string; region: string | null; calendar_authority: string | null; kind: string | null }>) {
+      out.set(r.id, { region: r.region, calendar_authority: r.calendar_authority, kind: r.kind });
     }
   } catch {
     // degrade to no scope
@@ -281,13 +281,14 @@ export async function loadLaunchForFleet(
   const ids = properties.map((p) => p.id);
   // Scope first: the pricing probe needs to know which calendar to read.
   // Rows that already carry both columns skip the extra read.
-  const needScope = properties.some((p) => p.region === undefined || p.calendar_authority === undefined);
-  const scopeById = needScope ? await loadScope(ids) : new Map<string, Pick<ScopedProperty, 'region' | 'calendar_authority'>>();
-  const scopeFor = (p: LaunchPropertyLite): Pick<ScopedProperty, 'region' | 'calendar_authority'> => {
+  const needScope = properties.some((p) => p.region === undefined || p.calendar_authority === undefined || p.kind === undefined);
+  const scopeById = needScope ? await loadScope(ids) : new Map<string, Pick<ScopedProperty, 'region' | 'calendar_authority' | 'kind'>>();
+  const scopeFor = (p: LaunchPropertyLite): Pick<ScopedProperty, 'region' | 'calendar_authority' | 'kind'> => {
     const read = scopeById.get(p.id);
     return {
       region: p.region !== undefined ? p.region : read?.region ?? null,
       calendar_authority: p.calendar_authority !== undefined ? p.calendar_authority : read?.calendar_authority ?? null,
+      kind: p.kind !== undefined ? p.kind : read?.kind ?? null,
     };
   };
   const [rowsById, scaById, cleanerMappings, locksById, invoiceMapped, tagsById, perProperty] = await Promise.all([
@@ -332,7 +333,7 @@ export async function loadLaunchForFleet(
       },
       scaLaunchStatus: scaById.get(p.id) ?? null,
       // A catch-all row serves Cape Ann homes only (property-crew getPropertyCleaners).
-      hasQuoCleanerMapping: cleanerMappings.some((list) => (list.length === 0 && isCapeAnnOps({ region: scope.region ?? null })) || list.includes(p.id)),
+      hasQuoCleanerMapping: cleanerMappings.some((list) => (list.length === 0 && isCapeAnnOps({ region: scope.region ?? null, kind: scope.kind ?? null })) || list.includes(p.id)),
       locksMapped: locksById.get(p.id) ?? 0,
       forwardDistinctPrices: per?.forwardDistinctPrices ?? 0,
       firstStayStarted: !!per?.firstStayCheckIn,

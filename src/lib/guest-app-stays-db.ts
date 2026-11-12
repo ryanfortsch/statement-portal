@@ -100,10 +100,10 @@ async function stayCluster(bookingId: string): Promise<{ canonical: BookingRow; 
 async function homeAllowsStays(propertyId: string): Promise<{ welcomeNote: string | null; homeToken: string; lockBrand: string | null } | null> {
   const [homeRow, propRes] = await Promise.all([
     getGuestAppRow(propertyId),
-    supabaseAdmin.from('properties').select('id, region, is_active, smart_lock_brand').eq('id', propertyId).maybeSingle(),
+    supabaseAdmin.from('properties').select('id, region, kind, is_active, smart_lock_brand').eq('id', propertyId).maybeSingle(),
   ]);
-  const prop = propRes.data as { region: string | null; is_active: boolean | null; smart_lock_brand: string | null } | null;
-  if (!homeRow?.enabled || !prop || prop.is_active !== true || !isCapeAnnOps({ region: prop.region })) return null;
+  const prop = propRes.data as { region: string | null; kind: string | null; is_active: boolean | null; smart_lock_brand: string | null } | null;
+  if (!homeRow?.enabled || !prop || prop.is_active !== true || !isCapeAnnOps({ region: prop.region, kind: prop.kind })) return null;
   return { welcomeNote: homeRow.welcome_note, homeToken: homeRow.token, lockBrand: prop.smart_lock_brand };
 }
 

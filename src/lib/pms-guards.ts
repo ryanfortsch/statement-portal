@@ -22,14 +22,31 @@ import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { supabaseAdmin, isServiceConfigured } from '@/lib/supabase-admin';
 import { selectAllPaged } from '@/lib/paged-select';
+import { runsGuestsInHelm } from '@/lib/property-scope';
 
-type Row = { id: string; calendar_authority: string | null };
+type Row = { id: string; calendar_authority: string | null; kind: string | null };
 
 async function loadRows(sb: SupabaseClient): Promise<Row[]> {
   return selectAllPaged<Row>(
-    (from, to) => sb.from('properties').select('id, calendar_authority').order('id', { ascending: true }).range(from, to),
+    (from, to) => sb.from('properties').select('id, calendar_authority, kind').order('id', { ascending: true }).range(from, to),
     { label: 'pms guards' },
   );
+}
+
+/**
+ * Ids of Helm-run homes whose guests Helm answers: Helm-run minus partner
+ * homes, whose hosts talk to their own guests. The inbox threads and anything
+ * that writes to a guest read this; the Guesty skip lists read
+ * loadHelmRunPropertyIds. Empty on a failed read.
+ */
+export async function loadHelmGuestHomeIds(sb: SupabaseClient = supabaseAdmin): Promise<Set<string>> {
+  if (!isServiceConfigured && sb === supabaseAdmin) return new Set();
+  try {
+    const rows = await loadRows(sb);
+    return new Set(rows.filter(runsGuestsInHelm).map((r) => r.id));
+  } catch {
+    return new Set();
+  }
 }
 
 /** Ids Helm is the calendar authority for. Empty on a failed read. */

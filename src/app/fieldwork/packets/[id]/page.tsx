@@ -175,7 +175,8 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
           .select('id, name, address, kind')
           .order('name')
           .then(({ data }) =>
-            ((data ?? []) as { id: string; name: string | null; address: string | null; kind: string | null }[]).filter((p) => !onTrip.has(p.id)),
+            // Never a partner home: its host runs it, so no contractor goes there.
+            ((data ?? []) as { id: string; name: string | null; address: string | null; kind: string | null }[]).filter((p) => !onTrip.has(p.id) && p.kind !== 'partner'),
           )
       : Promise.resolve([] as { id: string; name: string | null; address: string | null; kind: string | null }[]),
     owner

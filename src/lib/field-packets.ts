@@ -124,15 +124,17 @@ function daysBetween(a: string, b: string): string[] {
 }
 
 export async function loadFieldProperties(): Promise<FieldProperty[]> {
-  // Active managed rentals PLUS every non-managed work location (HQ, prospect
-  // homes) — those are seeded is_active=false so revenue/ops surfaces skip
-  // them, and the Field module is the one place that opts them in. Callers
-  // that only make sense for rentals (routine-check suggestions, the office
-  // inspection calendar) filter kind === 'managed' themselves.
+  // Active managed rentals PLUS the two non-managed work locations (HQ,
+  // prospect homes). Those are seeded is_active=false so revenue/ops surfaces
+  // skip them, and the Field module is the one place that opts them in. The
+  // kinds are named, never "not managed": a partner home is also inactive and
+  // not managed, and its host runs it, so no contractor is ever sent there.
+  // Callers that only make sense for rentals (routine-check suggestions, the
+  // office inspection calendar) filter kind === 'managed' themselves.
   const { data } = await fieldDb()
     .from('properties')
     .select(PROPERTY_COLS)
-    .or('is_active.eq.true,kind.neq.managed');
+    .or('is_active.eq.true,kind.in.(prospect,hq)');
   const rows = ((data ?? []) as unknown as FieldProperty[]).filter(isCapeAnnOps);
   const accessMap = await getPropertyAccessMap(rows.map((p) => p.id));
   // Fold home size into the per-stop base once, here, so every downstream

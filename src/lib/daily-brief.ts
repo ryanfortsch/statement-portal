@@ -852,7 +852,8 @@ async function loadUnreadEmailsFromCache(): Promise<BriefEmail[]> {
 type MatchProperty = { id: string; name: string; address: string | null; title: string | null };
 
 async function loadIssueSlipProperties(sb: SupabaseClient): Promise<MatchProperty[]> {
-  const { data } = await sb.from('properties').select('id, name, address, title');
+  // Never a partner home: its host runs it, so an issue email is never our slip.
+  const { data } = await sb.from('properties').select('id, name, address, title').neq('kind', 'partner');
   return (data ?? []) as MatchProperty[];
 }
 
@@ -1096,7 +1097,9 @@ export async function loadChannelsAttention(): Promise<BriefChannelAttention[]> 
   const out: BriefChannelAttention[] = [];
   // Read here, not through the forgiving pms-guards loader: that one answers
   // "no Helm-run homes" on a failed read, and this section would go silent.
-  const { data: helmRows, error: helmErr } = await supabase.from('properties').select('id').eq('calendar_authority', 'helm');
+  // Partner homes are Helm-run for their calendar but never cut over from
+  // Guesty, so they carry no cutover facts to settle.
+  const { data: helmRows, error: helmErr } = await supabase.from('properties').select('id').eq('calendar_authority', 'helm').neq('kind', 'partner');
   if (helmErr) {
     return [{ propertyId: '', propertyName: 'Helm-run homes', items: [`could not read which homes Helm runs: ${helmErr.message}`] }];
   }
