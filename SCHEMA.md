@@ -133,6 +133,18 @@ aggregate feed and `guesty_reservations` are NOT trusted for cancellations.
 status `block`).** `bookings` holds one row per source per stay by design;
 never key per-stay logic on `bookings.id`.
 
+**A booking request is not a stay.** `booking_requests` (since 2026-11-12)
+is a guest asking a partner home's host (`properties.kind = 'partner'`) for
+dates on staycapeann.com, posted through `POST /api/pms/requests` and unique on
+`request_key`. Helm prices it from the home's rate plan when it lands
+(`quoted_total_cents`, the whole quote in `quote`); `respond_by` is 24 hours
+later. `status` is `pending`, then `declined` or `withdrawn` (an owner on
+`/guests/requests`) or `expired` (`/api/cron/booking-requests`); nothing
+writes `accepted` until Stripe Connect. It holds no night: the calendar is
+still `bookings`. `receipt_emailed_at` / `outcome_emailed_at` stamp the guest
+emails, and the cron retries one left null. RLS on, service role only. See
+`src/lib/booking-requests.ts`.
+
 - **`booking_events`**: append-only change log per booking (`created`,
   `dates_changed`, `status_changed`, `cancelled`, `guest_changed`,
   `money_changed`, `feed_moved`, `note`) with `actor`, `before` and

@@ -88,6 +88,7 @@ describe('what a staff login may open', () => {
       '/projections/abc',
       '/owner-messaging',
       '/guests/quotes/new',
+      '/guests/requests',
       '/fieldwork/shoots',
       '/fieldwork/rate-card',
       '/fieldwork/packets/test',
@@ -403,7 +404,7 @@ describe('the section strips never offer a tab the proxy would bounce', () => {
     // it is not a literal; the other four are.
     // The Stripe lookup left the owner list on 2026-10-19 (read-only, staff).
     'src/components/FinancialsTabs.tsx': 3,
-    'src/components/GrowthTabs.tsx': 2,
+    'src/components/GrowthTabs.tsx': 3,
     'src/components/WorkTabs.tsx': 0,
     'src/components/TurnoverTabs.tsx': 0,
     // Prospects, Contracts and Leases (2026-10-21).

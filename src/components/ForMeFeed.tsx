@@ -32,6 +32,8 @@ import { HoldRow } from '@/app/cleaner-messaging/OwnerHoldQuestionsCard';
 import { homeFeedOrder, windowPayments, type FeedSection } from '@/lib/home-feed-order';
 import { EmptyState } from '@/components/EmptyState';
 import { seriousQueueText } from '@/lib/lease-leads-core';
+import { requestQueueText } from '@/lib/booking-requests';
+import { openRequestClocks } from '@/lib/booking-requests-db';
 
 type MyWork = {
   id: string;
@@ -892,7 +894,8 @@ function PlannedWalkRow({ walk }: { walk: PlannedWalk }) {
  */
 async function loadQueueCards(role: HelmRole): Promise<QueueCard[]> {
   const owner = role === 'owner';
-  const [leases, creative, packets, statements, handoff] = await Promise.all([
+  const [requests, leases, creative, packets, statements, handoff] = await Promise.all([
+    owner ? loadBookingRequestQueue() : null,
     owner ? loadLeaseQueue() : null,
     owner ? loadCreativeQueue() : null,
     // Staff approve submitted packets too (2026-10-20); the card names no
@@ -901,7 +904,7 @@ async function loadQueueCards(role: HelmRole): Promise<QueueCard[]> {
     owner ? loadStatementQueue() : null,
     loadCloseHandoffQueue(role),
   ]);
-  return [leases, creative, ...packets, statements, handoff]
+  return [requests, leases, creative, ...packets, statements, handoff]
     .filter((c): c is QueueCard => !!c)
     .filter((c) => roleMayOpen(role, c.href));
 }
@@ -931,6 +934,22 @@ async function loadCloseHandoffQueue(role: HelmRole): Promise<QueueCard | null> 
     const m = open.map((i) => i.month).sort()[0];
     const n = open.filter((i) => i.month === m).length;
     return { id: 'queue-close-handoff', href: `/fieldwork/close?month=${m}`, text: `Close handoff: ${n} item${n === 1 ? '' : 's'} not sent for ${monthName(m)}, ${dueWording(m, today)}` };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Partner homes' booking requests still inside their 24-hour clock
+ * (src/lib/booking-requests.ts). First in the queues: a guest is waiting on
+ * a host, and a request nobody passes on closes by itself. Owners only; the
+ * partner program and its page are theirs.
+ */
+async function loadBookingRequestQueue(): Promise<QueueCard | null> {
+  try {
+    const now = new Date();
+    const text = requestQueueText(await openRequestClocks(now), now);
+    return text ? { id: 'queue-booking-requests', href: '/guests/requests', text } : null;
   } catch {
     return null;
   }
