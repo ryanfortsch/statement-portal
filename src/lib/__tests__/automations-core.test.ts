@@ -86,7 +86,7 @@ function rule(over: Partial<AutomationRule> = {}): AutomationRule {
 function booking(over: Partial<AutomationBooking> = {}): AutomationBooking {
   return {
     id: over.id ?? 'bk-1',
-    property_id: over.property_id ?? '65_calderwood',
+    property_id: over.property_id ?? 'generic_test_home',
     channel: over.channel ?? 'direct',
     status: over.status ?? 'confirmed',
     check_in: over.check_in ?? '2026-07-15',
@@ -207,27 +207,27 @@ describe('fireAtFor', () => {
 describe('resolveAutomationsFor', () => {
   const fleet = rule({ id: 'f-pre', key: 'pre_arrival', property_id: null, enabled: true });
   const fleetOff = rule({ id: 'f-mid', key: 'mid_stay', trigger: 'mid_stay', property_id: null, enabled: false });
-  const override = rule({ id: 'p-pre', key: 'pre_arrival', property_id: '65_calderwood', at_local: '09:00', enabled: true });
-  const silence = rule({ id: 'p-pre-off', key: 'pre_arrival', property_id: '65_calderwood', enabled: false });
+  const override = rule({ id: 'p-pre', key: 'pre_arrival', property_id: 'generic_test_home', at_local: '09:00', enabled: true });
+  const silence = rule({ id: 'p-pre-off', key: 'pre_arrival', property_id: 'generic_test_home', enabled: false });
   const other = rule({ id: 'o-pre', key: 'pre_arrival', property_id: '3_locust', at_local: '08:00', enabled: true });
 
   test('a property row with the same key overrides the fleet row', () => {
-    const rules = resolveAutomationsFor('65_calderwood', [fleet, override, other]);
+    const rules = resolveAutomationsFor('generic_test_home', [fleet, override, other]);
     assert.deepEqual(rules.map((r) => r.id), ['p-pre']);
   });
 
   test('a disabled property row silences the fleet row', () => {
-    assert.deepEqual(resolveAutomationsFor('65_calderwood', [fleet, silence]), []);
-    const eff = effectiveRulesFor('65_calderwood', [fleet, silence]);
+    assert.deepEqual(resolveAutomationsFor('generic_test_home', [fleet, silence]), []);
+    const eff = effectiveRulesFor('generic_test_home', [fleet, silence]);
     assert.equal(eff.length, 1);
     assert.equal(eff[0].silenced, true);
     assert.equal(eff[0].active, false);
   });
 
   test('another home\'s override never leaks; a disabled fleet row never fires', () => {
-    const rules = resolveAutomationsFor('65_calderwood', [fleet, fleetOff, other]);
+    const rules = resolveAutomationsFor('generic_test_home', [fleet, fleetOff, other]);
     assert.deepEqual(rules.map((r) => r.id), ['f-pre']);
-    const eff = effectiveRulesFor('65_calderwood', [fleet, fleetOff, other]);
+    const eff = effectiveRulesFor('generic_test_home', [fleet, fleetOff, other]);
     assert.deepEqual(eff.map((e) => [e.rule.key, e.source, e.active]), [
       ['mid_stay', 'fleet', false],
       ['pre_arrival', 'fleet', true],
@@ -411,7 +411,7 @@ describe('overrideBodyProblem', () => {
 // ── Rails ────────────────────────────────────────────────────────────────
 
 describe('pickRail', () => {
-  const luana: RecipientLike = { phone: '203-555-0101', display_name: 'Luana', enabled: true, property_ids: ['65_calderwood'], region: 'bridgeport_ct' };
+  const luana: RecipientLike = { phone: '203-555-0101', display_name: 'Luana', enabled: true, property_ids: ['generic_test_home'], region: 'bridgeport_ct' };
   const rosa: RecipientLike = { phone: '978-555-0102', display_name: 'Rosa', enabled: true, property_ids: [], region: 'cape_ann' };
 
   test('sms_then_email: phone wins, then a real email', () => {
@@ -441,7 +441,7 @@ describe('pickRail', () => {
 
   test('cleaner rules ride to covering recipients only', () => {
     const cleaner = rule({ audience: 'cleaner', trigger: 'booking_confirmed', delivery: 'sms' });
-    const covering = recipientsCovering([luana, rosa], { id: '65_calderwood', region: 'bridgeport_ct' });
+    const covering = recipientsCovering([luana, rosa], { id: 'generic_test_home', region: 'bridgeport_ct' });
     assert.deepEqual(covering.map((r) => r.display_name), ['Luana']);
     assert.equal(pickRail(cleaner, booking(), null, covering), 'cleaner_sms');
     assert.equal(pickRail(cleaner, booking(), null, []), null);
@@ -490,7 +490,7 @@ describe('planAutomationSends', () => {
     const rows = planAutomationSends({
       bookings: [booking({ id: 'bk-1', channel: 'airbnb', first_seen_at: '2026-07-10T11:00:00Z' })],
       rules: [pre, rule({ ...confirm, channel_exclusions: ['airbnb'] })],
-      plans: { '65_calderwood': PLAN },
+      plans: { 'generic_test_home': PLAN },
       adjustments: {},
       now,
     });
@@ -520,7 +520,7 @@ describe('planAutomationSends', () => {
   test('enable-stamp gate: a stay already on the calendar when the switch went on is never confirmed', () => {
     const before = booking({ id: 'before', first_seen_at: '2026-07-10T08:00:00Z' });
     const after = booking({ id: 'after', first_seen_at: '2026-07-10T10:30:00Z' });
-    const enabledAt = { '65_calderwood': '2026-07-10T10:00:00Z' };
+    const enabledAt = { 'generic_test_home': '2026-07-10T10:00:00Z' };
     const rows = planAutomationSends({ bookings: [before, after], rules: [confirm], plans: {}, adjustments: {}, enabledAt, now });
     assert.deepEqual(rows.map((r) => r.booking_id), ['after']);
   });
@@ -529,7 +529,7 @@ describe('planAutomationSends', () => {
     const b = booking({ id: 'b', first_seen_at: '2026-07-10T10:30:00Z' });
     const plan = (enabledAt: Record<string, string | null>) =>
       planAutomationSends({ bookings: [b], rules: [confirm], plans: {}, adjustments: {}, enabledAt, now });
-    assert.deepEqual(plan({ '65_calderwood': null }), []);
+    assert.deepEqual(plan({ 'generic_test_home': null }), []);
     assert.deepEqual(plan({}), []);
     // Only booking_confirmed is gated: a pre_arrival rule still plans for the same stay.
     const pre = planAutomationSends({ bookings: [b], rules: [rule({ id: 'f-pre' })], plans: {}, adjustments: {}, enabledAt: {}, now });
@@ -537,7 +537,7 @@ describe('planAutomationSends', () => {
   });
 
   test('both gates hold together: booked in the window AND first seen after the enable stamp', () => {
-    const enabledAt = { '65_calderwood': '2026-07-10T10:00:00Z' };
+    const enabledAt = { 'generic_test_home': '2026-07-10T10:00:00Z' };
     const ms = now.getTime();
     assert.equal(isFreshlyBooked(booking({ first_seen_at: '2026-07-10T10:30:00Z', booked_at: '2026-07-10T10:29:00Z' }), ms, enabledAt), true);
     assert.equal(isFreshlyBooked(booking({ first_seen_at: '2026-07-10T10:30:00Z', booked_at: '2026-07-01T10:29:00Z' }), ms, enabledAt), false);
@@ -546,7 +546,7 @@ describe('planAutomationSends', () => {
 
   test('a confirmation the engine paused skips the enable stamp an off/on just moved, never the booked window', () => {
     const b = booking({ id: 'paused', first_seen_at: '2026-07-10T08:00:00Z' });
-    const enabledAt = { '65_calderwood': '2026-07-10T11:40:00Z' };
+    const enabledAt = { 'generic_test_home': '2026-07-10T11:40:00Z' };
     const resumable = new Set([sendKey('paused', 'f-conf')]);
     const base = { bookings: [b], rules: [confirm], plans: {}, adjustments: {}, enabledAt, now };
     assert.deepEqual(planAutomationSends(base), []);
@@ -599,7 +599,7 @@ describe('planAutomationSends', () => {
   });
 
   test('a silenced rule plans nothing for that home only', () => {
-    const silence = rule({ id: 'p-off', key: 'pre_arrival', property_id: '65_calderwood', enabled: false });
+    const silence = rule({ id: 'p-off', key: 'pre_arrival', property_id: 'generic_test_home', enabled: false });
     const rows = planAutomationSends({
       bookings: [booking({ id: 'ct' }), booking({ id: 'ma', property_id: '3_locust' })],
       rules: [pre, silence],
@@ -789,7 +789,7 @@ describe('decideDispatch', () => {
 
   test('cleaner rules go to covering recipients on the cleaner rail', () => {
     const cleaner = rule({ audience: 'cleaner', trigger: 'booking_confirmed', delivery: 'sms' });
-    const luana: RecipientLike = { phone: '203-555-0101', display_name: 'Luana', enabled: true, property_ids: ['65_calderwood'], region: 'bridgeport_ct' };
+    const luana: RecipientLike = { phone: '203-555-0101', display_name: 'Luana', enabled: true, property_ids: ['generic_test_home'], region: 'bridgeport_ct' };
     assert.deepEqual(decideDispatch({ ...clean, rule: cleaner, recipients: [luana] }), { outcome: 'send', rail: 'cleaner_sms', reason: null });
     assert.equal(decideDispatch({ ...clean, rule: cleaner, recipients: [] }).outcome, 'skipped_no_contact');
   });
@@ -925,7 +925,7 @@ describe('round 15: promoted inquiries, revived confirmation cards, cleaner arri
 
   test('an inquiry asked before automations went on and confirmed after is a booking made after', () => {
     const promoted = booking({ first_seen_at: '2026-07-08T12:00:00Z', booked_at: '2026-07-10T11:00:00Z' });
-    const enabledAt = { '65_calderwood': '2026-07-09T00:00:00Z' };
+    const enabledAt = { 'generic_test_home': '2026-07-09T00:00:00Z' };
     assert.equal(isFreshlyBooked(promoted, now.getTime(), enabledAt), true);
     // A stay first seen and booked before the switch is still not confirmed by it.
     assert.equal(isFreshlyBooked(booking({ first_seen_at: '2026-07-08T12:00:00Z', booked_at: '2026-07-08T12:00:00Z' }), now.getTime(), enabledAt), false);
