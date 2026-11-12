@@ -12,7 +12,7 @@
  *
  * Pure: the client strip and the tests both import it.
  */
-export type GrowthTabId = 'marketing' | 'reviews' | 'contacts' | 'agreements' | 'quotes' | 'competitors';
+export type GrowthTabId = 'marketing' | 'reviews' | 'contacts' | 'agreements' | 'quotes' | 'requests' | 'competitors';
 
 function under(pathname: string, prefix: string): boolean {
   return pathname === prefix || pathname.startsWith(prefix + '/');
@@ -26,6 +26,7 @@ export function growthTabFor(pathname: string): GrowthTabId | null | undefined {
   if (p === '/guests') return 'reviews';
   if (under(p, '/guests/agreements')) return 'agreements';
   if (under(p, '/guests/quotes')) return 'quotes';
+  if (under(p, '/guests/requests')) return 'requests';
   // The Guest list, a guest's record, campaigns: the list and what is sent to it.
   if (under(p, '/guests')) return 'contacts';
   return undefined;

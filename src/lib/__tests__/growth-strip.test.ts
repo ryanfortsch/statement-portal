@@ -47,6 +47,7 @@ describe('which tab a Growth path lights', () => {
     ['/guests/agreements/abc/edit', 'agreements'],
     ['/guests/quotes', 'quotes'],
     ['/guests/quotes/abc/edit', 'quotes'],
+    ['/guests/requests', 'requests'],
     ['/competitors', 'competitors'],
     ['/competitors/atlantic-vacation-homes', 'competitors'],
     // The document preview prints as the guest's PDF: no chrome at all.
@@ -61,10 +62,10 @@ describe('which tab a Growth path lights', () => {
 });
 
 describe('the Growth layouts own the chrome', () => {
-  test('one strip, six tabs, in reading order, Quotes handed to SectionTabs', () => {
+  test('one strip, seven tabs, in reading order, Quotes handed to SectionTabs', () => {
     const src = read('src/components/GrowthTabs.tsx');
     const labels = [...src.matchAll(/label: '([^']+)'/g)].map((m) => m[1]);
-    assert.deepEqual(labels, ['Marketing', 'Reviews', 'Guest list', 'Agreements', 'Quotes', 'Competitors']);
+    assert.deepEqual(labels, ['Marketing', 'Reviews', 'Guest list', 'Agreements', 'Quotes', 'Requests', 'Competitors']);
     assert.ok(!src.includes("label: 'Contacts'"), 'Contacts is the CRM; the subscriber list is the Guest list');
     assert.ok(src.includes('<SectionTabs'), 'the strip is a SectionTabs wrapper, so the role filter applies');
     assert.ok(!src.includes("label: 'Guests'"), 'no tab is called Guests');
@@ -93,8 +94,8 @@ describe('the Growth layouts own the chrome', () => {
     });
   }
 
-  test('Contacts, Agreements and Quotes open on their lists, with no hero', () => {
-    for (const page of ['src/app/guests/contacts/page.tsx', 'src/app/guests/agreements/page.tsx', 'src/app/guests/quotes/page.tsx', 'src/app/guests/page.tsx']) {
+  test('Contacts, Agreements, Quotes and Requests open on their lists, with no hero', () => {
+    for (const page of ['src/app/guests/contacts/page.tsx', 'src/app/guests/agreements/page.tsx', 'src/app/guests/quotes/page.tsx', 'src/app/guests/requests/page.tsx', 'src/app/guests/page.tsx']) {
       const src = read(page);
       assert.ok(!src.includes('HelmHero') && !src.includes('<h1'), `${page} still has a hero`);
     }

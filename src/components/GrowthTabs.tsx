@@ -7,12 +7,13 @@ import { SectionTabs } from './SectionTabs';
 
 /**
  * The one Growth strip: Marketing / Reviews / Guest list / Agreements /
- * Quotes / Competitors. Rendered by the Growth layouts through GrowthFrame,
+ * Quotes / Requests / Competitors. Rendered by the Growth layouts through GrowthFrame,
  * never by a page, so every Growth page carries it in the same place and
  * clicking between siblings never moves it.
  *
  * Role-aware through SectionTabs: Quotes is an owner page (guest pricing is
- * set by the owners), so a staff login never sees the tab.
+ * set by the owners), and so is Requests (partner homes' booking requests,
+ * the partner program), so a staff login sees neither tab.
  */
 export function GrowthTabs() {
   const current = growthTabFor(usePathname() ?? '') ?? undefined;
@@ -25,6 +26,7 @@ export function GrowthTabs() {
         { id: 'contacts', label: 'Guest list', href: '/guests/contacts' },
         { id: 'agreements', label: 'Agreements', href: '/guests/agreements' },
         { id: 'quotes', label: 'Quotes', href: '/guests/quotes' },
+        { id: 'requests', label: 'Requests', href: '/guests/requests' },
         { id: 'competitors', label: 'Competitors', href: '/competitors' },
       ]}
     />

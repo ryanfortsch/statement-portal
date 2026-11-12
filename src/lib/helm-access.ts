@@ -138,6 +138,9 @@ export const OWNER_PATH_PREFIXES: readonly string[] = [
   '/owner-messaging',
   // Guest pricing is set by the owners.
   '/guests/quotes',
+  // Partner homes' booking requests: the partner program, and each request
+  // carries the quoted price and the host's contact.
+  '/guests/requests',
   '/channels/pricing',
   // Owner chores in Growth: the AirDNA comps upload (its reminder texts the
   // owner) and the competitor roster, whose owner-of-record research is

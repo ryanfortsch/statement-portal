@@ -732,7 +732,8 @@ export const HELM_MODULES: HelmModule[] = [
     access: 'owner',
   },
   // The tabs of the one Growth strip (GrowthTabs, rendered by the Growth
-  // layouts): Marketing, Reviews, Contacts, Agreements, Quotes, Competitors.
+  // layouts): Marketing, Reviews, Contacts, Agreements, Quotes, Requests,
+  // Competitors.
   // Hidden from the nav lists so they don't duplicate the Growth entry;
   // registered for search. Reviews lives at the bare /guests (the id stays
   // 'guests' so old references resolve), and the word Guests no longer
@@ -780,6 +781,19 @@ export const HELM_MODULES: HelmModule[] = [
     number: '13c',
     title: 'Custom Quotes',
     description: 'Stay Cape Ann custom quotes and booking requests. Compose the price in Helm; the guest accepts and pays on staycapeann.com.',
+    status: 'active',
+    primary: false,
+    hidden: true,
+    group: 'growth',
+    section: 'marketing',
+    access: 'owner',
+  },
+  {
+    id: 'booking-requests',
+    href: '/guests/requests',
+    number: '13d',
+    title: 'Booking Requests',
+    description: 'Guests asking for dates at a partner home on staycapeann.com. The host answers within 24 hours; decline or let it close, and the guest is emailed.',
     status: 'active',
     primary: false,
     hidden: true,
