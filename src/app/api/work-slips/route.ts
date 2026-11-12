@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { revalidatePath } from 'next/cache';
 import { supabaseAdmin as supabase, isServiceConfigured as isConfigured } from '@/lib/supabase-admin';
 import { authorizeStayConcierge } from '@/lib/stay-concierge-auth';
+import { resolvePropertyIdFromSlug } from '@/lib/payment-links-text';
 
 /**
  * Service-created work slips — stay-concierge's write path into /work.
@@ -12,8 +13,8 @@ import { authorizeStayConcierge } from '@/lib/stay-concierge-auth';
  * the /work board, the property print sheet, and the Operations turnover
  * row for that exact reservation.
  *
- * Auth: STAY_CONCIERGE_KEY shared secret (query `key` or header
- * `x-stay-concierge-key`), same plane as /api/owners-sync. The path is
+ * Auth: STAY_CONCIERGE_KEY shared secret in the `x-stay-concierge-key`
+ * header (never a query string), same plane as /api/owners-sync. The path is
  * allowlisted in src/proxy.ts PUBLIC_API_PREFIXES; without that the SSO
  * middleware 401s a sessionless caller before this handler runs.
  *
@@ -30,7 +31,7 @@ import { authorizeStayConcierge } from '@/lib/stay-concierge-auth';
  * Dismissed and blocked slips keep their status; a replay of the same ask
  * against a closed slip changes nothing. Never duplicates.
  *
- *   POST /api/work-slips?key=K
+ *   POST /api/work-slips
  *   { property_id, title, request_key, description?, action_summary?,
  *     priority?, category?, scheduled_date?, guesty_reservation_id?,
  *     location? }
@@ -84,10 +85,10 @@ export async function POST(req: Request) {
       (body.inspection_task != null && typeof body.inspection_task !== 'boolean')) {
     return NextResponse.json({ error: 'Invalid work slip fields' }, { status: 400 });
   }
-  const propertyId = (body.property_id ?? '').trim();
+  const sentPropertyId = (body.property_id ?? '').trim();
   const title = (body.title ?? '').trim();
   const requestKey = (body.request_key ?? '').trim();
-  if (!propertyId || !title || !requestKey) {
+  if (!sentPropertyId || !title || !requestKey) {
     return NextResponse.json(
       { error: 'property_id, title, and request_key are required' },
       { status: 400 },
@@ -117,23 +118,33 @@ export async function POST(req: Request) {
     if (wakeIso > todayIso) snoozedUntil = wakeIso;
   }
 
-  // The FK would reject an unknown property anyway; checking first gives the
-  // caller a clean "skipped" instead of a raw constraint error. Personal
-  // properties (65 Calderwood, 3246 NE 27th) are filtered concierge-side but
-  // this also catches slug drift between the two systems.
-  const { data: prop, error: propertyError } = await supabase
+  // The concierge keys homes by its own slug, which is not always Helm's id
+  // (3_south_street for 3_south_st). An exact id wins; otherwise the shared
+  // slug resolver (alias table, then a unique street stem) names the home.
+  // Anne's two paid 3 South nights (2026-11-12) were skipped here as
+  // "unknown" and never reached the board. Personal properties (65
+  // Calderwood, 3246 NE 27th) are filtered concierge-side, and a partner
+  // home is never a match: its host runs it, so nothing of ours goes on
+  // Work for it. A slug that still names nothing is a clean "skipped" (the
+  // FK would refuse it anyway), logged so the miss is visible, and the
+  // concierge's delivery queue raises it as a needs-you item instead of
+  // reading it as saved.
+  const { data: props, error: propertyError } = await supabase
     .from('properties')
     .select('id, name')
-    .eq('id', propertyId)
-    .maybeSingle();
+    .neq('kind', 'partner');
   if (propertyError) return NextResponse.json({ error: 'Property lookup failed' }, { status: 503 });
-  if (!prop) {
+  const knownProps = (props ?? []) as Array<{ id: string; name: string | null }>;
+  const propertyId = resolvePropertyIdFromSlug(sentPropertyId, knownProps.map((p) => p.id));
+  const prop = propertyId ? knownProps.find((p) => p.id === propertyId) : undefined;
+  if (!propertyId || !prop) {
+    console.warn(`work-slips: skipped ${requestKey}, unknown property_id ${sentPropertyId}`);
     return NextResponse.json(
-      { ok: false, skipped: true, error: `unknown property_id ${propertyId}` },
+      { ok: false, skipped: true, error: `unknown property_id ${sentPropertyId}` },
       { status: 200 },
     );
   }
-  const propertyName = (prop.name as string | null) ?? propertyId;
+  const propertyName = prop.name ?? propertyId;
 
   async function confirmed(id: string, details: Record<string, unknown>) {
     let fieldDelivery: unknown = { status: 'office_queue' };
