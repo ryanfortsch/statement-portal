@@ -58,10 +58,10 @@ async function readPropertyOptions(): Promise<{ value: string; label: string }[]
   try {
     const { data } = await supabase
       .from('properties')
-      .select('id, name, region')
+      .select('id, name, region, kind')
       .eq('is_active', true)
       .order('name');
-    return ((data ?? []) as { id: string; name: string; region: string | null }[])
+    return ((data ?? []) as { id: string; name: string; region: string | null; kind: string | null }[])
       .filter(isCapeAnnOps)
       .map((p) => ({ value: p.id, label: p.name }));
   } catch {

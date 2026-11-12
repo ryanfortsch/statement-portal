@@ -38,6 +38,7 @@ export const revalidate = 0;
 type PropertyRow = {
   id: string;
   name: string;
+  kind: string | null;
   wifi_name: string | null;
   wifi_label: string | null;
   wifi_name_2: string | null;
@@ -93,7 +94,7 @@ export async function GET(req: Request) {
   const { data: props, error } = await supabase
     .from('properties')
     .select(
-      'id, name, city, address, wifi_name, wifi_label, wifi_name_2, wifi_label_2, parking, trash_day, recycling_day, trash_notes, has_pack_n_play, has_high_chair, default_checkout_time, guesty_listing_id, title, region, calendar_authority, quiet_hours, max_occupancy, pet_policy, smoking_policy, cancellation_policy, house_rules, heating, cooling, thermostat_brand, bedrooms, bathrooms, internet_provider, cable_provider, num_tvs, smart_tv',
+      'id, name, city, address, wifi_name, wifi_label, wifi_name_2, wifi_label_2, parking, trash_day, recycling_day, trash_notes, has_pack_n_play, has_high_chair, default_checkout_time, guesty_listing_id, title, region, calendar_authority, kind, quiet_hours, max_occupancy, pet_policy, smoking_policy, cancellation_policy, house_rules, heating, cooling, thermostat_brand, bedrooms, bathrooms, internet_provider, cable_provider, num_tvs, smart_tv',
     )
     .eq('is_active', true);
   if (error) {
@@ -315,7 +316,7 @@ export async function GET(req: Request) {
       rooms: guestRoomFacts(roomsByProp.get(p.id) ?? []),
       // The home's guest app (Cape Ann homes with the app on; '' otherwise).
       // A guide link, never a door code: see guestAppByProp above.
-      guest_app_url: isCapeAnnOps({ region: p.region }) ? guestAppByProp.get(p.id) ?? '' : '',
+      guest_app_url: isCapeAnnOps({ region: p.region, kind: p.kind }) ? guestAppByProp.get(p.id) ?? '' : '',
       guest_notes: (notesByProp.get(p.id) ?? [])
         .map((n) => ({ title: clean(n.title), body: clean(n.body) }))
         .filter((n) => n.title || n.body),

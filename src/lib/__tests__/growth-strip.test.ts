@@ -186,7 +186,7 @@ describe('Marketing Memory lives on the property page as How we sell it', () => 
     const page = read('src/app/properties/[id]/page.tsx');
     // A block of the Listing section since 2026-10-19: read here, Edit opens the editor.
     const guestTab = page.slice(page.indexOf('<TabSection tab="guest">'));
-    assert.ok(guestTab.includes('sellIt={isCapeAnnOps({ region: pmsRegion }) ? howWeSellIt : null}'), 'the block sits on the Guest & listing tab, Cape Ann homes only');
+    assert.ok(guestTab.includes('sellIt={isCapeAnnOps({ region: pmsRegion, kind: p.kind }) ? howWeSellIt : null}'), 'the block sits on the Guest & listing tab, Cape Ann homes only');
     const panel = read('src/app/properties/[id]/ListingPanel.tsx');
     assert.ok(panel.includes('id="how-we-sell-it"') && panel.includes('title="How we sell it"'));
     assert.ok(panel.includes('<HowWeSellIt propertyId={propertyId} row={row} onSaved={() => setEditing(false)} />'));

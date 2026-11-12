@@ -11,11 +11,23 @@ function fixture() {
   const rows = new Map<string, Record<string, unknown>>();
   const state = { actor: 'actor-a', allowed: true, board: false, readError: false, loseInsertResponse: false, events: 0, recomputes: 0, homed: 0 };
   // Homes the board grant can reach (any home outside the visit window).
-  const homes: Record<string, { id: string; name: string }> = { 'home-b': { id: 'home-b', name: 'Other synthetic home' } };
+  const homes: Record<string, { id: string; name: string; kind: string }> = {
+    'home-b': { id: 'home-b', name: 'Other synthetic home', kind: 'managed' },
+    'home-p': { id: 'home-p', name: 'Synthetic partner home', kind: 'partner' },
+  };
   const fieldDb = () => ({ from: (table: string) => {
     if (table === 'properties') {
       let id = '';
-      const props = { select: () => props, eq: (_k: string, v: string) => { id = v; return props; }, maybeSingle: async () => ({ data: homes[id] ?? null, error: null }) };
+      const not: [string, unknown][] = [];
+      const props = {
+        select: () => props,
+        eq: (_k: string, v: string) => { id = v; return props; },
+        neq: (k: string, v: unknown) => { not.push([k, v]); return props; },
+        maybeSingle: async () => {
+          const home = homes[id] as Record<string, unknown> | undefined;
+          return { data: home && not.every(([k, v]) => home[k] !== v) ? home : null, error: null };
+        },
+      };
       return props;
     }
     const filters: [string, unknown][] = [];
@@ -70,6 +82,8 @@ test('the board grant files at any home once per attempt; without it a home outs
   assert.equal(row.property_id, 'home-b'); assert.equal(row.reported_from_packet_id, undefined, 'no source trip');
   assert.equal(row.expense_cents, 2760); assert.equal(state.homed, 1, 'the receipt rides the live trip once');
   assert.equal((await api.reportFieldWorkSlip({}, form('438f4efe-fdc5-4d1d-bb11-6ba9cbbf8383', 'home-z'))).ok, false, 'an unknown home is refused');
+  assert.equal((await api.reportFieldWorkSlip({}, form('538f4efe-fdc5-4d1d-bb11-6ba9cbbf8383', 'home-p'))).ok, false, 'a partner home is refused: the crew never works it');
+  assert.equal(rows.size, 1);
 });
 test('confirmation is scoped to contractor and property; lookup failures never authorize insertion', async () => {
   const { api, rows, state } = fixture();

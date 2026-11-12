@@ -21,6 +21,7 @@ import 'server-only';
 import { supabaseAdmin, isServiceConfigured } from '@/lib/supabase-admin';
 import { selectAllPaged } from '@/lib/paged-select';
 import { fleetNameMap } from '@/lib/fleet';
+import { runsGuestsInHelm } from '@/lib/property-scope';
 import { sendMessage } from '@/lib/quo';
 import { quoFromNumber } from '@/lib/quo-lines';
 import { toE164Phone, normalizeEmail } from '@/lib/guests-identity-core';
@@ -73,13 +74,15 @@ type BookingRow = BookingCandidate & { duplicate_of: string | null };
 
 // ── Lookups ─────────────────────────────────────────────────────────
 
-/** Is this a home Helm runs? False on a failed read: the webhook then opens
- *  no new thread, and the text still reaches /crm and the concierge. */
+/** Is this a home whose guests Helm answers (Helm-run, not a partner home,
+ *  whose host talks to its own guests)? False on a failed read: the webhook
+ *  then opens no new thread, and the text still reaches /crm and the
+ *  concierge. */
 async function isHelmRunProperty(propertyId: string | null | undefined): Promise<boolean> {
   if (!propertyId) return false;
-  const { data, error } = await supabaseAdmin.from('properties').select('calendar_authority').eq('id', propertyId).maybeSingle();
+  const { data, error } = await supabaseAdmin.from('properties').select('calendar_authority, kind').eq('id', propertyId).maybeSingle();
   if (error || !data) return false;
-  return (data as { calendar_authority?: string | null }).calendar_authority === 'helm';
+  return runsGuestsInHelm(data as { calendar_authority?: string | null; kind?: string | null });
 }
 
 /** The rows at homes Helm runs. An outbound re-link picks among these (and

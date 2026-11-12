@@ -131,7 +131,7 @@ async function readHome(propertyId: string): Promise<GuestAppHome | null> {
   if (error || !data) return null;
   const row = data as unknown as Partial<GuestAppHome>;
   const home = { ...row, oil_shutoff_location: row.oil_shutoff_location ?? null } as GuestAppHome;
-  return isCapeAnnOps({ region: home.region }) ? home : null;
+  return isCapeAnnOps({ region: home.region, kind: home.kind }) ? home : null;
 }
 
 /**

@@ -22,7 +22,7 @@ export type GearRow = {
 
 export async function loadGearGrid(): Promise<GearRow[]> {
   const [{ data: props }, { data: gear }] = await Promise.all([
-    fieldDb().from('properties').select('id, name').order('name'),
+    fieldDb().from('properties').select('id, name').neq('kind', 'partner').order('name'),
     fieldDb().from('property_gear').select('property_id, item_key, location'),
   ]);
   const byProp = new Map<string, Record<string, string>>();

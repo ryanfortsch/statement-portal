@@ -4,7 +4,7 @@ import { loadGuestyListingMap, syncCalendarDays } from '@/lib/calendar-days';
 import { backfillReservationGaps } from '@/lib/reservation-gap-backfill';
 import { recordSyncFailure, recordSyncResult } from '@/lib/sync-status';
 import { authorizeCron } from '@/lib/cron-auth';
-import { loadHelmRunPropertyIds } from '@/lib/pms-guards';
+import { loadHelmGuestHomeIds, loadHelmRunPropertyIds } from '@/lib/pms-guards';
 import { mirrorWindow, writeHelmCalendarMirror } from '@/lib/helm-calendar-mirror';
 import { ensureOtaThreadForBooking } from '@/lib/helm-inbox';
 import { supabaseAdmin } from '@/lib/supabase-admin';
@@ -168,7 +168,9 @@ async function run(request: NextRequest) {
     // mark the iCal import run as failed too.
     const calendarDays = await syncCalendarWindow(helmRunIds);
     const extensionHolds = await detectHoldsAfterRefresh(calendarDays);
-    const otaThreads = await ensureOtaThreads(helmRunIds);
+    // Threads only where Helm answers the guests: a partner home is Helm-run
+    // for its calendar, but its host talks to its guests.
+    const otaThreads = await ensureOtaThreads(await loadHelmGuestHomeIds());
     return NextResponse.json({
       ok: true, ...result, helm_calendar: helmCalendar, calendar_days: calendarDays,
       extension_holds: extensionHolds, ota_threads: otaThreads,

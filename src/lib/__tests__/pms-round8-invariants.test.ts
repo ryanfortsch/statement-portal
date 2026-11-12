@@ -35,7 +35,7 @@ test('the SQL writers stamp the moment of a cancel and give Helm rows their hold
 
 test('catch-all cleaners serve Cape Ann homes only, on the property page and in the launch tracker', () => {
   assert.ok(read('src/lib/property-crew.ts').includes('const serves = (fleetWide && capeAnn) || ids.includes(propertyId);'));
-  assert.ok(read('src/lib/launch-context.ts').includes('(list.length === 0 && isCapeAnnOps({ region: scope.region ?? null })) || list.includes(p.id)'));
+  assert.ok(read('src/lib/launch-context.ts').includes('(list.length === 0 && isCapeAnnOps({ region: scope.region ?? null, kind: scope.kind ?? null })) || list.includes(p.id)'));
 });
 
 test('round 9: a declined inquiry re-confirmed starts holding, and a row moved to dates it does not hold keeps no ages', () => {

@@ -95,13 +95,14 @@ export default async function PropertiesPage() {
   // A split home's units ride under their house: one numbered row, one pin.
   const activeNested = nestUnits(active, unitParents);
   const activeHomes = activeNested.map((n) => n.home);
-  // Non-managed work locations (HQ, prospect homes) ride is_active=false but
-  // aren't "inactive rentals" — count them by what they are.
+  // Non-managed homes (HQ, prospect homes, partner homes their hosts run) ride
+  // is_active=false but aren't "inactive rentals": count them by what they are.
   const inactive = properties.filter((p) => !p.is_active);
   const prospectCount = inactive.filter((p) => p.kind === 'prospect').length;
+  const partnerCount = inactive.filter((p) => p.kind === 'partner').length;
   const inactiveManaged = inactive.filter((p) => p.kind === 'managed').length;
   const countLine = !error
-    ? `${activeHomes.length} active${prospectCount ? `, ${prospectCount} ${prospectCount === 1 ? 'prospect' : 'prospects'}` : ''}${inactiveManaged ? `, ${inactiveManaged} inactive` : ''}.`
+    ? `${activeHomes.length} active${partnerCount ? `, ${partnerCount} ${partnerCount === 1 ? 'partner' : 'partners'}` : ''}${prospectCount ? `, ${prospectCount} ${prospectCount === 1 ? 'prospect' : 'prospects'}` : ''}${inactiveManaged ? `, ${inactiveManaged} inactive` : ''}.`
     : undefined;
 
   return (
@@ -167,7 +168,9 @@ export default async function PropertiesPage() {
             {inactive.length > 0 && (
               <div style={{ marginTop: 56 }}>
                 <div className="eyebrow" style={{ marginBottom: 18 }}>
-                  {inactive.some((p) => p.kind !== 'managed') ? 'Prospects, HQ & inactive' : 'Inactive'}
+                  {inactive.some((p) => p.kind === 'partner')
+                    ? 'Partners, prospects, HQ & inactive'
+                    : inactive.some((p) => p.kind !== 'managed') ? 'Prospects, HQ & inactive' : 'Inactive'}
                 </div>
                 <div style={{ borderTop: '1px solid var(--rule)' }}>
                   {inactive.map((p, i) => (
@@ -339,7 +342,7 @@ function PropertyRow({
             whiteSpace: 'nowrap',
           }}
         >
-          {p.is_active ? (owner ? `${p.management_fee_pct}% →` : 'Managed →') : p.kind === 'hq' ? 'HQ' : p.kind === 'prospect' ? 'Prospect' : 'Inactive'}
+          {p.is_active ? (owner ? `${p.management_fee_pct}% →` : 'Managed →') : p.kind === 'hq' ? 'HQ' : p.kind === 'prospect' ? 'Prospect' : p.kind === 'partner' ? 'Partner' : 'Inactive'}
         </span>
       </div>
     </Link>

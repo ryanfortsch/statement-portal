@@ -48,6 +48,7 @@ function home(over: Partial<GuestAppHome> = {}): GuestAppHome {
     address: '12 Test Street',
     city: 'Gloucester',
     region: 'cape_ann',
+    kind: 'managed',
     latitude: 42.6159,
     longitude: -70.662,
     guesty_listing_id: null,

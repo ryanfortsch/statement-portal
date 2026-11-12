@@ -53,7 +53,7 @@ async function loadProperties(): Promise<{ id: string; name: string }[]> {
     .select('id,name,kind')
     .order('name');
   return ((data ?? []) as { id: string; name: string; kind: string | null }[])
-    .filter((p) => p.kind !== 'hq')
+    .filter((p) => p.kind !== 'hq' && p.kind !== 'partner')
     .map((p) => ({ id: p.id, name: p.name }));
 }
 

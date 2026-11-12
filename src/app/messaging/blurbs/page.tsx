@@ -57,7 +57,7 @@ function NotReachable({ message, retry = false }: { message: string; retry?: boo
 
 async function loadProperties(): Promise<{ id: string; name: string }[]> {
   try {
-    const { data, error } = await supabase.from('properties').select('id, name').order('name');
+    const { data, error } = await supabase.from('properties').select('id, name').neq('kind', 'partner').order('name');
     if (error || !data) return [];
     return data as { id: string; name: string }[];
   } catch {

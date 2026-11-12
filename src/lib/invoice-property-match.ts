@@ -133,6 +133,9 @@ export async function loadInvoiceNeedles(): Promise<InvoiceNeedles> {
     const { data, error } = await supabaseAdmin
       .from('properties')
       .select('id, name, address, invoice_match')
+      // Never a partner home: we are never billed for its cleans, and its
+      // address must not take a match from one of ours.
+      .neq('kind', 'partner')
       .order('id');
 
     if (error) {

@@ -56,6 +56,8 @@ export type GuestAppHome = {
   address: string | null;
   city: string | null;
   region: string | null;
+  /** properties.kind: a partner home is not Cape Ann ops, so it has no app. */
+  kind: string | null;
   latitude: number | null;
   longitude: number | null;
   guesty_listing_id: string | null;
@@ -99,7 +101,7 @@ export type GuestAppHome = {
 };
 
 export const GUEST_APP_PROPERTY_COLS =
-  'id, name, title, address, city, region, latitude, longitude, guesty_listing_id, former_guesty_listing_id, ' +
+  'id, name, title, address, city, region, kind, latitude, longitude, guesty_listing_id, former_guesty_listing_id, ' +
   'bedrooms, bathrooms, max_occupancy, parking, parking_regulations, trash_day, recycling_day, trash_notes, ' +
   'carts_handled_by_us, heating, cooling, thermostat_brand, internet_provider, smart_tv, wifi_name, wifi_label, ' +
   'wifi_name_2, wifi_label_2, has_pack_n_play, has_high_chair, has_pullout_bed, pullout_linens_location, ' +

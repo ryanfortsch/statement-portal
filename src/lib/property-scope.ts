@@ -1,7 +1,7 @@
 /**
  * The single definition of property scope.
  *
- * Two registry columns decide where a home shows up and who runs it:
+ * Three registry columns decide where a home shows up and who runs it:
  *
  *   properties.region              the OPS scope. Cape Ann crew surfaces
  *                                  (turnover rail, cleaner digest, Field
@@ -16,6 +16,10 @@
  *                                  runs the calendar and Helm mirrors it;
  *                                  'helm' means Helm is authoritative and
  *                                  every Guesty pass skips the home.
+ *   properties.kind                'partner' is a home its own host runs and
+ *                                  lists on staycapeann.com. It is never
+ *                                  Cape Ann ops, and Helm never answers its
+ *                                  guests (isPartnerHome, runsGuestsInHelm).
  *
  * Before this module existed the exclusion lived as literal id sets in four
  * files (operations.ts, field-packets.ts, checkout-schedule.ts, the turnovers
@@ -55,17 +59,45 @@ export const REGION_LABELS: Record<string, string> = {
 };
 
 /**
+ * properties.kind for a partner home: a Cape Ann home listed on
+ * staycapeann.com and run by its own host. Rising Tide does not clean it,
+ * inspect it, message its guests, bill it or pay it out. A partner row is
+ * always is_active = false (a database constraint holds it), the same ride
+ * prospect and HQ rows take, so every surface that filters is_active skips
+ * it. The booking path opts partner homes in deliberately; nothing else may.
+ * partner-homes.test.ts holds the readers of the properties table to that.
+ */
+export const PARTNER_KIND = 'partner';
+
+/** A home listed on staycapeann.com that its own host runs. */
+export function isPartnerHome(p: Pick<ScopedProperty, 'kind'>): boolean {
+  return p.kind === PARTNER_KIND;
+}
+
+/**
  * Does the Cape Ann crew run operations at this home? A null or missing
  * region reads as Cape Ann: an older select that never asked for the column
- * must not hide a home from the turnover rail.
+ * must not hide a home from the turnover rail. A partner home is in Cape Ann
+ * but the crew never works it, so it is never Cape Ann ops.
  */
-export function isCapeAnnOps(p: Pick<ScopedProperty, 'region'>): boolean {
-  return (p.region ?? CAPE_ANN_REGION) === CAPE_ANN_REGION;
+export function isCapeAnnOps(p: Pick<ScopedProperty, 'region'> & { kind: string | null | undefined }): boolean {
+  return (p.region ?? CAPE_ANN_REGION) === CAPE_ANN_REGION && !isPartnerHome(p);
 }
 
 /** Helm is the calendar authority for this home (the flip has happened). */
 export function isHelmRun(p: Pick<ScopedProperty, 'calendar_authority'>): boolean {
   return p.calendar_authority === 'helm';
+}
+
+/**
+ * Helm runs this home's guests: its calendar AND its guest messaging,
+ * automations and inbox. A partner home is Helm-run in the calendar sense
+ * (Helm holds its calendar for staycapeann.com, so every Guesty pass skips
+ * it), but its host talks to its guests, never us. Use isHelmRun for "skip
+ * it in Guesty"; use this for "we answer its guests".
+ */
+export function runsGuestsInHelm(p: Pick<ScopedProperty, 'calendar_authority' | 'kind'>): boolean {
+  return isHelmRun(p) && !isPartnerHome(p);
 }
 
 /** Guesty still runs the calendar (the default, and shadow mode). */
@@ -74,7 +106,7 @@ export function isGuestyRun(p: Pick<ScopedProperty, 'calendar_authority'>): bool
 }
 
 /** The ids of every Cape Ann ops home in a loaded roster. */
-export function capeAnnIds<T extends Pick<ScopedProperty, 'id' | 'region'>>(rows: readonly T[]): Set<string> {
+export function capeAnnIds<T extends Pick<ScopedProperty, 'id' | 'region'> & { kind: string | null | undefined }>(rows: readonly T[]): Set<string> {
   return new Set(rows.filter(isCapeAnnOps).map((r) => r.id));
 }
 

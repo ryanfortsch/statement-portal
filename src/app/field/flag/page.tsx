@@ -51,6 +51,7 @@ export default async function FlagPage() {
       ? fieldDb()
           .from('properties')
           .select('id, name')
+          .neq('kind', 'partner')
           .order('name')
           .then(({ data }) => (data ?? []) as Array<{ id: string; name: string }>)
       : Promise.resolve([] as Array<{ id: string; name: string }>),

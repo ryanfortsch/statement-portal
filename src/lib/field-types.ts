@@ -323,10 +323,11 @@ export type AttachedSlip = WorkSlipLite & {
 /** Property fields the Field module needs: location + the access bundle. */
 /** What kind of work location a properties row is. 'managed' = a rental we
  *  operate (the default); 'prospect' = a home we may sign, workable before
- *  onboarding; 'hq' = Rising Tide's own space (85 Eastern Ave). Non-managed
- *  rows carry is_active=false so revenue/ops surfaces ignore them; the Field
- *  module opts them in deliberately. */
-export type PropertyKind = 'managed' | 'prospect' | 'hq';
+ *  onboarding; 'hq' = Rising Tide's own space (85 Eastern Ave); 'partner' = a
+ *  home listed on staycapeann.com that its own host runs. Non-managed rows
+ *  carry is_active=false so revenue/ops surfaces ignore them; the Field
+ *  module opts prospect and HQ in deliberately, never a partner home. */
+export type PropertyKind = 'managed' | 'prospect' | 'hq' | 'partner';
 
 export type FieldProperty = {
   id: string;

@@ -116,7 +116,7 @@ const SEND_COLS =
   'id, booking_id, automation_id, automation_key, property_id, fire_at, status, delivery_used, to_address, subject_rendered, body_rendered, secrets_sent, missing_fields, provider_message_id, guest_message_id, error, planned_check_in, planned_check_out, approved_by, approved_at, sent_at, created_at, updated_at';
 
 const PROPERTY_COLS =
-  'id, name, title, address, city, region, calendar_authority, automations_enabled, automations_enabled_at, timezone, wifi_name, parking, parking_regulations, trash_day, recycling_day, is_active';
+  'id, name, title, address, city, region, calendar_authority, automations_enabled, automations_enabled_at, timezone, wifi_name, parking, parking_regulations, trash_day, recycling_day, is_active, kind';
 
 // ── Shapes ──────────────────────────────────────────────────────────────
 
@@ -165,6 +165,7 @@ type PropertyRow = {
   trash_day: string | null;
   recycling_day: string | null;
   is_active: boolean | null;
+  kind: string | null;
 };
 
 type PropertyBundle = {
@@ -1251,6 +1252,9 @@ export async function setAutomationsEnabled(propertyId: string, enabled: boolean
   if (!isServiceConfigured) return { ok: false, error: 'Service role is not configured.' };
   const property = await loadPropertyRow(propertyId);
   if (!property) return { ok: false, error: 'Property not found.' };
+  if (enabled && property.kind === 'partner') {
+    return { ok: false, error: 'This is a partner home. Its host messages its guests, so Helm sends them nothing.' };
+  }
   if (enabled && property.calendar_authority !== 'helm') {
     return { ok: false, error: 'Automations run only once Helm is this home\'s calendar authority. Cut the home over on its Channels page first.' };
   }
