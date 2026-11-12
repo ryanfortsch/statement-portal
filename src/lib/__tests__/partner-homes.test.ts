@@ -111,14 +111,49 @@ test('the negative-kind check catches what it bans and allows the guard', () => 
  * the booking path (the PMS bridge and the staycapeann.com listing feed)
  * opts them in; add each such file here with the change that needs it.
  */
-const PARTNER_OPT_IN: Record<string, string> = {};
+const PARTNER_OPT_IN: Record<string, string> = {
+  'src/lib/pms-bridge.ts':
+    'the staycapeann.com fleet list, only when the caller passes include=partner; the create path refuses partner homes (partner_not_bookable)',
+};
+
+const OPT_IN = /kind\.in\.\([^)]*partner|kind\.eq\.(partner\b|\$\{PARTNER_KIND\})|\.in\(\s*['"]kind['"]\s*,\s*\[[^\]]*['"]partner['"]|kinds\s*:\s*\[[^\]]*['"]partner['"]|\.eq\(\s*['"]kind['"]\s*,\s*(['"]partner['"]|PARTNER_KIND)/;
 
 test('only the booking path opts partner homes in', () => {
-  const optIn = /kind\.in\.\([^)]*partner|\.in\(\s*['"]kind['"]\s*,\s*\[[^\]]*['"]partner['"]|kinds\s*:\s*\[[^\]]*['"]partner['"]|\.eq\(\s*['"]kind['"]\s*,\s*(['"]partner['"]|PARTNER_KIND)/;
   const offenders = files
-    .filter((f) => optIn.test(f.src) && !(f.rel in PARTNER_OPT_IN))
+    .filter((f) => OPT_IN.test(f.src) && !(f.rel in PARTNER_OPT_IN))
     .map((f) => f.rel);
   assert.deepEqual(offenders, []);
+  for (const rel of Object.keys(PARTNER_OPT_IN)) {
+    assert.ok(OPT_IN.test(files.find((f) => f.rel === rel)?.src ?? ''), `${rel} is listed as opting partner homes in but no longer does; drop it from PARTNER_OPT_IN`);
+  }
+});
+
+test('the opt-in check sees every way of naming partner homes', () => {
+  for (const s of [
+    ".in('kind', ['managed', 'partner'])",
+    ".eq('kind', 'partner')",
+    ".eq('kind', PARTNER_KIND)",
+    "kind.in.(managed,partner)",
+    "and(is_active.eq.true,kind.eq.managed),kind.eq.partner",
+    "kind.eq.${PARTNER_KIND}",
+    "kinds: ['partner']",
+  ]) {
+    assert.ok(OPT_IN.test(s), s);
+  }
+  assert.ok(!OPT_IN.test(".neq('kind', 'partner')"));
+});
+
+test('the bridge lists partner homes only on request and never books one', () => {
+  const src = files.find((f) => f.rel === 'src/lib/pms-bridge.ts')?.src ?? '';
+  assert.match(src, /opts\.includePartners \? `and\(is_active\.eq\.true,kind\.eq\.managed\),kind\.eq\.\$\{PARTNER_KIND\}` : 'and\(is_active\.eq\.true,kind\.eq\.managed\)'/);
+  const create = src.slice(src.indexOf('export async function createReservationFromBridge('), src.indexOf('async function afterCreate('));
+  const guard = create.indexOf("error: 'partner_not_bookable'");
+  assert.ok(guard > 0, 'createReservationFromBridge refuses a partner home');
+  assert.ok(guard < create.indexOf('findBySourceRef(sourceRef)'), 'the refusal comes before anything is read or written');
+  // The picker and every default caller pass no includePartners.
+  assert.ok(src.includes("let props = await listBridgeProperties('helm');"));
+  const route = files.find((f) => f.rel === 'src/app/api/pms/properties/route.ts')?.src ?? '';
+  assert.ok(route.includes("url.searchParams.get('include') === 'partner'"));
 });
 
 /* ---------------------------------------------------------------------------
