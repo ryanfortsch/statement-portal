@@ -524,6 +524,7 @@ export async function planAutomations(opts: { now?: Date; propertyId?: string | 
           .select('id, booking_id')
           .in('property_id', ids)
           .eq('status', 'cancelled')
+          .or('delivery_used.is.null,delivery_used.neq.channex')
           .eq('error', PAUSE_REASON_STAY_CANCELLED)
           .gte('planned_check_out', addDays(today, -1))
           .order('id', { ascending: true })
@@ -570,6 +571,7 @@ export async function planAutomations(opts: { now?: Date; propertyId?: string | 
           .from('automation_sends')
           .select('id, booking_id, automation_id, automation_key, fire_at, status, error, planned_check_in, planned_check_out')
           .in('booking_id', ids)
+          .or('delivery_used.is.null,delivery_used.neq.channex')
           .order('id', { ascending: true })
           .range(from, to),
       { label: 'automation_sends read' },
@@ -599,7 +601,8 @@ export async function planAutomations(opts: { now?: Date; propertyId?: string | 
       .from('automation_sends')
       .select('id, property_id, automation_id')
       .in('property_id', ids)
-      .in('status', ['scheduled', 'awaiting_approval']);
+      .in('status', ['scheduled', 'awaiting_approval'])
+      .or('delivery_used.is.null,delivery_used.neq.channex');
     const stale = ((data ?? []) as Array<{ id: string; property_id: string; automation_id: string }>).filter(
       (r) => !effectiveByProperty.get(r.property_id)?.has(r.automation_id),
     );
@@ -610,7 +613,8 @@ export async function planAutomations(opts: { now?: Date; propertyId?: string | 
           .from('automation_sends')
           .update({ status: 'cancelled', error: PAUSE_REASON_SUPERSEDED, updated_at: now.toISOString() })
           .in('id', part)
-          .in('status', ['scheduled', 'awaiting_approval']);
+          .in('status', ['scheduled', 'awaiting_approval'])
+          .or('delivery_used.is.null,delivery_used.neq.channex');
       }
     }
   }
@@ -628,7 +632,8 @@ export async function planAutomations(opts: { now?: Date; propertyId?: string | 
         .from('automation_sends')
         .update({ status: 'cancelled', error: PAUSE_REASON_NO_LONGER_APPLIES, updated_at: now.toISOString() })
         .in('id', part)
-        .in('status', ['scheduled', 'awaiting_approval']);
+        .in('status', ['scheduled', 'awaiting_approval'])
+        .or('delivery_used.is.null,delivery_used.neq.channex');
     }
   }
 
@@ -657,7 +662,7 @@ export async function planAutomations(opts: { now?: Date; propertyId?: string | 
       // resume only on a row still cancelled FOR THE SAME PAUSE REASON, so a
       // row an operator skipped, or one that sent, between read and write is
       // never touched.
-      const base = supabaseAdmin.from('automation_sends').update({ ...u.patch, updated_at: now.toISOString() }).eq('id', u.id);
+      const base = supabaseAdmin.from('automation_sends').update({ ...u.patch, updated_at: now.toISOString() }).eq('id', u.id).or('delivery_used.is.null,delivery_used.neq.channex');
       const { error } =
         u.resumeFrom !== null
           ? await base.eq('status', 'cancelled').eq('error', u.resumeFrom)

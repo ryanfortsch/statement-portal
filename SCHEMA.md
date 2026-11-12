@@ -760,7 +760,7 @@ runs itself.
   duplicate descendant. Its render inputs include private credentials and must
   stay server-side. The TypeScript reader remains default-off. The bounded retained-
   stay runtime joins it to an explicit immutable template capture and fresh provider
-  checks; template release, dispatcher integration and live activation remain separate.
+  checks; owner release review, dispatcher integration and live activation remain separate.
   These reads create no activation, jobs or sends.
   Scoped message history now serializes on the canonical booking, including
   indirect duplicate descendants. Registration and claim refuse descendant or
@@ -777,7 +777,19 @@ runs itself.
   and exact prepared rules; identical retries reuse the original capture.
   `helm_channex_read_template_capture` requires the explicit capture ID and digest.
   Its default-off server adapter validates all six original rules and keeps text
-  private. No capture is seeded and no release/enablement action is added.
+  private. No capture is seeded by installation.
+  `template_releases` is a private immutable receipt tied to that capture and its
+  digest. `helm_channex_release_templates` can atomically release the four guest
+  rule configurations only while Guesty owns the home, automations are off, and
+  no message scope/history exists. Cleaner rules stay frozen. Exact retries reuse
+  the same release ID/actor; changed requests conflict. Only dispatch flags and
+  the current migration marker change; the original policy stays in the archive.
+  Registration and claim require the exact released rules. All six migrated keys
+  are permanently excluded from the generic scheduler (including fleet/replacement
+  rows); generic maintenance cannot cancel, retime or claim Channex jobs. Canonical
+  cancellation, property disable and the job's own claim/receipt transitions still
+  work. The default-off release adapter has no route/cron caller. Installing the
+  migration creates no release/capture, enables no rule, and sends no message.
 - **`guest_threads`**: one thread per stay per channel (`sms`, `email`,
   `airbnb`, `vrbo`, `booking_com`, `direct`), keyed to `booking_id`,
   `guest_id` and `property_id`, with `external_thread_key` (E.164 for

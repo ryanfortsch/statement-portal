@@ -1533,3 +1533,47 @@ commit responses, repeated scheduling, one fake POST and receipt readback. The
 hypothetical release/handover is deliberately a synthetic fixture: these tests
 are not proof of a production release action, provider queue clearance, native
 confirmation compatibility or actual guest delivery.
+
+
+## Recorded template release and scheduler ownership (12 November 2026)
+
+`20261112233000_channex_template_release.sql` adds the actual service-only
+`helm_channex_release_templates(release_id,capture_id,rules_sha256,actor)` transition.
+It refuses installation over an existing message scope or Calderwood send history.
+Installation creates no capture/release records, changes no templates and enables
+no sender. Applying the migration and invoking a template release are different
+operations; production activation is not authorized by either.
+
+A release requires the explicit immutable archive receipt, exact current six-rule
+bundle, READ COMMITTED, Guesty calendar authority, automations off, and no scope or
+send history. It atomically records the release and changes only the four guest
+rules' enabled/configured-in-OTA/send-mode/migration-marker fields. Source IDs,
+wording, merge fields and exact offsets remain retained in the immutable archive.
+The two cleaner rules stay frozen. Request retries use the same release ID and
+actor; a different request conflicts. Current released rules cannot be edited,
+removed or replaced through legacy editors. The default-off private adapter
+returns only a release receipt, never text, clocks or a send permit. It has no
+HTTP, environment or cron caller.
+
+The generic automation engine permanently excludes all six Calderwood migration
+keys, including fleet rules and replacements. It also excludes Channex ledger rows
+from supersession, withdrawal, retiming and resumption. SQL independently refuses
+legacy inserts for released keys and ignores older-worker attempts to cancel,
+retime, rewrite or claim a reserved job. Canonical cancellation and disabling the
+home still stop waiting rows; the dedicated job's own claim and receipt transitions
+still work. Registration and claim require exact released template rows, not just
+an enabled flag or a removed migration marker.
+
+Synthetic PostgreSQL tests exercise the actual release RPC, rollback after a
+partial update, receipt replay, competing transactions, role isolation, immutable
+source/current rows and source-authority preservation. The runtime integration now
+uses that release RPC before retained clocks, fresh provider checks, atomic job
+registration and one fake provider POST/receipt. Source handover remains a synthetic
+fixture. These checks prove neither live delivery nor provider queue clearance.
+
+Remaining launch work: the owner review/caller for template capture and release,
+final provider/current-render revalidation at dispatch, bounded runtime activation,
+new-booking confirmation/timing ownership, cleaner SMS and source queue clearance,
+then the reviewed channel/inventory/PriceLabs cutover and live pilot validation.
+Guesty remains the live sender. No fixed waiting period substitutes for a drained
+provider queue. New-booking confirmation must not use Channex revision receipt time.

@@ -205,10 +205,17 @@ export function effectiveRulesFor(propertyId: string, rows: readonly AutomationR
   return out;
 }
 
+/** These source-relative workflows belong to the dedicated Calderwood scheduler.
+ * Ownership survives release, replacement rows and fleet fallback. */
+export function usesDedicatedMessageScheduler(propertyId: string, key: string): boolean {
+  return propertyId === '65_calderwood' && ['booking_confirmed', 'pre_arrival', 'checkin_day',
+    'pre_checkout', 'cleaner_reminder', 'cleaner_arrival'].includes(key);
+}
+
 /** The rules the planner fires for a home: the effective, enabled ones. */
 export function resolveAutomationsFor(propertyId: string, rows: readonly AutomationRule[]): AutomationRule[] {
   return effectiveRulesFor(propertyId, rows)
-    .filter((e) => e.active && e.rule.migration_policy == null)
+    .filter((e) => e.active && e.rule.migration_policy == null && !usesDedicatedMessageScheduler(propertyId, e.rule.key))
     .map((e) => e.rule);
 }
 
@@ -1187,7 +1194,7 @@ export type DispatchDecision = {
 
 export type DecisionInput = {
   row: Pick<ExistingSend, 'planned_check_in' | 'planned_check_out'>;
-  booking: Pick<AutomationBooking, 'status' | 'duplicate_of' | 'check_in' | 'check_out' | 'channel' | 'guest_phone' | 'guest_email' | 'cancel_reason' | 'cancelled_at'> | null;
+  booking: Pick<AutomationBooking, 'property_id' | 'status' | 'duplicate_of' | 'check_in' | 'check_out' | 'channel' | 'guest_phone' | 'guest_email' | 'cancel_reason' | 'cancelled_at'> | null;
   rule: AutomationRule | null;
   property: { automations_enabled: boolean; calendar_authority: string } | null;
   guest: GuestLike;
@@ -1240,7 +1247,7 @@ export function decideDispatch(input: DecisionInput): DispatchDecision {
   // gets its waiting messages again. Written as 'rule_disabled' and
   // 'property_not_automated' they froze for good, door-code text included.
   if (!rule || !rule.enabled) return { outcome: 'cancelled', rail: null, reason: PAUSE_REASON_SUPERSEDED };
-  if (rule.migration_policy != null) return { outcome: 'awaiting_approval', rail: null, reason: 'migrated rule requires its dedicated scheduler and handover' };
+  if (rule.migration_policy != null || usesDedicatedMessageScheduler(booking.property_id, rule.key)) return { outcome: 'awaiting_approval', rail: null, reason: 'migrated rule requires its dedicated scheduler and handover' };
   if (!property || !property.automations_enabled || property.calendar_authority !== 'helm') {
     return { outcome: 'cancelled', rail: null, reason: `${PAUSE_REASON_DISABLED_PREFIX}the home (not Helm-run, or automations off)` };
   }

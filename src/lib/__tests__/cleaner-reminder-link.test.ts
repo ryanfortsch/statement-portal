@@ -99,8 +99,9 @@ test('missing cleaner links and guest misuse never become a send or OTA paste ev
   assert.equal(decision(rule, ['cleaner_schedule_url']).outcome, 'awaiting_approval');
   assert.equal(decision({ ...rule, audience: 'guest', delivery: 'ota_manual' }).outcome, 'awaiting_approval');
   assert.equal(decision({ ...rule, audience: 'guest', body: 'Hi', subject: rule.body }).outcome, 'awaiting_approval');
-  assert.equal(decision({ ...rule, configured_in_ota: true }).outcome, 'configured_in_ota');
-  assert.equal(decision().outcome, 'send');
+  assert.equal(decision({ ...rule, configured_in_ota: true }).outcome, 'awaiting_approval');
+  // Calderwood's source-relative workflows never use the generic dispatcher.
+  assert.equal(decision().outcome, 'awaiting_approval');
 });
 test('the production sender uses the verified phone, and all surfaces apply the audience-specific context', () => {
   const io = readFileSync(new URL('../automations.ts', import.meta.url), 'utf8');
