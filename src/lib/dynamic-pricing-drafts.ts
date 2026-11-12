@@ -1,5 +1,6 @@
 /** Device-local prototype settings. No calendar records or market evidence are persisted. */
 import {z} from 'zod';
+import {pricingImportSourceSchema} from './dynamic-pricing-import-source.ts';
 import {defaultPricingPolicy,pricingPolicySchema,type PricingPolicy,type PricingPreview,type PricingSnapshot} from './dynamic-pricing.ts';
 import {isIsoDay,nightsBetween} from './sca-quotes-types.ts';
 import {pricingLengthOfStaySchema,pricingArrivalDepartureSchema,defaultPricingStayRules} from './dynamic-pricing-stays.ts';
@@ -42,7 +43,7 @@ export type PricingRuleCategory=keyof typeof PRICING_RULE_CATEGORIES;
 export const pricingRuleCategories=Object.keys(PRICING_RULE_CATEGORIES) as PricingRuleCategory[];
 const categories=z.array(z.enum(pricingRuleCategories)).max(pricingRuleCategories.length).refine(v=>new Set(v).size===v.length,'Duplicate rule category');
 const sharedFields={seasonalPrices:pricingSeasonsSchema.optional(),weekendDays:pricingWeekendDaysSchema.optional(),leadTimeModes:pricingLeadTimeModesSchema.optional(),lengthOfStay:pricingLengthOfStaySchema.optional(),arrivalDeparture:pricingArrivalDepartureSchema.optional(),policy:pricingPolicySchema,overrides:pricingOverridesSchema,ruleCategories:categories.optional()};
-const homeSchema=z.object({...sharedFields,version:z.number().int().positive(),groupId:z.string().nullable(),inheritRules:z.boolean()}).strict();
+const homeSchema=z.object({...sharedFields,importSource:pricingImportSourceSchema.optional(),version:z.number().int().positive(),groupId:z.string().nullable(),inheritRules:z.boolean()}).strict();
 const groupSchema=z.object({...sharedFields,id:z.string().min(1).max(100),name:z.string().trim().min(1).max(60),parentId:z.string().nullable().optional()}).strict();
 export const pricingDraftsSchema=z.object({version:z.literal(1),homes:z.record(z.string().min(1).max(100),homeSchema),groups:z.array(groupSchema).max(50),
   account:z.object(sharedFields).strict().optional(),assignments:z.record(z.string().min(1).max(100),z.string().nullable()).optional(),

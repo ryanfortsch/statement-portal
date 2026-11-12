@@ -15,9 +15,9 @@ export function pricingLiveRow(home:PricingLiveHome,snapshot:PricingSnapshot|nul
     const complete=!w.unknown&&days.length>0&&days.every(d=>d.currentCents!==null&&Number.isFinite(d.currentCents)&&d.currentCents>0&&evidenceFresh(d.observedAt,now));
     return [n,complete?Math.round(days.reduce((sum,d)=>sum+d.currentCents!,0)/days.length):null];
   })) as NonNullable<PricingPortfolioRow['currentRateCents']>;
-  // Explicit projection: registry names only, no public title, IDs from other systems, guest data or draft defaults.
+  // Explicit projection: registry names only, no public title, guest data or draft defaults. Guesty ID is used only for exact settings imports.
   const stamps=snapshot?.days.map(d=>d.observedAt).filter(Boolean).sort()??[];
-  return {id:home.id,name:home.name,city:home.city,bedrooms:home.bedrooms,authority:home.authority,
+  return {id:home.id,name:home.name,city:home.city,bedrooms:home.bedrooms,authority:home.authority,...(home.guestyListingId?{guestyListingId:home.guestyListingId}:{}),
     mode:'shadow',configured:false,baseCents:null,floorCents:null,ceilingCents:null,currentRateCents:rates,
     observedAt:stamps[0]??null,marketObservedAt:null,marketSource:'',lastAppliedAt:null,
     error:snapshot?null:'Calendar unavailable',windows};

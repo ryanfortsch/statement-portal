@@ -4,8 +4,8 @@ import type {PricingPolicy} from '@/lib/dynamic-pricing';
 const months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const weekdays=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const inputClass='mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm';
-export function NumberField({label,value,onChange,step=1,currency=false}:{label:string;value:number;onChange:(n:number)=>void;step?:number;currency?:boolean}) {
-  return <label className="block text-sm text-slate-700">{label}<span className={currency?'pricing-money-input':undefined}>{currency&&<span aria-hidden="true">$</span>}<input aria-label={currency?`${label} in USD`:undefined} type="number" step={step} value={Number.isFinite(value)?value:''}
+export function NumberField({label,value,onChange,step=1,currency=false,placeholder}:{placeholder?:string;label:string;value:number;onChange:(n:number)=>void;step?:number;currency?:boolean}) {
+  return <label className="block text-sm text-slate-700">{label}<span className={currency?'pricing-money-input':undefined}>{currency&&<span aria-hidden="true">$</span>}<input aria-label={currency?`${label} in USD`:undefined} type="number" placeholder={placeholder} step={step} value={Number.isFinite(value)?value:''}
     onChange={e=>onChange(e.target.value===''?NaN:Number(e.target.value))} className={inputClass}/></span></label>;
 }
 export default function PricingPolicyFields({policy,modify,ruleSection,today}:{policy:PricingPolicy;modify:<K extends keyof PricingPolicy>(key:K,value:PricingPolicy[K])=>void;ruleSection:string;today:string}) {return <><section hidden={ruleSection!=='strategy'}><h3>Strategy</h3>
@@ -44,7 +44,7 @@ export default function PricingPolicyFields({policy,modify,ruleSection,today}:{p
       <section hidden={ruleSection!=='stays'}><h3>Minimum stays</h3>
         <div className="my-4 grid gap-4 sm:grid-cols-4">
           <NumberField label="Weekday minimum nights" value={policy.weekdayMinNights} onChange={n=>modify('weekdayMinNights',n)}/>
-          <NumberField label="Fri/Sat minimum nights" value={policy.weekendMinNights} onChange={n=>modify('weekendMinNights',n)}/>
+          <NumberField label="Weekend minimum nights" value={policy.weekendMinNights} onChange={n=>modify('weekendMinNights',n)}/>
           <NumberField label="Fill gaps up to (nights; 0 disables)" value={policy.orphanMaxNights} onChange={n=>modify('orphanMaxNights',n)}/>
           <NumberField label="Gap discount (%)" value={policy.orphanDiscountPct} onChange={n=>modify('orphanDiscountPct',n)}/>
         </div>
@@ -55,12 +55,12 @@ export default function PricingPolicyFields({policy,modify,ruleSection,today}:{p
         </div>
         <p className="my-2 text-xs text-slate-500">Booking-value rules set a minimum stay, not a guaranteed booking total.</p>
         <label className="my-3 flex items-center gap-2 text-sm"><input type="checkbox" checked={policy.orphanPreservesEvents} onChange={e=>modify('orphanPreservesEvents',e.target.checked)}/>Preserve event minimums even inside short gaps</label>
-        {policy.lastMinStays.map((r,i)=><div key={i} className="my-3 grid grid-cols-4 gap-3"><NumberField label={`Last minute ${i+1}: within days`} value={r.withinDays} onChange={n=>modify('lastMinStays',policy.lastMinStays.map((v,j)=>j===i?{...v,withinDays:n}:v))}/><NumberField label={`Last minute ${i+1}: weekdays`} value={r.weekday} onChange={n=>modify('lastMinStays',policy.lastMinStays.map((v,j)=>j===i?{...v,weekday:n}:v))}/><NumberField label={`Last minute ${i+1}: Fri/Sat`} value={r.weekend} onChange={n=>modify('lastMinStays',policy.lastMinStays.map((v,j)=>j===i?{...v,weekend:n}:v))}/><Button onClick={()=>modify('lastMinStays',policy.lastMinStays.filter((_,j)=>i!==j))}>Remove</Button></div>)}
-        <Button disabled={policy.lastMinStays.length>=3} onClick={()=>modify('lastMinStays',[...policy.lastMinStays,{withinDays:7+policy.lastMinStays.length*7,weekday:1,weekend:2}])}>Add last-minute stay rule</Button>
+        {policy.lastMinStays.map((r,i)=><div key={i} className="my-3 grid grid-cols-4 gap-3"><NumberField label={`Last minute ${i+1}: within days`} value={r.withinDays} onChange={n=>modify('lastMinStays',policy.lastMinStays.map((v,j)=>j===i?{...v,withinDays:n}:v))}/><NumberField label={`Last minute ${i+1}: weekdays`} value={r.weekday} onChange={n=>modify('lastMinStays',policy.lastMinStays.map((v,j)=>j===i?{...v,weekday:n}:v))}/><NumberField label={`Last minute ${i+1}: Weekend`} value={r.weekend} onChange={n=>modify('lastMinStays',policy.lastMinStays.map((v,j)=>j===i?{...v,weekend:n}:v))}/><Button onClick={()=>modify('lastMinStays',policy.lastMinStays.filter((_,j)=>i!==j))}>Remove</Button></div>)}
+        <Button disabled={policy.lastMinStays.length>=8} onClick={()=>modify('lastMinStays',[...policy.lastMinStays,{withinDays:7+policy.lastMinStays.length*7,weekday:1,weekend:2}])}>Add last-minute stay rule</Button>
         {policy.farMinStays.map((r,i)=><div key={i} className="my-3 grid grid-cols-4 gap-3">
           <NumberField label={`Rule ${i+1}: beyond days`} value={r.afterDays} onChange={n=>modify('farMinStays',policy.farMinStays.map((v,j)=>j===i?{...v,afterDays:n}:v))}/>
           <NumberField label={`Rule ${i+1}: weekdays`} value={r.weekday} onChange={n=>modify('farMinStays',policy.farMinStays.map((v,j)=>j===i?{...v,weekday:n}:v))}/>
-          <NumberField label={`Rule ${i+1}: Fri/Sat`} value={r.weekend} onChange={n=>modify('farMinStays',policy.farMinStays.map((v,j)=>j===i?{...v,weekend:n}:v))}/>
+          <NumberField label={`Rule ${i+1}: Weekend`} value={r.weekend} onChange={n=>modify('farMinStays',policy.farMinStays.map((v,j)=>j===i?{...v,weekend:n}:v))}/>
           <Button onClick={()=>modify('farMinStays',policy.farMinStays.filter((_,j)=>j!==i))}>Remove</Button>
         </div>)}
         <Button disabled={policy.farMinStays.length>=5} onClick={()=>modify('farMinStays',[...policy.farMinStays,{afterDays:[15,30,60,90,180].find(d=>!policy.farMinStays.some(r=>r.afterDays===d))??365,weekday:2,weekend:3}])}>Add far-out stay rule</Button>

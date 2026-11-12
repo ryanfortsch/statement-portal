@@ -19,6 +19,16 @@ test('live summaries keep only the internal name and never manufacture a base, m
   assert.equal('title' in r,false);assert.equal('secret' in r,false);assert.equal('snapshot' in r,false);
 });
 
+test('settings imports receive only the exact current or former Guesty ID after cutover',async()=>{
+  const registry=[{...home,guesty_listing_id:'current-id',former_guesty_listing_id:'older-id',calendar_authority:'guesty'},
+    {...home,id:'native-home',guesty_listing_id:null,former_guesty_listing_id:'retired-id',calendar_authority:'helm'}];
+  const db={from(table:string){const q={select(){return q;},eq(){return q;},in(){return q;},gt(){return q;},gte(){return q;},lte(){return q;},order(){return q;},range(){return q;},maybeSingle(){return q;},then(resolve:(r:unknown)=>unknown){return Promise.resolve(resolve({error:null,data:table==='properties'?registry:table==='property_rate_plans'?null:[]}));}};return q;}} as unknown as SupabaseClient;
+  const rows=(await readPricingLivePortfolio(db,now)).rows;
+  assert.equal(rows.find(r=>r.id===home.id)?.guestyListingId,'current-id');
+  assert.equal(rows.find(r=>r.id==='native-home')?.guestyListingId,'retired-id');
+  assert.equal(rows.some(r=>'former_guesty_listing_id' in r),false);
+});
+
 test('current open-rate averages exclude booked/blocked nights and withhold partial pricing',()=>{
   const s=snapshot();s.days[0].state='booked';s.days[0].currentCents=99900;s.days[1].state='blocked';s.days[1].currentCents=88800;s.days[2].currentCents=30000;
   let r=pricingLiveRow(home,s,now,s.today);

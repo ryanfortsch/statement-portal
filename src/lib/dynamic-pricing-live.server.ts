@@ -7,9 +7,9 @@ import {currentPricingSnapshot,pricingLiveRow,type PricingLiveHome,type PricingL
 import type {RatePlanRow,RateDayRow} from './rate-plan.ts';
 import {pricingBookingActivity,type PricingActivityBooking,type PricingActivityTimestamp} from './dynamic-pricing-activity.ts';
 
-const registryColumns='id,name,city,bedrooms,timezone,calendar_authority';
-type RegistryHome={id:string;name:string;city:string;bedrooms:number|null;timezone:string|null;calendar_authority:'helm'|'guesty'};
-const homeFrom=(r:RegistryHome):PricingLiveHome=>({id:r.id,name:r.name,city:r.city,bedrooms:r.bedrooms,timezone:r.timezone??'America/New_York',authority:r.calendar_authority});
+const registryColumns='id,name,city,bedrooms,timezone,calendar_authority,guesty_listing_id,former_guesty_listing_id';
+type RegistryHome={guesty_listing_id:string|null;former_guesty_listing_id:string|null;id:string;name:string;city:string;bedrooms:number|null;timezone:string|null;calendar_authority:'helm'|'guesty'};
+const homeFrom=(r:RegistryHome):PricingLiveHome=>({id:r.id,name:r.name,city:r.city,bedrooms:r.bedrooms,timezone:r.timezone??'America/New_York',authority:r.calendar_authority,guestyListingId:r.guesty_listing_id??r.former_guesty_listing_id??null});
 
 /** Original booking dates only. No guest identities, financials or event payloads. */
 export async function readPricingBookingActivity(db:SupabaseClient,home:PricingLiveHome,now=new Date()) {

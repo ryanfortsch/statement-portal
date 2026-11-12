@@ -12,6 +12,8 @@ import PricingIcon from './PricingIcon';
 import PricingOccupancy from './PricingOccupancy';
 import type {PricingCustomizations} from '@/lib/dynamic-pricing-customizations';
 import PricingPolicyFields,{NumberField} from './PricingPolicyFields';
+import PricingImportedSettings from './PricingImportedSettings';
+import {importedPricingBound,IMPORT_PRICE_MIN,IMPORT_PRICE_MAX,type PricingImportSource} from '@/lib/dynamic-pricing-import-source';
 import './pricing.css';
 import {etStamp} from '@/lib/stable-time';
 import {pricingOccupancyWindow} from '@/lib/dynamic-pricing-portfolio';
@@ -20,10 +22,10 @@ import type { capturePricingObservationAction,setPricingTrackingAction,savePrici
 
 export type PricingServices={save:typeof savePricingAction;refresh:typeof refreshPricingAction;review:typeof reviewPricingAction;publish:typeof publishPricingAction;undo:typeof undoPricingAction;evidence:typeof savePricingEvidenceAction;observe:typeof capturePricingObservationAction;tracking:typeof setPricingTrackingAction};
 const inputClass='mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm';
-export default function PricingWorkbench({propertyId,name,authority,navigation,initialPolicy,initialSnapshot,initialProfile,initialRuns,initialEvidenceVersion=0,initialObservations=[],initialTracking={enabled:false,version:0},scheduledCaptureEnabled=false,services,draftOnly=false,calendarTools,previewTransform,onOverride,additionalTools,draftCustomizations,extraRuleActions,listingActivity}:{
+export default function PricingWorkbench({propertyId,name,authority,navigation,initialPolicy,initialSnapshot,initialProfile,initialRuns,initialEvidenceVersion=0,initialObservations=[],initialTracking={enabled:false,version:0},scheduledCaptureEnabled=false,services,draftOnly=false,calendarTools,previewTransform,onOverride,additionalTools,draftCustomizations,extraRuleActions,listingActivity,importSource}:{
   propertyId:string;name:string;authority:'helm'|'guesty';navigation?:ReactNode;initialPolicy:PricingPolicy;initialSnapshot:PricingSnapshot;
   initialProfile:PricingProfile|null;initialRuns:PricingRunSummary[];initialEvidenceVersion?:number;services:PricingServices;draftOnly?:boolean;calendarTools?:ReactNode;previewTransform?:(preview:PricingPreview,policy:PricingPolicy,snapshot:PricingSnapshot)=>PricingPreview;onOverride?:(date:string)=>void;additionalTools?:(snapshot:PricingSnapshot,preview:PricingPreview|null,policy:PricingPolicy,closeMenu:()=>void)=>ReactNode;
-  draftCustomizations?:PricingCustomizations;extraRuleActions?:(closeRules:()=>void)=>ReactNode;listingActivity?:ReactNode;
+  importSource?:PricingImportSource;draftCustomizations?:PricingCustomizations;extraRuleActions?:(closeRules:()=>void)=>ReactNode;listingActivity?:ReactNode;
   initialObservations?:PricingObservationRecord[];initialTracking?:PricingTracking;scheduledCaptureEnabled?:boolean;
 }) {
   const [policy,setPolicy]=useState(initialPolicy),[snapshot,setSnapshot]=useState(initialSnapshot),[profile,setProfile]=useState(initialProfile);
@@ -90,11 +92,12 @@ export default function PricingWorkbench({propertyId,name,authority,navigation,i
         <fieldset disabled={busy} className="pricing-configure">
           <div className="pricing-base-fields">
             <div className="pricing-base-primary"><NumberField currency label="Base price" value={policy.baseCents/100} step={0.01} onChange={n=>modify('baseCents',Math.round(n*100))}/></div>
-            <NumberField currency label="Min" value={policy.floorCents/100} step={0.01} onChange={n=>modify('floorCents',Math.round(n*100))}/>
-            <NumberField currency label="Max" value={policy.ceilingCents/100} step={0.01} onChange={n=>modify('ceilingCents',Math.round(n*100))}/>
+            <NumberField currency label="Min" placeholder={importSource?.minCents===null?"Not set":undefined} value={(importedPricingBound(policy,importSource,"min")??NaN)/100} step={0.01} onChange={n=>modify('floorCents',Number.isNaN(n)&&importSource?.minCents===null?IMPORT_PRICE_MIN:Math.round(n*100))}/>
+            <NumberField currency label="Max" placeholder={importSource?.maxCents===null?"Not set":undefined} value={(importedPricingBound(policy,importSource,"max")??NaN)/100} step={0.01} onChange={n=>modify('ceilingCents',Number.isNaN(n)&&importSource?.maxCents===null?IMPORT_PRICE_MAX:Math.round(n*100))}/>
           </div>
           <div className="pricing-configure-actions"><Button variant={!dirty?'secondary':'primary'} title="Save rules and refresh the preview. Does not publish rates." disabled={busy||!preview||!dirty} onClick={()=>void saveRules()}>{!dirty?'Saved':draftOnly?'Save draft':'Save'}</Button><Button variant="secondary" onClick={()=>openCustomizations()}><PricingIcon name="sliders"/>Rules</Button></div>
         </fieldset>
+        {importSource&&<PricingImportedSettings source={importSource} policy={policy} weekendDays={draftCustomizations?.weekendDays??[5,6]} onMinimumStay={()=>openCustomizations("stays")}/>}
         <div className="pricing-listing-metrics" aria-label="Listing occupancy"><div className="pricing-metrics-heading"><h3>Adjusted occupancy</h3></div>{listingMetrics.map(w=><div className="pricing-listing-metric" key={w.nights}><span>Next {w.nights} days</span><PricingOccupancy window={w} compact/></div>)}<span className="pricing-market-availability">{listingMetrics.some(w=>w.marketPct!==null)?"Market benchmark shown":snapshot.evidence?.market.length?"Market data unavailable":"Market data not connected"}</span></div>
       </aside>
       <div className="pricing-calendar-workspace">{draftOnly&&<div className="pricing-draft-toolbar"><div className="pricing-view-switch" role="group" aria-label="Rates shown"><Button variant="quiet" aria-pressed={currentOnly} onClick={()=>setCurrentOnly(true)}>Current rates</Button><Button variant="quiet" aria-pressed={!currentOnly} onClick={()=>setCurrentOnly(false)}>Helm draft</Button></div>{calendarTools}</div>}<PricingCalendar key={review?.id??'draft'} snapshot={snapshot} preview={currentOnly?null:preview} currentOnly={currentOnly} onOverride={onOverride}/></div>

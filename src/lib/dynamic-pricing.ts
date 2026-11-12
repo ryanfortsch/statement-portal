@@ -16,7 +16,7 @@ export const pricingPolicySchema = z.object({
   safetyFloorEnabled:z.boolean().default(false), safetyFloorAfterDays:z.number().int().min(0).max(499).default(180),
   lowestMinNights:z.number().int().min(1).max(30).default(1), minimumBookingCents:z.number().int().min(0).max(10000000).default(0),
   orphanPreservesEvents:z.boolean().default(true), adjacentMinNights:z.number().int().min(0).max(7).default(0),
-  lastMinStays:z.array(z.object({withinDays:z.number().int().min(0).max(90),weekday:z.number().int().min(1).max(30),weekend:z.number().int().min(1).max(30)}).strict()).max(3).default([]),
+  lastMinStays:z.array(z.object({withinDays:z.number().int().min(0).max(730),weekday:z.number().int().min(1).max(30),weekend:z.number().int().min(1).max(30)}).strict()).max(8).default([]),
   monthlyFactors: z.array(z.number().min(0.25).max(4)).length(12),
   weekdayFactors: z.array(z.number().min(0.5).max(2)).length(7),
   lastMinuteDays: z.number().int().min(1).max(90), lastMinuteDiscountPct: pct,

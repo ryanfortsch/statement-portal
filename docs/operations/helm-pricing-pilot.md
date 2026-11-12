@@ -1,6 +1,6 @@
 # Helm pricing: audit and pilot
 
-Account reviewed November 8; prototype updated November 11, 2026. **This is an independent pricing prototype with imported evidence, not a complete
+Account reviewed November 8; prototype updated November 12, 2026. **This is an independent pricing prototype with imported evidence, not a complete
 PriceLabs replacement or a validated revenue optimizer.** No PriceLabs pricing or sync setting was
 changed during the audit (the research chart was switched to daily aggregation). No live rates, connections, or migrations were changed.
 
@@ -155,7 +155,7 @@ a conflicting short gap is flagged rather than silently published as fillable.
 
 | Capability | Implemented prototype | Remaining work |
 | --- | --- | --- |
-| Base/min/max | Reviewed property policy, integer cents | Calibrate each property |
+| Base/min/max | Exact-ID PriceLabs export import, original unset bounds retained, integer cents | Automatic refresh and shared persistence |
 | Seasonality / weekdays | Manual factors, learned historical shape with shrinkage, or base-anchored market asking-price shape | Independent market feed; distinguish historical provider effects |
 | Forward occupancy | Booked/sellable plus conditional pickup and final-occupancy scenarios | Calibrate on real inventory histories and cancellation snapshots |
 | Market demand / pace | Imported occupancy, same-time baseline, seven-day pickup; bounded price response | Automated licensed source, local comp matching, validation |
@@ -170,7 +170,7 @@ a conflicting short gap is flagged rather than silently published as fillable.
 | Prospective comparison tracking | Append-only 180-night captures, original forecasts, observed state changes, opt-in daily collector | Production installation/activation, cancellation-aware outcomes and calibration |
 | Listing connection | Manual owner review, direct-rate publishing, atomic undo | Production installation and pilot approval |
 | OTA publishing / scheduling | Not connected | Verified Channex rate mapping, single writer, journal, readback and daily runs |
-| Groups / bulk profiles | Per-property policies | Inheritance and controlled bulk rollout |
+| Groups / bulk profiles | Local account/group/subgroup/listing inheritance, source export imports, local bulk overrides | Shared persistence, reusable named-profile editing and controlled live rollout |
 
 ## Model v3, precisely
 
@@ -874,3 +874,44 @@ the portfolio logic and its test, the synthetic preview fixture, and this docume
 Unresolved product dependencies remain explicit: automatic licensed market data,
 historical pace/cancellation evidence, durable shared draft storage, calibrated model
 performance, and verified live rate delivery. No production migration or main merge.
+
+## PriceLabs settings import (November 12)
+
+`PricingLiveWorkspace` imports Manage Listings, group customizations, listing
+customizations and listing date overrides into device-local drafts. It joins
+Guesty listing IDs to the property registry's current or former Guesty ID; it
+never matches a public title to an internal name. Review shows every match,
+replaced draft and skipped listing before an atomic localStorage commit.
+No downloaded account data is committed. The server remains GET-only.
+
+The import preserves missing minimum/maximum values as source nulls and displays
+“Not set.” Numeric engine limits are the supported $1–$100,000 range, explicitly
+disclosed in source details; these are not represented as vendor settings. The
+original effective rules and import timestamp remain visible after local edits.
+
+Imported controls include explicit last-minute/far-out rules, weekday/weekend
+default stays, up to eight last-minute stay tiers through 730 days, five far-out
+stay tiers, bounded gap-length stays, defined weekend days, weekly/monthly
+discounts, and supported date-specific overrides. A gradual far-out duration is
+added to its start day. PriceLabs' editor showed conflicting summary text, but
+its explicit calculation identified the end as start + duration. Guesty monthly
+discounts use a 28-night threshold. Group-inherited categories remain inherited;
+listing exceptions remain listing-specific.
+
+The vendor customization CSV omits booking recency and safety minimum. Optional
+`Booking Recency Factor` and `Safety Minimum Price` columns accept the displayed
+settings when independently verified; absent columns produce import notes.
+Unknown stay grammar and unsupported date restrictions stop the import instead
+of replacing them with defaults. Market-driven adjustments are retained as
+source text with warnings, not approximated from their current displayed value.
+
+This is a settings snapshot, not algorithm parity. Vendor default seasonality,
+market-driven occupancy/lead-time, recency eligibility, and exact historical ADR
+matching still require data and validation. Local current-rate view stays the
+default and draft publishing stays disabled. No subscription or forecast saving
+is claimed from this import.
+
+Validation: synthetic imports cover exact/ambiguous identity, unset bounds, atomic
+rejection, group inheritance, Thursday weekends, threshold boundaries, four-tier
+last-minute stays, gap stays, date overrides, unsupported rules and repeat imports.
+The live-read projection test covers native cutover through former Guesty IDs.

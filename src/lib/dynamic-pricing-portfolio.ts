@@ -37,6 +37,7 @@ export type PricingWindow = {
 };
 export type PricingPortfolioHome = {
   id:string; name:string; city:string; bedrooms:number|null; authority:'helm'|'guesty';
+  guestyListingId?:string|null;
 };
 export type PricingPortfolioRow = PricingPortfolioHome & {
   mode:'shadow'|'helm_direct'; configured:boolean; baseCents:number|null; floorCents:number|null; ceilingCents:number|null;
