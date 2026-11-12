@@ -31,6 +31,8 @@ on:
       - 'scripts/tests/cleaner-digest-enrollment.sql'
       - 'scripts/tests/pricing-shared*'
       - 'scripts/tests/pricing-research*'
+      - 'scripts/tests/pricing-market*'
+      - 'supabase/migrations/20261113020000_helm_pricing_market_connection.sql'
       - 'supabase/migrations/20261112210000_helm_pricing_research.sql'
       - 'scripts/pricing-shared-smoke.mjs'
       - 'scripts/pricing-ui-fixture.mjs'
@@ -173,3 +175,8 @@ jobs:
           createdb helm_synthetic_pricing_research
           PGDATABASE=helm_synthetic_pricing_research psql -v ON_ERROR_STOP=1 -f scripts/tests/pricing-research.sql
           PGDATABASE=helm_synthetic_pricing_research node scripts/tests/pricing-research-concurrency.mjs
+      - name: Verify market credential access and refresh leases
+        run: |
+          createdb helm_synthetic_pricing_market
+          PGDATABASE=helm_synthetic_pricing_market psql -v ON_ERROR_STOP=1 -f scripts/tests/pricing-market-connection.sql
+          PGDATABASE=helm_synthetic_pricing_market node scripts/tests/pricing-market-concurrency.mjs

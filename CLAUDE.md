@@ -68,10 +68,14 @@ supabase/migrations/   302 migrations
 scripts/               parity harnesses and one-off tools (see Testing below)
 ```
 
-**40 cron routes, 39 schedules, and that is correct.** `/api/cron/reviews-to-slips` is a manual
+**41 cron routes, 40 schedules, and that is correct.** `/api/cron/reviews-to-slips` is a manual
 and backfill trigger on purpose; the recurring work runs at the end of `/api/cron/sync-guesty`.
 Do not "fix" it by adding a schedule.
-`/api/cron/pricing-comparisons` records opted-in pricing comparisons at 11:20 UTC
+`/api/cron/pricing-market` checks every six hours at :17 UTC, refreshing imported
+PriceLabs market research older than 18 hours. It requires production, CRON_SECRET
+and an explicitly enrolled read-only connection; no live rates or vendor settings
+are changed. Credentials and refresh leases are server-only (see the market-import
+runbook). `/api/cron/pricing-comparisons` records opted-in pricing comparisons at 11:20 UTC
 only when the production capture gate is enabled; it never publishes rates.
 `/api/cron/booking-requests` (hourly, :25) closes a partner home's booking request whose
 24-hour clock ran out and emails the guest; it also retries a guest email that failed
