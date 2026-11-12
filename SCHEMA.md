@@ -712,9 +712,14 @@ runs itself.
   This stores review evidence, not a live provider-clock guarantee. The trusted
   provider caller (`timing-provider-review.ts`) now double-reads Guesty clocks and
   Channex booking/thread identity before using the adapter. It defaults off and
-  needs a trusted production snapshot loader/owner surface; the runtime scheduling
-  loader remains separate work. There is no browser endpoint, activation, job
-  creation or sender in this migration.
+  uses the service-only `helm_channex_timing_review_snapshot` reader and an owner-only
+  POST at `/api/channex/message-preparation/timing-review`. The snapshot exposes
+  captured clocks only to the server and requires current handover, canonical/mirror
+  identity and a persisted matching Channex booking. Thread discovery is bounded
+  and checked twice. `helm_channex_timing_review_overview` exposes a minimal latest-
+  capture summary (at most 12 stays) and saved-review metadata; its GET never calls
+  providers or writes. No private-table access is granted. The runtime scheduling
+  loader remains separate work. These reads create no activation, jobs or sends.
 - **`guest_threads`**: one thread per stay per channel (`sms`, `email`,
   `airbnb`, `vrbo`, `booking_com`, `direct`), keyed to `booking_id`,
   `guest_id` and `property_id`, with `external_thread_key` (E.164 for

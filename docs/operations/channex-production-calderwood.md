@@ -1215,10 +1215,10 @@ assertion whose complete timing row matches the original capture, together with
 the exact current context and route. Source/mapping identity and context changes
 invalidate reads; conflicting retries cannot overwrite or refresh review history.
 SQL cannot itself verify Guesty's clocks or the provider's booking/thread relation.
-The trusted double-read review caller is now implemented as described below; its
-production snapshot loader, owner review surface and production runtime loader
-still need implementation before use. The adapter defaults off and is not
-called by any route or cron. No live binding has been created; the earlier capture
+The trusted double-read review caller and owner surface are implemented below.
+The scheduling coordinator still needs its production runtime loader. The binding
+adapter defaults off; only the explicit owner review enables it after the private
+snapshot reader has confirmed an existing approved handover. No live binding has been created; the earlier capture
 of three stays remains historical evidence. Installing this migration alone adds
 no scopes, jobs, template releases or sender activation.
 The coordinator still has no runtime caller. Synthetic SQL tests establish that
@@ -1228,8 +1228,8 @@ continues through registration and fake-provider delivery.
 `timing-provider-review.ts` handles an explicit, default-off review of one retained
 stay. Its request contains only three UUIDs: binding, capture and canonical booking.
 A trusted server loader must supply the retained capture, current enabled schedule
-context, persisted latest remote-booking revision, and reviewed channel/thread
-destination. Browser clocks, credentials and handover assertions are not inputs.
+context, persisted latest remote-booking revision and reviewed channel. A missing
+thread is discovered from the complete, bounded Channex thread listing. Browser clocks, credentials and handover assertions are not inputs.
 The caller must retain the binding ID for readback if a save is unconfirmed.
 
 Before one binding write, it checks both providers twice: projected Guesty V2
@@ -1242,7 +1242,8 @@ captured clock values must remain identical; missing overrides do not become
 defaults. A final database snapshot must equal the first before calling the
 existing binding RPC, which rechecks current context/identity under locks.
 
-The review makes at most eight GETs to fixed provider hosts, bounds each request
+The review makes at most 18 GETs to fixed provider hosts (eight with an already
+known trusted thread, plus up to five discovery pages per scan), bounds each request
 and response, refuses redirects and Channex warning/error envelopes, and rejects
 clock rollback, midnight rollover or observations lasting 80 seconds. It discards
 guest/payment/message data and returns only status, binding ID and counts. A lost
@@ -1252,11 +1253,39 @@ context/identity checks remain required.
 
 The synthetic PostgreSQL test now exercises this actual provider-review caller
 through the binding RPC and downstream scheduling coordinator, including changed
-provider clocks and a lost committed response. Only test fixtures implement the
-snapshot loader in this release. No owner endpoint, credential/env wiring, live
-provider call, new database migration, template activation or scheduling occurs
-on deployment. The production loader must use a narrowly scoped service-only
-read; do not grant direct private-table access to implement it.
+provider clocks and a lost committed response. It now uses the actual service-only
+production snapshot reader rather than a test-only private-table query.
+
+The owner screen at `/channels/65_calderwood/message-preparation/timing-review`
+shows the latest saved capture, original observed arrival/departure/confirmation
+clocks, handover readiness and the latest saved review per stay. Its page and GET
+read only the database through `helm_channex_timing_review_overview`; refresh never
+calls providers, creates a capture, or saves a binding. Failure removes permission
+to act on the stale displayed view. All routes and server loaders require owner
+access and the existing exact production inspection environment.
+
+An explicit same-origin JSON POST accepts only action + binding/capture/booking
+UUIDs. The server loads the private snapshot before requesting either credential.
+Guesty authority, absent source clearance, changed source identities or missing
+remote mappings produce no provider reads or writes. The browser cannot supply
+clocks, context, thread, actor or credentials. Complete thread pagination rejects
+partial/duplicate lists, changed totals, ambiguous destinations and limits; both
+scans must select the same exact open thread. An 80-second overall budget includes
+discovery. No code here registers schedules or sends messages.
+
+Before POST, the browser stores the attempt UUID under a cross-tab Web Lock.
+A lost response or reload cannot silently retry or rotate that ID. Read-only refresh
+shows any retained review and whether it still matches the database context; it
+does not claim the provider clocks remain current. If no matching record is shown,
+the attempt remains unresolved and requires investigation, not an automatic retry.
+A new review of an already reviewed stay is deliberately not exposed here.
+
+The new migration adds two read-only, service-only functions and pins the existing
+schedule-context reader to UTC, preserving timestamp precision across connections.
+It creates no rows,
+new access grants to private tables, jobs, scopes or sender activation. Production
+application requires migration approval; deployment alone does not constitute
+handover. The screen fails closed until these functions are installed.
 
 New Airbnb reservations remain blocked for the existing +30-minute confirmation
 rule until a reliable original timestamp source or an explicitly approved different
@@ -1313,9 +1342,8 @@ live Calderwood listing for experimentation.
    the exact captured text without assigning a listing. A future native sender
    needs retained evidence and an explicit ownership boundary; a screenshot of a
    timing option alone cannot authorize it.
-2. **Complete the production scheduling path.** Release the tested timing-binding
-   persistence, implement its trusted provider review caller and the full current
-   booking/merge/history loader, then the reviewed template
+2. **Complete the production scheduling path.** After the owner review surface,
+   implement the full current booking/merge/history loader, then the reviewed template
    release and bounded runtime caller. Existing stays use retained Guesty timings;
    new stays still need an authoritative policy for arrival/departure overrides.
    If native confirmation is adopted, Helm's confirmation rule must remain unable
