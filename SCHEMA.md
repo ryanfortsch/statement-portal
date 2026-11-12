@@ -320,6 +320,27 @@ All service role only. Money is integer cents.
   `src/lib/occupancy-tax.ts` (keyed by property id) and the Guesty
   listing's own tax config are what the statements pipeline and live Guesty
   quotes use today; changing a rate still means all of them agree.
+- **`property_pricing_profiles` / `property_pricing_runs` / `property_pricing_evidence`**: optional Helm pricing
+  pilot (migration `20261108110000_helm_dynamic_pricing.sql`). Owner policies and
+  versioned comparison/direct connection; immutable review inputs and recommendations,
+  publish status and before images for conflict-safe undo. Service-role only. No
+  homes connected by migration. `helm_pricing_context`, `helm_save_pricing_profile`,
+  `helm_apply_pricing_run`, `helm_revert_pricing_run`, and `helm_save_pricing_evidence` are the guarded RPCs.
+  Evidence holds source-stamped imported market/history data per property; its
+  version is part of the exact publishing context.
+  Applied recommendations become `property_rate_days` rows with `source='rule'`.
+  Manual direct-rate publishing only; no OTA publisher or rate-publishing schedule. See
+  `docs/operations/helm-pricing-pilot.md` for model boundaries and rollout criteria.
+- **`property_pricing_tracking` / `property_pricing_observations`**: prospective
+  comparison history (migration `20261110123000_helm_pricing_observations.sql`, after
+  the pricing pilot migration). Owner opt-in is version checked by
+  `helm_set_pricing_tracking`. `helm_record_pricing_observation` pins 180 future
+  nights, original forecasts, source timestamps and policy/evidence/model versions
+  after checking the calendar context. Application-role archive access is select/
+  insert only; manual request keys and property-date daily keys are idempotent.
+  No guest identities or rate writes. Daily capture requires per-property opt-in
+  plus `HELM_PRICING_CAPTURE_ENABLED=true` and `VERCEL_ENV=production`; migration
+  creates no opt-ins. This records prospective evidence, not final-outcome scores.
 - **`property_listing_content`**: the guest-facing listing record (title,
   summary, space, access, neighborhood, type, rooms and beds, amenities,
   `hero_photo_id`, `source` = `helm` | `guesty_seed` | `ai_draft`). Its

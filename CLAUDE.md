@@ -68,9 +68,11 @@ supabase/migrations/   302 migrations
 scripts/               parity harnesses and one-off tools (see Testing below)
 ```
 
-**38 cron routes, 37 schedules, and that is correct.** `/api/cron/reviews-to-slips` is a manual
+**39 cron routes, 38 schedules, and that is correct.** `/api/cron/reviews-to-slips` is a manual
 and backfill trigger on purpose; the recurring work runs at the end of `/api/cron/sync-guesty`.
 Do not "fix" it by adding a schedule.
+`/api/cron/pricing-comparisons` records opted-in pricing comparisons at 11:20 UTC
+only when the production capture gate is enabled; it never publishes rates.
 `/api/cron/channex-production` checks the disabled production Channex configuration
 every 15 minutes. It does not ingest or acknowledge bookings, publish availability,
 change Guesty authority or send messages. See `docs/operations/channex-production-calderwood.md`.
@@ -1121,8 +1123,12 @@ counted 2026-10-22).
 - **Core**: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
 - **Auth**: `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, `AUTH_SECRET`, `AUTH_URL`, `AUTH_COOKIE_DOMAIN`
 - **Cron**: `CRON_SECRET`. Every cron route must call `authorizeCron`, which fails closed
-  for anonymous callers when the secret is unset. The Channex inspection route
-  additionally requires an effective owner for manual session-based calls.
+  for anonymous callers when the secret is unset. The Channex inspection and pricing
+  comparison routes additionally require an effective owner for manual session-based calls.
+- **Pricing comparisons**: `HELM_PRICING_CAPTURE_ENABLED` defaults off. Daily
+  observation capture requires the literal `true`, `VERCEL_ENV=production`, and a
+  saved owner opt-in for each property. It never publishes rates. See
+  `docs/operations/helm-pricing-pilot.md` before activating.
 - **Guesty**: `GUESTY_CLIENT_ID`, `GUESTY_CLIENT_SECRET`
 - **Stripe**: `STRIPE_KEYS_JSON`, `STRIPE_KEYS_JSON_EXTRA`, `STRIPE_KEY_<PROPERTY_ID>`
 - **Gmail**: `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN` (bare = Allie's
