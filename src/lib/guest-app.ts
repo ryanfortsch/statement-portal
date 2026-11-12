@@ -644,7 +644,8 @@ export function missingFacts(input: GuestAppInput, civic: CivicInfo = civicOf(in
   };
   add(!clean(h.wifi_name) || !clean(input.wifi.password), 'Wi-Fi name and password', 'Facts');
   add(!clockHHMM(h.default_checkout_time), 'Checkout time', 'House policy');
-  add(!clockHHMM(input.checkInTime), 'Guest check-in time', 'Pricing (rate plan)');
+  // Guesty's listing on a Guesty-run home (synced nightly), the rate plan on a Helm-run one.
+  add(!clockHHMM(input.checkInTime), 'Guest check-in time', h.guesty_listing_id ? 'Guesty listing (check-in time)' : 'Pricing (rate plan)');
   add(!clean(h.parking) && !overrideText(h.home_guide_overrides, 'parking'), 'Parking', 'Facts');
   const city = cityShort(h);
   if (city !== 'Rockport') add(!clean(h.trash_notes) && !overrideText(h.home_guide_overrides, 'trash'), 'Where the trash bins live', 'Facts');

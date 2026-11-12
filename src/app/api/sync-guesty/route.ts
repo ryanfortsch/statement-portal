@@ -362,6 +362,29 @@ async function refreshListingMap(
     const tagErr = tagResults.find((t) => t.error)?.error;
     if (tagErr) console.warn('[sync-guesty] listing tags not stored:', tagErr.message);
 
+    // Each listing's guest-facing arrival time (defaultCheckInTime, "16:00"),
+    // for the guest app on a Guesty-run home, which has no Helm rate plan to
+    // hold it. Written every run, so Guesty stays the one store. Never into
+    // properties.default_checkin_time: that is the cleaner deadline (see the
+    // CHECK-IN note below). Best-effort, kept apart from the map like tags.
+    const checkinByListing = new Map<string, string | null>();
+    for (const l of all) {
+      if (!l?._id) continue;
+      const m = typeof l.defaultCheckInTime === 'string' ? /^(\d{1,2}):(\d{2})/.exec(l.defaultCheckInTime.trim()) : null;
+      const ok = m && Number(m[1]) <= 23 && Number(m[2]) <= 59;
+      checkinByListing.set(String(l._id), ok ? `${m![1].padStart(2, '0')}:${m![2]}` : null);
+    }
+    const checkinResults = await Promise.all(
+      rows.map((r) =>
+        getSupabase()
+          .from('guesty_listings')
+          .update({ checkin_time: checkinByListing.get(r.listing_id) ?? null })
+          .eq('listing_id', r.listing_id),
+      ),
+    );
+    const checkinErr = checkinResults.find((t) => t.error)?.error;
+    if (checkinErr) console.warn('[sync-guesty] listing check-in times not stored:', checkinErr.message);
+
     // Stamp the resolved id onto the property row itself, fill-empty-only.
     // properties.guesty_listing_id is what the SCA launch form prefills and
     // what the launch checklist's listing-match derive reads, but nothing
