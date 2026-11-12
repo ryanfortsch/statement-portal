@@ -1039,3 +1039,51 @@ the owner review. Atomic job creation, source handover evidence, clock provenanc
 after cutover and the live dispatcher still need to be connected and verified
 before it can execute automatically. The existing Channex claim/receipt machinery
 and prepared-template SQL protections remain in place.
+
+## Atomic guest schedule registration (November 11, 2026)
+
+`20261111190000_channex_schedule_registration.sql` adds two service-only RPCs:
+`helm_channex_message_schedule_context` reads the current booking revision and
+existing handover identifiers; `helm_channex_message_register` inserts one
+canonical `automation_sends` row and its private Channex job in one transaction.
+If either insert fails, neither row persists. The booking lock serializes competing
+registrations, legacy inserts and cancellation. The four accepted keys are booking
+confirmation, pre-arrival, check-in-day and pre-checkout; cleaner SMS is excluded.
+
+A new registration requires the existing enabled Calderwood scope, matching route
+generation and source-stop/drain evidence, Helm calendar authority, enabled
+automations, an eligible property-specific guest rule, and matching current
+canonical booking, remote mapping and rendering revision. Any conflicting prior
+workflow history blocks it, including replaced rules and unknown orphaned history.
+An identical retry returns the existing identity even after its fire time or a
+cancellation; it never rewrites dates, holds, attempts or receipts. A changed
+identity or intent is rejected. The caller must retain the exact intent/send ID
+after an uncertain response rather than minting another ID.
+
+`channex-messaging/schedule-store.ts` is disabled by default, rejects unknown
+fields, returns no send permission, makes no automatic retries and exposes no
+database error details. No message bodies, destinations or credentials enter the
+registration payload. The existing context hash is preserved; final worker
+rendering, thread verification, one-use claim and provider receipt checks remain
+mandatory. A registration result alone is never permission to POST a message.
+
+This is a storage foundation, not an enabled scheduler. It does not release the
+six captured templates: every non-null `migration_policy` is still rejected by
+the registration RPC, and the prepared-rule freeze remains intact. There is no
+runtime caller, HTTP route, cron, scope/evidence creation or source workflow change
+in this batch. The future trusted caller must prove source-clock provenance,
+preserve the captured offsets and establish the intended rendered body and thread.
+SQL checks the timestamp format, future window and expiry, but does not derive or
+certify the supplied fire time from Guesty's clocks. Releasing captured rules also
+requires keeping the generic automation planner out of these workflows before
+the first registration. That handover is not implemented by clearing a policy or
+flipping an enabled flag.
+
+The local/CI PostgreSQL tests exercise all four guest keys, atomic rollback, lost
+commit responses, held/existing records, changed context, conflicting history,
+frozen templates, concurrent registration, and cancellation before and after
+registration. They also run the actual worker through a registered due job against
+a fake provider and prove one POST plus receipt readback. These are synthetic
+tests, not evidence of live channel delivery. Remaining execution work includes
+reviewed template release, verified post-cutover clocks, planner integration,
+cleaner SMS delivery and the live dispatcher/source handover.
