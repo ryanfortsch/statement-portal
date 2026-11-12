@@ -8,6 +8,7 @@ import { todayInEastern } from '../sca-quotes-types.ts';
 import { readGuestySourceTiming } from './preparation.ts';
 import { scheduleContextSchema } from './schedule-store.ts';
 import { inspectMessageThreadIdentity } from './thread-identity.ts';
+import { discoverBookingThread } from './thread-discovery.ts';
 import { sourceTimingRowSchema } from './timing-evidence.ts';
 import type { createChannexTimingBindingStore } from './timing-binding-store.ts';
 
@@ -20,7 +21,7 @@ const snapshotSchema = z.object({
   context: scheduleContextSchema,
   scope: z.object({ environment: z.literal('production'), propertyId: z.literal(mapping.propertyId),
     channelId: id, provider: z.literal('Airbnb') }).strict(),
-  route: z.object({ remoteBookingId: id, threadId: id, revisionId: id }).strict(),
+  route: z.object({ remoteBookingId: id, threadId: id.optional(), revisionId: id }).strict(),
 }).strict();
 type ReviewDeps = {
   // Trusted server loader: retained capture, current enabled schedule context,
@@ -37,7 +38,8 @@ function object(raw: unknown): Record<string, unknown> {
   return raw as Record<string, unknown>;
 }
 
-/** Explicit one-stay provider review, default off. Eight GETs at most; no provider
+/** Explicit one-stay provider review, default off. Up to 18 GETs including bounded
+ * thread discovery (eight when the trusted loader already has a thread); no provider
  * writes, scheduler or sender. Original capture values must still match Guesty,
  * while Channex must match the persisted latest revision and the exact open
  * booking/property/channel thread. Irrelevant guest/payment/message data is dropped.
@@ -45,7 +47,7 @@ function object(raw: unknown): Record<string, unknown> {
  * The caller retains bindingId. An uncertain save is reconciled through the stored
  * binding; never rotate its ID or automatically repeat this review. SQL validates
  * retained capture/current context again under locks when bind() commits.
- * This is not the production loader/owner endpoint or permission to hand over.
+ * This is not permission to hand over or send messages.
  */
 export async function reviewCalderwoodTimingBinding(raw: unknown, actor: string, deps: ReviewDeps,
   options: { enabled?: boolean } = {}) {
@@ -83,7 +85,7 @@ export async function reviewCalderwoodTimingBinding(raw: unknown, actor: string,
     const { guestyToken, channexKey } = credentials;
     if ([guestyToken, channexKey].some(k => typeof k !== 'string' || !k || k.length > 4096 || /[\x00-\x20\x7f]/.test(k))) throw Error();
     const read = async (provider: 'guesty' | 'channex', path: string, maxBytes: number) => {
-      if (++requests > 8) throw Error();
+      if (++requests > 18) throw Error();
       const res = await fetcher((provider === 'guesty' ? 'https://open-api.guesty.com/v1' : 'https://app.channex.io/api/v1') + path,
         { method: 'GET', cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(Math.min(8000, remaining())),
           headers: { Accept: 'application/json', ...(provider === 'guesty'
@@ -105,7 +107,7 @@ export async function reviewCalderwoodTimingBinding(raw: unknown, actor: string,
         return value;
       } finally { await reader.cancel().catch(() => undefined); reader.releaseLock(); }
     };
-    const { row } = before.capture, { remoteBookingId, threadId, revisionId } = before.route;
+    const { row } = before.capture, { remoteBookingId, revisionId } = before.route;
     const scan = async () => {
       const [observed] = await readGuestySourceTiming([{ canonicalId: row.bookingId, id: row.guestyId,
         listingId: GUESTY_CALDERWOOD, accountId: GUESTY_ACCOUNT, code: row.code,
@@ -115,14 +117,16 @@ export async function reviewCalderwoodTimingBinding(raw: unknown, actor: string,
       const remote = projectRemoteBooking(object(await read('channex', `/bookings/${remoteBookingId}`, 1_048_576)).data);
       if (remote.id !== remoteBookingId || remote.revisionId !== revisionId || remote.code !== row.code
         || remote.checkIn !== row.start || remote.checkOut !== row.end || remote.status === 'cancelled') throw new Changed();
+      const threadId = before.route.threadId ?? await discoverBookingThread(
+        (path, bytes) => read('channex', path, bytes), before.scope, remoteBookingId);
       const thread = object(await read('channex', `/message_threads/${threadId}`, 1_048_576)).data;
       if (inspectMessageThreadIdentity(thread, before.scope, { bookingId: remoteBookingId, threadId }, true)) throw new Changed();
-      return remote;
+      return { remote, threadId };
     };
     const first = await scan(), second = await scan();
     if (!isDeepStrictEqual(first, second) || !isDeepStrictEqual(before, await load())) throw new Changed();
     remaining();
-    const intent = { ...request, context: before.context, remoteBookingId, threadId, reviewedRow: row,
+    const intent = { ...request, context: before.context, remoteBookingId, threadId: first.threadId, reviewedRow: row,
       reviewStartedAt: new Date(started).toISOString(), reviewCheckedAt: new Date(last).toISOString() };
     saving = true;
     const saved = await deps.store.bind(intent, actor.trim(), clock);

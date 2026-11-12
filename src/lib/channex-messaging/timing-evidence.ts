@@ -37,7 +37,7 @@ export class TimingEvidenceError extends Error {
  * first-seen time and property arrival_hour are deliberately not alternatives.
  * timing-binding-store.ts reads retained database bindings. Its trusted provider
  * review caller now verifies Guesty clocks and Channex booking/thread identity;
- * its production snapshot loader and owner surface are not wired. Capturing alone is insufficient.
+ * the owner surface uses a private snapshot reader. Capturing alone is insufficient.
  */
 export function requireTimingEvidence(raw: unknown, expected: {
   bookingId: string; sourceIdentity: unknown; clocks: SourceClocks; observedAt: string;

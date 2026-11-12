@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { createChannexTimingBindingStore } from '../src/lib/channex-messaging/timing-binding-store.ts';
+import { timingReviewOverviewSchema } from '../src/lib/channex-messaging/timing-review-contract.ts';
 import { requireTimingEvidence } from '../src/lib/channex-messaging/timing-evidence.ts';
 import { createChannexScheduleStore } from '../src/lib/channex-messaging/schedule-store.ts';
 import { registerCalderwoodStaySchedules } from '../src/lib/channex-messaging/schedule-coordinator.ts';
@@ -35,6 +36,7 @@ const rpc = async (name: string, args: Record<string, unknown>) => {
 };
 const store = createChannexTimingBindingStore(rpc, { enabled: true });
 sql(readFileSync(new URL('../supabase/migrations/20261112160000_channex_timing_bindings.sql', import.meta.url), 'utf8'));
+sql(readFileSync(new URL('../supabase/migrations/20261112190000_channex_timing_review_surface.sql', import.meta.url), 'utf8'));
 assert.equal(sql("select count(*) from helm_channex_messages.timing_bindings;"), '0');
 assert.equal(sql(`select has_table_privilege('service_role','helm_channex_messages.timing_bindings','select,insert,update,delete')
  or has_table_privilege('authenticated','helm_channex_messages.timing_bindings','select,insert,update,delete')
@@ -127,25 +129,24 @@ for (const mutation of [
 // reads synthetic database fixtures as the test database owner; it is deliberately
 // NOT an application/service-role loader or a production activation writer.
 function providerReview(plan: ReturnType<typeof setup>, corruptSecondClock = false) {
-  const load = async () => JSON.parse(sql(`select jsonb_build_object(
-    'capture',jsonb_build_object('id',c.id,'checkedAt',to_char(c.checked_at at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
-      'savedAt',to_char(c.saved_at at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),'sourceContract',c.source_contract,'row',item),
-    'context',public.helm_channex_message_schedule_context('${bid}'),
-    'scope',jsonb_build_object('environment',s.environment,'propertyId',s.remote_property,'channelId',s.channel_id,'provider',s.provider),
-    'route',jsonb_build_object('remoteBookingId',r.remote_id,'threadId','${thread}','revisionId',r.latest_revision))
-    from helm_channex_messages.source_timing_captures c cross join lateral jsonb_array_elements(c.rows) item
-    cross join helm_channex_messages.scope s join helm_airbnb_bookings.bookings r on r.canonical_id='${bid}'
-    where c.id='${plan.captureId}' and item->>'bookingId'='${bid}' and s.property_id='65_calderwood';`));
+  const load = async () => {
+    const value = JSON.parse(sql(`set role service_role; select helm_channex_timing_review_snapshot('${plan.captureId}','${bid}');`));
+    // Expected context comes from the same UTC-pinned production reader,
+    // not a connection-timezone rendering of an equivalent instant.
+    if (value) plan.context=value.context;
+    return value;
+  };
   let reads = 0;
   return reviewCalderwoodTimingBinding({bindingId:plan.bindingId,captureId:plan.captureId,bookingId:bid},'owner@synthetic.test',{
     load,store,clock:Date.now,credentials:async()=>({guestyToken:'synthetic-guesty',channexKey:'synthetic-channex'}),
     fetcher:async(url,init)=>{
       assert.equal(init?.method,'GET'); assert.equal(init?.body,undefined); reads++;
-      const s=await load(), source=syntheticTimingProvider(s.capture.row,{...s.route,channelId:s.scope.channelId});
+      const s=await load(), source=syntheticTimingProvider(s.capture.row,{...s.route,threadId:thread,channelId:s.scope.channelId});
       if(corruptSecondClock && reads>4) source.v2.plannedArrival='22:00';
       const path=new URL(String(url)).pathname;
       return Response.json(path.includes('/reservations/')?source.v2:path.endsWith('/reservations-v3')?source.v3
-        :path.includes('/bookings/')?source.booking:source.thread);
+        :path.includes('/bookings/')?source.booking:path.endsWith('/message_threads')
+          ? {data:[source.thread.data],meta:{page:1,limit:100,total:1}} :source.thread);
     },
   },{enabled:true});
 }
@@ -158,6 +159,33 @@ loseResponse=false;
 assert.ok(await store.load(p.bindingId,expected(p),Date.now()));
 assert.equal(sql('select count(*) from helm_channex_messages.jobs;'),'0');
 
+// The deployed read surface is available to the service role only and has no
+// side effects even when Guesty still controls the home.
+assert.equal(sql(`select has_function_privilege('anon','helm_channex_timing_review_overview()','execute')
+ or has_function_privilege('authenticated','helm_channex_timing_review_snapshot(uuid,uuid)','execute');`),'f');
+const overview=()=>timingReviewOverviewSchema.parse(JSON.parse(sql('set role service_role; select helm_channex_timing_review_overview();')));
+p=setup();
+assert.equal(overview().stays[0].state,'ready');
+assert.equal(sql(`set timezone='Pacific/Auckland'; select helm_channex_message_schedule_context('${bid}');`),
+  sql(`set timezone='America/New_York'; select helm_channex_message_schedule_context('${bid}');`));
+assert.equal(JSON.stringify(overview()).includes(p.reviewedRow.guestyId),false);
+assert.equal(JSON.stringify(overview()).includes(p.reviewedRow.code),false);
+assert.equal((await providerReview(p)).state,'created');
+assert.equal(overview().stays[0].review?.id,p.bindingId);
+assert.equal(overview().stays[0].review?.currentContext,true);
+sql(`update bookings set check_out=check_out+1 where id='${bid}';`);
+assert.equal(overview().stays[0].review?.currentContext,false);
+assert.equal(overview().stays[0].state,'needs_matching');
+assert.equal(sql(`set role service_role; select helm_channex_timing_review_snapshot('${p.captureId}','${bid}') is null;`),'t');
+p=setup();
+sql(`delete from helm_channex_messages.scope; update properties set calendar_authority='guesty',automations_enabled=false where id='65_calderwood';`);
+const dormant=overview();
+assert.equal(dormant.authority,'guesty');assert.equal(dormant.handoverRecorded,false);
+assert.equal(dormant.stays[0].state,'waiting_handover');
+assert.equal((await providerReview(p)).state,'unavailable');assert.equal(count(),'0');
+assert.equal(sql('select count(*) from helm_channex_messages.jobs;'),'0');
+assert.equal(sql(`set role service_role; select helm_channex_timing_review_snapshot('${randomUUID()}','${bid}') is null;`),'t');
+
 // Templates/merge inputs are still synthetic; this is not their release workflow.
 p=setup();
 const snapshot=syntheticScheduleSnapshot(Date.now());
@@ -166,7 +194,7 @@ for (const rule of snapshot.currentRules.filter(r=>r.audience==='guest')) sql(`i
  select ${MESSAGE_RULE_FIELDS} from jsonb_populate_record(null::message_automations,${str(JSON.stringify(rule))}::jsonb);`);
 p.context=JSON.parse(sql(`select helm_channex_message_schedule_context('${bid}');`));
 const reviewed=await providerReview(p);
-assert.equal(reviewed.state,'created'); assert.equal(reviewed.sourceReads,8);
+assert.equal(reviewed.state,'created'); assert.equal(reviewed.sourceReads,10);
 assert.equal(reviewed.jobsCreated+reviewed.messagesSent,0);
 const schedules=createChannexScheduleStore(rpc,{enabled:true});
 const load=async()=>{

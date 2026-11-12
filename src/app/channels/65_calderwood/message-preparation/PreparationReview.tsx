@@ -47,6 +47,7 @@ export function PreparationReview() {
         : review ? `Observed ${stamp(review.checkedAt)}. This is a point-in-time review.` : 'Uses current and upcoming Calderwood stays in the next 500 days.'}</p>
     </section>
     <TimingCapture disabled={busy} onBusyChange={setCapturing} />
+    <Link href="/channels/65_calderwood/message-preparation/timing-review" className="mt-4 inline-block text-sm underline underline-offset-4">View saved timing evidence and handover reviews →</Link>
     {error && <p role="alert" className="mt-5 border-l-4 p-4 text-sm" style={{ borderColor: 'var(--negative)', color: 'var(--negative)' }}>{error}</p>}
     {review && <section className="mt-8" aria-labelledby="handover-inputs">
       <h2 id="handover-inputs" className="text-xl font-semibold">What still needs attention</h2>
