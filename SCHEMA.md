@@ -320,9 +320,9 @@ All service role only. Money is integer cents.
   `src/lib/occupancy-tax.ts` (keyed by property id) and the Guesty
   listing's own tax config are what the statements pipeline and live Guesty
   quotes use today; changing a rate still means all of them agree.
-- **`helm_pricing_drafts` / `helm_pricing_draft_versions`**: proposed shared owner
-  draft settings (migration `20261112190000_helm_pricing_shared_drafts.sql`, **not
-  applied**). One workspace snapshot contains listing policies, groups/subgroups,
+- **`helm_pricing_drafts` / `helm_pricing_draft_versions`**: shared owner
+  draft settings (migration `20261112190000_helm_pricing_shared_drafts.sql`, applied
+  November 12, 2026). One workspace snapshot contains listing policies, groups/subgroups,
   account defaults, date overrides and PriceLabs settings provenance. Every save
   increments a revision and appends an immutable recovery receipt. The service role
   can select; writes go only through `helm_save_pricing_drafts`, with expected

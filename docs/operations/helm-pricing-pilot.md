@@ -2,9 +2,10 @@
 
 Account reviewed November 8; prototype updated November 12, 2026. **This is an independent pricing prototype with imported evidence, not a complete
 PriceLabs replacement or a validated revenue optimizer.** No PriceLabs pricing or sync setting was
-changed during the audit (the research chart was switched to daily aggregation). No live rates, connections, or migrations were changed.
+changed during the audit (the research chart was switched to daily aggregation). No live rates or connections were changed. The separate draft-storage migration
+was approved and applied November 12, 2026.
 
-## Shared settings checkpoint — prepared, not activated
+## Shared settings checkpoint
 
 `codex/helm-pricing-shared-settings` adds an explicit **Save to Helm** to the
 portfolio and property workspace. Base/min/max, minimum-stay rules, groups,
@@ -21,14 +22,16 @@ snapshot. Unknown managed-property IDs, invalid groups/rules, overlapping season
 more than 200 properties, or over 500 KB are rejected. Database access failures
 never masquerade as empty settings. Local storage failures stop replacement.
 
-**Activation requires the separately approved migration
-`20261112190000_helm_pricing_shared_drafts.sql`.** It creates only the two draft
-storage tables and their save function, and has no dependency on the dormant
-pricing publisher or observations migrations. Apply only this migration, then
-publish this branch and use **Save to Helm** from the browser holding the imported
-settings. Verify the listing/group counts and re-open in a fresh browser before
-considering the browser copy migrated. If any activation step fails, the existing
-browser draft remains the working copy. Do not apply all pending migrations.
+**Migration `20261112190000_helm_pricing_shared_drafts.sql` was approved and applied
+November 12, 2026.** It created only the two draft storage tables and their save
+function. Its receipt was recorded in the same transaction; both tables have RLS
+enabled. The dormant pricing publisher and observations migrations remain separate.
+
+Rollout procedure: publish this branch and use **Save to Helm** from the browser
+holding the imported settings. Verify listing/group counts and re-open in a fresh
+browser before considering the browser copy migrated. If any activation step
+fails, the existing browser draft remains the working copy. Do not apply all
+pending migrations.
 
 The save does not enable rate syncing, connections or scheduled publishing.
 Imported market evidence and comparison histories remain session-only, and no
