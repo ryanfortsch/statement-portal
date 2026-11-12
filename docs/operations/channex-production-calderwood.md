@@ -1172,6 +1172,32 @@ or deployment. Synthetic tests cover privacy, complete-batch rollback, source
 ambiguity, expired observations, unknown times, access checks and a real concurrent
 cancellation. Runtime delivery remains off pending the separate handover.
 
+The owner-only message-preparation page provides **Save verified timings**. It
+performs a fresh server-side verification rather than submitting browser clocks
+or an earlier review. The control permits one explicit attempt per page visit,
+disables the review while saving, and validates the response before reporting a
+saved reservation count. Success, an empty scope, and an unconfirmed save are
+distinct outcomes. There is no application retry or pending-watchdog reload;
+inspect private capture metadata before repeating an unconfirmed attempt.
+Network transports can still repeat a request after a lost connection. Captures
+are historical observations, so such a repeat cannot enqueue or send messages.
+
+### Provider timing clarification (November 12, 2026)
+
+Channex confirmed there is no dedicated original Airbnb confirmation timestamp
+or new-versus-imported booking marker. `inserted_at` is revision receipt time and
+changes on modifications/pulls; it cannot anchor the existing +30-minute rule.
+The OTA timestamp is available only if supplied in `raw_message`; its Airbnb
+field path, semantics and availability still need verification. A targeted
+follow-up requested a synthetic/redacted example. `arrival_hour` is the property
+default in local time, not a reservation override, and Channex supplies no
+per-booking departure/late-checkout time. Preserve captured Guesty evidence for
+existing stays; do not silently substitute these limited fields for new stays.
+
+Guesty escalated the in-flight worker and Vonage expiry/retry questions to its
+developers on November 12. No bounded queue-drain or safe waiting interval has
+been confirmed. Neither provider changed channel settings or automations.
+
 
 ## Cleaner queue clarification (received November 10 Eastern)
 
