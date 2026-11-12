@@ -10,7 +10,7 @@
  * caller stamps the row only on a send, so the cron can retry a failure.
  */
 import { sendTransactionalViaResend } from '@/lib/resend';
-import { declinedEmail, expiredEmail, receiptEmail, type RequestEmail } from '@/lib/booking-request-copy';
+import { confirmedEmail, declinedEmail, expiredEmail, receiptEmail, type RequestEmail } from '@/lib/booking-request-copy';
 import type { BookingRequestRow } from '@/lib/booking-requests';
 
 const GUEST_EMAIL = 'hello@staycapeann.com';
@@ -36,4 +36,11 @@ export async function sendRequestOutcome(row: BookingRequestRow, title: string |
   if (row.status !== 'declined' && row.status !== 'expired') return false;
   const email = row.status === 'declined' ? declinedEmail(row, { title, siteOrigin: SCA_SITE_ORIGIN }) : expiredEmail(row, { title, siteOrigin: SCA_SITE_ORIGIN });
   return sendToGuest(row.guest_email, email, `booking-request:${row.id}:${row.status}`);
+}
+
+/** You're booked: only after the site reported the charge. */
+export async function sendRequestConfirmation(row: BookingRequestRow, title: string | null): Promise<boolean> {
+  if (row.status !== 'accepted' || row.hold_status !== 'captured' || row.hold_cents == null) return false;
+  const email = confirmedEmail({ ...row, charged_cents: row.hold_cents }, { title, siteOrigin: SCA_SITE_ORIGIN });
+  return sendToGuest(row.guest_email, email, `booking-request:${row.id}:confirmed`);
 }

@@ -14,7 +14,10 @@ import {
   openOverlaps,
 } from '@/lib/booking-requests';
 import { displayTitle, fmtCents, fmtShortDate } from '@/lib/sca-quotes-types';
+import { listPartnerHomePayments, type PartnerHomePayments } from '@/lib/partner-payments-db';
+import { accountStatusLabel, holdLine, paymentsReady } from '@/lib/partner-payments';
 import { RequestActions } from './RequestActions';
+import { HostPaymentActions } from './HostPaymentActions';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,12 +26,15 @@ export const dynamic = 'force-dynamic';
  * dates at a partner home on staycapeann.com. Each open request shows its
  * 24-hour clock, what the calendar says about its nights now, any other
  * request after the same nights, the guest's note and both contacts. The
- * office tells the host by hand (Phase 1), then declines it or lets it
- * close; the guest is emailed either way (src/lib/booking-requests-db.ts).
+ * office tells the host by hand (Phase 1), then accepts it (the nights are
+ * booked and the card held on the host's Stripe is charged), declines it or
+ * lets it close; the guest is emailed each way (src/lib/booking-requests-db.ts).
+ * Under the requests, each partner home's payments: its host's Stripe, our
+ * fee and the setup link (src/lib/partner-payments-db.ts).
  */
 export default async function BookingRequestsPage() {
   const now = new Date();
-  const listed = await listBookingRequests({ now });
+  const [listed, hosts] = await Promise.all([listBookingRequests({ now }), listPartnerHomePayments().catch(() => null)]);
 
   return (
     <div className="flex-1 flex flex-col">
@@ -38,6 +44,7 @@ export default async function BookingRequestsPage() {
         ) : (
           <RequestList rows={listed.rows} now={now} />
         )}
+        <HostPayments hosts={hosts} now={now} />
       </section>
       <HelmFooter module="Requests" right="Stay Cape Ann · Rising Tide" />
     </div>
@@ -55,8 +62,8 @@ function RequestList({ rows, now }: { rows: ReviewRequest[]; now: Date }) {
       <div style={{ marginBottom: 18 }}>
         {open.length > 0 && <div style={{ fontSize: 13, color: 'var(--ink-3)' }}>{`${open.length} waiting on a host`}</div>}
         <p style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 4, maxWidth: 640, lineHeight: 1.5 }}>
-          A host who says yes cannot be booked from here yet: accepting takes the guest&apos;s payment on the host&apos;s own
-          account, which comes with card payments for partner homes.
+          Accept once the host says yes: the nights are booked and the card held on the host&apos;s own Stripe is charged
+          within a minute or two. A request with no card on hold cannot be accepted.
         </p>
       </div>
 
@@ -126,6 +133,7 @@ function OpenRequest({ r, now, overlapping }: { r: ReviewRequest; now: Date; ove
       <div className="tabular-nums" style={{ fontSize: 13.5, marginTop: 6 }}>
         {guest} · {stayLine(r)} · {fmtCents(r.quoted_total_cents, r.currency)}
       </div>
+      <div className="tabular-nums" style={{ fontSize: 12.5, marginTop: 4, color: r.hold_status === 'held' ? 'var(--ink-3)' : 'var(--ink-4)' }}>{holdLine(r)}</div>
 
       <div style={{ fontSize: 12.5, marginTop: 6 }}>
         <CalendarLine c={r.calendar} />
@@ -154,7 +162,15 @@ function OpenRequest({ r, now, overlapping }: { r: ReviewRequest; now: Date; ove
       </div>
 
       <div style={{ marginTop: 12 }}>
-        <RequestActions id={r.id} guest={guest} home={homeLabel(r)} hostTold={!!r.host_told_at} />
+        <RequestActions
+          id={r.id}
+          guest={guest}
+          home={homeLabel(r)}
+          hostTold={!!r.host_told_at}
+          canAccept={r.hold_status === 'held' && r.calendar?.state !== 'booked'}
+          total={fmtCents(r.hold_cents ?? r.quoted_total_cents, r.currency)}
+          held={r.hold_status === 'held'}
+        />
       </div>
     </div>
   );
@@ -167,12 +183,62 @@ function ClosedRequest({ r, now }: { r: ReviewRequest; now: Date }) {
       <span>
         {homeLabel(r)} · {guestFullName(r)} · <span className="tabular-nums">{fmtShortDate(r.check_in)} to {fmtShortDate(r.check_out)}</span>
         {r.decline_reason && <span style={{ color: 'var(--ink-4)' }}> · {r.decline_reason}</span>}
+        {r.hold_status !== 'none' && (
+          <span className="tabular-nums" style={{ color: r.hold_status === 'failed' ? 'var(--signal)' : 'var(--ink-4)' }}> · {holdLine(r)}</span>
+        )}
       </span>
       <span style={{ color: 'var(--ink-3)' }}>
         {BOOKING_REQUEST_STATUS_LABEL[status]}
         {r.decided_at && <span style={{ color: 'var(--ink-4)' }}> · {easternShort(r.decided_at)}</span>}
         {(status === 'declined' || status === 'expired') && !r.outcome_emailed_at && <span style={{ color: 'var(--signal)' }}> · email not sent yet</span>}
+        {status === 'accepted' && r.hold_status === 'captured' && !r.confirmation_emailed_at && <span style={{ color: 'var(--signal)' }}> · confirmation not sent yet</span>}
       </span>
+    </div>
+  );
+}
+
+function HostPayments({ hosts, now }: { hosts: PartnerHomePayments[] | null; now: Date }) {
+  return (
+    <div style={{ marginTop: 56 }}>
+      <h2 className="eyebrow" style={{ marginBottom: 6 }}>Host payments</h2>
+      <p style={{ fontSize: 12, color: 'var(--ink-4)', marginBottom: 12, maxWidth: 640, lineHeight: 1.5 }}>
+        Each host connects their own Stripe account. Guests are charged there, our fee comes off each charge, and the
+        rest is the host&apos;s. A home takes cards once Stripe approves the host and the fee is set.
+      </p>
+      {hosts == null ? (
+        <EmptyState>Ask Ryan: host payments could not be read just now.</EmptyState>
+      ) : hosts.length === 0 ? (
+        <EmptyState>No partner homes yet.</EmptyState>
+      ) : (
+        <div style={{ borderTop: '1px solid var(--rule)' }}>
+          {hosts.map(({ home, account }) => {
+            const ready = paymentsReady(account);
+            const label = displayTitle(home.title) || home.name;
+            return (
+              <div key={home.id} style={{ padding: '14px 4px', borderBottom: '1px solid var(--rule)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 16, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 14, fontWeight: 500 }}>{label}</span>
+                  <span style={{ fontSize: 12.5, color: ready ? '#1d6b46' : 'var(--ink-3)' }}>{accountStatusLabel(account, now)}</span>
+                </div>
+                <div className="tabular-nums" style={meta}>
+                  FEE {account?.fee_pct == null ? 'not set' : `${account.fee_pct}% of the stay before tax`}
+                  {account?.status_checked_at && <> · Stripe checked {easternShort(account.status_checked_at)}</>}
+                  {account?.setup_token_expires_at && !account.stripe_account_id && <> · link good until {easternShort(account.setup_token_expires_at)}</>}
+                </div>
+                <div style={{ marginTop: 10 }}>
+                  <HostPaymentActions
+                    propertyId={home.id}
+                    home={label}
+                    feePct={account?.fee_pct ?? null}
+                    hasLink={!!account?.setup_token_expires_at && Date.parse(account.setup_token_expires_at) > now.getTime()}
+                    connected={!!account?.stripe_account_id}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

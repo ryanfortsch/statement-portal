@@ -9,14 +9,18 @@
  * from the home's own rate plan, and the owners work the queue at
  * /guests/requests.
  *
- * No money moves. Accepting charges the guest on the host's own Stripe
- * account through Stripe Connect, which is not built, so nothing here
- * produces 'accepted' yet. Until then a request is declined, withdrawn, or
- * closes on its own at respond_by.
+ * Money: when the host's Stripe account is connected (src/lib/partner-payments.ts),
+ * the site places a hold on the guest's card before the request is filed,
+ * and the request carries it. Accepting books the nights and the site then
+ * charges the hold; a decline, a withdrawal or the clock running out
+ * releases it. A request from a home not yet taking cards carries no hold
+ * and cannot be accepted.
  *
  * PURE MODULE: no env, no database, no server-only imports. The bridge, the
  * review page, the cron, the home feed and the tests all read it.
  */
+
+import { validateHold, type HoldStatus, type RequestHold } from './partner-payments.ts';
 
 export type BookingRequestStatus = 'pending' | 'accepted' | 'declined' | 'expired' | 'withdrawn';
 
@@ -68,12 +72,23 @@ export type BookingRequestRow = {
   decline_reason: string | null;
   receipt_emailed_at: string | null;
   outcome_emailed_at: string | null;
+  stripe_account_id: string | null;
+  payment_intent_id: string | null;
+  hold_cents: number | null;
+  fee_cents: number | null;
+  hold_status: HoldStatus;
+  hold_placed_at: string | null;
+  captured_at: string | null;
+  released_at: string | null;
+  charge_id: string | null;
+  hold_error: string | null;
+  confirmation_emailed_at: string | null;
   created_at: string;
   updated_at: string;
 };
 
 export const BOOKING_REQUEST_COLS =
-  'id, request_key, source, property_id, check_in, check_out, guests, guest_first_name, guest_last_name, guest_email, guest_phone, message, quoted_total_cents, currency, quote, status, respond_by, host_told_at, host_told_by, decided_at, decided_by, decline_reason, receipt_emailed_at, outcome_emailed_at, created_at, updated_at';
+  'id, request_key, source, property_id, check_in, check_out, guests, guest_first_name, guest_last_name, guest_email, guest_phone, message, quoted_total_cents, currency, quote, status, respond_by, host_told_at, host_told_by, decided_at, decided_by, decline_reason, receipt_emailed_at, outcome_emailed_at, stripe_account_id, payment_intent_id, hold_cents, fee_cents, hold_status, hold_placed_at, captured_at, released_at, charge_id, hold_error, confirmation_emailed_at, created_at, updated_at';
 
 // ─── The clock ──────────────────────────────────────────────────────────────
 
@@ -217,6 +232,8 @@ export type RequestInput = {
   message: string | null;
   /** What the guest was shown, so a price that moved is a question, not a surprise. */
   quoted_total_cents: number | null;
+  /** The card hold the site placed on the host's Stripe account, if the home takes cards. */
+  hold: RequestHold | null;
 };
 
 export type RequestValidation = { ok: true; input: RequestInput } | { ok: false; detail: string };
@@ -246,6 +263,8 @@ export function validateRequestInput(raw: unknown): RequestValidation {
   const shown = b.quoted_total_cents == null ? null : Number(b.quoted_total_cents);
   if (shown != null && (!Number.isInteger(shown) || shown < 0)) return { ok: false, detail: 'quoted_total_cents must be whole cents' };
   const source = typeof b.source === 'string' && b.source.trim() ? b.source.trim().toLowerCase().slice(0, 40) : 'sca';
+  const hold = validateHold(b.hold);
+  if (!hold.ok) return { ok: false, detail: hold.detail };
 
   return {
     ok: true,
@@ -259,6 +278,7 @@ export function validateRequestInput(raw: unknown): RequestValidation {
       guest: { first_name: first, last_name: last, email, phone: phone || null },
       message: message || null,
       quoted_total_cents: shown,
+      hold: hold.hold,
     },
   };
 }
@@ -283,6 +303,9 @@ export type PublicBookingRequest = {
   guests: number;
   quoted_total_cents: number;
   currency: string;
+  /** Which hold the request kept, so the site can release one it did not. */
+  hold_status: HoldStatus;
+  payment_intent_id: string | null;
 };
 
 export function toPublicRequest(row: BookingRequestRow, now: Date): PublicBookingRequest {
@@ -296,5 +319,7 @@ export function toPublicRequest(row: BookingRequestRow, now: Date): PublicBookin
     guests: row.guests,
     quoted_total_cents: row.quoted_total_cents,
     currency: row.currency,
+    hold_status: row.hold_status,
+    payment_intent_id: row.payment_intent_id,
   };
 }

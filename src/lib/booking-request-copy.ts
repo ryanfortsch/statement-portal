@@ -1,6 +1,7 @@
 /**
  * What a guest reads about their booking request: the receipt when it
- * lands, and the one email that closes it (declined, or no answer in time).
+ * lands, the one email that closes it (declined, or no answer in time), and
+ * the confirmation once the host said yes and the card was charged.
  *
  * Mail goes out from hello@staycapeann.com (src/lib/booking-request-email.ts),
  * so a reply joins the guest's thread there. The guest never sees an
@@ -18,7 +19,20 @@ export type RequestEmail = { subject: string; text: string; html: string };
 type Row = Pick<
   BookingRequestRow,
   'guest_first_name' | 'check_in' | 'check_out' | 'guests' | 'respond_by' | 'quoted_total_cents' | 'currency' | 'quote'
->;
+> &
+  Partial<Pick<BookingRequestRow, 'hold_status' | 'hold_cents'>>;
+
+/** The card hold on a request, if the home takes cards. */
+function heldCents(r: Row): number | null {
+  return r.hold_status && r.hold_status !== 'none' && r.hold_cents != null ? r.hold_cents : null;
+}
+
+/** What a closing email says about money. */
+function nothingCharged(r: Row): string {
+  return heldCents(r) == null
+    ? 'Nothing was charged.'
+    : 'Nothing was charged, and we are releasing the hold on your card now. Your bank may take a few days to clear it.';
+}
 
 export type CopyContext = {
   /** The listing title, e.g. "Stay at Rocky Neck". */
@@ -105,7 +119,9 @@ export function receiptEmail(r: Row, ctx: CopyContext): RequestEmail {
     `Hi ${first(r.guest_first_name)},`,
     `Thanks for asking to stay at ${home}, ${staySummary(r)}.`,
     `This home is run by its own host, who answers every request within ${RESPONSE_WINDOW_HOURS} hours. You will hear from us by ${easternWhen(r.respond_by)} Eastern.`,
-    `Nothing has been charged. The quoted total is ${fmtCents(r.quoted_total_cents, r.currency)}${totalCovers(r.quote)}. If the host says yes, we will email you to confirm and pay.`,
+    heldCents(r) == null
+      ? `Nothing has been charged. The quoted total is ${fmtCents(r.quoted_total_cents, r.currency)}${totalCovers(r.quote)}. If the host says yes, we will email you to confirm and pay.`
+      : `We placed a hold of ${fmtCents(heldCents(r) as number, r.currency)}${totalCovers(r.quote)} on your card. You are charged only if the host says yes. If they can't, the hold is released.`,
     'If anything changes, just reply to this email.',
   ]);
 }
@@ -115,7 +131,7 @@ export function declinedEmail(r: Row, ctx: CopyContext): RequestEmail {
   const home = displayTitle(ctx.title) || 'the home';
   return build(`About your request for ${home}`, [
     `Hi ${first(r.guest_first_name)},`,
-    `The host of ${home} can't take ${datesLine(r.check_in, r.check_out)}, so your request is closed. Nothing was charged.`,
+    `The host of ${home} can't take ${datesLine(r.check_in, r.check_out)}, so your request is closed. ${nothingCharged(r)}`,
     ['Other homes may be open on your dates:', otherHomesUrl(ctx.siteOrigin, r)],
     'If you would like a hand finding one, reply to this email.',
   ]);
@@ -126,8 +142,23 @@ export function expiredEmail(r: Row, ctx: CopyContext): RequestEmail {
   const home = displayTitle(ctx.title) || 'the home';
   return build(`About your request for ${home}`, [
     `Hi ${first(r.guest_first_name)},`,
-    `The host of ${home} wasn't able to confirm ${datesLine(r.check_in, r.check_out)} in time, so your request has closed. Nothing was charged.`,
+    `The host of ${home} wasn't able to confirm ${datesLine(r.check_in, r.check_out)} in time, so your request has closed. ${nothingCharged(r)}`,
     ['Other homes may be open on your dates:', otherHomesUrl(ctx.siteOrigin, r)],
     'If you would like a hand finding one, reply to this email.',
+  ]);
+}
+
+/**
+ * The host said yes and the card was charged. Sent once the site reports
+ * the charge, never at the moment of the yes: a guest is told they are
+ * booked only when the money is.
+ */
+export function confirmedEmail(r: Row & { charged_cents: number }, ctx: CopyContext): RequestEmail {
+  const home = displayTitle(ctx.title) || 'the home';
+  return build(`You're booked at ${home}`, [
+    `Hi ${first(r.guest_first_name)},`,
+    `Good news: the host said yes. You're booked at ${home}, ${staySummary(r)}.`,
+    `We charged ${fmtCents(r.charged_cents, r.currency)}${totalCovers(r.quote)} to your card. The charge comes from the host's own account, so your statement may show their name.`,
+    'Your host will be in touch before you arrive with directions and check-in details. If you have a question in the meantime, just reply to this email.',
   ]);
 }

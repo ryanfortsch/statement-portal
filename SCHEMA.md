@@ -139,11 +139,24 @@ dates on staycapeann.com, posted through `POST /api/pms/requests` and unique on
 `request_key`. Helm prices it from the home's rate plan when it lands
 (`quoted_total_cents`, the whole quote in `quote`); `respond_by` is 24 hours
 later. `status` is `pending`, then `declined` or `withdrawn` (an owner on
-`/guests/requests`) or `expired` (`/api/cron/booking-requests`); nothing
-writes `accepted` until Stripe Connect. It holds no night: the calendar is
-still `bookings`. `receipt_emailed_at` / `outcome_emailed_at` stamp the guest
-emails, and the cron retries one left null. RLS on, service role only. See
-`src/lib/booking-requests.ts`.
+`/guests/requests`) or `expired` (`/api/cron/booking-requests`); Accept
+writes `accepted`, only over a card hold. The hold columns (since 2026-11-13):
+`stripe_account_id`, `payment_intent_id`, `hold_cents` (the stay's total),
+`fee_cents` (ours), `hold_status` (`none`, `held`, `captured`, `released`,
+`failed`), `captured_at` / `released_at` / `charge_id` / `hold_error`, all
+written from staycapeann.com's reports; `captured` requires `accepted` in the
+database. An accepted request holds its nights on the partner home's Helm
+calendar (an exclusion constraint keeps two accepted requests off one night);
+it is never copied into `bookings`. `receipt_emailed_at` / `outcome_emailed_at`
+/ `confirmation_emailed_at` stamp the guest emails, and the cron retries one
+left null. RLS on, service role only. See `src/lib/booking-requests.ts`.
+
+**`partner_payment_accounts`** (since 2026-11-13): one row per partner home.
+The host's Stripe Connect account (`stripe_account_id`, written once), our
+`fee_pct`, what Stripe last said (`charges_enabled`, `payouts_enabled`,
+`details_submitted`, `requirements_due`, as staycapeann.com reported it) and
+the SHA-256 of the host's setup link. No Stripe secret lives in Helm. RLS on,
+service role only. See `src/lib/partner-payments.ts`.
 
 - **`booking_events`**: append-only change log per booking (`created`,
   `dates_changed`, `status_changed`, `cancelled`, `guest_changed`,
