@@ -1216,7 +1216,7 @@ the exact current context and route. Source/mapping identity and context changes
 invalidate reads; conflicting retries cannot overwrite or refresh review history.
 SQL cannot itself verify Guesty's clocks or the provider's booking/thread relation.
 The trusted double-read review caller and owner surface are implemented below.
-The scheduling coordinator still needs its production runtime loader. The binding
+The scheduling coordinator still needs its complete production runtime wiring. The binding
 adapter defaults off; only the explicit owner review enables it after the private
 snapshot reader has confirmed an existing approved handover. No live binding has been created; the earlier capture
 of three stays remains historical evidence. Installing this migration alone adds
@@ -1342,9 +1342,10 @@ live Calderwood listing for experimentation.
    the exact captured text without assigning a listing. A future native sender
    needs retained evidence and an explicit ownership boundary; a screenshot of a
    timing option alone cannot authorize it.
-2. **Complete the production scheduling path.** After the owner review surface,
-   implement the full current booking/merge/history loader, then the reviewed template
-   release and bounded runtime caller. Existing stays use retained Guesty timings;
+2. **Complete the production scheduling path.** The owner review surface and
+   current booking/merge/history database reader are implemented. Finish the retained
+   template release and provider revalidation, then wire the bounded runtime caller.
+   Existing stays use retained Guesty timings;
    new stays still need an authoritative policy for arrival/departure overrides.
    If native confirmation is adopted, Helm's confirmation rule must remain unable
    to enqueue or dispatch. Do not invent a confirmation timestamp to make the
@@ -1386,3 +1387,45 @@ period Guesty configures with its SMS provider, and whether a documented waiting
 interval supports a safe sender handover. No arbitrary delay is accepted as proof
 of an empty provider queue. All source automations and pending messages remain
 active and unchanged; no deactivation, cancellation, resend or test was requested.
+
+## Scheduling database inputs (November 12, 2026)
+
+`helm_channex_message_schedule_inputs(booking_id,binding_id)` adds one stable,
+service-only read. The retained timing binding must still match the current enabled
+handover, canonical stay, source identity and route. It returns the current rules,
+all canonical send-history states, and only the fields needed to render the captured
+Calderwood guest templates. It reads them in one database statement, not separate
+paginated queries that might combine different versions. More than 200 effective
+rule rows or 5,000 history rows makes the entire read unavailable; no truncated list
+is called complete. Prior history on merged duplicate descendants also blocks the
+read and requires reconciliation. These checks are observations, not locks against
+future changes; existing context rechecks and atomic registration/claim fences remain
+mandatory. Before activation, merged-family history also needs a transactional check
+shared with history writers, so a new descendant history row cannot race the final
+read. This reader does not add that write-side guarantee.
+
+The TypeScript reader in `schedule-inputs.ts` defaults off, validates the returned
+booking, binding, clocks, source chronology, rule set and full history, and rejects
+stale or overlong reads without exposing database errors. It keeps names, source
+identities, template text and credentials server-side. Placeholder guest names remain
+missing. Only a static stored keypad code is supported here; a mapped lock yields
+no door code until a separately verified per-stay-code path exists. A key-location
+description never substitutes for a code. Guesty date formatting is preserved.
+
+The result deliberately contains **no `capturedRules`**. Copying active rules and
+calling them archived evidence would bypass the release review. A future retained
+template-release reader must provide that evidence, and a bounded caller must
+revalidate providers before scheduling. A timing binding remains evidence of a
+past review, not a guarantee that Guesty or Channex cannot change afterward.
+This batch has no route, cron, environment loader, provider calls, schedule writer,
+release/activation action or cleaner-recipient changes. Installation creates no
+data. The approved migration was applied to production STATEMENTS and its exact
+definition, service-only access and read-only settings were verified. Guesty remains
+the calendar authority, all six prepared templates are disabled, and scopes, timing
+bindings and jobs remain empty.
+
+Validation uses synthetic values only: the real service-role SQL reader feeds the
+existing coordinator with separately supplied synthetic template-release evidence.
+It covers permissions, current-data drift, missing bindings, merged history,
+oversized history and repeat scheduling. No live provider, customer message or
+production activation is exercised.

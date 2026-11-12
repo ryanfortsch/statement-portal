@@ -7,11 +7,11 @@ import { createChannexTimingBindingStore } from '../src/lib/channex-messaging/ti
 import { timingReviewOverviewSchema } from '../src/lib/channex-messaging/timing-review-contract.ts';
 import { requireTimingEvidence } from '../src/lib/channex-messaging/timing-evidence.ts';
 import { createChannexScheduleStore } from '../src/lib/channex-messaging/schedule-store.ts';
+import { createCalderwoodScheduleInputReader } from '../src/lib/channex-messaging/schedule-inputs.ts';
 import { registerCalderwoodStaySchedules } from '../src/lib/channex-messaging/schedule-coordinator.ts';
 import { reviewCalderwoodTimingBinding } from '../src/lib/channex-messaging/timing-provider-review.ts';
 import { syntheticTimingProvider } from '../src/lib/__tests__/fixtures/channex-timing-provider.ts';
 import { MESSAGE_RULE_FIELDS } from '../src/lib/channex-messaging/preparation-rules.ts';
-import { MESSAGE_SCHEDULE_LEDGER_FIELDS } from '../src/lib/channex-messaging/schedule-plan.ts';
 import { syntheticScheduleSnapshot } from '../src/lib/__tests__/fixtures/channex-schedule-snapshot.ts';
 if (process.env.PGHOST !== '127.0.0.1' || process.env.PGDATABASE !== 'helm_synthetic_channex') throw Error('Synthetic loopback database required');
 const psql = process.env.CHANNEX_TEST_PSQL || 'psql';
@@ -28,7 +28,8 @@ const rpc = async (name: string, args: Record<string, unknown>) => {
   const a = name === 'helm_channex_timing_binding_read' ? str(String(args.p_binding_id))+'::uuid'
     : name === 'helm_channex_timing_binding_review' ? str(JSON.stringify(args.p_intent))+'::jsonb,'+str(String(args.p_actor))
     : name === 'helm_channex_message_schedule_context' ? str(String(args.p_booking_id))+'::uuid'
-    : name === 'helm_channex_message_register' ? str(JSON.stringify(args.p_plan))+'::jsonb' : null;
+    : name === 'helm_channex_message_register' ? str(JSON.stringify(args.p_plan))+'::jsonb'
+    : name === 'helm_channex_message_schedule_inputs' ? str(String(args.p_booking_id))+'::uuid,'+str(String(args.p_binding_id))+'::uuid' : null;
   assert.ok(a);
   const raw = sql(`set role service_role; select to_jsonb(public.${name}(${a}));`);
   if (loseResponse && name.endsWith('_review')) throw Error('Synthetic lost committed response');
@@ -37,6 +38,15 @@ const rpc = async (name: string, args: Record<string, unknown>) => {
 const store = createChannexTimingBindingStore(rpc, { enabled: true });
 sql(readFileSync(new URL('../supabase/migrations/20261112160000_channex_timing_bindings.sql', import.meta.url), 'utf8'));
 sql(readFileSync(new URL('../supabase/migrations/20261112190000_channex_timing_review_surface.sql', import.meta.url), 'utf8'));
+// Expand the deliberately minimal fixture to the existing production columns
+// used by the real private input reader. These are synthetic values only.
+sql(`alter table properties add column kind text not null default 'managed', add column is_active boolean not null default true,
+ add column name text, add column wifi_name text;
+ alter table property_access add column wifi_password text;
+ update properties set name='Synthetic Home',wifi_name='Synthetic Network' where id='65_calderwood';
+ update property_access set smart_lock_code='SYNTHETIC-CODE',wifi_password='SYNTHETIC-PASSWORD' where property_id='65_calderwood';`);
+sql(readFileSync(new URL('../supabase/migrations/20261112210000_channex_schedule_inputs.sql', import.meta.url), 'utf8'));
+const inputReader=createCalderwoodScheduleInputReader(rpc,{enabled:true});
 assert.equal(sql("select count(*) from helm_channex_messages.timing_bindings;"), '0');
 assert.equal(sql(`select has_table_privilege('service_role','helm_channex_messages.timing_bindings','select,insert,update,delete')
  or has_table_privilege('authenticated','helm_channex_messages.timing_bindings','select,insert,update,delete')
@@ -46,7 +56,9 @@ assert.equal(sql("select relrowsecurity from pg_class where oid='helm_channex_me
 function setup() {
   sql(`delete from helm_channex_messages.timing_bindings;
     delete from helm_airbnb_bookings.bookings where canonical_id='${bid}';
-    select channex_synthetic_timing_setup();`);
+    select channex_synthetic_timing_setup();
+    update properties set kind='managed',is_active=true where id='65_calderwood';
+    update bookings set guest_name='Synthetic Guest' where id='${bid}';`);
   const row = JSON.parse(sql('select channex_synthetic_timing_plan()->0;'));
   const capture = JSON.parse(sql(`set role service_role; select helm_channex_capture_source_timing(
     channex_synthetic_timing_plan(),clock_timestamp()-interval '5 seconds',clock_timestamp(),'owner@synthetic.test');`));
@@ -125,9 +137,8 @@ for (const mutation of [
   sql(mutation); assert.equal(await store.load(p.bindingId,expected(p),Date.now()),null);
   assert.equal((await store.bind(p,'owner@synthetic.test')).state,'uncertain'); assert.equal(count(),'1');
 }
-// Real provider-review orchestration -> SQL binding -> coordinator. This loader
-// reads synthetic database fixtures as the test database owner; it is deliberately
-// NOT an application/service-role loader or a production activation writer.
+// Real provider-review orchestration -> SQL binding -> production input reader ->
+// coordinator, using only synthetic provider fixtures and explicit fixture setup.
 function providerReview(plan: ReturnType<typeof setup>, corruptSecondClock = false) {
   const load = async () => {
     const value = JSON.parse(sql(`set role service_role; select helm_channex_timing_review_snapshot('${plan.captureId}','${bid}');`));
@@ -186,7 +197,41 @@ assert.equal((await providerReview(p)).state,'unavailable');assert.equal(count()
 assert.equal(sql('select count(*) from helm_channex_messages.jobs;'),'0');
 assert.equal(sql(`set role service_role; select helm_channex_timing_review_snapshot('${randomUUID()}','${bid}') is null;`),'t');
 
-// Templates/merge inputs are still synthetic; this is not their release workflow.
+// Both read functions are stable/service-only. The input loader returns no data
+// without a usable binding, and never returns private notes, contacts or money.
+assert.equal(sql(`select has_function_privilege('service_role','helm_channex_message_schedule_inputs(uuid,uuid)','execute')
+ and not has_function_privilege('anon','helm_channex_message_schedule_inputs(uuid,uuid)','execute')
+ and not has_function_privilege('authenticated','helm_channex_message_schedule_inputs(uuid,uuid)','execute');`),'t');
+assert.equal(sql(`select provolatile='s' and prosecdef and 'search_path=""'=any(proconfig) and 'TimeZone=UTC'=any(proconfig)
+ from pg_proc where oid='helm_channex_message_schedule_inputs(uuid,uuid)'::regprocedure;`),'t');
+p=setup();
+assert.equal(await inputReader.load(bid,p.bindingId),null);
+sql(`update bookings set notes='PRIVATE-NOTES',guest_email='private@synthetic.test',guest_phone='PRIVATE-PHONE',gross_amount=12345 where id='${bid}';`);
+assert.equal((await providerReview(p)).state,'created');
+const loaded=await inputReader.load(bid,p.bindingId); assert.ok(loaded);
+assert.equal(loaded.snapshot.merge.guest_first,'Synthetic');
+assert.ok(!JSON.stringify(loaded).includes('PRIVATE-NOTES'));
+assert.ok(!JSON.stringify(loaded).includes('private@synthetic.test'));
+assert.ok(!JSON.stringify(loaded).includes('PRIVATE-PHONE'));
+assert.ok(!('capturedRules' in loaded.snapshot));
+assert.equal(await inputReader.load(randomUUID(),p.bindingId),null);
+assert.equal(sql('select count(*) from helm_channex_messages.jobs;'),'0');
+for(const mutation of [
+ `update properties set kind='partner' where id='65_calderwood'`,
+ `update properties set is_active=false where id='65_calderwood'`,
+ `update properties set calendar_authority='guesty' where id='65_calderwood'`,
+ `update property_access set wifi_password='CHANGED' where property_id='65_calderwood'`,
+ `update bookings set guest_name='Changed Guest' where id='${bid}'`,
+ `update bookings set check_out=check_out+1 where id='${bid}'`,
+ `update helm_channex_messages.scope set enabled=false`,
+ `update message_automations set body='Changed body' where property_id='65_calderwood'`,
+]) {
+ p=setup(); assert.equal((await providerReview(p)).state,'created');
+ sql(mutation); assert.equal(await inputReader.load(bid,p.bindingId),null);
+}
+
+// Archived template release evidence is still synthetic and supplied separately.
+// All current rules, booking, merge and history now use the real service reader.
 p=setup();
 const snapshot=syntheticScheduleSnapshot(Date.now());
 sql('delete from message_automations;');
@@ -198,16 +243,35 @@ assert.equal(reviewed.state,'created'); assert.equal(reviewed.sourceReads,10);
 assert.equal(reviewed.jobsCreated+reviewed.messagesSent,0);
 const schedules=createChannexScheduleStore(rpc,{enabled:true});
 const load=async()=>{
-  const e=expected(p), evidence=await store.load(p.bindingId,e,Date.now());
-  return {...snapshot,observedAt:e.observedAt,booking:{...snapshot.booking,id:bid,start:p.reviewedRow.start,end:p.reviewedRow.end},
-    clocks:e.clocks,sourceIdentity:e.sourceIdentity,route:e.route,timingEvidence:evidence,
-    ledger:JSON.parse(sql(`select coalesce(jsonb_agg(x),'[]'::jsonb) from
-      (select ${MESSAGE_SCHEDULE_LEDGER_FIELDS} from automation_sends where booking_id='${bid}') x;`))};
+  const inputs=await inputReader.load(bid,p.bindingId); assert.ok(inputs);
+  return {...inputs.snapshot,capturedRules:snapshot.capturedRules};
 };
 const cycle=await registerCalderwoodStaySchedules(bid,{store:schedules,load,now:Date.now},{enabled:true,expiresAfterMs:1800_000});
 assert.equal(cycle.state,'complete'); assert.equal(cycle.outcomes.filter(o=>o.state==='created').length,3);
 assert.equal(sql('select count(*) from helm_channex_messages.jobs;'),'3');
 assert.equal((await registerCalderwoodStaySchedules(bid,{store:schedules,load,now:Date.now},{enabled:true,expiresAfterMs:1800_000})).outcomes.filter(o=>o.state==='created').length,0);
+assert.equal((await inputReader.load(bid,p.bindingId))?.snapshot.ledger.length,3);
+
+// A cancelled/held row on a merged-away stay (including an indirect descendant)
+// is not empty history. Block instead of replaying it under the canonical ID.
+p=setup(); assert.equal((await providerReview(p)).state,'created');
+const child='90000000-0000-4000-8000-000000000931',grandchild='90000000-0000-4000-8000-000000000932';
+sql(`insert into bookings(id,property_id,channel,source,status,check_in,check_out,duplicate_of)
+ select '${child}',property_id,channel,source,'cancelled',check_in,check_out,id from bookings where id='${bid}';
+ insert into bookings(id,property_id,channel,source,status,check_in,check_out,duplicate_of)
+ select '${grandchild}',property_id,channel,source,'cancelled',check_in,check_out,id from bookings where id='${child}';`);
+assert.ok(await inputReader.load(bid,p.bindingId));
+sql(`insert into automation_sends(id,booking_id,property_id,automation_key,fire_at,status,planned_check_in,planned_check_out)
+ select gen_random_uuid(),id,property_id,'pre_arrival',clock_timestamp(),'cancelled',check_in,check_out from bookings where id='${grandchild}';`);
+assert.equal(await inputReader.load(bid,p.bindingId),null);
+sql(`delete from automation_sends where booking_id='${grandchild}'; delete from bookings where id in ('${child}','${grandchild}');`);
+
+// Oversized history fails as a whole; a limit is never mistaken for completeness.
+p=setup(); assert.equal((await providerReview(p)).state,'created');
+sql(`insert into automation_sends(id,booking_id,property_id,automation_key,fire_at,status,planned_check_in,planned_check_out)
+ select gen_random_uuid(),id,property_id,'synthetic_history_'||n,clock_timestamp(),'cancelled',check_in,check_out
+ from bookings cross join generate_series(1,5001) n where id='${bid}';`);
+assert.equal(await inputReader.load(bid,p.bindingId),null);
 
 // Two independent SQL sessions reviewing the same intent converge on one record.
 p=setup();
@@ -232,4 +296,4 @@ assert.ok(waiting);
 assert.equal((await store.bind(p,'owner@synthetic.test')).state,'uncertain'); await done; assert.equal(count(),'0');
 sql(`delete from helm_channex_messages.timing_bindings; delete from helm_airbnb_bookings.bookings where canonical_id='${bid}';
   select channex_synthetic_timing_setup(); delete from bookings where id='${bid}'; delete from guesty_reservations;`);
-console.log('PASS: retained capture -> provider double-read -> SQL binding -> trusted loader -> coordinator; provider drift, lost committed response, role isolation, conflicts, concurrent review/cancellation; review itself creates zero jobs/messages');
+console.log('PASS: retained capture -> provider double-read -> SQL binding -> production input reader -> coordinator; provider drift, lost response, role isolation, complete history, duplicate-family conflicts, current-data changes and concurrent cancellation; reads/reviews create zero jobs/messages');

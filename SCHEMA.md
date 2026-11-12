@@ -727,7 +727,15 @@ runs itself.
   and checked twice. `helm_channex_timing_review_overview` exposes a minimal latest-
   capture summary (at most 12 stays) and saved-review metadata; its GET never calls
   providers or writes. No private-table access is granted. The runtime scheduling
-  loader remains separate work. These reads create no activation, jobs or sends.
+  input reader `helm_channex_message_schedule_inputs` returns a single consistent,
+  service-only snapshot for a specified canonical booking and existing timing
+  binding: current rules, complete bounded send history, minimal render inputs,
+  and the original retained evidence. It refuses non-managed/inactive homes,
+  unusable bindings, oversized histories/rule sets, and prior sends on any merged
+  duplicate descendant. Its render inputs include private credentials and must
+  stay server-side. The TypeScript reader remains default-off; retained template
+  release evidence, provider revalidation and runtime wiring remain separate.
+  These reads create no activation, jobs or sends.
 - **`guest_threads`**: one thread per stay per channel (`sms`, `email`,
   `airbnb`, `vrbo`, `booking_com`, `direct`), keyed to `booking_id`,
   `guest_id` and `property_id`, with `external_thread_key` (E.164 for

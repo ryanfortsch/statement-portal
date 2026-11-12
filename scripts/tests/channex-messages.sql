@@ -17,7 +17,7 @@ begin
  values('65_calderwood','production','320c5cb5-91e0-46af-b9b3-a3fc20b4631e','90000000-0000-4000-8000-000000000004','Airbnb',true,stamp-interval '2 hours',stamp-interval '1 hour',gen_random_uuid());
  insert into helm_airbnb_bookings.bookings(remote_id,canonical_id,code,environment,remote_property,generation,latest_at,latest_revision,check_in,check_out,status)
  values('90000000-0000-4000-8000-000000000005',b,'HELMTEST-SYNTHETIC','production','320c5cb5-91e0-46af-b9b3-a3fc20b4631e',1,stamp,gen_random_uuid(),'2035-01-01','2035-01-03','confirmed');
- insert into property_access values('65_calderwood','synthetic-code') on conflict(property_id) do update set smart_lock_code=excluded.smart_lock_code;
+ insert into property_access(property_id,smart_lock_code) values('65_calderwood','synthetic-code') on conflict(property_id) do update set smart_lock_code=excluded.smart_lock_code;
  insert into helm_channex_messages.jobs(send_id,booking_id,property_id,automation_key,route_generation,remote_booking,thread_id,body_sha256,context_revision,fire_at,expires_at,source_evidence_at,source_evidence_id)
  select s,b,'65_calderwood','checkin_day',generation,'90000000-0000-4000-8000-000000000005','90000000-0000-4000-8000-000000000006',repeat('a',64),helm_channex_messages.context(s),stamp+interval '1 hour',stamp+interval '2 hours',stamp,gen_random_uuid()
  from helm_channex_messages.scope;
