@@ -4,6 +4,43 @@ Account reviewed November 8; prototype updated November 12, 2026. **This is an i
 PriceLabs replacement or a validated revenue optimizer.** No PriceLabs pricing or sync setting was
 changed during the audit (the research chart was switched to daily aggregation). No live rates, connections, or migrations were changed.
 
+## Shared settings checkpoint — prepared, not activated
+
+`codex/helm-pricing-shared-settings` adds an explicit **Save to Helm** to the
+portfolio and property workspace. Base/min/max, minimum-stay rules, groups,
+account defaults, overrides and imported settings provenance are shared together.
+Edits still save locally first. A fresh device loads the shared copy; divergent
+local and server copies require review. An unchanged browser can load a newer
+shared revision automatically. The comparison includes exact settings, and
+replacing a browser copy retains five accessible recovery snapshots.
+
+The owner-only server actions call `helm_save_pricing_drafts` with an expected
+revision and unique request ID. Concurrent stale saves fail, exact retries return
+the original receipt, and each successful save preserves an immutable database
+snapshot. Unknown managed-property IDs, invalid groups/rules, overlapping seasons,
+more than 200 properties, or over 500 KB are rejected. Database access failures
+never masquerade as empty settings. Local storage failures stop replacement.
+
+**Activation requires the separately approved migration
+`20261112190000_helm_pricing_shared_drafts.sql`.** It creates only the two draft
+storage tables and their save function, and has no dependency on the dormant
+pricing publisher or observations migrations. Apply only this migration, then
+publish this branch and use **Save to Helm** from the browser holding the imported
+settings. Verify the listing/group counts and re-open in a fresh browser before
+considering the browser copy migrated. If any activation step fails, the existing
+browser draft remains the working copy. Do not apply all pending migrations.
+
+The save does not enable rate syncing, connections or scheduled publishing.
+Imported market evidence and comparison histories remain session-only, and no
+automatic market-data feed or PriceLabs algorithm parity is claimed.
+
+Validation: `npm test`, `npx tsc --noEmit`, `node scripts/pricing-shared-smoke.mjs`,
+and `scripts/tests/pricing-shared-settings.sql` plus
+`pricing-shared-concurrency.mjs` in the disposable
+`helm_synthetic_pricing_settings` database. The browser check exercises Strict
+Mode stale reads, edits during loading, recovery, uncertain retries, concurrent
+updates, unsaved forms and narrow-screen comparison. No customer data is used.
+
 ## What the account actually costs
 
 The logged-in [billing page](https://app.pricelabs.co/billing) showed:

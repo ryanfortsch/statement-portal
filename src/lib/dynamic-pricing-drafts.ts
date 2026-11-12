@@ -1,4 +1,4 @@
-/** Device-local prototype settings. No calendar records or market evidence are persisted. */
+/** Pricing draft settings, editable locally with explicit shared checkpoints. No calendar records or market evidence are included. */
 import {z} from 'zod';
 import {pricingImportSourceSchema} from './dynamic-pricing-import-source.ts';
 import {defaultPricingPolicy,pricingPolicySchema,type PricingPolicy,type PricingPreview,type PricingSnapshot} from './dynamic-pricing.ts';

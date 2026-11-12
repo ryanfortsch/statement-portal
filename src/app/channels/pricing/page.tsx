@@ -18,6 +18,8 @@ import {readPricingLivePortfolio} from '@/lib/dynamic-pricing-live.server';
 import PricingLiveWorkspace from './PricingLiveWorkspace';
 import {refreshPricingLiveAction,readPricingLiveCalendarAction} from './live-actions';
 import { capturePricingObservationAction,setPricingTrackingAction,savePricingEvidenceAction,publishPricingAction,refreshPricingAction,reviewPricingAction,savePricingAction,undoPricingAction } from './actions';
+import {readSharedPricingSettingsAction,saveSharedPricingSettingsAction} from './settings-actions';
+const sharedPricingServices={read:readSharedPricingSettingsAction,save:saveSharedPricingSettingsAction};
 const pricingServices={save:savePricingAction,refresh:refreshPricingAction,review:reviewPricingAction,publish:publishPricingAction,undo:undoPricingAction,evidence:savePricingEvidenceAction,observe:capturePricingObservationAction,tracking:setPricingTrackingAction};
 export const dynamic='force-dynamic';
 export default async function PricingPage({searchParams}:{searchParams:Promise<Record<string,string|string[]|undefined>>}) {
@@ -40,7 +42,7 @@ export default async function PricingPage({searchParams}:{searchParams:Promise<R
       <details className="pricing-page-options"><summary>More</summary><div className="flex gap-4"><Link href={live?'/channels/pricing?live=0':'/channels/pricing'}>{live?'Pricing model':'Dashboard'}</Link><Link href="/channels/pricing/demo">Sample portfolio</Link></div></details>
     </header><main>
     {liveError&&<EmptyState>Calendar data is unavailable. Refresh to try again.</EmptyState>}
-    {livePortfolio&&<PricingLiveWorkspace initialPortfolio={livePortfolio} refreshAction={refreshPricingLiveAction} calendarAction={readPricingLiveCalendarAction}/>}
+    {livePortfolio&&<PricingLiveWorkspace sharedServices={sharedPricingServices} initialPortfolio={livePortfolio} refreshAction={refreshPricingLiveAction} calendarAction={readPricingLiveCalendarAction}/>}
     {error&&<p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-5">{error}</p>}
     {!live&&params.property&&!selected&&<EmptyState>Home not found in the active portfolio.</EmptyState>}
     {!live&&params.property&&!workspace&&<PricingBackLink view={view} selectedId={selected?.id} homes={fleet.map(p=>({id:p.id,name:p.name}))}/>}
