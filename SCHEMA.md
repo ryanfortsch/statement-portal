@@ -745,8 +745,9 @@ runs itself.
   and the original retained evidence. It refuses non-managed/inactive homes,
   unusable bindings, oversized histories/rule sets, and prior sends on any merged
   duplicate descendant. Its render inputs include private credentials and must
-  stay server-side. The TypeScript reader remains default-off; retained template
-  release evidence, provider revalidation and runtime wiring remain separate.
+  stay server-side. The TypeScript reader remains default-off. The bounded retained-
+  stay runtime joins it to an explicit immutable template capture and fresh provider
+  checks; template release, dispatcher integration and live activation remain separate.
   These reads create no activation, jobs or sends.
   Scoped message history now serializes on the canonical booking, including
   indirect duplicate descendants. Registration and claim refuse descendant or

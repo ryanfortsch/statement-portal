@@ -1431,9 +1431,9 @@ oversized history and repeat scheduling. No live provider, customer message or
 production activation is exercised.
 
 
-## Message history fences and retained templates (prepared November 12, 2026)
+## Message history fences and retained templates (November 12, 2026)
 
-Two migrations are prepared, not yet applied to production in this batch:
+Both migrations were approved and applied atomically to production STATEMENTS:
 `20261112230000_channex_message_family_guards.sql` and
 `20261112231000_channex_template_retention.sql`.
 
@@ -1484,3 +1484,52 @@ and both scope-install/merge orderings.
 It checks pre-existing conflicts, atomic rollback, merge protection, retained
 history, unrelated-home behavior, capture immutability/permissions and the real
 private TypeScript capture reader. Tests use no provider calls or customer data.
+
+
+## Connected retained-stay scheduling (November 12, 2026)
+
+`schedule-runtime.ts` now connects the real private template-capture reader,
+current booking/history input reader, saved timing binding, fresh provider
+inspection, source-offset coordinator and atomic schedule store in one bounded
+server function. Its request names one canonical booking, an existing binding,
+and an explicit template capture ID and digest. Missing evidence stays missing;
+there is no latest-capture selection, new binding creation, or active-template
+copy substituted for the archive.
+
+The shared provider inspector was extracted from the existing owner timing review.
+The owner action still saves a binding; scheduling invokes only its read-only
+part. Each scheduling snapshot double-reads Guesty's supported clocks and the
+current Channex booking and open thread, then re-reads database inputs. It pins
+the binding's existing thread and checks the retained capture/context against the
+provider review. It never discovers a replacement thread or refreshes a binding
+during a scheduling run. Current history is read again after the provider calls,
+so a newly arriving hold is reconciled instead of discarded. Changed private
+inputs stop the run, while the existing SQL guards protect each final registration.
+
+One invocation has a 60-second deadline, at most 40 bounded provider GETs and four
+guest registration attempts. Unknown registration outcomes stop the batch; an
+already committed row survives and is reconciled on a later invocation with the
+same deterministic send identity. Results contain statuses/counts and send IDs,
+never credentials, rendered text, contact details or provider errors.
+
+This connects the registration path, not production execution. It defaults off,
+has no environment/HTTP/cron caller, does not release templates or change sender
+ownership, and cannot dispatch messages. The six current frozen rules remain
+unschedulable. Existing-stay evidence is mandatory; new bookings with unknown
+original clocks cannot use this path. Provider checks are observations, not a
+cross-system lock: a future dispatcher must revalidate current providers and use
+the existing render/context/one-use claim protocol immediately before sending.
+
+Remaining launch work is still the reviewed template-release/legacy-planner
+ownership boundary, final dispatcher checks and runtime activation, new-booking
+clock/confirmation ownership, cleaner SMS and source queue-drain evidence, then
+controlled cutover and live receipt verification. No new production migration or
+activation is part of this application batch.
+
+Tests connect real PostgreSQL archive and timing records to the runtime through
+service-only RPCs, then consume a registered job with the real worker and a fake
+provider. They cover dormant/frozen states, provider drift, cancellation, lost
+commit responses, repeated scheduling, one fake POST and receipt readback. The
+hypothetical release/handover is deliberately a synthetic fixture: these tests
+are not proof of a production release action, provider queue clearance, native
+confirmation compatibility or actual guest delivery.

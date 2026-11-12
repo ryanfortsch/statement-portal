@@ -23,12 +23,11 @@ const snapshotSchema = z.object({
     channelId: id, provider: z.literal('Airbnb') }).strict(),
   route: z.object({ remoteBookingId: id, threadId: id.optional(), revisionId: id }).strict(),
 }).strict();
-type ReviewDeps = {
+type ProviderDeps = {
   // Trusted server loader: retained capture, current enabled schedule context,
   // scope and persisted booking mapping. Never implement this with browser JSON.
-  load: (request: Readonly<ReviewRequest>) => Promise<unknown>;
+  load: (request: Readonly<Pick<ReviewRequest, 'captureId' | 'bookingId'>>) => Promise<unknown>;
   credentials: () => Promise<{ guestyToken: string; channexKey: string }>;
-  store: Pick<ReturnType<typeof createChannexTimingBindingStore>, 'bind'>;
   fetcher?: typeof fetch; clock?: () => number;
 };
 type State = 'disabled' | 'invalid' | 'unavailable' | 'changed' | 'created' | 'existing' | 'uncertain';
@@ -38,28 +37,18 @@ function object(raw: unknown): Record<string, unknown> {
   return raw as Record<string, unknown>;
 }
 
-/** Explicit one-stay provider review, default off. Up to 18 GETs including bounded
- * thread discovery (eight when the trusted loader already has a thread); no provider
- * writes, scheduler or sender. Original capture values must still match Guesty,
- * while Channex must match the persisted latest revision and the exact open
- * booking/property/channel thread. Irrelevant guest/payment/message data is dropped.
- *
- * The caller retains bindingId. An uncertain save is reconciled through the stored
- * binding; never rotate its ID or automatically repeat this review. SQL validates
- * retained capture/current context again under locks when bind() commits.
- * This is not permission to hand over or send messages.
+/** Private read-only provider check, shared by owner review and scheduling.
+ * A successful observation is not a binding, a source-drain proof or permission
+ * to send. Keep the verified snapshot server-side. No persistence or provider POST.
  */
-export async function reviewCalderwoodTimingBinding(raw: unknown, actor: string, deps: ReviewDeps,
+export async function inspectCalderwoodTimingProviders(raw: unknown, deps: ProviderDeps,
   options: { enabled?: boolean } = {}) {
   let requests = 0;
-  const result = (state: State, bindingId?: string) => ({ state, ...(bindingId ? { bindingId } : {}),
-    sourceReads: requests, jobsCreated: 0 as const, messagesSent: 0 as const, canSend: false as const });
+  const result = (state: 'disabled' | 'invalid' | 'unavailable' | 'changed') => ({ state, sourceReads: requests });
   if (options.enabled !== true) return result('disabled');
-  const parsed = requestSchema.safeParse(raw);
-  if (!parsed.success || typeof actor !== 'string' || actor.trim().length < 3 || actor.trim().length > 320)
-    return result('invalid');
+  const parsed = requestSchema.omit({ bindingId: true }).safeParse(raw);
+  if (!parsed.success) return result('invalid');
   const request = Object.freeze(parsed.data), clock = deps.clock ?? Date.now, fetcher = deps.fetcher ?? fetch;
-  let saving = false;
   try {
     const started = clock();
     if (!Number.isSafeInteger(started)) throw Error();
@@ -126,15 +115,33 @@ export async function reviewCalderwoodTimingBinding(raw: unknown, actor: string,
     const first = await scan(), second = await scan();
     if (!isDeepStrictEqual(first, second) || !isDeepStrictEqual(before, await load())) throw new Changed();
     remaining();
-    const intent = { ...request, context: before.context, remoteBookingId, threadId: first.threadId, reviewedRow: row,
-      reviewStartedAt: new Date(started).toISOString(), reviewCheckedAt: new Date(last).toISOString() };
-    saving = true;
-    const saved = await deps.store.bind(intent, actor.trim(), clock);
+    return { state: 'verified' as const, sourceReads: requests, snapshot: before,
+      threadId: first.threadId, startedAt: new Date(started).toISOString(), checkedAt: new Date(last).toISOString() };
+  } catch (error) { return result(error instanceof Changed ? 'changed' : 'unavailable'); }
+}
+
+/** Explicit owner review. Only this wrapper persists a binding; the shared
+ * provider inspection above never creates or refreshes one. No automatic retry.
+ */
+export async function reviewCalderwoodTimingBinding(raw: unknown, actor: string,
+  deps: ProviderDeps & { store: Pick<ReturnType<typeof createChannexTimingBindingStore>, 'bind'> },
+  options: { enabled?: boolean } = {}) {
+  const result = (state: State, sourceReads: number, bindingId?: string) => ({ state,
+    ...(bindingId ? { bindingId } : {}), sourceReads, jobsCreated: 0 as const, messagesSent: 0 as const, canSend: false as const });
+  if (options.enabled !== true) return result('disabled', 0);
+  const parsed = requestSchema.safeParse(raw);
+  if (!parsed.success || typeof actor !== 'string' || actor.trim().length < 3 || actor.trim().length > 320)
+    return result('invalid', 0);
+  const request = parsed.data;
+  const inspected = await inspectCalderwoodTimingProviders({ captureId: request.captureId, bookingId: request.bookingId }, deps, options);
+  if (inspected.state !== 'verified') return result(inspected.state, inspected.sourceReads);
+  const intent = { ...request, context: inspected.snapshot.context,
+    remoteBookingId: inspected.snapshot.route.remoteBookingId, threadId: inspected.threadId,
+    reviewedRow: inspected.snapshot.capture.row, reviewStartedAt: inspected.startedAt, reviewCheckedAt: inspected.checkedAt };
+  try {
+    const saved = await deps.store.bind(intent, actor.trim(), deps.clock ?? Date.now);
     if ((saved.state !== 'created' && saved.state !== 'existing') || saved.bindingId !== request.bindingId)
-      return result('uncertain', request.bindingId);
-    return result(saved.state, saved.bindingId);
-  } catch (error) {
-    // Never return provider data, credentials, arbitrary field names or exceptions.
-    return result(saving ? 'uncertain' : error instanceof Changed ? 'changed' : 'unavailable', saving ? request.bindingId : undefined);
-  }
+      return result('uncertain', inspected.sourceReads, request.bindingId);
+    return result(saved.state, inspected.sourceReads, saved.bindingId);
+  } catch { return result('uncertain', inspected.sourceReads, request.bindingId); }
 }

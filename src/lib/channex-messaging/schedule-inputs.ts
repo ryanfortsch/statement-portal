@@ -25,9 +25,9 @@ const trim = (s: string | null | undefined) => s?.trim() || null;
  * including every canonical history row (no silent pagination/truncation).
  *
  * This intentionally does not invent capturedRules from the active rules: the
- * future release reader must provide retained approved templates separately.
- * A saved binding proves a past review, not fresh provider clocks. The future
- * bounded runtime still needs provider revalidation, release and dispatch gates.
+ * retained-template reader must provide archived templates separately. A saved
+ * binding proves a past review, not fresh provider clocks. schedule-runtime.ts
+ * adds fresh provider checks; release, dispatch and activation remain gated.
  */
 export function createCalderwoodScheduleInputReader(rpc: MessageRpc, options: { enabled?: boolean } = {}) {
   return {

@@ -65,7 +65,8 @@ function unchangedInputs(s: Snapshot) {
  * capture alone cannot schedule. capturedRules must come from
  * retained release evidence, not a fabricated copy of active rules. Double reads
  * detect changes; they do NOT establish the clocks' provenance or release approval.
- * The production loader and reviewed template-release flow are still required.
+ * schedule-runtime.ts supplies retained templates and fresh provider/database
+ * reads. The reviewed template-release flow and production caller remain gated.
  * Present frozen templates fail both this comparison and the existing SQL guards.
  */
 export async function registerCalderwoodStaySchedules(bookingId: string, deps: {
