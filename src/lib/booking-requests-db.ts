@@ -15,16 +15,25 @@
  *                          status = 'pending' and a live clock in its where
  *                          clause, so two clicks, or a click racing the cron,
  *                          decide it once.
+ *   acceptBookingRequest   the host said yes: the nights are booked (an
+ *                          accepted request holds its nights on the home's
+ *                          Helm calendar, pms-bridge holdsInWindow), and the
+ *                          site charges the card on its next settle pass
+ *                          (src/lib/partner-payments-db.ts). Only a request
+ *                          carrying a card hold can be accepted.
  *   sweepBookingRequests   the hourly cron: closes requests whose clock ran
  *                          out and retries any guest email that failed.
  *
- * Nothing here writes 'accepted': accepting charges the guest on the host's
- * own Stripe account (Stripe Connect), which is not built.
+ * Money: a home whose host's Stripe can take charges must send a hold with
+ * every request, and the hold must be the stay's total and our fee to the
+ * cent, on that home's account. Helm never calls Stripe (partner-payments.ts).
  */
 import { supabaseAdmin, isServiceConfigured } from '@/lib/supabase-admin';
 import { bridgeStatus, getBridgeProperty, quoteForBridge, rangeCheckForBridge, type BridgeFailure } from '@/lib/pms-bridge';
 import { isPartnerHome } from '@/lib/property-scope';
 import { sendRequestOutcome, sendRequestReceipt } from '@/lib/booking-request-email';
+import { getPaymentAccount, retryConfirmations } from '@/lib/partner-payments-db';
+import { holdMismatch, holdsAccepted, partnerFeeCents, paymentsReady } from '@/lib/partner-payments';
 import {
   BOOKING_REQUEST_COLS,
   OUTCOME_RETRY_DAYS,
@@ -38,13 +47,15 @@ const TABLE = 'booking_requests';
 
 export type CreateRequestFailure =
   | BridgeFailure
-  | { ok: false; error: 'books_instantly'; property_id: string };
+  | { ok: false; error: 'books_instantly'; property_id: string }
+  | { ok: false; error: 'hold_required'; property_id: string }
+  | { ok: false; error: 'hold_mismatch'; detail: string };
 
 export type CreateRequestResult = { ok: true; created: boolean; request: BookingRequestRow } | CreateRequestFailure;
 
 /** The HTTP status the bridge route answers for a refusal. */
 export function requestFailureStatus(f: CreateRequestFailure): number {
-  return f.error === 'books_instantly' ? 409 : bridgeStatus(f.error);
+  return f.error === 'books_instantly' || f.error === 'hold_required' || f.error === 'hold_mismatch' ? 409 : bridgeStatus(f.error);
 }
 
 /** A missing table reads as not configured (the migration is applied by hand). */
@@ -67,7 +78,10 @@ async function findByKey(key: string): Promise<BookingRequestRow | null> {
  *      through POST /api/pms/reservations);
  *   4. price it here; terms and taken nights refuse it exactly as a quote
  *      would, and a total that moved since the guest saw it is quote_drift;
- *   5. insert, then email the guest a receipt (best-effort, retried by the
+ *   5. the card: a home taking charges needs a hold (hold_required), and a
+ *      hold must be on the home's account for the stay's total and our fee
+ *      (hold_mismatch); the site releases a refused hold;
+ *   6. insert, then email the guest a receipt (best-effort, retried by the
  *      cron while the request is open).
  */
 export async function createBookingRequest(raw: unknown, opts: { now?: Date } = {}): Promise<CreateRequestResult> {
@@ -98,6 +112,20 @@ export async function createBookingRequest(raw: unknown, opts: { now?: Date } = 
     return { ok: false, error: 'quote_drift', quoted_total_cents: input.quoted_total_cents, current_total_cents: totalCents };
   }
 
+  const account = await getPaymentAccount(property.id);
+  const hold = input.hold;
+  if (hold) {
+    if (!holdsAccepted(account)) return { ok: false, error: 'hold_mismatch', detail: 'this home takes no card yet' };
+    const why = holdMismatch(hold, {
+      stripe_account_id: account!.stripe_account_id as string,
+      amount_cents: totalCents,
+      fee_cents: partnerFeeCents(totalCents, q.breakdown.tax_cents, account!.fee_pct as number),
+    });
+    if (why) return { ok: false, error: 'hold_mismatch', detail: why };
+  } else if (paymentsReady(account)) {
+    return { ok: false, error: 'hold_required', property_id: property.id };
+  }
+
   const { data, error } = await supabaseAdmin
     .from(TABLE)
     .insert({
@@ -117,6 +145,16 @@ export async function createBookingRequest(raw: unknown, opts: { now?: Date } = 
       quote: q,
       status: 'pending',
       respond_by: respondByFor(now),
+      ...(hold
+        ? {
+            stripe_account_id: hold.stripe_account_id,
+            payment_intent_id: hold.payment_intent_id,
+            hold_cents: hold.amount_cents,
+            fee_cents: hold.fee_cents,
+            hold_status: 'held',
+            hold_placed_at: now.toISOString(),
+          }
+        : {}),
     })
     .select(BOOKING_REQUEST_COLS)
     .single();
@@ -297,6 +335,47 @@ export async function withdrawBookingRequest(id: string, by: string, now: Date =
   return { ok: true, row: r.row, emailed: false };
 }
 
+/**
+ * The host said yes. In order:
+ *   1. the request is open and carries a card hold (a request without one
+ *      cannot be paid for, so it cannot be accepted);
+ *   2. the calendar, read live, has no other stay on its nights;
+ *   3. the claim: pending, a live clock and a live hold, in the where
+ *      clause. Two accepted requests can never share a night (the table's
+ *      exclusion constraint), so a race between two yeses books one.
+ * The guest is not emailed here: the site charges the hold on its next
+ * settle pass and the confirmation goes out when it reports the charge.
+ */
+export async function acceptBookingRequest(id: string, by: string, now: Date = new Date()): Promise<{ ok: true; row: BookingRequestRow } | { ok: false; reason: string }> {
+  if (!isServiceConfigured) return { ok: false, reason: 'Helm is not connected to its database.' };
+  const { data: current, error } = await supabaseAdmin.from(TABLE).select(BOOKING_REQUEST_COLS).eq('id', id).maybeSingle();
+  if (error) return { ok: false, reason: error.message };
+  if (!current) return { ok: false, reason: 'No such request.' };
+  const row = current as BookingRequestRow;
+  if (!isOpen(row, now)) return { ok: false, reason: 'This request is already closed.' };
+  if (row.hold_status !== 'held') return { ok: false, reason: 'There is no card on hold for this request, so it cannot be accepted. Decline it and ask the guest to send it again.' };
+
+  const cal = await rangeCheckForBridge(row.property_id, row.check_in, row.check_out, { now });
+  if (!cal.ok) return { ok: false, reason: 'The calendar could not be read just now. Try again in a minute.' };
+  if (cal.reservedDates.length > 0) return { ok: false, reason: 'Another stay holds some of these nights now. Decline this request.' };
+
+  const { data, error: upErr } = await supabaseAdmin
+    .from(TABLE)
+    .update({ status: 'accepted', decided_at: now.toISOString(), decided_by: by })
+    .eq('id', id)
+    .eq('status', 'pending')
+    .eq('hold_status', 'held')
+    .gt('respond_by', now.toISOString())
+    .select(BOOKING_REQUEST_COLS)
+    .maybeSingle();
+  if (upErr) {
+    if (upErr.code === '23P01') return { ok: false, reason: 'Another accepted request already holds these nights.' };
+    return { ok: false, reason: upErr.message };
+  }
+  if (!data) return { ok: false, reason: 'This request is already closed.' };
+  return { ok: true, row: data as BookingRequestRow };
+}
+
 /** Phase 1: the office passed the request to the host by hand. Stamped once. */
 export async function markHostTold(id: string, by: string, now: Date = new Date()): Promise<{ ok: boolean; reason?: string }> {
   const { data, error } = await supabaseAdmin
@@ -313,7 +392,7 @@ export async function markHostTold(id: string, by: string, now: Date = new Date(
 
 // ─── The cron ───────────────────────────────────────────────────────────────
 
-export type SweepResult = { ok: true; expired: number; outcomeEmails: number; receipts: number } | { ok: false; reason: string };
+export type SweepResult = { ok: true; expired: number; outcomeEmails: number; receipts: number; confirmations: number } | { ok: false; reason: string };
 
 /**
  * Close every request whose clock ran out, email those guests, and retry the
@@ -380,5 +459,7 @@ export async function sweepBookingRequests(now: Date = new Date()): Promise<Swee
     }
   }
 
-  return { ok: true, expired, outcomeEmails, receipts };
+  const confirmations = await retryConfirmations(now);
+
+  return { ok: true, expired, outcomeEmails, receipts, confirmations };
 }

@@ -10,8 +10,8 @@ const read = (p: string) => readFileSync(new URL(`../../../${p}`, import.meta.ur
 
 test('every Helm sale path reads the stays a buffer can reach from, not only the overlapping ones', () => {
   const bridge = read('src/lib/pms-bridge.ts');
-  assert.ok(bridge.includes('holdsInWindow(property.id, shiftIsoDay(start, -TURNOVER_BUFFER_MAX_DAYS), shiftIsoDay(end, 1 + TURNOVER_BUFFER_MAX_DAYS))'), 'availability');
-  assert.ok(bridge.includes('holdsInWindow(property.id, shiftIsoDay(args.checkIn, -TURNOVER_BUFFER_MAX_DAYS), shiftIsoDay(args.checkOut, TURNOVER_BUFFER_MAX_DAYS))'), 'quote and create');
+  assert.ok(bridge.includes('holdsInWindow(property, shiftIsoDay(start, -TURNOVER_BUFFER_MAX_DAYS), shiftIsoDay(end, 1 + TURNOVER_BUFFER_MAX_DAYS))'), 'availability');
+  assert.ok(bridge.includes('holdsInWindow(property, shiftIsoDay(args.checkIn, -TURNOVER_BUFFER_MAX_DAYS), shiftIsoDay(args.checkOut, TURNOVER_BUFFER_MAX_DAYS))'), 'quote and create');
   assert.ok(!bridge.includes('holdsInWindow(property.id, args.checkIn, args.checkOut)'), 'the overlap-only read is back');
   const quote = read('src/app/channels/calendar/calendar-actions.ts');
   assert.ok(quote.includes('listBookingsForProperty(propertyId, shiftIsoDay(input.checkIn, -TURNOVER_BUFFER_MAX_DAYS), shiftIsoDay(input.checkOut, TURNOVER_BUFFER_MAX_DAYS))'));

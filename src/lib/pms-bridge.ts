@@ -312,8 +312,39 @@ function isFailure(v: unknown): v is BridgeFailure {
 const HOLD_STATUSES = ['confirmed', 'completed', 'block'];
 
 /** Canonical holds touching [start, endExclusive), plus every live OTA
- *  closure whatever its duplicate mark (lib/availability nightHolds). */
-async function holdsInWindow(propertyId: string, start: string, endExclusive: string): Promise<AvailabilityBooking[]> {
+ *  closure whatever its duplicate mark (lib/availability nightHolds).
+ *
+ *  A partner home also counts its accepted booking requests: the host said
+ *  yes on staycapeann.com, so the nights are taken. They live only in
+ *  booking_requests, never in bookings, so a partner guest never reaches a
+ *  cleaner's schedule, the Work board, a statement or the concierge. */
+async function holdsInWindow(
+  property: Pick<BridgeProperty, 'id' | 'kind'>,
+  start: string,
+  endExclusive: string,
+): Promise<AvailabilityBooking[]> {
+  const [stays, requests] = await Promise.all([
+    staysInWindow(property.id, start, endExclusive),
+    isPartnerHome(property) ? acceptedRequestsInWindow(property.id, start, endExclusive) : Promise.resolve([]),
+  ]);
+  return requests.length > 0 ? [...stays, ...requests] : stays;
+}
+
+async function acceptedRequestsInWindow(propertyId: string, start: string, endExclusive: string): Promise<AvailabilityBooking[]> {
+  const { data, error } = await supabaseAdmin
+    .from('booking_requests')
+    .select('check_in, check_out')
+    .eq('property_id', propertyId)
+    .eq('status', 'accepted')
+    .lt('check_in', endExclusive)
+    .gt('check_out', start)
+    .limit(500);
+  // Fail closed: a calendar that cannot see its accepted stays must not sell them again.
+  if (error) throw new Error(`booking_requests holds read failed: ${error.message}`);
+  return ((data ?? []) as Array<{ check_in: string; check_out: string }>).map((r) => ({ status: 'confirmed', check_in: r.check_in, check_out: r.check_out, source: 'booking_request' }));
+}
+
+async function staysInWindow(propertyId: string, start: string, endExclusive: string): Promise<AvailabilityBooking[]> {
   return selectAllPaged<AvailabilityBooking>(
     (from, to) =>
       supabaseAdmin
@@ -372,7 +403,7 @@ export async function availabilityForBridge(
   // Holds read past both edges: a neighbour's turnover buffer reaches in.
   const [bundle, holds] = await Promise.all([
     loadPricingBundle(property.id, start, end),
-    holdsInWindow(property.id, shiftIsoDay(start, -TURNOVER_BUFFER_MAX_DAYS), shiftIsoDay(end, 1 + TURNOVER_BUFFER_MAX_DAYS)),
+    holdsInWindow(property, shiftIsoDay(start, -TURNOVER_BUFFER_MAX_DAYS), shiftIsoDay(end, 1 + TURNOVER_BUFFER_MAX_DAYS)),
   ]);
   const days = buildAvailability({
     bookings: holds,
@@ -456,7 +487,7 @@ async function priceStay(args: {
     loadPricingBundle(property.id, args.checkIn, args.checkOut),
     // Past both edges: the stays whose turnover buffer reaches these nights
     // never overlap them. Only the stay's own nights are judged.
-    holdsInWindow(property.id, shiftIsoDay(args.checkIn, -TURNOVER_BUFFER_MAX_DAYS), shiftIsoDay(args.checkOut, TURNOVER_BUFFER_MAX_DAYS)),
+    holdsInWindow(property, shiftIsoDay(args.checkIn, -TURNOVER_BUFFER_MAX_DAYS), shiftIsoDay(args.checkOut, TURNOVER_BUFFER_MAX_DAYS)),
   ]);
   if (!bundle.plan) return fail({ ok: false, error: 'no_rate_plan', property_id: property.id });
 

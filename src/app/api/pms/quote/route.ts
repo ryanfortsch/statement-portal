@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { authorizeStayConcierge } from '@/lib/stay-concierge-auth';
 import { quoteForBridge, bridgeStatus } from '@/lib/pms-bridge';
+import { isPartnerHome } from '@/lib/property-scope';
+import { getPaymentAccount } from '@/lib/partner-payments-db';
+import { holdsAccepted, partnerFeeCents, paymentsReady } from '@/lib/partner-payments';
 
 /**
  * POST /api/pms/quote
@@ -21,7 +24,10 @@ import { quoteForBridge, bridgeStatus } from '@/lib/pms-bridge';
  *   404 unknown property; 400 validation
  *
  * The dollar fields are staycapeann.com's QuoteResult; the breakdown is
- * integer cents. Auth: x-stay-concierge-key header only.
+ * integer cents. A partner home adds partner_payment: the host's Stripe
+ * account, whether it takes charges now, and the hold the site must place
+ * (the total) with our fee, both in cents, or null when the home takes no
+ * card yet (src/lib/partner-payments.ts). Auth: x-stay-concierge-key header only.
  */
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -44,7 +50,18 @@ export async function POST(req: Request) {
   try {
     const r = await quoteForBridge(propertyId, String(body.check_in ?? ''), String(body.check_out ?? ''), guests, channel);
     if (!r.ok) return NextResponse.json(r, { status: bridgeStatus(r.error) });
-    return NextResponse.json({ ok: true, property_id: r.property.id, ...r.quote });
+    if (!isPartnerHome(r.property)) return NextResponse.json({ ok: true, property_id: r.property.id, ...r.quote });
+    const account = await getPaymentAccount(r.property.id);
+    const total = r.quote.breakdown.total_cents;
+    const partner_payment = holdsAccepted(account)
+      ? {
+          stripe_account_id: account!.stripe_account_id,
+          ready: paymentsReady(account),
+          total_cents: total,
+          fee_cents: partnerFeeCents(total, r.quote.breakdown.tax_cents, account!.fee_pct as number),
+        }
+      : null;
+    return NextResponse.json({ ok: true, property_id: r.property.id, ...r.quote, partner_payment });
   } catch (err) {
     console.error('[pms/quote] failed:', err instanceof Error ? err.message : String(err));
     return NextResponse.json({ ok: false, error: 'unavailable_service' }, { status: 503 });

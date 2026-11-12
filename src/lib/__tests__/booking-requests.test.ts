@@ -7,7 +7,8 @@
  * the overlap check, validation, the guest copy (never an internal note or a
  * host contact), and the guards spread across files: Helm prices the stay
  * itself, only a partner home takes a request, every decision claims the row
- * while it is pending, and nothing writes 'accepted' until Stripe Connect.
+ * while it is pending, and only Accept writes 'accepted', with a card on hold.
+ * The money rules are partner-payments.test.ts.
  *
  * Run: npm test
  */
@@ -65,6 +66,17 @@ function row(over: Partial<BookingRequestRow> = {}): BookingRequestRow {
     decline_reason: null,
     receipt_emailed_at: null,
     outcome_emailed_at: null,
+    stripe_account_id: null,
+    payment_intent_id: null,
+    hold_cents: null,
+    fee_cents: null,
+    hold_status: 'none',
+    hold_placed_at: null,
+    captured_at: null,
+    released_at: null,
+    charge_id: null,
+    hold_error: null,
+    confirmation_emailed_at: null,
     created_at: NOW.toISOString(),
     updated_at: NOW.toISOString(),
     ...over,
@@ -255,15 +267,28 @@ describe('the guards across files', () => {
     assert.ok(/\.update\(\{ status: 'expired'[^}]*\}\)\s*\.eq\('id', id\)\s*\.eq\('status', 'pending'\)/.test(sweep), 'the sweep claims each row as pending');
   });
 
-  test('nothing writes accepted until Stripe Connect', () => {
-    for (const f of ['src/lib/booking-requests-db.ts', 'src/app/guests/requests/actions.ts', 'src/app/api/pms/requests/route.ts']) {
+  test('only Accept writes accepted, and only over a held card, a live clock and an open calendar', () => {
+    for (const f of ['src/app/guests/requests/actions.ts', 'src/app/api/pms/requests/route.ts', 'src/lib/partner-payments-db.ts']) {
       assert.ok(!/status:\s*'accepted'/.test(read(f)), `${f} writes accepted`);
     }
+    assert.equal((db.match(/status:\s*'accepted'/g) ?? []).length, 1, 'one writer of accepted');
+    const accept = db.slice(db.indexOf('export async function acceptBookingRequest('), db.indexOf('export async function markHostTold('));
+    assert.ok(/status:\s*'accepted'/.test(accept), 'the writer is acceptBookingRequest');
+    const hold = accept.indexOf("row.hold_status !== 'held'");
+    const cal = accept.indexOf('rangeCheckForBridge(row.property_id');
+    const claim = accept.indexOf(".update({ status: 'accepted'");
+    assert.ok(hold > 0 && cal > hold && claim > cal, 'the hold, then the calendar, then the claim');
+    const chain = accept.slice(claim);
+    for (const g of [".eq('status', 'pending')", ".eq('hold_status', 'held')", ".gt('respond_by', now.toISOString())"]) assert.ok(chain.includes(g), g);
+    assert.ok(accept.includes("'23P01'"), 'the exclusion constraint answers as a sentence');
+    // A partner guest never becomes a Rising Tide booking, and no email goes before the charge.
+    assert.ok(!/createBooking\(|from\('bookings'\)/.test(db), 'accepting writes no bookings row');
+    assert.ok(!/sendRequest/.test(accept), 'the guest is emailed after the charge, not at the yes');
   });
 
   test('the owner verbs check the owner, and the page is gated', () => {
     const actions = read('src/app/guests/requests/actions.ts');
-    assert.equal((actions.match(/await requireOwnerEmail\(\)/g) ?? []).length, 3);
+    assert.equal((actions.match(/await requireOwnerEmail\(\)/g) ?? []).length, 6);
     assert.ok(read('src/lib/helm-access.ts').includes("'/guests/requests',"));
   });
 
