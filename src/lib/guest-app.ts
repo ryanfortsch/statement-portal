@@ -147,7 +147,6 @@ export type GuestSectionId =
   | 'checkout'
   | 'trash'
   | 'house'
-  | 'howto'
   | 'rules'
   | 'arrival'
   | 'safety'
@@ -155,8 +154,10 @@ export type GuestSectionId =
 
 export type GuestSection = {
   id: GuestSectionId;
-  /** The short name on the chip strip. */
+  /** The short name on the section's tile. */
   nav: string;
+  /** One line under the tile's name, the answer most guests open it for ("11:00 AM"). */
+  glance: string;
   title: string;
   intro?: string;
   items: GuestItem[];
@@ -170,7 +171,13 @@ export type WifiNetwork = {
   joinUri: string | null;
 };
 
-export type TodayLine = { kind: 'trash' | 'sun'; title: string; text: string };
+export type TodayLine = {
+  kind: 'trash' | 'sun';
+  title: string;
+  text: string;
+  /** The few words the home screen shows for it, or null when it is not worth a guest's attention today. */
+  chip: string | null;
+};
 
 export type Hospital = { name: string; address: string; phone: string; tel: string; note: string; directionsUrl: string };
 
@@ -196,7 +203,6 @@ export type GuestApp = {
     phoneDisplay: string;
     tel: string;
     text: string;
-    report: string;
     lateCheckout: string;
     email: string;
   };
@@ -353,8 +359,7 @@ export function hospitalForCity(city: string): Hospital | null {
 /** The welcome note's limit; the migration's check constraint says the same. */
 export const GUEST_APP_WELCOME_MAX = 600;
 
-export const DEFAULT_WELCOME =
-  'We are so glad you are here. Everything for your stay is on this page: the Wi-Fi, how the house works, and our favorite places nearby. If anything comes up, text us.';
+export const DEFAULT_WELCOME = 'We are so glad you are here. Everything for your stay is in this guide.';
 
 function cityShort(home: GuestAppHome): string {
   return clean(home.city).split(',')[0].trim();
@@ -376,14 +381,15 @@ function trashToday(home: GuestAppHome, civic: CivicInfo, now: Date): TodayLine 
   if (!setOut) return null;
   const today = easternWeekday(now);
   if (today === setOut.outNight) {
-    return { kind: 'trash', title: 'Trash night', text: `${setOut.outLine} Pickup is ${setOut.day} morning.` };
+    return { kind: 'trash', title: 'Trash night', text: `${setOut.outLine} Pickup is ${setOut.day} morning.`, chip: 'Trash night' };
   }
   if (today === setOut.day) {
     // When the team handles the carts, the guest has nothing to bring in.
-    const back = home.carts_handled_by_us === true ? 'We bring the carts back in.' : `${setOut.backLine.replace(/\.$/, '')} once they are emptied.`;
-    return { kind: 'trash', title: 'Pickup day', text: `The truck comes this morning. ${back}` };
+    const ours = home.carts_handled_by_us === true;
+    const back = ours ? 'We bring the carts back in.' : `${setOut.backLine.replace(/\.$/, '')} once they are emptied.`;
+    return { kind: 'trash', title: 'Pickup day', text: `The truck comes this morning. ${back}`, chip: ours ? null : 'Carts back in today' };
   }
-  return { kind: 'trash', title: 'Trash day', text: `Pickup is ${setOut.day} morning, so the carts go out ${setOut.outNight} night.` };
+  return { kind: 'trash', title: 'Trash day', text: `Pickup is ${setOut.day} morning, so the carts go out ${setOut.outNight} night.`, chip: null };
 }
 
 export function buildGuestApp(input: GuestAppInput): GuestApp {
@@ -404,14 +410,16 @@ export function buildGuestApp(input: GuestAppInput): GuestApp {
   const checkOut = clockLabel(home.default_checkout_time);
 
   // Contact: the GUESTS line, with the home named so an unknown number (a
-  // second guest's phone) still lands on the right house.
+  // second guest's phone) still lands on the right house. One plain "Text
+  // us" everywhere: no button asks a guest what went wrong (Dotti,
+  // 2026-11-11). A guest with a real problem texts anyway, and the
+  // concierge's urgent net reads the words, not the button.
   const guestLine = QUO_LINES.guests.number;
   const where = `${title} (${home.name})`;
   const contact = {
     phoneDisplay: phoneDisplay(guestLine),
     tel: telHref(guestLine),
     text: smsHref(guestLine, `Hi, this is a guest at ${where}. `),
-    report: smsHref(guestLine, `Something needs attention at ${where}: `),
     lateCheckout: smsHref(guestLine, `Hi, we are staying at ${where}. Is a late checkout possible on our last day?`),
     email: 'hello@staycapeann.com',
   };
@@ -435,8 +443,9 @@ export function buildGuestApp(input: GuestAppInput): GuestApp {
   if (overrideText(ov, 'wifi')) for (const p of paragraphs(overrideText(ov, 'wifi'))) wifiItems.push({ text: p });
   if (clean(home.smart_tv)) wifiItems.push({ label: 'Streaming', text: sentence(clean(home.smart_tv)) });
   wifiItems.push(...tvItems);
-  if (clean(home.internet_provider)) wifiItems.push({ label: 'Internet', text: `${clean(home.internet_provider)}. If it drops, text us and we will sort it out.`, aside: true });
-  sections.push({ id: 'wifi', nav: 'Wi-Fi', title: 'Wi-Fi & TV', items: wifiItems });
+  const hasTv = tvItems.length > 0 || Boolean(clean(home.smart_tv));
+  if (clean(home.internet_provider)) wifiItems.push({ label: 'Internet', text: `${clean(home.internet_provider)}. If it drops, text us.`, aside: true });
+  sections.push({ id: 'wifi', nav: hasTv ? 'Wi-Fi & TV' : 'Wi-Fi', glance: ssid1 || 'Ask us', title: hasTv ? 'Wi-Fi & TV' : 'Wi-Fi', items: wifiItems });
 
   // Checking out.
   const checkoutItems: GuestItem[] = [];
@@ -449,11 +458,12 @@ export function buildGuestApp(input: GuestAppInput): GuestApp {
         : `Pickup is that morning, so roll the carts to the curb the night before, lids closed. We bring them back in.`,
     });
   }
-  checkoutItems.push({ label: 'On your way out', text: 'Lock the door behind you. Everything else stays as it is.' });
-  checkoutItems.push({ label: 'More time?', text: 'Ask us about a late checkout. It depends on who arrives next.', link: { href: contact.lateCheckout, label: 'Ask about late checkout' } });
+  checkoutItems.push({ label: 'On your way out', text: 'Lock the door behind you.' });
+  checkoutItems.push({ label: 'More time?', text: 'A late checkout depends on who arrives next.', link: { href: contact.lateCheckout, label: 'Ask about late checkout' } });
   sections.push({
     id: 'checkout',
     nav: 'Checkout',
+    glance: checkOut ?? 'No chores',
     title: 'Checking out',
     intro: checkOut ? `Checkout is ${checkOut}. No chores required.` : 'No chores required.',
     items: checkoutItems,
@@ -468,7 +478,9 @@ export function buildGuestApp(input: GuestAppInput): GuestApp {
     trashItems.push({ label: 'Pickup', text: `${civic.trashDay} morning${rec}.` });
   }
   if (civic.receptacleRule) trashItems.push({ label: city === 'Gloucester' ? 'The City rule' : 'How it works here', text: civic.receptacleRule });
-  if (trashItems.length) sections.push({ id: 'trash', nav: 'Trash', title: 'Trash & recycling', items: trashItems });
+  if (trashItems.length) {
+    sections.push({ id: 'trash', nav: 'Trash', glance: civic.trashDay ? `${civic.trashDay} pickup` : 'Where it goes', title: 'Trash & recycling', items: trashItems });
+  }
 
   // The house: rooms and beds, climate, gear for little ones.
   const houseItems: GuestItem[] = [];
@@ -502,19 +514,16 @@ export function buildGuestApp(input: GuestAppInput): GuestApp {
     ].filter(Boolean);
     houseItems.push({ label: 'Heat & cooling', text: parts.map(sentence).join(' ') });
   }
-  const kids = [home.has_pack_n_play ? 'a pack-n-play' : '', home.has_high_chair ? 'a high chair' : ''].filter(Boolean);
-  if (kids.length) houseItems.push({ label: 'For little ones', text: `The home has ${kids.join(' and ')}.` });
-  if (houseItems.length) sections.push({ id: 'house', nav: 'The house', title: 'The house', items: houseItems });
-
-  // How things work: the guest-facing facts (the concierge's knowledge
-  // base) and any home-guide cell an operator wrote for this home.
-  const howItems: GuestItem[] = [];
+  // How things work, on the same page: the guest-facing facts (the
+  // concierge's knowledge base) and any home-guide cell an operator wrote
+  // for this home. One page for the house, so a guest looking for the hot
+  // tub or the heat opens one tile, not two.
   const seen = new Set<string>();
   const addHow = (label: string, body: string) => {
     const key = `${label.toLowerCase()}|${body.toLowerCase()}`;
     if (!body || seen.has(key)) return;
     seen.add(key);
-    howItems.push({ label: label || undefined, text: body });
+    houseItems.push({ label: label || undefined, text: body });
   };
   for (const n of input.notes) addHow(clean(n.title), paragraphs(n.body).join(' '));
   for (const slot of [ov?.slot5, ov?.slot6]) {
@@ -523,7 +532,11 @@ export function buildGuestApp(input: GuestAppInput): GuestApp {
     const label = slot.key === 'custom' ? clean(slot.customTitle) : SLOT_TITLES[slot.key] ?? '';
     addHow(label, paragraphs(body).join(' '));
   }
-  if (howItems.length) sections.push({ id: 'howto', nav: 'How things work', title: 'How things work', items: howItems });
+  const kids = [home.has_pack_n_play ? 'a pack-n-play' : '', home.has_high_chair ? 'a high chair' : ''].filter(Boolean);
+  if (kids.length) houseItems.push({ label: 'For little ones', text: `The home has ${kids.join(' and ')}.` });
+  if (houseItems.length) {
+    sections.push({ id: 'house', nav: 'The house', glance: counts.slice(0, 2).join(' · ') || 'How it all works', title: 'The house', items: houseItems });
+  }
 
   // House rules.
   const ruleItems: GuestItem[] = [];
@@ -532,7 +545,7 @@ export function buildGuestApp(input: GuestAppInput): GuestApp {
   if (clean(home.pet_policy)) ruleItems.push({ label: 'Pets', text: sentence(clean(home.pet_policy)) });
   if (clean(home.smoking_policy)) ruleItems.push({ label: 'Smoking', text: sentence(clean(home.smoking_policy)) });
   for (const p of paragraphs(home.house_rules)) ruleItems.push({ text: sentence(p) });
-  sections.push({ id: 'rules', nav: 'House rules', title: 'House rules', items: ruleItems });
+  sections.push({ id: 'rules', nav: 'House rules', glance: 'Quiet hours & more', title: 'House rules', items: ruleItems });
 
   // Getting here: arrival time, parking, the door. Never a code.
   const arrivalItems: GuestItem[] = [];
@@ -545,7 +558,7 @@ export function buildGuestApp(input: GuestAppInput): GuestApp {
     text: `${clean(home.smart_lock_brand) ? `The door has a ${clean(home.smart_lock_brand)} keypad. ` : ''}Your door code and entry steps come in your check-in message on arrival day.`,
   });
   if (fullAddress) arrivalItems.push({ label: 'Address', text: fullAddress, copy: true, noTranslate: true, link: directionsUrl ? { href: directionsUrl, label: 'Directions' } : undefined });
-  sections.push({ id: 'arrival', nav: 'Getting here', title: 'Getting here', items: arrivalItems });
+  sections.push({ id: 'arrival', nav: 'Getting here', glance: checkIn ? `Check-in ${checkIn}` : 'Parking & directions', title: 'Getting here', items: arrivalItems });
 
   // Safety. 911 and the hospital render as cards above these items.
   const safetyItems: GuestItem[] = [];
@@ -563,13 +576,14 @@ export function buildGuestApp(input: GuestAppInput): GuestApp {
   sections.push({
     id: 'safety',
     nav: 'Safety',
+    glance: hospitalForCity(city) ? '911 and the nearest ER' : 'In an emergency',
     title: 'Safety & emergencies',
-    intro: 'In an emergency, call 911 first. Then text us so we can help.',
+    intro: 'In an emergency, call 911 first, then text us.',
     items: safetyItems,
   });
 
   if (input.nearby.length) {
-    sections.push({ id: 'nearby', nav: 'Nearby', title: 'Around Cape Ann', intro: 'Our favorite places from this front door, with how long it takes to get there.', items: [] });
+    sections.push({ id: 'nearby', nav: 'Nearby', glance: 'Our favorite places', title: 'Around Cape Ann', intro: 'Our favorites, with the time from your door.', items: [] });
   }
 
   // Today, at this house. Eastern time; Gloucester's cart night from civic.
@@ -578,7 +592,7 @@ export function buildGuestApp(input: GuestAppInput): GuestApp {
   if (trash) today.push(trash);
   if (coords) {
     const set = sunsetAt(easternDate(now), coords.lat, coords.lng);
-    if (set) today.push({ kind: 'sun', title: 'Sunset', text: `${easternClock(set)} tonight.` });
+    if (set) today.push({ kind: 'sun', title: 'Sunset', text: `${easternClock(set)} tonight.`, chip: `Sunset ${easternClock(set)}` });
   }
 
   return {
@@ -645,6 +659,20 @@ export function missingFacts(input: GuestAppInput, civic: CivicInfo = civicOf(in
   add(!input.heroPhotoUrl, 'A photo of the home', 'Listing photos');
   add(typeof h.latitude !== 'number' || typeof h.longitude !== 'number', 'Map location', 'Facts');
   return out;
+}
+
+/**
+ * A long paragraph as its first sentence and the rest, or null when it is
+ * short enough to read whole. The app shows the first and puts the rest
+ * behind More, so a city ordinance or a parking regulation is one line on a
+ * phone until a guest wants all of it.
+ */
+export function splitLong(text: string, max = 170): [string, string] | null {
+  if (text.length <= max) return null;
+  const m = /^(.{30,}?[.!?])\s+(?=[A-Z0-9"(])/.exec(text);
+  if (!m || m[1].length > max) return null;
+  const rest = text.slice(m[0].length).trim();
+  return rest ? [m[1], rest] : null;
 }
 
 /** Every guest-visible string, for the page's search box. */

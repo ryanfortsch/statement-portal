@@ -24,43 +24,46 @@ export async function GuestAppScreen({ app, top }: { app: GuestApp; top?: React.
     wifiQr[n.ssid] = svg;
   }
 
+  const hero = (
+    <header className={`ga-hero${app.heroUrl ? ' has-photo' : ''}`}>
+      {app.heroUrl ? (
+        // A plain img on purpose: Blob photos are already sized, and the
+        // page must not depend on Helm's image optimizer config.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img className="ga-hero-img" src={app.heroUrl} alt="" />
+      ) : null}
+      <div className="ga-hero-inner">
+        <div className="ga-brand">
+          <ScaMark size={26} navy="#FCFAF5" sand="#C8B89A" />
+          <span>Stay Cape Ann</span>
+        </div>
+        <h1 className="ga-h1">{app.title}</h1>
+        {app.address ? (
+          <p className="ga-hero-addr" translate="no">
+            {app.address}
+            {app.cityLine ? ` · ${app.cityLine}` : ''}
+          </p>
+        ) : null}
+      </div>
+    </header>
+  );
+
+  const intro = (
+    <>
+      <section className="ga-welcome">
+        <p className="ga-display">
+          Welcome <em>home.</em>
+        </p>
+        <p className="ga-welcome-text">{app.welcome}</p>
+      </section>
+      {top}
+    </>
+  );
+
   return (
     <div className="ga" lang="en">
       <style>{guestAppCss}</style>
-      <header className={`ga-hero${app.heroUrl ? ' has-photo' : ''}`}>
-        {app.heroUrl ? (
-          // A plain img on purpose: Blob photos are already sized, and the
-          // page must not depend on Helm's image optimizer config.
-          // eslint-disable-next-line @next/next/no-img-element
-          <img className="ga-hero-img" src={app.heroUrl} alt="" />
-        ) : null}
-        <div className="ga-hero-inner">
-          <div className="ga-brand">
-            <ScaMark size={30} navy="#FCFAF5" sand="#C8B89A" />
-            <span>Stay Cape Ann</span>
-          </div>
-          <h1 className="ga-h1">{app.title}</h1>
-          {app.address ? (
-            <p className="ga-hero-addr" translate="no">
-              {app.address}
-              {app.cityLine ? ` · ${app.cityLine}` : ''}
-            </p>
-          ) : null}
-        </div>
-      </header>
-
-      <main className="ga-main">
-        <section className="ga-welcome">
-          <p className="ga-display">
-            Welcome <em>home.</em>
-          </p>
-          <p className="ga-welcome-text">{app.welcome}</p>
-        </section>
-
-        {top}
-
-        <GuestAppBody app={app} wifiQr={wifiQr} mark={<ScaMark size={36} navy="#FCFAF5" sand="#C8B89A" />} />
-      </main>
+      <GuestAppBody app={app} wifiQr={wifiQr} mark={<ScaMark size={36} navy="#FCFAF5" sand="#C8B89A" />} hero={hero} intro={intro} />
     </div>
   );
 }
