@@ -1171,3 +1171,20 @@ capture the verified existing stays. No production capture is implicit in merge
 or deployment. Synthetic tests cover privacy, complete-batch rollback, source
 ambiguity, expired observations, unknown times, access checks and a real concurrent
 cancellation. Runtime delivery remains off pending the separate handover.
+
+
+## Cleaner queue clarification (received November 10 Eastern)
+
+Guesty support explicitly clarified that the future cleaner queue was **not
+retrievable**, rather than verified empty. Their documentation confirms disabling
+an automation removes unsent messages from Guesty's internal queue. They could
+not establish whether already-dispatched provider messages can be recalled or
+independently inspected. Their 240-hour DST interpretation remains an inference
+from the historical send; it is not a documented scheduling contract.
+
+A follow-up on ticket 2193130 asks the automation/SMS engineering team whether an
+already-running worker can submit after deactivation, what message validity/retry
+period Guesty configures with its SMS provider, and whether a documented waiting
+interval supports a safe sender handover. No arbitrary delay is accepted as proof
+of an empty provider queue. All source automations and pending messages remain
+active and unchanged; no deactivation, cancellation, resend or test was requested.
