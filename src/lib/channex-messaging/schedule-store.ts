@@ -3,9 +3,9 @@ import { z } from 'zod';
 import type { MessageRpc } from './store.ts';
 
 const id = z.uuid(), instant = z.iso.datetime({ offset: true });
-const contextSchema = z.object({ contextRevision: z.string().regex(/^[a-f0-9]{32}$/), routeGeneration: id,
+export const scheduleContextSchema = z.object({ contextRevision: z.string().regex(/^[a-f0-9]{32}$/), routeGeneration: id,
   sourceEvidenceId: id, sourceEvidenceAt: instant }).strict();
-export const scheduleRegistrationSchema = contextSchema.extend({
+export const scheduleRegistrationSchema = scheduleContextSchema.extend({
   sendId: id, bookingId: id, automationId: id,
   key: z.enum(['booking_confirmed', 'pre_arrival', 'checkin_day', 'pre_checkout']),
   remoteBookingId: id, threadId: id, bodySha256: z.string().regex(/^[a-f0-9]{64}$/),
@@ -32,7 +32,7 @@ export function createChannexScheduleStore(rpc: MessageRpc, options: { enabled?:
       try {
         const result = await rpc('helm_channex_message_schedule_context', { p_booking_id: bookingId });
         if (!result || result.error !== null) throw Error('RPC failed');
-        return result.data === null ? null : contextSchema.parse(result.data);
+        return result.data === null ? null : scheduleContextSchema.parse(result.data);
       } catch { throw Error('Schedule context unavailable'); }
     },
     async register(value: unknown): Promise<ScheduleRegistrationResult> {
