@@ -23,7 +23,7 @@ export const dynamic='force-dynamic';
 export default async function PricingPage({searchParams}:{searchParams:Promise<Record<string,string|string[]|undefined>>}) {
   await requireOwnerEmail();
   const [params,fleet]=await Promise.all([searchParams,listFleetProperties()]);
-  const live=params.live==='1';
+  const live=params.live==='1'||(params.live!=='0'&&!params.property);
   const view=pricingPortfolioView(params);
   let livePortfolio:Awaited<ReturnType<typeof readPricingLivePortfolio>>|null=null,liveError=false;
   if(live)try {livePortfolio=await readPricingLivePortfolio(supabaseAdmin);}catch {liveError=true;}
@@ -37,7 +37,7 @@ export default async function PricingPage({searchParams}:{searchParams:Promise<R
       <GuestyWritesNotice scope={selected?{kind:'home',guestyRun:selected.calendar_authority!=='helm',otaReadsHelm:false}:{kind:'unknown'}} />
     <div className="pricing-page-shell"><header className="pricing-page-heading">
       <HelmHero plain eyebrow="" title="Helm pricing" paddingTop={16} paddingBottom={16}/>
-      <div className="flex gap-4"><Link href={live?'/channels/pricing':'/channels/pricing?live=1'}>{live?'Pricing model':'Live calendar'}</Link><Link href="/channels/pricing/demo">Sample portfolio</Link></div>
+      <details className="pricing-page-options"><summary>More</summary><div className="flex gap-4"><Link href={live?'/channels/pricing?live=0':'/channels/pricing'}>{live?'Pricing model':'Dashboard'}</Link><Link href="/channels/pricing/demo">Sample portfolio</Link></div></details>
     </header><main>
     {liveError&&<EmptyState>Calendar data is unavailable. Refresh to try again.</EmptyState>}
     {livePortfolio&&<PricingLiveWorkspace initialPortfolio={livePortfolio} refreshAction={refreshPricingLiveAction} calendarAction={readPricingLiveCalendarAction}/>}
