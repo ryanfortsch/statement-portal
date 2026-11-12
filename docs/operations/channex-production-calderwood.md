@@ -1134,3 +1134,40 @@ clock/merge/thread loader; complete cleaner SMS and live dispatch integration;
 verify Guesty queue drainage and approve the actual sender handover. Repeated
 snapshot reads detect changes, but are not proof of clock provenance, channel
 delivery or source shutdown. Guesty remains the production sender.
+
+
+## Existing-stay timing evidence (November 11, 2026)
+
+The explicit owner-only `POST /api/channex/message-preparation/capture` accepts
+only `{"action":"capture_source_timing"}` as a same-origin JSON request. It uses
+the preparation review's bounded double reads of Guesty V2 local override/default
+times and V3 `confirmedAt`. An omitted override is unknown; only explicit `null`
+permits a default. Missing confirmation evidence, incomplete scope, source drift,
+or unsupported clocks prevents the entire capture. The GET remains read-only.
+
+`20261111210000_channex_source_timing_capture.sql` installs private historical
+snapshots and a service-only capture RPC. It creates no snapshots by itself.
+The commit rechecks Guesty authority, disabled automations, absent message
+scope/jobs, complete stay coverage, and exact unique canonical/mirror identities.
+Short transaction locks cover direct Guesty backfill writes as well as canonical
+RPC writers. No remote reads occur while those locks are held. A later observation
+appends a new capture; it does not overwrite earlier evidence or booking fields.
+Only clock values and source/canonical identity are retained, with observation
+start/end, authenticated actor, and server save time. Table access is revoked from
+API roles, including the service role; only the scoped security-definer RPC writes.
+
+These records are **historical evidence, not current scheduling authority**.
+A future loader must bind a reviewed capture to the handover and reject subsequent
+booking/date/source/timing changes. This release neither resolves DST day-offset
+ambiguities nor supplies an original confirmation time for new Channex bookings.
+It does not release templates, register jobs, certify Guesty's queue is drained,
+share the cleaner link, change provider settings, or send a message. A failed
+response can conceal a successful capture; the endpoint reports `unconfirmed`
+and never retries automatically. Inspect retained records before repeating it.
+
+Release order: approve/apply the production migration, verify its private
+permissions and zero captures/jobs, deploy the owner endpoint, then explicitly
+capture the verified existing stays. No production capture is implicit in merge
+or deployment. Synthetic tests cover privacy, complete-batch rollback, source
+ambiguity, expired observations, unknown times, access checks and a real concurrent
+cancellation. Runtime delivery remains off pending the separate handover.
