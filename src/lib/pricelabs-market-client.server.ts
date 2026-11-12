@@ -5,12 +5,13 @@ const readTools=new Set(['get_listings','get_neighbourhood_data','get_neighborho
 type RpcResult={jsonrpc?:string;id?:number;result?:unknown;error?:unknown};
 function parseMessage(text:string):RpcResult {try{return JSON.parse(text) as RpcResult;}catch{throw Error('PriceLabs returned invalid JSON');}}
 /** The token must have only `read` scope. No pricing, customization or generic tool executor is exposed. */
-export async function createPriceLabsMarketClient(token:{access_token:string;scope:string},fetcher:typeof fetch=fetch){
+export async function createPriceLabsMarketClient(token:{access_token:string;scope:string},fetcher:typeof fetch=fetch,options:{signal?:AbortSignal;timeoutMs?:number}={}){
   if(!token.access_token||token.scope.trim()!=='read')throw Error('A read-only PriceLabs token is required');
   let session:string|null=null,protocol='2025-06-18',nextId=0;
   async function rpc(method:string,params:unknown,notification=false):Promise<unknown>{
     const id=++nextId;
-    const response=await fetcher(endpoint,{method:'POST',redirect:'error',signal:AbortSignal.timeout(120000),headers:{Authorization:`Bearer ${token.access_token}`,'Content-Type':'application/json',Accept:'application/json, text/event-stream','MCP-Protocol-Version':protocol,...(session?{'Mcp-Session-Id':session}:{})},body:JSON.stringify({jsonrpc:'2.0',...(notification?{}:{id}),method,params})});
+    const timeout=AbortSignal.timeout(options.timeoutMs??120000),signal=options.signal?AbortSignal.any([options.signal,timeout]):timeout;
+    const response=await fetcher(endpoint,{method:'POST',redirect:'error',signal,headers:{Authorization:`Bearer ${token.access_token}`,'Content-Type':'application/json',Accept:'application/json, text/event-stream','MCP-Protocol-Version':protocol,...(session?{'Mcp-Session-Id':session}:{})},body:JSON.stringify({jsonrpc:'2.0',...(notification?{}:{id}),method,params})});
     if(!response.ok)throw Error(`PriceLabs read failed (${response.status})`);
     session=response.headers.get('mcp-session-id')??session;
     if(notification){await response.body?.cancel();return;}

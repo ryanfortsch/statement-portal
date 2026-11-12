@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import {spawn,spawnSync} from 'node:child_process';
+const args=['-X','-q','-At','-v','ON_ERROR_STOP=1'];
+const sql=query=>spawnSync('psql',[...args,'-c',query],{encoding:'utf8'});
+assert.equal(sql('select current_database()').stdout.trim(),'helm_synthetic_pricing_market');
+const claim=id=>`select helm_claim_pricing_market('00000000-0000-4000-8000-00000000000${id}') is not null;`;
+const first=spawn('psql',args,{stdio:['pipe','pipe','pipe']});let out='',err='';first.stderr.on('data',d=>{err+=d;});
+const finished=new Promise((resolve,reject)=>{first.once('error',reject);first.once('close',resolve);});
+const locked=new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('Lock not acquired')),5000);first.stdout.on('data',d=>{out+=d;if(out.includes('LOCKED')){clearTimeout(timer);resolve();}});});
+first.stdin.end(`begin; ${claim(5)}\n\\echo LOCKED\nselect pg_sleep(1);commit;`);
+await locked;const second=sql(claim(6));assert.equal(await finished,0,err);assert.equal(second.status,0);assert.equal(second.stdout.trim(),'f');
+assert.match(out,/^t\n/);assert.equal(sql("select lease_id from helm_pricing_market_connection").stdout.trim(),'00000000-0000-4000-8000-000000000005');
+console.log('Simultaneous refreshes acquire exactly one lease.');

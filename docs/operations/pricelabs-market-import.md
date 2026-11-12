@@ -15,7 +15,65 @@ every listing. Such homes are reported as unavailable; the importer never
 enables vendor sync to obtain data. Do not assume that reducing paid/syncing
 listings preserves a portfolio-wide direct market feed.
 
-## Run
+## Automatic refresh
+
+`/api/cron/pricing-market` checks every six hours (00:17, 06:17, 12:17 and
+18:17 UTC). It refreshes snapshots at least 18 hours old. Only production and
+the `CRON_SECRET` bearer can invoke it; preview/local deployments do no work.
+The migration creates an empty, disabled-by-absence connection table. Deploying
+the code does **not** enroll credentials or enable the connection.
+
+Before activation, obtain approval to apply
+`20261113020000_helm_pricing_market_connection.sql` and move the authorized
+read-only connector from local-only storage into Helm's server database.
+Credentials use AES-256-GCM with authenticated purpose binding and a
+PriceLabs-specific HKDF key derived from the server-only Supabase service key.
+Ciphertext is stored in an RLS-locked table; only the service role can read it or
+call its restricted RPCs. No credentials enter client bundles, research rows,
+logs, GitHub or plaintext database columns. Rotating the Supabase service key
+requires re-enrollment with a new/current read-only token; do not rotate that key
+without accounting for this connection. This protects database contents at rest;
+it does not protect against compromise of the application server/service key.
+
+After the approved migration, use the approved environment file directly:
+
+```sh
+node --import ./scripts/server-only-test-hook.mjs --env-file=/absolute/path/to/approved.env \
+  scripts/pricing-market-connection.mjs --enroll --credentials /absolute/private/directory
+```
+
+Enrollment marks that private directory `server-managed.json` before sending the
+request. From then on, **do not run the manual importer or reuse that local token
+copy**: the server owns the rotating refresh token. A lost response requires
+checking `--status`, not deleting the marker and blindly re-enrolling. If
+re-enrollment is necessary, authorize a fresh read-only token into a new private
+directory. The operator script accepts `--status`, `--disable` and `--enable`
+without a credential directory; all output is sanitized connection status.
+
+The job holds a database lease for up to ten minutes, aborts reads after four
+minutes and has a five-minute function limit. At most two market reads run at
+once, each with a 60-second timeout. The saved cursor rotates the starting home
+after a partial run so a slow provider does not starve later homes. Concurrent
+cron deliveries cannot consume the same refresh token. Refreshed credentials
+must be saved before market reads begin. If the provider rotates a token but its
+database save fails, reauthorization may be required; never fall back to a
+stale local token. A killed run's lease expires automatically.
+
+`last_report` records counts only: saved, fresh, unavailable, failed, conflicting
+and deferred. Failed imports retain the old data and original observation time;
+existing 36-hour UI freshness rules still apply. Transient failures retry on the
+next six-hour tick. Vercel does not retry a failed cron invocation automatically.
+For verification, call the production cron with the existing bearer from a
+private environment, then inspect `--status` and reload the portfolio. A 503 or
+`partial` report means some work was not confirmed, not a successful refresh.
+An inactive PriceLabs listing is reported unavailable and its sync is untouched.
+
+Rollback: use `--disable` and keep prior market evidence. If a run holds the
+lease, wait for it to finish or for its ten-minute lease to expire; do not revoke
+or overwrite its refresh token mid-run. The cron then returns `skipped`.
+No separate service, new plan or live pricing permission is needed.
+
+## Manual run (before server enrollment)
 
 The operator must be authorized to read the PriceLabs account and import market
 research into Helm. Use Node 24+, the approved environment source, and a private

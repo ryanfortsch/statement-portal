@@ -16,6 +16,12 @@ const credentialArg=args[args.indexOf('--credentials')+1];
 if(!args.includes('--credentials')||!credentialArg||credentialArg.startsWith('--'))throw Error('A private credential directory is required');
 const directory=resolve(credentialArg),root=await lstat(directory);
 if(!root.isDirectory()||root.isSymbolicLink()||(root.mode&0o077))throw Error('Credential directory must be private (0700)');
+if(await lstat(join(directory,'server-managed.json')).then(()=>true,error=>{if(error.code==='ENOENT')return false;throw error;}))throw Error('This connection is server-managed. Do not refresh its local token copy.');
+const server=await supabaseAdmin.from('helm_pricing_market_connection').select('enabled').eq('id',true).maybeSingle();
+// The older manual deployment may not have this migration yet. Other errors
+// fail closed: never race a server refresh when its status cannot be checked.
+if(server.error&&!['PGRST205','42P01'].includes(server.error.code))throw Error('Server connection status is unavailable');
+if(server.data?.enabled)throw Error('Automatic refresh owns this connection; use its server status instead');
 async function privateJson(name){const path=join(directory,name),stat=await lstat(path);if(!stat.isFile()||stat.isSymbolicLink()||(stat.mode&0o077))throw Error('Credential files must be private (0600)');return JSON.parse(await readFile(path,'utf8'));}
 let token=await privateJson('token.json');
 if(token.scope!=='read')throw Error('Only read-only PriceLabs credentials are accepted');

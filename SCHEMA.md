@@ -355,6 +355,13 @@ All service role only. Money is integer cents.
   require owner access and validate known managed property IDs plus rule schemas.
   Independent of the two pricing-publisher migrations below; never used by rate
   delivery, booking, or payment writers. No market/history snapshots are stored.
+- **`helm_pricing_market_connection`**: singleton encrypted read-only PriceLabs
+  OAuth credentials, enabled flag, ten-minute fenced lease, rotating cursor and
+  aggregate run report. Migration `20261113020000_helm_pricing_market_connection.sql`;
+  requires production approval before application/enrollment. RLS locked;
+  service-role reads and restricted configure/claim/rotate/finish RPCs only.
+  Empty by default. No rate-publishing authority. See
+  `docs/operations/pricelabs-market-import.md` for activation and key rotation.
 - **`helm_pricing_research` / `helm_pricing_research_versions`**: per-property
   market/history imports, in migration `20261112210000_helm_pricing_research.sql`
   (applied November 12, 2026). Source observation timestamps are retained separately
