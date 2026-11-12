@@ -1172,6 +1172,16 @@ or deployment. Synthetic tests cover privacy, complete-batch rollback, source
 ambiguity, expired observations, unknown times, access checks and a real concurrent
 cancellation. Runtime delivery remains off pending the separate handover.
 
+The owner-only message-preparation page provides **Save verified timings**. It
+performs a fresh server-side verification rather than submitting browser clocks
+or an earlier review. The control permits one explicit attempt per page visit,
+disables the review while saving, and validates the response before reporting a
+saved reservation count. Success, an empty scope, and an unconfirmed save are
+distinct outcomes. There is no application retry or pending-watchdog reload;
+inspect private capture metadata before repeating an unconfirmed attempt.
+Network transports can still repeat a request after a lost connection. Captures
+are historical observations, so such a repeat cannot enqueue or send messages.
+
 
 ## Cleaner queue clarification (received November 10 Eastern)
 

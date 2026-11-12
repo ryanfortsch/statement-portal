@@ -5,6 +5,7 @@ import type { MessagePreparationReview } from '@/lib/channex-messaging/preparati
 import { CALDERWOOD_MESSAGE_WORKFLOWS } from '@/lib/channex-messaging/preparation-timing';
 import { Button } from '@/components/Button';
 import { EmptyState } from '@/components/EmptyState';
+import { TimingCapture } from './TimingCapture';
 
 const stamp = (s: string | null) => s ? new Intl.DateTimeFormat('en-US', {
   timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
@@ -20,6 +21,7 @@ const deliveryLabels = { sms: 'SMS', email: 'Email', sms_then_email: 'SMS, then 
 export function PreparationReview() {
   const [review, setReview] = useState<MessagePreparationReview | null>(null);
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
+  const [capturing, setCapturing] = useState(false);
   async function refresh() {
     setBusy(true); setError(''); setReview(null);
     try {
@@ -39,11 +41,12 @@ export function PreparationReview() {
           <h2 className="text-xl font-semibold">Guesty continues handling messages</h2>
           <p className="mt-2 text-sm leading-6" style={{ color: 'var(--ink-3)' }}>Compare Helm’s templates and proposed send times with the six Calderwood workflows. This review creates no messages and changes no schedules.</p>
         </div>
-        <Button type="button" onClick={refresh} pending={busy} watchdog={false}>{busy ? 'Checking current setup…' : review ? 'Refresh review' : 'Read current setup'}</Button>
+        <Button type="button" onClick={refresh} disabled={capturing} pending={busy} watchdog={false}>{busy ? 'Checking current setup…' : review ? 'Refresh review' : 'Read current setup'}</Button>
       </div>
       <p className="mt-3 text-xs" role="status" style={{ color: 'var(--ink-3)' }}>{busy ? 'Checking reservation identities and times twice. This can take up to 80 seconds.'
         : review ? `Observed ${stamp(review.checkedAt)}. This is a point-in-time review.` : 'Uses current and upcoming Calderwood stays in the next 500 days.'}</p>
     </section>
+    <TimingCapture disabled={busy} onBusyChange={setCapturing} />
     {error && <p role="alert" className="mt-5 border-l-4 p-4 text-sm" style={{ borderColor: 'var(--negative)', color: 'var(--negative)' }}>{error}</p>}
     {review && <section className="mt-8" aria-labelledby="handover-inputs">
       <h2 id="handover-inputs" className="text-xl font-semibold">What still needs attention</h2>
