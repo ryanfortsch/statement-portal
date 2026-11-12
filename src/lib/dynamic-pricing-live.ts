@@ -4,11 +4,12 @@ import {evidenceFresh} from './dynamic-pricing-evidence.ts';
 import type {PricingBookingActivity} from './dynamic-pricing-activity.ts';
 
 export type PricingLiveHome=PricingPortfolioHome & {timezone:string};
-export type PricingLiveCalendar={home:PricingLiveHome;snapshot:PricingSnapshot;source:string;sourceObservedAt:string|null;activity?:PricingBookingActivity};
-export type PricingLivePortfolio={readAt:string;rows:PricingPortfolioRow[]};
+export type PricingLiveCalendar={home:PricingLiveHome;snapshot:PricingSnapshot;source:string;sourceObservedAt:string|null;activity?:PricingBookingActivity;evidenceVersion?:number;researchStatus?:'ready'|'unavailable'};
+export type PricingLivePortfolio={readAt:string;rows:PricingPortfolioRow[];researchUnavailable?:boolean};
 
 /** Current asking rates, never fabricated base prices or booked ADR. Require every open night to be priced. */
 export function pricingLiveRow(home:PricingLiveHome,snapshot:PricingSnapshot|null,now:Date,start:string):PricingPortfolioRow {
+  if(snapshot?.evidence&&snapshot.evidence.propertyId!==home.id)throw Error('Market evidence belongs to another listing');
   const windows=Object.fromEntries(PRICING_WINDOWS.map(n=>[n,pricingOccupancyWindow(snapshot,start,n,now)])) as PricingPortfolioRow['windows'];
   const rates=Object.fromEntries(PRICING_WINDOWS.map(n=>{
     const w=windows[n],days=snapshot?.days.filter(d=>d.date>=w.start&&d.date<=w.end&&d.state==='open')??[];
@@ -19,7 +20,7 @@ export function pricingLiveRow(home:PricingLiveHome,snapshot:PricingSnapshot|nul
   const stamps=snapshot?.days.map(d=>d.observedAt).filter(Boolean).sort()??[];
   return {id:home.id,name:home.name,city:home.city,bedrooms:home.bedrooms,authority:home.authority,...(home.guestyListingId?{guestyListingId:home.guestyListingId}:{}),
     mode:'shadow',configured:false,baseCents:null,floorCents:null,ceilingCents:null,currentRateCents:rates,
-    observedAt:stamps[0]??null,marketObservedAt:null,marketSource:'',lastAppliedAt:null,
+    observedAt:stamps[0]??null,marketObservedAt:snapshot?.evidence?.marketObservedAt??null,marketSource:snapshot?.evidence?.marketSource??'',lastAppliedAt:null,
     error:snapshot?null:'Calendar unavailable',windows};
 }
 

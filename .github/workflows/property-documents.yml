@@ -30,6 +30,8 @@ on:
       - 'scripts/tests/layout-field-photos*'
       - 'scripts/tests/cleaner-digest-enrollment.sql'
       - 'scripts/tests/pricing-shared*'
+      - 'scripts/tests/pricing-research*'
+      - 'supabase/migrations/20261112210000_helm_pricing_research.sql'
       - 'scripts/pricing-shared-smoke.mjs'
       - 'scripts/pricing-ui-fixture.mjs'
       - 'supabase/migrations/20261112190000_helm_pricing_shared_drafts.sql'
@@ -165,3 +167,9 @@ jobs:
           createdb helm_synthetic_pricing_settings
           PGDATABASE=helm_synthetic_pricing_settings psql -v ON_ERROR_STOP=1 -f scripts/tests/pricing-shared-settings.sql
           PGDATABASE=helm_synthetic_pricing_settings node scripts/tests/pricing-shared-concurrency.mjs
+
+      - name: Verify scoped research imports, receipts and concurrent saves
+        run: |
+          createdb helm_synthetic_pricing_research
+          PGDATABASE=helm_synthetic_pricing_research psql -v ON_ERROR_STOP=1 -f scripts/tests/pricing-research.sql
+          PGDATABASE=helm_synthetic_pricing_research node scripts/tests/pricing-research-concurrency.mjs

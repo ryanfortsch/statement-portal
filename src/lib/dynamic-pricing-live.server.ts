@@ -1,4 +1,5 @@
 import 'server-only';
+import {readPricingResearch} from './dynamic-pricing-research.server.ts';
 import type {SupabaseClient} from '@supabase/supabase-js';
 import {selectAllPaged} from './paged-select.ts';
 import {dateInZone,pricingSnapshot,type PricingContext} from './dynamic-pricing-inputs.ts';
@@ -34,7 +35,7 @@ export async function readPricingLiveHomes(db:SupabaseClient):Promise<PricingLiv
   return rows.map(homeFrom).sort((a,b)=>a.name.localeCompare(b.name,'en',{numeric:true,sensitivity:'base'}));
 }
 
-export async function readPricingLiveCalendar(db:SupabaseClient,home:PricingLiveHome,now=new Date()):Promise<PricingLiveCalendar> {
+export async function readPricingLiveCalendar(db:SupabaseClient,home:PricingLiveHome,now=new Date(),research=false):Promise<PricingLiveCalendar> {
   const start=dateInZone(now,home.timezone),end=shiftIsoDay(start,179);
   const context:PricingContext={property:{id:home.id,is_active:true,calendar_authority:home.authority,timezone:home.timezone},plan:null,rateDays:[],periods:[],bookings:[],mirror:[]};
   if(home.authority==='guesty') {
@@ -58,18 +59,19 @@ export async function readPricingLiveCalendar(db:SupabaseClient,home:PricingLive
   const stamps=(home.authority==='guesty'?context.mirror.map(d=>d.synced_at):[now.toISOString()]).filter(Boolean).sort();
   // A missing timestamp column or ambiguous stay must not erase a usable calendar.
   const activity=await readPricingBookingActivity(db,home,now).catch(()=>undefined);
-  return {home,snapshot,source:home.authority==='helm'?'Helm calendar':'Guesty calendar mirror',sourceObservedAt:stamps[0]??null,activity};
+  const saved=research?await readPricingResearch(db,home.id):null;
+  return {home,snapshot:saved?.ok&&saved.value?{...snapshot,evidence:saved.value.data}:snapshot,...(saved?{researchStatus:saved.ok?'ready' as const:'unavailable' as const,evidenceVersion:saved.ok?saved.value?.version??0:undefined}:{}),source:home.authority==='helm'?'Helm calendar':'Guesty calendar mirror',sourceObservedAt:stamps[0]??null,activity};
 }
 
-export async function readPricingLivePortfolio(db:SupabaseClient,now=new Date()):Promise<PricingLivePortfolio> {
+export async function readPricingLivePortfolio(db:SupabaseClient,now=new Date(),research=false):Promise<PricingLivePortfolio> {
   const homes=await readPricingLiveHomes(db),rows:PricingLivePortfolio['rows']=new Array(homes.length);
-  let next=0;
+  let next=0,researchUnavailable=false;
   await Promise.all(Array.from({length:Math.min(4,homes.length)},async()=>{
     while(next<homes.length) {
       const index=next++,home=homes[index],start=dateInZone(now,home.timezone);
-      try {const calendar=await readPricingLiveCalendar(db,home,now);rows[index]={...pricingLiveRow(home,calendar.snapshot,now,start),observedAt:calendar.sourceObservedAt,activity:calendar.activity};}
+      try {const calendar=await readPricingLiveCalendar(db,home,now,research);if(calendar.researchStatus==='unavailable')researchUnavailable=true;rows[index]={...pricingLiveRow(home,calendar.snapshot,now,start),observedAt:calendar.sourceObservedAt,activity:calendar.activity};}
       catch {rows[index]={...pricingLiveRow(home,null,now,start),activity:await readPricingBookingActivity(db,home,now).catch(()=>undefined)};}
     }
   }));
-  return {readAt:now.toISOString(),rows};
+  return {readAt:now.toISOString(),rows,...(research?{researchUnavailable}:{})};
 }

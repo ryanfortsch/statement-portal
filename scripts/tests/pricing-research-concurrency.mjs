@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {spawn,spawnSync} from 'node:child_process';
+const args=['-X','-q','-At','-v','ON_ERROR_STOP=1'];
+const sql=query=>spawnSync('psql',[...args,'-c',query],{encoding:'utf8'});
+assert.equal(sql('select current_database()').stdout.trim(),'helm_synthetic_pricing_research');
+const data='{"version":1,"currency":"USD","propertyId":"concurrent","market":[],"history":[]}';
+const save=id=>`select helm_save_pricing_research('concurrent','${data}'::jsonb,0,'00000000-0000-4000-8000-00000000000${id}','owner@synthetic.test');`;
+const first=spawn('psql',args,{stdio:['pipe','pipe','pipe']});let out='',err='';first.stderr.on('data',d=>{err+=d;});
+const finished=new Promise((resolve,reject)=>{first.once('error',reject);first.once('close',resolve);});
+const locked=new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('Lock not acquired')),5000);first.stdout.on('data',d=>{out+=d;if(out.includes('LOCKED')){clearTimeout(timer);resolve();}});});
+first.stdin.end(`begin; ${save(3)}\n\\echo LOCKED\nselect pg_sleep(1);commit;`);
+await locked;const second=sql(save(4));assert.equal(await finished,0,err);assert.notEqual(second.status,0);assert.match(second.stderr,/Research changed/);
+assert.equal(sql("select version from helm_pricing_research where property_id='concurrent';select count(*) from helm_pricing_research_versions where property_id='concurrent';").stdout.trim(),'1\n1');
+assert.equal(sql(save(3)).status,0);assert.equal(sql("select count(*) from helm_pricing_research_versions where property_id='concurrent';").stdout.trim(),'1');
+console.log('Concurrent first imports keep one winner and one receipt; exact retry succeeds.');

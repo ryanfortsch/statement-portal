@@ -22,7 +22,8 @@ import type { capturePricingObservationAction,setPricingTrackingAction,savePrici
 
 export type PricingServices={save:typeof savePricingAction;refresh:typeof refreshPricingAction;review:typeof reviewPricingAction;publish:typeof publishPricingAction;undo:typeof undoPricingAction;evidence:typeof savePricingEvidenceAction;observe:typeof capturePricingObservationAction;tracking:typeof setPricingTrackingAction};
 const inputClass='mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm';
-export default function PricingWorkbench({propertyId,name,authority,navigation,initialPolicy,initialSnapshot,initialProfile,initialRuns,initialEvidenceVersion=0,initialObservations=[],initialTracking={enabled:false,version:0},scheduledCaptureEnabled=false,services,draftOnly=false,calendarTools,previewTransform,onOverride,additionalTools,draftCustomizations,extraRuleActions,listingActivity,importSource,headerActions,dataSource}:{
+export default function PricingWorkbench({propertyId,name,authority,navigation,initialPolicy,initialSnapshot,initialProfile,initialRuns,initialEvidenceVersion=0,initialObservations=[],initialTracking={enabled:false,version:0},scheduledCaptureEnabled=false,services,draftOnly=false,calendarTools,previewTransform,onOverride,additionalTools,draftCustomizations,extraRuleActions,listingActivity,importSource,headerActions,dataSource,sharedEvidence=false}:{
+  sharedEvidence?:boolean;
   propertyId:string;name:string;authority:'helm'|'guesty';navigation?:ReactNode;initialPolicy:PricingPolicy;initialSnapshot:PricingSnapshot;
   initialProfile:PricingProfile|null;initialRuns:PricingRunSummary[];initialEvidenceVersion?:number;services:PricingServices;draftOnly?:boolean;calendarTools?:ReactNode;previewTransform?:(preview:PricingPreview,policy:PricingPolicy,snapshot:PricingSnapshot)=>PricingPreview;onOverride?:(date:string)=>void;additionalTools?:(snapshot:PricingSnapshot,preview:PricingPreview|null,policy:PricingPolicy,closeMenu:()=>void)=>ReactNode;
   headerActions?:ReactNode;dataSource?:ReactNode;importSource?:PricingImportSource;draftCustomizations?:PricingCustomizations;extraRuleActions?:(closeRules:()=>void)=>ReactNode;listingActivity?:ReactNode;
@@ -32,6 +33,8 @@ export default function PricingWorkbench({propertyId,name,authority,navigation,i
   const [runs,setRuns]=useState(initialRuns),[mode,setMode]=useState<'shadow'|'helm_direct'>(initialProfile?.mode??'shadow');
   const [review,setReview]=useState<{id:string;createdAt:string}|null>(null),[busy,setBusy]=useState(false),[message,setMessage]=useState(''),[error,setError]=useState('');
   const [evidenceVersion,setEvidenceVersion]=useState(initialEvidenceVersion);
+  const [evaluationAt,setEvaluationAt]=useState(()=>new Date());
+  useEffect(()=>{const timer=setInterval(()=>setEvaluationAt(new Date()),60000);return ()=>clearInterval(timer);},[]);
   const [observations,setObservations]=useState(initialObservations),[tracking,setTracking]=useState(initialTracking),[collectorEnabled,setCollectorEnabled]=useState(scheduledCaptureEnabled);
   const captureRequest=useRef<string|null>(null);
   const [currentOnly,setCurrentOnly]=useState(draftOnly);
@@ -41,14 +44,14 @@ export default function PricingWorkbench({propertyId,name,authority,navigation,i
   useEffect(()=>{if(rulesOpen)customizations.current?.showModal();else customizations.current?.close();},[rulesOpen]);
   const openCustomizations=(next:typeof ruleSection='strategy')=>{setRuleSection(next);setRulesOpen(true);};
   function showSection(next:typeof section){setSection(next);setMenuOpen(false);}
-  const listingMetrics=useMemo(()=>[30,60,90].map(n=>pricingOccupancyWindow(snapshot,snapshot.today,n as 30|60|90,new Date(snapshot.observedAt))),[snapshot]);
+  const listingMetrics=useMemo(()=>[30,60,90].map(n=>pricingOccupancyWindow(snapshot,snapshot.today,n as 30|60|90,evaluationAt)),[snapshot,evaluationAt]);
   const changed=JSON.stringify(policy)!==JSON.stringify(profile?.policy??initialPolicy)||mode!==(profile?.mode??'shadow');
   const dirty=!profile||changed;
   useUnsavedWorkGuard(changed);
   const computed=useMemo(()=>{const parsed=pricingPolicySchema.safeParse(policy);
-    return parsed.success?{preview:previewPricing(parsed.data,snapshot,new Date(snapshot.observedAt),draftOnly?draftCustomizations:undefined),errors:[]}:
+    return parsed.success?{preview:previewPricing(parsed.data,snapshot,evaluationAt,draftOnly?draftCustomizations:undefined),errors:[]}:
       {preview:null,errors:parsed.error.issues.map(i=>`${i.path.join('.')}: ${i.message}`)};
-  },[policy,snapshot,draftOnly,draftCustomizations]);
+  },[policy,snapshot,draftOnly,draftCustomizations,evaluationAt]);
   const preview=computed.preview?(previewTransform?.(computed.preview,policy,snapshot)??computed.preview):null,eligible=preview?.days.filter(d=>d.eligible)??[];
   const dateRange=[snapshot.days[0]?.date,snapshot.days.at(-1)?.date].filter(Boolean).map(date=>new Date(date+'T12:00:00Z').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric',timeZone:'UTC'})).join(' – ');
   const modify=<K extends keyof PricingPolicy>(key:K,value:PricingPolicy[K])=>{setPolicy(p=>({...p,[key]:value}));setReview(null);};
@@ -61,7 +64,7 @@ export default function PricingWorkbench({propertyId,name,authority,navigation,i
   }
   async function refresh() { const r=await services.refresh(propertyId);if(!r.ok)throw Error(r.error);
     setObservations(r.value.observations);setTracking(r.value.tracking);setCollectorEnabled(r.value.scheduledCaptureEnabled);
-    setEvidenceVersion(r.value.evidenceVersion);setSnapshot(r.value.snapshot);setProfile(r.value.profile);setPolicy(r.value.policy);setMode(r.value.profile?.mode??'shadow');setRuns(r.value.runs);setReview(null);
+    setEvaluationAt(new Date());setEvidenceVersion(r.value.evidenceVersion);setSnapshot(r.value.snapshot);setProfile(r.value.profile);setPolicy(r.value.policy);setMode(r.value.profile?.mode??'shadow');setRuns(r.value.runs);setReview(null);
   }
   async function saveRules() {return perform(async()=>{
     const r=await services.save({propertyId,policy,mode,version:profile?.version??0});if(!r.ok)throw Error(r.error);
@@ -105,10 +108,10 @@ export default function PricingWorkbench({propertyId,name,authority,navigation,i
       <div className="pricing-calendar-workspace">{draftOnly&&<div className="pricing-draft-toolbar"><div className="pricing-view-switch" role="group" aria-label="Rates shown"><Button variant="quiet" aria-pressed={currentOnly} onClick={()=>setCurrentOnly(true)}>Current rates</Button><Button variant="quiet" aria-pressed={!currentOnly} onClick={()=>setCurrentOnly(false)}>Helm draft</Button></div>{calendarTools}</div>}<PricingCalendar key={review?.id??'draft'} snapshot={snapshot} preview={currentOnly?null:preview} currentOnly={currentOnly} onOverride={onOverride}/></div>
     </div>
     {section==='occupancy'&&listingActivity}{section==='data'&&dataSource}
-    <PricingInsights draftOnly={draftOnly} onOpenData={()=>setSection('data')} view={section==='occupancy'?'occupancy':section==='data'?'data':section==='market'?'market':'hidden'} propertyId={propertyId} snapshot={snapshot} preview={preview} policy={policy} busy={busy}
+    <PricingInsights evaluationAt={evaluationAt} sharedEvidence={sharedEvidence} draftOnly={draftOnly} onOpenData={()=>setSection('data')} view={section==='occupancy'?'occupancy':section==='data'?'data':section==='market'?'market':'hidden'} propertyId={propertyId} snapshot={snapshot} preview={preview} policy={policy} busy={busy}
       onUseLearned={base=>{setPolicy(p=>({...p,baseCents:Math.max(p.floorCents,Math.min(p.ceilingCents,base)),priceShape:'history'}));setReview(null);setSection('prices');openCustomizations();}}
       onSave={async data=>perform(async()=>{const r=await services.evidence({propertyId,data,version:evidenceVersion});if(!r.ok)throw Error(r.error);
-        setSnapshot(r.value.snapshot);setEvidenceVersion(r.value.evidenceVersion);setReview(null);setMessage(draftOnly?'Imported data is available for this session.':'Data updated. Prepare a new review before publishing.');})}/>
+        setEvaluationAt(new Date());setSnapshot(r.value.snapshot);setEvidenceVersion(r.value.evidenceVersion);setReview(null);setMessage(sharedEvidence?'Market data saved to Helm.':draftOnly?'Imported data is available for this session.':'Data updated. Prepare a new review before publishing.');})}/>
     <div className="pricing-panel" hidden={section!=='history'}><PricingHistory sessionOnly={draftOnly} observations={observations} tracking={tracking} scheduledCaptureEnabled={collectorEnabled} busy={busy} canCapture={!dirty}
       onCapture={()=>void perform(async()=>{const requestId=captureRequest.current??crypto.randomUUID();captureRequest.current=requestId;
         const r=await services.observe({propertyId,requestId});if(!r.ok)throw Error(r.error);

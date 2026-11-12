@@ -16,6 +16,7 @@ import {pricingPortfolioView} from '@/lib/dynamic-pricing-portfolio';
 import {supabaseAdmin} from '@/lib/supabase-admin';
 import {readPricingLivePortfolio} from '@/lib/dynamic-pricing-live.server';
 import PricingLiveWorkspace from './PricingLiveWorkspace';
+import {savePricingResearchAction} from './research-actions';
 import {refreshPricingLiveAction,readPricingLiveCalendarAction} from './live-actions';
 import { capturePricingObservationAction,setPricingTrackingAction,savePricingEvidenceAction,publishPricingAction,refreshPricingAction,reviewPricingAction,savePricingAction,undoPricingAction } from './actions';
 import {readSharedPricingSettingsAction,saveSharedPricingSettingsAction} from './settings-actions';
@@ -28,7 +29,7 @@ export default async function PricingPage({searchParams}:{searchParams:Promise<R
   const live=params.live==='1'||(params.live!=='0'&&!params.property);
   const view=pricingPortfolioView(params);
   let livePortfolio:Awaited<ReturnType<typeof readPricingLivePortfolio>>|null=null,liveError=false;
-  if(live)try {livePortfolio=await readPricingLivePortfolio(supabaseAdmin);}catch {liveError=true;}
+  if(live)try {livePortfolio=await readPricingLivePortfolio(supabaseAdmin,new Date(),true);}catch {liveError=true;}
   const selected=!live&&params.property?fleet.find(p=>p.id===params.property):undefined;
   const portfolio=!live&&!params.property?await readPricingPortfolio(fleet):null;
   let workspace:Awaited<ReturnType<typeof readPricingWorkspace>>|null=null,error='';
@@ -42,7 +43,7 @@ export default async function PricingPage({searchParams}:{searchParams:Promise<R
       <details className="pricing-page-options"><summary>More</summary><div className="flex gap-4"><Link href={live?'/channels/pricing?live=0':'/channels/pricing'}>{live?'Pricing model':'Dashboard'}</Link><Link href="/channels/pricing/demo">Sample portfolio</Link></div></details>
     </header><main>
     {liveError&&<EmptyState>Calendar data is unavailable. Refresh to try again.</EmptyState>}
-    {livePortfolio&&<PricingLiveWorkspace sharedServices={sharedPricingServices} initialPortfolio={livePortfolio} refreshAction={refreshPricingLiveAction} calendarAction={readPricingLiveCalendarAction}/>}
+    {livePortfolio&&<PricingLiveWorkspace evidenceSave={savePricingResearchAction} sharedServices={sharedPricingServices} initialPortfolio={livePortfolio} refreshAction={refreshPricingLiveAction} calendarAction={readPricingLiveCalendarAction}/>}
     {error&&<p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-5">{error}</p>}
     {!live&&params.property&&!selected&&<EmptyState>Home not found in the active portfolio.</EmptyState>}
     {!live&&params.property&&!workspace&&<PricingBackLink view={view} selectedId={selected?.id} homes={fleet.map(p=>({id:p.id,name:p.name}))}/>}

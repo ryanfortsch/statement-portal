@@ -330,6 +330,14 @@ All service role only. Money is integer cents.
   require owner access and validate known managed property IDs plus rule schemas.
   Independent of the two pricing-publisher migrations below; never used by rate
   delivery, booking, or payment writers. No market/history snapshots are stored.
+- **`helm_pricing_research` / `helm_pricing_research_versions`**: per-property
+  market/history imports, in migration `20261112210000_helm_pricing_research.sql`
+  (applied November 12, 2026). Source observation timestamps are retained separately
+  from save timestamps. Owner-only actions validate property scope and daily data;
+  `helm_save_pricing_research` checks an expected version and idempotent request ID.
+  The service role can select and call the save function, but cannot directly
+  modify either table. Immutable receipts preserve previous imports. Independent
+  of the dormant publishing migrations; no rate/calendar/booking writes.
 - **`property_pricing_profiles` / `property_pricing_runs` / `property_pricing_evidence`**: optional Helm pricing
   pilot (migration `20261108110000_helm_dynamic_pricing.sql`). Owner policies and
   versioned comparison/direct connection; immutable review inputs and recommendations,

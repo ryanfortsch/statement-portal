@@ -791,3 +791,5 @@ body:has(.pricing-page-shell) { background: #f6f7f8; }
 .helm-pricing .pricing-recovery select { max-width:100%; padding:8px; border:1px solid #dce3df; border-radius:5px; }
 
 .helm-pricing .pricing-shared-slot:empty { display:none; }
+
+.helm-pricing .pricing-market-source{display:flex;align-items:center;justify-content:space-between;gap:16px;grid-column:1/-1;font-size:12px;color:#62736e;flex-wrap:wrap}
