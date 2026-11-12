@@ -31,6 +31,7 @@
 import { supabaseAdmin, isServiceConfigured } from '@/lib/supabase-admin';
 import { bridgeStatus, getBridgeProperty, quoteForBridge, rangeCheckForBridge, type BridgeFailure } from '@/lib/pms-bridge';
 import { isPartnerHome } from '@/lib/property-scope';
+import { getHousePolicy } from '@/lib/property-rates';
 import { isListedPartner } from '@/lib/partner-listed';
 import { listPartnerFeeds, syncPartnerFeeds } from '@/lib/partner-calendar-db';
 import { staleFeedsBlockAccept } from '@/lib/partner-calendar';
@@ -41,6 +42,7 @@ import {
   BOOKING_REQUEST_COLS,
   OUTCOME_RETRY_DAYS,
   isOpen,
+  requestTerms,
   respondByFor,
   validateRequestInput,
   type BookingRequestRow,
@@ -110,6 +112,11 @@ export async function createBookingRequest(raw: unknown, opts: { now?: Date } = 
   // taken off the site is not there for the guest.
   if (!(await isListedPartner(property.id))) return { ok: false, error: 'not_found' };
 
+  // The policy the guest is agreeing to, kept on the request. No policy, or
+  // one that cannot be read, takes no request (the site shows none either).
+  const terms = requestTerms(await getHousePolicy(property.id));
+  if (!terms) return { ok: false, error: 'invalid', detail: 'this home has no cancellation policy' };
+
   const priced = await quoteForBridge(property.id, input.check_in, input.check_out, input.guests, 'sca', { now });
   if (!priced.ok) return priced;
   const q = priced.quote;
@@ -151,6 +158,9 @@ export async function createBookingRequest(raw: unknown, opts: { now?: Date } = 
       quote: q,
       status: 'pending',
       respond_by: respondByFor(now),
+      cancellation_terms: terms.cancellation_terms,
+      house_rules: terms.house_rules,
+      terms_version: input.terms_version,
       ...(hold
         ? {
             stripe_account_id: hold.stripe_account_id,

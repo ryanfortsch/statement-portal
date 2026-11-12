@@ -83,12 +83,36 @@ export type BookingRequestRow = {
   charge_id: string | null;
   hold_error: string | null;
   confirmation_emailed_at: string | null;
+  /** The home's cancellation policy and house rules when the request landed (requestTerms). */
+  cancellation_terms: string | null;
+  house_rules: string | null;
+  /** The staycapeann.com Terms of Service the guest agreed to, by its date. */
+  terms_version: string | null;
   created_at: string;
   updated_at: string;
 };
 
 export const BOOKING_REQUEST_COLS =
-  'id, request_key, source, property_id, check_in, check_out, guests, guest_first_name, guest_last_name, guest_email, guest_phone, message, quoted_total_cents, currency, quote, status, respond_by, host_told_at, host_told_by, decided_at, decided_by, decline_reason, receipt_emailed_at, outcome_emailed_at, stripe_account_id, payment_intent_id, hold_cents, fee_cents, hold_status, hold_placed_at, captured_at, released_at, charge_id, hold_error, confirmation_emailed_at, created_at, updated_at';
+  'id, request_key, source, property_id, check_in, check_out, guests, guest_first_name, guest_last_name, guest_email, guest_phone, message, quoted_total_cents, currency, quote, status, respond_by, host_told_at, host_told_by, decided_at, decided_by, decline_reason, receipt_emailed_at, outcome_emailed_at, stripe_account_id, payment_intent_id, hold_cents, fee_cents, hold_status, hold_placed_at, captured_at, released_at, charge_id, hold_error, confirmation_emailed_at, cancellation_terms, house_rules, terms_version, created_at, updated_at';
+
+/**
+ * What a guest agrees to when they send a request: the home's cancellation
+ * policy and house rules as they stand that moment. Kept on the request, so
+ * a cancellation or a card dispute is judged against the words the guest
+ * saw, even after the host changes them. A home with no cancellation policy
+ * (or a policy that cannot be read) takes no request: null.
+ */
+export function requestTerms(
+  policy: { cancellation_policy: string | null; house_rules: string | null } | null,
+): { cancellation_terms: string; house_rules: string | null } | null {
+  const cancellation = (policy?.cancellation_policy ?? '').trim();
+  if (!cancellation) return null;
+  const rules = (policy?.house_rules ?? '').trim();
+  return { cancellation_terms: cancellation, house_rules: rules || null };
+}
+
+/** A Terms of Service version label, as the site sends it: its date or a short tag. */
+const TERMS_VERSION = /^[0-9A-Za-z][0-9A-Za-z._-]{0,39}$/;
 
 // ─── The clock ──────────────────────────────────────────────────────────────
 
@@ -234,6 +258,8 @@ export type RequestInput = {
   quoted_total_cents: number | null;
   /** The card hold the site placed on the host's Stripe account, if the home takes cards. */
   hold: RequestHold | null;
+  /** The site's Terms of Service version the guest agreed to by sending. */
+  terms_version: string | null;
 };
 
 export type RequestValidation = { ok: true; input: RequestInput } | { ok: false; detail: string };
@@ -265,6 +291,8 @@ export function validateRequestInput(raw: unknown): RequestValidation {
   const source = typeof b.source === 'string' && b.source.trim() ? b.source.trim().toLowerCase().slice(0, 40) : 'sca';
   const hold = validateHold(b.hold);
   if (!hold.ok) return { ok: false, detail: hold.detail };
+  const termsVersion = b.terms_version == null ? null : typeof b.terms_version === 'string' ? b.terms_version.trim() : '';
+  if (termsVersion !== null && !TERMS_VERSION.test(termsVersion)) return { ok: false, detail: 'terms_version must be a short version label' };
 
   return {
     ok: true,
@@ -279,6 +307,7 @@ export function validateRequestInput(raw: unknown): RequestValidation {
       message: message || null,
       quoted_total_cents: shown,
       hold: hold.hold,
+      terms_version: termsVersion,
     },
   };
 }

@@ -149,7 +149,11 @@ database. An accepted request holds its nights on the partner home's Helm
 calendar (an exclusion constraint keeps two accepted requests off one night);
 it is never copied into `bookings`. `receipt_emailed_at` / `outcome_emailed_at`
 / `confirmation_emailed_at` stamp the guest emails, and the cron retries one
-left null. RLS on, service role only. See `src/lib/booking-requests.ts`.
+left null. `cancellation_terms`, `house_rules` and `terms_version` (since
+2026-11-13) are what the guest agreed to: the home's House policy as it stood
+when the request landed, and the site's Terms of Service by its date; a home
+with no cancellation policy takes no request. RLS on, service role only. See
+`src/lib/booking-requests.ts`.
 
 **`partner_payment_accounts`** (since 2026-11-13): one row per partner home.
 The host's Stripe Connect account (`stripe_account_id`, written once), our

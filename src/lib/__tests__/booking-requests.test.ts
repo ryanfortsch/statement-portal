@@ -27,6 +27,7 @@ import {
   oneLine,
   openOverlaps,
   requestQueueText,
+  requestTerms,
   respondByFor,
   staysOverlap,
   toPublicRequest,
@@ -77,6 +78,9 @@ function row(over: Partial<BookingRequestRow> = {}): BookingRequestRow {
     charge_id: null,
     hold_error: null,
     confirmation_emailed_at: null,
+    cancellation_terms: 'Full refund up to 30 days before arrival.',
+    house_rules: null,
+    terms_version: '2026-11-12',
     created_at: NOW.toISOString(),
     updated_at: NOW.toISOString(),
     ...over,
@@ -182,6 +186,26 @@ describe('validation', () => {
     for (const [why, body] of bad) assert.equal(validateRequestInput(body).ok, false, why);
   });
 
+  test('the terms version is a short label, or absent', () => {
+    const with_ = validateRequestInput({ ...good, terms_version: '2026-11-12' });
+    assert.ok(with_.ok && with_.input.terms_version === '2026-11-12');
+    const without = validateRequestInput(good);
+    assert.ok(without.ok && without.input.terms_version === null);
+    for (const bad of ['', '   ', 'a b', 'x'.repeat(41), '<script>', 7]) {
+      assert.equal(validateRequestInput({ ...good, terms_version: bad }).ok, false, String(bad));
+    }
+  });
+
+  test('the policy a guest agrees to is the home\'s, and a home without one takes no request', () => {
+    assert.deepEqual(requestTerms({ cancellation_policy: '  Full refund up to 30 days before.  ', house_rules: ' No parties. ' }), {
+      cancellation_terms: 'Full refund up to 30 days before.',
+      house_rules: 'No parties.',
+    });
+    assert.deepEqual(requestTerms({ cancellation_policy: 'Non-refundable.', house_rules: '  ' }), { cancellation_terms: 'Non-refundable.', house_rules: null });
+    assert.equal(requestTerms({ cancellation_policy: ' ', house_rules: 'No parties.' }), null);
+    assert.equal(requestTerms(null), null, 'a policy that cannot be read takes no request');
+  });
+
   test('a name or phone can carry no line breaks or hidden characters', () => {
     assert.equal(oneLine('Jamie\n\n!! already paid'), 'Jamie !! already paid');
     assert.equal(oneLine('a\u0085b'), 'a b');
@@ -256,6 +280,20 @@ describe('the guards across files', () => {
     assert.ok(key > 0 && partner > key && priced > partner && insert > priced, 'key, then the partner gate, then the price, then the insert');
     assert.ok(create.includes('quoted_total_cents: totalCents'), 'the stored total is the one Helm priced');
     assert.ok(create.includes("error: 'quote_drift'"), 'a price that moved is a question, never a different total');
+  });
+
+  test('the request keeps the policy the guest agreed to, read before the price and refused without one', () => {
+    const partner = create.indexOf("error: 'books_instantly'");
+    const terms = create.indexOf('requestTerms(await getHousePolicy(property.id))');
+    const refused = create.indexOf("if (!terms) return { ok: false, error: 'invalid'");
+    const priced = create.indexOf("quoteForBridge(property.id, input.check_in, input.check_out, input.guests, 'sca'");
+    assert.ok(terms > partner && refused > terms && priced > refused, 'the gate, then the policy, then the price');
+    const insert = create.slice(create.indexOf('.insert('));
+    for (const col of ['cancellation_terms: terms.cancellation_terms', 'house_rules: terms.house_rules', 'terms_version: input.terms_version']) {
+      assert.ok(insert.includes(col), col);
+    }
+    const migration = read('supabase/migrations/20261113030000_booking_request_terms.sql');
+    for (const col of ['cancellation_terms text', 'house_rules text', 'terms_version text']) assert.ok(migration.includes(col), col);
   });
 
   test('every decision claims the row while it is pending and its clock is live', () => {
