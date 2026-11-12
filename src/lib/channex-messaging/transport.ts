@@ -6,6 +6,7 @@ import 'server-only';
  * Contract: https://docs.channex.io/api-v.1-documentation/messages-collection
  */
 import { createHash } from 'node:crypto';
+import { inspectMessageThreadIdentity } from './thread-identity.ts';
 
 export type MessageScope = Readonly<{
   environment: 'staging' | 'production';
@@ -88,13 +89,8 @@ export class ChannexMessageTransport {
     try {
       const response = await this.#request(`/message_threads/${target.threadId}`);
       if (response.status !== 200 || response.redirected) { await response.body?.cancel(); return { state: 'not_sent', reason: 'thread_unavailable' }; }
-      const row = object((await json(response)).data), attrs = object(row.attributes);
-      if (row.id !== target.threadId || row.type !== 'message_thread'
-          || relation(row, 'property') !== this.#scope.propertyId || relation(row, 'channel') !== this.#scope.channelId
-          || relation(row, 'booking') !== target.bookingId || attrs.provider !== this.#scope.provider
-          || typeof attrs.is_closed !== 'boolean') return { state: 'not_sent', reason: 'target_mismatch' };
-      if (requireOpen && attrs.is_closed) return { state: 'not_sent', reason: 'thread_closed' };
-      return null;
+      const reason = inspectMessageThreadIdentity((await json(response)).data, this.#scope, target, requireOpen);
+      return reason ? { state: 'not_sent', reason } : null;
     } catch { return { state: 'not_sent', reason: 'thread_unavailable' }; }
   }
   #matches(row: Json, target: MessageTarget, bodySha256: string) {
