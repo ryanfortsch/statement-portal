@@ -14,6 +14,8 @@
  *     the code into a StayCodeState (no digits) before it returns.
  *   - never property_access: no Wi-Fi password, no standing house code, no
  *     gate or alarm code passes through this module.
+ *   - each bookings row's channel, for stayMayAskEmail: only a plainly
+ *     direct stay may show the email line (guest-app-join.ts writes it).
  * guest-app-stays.test.ts reads this file and fails if any of that changes.
  */
 import 'server-only';
@@ -30,6 +32,7 @@ import {
   codeState,
   opensLine,
   stayMatchesReservation,
+  stayMayAskEmail,
   stayPhase,
   stayWindow,
   STAY_TOKEN_RE,
@@ -65,9 +68,10 @@ type BookingRow = StayClusterRow & {
   check_in: string;
   check_out: string;
   duplicate_of: string | null;
+  channel: string | null;
 };
 
-const BOOKING_COLS = 'id, property_id, status, check_in, check_out, duplicate_of, source, external_booking_id, external_confirmation_code';
+const BOOKING_COLS = 'id, property_id, status, check_in, check_out, duplicate_of, channel, source, external_booking_id, external_confirmation_code';
 
 /** A stay is these statuses; cancelled, inquiry, pending and block are not. */
 const STAY_STATUSES = new Set(['confirmed', 'completed']);
@@ -97,14 +101,22 @@ async function stayCluster(bookingId: string): Promise<{ canonical: BookingRow; 
 }
 
 /** The home this stay belongs to can carry a stay link: a live Cape Ann home with its guest app on. */
-async function homeAllowsStays(propertyId: string): Promise<{ welcomeNote: string | null; homeToken: string; lockBrand: string | null } | null> {
+async function homeAllowsStays(
+  propertyId: string,
+): Promise<{ welcomeNote: string | null; homeToken: string; lockBrand: string | null; name: string | null } | null> {
   const [homeRow, propRes] = await Promise.all([
     getGuestAppRow(propertyId),
-    supabaseAdmin.from('properties').select('id, region, kind, is_active, smart_lock_brand').eq('id', propertyId).maybeSingle(),
+    supabaseAdmin.from('properties').select('id, name, region, kind, is_active, smart_lock_brand').eq('id', propertyId).maybeSingle(),
   ]);
-  const prop = propRes.data as { region: string | null; kind: string | null; is_active: boolean | null; smart_lock_brand: string | null } | null;
+  const prop = propRes.data as {
+    name: string | null;
+    region: string | null;
+    kind: string | null;
+    is_active: boolean | null;
+    smart_lock_brand: string | null;
+  } | null;
   if (!homeRow?.enabled || !prop || prop.is_active !== true || !isCapeAnnOps({ region: prop.region, kind: prop.kind })) return null;
-  return { welcomeNote: homeRow.welcome_note, homeToken: homeRow.token, lockBrand: prop.smart_lock_brand };
+  return { welcomeNote: homeRow.welcome_note, homeToken: homeRow.token, lockBrand: prop.smart_lock_brand, name: prop.name };
 }
 
 async function stayTimes(propertyId: string, checkIn: string): Promise<StayTimes> {
@@ -216,12 +228,16 @@ export async function rotateStayLink(bookingId: string, opts: MintOptions): Prom
 
 type ResolvedStay = {
   token: string;
+  /** guest_app_stays.id: what the email line counts its signups by. */
+  stayId: string;
   propertyId: string;
   bookingIds: string[];
   dates: StayDates;
   times: StayTimes;
   window: StayWindow;
-  home: { welcomeNote: string | null; lockBrand: string | null };
+  home: { welcomeNote: string | null; lockBrand: string | null; name: string | null };
+  /** stayMayAskEmail: a plainly direct stay, so the email line may show. */
+  mayAskEmail: boolean;
 };
 
 /** A token to its live stay, or null (unknown, revoked, cancelled, moved homes, app off). */
@@ -240,12 +256,14 @@ async function resolveStay(token: string): Promise<ResolvedStay | null> {
   if (!window) return null;
   return {
     token,
+    stayId: row.id,
     propertyId: row.property_id,
     bookingIds: found.cluster.map((r) => r.id),
     dates,
     times,
     window,
-    home: { welcomeNote: home.welcomeNote, lockBrand: home.lockBrand },
+    home: { welcomeNote: home.welcomeNote, lockBrand: home.lockBrand, name: home.name },
+    mayAskEmail: stayMayAskEmail(found.canonical.channel, found.cluster.map((r) => r.channel)),
   };
 }
 
@@ -259,9 +277,10 @@ export async function loadGuestStay(token: string, now = new Date()): Promise<Gu
   if (!stay) return { kind: 'void' };
   const app = await loadGuestApp(stay.propertyId, stay.home.welcomeNote, now);
   if (!app) return { kind: 'void' };
+  const join = stay.mayAskEmail;
   const phase = stayPhase(now, stay.window);
-  if (phase === 'over') return { kind: 'over', app };
-  if (phase === 'before') return { kind: 'before', app, opens: opensLine(stay.window) };
+  if (phase === 'over') return { kind: 'over', app, join };
+  if (phase === 'before') return { kind: 'before', app, opens: opensLine(stay.window), join };
 
   const [mapped, live] = await Promise.all([lockMapped(stay.propertyId), getLiveStayCode(stay.propertyId, stay.bookingIds, now)]);
   const layer = buildStayLayer({
@@ -275,7 +294,20 @@ export async function loadGuestStay(token: string, now = new Date()): Promise<Gu
     now,
   });
   if (!layer) return { kind: 'void' };
-  return { kind: 'open', app: appForStay(app, layer), stay: layer };
+  return { kind: 'open', app: appForStay(app, layer), stay: layer, join };
+}
+
+/**
+ * The email line's view of a token (guest-app-join.ts): the live stay and
+ * whether it may ask, re-read at the POST like the code reveal. Null for a
+ * link that no longer opens anything.
+ */
+export async function resolveStayForJoin(
+  token: string,
+): Promise<{ stayId: string; propertyId: string; homeName: string | null; mayAskEmail: boolean } | null> {
+  const stay = await resolveStay(token);
+  if (!stay) return null;
+  return { stayId: stay.stayId, propertyId: stay.propertyId, homeName: stay.home.name, mayAskEmail: stay.mayAskEmail };
 }
 
 export type StayCodeReveal =

@@ -340,11 +340,58 @@ export function parseLinkRequest(body: unknown): { ok: true; value: LinkRequest 
   return { ok: true, value: { property, checkIn, checkOut, reservationId: opt(b.reservation_id), confirmationCode: opt(b.confirmation_code) } };
 }
 
+// ── The email line (direct bookings only) ─────────────────────────────────
+//
+// A direct booking's party are Stay Cape Ann's own guests, so their stay link
+// may carry one optional line: anyone in the group can leave an email for the
+// list (src/lib/guest-app-join.ts writes it). An OTA booking's party are that
+// platform's guests: Airbnb's Off-Platform Policy bars asking anyone on the
+// stay for an email, from bookings made 2026-11-20 on, and earlier ones may
+// not be signed up for a contact list. Vrbo and Booking.com are treated the
+// same until their rules are read. The printed home link never asks: it
+// cannot tell whose stay its reader is on.
+
+/**
+ * The channels a stay's bookings rows may carry and still ask. The canonical
+ * row must be `direct`; a duplicate may be `direct` too (the Guesty feed's
+ * copy) or `block` (the OTA calendars closing the same nights). Any other
+ * channel anywhere in the stay (an Airbnb twin, `manual`, `other`) means it
+ * is not plainly ours, and the line stays off.
+ */
+const JOIN_DUPLICATE_CHANNELS = new Set(['direct', 'block']);
+
+export function stayMayAskEmail(canonicalChannel: string | null, clusterChannels: ReadonlyArray<string | null>): boolean {
+  if (canonicalChannel !== 'direct') return false;
+  return clusterChannels.every((c) => c !== null && JOIN_DUPLICATE_CHANNELS.has(c));
+}
+
+/** One stay link adds at most this many emails: a house party, not a mailing list. */
+export const STAY_JOIN_MAX = 20;
+
+/** The form's email, checked (the shared writer's own rule), or null. */
+export function parseJoinEmail(raw: unknown): string | null {
+  const email = (typeof raw === 'string' ? raw : '').trim().toLowerCase();
+  if (!email || email.length > 320 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return null;
+  return email;
+}
+
+/** What a signup came to. `closed`: the link no longer opens anything, or the stay may not ask. */
+export type StayJoinResult = 'joined' | 'invalid' | 'full' | 'failed' | 'closed';
+export type StayJoinNotice = Exclude<StayJoinResult, 'closed'>;
+
+/** The ?join= the form's POST redirects back with, read on the page. Anything else is no notice. */
+export function joinNotice(param: unknown): StayJoinNotice | null {
+  return param === 'joined' || param === 'invalid' || param === 'full' || param === 'failed' ? param : null;
+}
+
 // ── The page ───────────────────────────────────────────────────────────────
 
-/** What /h/s/<token> renders. The digits are in none of these. */
+/**
+ * What /h/s/<token> renders. The digits are in none of these. `join` is
+ * stayMayAskEmail for the stay: whether the page may show the email line.
+ */
 export type GuestStayView =
   | { kind: 'void' }
-  | { kind: 'over'; app: GuestApp }
-  | { kind: 'before'; app: GuestApp; opens: string }
-  | { kind: 'open'; app: GuestApp; stay: StayLayer };
+  | { kind: 'over'; app: GuestApp; join: boolean }
+  | { kind: 'before'; app: GuestApp; opens: string; join: boolean }
+  | { kind: 'open'; app: GuestApp; stay: StayLayer; join: boolean };

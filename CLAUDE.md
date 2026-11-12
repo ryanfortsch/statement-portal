@@ -523,6 +523,18 @@ guest of the home; the concierge gets a stay link from the bridge `POST /api/gue
 else the home link). `guest-app-stays.test.ts` holds the window and keeps the digits out of
 everything but the POST route.
 
+**On a direct booking only, the stay link asks one optional thing** (since 2026-11-12): an email
+line under "Come back to Cape Ann" and on the thank-you page, so anyone in the party can join the
+list. `stayMayAskEmail` decides from the stay's `bookings.channel` rows: the canonical row
+`direct`, every twin `direct` or `block`; an Airbnb, Vrbo or Booking.com twin, `manual` or
+anything else keeps it off. Airbnb's Off-Platform Policy bars asking anyone on an Airbnb stay for
+an email (bookings from 2026-11-20), so the printed home link never asks: it cannot tell whose
+stay its reader is on. A plain form posts to `/h/s/<token>/join` (same origin only, honeypot,
+20 emails per link counted from `audience_events`), which re-reads the stay and writes through
+`subscribeAudienceContact` (`src/lib/audience-subscribe.ts`), the one writer `/api/guests/subscribe`
+also uses: tags `insider`, `guest_app` and the home's name, source detail `staycapeann_guest_app`,
+the usual welcome email.
+
 `/api/archive-onboarding` also self-guards: staff may archive by projection ID; owners must
 send that projection's onboarding token in the POST body. The thank-you page passes its
 validated token to the silent archive trigger. Keep authorization ahead of both the existing
