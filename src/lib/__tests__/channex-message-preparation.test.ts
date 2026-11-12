@@ -305,3 +305,71 @@ test('schedule review is explicit about missing preparation and cannot authorize
   assert.equal(r.stays[0].schedule.length, 6);
   assert.equal(JSON.stringify(r).includes('privateScheduleRevision'), false);
 });
+
+// Capture uses the same bounded double-read path; the read-only report never commits.
+const { captureSourceTiming } = await import('../channex-messaging/source-timing-capture.ts');
+test('explicit capture retains only verified clocks and identities, never customer content', async () => {
+  const f = fixture(); let commits = 0;
+  const r = await captureSourceTiming(env, { ...f.deps, commit: async capture => {
+    commits++; assert.equal(capture.rows.length, 1);
+    assert.equal(capture.rows[0].clocks.confirmedAt, clocks.confirmedAt);
+    assert.equal(capture.rows[0].clocks.plannedArrival, null);
+    assert.equal(capture.rows[0].guestyId, id(1));
+    assert.equal(capture.rows[0].bookingId, uid(1));
+    assert.equal(capture.startedAt, new Date(now).toISOString());
+    assert.equal(JSON.stringify(capture).includes('PRIVATE'), false);
+    return { captureId: uid(800), saved: 1 };
+  } });
+  assert.deepEqual(r, { ok: true, captureId: uid(800), saved: 1, jobsCreated: 0, messagesSent: 0 });
+  assert.equal(commits, 1); assert.equal(f.calls.length, 4); assert.equal(f.guards(), 2);
+});
+test('unknown clocks, unsupported source, non-confirmed stays, and changing source never commit', async () => {
+  for (const fault of ['missing_override', 'bad_default', 'missing_confirmation', 'source', 'status', 'drift']) {
+    const f = fixture(), read = f.deps.fetcher, context = f.deps.context; let count = 0;
+    f.deps.fetcher = async (url, init) => {
+      const d = await (await read(url, init)).json();
+      if (Array.isArray(d) && fault === 'missing_confirmation') delete d[0].confirmedAt;
+      if (!Array.isArray(d)) {
+        if (fault === 'missing_override') delete d.plannedArrival;
+        if (fault === 'bad_default') d.listing.defaultCheckOutTime = 'noon';
+        if (fault === 'drift' && ++count === 2) d.plannedArrival = '18:00';
+      }
+      return Response.json(d);
+    };
+    f.deps.context = async () => {
+      const c = await context();
+      if (fault === 'source') c.canonical.rows[0].source = 'manual';
+      if (fault === 'status') c.canonical.rows[0].status = 'completed';
+      return c;
+    };
+    let commits = 0;
+    await assert.rejects(captureSourceTiming(env, { ...f.deps, commit: async () => { commits++; } }), /SOURCE_TIMING_CAPTURE_UNAVAILABLE/);
+    assert.equal(commits, 0);
+  }
+});
+test('capture keeps valid explicit arrival and departure overrides', async () => {
+  const f = fixture(), read = f.deps.fetcher;
+  f.deps.fetcher = async (url, init) => {
+    const d = await (await read(url, init)).json();
+    return Response.json(Array.isArray(d) ? d : { ...d, plannedArrival: '18:00', plannedDeparture: '12:00' });
+  };
+  await captureSourceTiming(env, { ...f.deps, commit: async c => {
+    assert.equal(c.rows[0].clocks.plannedArrival, '18:00');
+    assert.equal(c.rows[0].clocks.plannedDeparture, '12:00');
+    return { captureId: uid(800), saved: 1 };
+  } });
+});
+test('lost commit responses are sanitized and never automatically retried', async () => {
+  let commits = 0;
+  await assert.rejects(captureSourceTiming(env, { ...fixture().deps, commit: async () => {
+    commits++; throw Error('PRIVATE SQL failure after possible commit');
+  } }), e => e instanceof Error && e.message === 'SOURCE_TIMING_CAPTURE_UNAVAILABLE');
+  assert.equal(commits, 1);
+  await assert.rejects(captureSourceTiming(env, { ...fixture().deps, commit: async () => ({ captureId: uid(800), saved: 0 }) }));
+});
+test('an empty capture performs no provider call and no database write', async () => {
+  const f = fixture(), read = f.deps.context;
+  f.deps.context = async () => { const c = await read(); c.canonical.rows = []; return c; };
+  const r = await captureSourceTiming(env, { ...f.deps, commit: async () => { throw Error('must not write'); } });
+  assert.equal(r.saved, 0); assert.equal(r.captureId, null); assert.equal(f.calls.length, 0);
+});

@@ -659,6 +659,16 @@ runs itself.
   establish authoritative timing/body/thread provenance. SQL bounds timestamps
   but does not certify a supplied fire time against Guesty's source clocks. See
   the Channex production operations document for remaining handoff requirements.
+  `source_timing_captures` stores private, append-only Guesty timing observations
+  for existing Calderwood stays (no guest names, contacts, message bodies or keys).
+  The service-only `helm_channex_capture_source_timing` RPC accepts a bounded,
+  complete, freshly double-read snapshot, rechecks canonical/mirror identities
+  under locks, and requires Guesty authority with automations off and no message
+  scope/jobs. `/api/channex/message-preparation/capture` is an explicit same-origin
+  owner POST; the preparation GET remains read-only. Capture does not update
+  `bookings.booked_at`, create schedules, establish queue-drain evidence, or prove
+  clocks are still current after cutover. Retained evidence must be revalidated
+  before a future scheduler can consume it.
 - **`guest_threads`**: one thread per stay per channel (`sms`, `email`,
   `airbnb`, `vrbo`, `booking_com`, `direct`), keyed to `booking_id`,
   `guest_id` and `property_id`, with `external_thread_key` (E.164 for

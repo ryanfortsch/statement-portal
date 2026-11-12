@@ -167,7 +167,10 @@ test('live adapters read the migration marker and only metadata from fully paged
   assert.match(io, /configured_in_ota, migration_policy, created_by/);
   assert.match(io, /migration_policy: raw\.migration_policy \?\? null/);
   const route = readFileSync(new URL('../../app/api/channex/message-preparation/route.ts', import.meta.url), 'utf8');
-  assert.match(route, /from\('automation_sends'\)\.select\(MESSAGE_SCHEDULE_LEDGER_FIELDS\)/);
-  assert.match(route, /eq\('property_id', '65_calderwood'\)\.order\('id'\)\.range\(from, to\)/);
-  assert.ok(!route.includes('.insert(') && !route.includes('.update('));
+  assert.match(route, /reviewMessagePreparation\(process.env, messagePreparationDeps\(\)\)/);
+  const loader = readFileSync(new URL('../channex-messaging/preparation.server.ts', import.meta.url), 'utf8');
+  assert.match(loader, /from\('automation_sends'\)\.select\(MESSAGE_SCHEDULE_LEDGER_FIELDS\)/);
+  assert.match(loader, /eq\('property_id', '65_calderwood'\)\.order\('id'\)\.range\(from, to\)/);
+  for (const source of [route, loader])
+    assert.ok(!source.includes('.insert(') && !source.includes('.update(') && !source.includes('helm_channex_capture_source_timing'));
 });
