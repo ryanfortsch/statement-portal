@@ -53,9 +53,7 @@ function RequestList({ rows, now }: { rows: ReviewRequest[]; now: Date }) {
   return (
     <>
       <div style={{ marginBottom: 18 }}>
-        <div style={{ fontSize: 13, color: 'var(--ink-3)' }}>
-          {open.length === 0 ? 'Nothing waiting on a host.' : `${open.length} waiting on a host`}
-        </div>
+        {open.length > 0 && <div style={{ fontSize: 13, color: 'var(--ink-3)' }}>{`${open.length} waiting on a host`}</div>}
         <p style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 4, maxWidth: 640, lineHeight: 1.5 }}>
           A host who says yes cannot be booked from here yet: accepting takes the guest&apos;s payment on the host&apos;s own
           account, which comes with card payments for partner homes.
