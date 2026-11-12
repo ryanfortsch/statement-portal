@@ -288,7 +288,7 @@ describe('the guards across files', () => {
 
   test('the owner verbs check the owner, and the page is gated', () => {
     const actions = read('src/app/guests/requests/actions.ts');
-    assert.equal((actions.match(/await requireOwnerEmail\(\)/g) ?? []).length, 6);
+    assert.equal((actions.match(/await requireOwnerEmail\(\)/g) ?? []).length, 7);
     assert.ok(read('src/lib/helm-access.ts').includes("'/guests/requests',"));
   });
 

@@ -57,6 +57,8 @@ import { channelLabel, helmConversationId, HELM_SMS_MODULE } from './helm-inbox-
 import { toE164Phone } from './guests-identity-core.ts';
 import { isHelmCode, type BookingConflict } from './bookings-write-core.ts';
 import { isPartnerHome, PARTNER_KIND } from './property-scope.ts';
+import { partnerHoldsInWindow } from './partner-calendar-db.ts';
+import { listedPartnerIds } from './partner-listed.ts';
 import type { BookingFinance } from './channels-types.ts';
 import type { BookingEx } from './channels.ts';
 import type { ReservationPick } from './stay-concierge.ts';
@@ -314,20 +316,23 @@ const HOLD_STATUSES = ['confirmed', 'completed', 'block'];
 /** Canonical holds touching [start, endExclusive), plus every live OTA
  *  closure whatever its duplicate mark (lib/availability nightHolds).
  *
- *  A partner home also counts its accepted booking requests: the host said
- *  yes on staycapeann.com, so the nights are taken. They live only in
- *  booking_requests, never in bookings, so a partner guest never reaches a
- *  cleaner's schedule, the Work board, a statement or the concierge. */
+ *  A partner home also counts its accepted booking requests (the host said
+ *  yes on staycapeann.com) and the nights its host's own calendars hold
+ *  (Airbnb, Vrbo, their software: lib/partner-calendar-db). Both live
+ *  outside bookings, so a partner guest never reaches a cleaner's schedule,
+ *  the Work board, a statement or the concierge. */
 async function holdsInWindow(
   property: Pick<BridgeProperty, 'id' | 'kind'>,
   start: string,
   endExclusive: string,
 ): Promise<AvailabilityBooking[]> {
-  const [stays, requests] = await Promise.all([
+  const partner = isPartnerHome(property);
+  const [stays, requests, hostNights] = await Promise.all([
     staysInWindow(property.id, start, endExclusive),
-    isPartnerHome(property) ? acceptedRequestsInWindow(property.id, start, endExclusive) : Promise.resolve([]),
+    partner ? acceptedRequestsInWindow(property.id, start, endExclusive) : Promise.resolve([]),
+    partner ? partnerHoldsInWindow(property.id, start, endExclusive) : Promise.resolve([]),
   ]);
-  return requests.length > 0 ? [...stays, ...requests] : stays;
+  return requests.length > 0 || hostNights.length > 0 ? [...stays, ...requests, ...hostNights] : stays;
 }
 
 async function acceptedRequestsInWindow(propertyId: string, start: string, endExclusive: string): Promise<AvailabilityBooking[]> {
@@ -1280,7 +1285,12 @@ export async function describeFleetForBridge(
   authority: 'helm' | 'all' = 'helm',
   opts: { now?: Date; includePartners?: boolean } = {},
 ): Promise<BridgePropertyDescription[]> {
-  const props = await listBridgeProperties(authority, { includePartners: opts.includePartners });
+  // Partner homes reach the site only once an owner lists them (lib/partner-listing).
+  let props = await listBridgeProperties(authority, { includePartners: opts.includePartners });
+  if (opts.includePartners && props.some(isPartnerHome)) {
+    const listed = await listedPartnerIds();
+    props = props.filter((p) => !isPartnerHome(p) || listed.has(p.id));
+  }
   if (props.length === 0) return [];
   const links = await channelLinksByProperty(props.map((p) => p.id));
   const out: BridgePropertyDescription[] = [];

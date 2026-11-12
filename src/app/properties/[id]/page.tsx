@@ -83,7 +83,9 @@ import { loadHowWeSellIt } from '@/lib/how-we-sell-it';
 import { loadPricingBundle } from '@/lib/property-rates';
 import { getListingRecord, bedSummary, AMENITY_CATALOG } from '@/lib/listing-content';
 import { getAutomationsPanelView } from '@/lib/automations';
-import { isHelmRun, isCapeAnnOps } from '@/lib/property-scope';
+import { isHelmRun, isCapeAnnOps, isPartnerHome } from '@/lib/property-scope';
+import { loadPartnerSetup } from '@/lib/partner-listing-db';
+import { PartnerHomePanel } from './PartnerHomePanel';
 import { shiftIsoDay, todayInEastern } from '@/lib/sca-quotes-types';
 import type { OwnerCard } from '@/app/properties/actions';
 import { createPropertyNote } from '@/app/properties/actions';
@@ -475,6 +477,9 @@ export default async function PropertyDetailPage({
   // Owner money on this page (the fee, bank digits, owner emails, payouts,
   // the contract) renders for owners only. Staff keep the operations.
   const owner = await isOwnerSession();
+  // A partner home (its own host runs it) opens on its setup: the listing
+  // bar, its calendars and the switch onto staycapeann.com.
+  const partnerSetup = isPartnerHome(p as { kind?: string | null }) ? await loadPartnerSetup(p.id).catch(() => null) : null;
   // The executed management agreement files itself into Documents with its
   // fee terms. Owner money, so a staff login's Documents list omits it.
   const visibleDocuments = owner ? documents : documents.filter((d) => d.source !== 'contract-auto');
@@ -762,7 +767,7 @@ export default async function PropertyDetailPage({
           {p.address}, {p.city}
         </p>
 
-        {!p.is_active && (
+        {!p.is_active && !partnerSetup && (
           <div
             style={{
               marginTop: 14,
@@ -780,6 +785,8 @@ export default async function PropertyDetailPage({
           </div>
         )}
       </section>
+
+      {partnerSetup && <PartnerHomePanel setup={partnerSetup} owner={owner} />}
 
       {/* HEADER BAND — replaces the four stat tiles (Mgmt Fee / Cleaning Est
           / Bank / Owner), which were config rather than state and rendered

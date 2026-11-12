@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react';
+import Link from 'next/link';
 import { HelmFooter } from '@/components/HelmFooter';
 import { EmptyState } from '@/components/EmptyState';
 import { listBookingRequests, type RequestCalendar, type ReviewRequest } from '@/lib/booking-requests-db';
@@ -16,8 +17,10 @@ import {
 import { displayTitle, fmtCents, fmtShortDate } from '@/lib/sca-quotes-types';
 import { listPartnerHomePayments, type PartnerHomePayments } from '@/lib/partner-payments-db';
 import { accountStatusLabel, holdLine, paymentsReady } from '@/lib/partner-payments';
+import { summarizePartnerHomes, type PartnerHomeSummary } from '@/lib/partner-listing-db';
 import { RequestActions } from './RequestActions';
 import { HostPaymentActions } from './HostPaymentActions';
+import { AddPartnerHome } from './AddPartnerHome';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,12 +32,15 @@ export const dynamic = 'force-dynamic';
  * office tells the host by hand (Phase 1), then accepts it (the nights are
  * booked and the card held on the host's Stripe is charged), declines it or
  * lets it close; the guest is emailed each way (src/lib/booking-requests-db.ts).
- * Under the requests, each partner home's payments: its host's Stripe, our
- * fee and the setup link (src/lib/partner-payments-db.ts).
+ * Under the requests, every partner home: how far its setup is and whether
+ * it is on the site (src/lib/partner-listing-db.ts; the work is on its
+ * property page), its host's Stripe, our fee and the setup link
+ * (src/lib/partner-payments-db.ts), and Add a partner home.
  */
 export default async function BookingRequestsPage() {
   const now = new Date();
   const [listed, hosts] = await Promise.all([listBookingRequests({ now }), listPartnerHomePayments().catch(() => null)]);
+  const setups = hosts ? await summarizePartnerHomes(hosts.map((h) => h.home.id), now) : new Map<string, PartnerHomeSummary>();
 
   return (
     <div className="flex-1 flex flex-col">
@@ -44,7 +50,7 @@ export default async function BookingRequestsPage() {
         ) : (
           <RequestList rows={listed.rows} now={now} />
         )}
-        <HostPayments hosts={hosts} now={now} />
+        <PartnerHomes hosts={hosts} setups={setups} now={now} />
       </section>
       <HelmFooter module="Requests" right="Stay Cape Ann · Rising Tide" />
     </div>
@@ -197,16 +203,29 @@ function ClosedRequest({ r, now }: { r: ReviewRequest; now: Date }) {
   );
 }
 
-function HostPayments({ hosts, now }: { hosts: PartnerHomePayments[] | null; now: Date }) {
+function setupLine(s: PartnerHomeSummary | undefined): { text: string; tone: string } {
+  if (!s) return { text: 'Setup not read', tone: 'var(--ink-4)' };
+  if (s.state === 'listed') return { text: `On staycapeann.com since ${s.listedAt ? fmtShortDate(s.listedAt.slice(0, 10)) : ''}`.trim(), tone: '#1d6b46' };
+  if (s.state === 'taken_off') return { text: `Taken off the site · ${s.done} of ${s.total} ready`, tone: 'var(--signal)' };
+  return { text: `Not on the site yet · ${s.done} of ${s.total} ready`, tone: 'var(--ink-3)' };
+}
+
+function PartnerHomes({ hosts, setups, now }: { hosts: PartnerHomePayments[] | null; setups: Map<string, PartnerHomeSummary>; now: Date }) {
   return (
-    <div style={{ marginTop: 56 }}>
-      <h2 className="eyebrow" style={{ marginBottom: 6 }}>Host payments</h2>
+    <div id="partner-homes" style={{ marginTop: 56 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 16, flexWrap: 'wrap', marginBottom: 6 }}>
+        <h2 className="eyebrow">Partner homes</h2>
+      </div>
       <p style={{ fontSize: 12, color: 'var(--ink-4)', marginBottom: 12, maxWidth: 640, lineHeight: 1.5 }}>
-        Each host connects their own Stripe account. Guests are charged there, our fee comes off each charge, and the
-        rest is the host&apos;s. A home takes cards once Stripe approves the host and the fee is set.
+        Homes their own hosts run, listed on staycapeann.com for our fee. Each is built on its property page and goes on the
+        site once every line of its setup is ready. Each host connects their own Stripe account: guests are charged there,
+        our fee comes off each charge, and the rest is the host&apos;s.
       </p>
+      <div style={{ marginBottom: 14 }}>
+        <AddPartnerHome />
+      </div>
       {hosts == null ? (
-        <EmptyState>Ask Ryan: host payments could not be read just now.</EmptyState>
+        <EmptyState>Ask Ryan: partner homes could not be read just now.</EmptyState>
       ) : hosts.length === 0 ? (
         <EmptyState>No partner homes yet.</EmptyState>
       ) : (
@@ -214,14 +233,18 @@ function HostPayments({ hosts, now }: { hosts: PartnerHomePayments[] | null; now
           {hosts.map(({ home, account }) => {
             const ready = paymentsReady(account);
             const label = displayTitle(home.title) || home.name;
+            const setup = setupLine(setups.get(home.id));
             return (
               <div key={home.id} style={{ padding: '14px 4px', borderBottom: '1px solid var(--rule)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 16, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 14, fontWeight: 500 }}>{label}</span>
-                  <span style={{ fontSize: 12.5, color: ready ? '#1d6b46' : 'var(--ink-3)' }}>{accountStatusLabel(account, now)}</span>
+                  <Link href={`/properties/${home.id}#partner-setup`} style={{ fontSize: 14, fontWeight: 500, color: 'inherit' }}>
+                    {label}
+                  </Link>
+                  <span style={{ fontSize: 12.5, color: setup.tone }}>{setup.text}</span>
                 </div>
                 <div className="tabular-nums" style={meta}>
-                  FEE {account?.fee_pct == null ? 'not set' : `${account.fee_pct}% of the stay before tax`}
+                  <span style={{ color: ready ? '#1d6b46' : undefined }}>{accountStatusLabel(account, now)}</span>
+                  {' · '}FEE {account?.fee_pct == null ? 'not set' : `${account.fee_pct}% of the stay before tax`}
                   {account?.status_checked_at && <> · Stripe checked {easternShort(account.status_checked_at)}</>}
                   {account?.setup_token_expires_at && !account.stripe_account_id && <> · link good until {easternShort(account.setup_token_expires_at)}</>}
                 </div>

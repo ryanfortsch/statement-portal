@@ -6,6 +6,8 @@ import { acceptBookingRequest, declineBookingRequest, markHostTold, withdrawBook
 import { makeSetupLink, setFeePct } from '@/lib/partner-payments-db';
 import { parseFeePct, setupLinkFor, MAX_FEE_PCT } from '@/lib/partner-payments';
 import { SCA_SITE_ORIGIN } from '@/lib/booking-request-email';
+import { parseNewPartnerHome } from '@/lib/partner-listing';
+import { createPartnerHome } from '@/lib/partner-listing-db';
 
 /**
  * The owner verbs on /guests/requests. Each returns a result the buttons
@@ -68,4 +70,19 @@ export async function setFeeAction(propertyId: string, raw: string): Promise<Req
   const r = await setFeePct(propertyId, pct);
   revalidatePath('/guests/requests');
   return r.ok ? { ok: true } : { ok: false, error: r.reason };
+}
+
+// ─── A new partner home ─────────────────────────────────────────────────────
+
+export type CreatePartnerResult = { ok: true; id: string } | { ok: false; error: string };
+
+/** Add a partner home. The office finishes it on its property page. */
+export async function createPartnerHomeAction(input: Record<string, string>): Promise<CreatePartnerResult> {
+  const by = await requireOwnerEmail();
+  const parsed = parseNewPartnerHome(input);
+  if (!parsed.ok) return parsed;
+  const r = await createPartnerHome(parsed.home, by);
+  revalidatePath('/guests/requests');
+  revalidatePath('/properties');
+  return r.ok ? { ok: true, id: r.id } : { ok: false, error: r.reason };
 }

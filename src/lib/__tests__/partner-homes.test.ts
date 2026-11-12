@@ -203,6 +203,7 @@ const REVIEWED: Record<string, [number, string]> = {
   'src/lib/mine-checkout-changes.ts': [1, 'names homes on concierge threads; a partner home has none'],
   'src/lib/open-work-for.ts': [1, NAME_MAP],
   'src/lib/organize-work-slips.ts': [1, NAME_MAP],
+  'src/lib/partner-listing-db.ts': [1, 'an id collision check for a new partner home id'],
   'src/lib/payment-links.ts': [1, NAME_MAP],
   'src/lib/pms-guards.ts': [1, 'strict dedupe for Helm calendars; ' + BOOKING_PATH],
   'src/lib/reservation-gap-backfill.ts': [1, 'counts Guesty-run homes\' cached Guesty reservations; a partner home has none'],

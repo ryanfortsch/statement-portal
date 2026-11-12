@@ -5,6 +5,7 @@ import { supabaseAdmin, isServiceConfigured } from '@/lib/supabase-admin';
 import { BOOKING_CHANNELS, type BookingChannel } from '@/lib/channels-types';
 import { auth } from '@/auth';
 import { holdsAreReservations } from '@/lib/ical-cancel-policy';
+import { isPartnerHome } from '@/lib/property-scope';
 
 /**
  * A feed that stops being read can no longer cancel what it imported: its
@@ -80,6 +81,13 @@ export async function saveListing(formData: FormData) {
   if (!propertyId || !channelRaw) throw new Error('Missing property_id or channel');
   if (!BOOKING_CHANNELS.includes(channelRaw as BookingChannel)) throw new Error('Invalid channel');
   const channel = channelRaw as BookingChannel;
+  // A partner home's calendars are added on its property page and read into
+  // partner_calendar_holds (lib/partner-calendar-db); a listing row here
+  // would read the host's guests into bookings.
+  const { data: home } = await supabaseAdmin.from('properties').select('kind').eq('id', propertyId).maybeSingle();
+  if (isPartnerHome({ kind: (home as { kind?: string | null } | null)?.kind ?? null })) {
+    throw new Error('A partner home’s calendars are added on its property page.');
+  }
 
   const row: Record<string, unknown> = {
     property_id: propertyId,
