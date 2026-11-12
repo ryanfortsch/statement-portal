@@ -9,9 +9,11 @@ import { guestAppCss } from './guest-app-css';
  * page stays a thin read (token, open count) around it.
  *
  * `top` is the stay link's slot (/h/s/<token>): "Your stay" inside the
- * window, or the hour it opens. The permanent page passes nothing.
+ * window, or the hour it opens. `join` is its email line on a direct booking
+ * (src/app/h/s/[stay]/StayJoin.tsx). The permanent page passes neither: it is
+ * printed in the house, so whoever reads it may be on an OTA booking.
  */
-export async function GuestAppScreen({ app, top }: { app: GuestApp; top?: React.ReactNode }) {
+export async function GuestAppScreen({ app, top, join }: { app: GuestApp; top?: React.ReactNode; join?: React.ReactNode }) {
   const wifiQr: Record<string, string> = {};
   for (const n of app.wifi) {
     if (!n.joinUri) continue;
@@ -63,7 +65,7 @@ export async function GuestAppScreen({ app, top }: { app: GuestApp; top?: React.
   return (
     <div className="ga" lang="en">
       <style>{guestAppCss}</style>
-      <GuestAppBody app={app} wifiQr={wifiQr} mark={<ScaMark size={36} navy="#FCFAF5" sand="#C8B89A" />} hero={hero} intro={intro} />
+      <GuestAppBody app={app} wifiQr={wifiQr} mark={<ScaMark size={36} navy="#FCFAF5" sand="#C8B89A" />} hero={hero} intro={intro} join={join} />
     </div>
   );
 }

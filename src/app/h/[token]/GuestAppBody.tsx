@@ -36,6 +36,8 @@ type Props = {
   hero: React.ReactNode;
   /** The welcome, and the stay card on a stay link, server-rendered. */
   intro: React.ReactNode;
+  /** The stay link's email line on a direct booking, under "Come back to Cape Ann". The permanent page passes nothing. */
+  join?: React.ReactNode;
 };
 
 const GUIDE_LINKS = [
@@ -66,7 +68,7 @@ function placeText(p: NearbyPlace): string {
   return `${p.name} ${p.town} ${p.category} ${p.blurb}`.toLowerCase();
 }
 
-export function GuestAppBody({ app, wifiQr, mark, hero, intro }: Props) {
+export function GuestAppBody({ app, wifiQr, mark, hero, intro, join }: Props) {
   const [query, setQuery] = useState('');
   const ws = useMemo(() => words(query), [query]);
   // Whether the open page was reached from the home screen, so Back can
@@ -208,6 +210,7 @@ export function GuestAppBody({ app, wifiQr, mark, hero, intro }: Props) {
                   All our homes
                 </a>
               </div>
+              {join}
             </section>
           ) : null}
 

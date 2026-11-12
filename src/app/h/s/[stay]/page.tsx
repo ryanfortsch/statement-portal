@@ -3,9 +3,11 @@ import { cache } from 'react';
 import { auth } from '@/auth';
 import { loadGuestStay, recordStaySeen } from '@/lib/guest-app-stays-db';
 import type { GuestApp } from '@/lib/guest-app';
+import { joinNotice } from '@/lib/guest-app-stays';
 import { GuestAppScreen, InactiveLink, ScaMark } from '../../[token]/GuestAppScreen';
 import { guestAppCss } from '../../[token]/guest-app-css';
 import { StayCard } from './StayCard';
+import { StayJoin } from './StayJoin';
 
 /**
  * One stay's guest app: /h/s/<token> (src/lib/guest-app-stays.ts).
@@ -29,12 +31,18 @@ import { StayCard } from './StayCard';
  * layout's Helm manifest, and a guest's Add to Home Screen then installs
  * Helm and opens its sign-in page. The Helm name and standalone mode are
  * overridden for the same reason.
+ *
+ * On a direct booking only (view.join, stayMayAskEmail) the page carries one
+ * optional email line under "Come back to Cape Ann" and on the thank-you
+ * page; it posts to ./join and comes back with ?join=. An OTA stay's page
+ * asks for nothing (Airbnb's Off-Platform Policy).
  */
 export const dynamic = 'force-dynamic';
 
 const load = cache((token: string) => loadGuestStay(token));
 
 type Params = { params: Promise<{ stay: string }> };
+type PageProps = Params & { searchParams: Promise<Record<string, string | string[] | undefined>> };
 
 function appOf(view: Awaited<ReturnType<typeof loadGuestStay>>): GuestApp | null {
   return view.kind === 'void' ? null : view.app;
@@ -64,23 +72,32 @@ export const viewport: Viewport = {
   themeColor: '#0F2A44',
 };
 
-export default async function GuestStayPage({ params }: Params) {
+export default async function GuestStayPage({ params, searchParams }: PageProps) {
   const { stay: token } = await params;
   const view = await load(token);
   if (view.kind === 'void') return <InactiveLink />;
+  const notice = joinNotice((await searchParams).join);
 
-  // The team previewing from the property page does not count as a guest.
-  if (!(await auth())?.user) await recordStaySeen(token, false);
+  // The team previewing from the property page does not count as a guest,
+  // and neither does the page coming back from the email line's POST.
+  if (!notice && !(await auth())?.user) await recordStaySeen(token, false);
 
-  if (view.kind === 'over') return <StayEnded app={view.app} />;
+  const joinLine = (tone: 'dark' | 'light') => (view.join ? <StayJoin token={token} notice={notice} tone={tone} /> : null);
+  if (view.kind === 'over') return <StayEnded app={view.app} join={joinLine('light')} />;
   if (view.kind === 'before') {
-    return <GuestAppScreen app={view.app} top={<p className="ga-stay-later">{view.opens}</p>} />;
+    return <GuestAppScreen app={view.app} top={<p className="ga-stay-later">{view.opens}</p>} join={joinLine('dark')} />;
   }
-  return <GuestAppScreen app={view.app} top={<StayCard token={token} stay={view.stay} textUs={view.app.contact.text} />} />;
+  return (
+    <GuestAppScreen
+      app={view.app}
+      top={<StayCard token={token} stay={view.stay} textUs={view.app.contact.text} />}
+      join={joinLine('dark')}
+    />
+  );
 }
 
-/** After checkout: thanks, the way back, and nothing about the house. */
-function StayEnded({ app }: { app: GuestApp }) {
+/** After checkout: thanks, the way back, the email line on a direct booking, and nothing about the house. */
+function StayEnded({ app, join }: { app: GuestApp; join: React.ReactNode }) {
   return (
     <div className="ga" lang="en">
       <style>{guestAppCss}</style>
@@ -100,6 +117,7 @@ function StayEnded({ app }: { app: GuestApp }) {
             Book this home again
           </a>
         ) : null}
+        {join}
         <p className="ga-foot-tip">
           <a href="https://staycapeann.com">staycapeann.com</a>
         </p>

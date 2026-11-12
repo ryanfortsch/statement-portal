@@ -188,6 +188,25 @@ export const guestAppCss = `
 .ga-h2-light { color: var(--paper); margin-bottom: 16px; }
 .ga-next-links { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
 
+/* The stay link's email line (direct bookings only; src/app/h/s/[stay]/StayJoin.tsx) */
+.ga-join { margin: 24px auto 0; max-width: 420px; padding-top: 20px; border-top: 1px solid rgba(252,250,245,0.18); text-align: center; scroll-margin-top: 24px; }
+.ga-join-lead, .ga-join-notice { margin: 0 0 12px; font-size: 15px; color: rgba(252,250,245,0.86); }
+.ga-join-notice.is-done { color: var(--paper); font-weight: 600; }
+.ga-join-form { display: flex; gap: 8px; }
+.ga-join-form input[type="email"] { flex: 1 1 auto; min-width: 0; min-height: 46px; font: inherit; font-size: 16px; padding: 0 16px; border-radius: 999px; border: 1px solid rgba(252,250,245,0.45); background: rgba(252,250,245,0.08); color: var(--paper); outline: none; -webkit-appearance: none; appearance: none; }
+.ga-join-form input[type="email"]::placeholder { color: rgba(252,250,245,0.6); }
+.ga-join-form input[type="email"]:focus { border-color: var(--paper); }
+.ga-join-form button.ga-btn { flex: 0 0 auto; border: 0; cursor: pointer; font: inherit; font-size: 13px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; }
+.ga-join-fine { margin: 10px 0 0; font-size: 12px; color: rgba(252,250,245,0.6); }
+.ga-join-light { border-top-color: var(--rule); width: 100%; }
+.ga-join-light .ga-join-lead, .ga-join-light .ga-join-notice { color: var(--ink-2); }
+.ga-join-light .ga-join-notice.is-done { color: var(--ink); }
+.ga-join-light .ga-join-form input[type="email"] { border-color: var(--rule); background: var(--paper); color: var(--ink); }
+.ga-join-light .ga-join-form input[type="email"]::placeholder { color: var(--ink-3); }
+.ga-join-light .ga-join-form input[type="email"]:focus { border-color: var(--ink-3); }
+.ga-join-light .ga-join-fine { color: var(--ink-3); }
+.ga-hp { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
+
 /* Footer */
 .ga-foot { padding: 18px 0 0; font-size: 13px; color: var(--ink-3); text-align: center; }
 .ga-foot p { margin: 0 0 4px; }

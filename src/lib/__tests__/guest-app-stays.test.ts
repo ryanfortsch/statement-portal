@@ -22,9 +22,13 @@ import {
   easternMoment,
   opensLine,
   parseLinkRequest,
+  joinNotice,
+  parseJoinEmail,
   stayMatchesReservation,
+  stayMayAskEmail,
   stayPhase,
   stayWindow,
+  STAY_JOIN_MAX,
   STAY_TOKEN_RE,
   type LiveStayCode,
   type StayLayerInput,
@@ -454,6 +458,86 @@ describe('the bridge request', () => {
   });
 });
 
+describe('the email line: direct bookings only', () => {
+  test('a plainly direct stay may ask; anything an OTA touched may not', () => {
+    assert.equal(stayMayAskEmail('direct', ['direct']), true);
+    // The Guesty feed's copy, and the OTA calendars closing the same nights.
+    assert.equal(stayMayAskEmail('direct', ['direct', 'direct', 'block']), true);
+    for (const ota of ['airbnb', 'vrbo', 'booking_com']) {
+      assert.equal(stayMayAskEmail(ota, [ota]), false, `${ota} must never ask`);
+      assert.equal(stayMayAskEmail(ota, [ota, 'block']), false);
+      // A direct canonical with an OTA twin is not plainly ours.
+      assert.equal(stayMayAskEmail('direct', ['direct', ota]), false, `direct with a ${ota} twin must not ask`);
+    }
+    for (const unclear of ['manual', 'other', 'guesty', null]) {
+      assert.equal(stayMayAskEmail(unclear, [unclear]), false, `${unclear} must not ask`);
+      assert.equal(stayMayAskEmail('direct', ['direct', unclear]), false, `direct with a ${unclear} twin must not ask`);
+    }
+    // A block is never a stay of its own.
+    assert.equal(stayMayAskEmail('block', ['block']), false);
+  });
+
+  test('the email is checked and lowercased; the notice reads only its own words', () => {
+    assert.equal(parseJoinEmail('  Ann.Lee@Example.COM '), 'ann.lee@example.com');
+    for (const bad of ['', 'ann', 'ann@', 'ann@example', 'a b@example.com', null, 42, `${'x'.repeat(320)}@example.com`]) {
+      assert.equal(parseJoinEmail(bad), null, `${String(bad)} is not an email`);
+    }
+    for (const n of ['joined', 'invalid', 'full', 'failed'] as const) assert.equal(joinNotice(n), n);
+    for (const n of ['closed', '<script>', '', undefined, ['joined']]) assert.equal(joinNotice(n), null);
+    assert.ok(STAY_JOIN_MAX > 0 && STAY_JOIN_MAX <= 30);
+  });
+
+  test('the printed home link never asks for anything', () => {
+    for (const f of ['src/app/h/[token]/page.tsx', 'src/app/h/[token]/GuestAppScreen.tsx', 'src/app/h/[token]/GuestAppBody.tsx', 'src/lib/guest-app-db.ts', 'src/lib/guest-app.ts']) {
+      const src = read(f);
+      for (const banned of ['<form', 'type="email"', "type='email'", '<StayJoin', "StayJoin'", "audience-subscribe'", "guest-app-join'", ".from('audience_"]) {
+        assert.ok(!src.includes(banned), `${f} must not carry ${banned}`);
+      }
+    }
+    // The permanent page passes no email line into the shared screen.
+    assert.ok(!/\bjoin=\{/.test(read('src/app/h/[token]/page.tsx')));
+  });
+
+  test('the stay page shows it only when the loader says the stay may ask', () => {
+    const page = read('src/app/h/s/[stay]/page.tsx');
+    assert.match(page, /view\.join \? <StayJoin /);
+    assert.equal(page.match(/<StayJoin /g)?.length, 1, 'one place renders the line, behind the gate');
+    const db = read('src/lib/guest-app-stays-db.ts');
+    assert.match(db, /mayAskEmail: stayMayAskEmail\(found\.canonical\.channel, found\.cluster\.map\(\(r\) => r\.channel\)\)/);
+    assert.match(db, /const BOOKING_COLS = '[^']*\bchannel\b/);
+    const load = db.slice(db.indexOf('export async function loadGuestStay'), db.indexOf('export async function resolveStayForJoin'));
+    assert.match(load, /const join = stay\.mayAskEmail;/);
+    assert.equal(load.match(/, join \}/g)?.length, 3, 'every page view carries the gate');
+    // The line itself asks for an email and nothing else.
+    const line = read('src/app/h/s/[stay]/StayJoin.tsx');
+    assert.equal(line.match(/<input/g)?.length, 2, 'the email and the honeypot');
+    assert.match(line, /name="email"/);
+    assert.match(line, /action=\{`\/h\/s\/\$\{token\}\/join`\}/);
+    for (const banned of ['name="phone"', 'type="tel"', 'name="first_name"', 'name="name"']) assert.ok(!line.includes(banned));
+  });
+
+  test('the write re-checks the stay before anything is stored', () => {
+    const join = read('src/lib/guest-app-join.ts');
+    const gate = join.indexOf('if (!stay || !stay.mayAskEmail) return');
+    assert.ok(gate > 0, 'joinStayList refuses a stay that may not ask');
+    assert.ok(gate < join.indexOf("from('audience_events')") && gate < join.indexOf('subscribeAudienceContact('), 'the gate comes before any read or write');
+    assert.match(join, /resolveStayForJoin\(token\)/);
+    assert.match(join, /if \(count >= STAY_JOIN_MAX\) return 'full';/);
+    // One writer of a typed signup: the stay line and staycapeann.com share it.
+    assert.match(join, /subscribeAudienceContact\(/);
+    const sub = read('src/app/api/guests/subscribe/route.ts');
+    assert.match(sub, /subscribeAudienceContact\(/);
+    assert.ok(!sub.includes("from('audience_contacts')"), 'the public route writes through the shared writer');
+
+    const route = read('src/app/h/s/[stay]/join/route.ts');
+    assert.match(route, /export async function POST\(/);
+    assert.ok(!/export (async )?function (GET|HEAD)\b/.test(route), 'the email line answers POST only');
+    assert.match(route, /if \(!sameOrigin\(req\)\) return new Response\(null, \{ status: 403/);
+    assert.match(route, /joinStayList\(token, form\.get\('email'\)\)/);
+    assert.match(route, /'Cache-Control': 'no-store, max-age=0'/);
+  });
+});
+
 test('easternMoment reads as the guest reads a clock', () => {
   assert.equal(easternMoment(new Date('2026-11-15T15:00:00Z')), '10:00 AM on Sunday, November 15');
 });
@@ -465,6 +549,10 @@ test('no em dashes in anything a guest or the team reads', () => {
     'src/app/h/s/[stay]/page.tsx',
     'src/app/h/s/[stay]/StayCard.tsx',
     'src/app/h/s/[stay]/code/route.ts',
+    'src/app/h/s/[stay]/join/route.ts',
+    'src/app/h/s/[stay]/StayJoin.tsx',
+    'src/lib/guest-app-join.ts',
+    'src/lib/audience-subscribe.ts',
     'src/app/api/guest-app-links/route.ts',
     'src/app/properties/[id]/StayLinkControl.tsx',
     'supabase/migrations/20261111140000_guest_app_stays.sql',
