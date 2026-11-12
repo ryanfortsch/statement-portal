@@ -163,7 +163,7 @@ a conflicting short gap is flagged rather than silently published as fillable.
 | Minimum stays | Weekday/weekend, last-minute, far-out, booking-value heuristic, after-booking adjacency, gaps, events and hard minimum | Before-booking gap prevention and market-learned stay profiles |
 | Historical safety floor | 110% of matched weekday ADR around 52 weeks earlier, two samples required | Exact holiday matching; trusted accommodation-rate ingestion |
 | Recency | Inactive hook; unreliable import timestamps withheld | Complete source provenance and vendor-equivalent eligibility |
-| Portfolio / calendar / charts | Multi-home dashboard with selected-period occupancy and market comparisons, daily calendar, rate comparison, monthly property forecast, CSV export, dated price/forecast history | Multi-calendar bulk editing; automatic market feed |
+| Portfolio / calendar / charts | Multi-home dashboard with selected-period occupancy and market comparisons where evidence exists, daily and multi-home calendars, reviewed local bulk overrides, rate comparison, monthly property forecast, CSV export, dated price/forecast history | Automatic market feed; durable shared settings and verified live delivery |
 | Diagnostics | Coverage, large changes, unfillable gaps, price-floor hits, walk-forward occupancy scores | Forward validation and calibrated uncertainty |
 | Price response / optimization | Explicit elasticity scenario and dynamic programming rate-path experiment | Learned causal response, cancellation/LOS effects and validated net revenue |
 | Evidence storage | Property-scoped, versioned, source/timestamp recorded in each review | Automated data ingestion and provenance audits |
@@ -540,7 +540,7 @@ default calendar view; the Helm draft is an explicit toggle.
 
 | Workflow | Actual-listing prototype | Remaining difference / dependency |
 | --- | --- | --- |
-| Portfolio | Internal names, sortable 7/30/60/90-day metrics, column picker, filters and local group filter | No fabricated market comparison; no bulk multi-calendar editor |
+| Portfolio | Internal names, sortable 7/30/60/90-day metrics, column picker, filters, local group filter, multi-calendar with reviewed local bulk overrides | No fabricated market comparison; no bulk live sync |
 | Price configuration | Base/min/max, current versus proposed calendar/table, exact nightly breakdown | Device-local settings; production storage not installed |
 | Recurring rules | Monthly/weekday factors, flat/gradual last-minute discounts and far-out premiums, custom weekends, occupancy targets, recency switch, gap pricing, historical safety floor | No fixed last-minute prices or full market-driven presets; recency requires verified booking timestamps |
 | Seasonal prices | Annual and dated seasons, fixed or relative base/min/max, default seasonal stays, inheritance and date/stay bound handling | No reusable seasonal pricing/min-stay profile library or seasonal arrival rules |
@@ -779,3 +779,57 @@ rejection, exact matching, canonical statuses/deduplication, invalid/conflicting
 partial counts, sorting and server projections. Synthetic browser checks use 24 homes;
 actual verification is read-only. Remaining: real market access, cancellation history
 and historical pace, durable shared settings, and verified channel delivery.
+
+## Multi-calendar and reviewed bulk overrides — November 11
+
+Reviewed the logged-in PriceLabs Multi Calendar and its
+[official workflow](https://help.pricelabs.co/portal/en/kb/articles/multicalendar),
+alongside [date-specific overrides](https://help.pricelabs.co/portal/en/kb/articles/date-specific-overrides).
+The relevant pattern is a shared date band across listings, optional minimum stays,
+listing selection and a bulk override action. No vendor settings were changed.
+
+The actual-listing workspace now has Dashboard and Multi calendar views. It retains
+the dashboard's existing controls, and the calendar has internal listing names,
+ascending/descending name sort, search, the shared group filter, pinned names and
+date headers, 7/14/30-day spans, and previous/next/today navigation through the
+existing 180-day horizon. Current rates are the default; Helm drafts are explicit.
+Optional minimum stays, booked marks, hatched blocks and exact nightly details use
+the same stored calendars and rule engine as the property view. A listing name
+opens its property workbench; returning retains the multi-calendar's date/filter.
+No base price is invented for an unconfigured listing.
+
+Calendar reads run four at a time, preserve unavailable rows and stop queued reads
+when leaving the view. Responses for another listing are rejected. Stale dates
+withhold prices, matching the existing current-calendar sanitizer. Qualified session
+evidence follows its own listing into the draft view; crossed evidence is rejected.
+
+Select configured listings to create a fixed-price, percentage or minimum-stay-only
+date override, with weekday selection. Review lists the affected homes, changed and
+skipped nights, resulting rate ranges, bound clipping and review requirements before
+one atomic local save. Existing overlapping listing overrides reject the whole
+selection. Unknown/stale/out-of-horizon dates also reject the batch. Booked, blocked
+and manual-price nights are skipped. Seasonal minimum/maximum bounds and the existing
+account/group/listing precedence still apply. The save rechecks the current draft
+and calendar result, then uses the existing cross-tab conflict guard. It writes only
+device-local draft settings; no live rate, production profile or connection changes.
+
+Synthetic browser QA covered 24 homes, 30-day month/year transitions, search, sort,
+horizontal/vertical scrolling with pinned labels, minimum-stay display, an overlap
+rejection, a reviewed two-home save, persistence after reload, exact-night comparison,
+discard/cancel, and property/back navigation. Actual read-only verification loaded
+26 rows, 22 usable calendars and four explicitly unavailable calendars at 800px;
+synthetic desktop QA used 1280px. No actual pricing drafts were changed.
+
+Validation base: `1c86e520cdb84d66f84019d37ba34b320cd341ac`. Thirteen new logic tests
+cover bounded/cancelled loads, calendar dates, stale/crossed evidence, atomic batches,
+overlap rejection, inherited precedence, seasonal limits, protected inventory,
+weekday/minimum-stay edits and unavailable evidence. Shared persistence, automatic
+market data, historical pace and verified channel delivery remain unfinished. This
+slice does not claim full PriceLabs parity or a validated replacement algorithm.
+
+Final gates: 4,498 tests passed, seven skipped (4,505 total); TypeScript, targeted
+ESLint and `git diff --check` passed. Synthetic browser console had no errors.
+Changed files for this slice: `PricingLiveWorkspace.tsx`, `PricingMultiCalendar.tsx`,
+`pricing.css` under `src/app/channels/pricing/`; `dynamic-pricing-multicalendar.ts`
+and its `__tests__/dynamic-pricing-multicalendar.test.ts` under `src/lib/`; this
+pilot document. Branch: `codex/helm-dynamic-pricing`; draft PR #2189. No main merge.

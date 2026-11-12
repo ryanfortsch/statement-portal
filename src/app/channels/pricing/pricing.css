@@ -87,6 +87,65 @@
 .helm-pricing .pricing-activity-details { margin-top: 14px; color: #667488; font-size: 11px; }
 .helm-pricing .pricing-activity-details summary { cursor: pointer; }
 .helm-pricing .pricing-activity-details p { margin-top: 12px; line-height: 1.6; }
+.helm-pricing .pricing-portfolio-views { margin-right: auto; }
+.helm-pricing .pricing-portfolio-tools > .pricing-portfolio-views .rt-quiet-btn,
+.helm-pricing .pricing-multi-toolbar > .pricing-view-switch .rt-quiet-btn { display: flex; align-items: center; gap: 6px; width: auto; height: 32px; padding: 6px 11px; white-space: nowrap; font-size: 12px; }
+.helm-pricing .pricing-portfolio-views svg { width: 14px; height: 14px; }
+.helm-pricing .pricing-multi-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 24px 0 18px; }
+.helm-pricing .pricing-multi-heading h2 { font-size: 23px; font-weight: 550; letter-spacing: -.5px; }
+.helm-pricing .pricing-multi-heading h2 > span { margin-left: 10px; color: var(--pricing-muted); font-size: 12px; font-weight: 400; letter-spacing: 0; }
+.helm-pricing .pricing-multi-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-bottom: 16px; }
+.helm-pricing .pricing-multi-dates { display: flex; align-items: center; gap: 5px; margin-right: auto; }
+.helm-pricing .pricing-multi-dates :is(input,select) { height: 34px; background: white; border: 1px solid var(--pricing-line); border-radius: 5px; padding: 4px 8px; font-size: 12px; }
+.helm-pricing .pricing-multi-scroll { max-height: min(68vh,850px); overflow: auto; overscroll-behavior: contain; scroll-padding: 80px 0 0 218px; scrollbar-width: thin; border: 1px solid var(--pricing-line); border-radius: 9px; background: white; }
+.helm-pricing .pricing-multi-table { width: max-content; min-width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 0; font-size: 12px; }
+.helm-pricing .pricing-multi-name-col { width: 218px; }
+.helm-pricing .pricing-multi-date-col { width: 70px; }
+.helm-pricing .pricing-multi-table :is(th,td) { border-right: 1px solid #edf0ef; border-bottom: 1px solid #e7ebea; padding: 0; }
+.helm-pricing .pricing-multi-table thead { position: sticky; top: 0; z-index: 3; }
+.helm-pricing .pricing-multi-table thead th { background: #f7f9f8; text-align: center; font-weight: 400; height: 51px; }
+.helm-pricing .pricing-multi-table .pricing-multi-months th { height: 27px; font-size: 11px; color: var(--pricing-muted); }
+.helm-pricing .pricing-multi-table .pricing-multi-months .pricing-multi-month-label { position: sticky; left: 230px; width: max-content; margin: 0 12px; font-size: 11px; }
+.helm-pricing .pricing-multi-table thead th :is(span,b) { display: block; }
+.helm-pricing .pricing-multi-table thead th span { font-size: 10px; color: var(--pricing-muted); }
+.helm-pricing .pricing-multi-table thead th b { font-size: 13px; font-weight: 550; }
+.helm-pricing .pricing-multi-table .pricing-multi-pinned { position: sticky; left: 0; z-index: 2; background: white; width: 218px; min-width: 218px; max-width: 218px; border-right: 1px solid #d5ded9; }
+.helm-pricing .pricing-multi-table thead .pricing-multi-pinned { z-index: 4; background: #f7f9f8; }
+.helm-pricing .pricing-multi-pinned > div { display: flex; align-items: center; gap: 10px; padding: 8px 12px; text-align: left; }
+.helm-pricing .pricing-multi-pinned input { flex: 0 0 auto; }
+.helm-pricing .pricing-multi-pinned .rt-quiet-btn { display: flex; align-items: center; gap: 8px; }
+.helm-pricing .pricing-multi-home { min-height: 58px; }
+.helm-pricing .pricing-multi-home > div { min-width: 0; }
+.helm-pricing .pricing-multi-home .rt-quiet-btn { display: block; padding: 0; text-align: left; white-space: normal; font-size: 12px; font-weight: 550; }
+.helm-pricing .pricing-multi-home small { display: block; font-size: 10px; font-weight: 400; color: var(--pricing-muted); margin-top: 3px; }
+.helm-pricing .pricing-multi-table td[data-weekend], .helm-pricing .pricing-multi-table th[data-weekend] { background: #f4f6f5; }
+.helm-pricing .pricing-multi-table th[data-today] b { color: #1f6651; text-decoration: underline; text-underline-offset: 4px; }
+.helm-pricing .pricing-multi-table td[data-state="booked"] { background: #e7eee9; }
+.helm-pricing .pricing-multi-table td[data-state="blocked"] { background: repeating-linear-gradient(-45deg,#fafbfc,#fafbfc 4px,#edf0f1 4px,#edf0f1 5px); }
+.helm-pricing .pricing-multi-table td[data-state="unknown"] { background: #f5f6f7; color: #98a0a8; }
+.helm-pricing .pricing-multi-table .pricing-multi-night { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; width: 70px; min-width: 70px; min-height: 58px; height: 100%; border: 0; border-radius: 0; padding: 10px 3px; font-size: 12px; font-weight: 500; }
+.helm-pricing .pricing-multi-night small { font-size: 10px; font-weight: 400; color: var(--pricing-muted); }
+.helm-pricing .pricing-multi-night > svg { width: 12px; height: 12px; color: #839087; }
+.helm-pricing .pricing-multi-indicator { position: absolute; top: 5px; right: 4px; }
+.helm-pricing .pricing-multi-indicator svg { width: 9px; height: 9px; }
+.helm-pricing .pricing-multi-footer { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 12px; margin-top: 12px; color: var(--pricing-muted); font-size: 10px; }
+.helm-pricing .pricing-multi-selection { display: flex; align-items: center; gap: 12px; padding: 10px 14px; margin-bottom: 12px; background: #e8f0eb; border: 1px solid #d5e3d9; border-radius: 7px; font-size: 12px; }
+.helm-pricing .pricing-multi-empty { padding: 32px; text-align: center; color: var(--pricing-muted); }
+.helm-pricing .pricing-multi-review { overflow: auto; border: 1px solid var(--pricing-line); border-radius: 6px; }
+.helm-pricing .pricing-multi-review table { width: 100%; font-size: 12px; border-collapse: collapse; }
+.helm-pricing .pricing-multi-review :is(th,td) { padding: 12px; text-align: left; border-bottom: 1px solid var(--pricing-line); }
+.helm-pricing .pricing-multi-review thead { background: #f5f7f6; }
+.helm-pricing .pricing-multi-review small { display: block; color: #866426; }
+@container pricing (max-width:580px) {
+  .helm-pricing .pricing-portfolio-tools { flex-wrap: wrap; }
+  .helm-pricing .pricing-multi-heading { align-items: flex-start; flex-direction: column; }
+  .helm-pricing .pricing-multi-name-col { width: 160px; }
+  .helm-pricing .pricing-multi-scroll { scroll-padding-left: 160px; }
+  .helm-pricing .pricing-multi-table .pricing-multi-pinned { width: 160px; min-width: 160px; max-width: 160px; }
+  .helm-pricing .pricing-multi-table .pricing-multi-months .pricing-multi-month-label { left: 172px; }
+  .helm-pricing .pricing-multi-dates { flex-wrap: wrap; }
+  .helm-pricing .pricing-portfolio-views { width: 100%; }
+}
 .helm-pricing .portfolio-price-col { width: 92px; }
 .helm-pricing .portfolio-mode-col { width: 150px; }
 .helm-pricing .portfolio-table th { position: sticky; top: 0; z-index: 3; background: #f7f8fa; padding: 12px 16px; font-size: 11px; font-weight: 500; color: #657182; border-bottom: 1px solid var(--pricing-line); white-space: normal; vertical-align: middle; height: 58px; }

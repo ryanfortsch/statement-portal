@@ -1,5 +1,5 @@
 'use client';
-import {useEffect,useRef,useState} from 'react';
+import {useCallback,useEffect,useRef,useState} from 'react';
 import {Button} from '@/components/Button';
 import {useConfirm} from '@/components/ConfirmDialog';
 import {hasUnsavedWork} from '@/lib/unsaved-work';
@@ -16,6 +16,7 @@ import PricingGroupManager from './PricingGroupManager';
 import PricingCustomizationControls from './PricingCustomizationControls';
 import PricingStayControls from './PricingStayControls';
 import PricingBookingActivity from './PricingBookingActivity';
+import PricingMultiCalendar from './PricingMultiCalendar';
 import './pricing.css';
 
 type Result<T>={ok:true;value:T}|{ok:false;error:string};
@@ -27,6 +28,12 @@ export default function PricingLiveWorkspace({initialPortfolio,refreshAction,cal
   const [drafts,setDrafts]=useState<PricingDrafts>(emptyPricingDrafts),[ready,setReady]=useState(false),[revision,setRevision]=useState(0),[filter,setFilter]=useState(''),[managing,setManaging]=useState(false);
   const stored=useRef<PricingDrafts>(emptyPricingDrafts()),adapters=useRef(new Map<string,DraftServices>());
   const [busy,setBusy]=useState(false),[error,setError]=useState('');const {ask}=useConfirm();
+  const [portfolioView,setPortfolioView]=useState<'listings'|'calendar'>('listings');
+  const readMultiCalendar=useCallback(async(id:string)=>{
+    const result=await calendarAction(id);if(!result.ok)return result;
+    const evidence=adapters.current.get(id)?.inspect().snapshot.evidence;
+    return {ok:true as const,value:evidence?{...result.value,snapshot:{...result.value.snapshot,evidence}}:result.value};
+  },[calendarAction]);
   useEffect(()=>{
     // eslint-disable-next-line react-hooks/set-state-in-effect -- Hydrate browser-only draft settings after SSR before enabling interaction.
     try{const raw=localStorage.getItem(PRICING_DRAFT_STORAGE);if(raw){const parsed=pricingDraftsSchema.parse(JSON.parse(raw));stored.current=parsed;setDrafts(parsed);}}
@@ -54,7 +61,7 @@ export default function PricingLiveWorkspace({initialPortfolio,refreshAction,cal
   return <div className="helm-pricing pricing-live-workspace" aria-busy={busy}>
     <div className="pricing-live-toolbar"><span>Live calendars · {etStamp(portfolio.readAt)} · Drafts saved on this device</span><Button variant="secondary" size="sm" disabled={busy||!ready} onClick={()=>void refresh()}>{busy?'Loading…':'Refresh'}</Button></div>
     {error&&<p role="alert" className="pricing-feedback">{error}</p>}
-    <div hidden={!!calendar} inert={busy||!ready}><div className="pricing-portfolio-tools">{drafts.groups.length>0&&<label className="pricing-group-filter">Group<select value={filter} onChange={e=>setFilter(e.target.value)}><option value="">All listings</option>{drafts.groups.map(g=><option key={g.id} value={g.id}>{pricingGroupName(drafts,g.id)}</option>)}</select></label>}<Button variant="secondary" size="sm" onClick={()=>setManaging(true)}>Groups & rules</Button></div><PricingPortfolio rows={portfolio.rows.filter(r=>!filter||pricingInGroup(drafts,r.id,filter))} observed onOpen={id=>void open(id)}/></div>
+    <div hidden={!!calendar} inert={busy||!ready}><div className="pricing-portfolio-tools"><div className="pricing-view-switch pricing-portfolio-views" role="group" aria-label="Portfolio view"><Button variant="quiet" aria-pressed={portfolioView==='listings'} onClick={()=>setPortfolioView('listings')}><PricingIcon name="table"/>Dashboard</Button><Button variant="quiet" aria-pressed={portfolioView==='calendar'} onClick={()=>setPortfolioView('calendar')}><PricingIcon name="calendar"/>Multi calendar</Button></div>{drafts.groups.length>0&&<label className="pricing-group-filter">Group<select value={filter} onChange={e=>setFilter(e.target.value)}><option value="">All listings</option>{drafts.groups.map(g=><option key={g.id} value={g.id}>{pricingGroupName(drafts,g.id)}</option>)}</select></label>}<Button variant="secondary" size="sm" onClick={()=>setManaging(true)}>Groups & rules</Button></div><div hidden={portfolioView!=='listings'}><PricingPortfolio rows={portfolio.rows.filter(r=>!filter||pricingInGroup(drafts,r.id,filter))} observed onOpen={id=>void open(id)}/></div><div hidden={portfolioView!=='calendar'}><PricingMultiCalendar homes={portfolio.rows} readAt={`${portfolio.readAt}/${revision}`} active={portfolioView==='calendar'&&!calendar&&ready} state={drafts} groupId={filter} readCalendar={readMultiCalendar} onOpen={id=>void open(id)} commit={persist}/></div></div>
     {managing&&<PricingGroupManager state={drafts} homes={portfolio.rows} today={portfolio.rows[0]?.windows[30]?.start??portfolio.readAt.slice(0,10)} commit={persist} close={()=>setManaging(false)}/>}
     {calendar&&selection&&<div inert={busy}>
       {selection.services?<DraftProperty key={`${calendar.home.id}-${revision}`} calendar={calendar} navigation={navigation} services={selection.services} drafts={drafts} commit={persist}/>:<>
