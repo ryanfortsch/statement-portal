@@ -162,3 +162,21 @@ test('multi-home demo saves and publishes only the selected home, with Guesty re
   const undo=await sa.undo(review.value.id);assert.ok(undo.ok);
   assert.deepEqual((await sa.refresh()).value.snapshot.days,a.fixture.snapshot.days);
 });
+
+
+test('fixed 30/60/90 occupancy columns sort their own dates independent of the summary selector',()=>{
+  const f=fixture(Array(90).fill('open'));
+  const rows=['A','B','Missing'].map((name,i)=>{
+    const row={...pricingPortfolioRow(home,f,f.snapshot.today,now),id:name,name};
+    row.windows[30].occupancyPct=[0,90,null][i];row.windows[60].occupancyPct=[80,20,null][i];row.windows[90].occupancyPct=[30,70,null][i];
+    return row;
+  });
+  for(const summary of [7,30,60,90] as const){
+    for(const [sort,ascending] of [['occupancy30',['A','B','Missing']],['occupancy60',['B','A','Missing']],['occupancy90',['A','B','Missing']]] as const){
+      assert.deepEqual(sortPricingPortfolioRows(rows,{sort,direction:'asc',window:summary}).map(r=>r.id),ascending);
+      assert.deepEqual(sortPricingPortfolioRows(rows,{sort,direction:'desc',window:summary}).map(r=>r.id),[ascending[1],ascending[0],'Missing']);
+      const view=pricingPortfolioView({sort,period:String(summary),direction:'desc'});
+      assert.equal(view.sort,sort);assert.equal(pricingPortfolioView(Object.fromEntries(new URL(pricingPortfolioHref(view),'https://helm.example').searchParams)).sort,sort);
+    }
+  }
+});

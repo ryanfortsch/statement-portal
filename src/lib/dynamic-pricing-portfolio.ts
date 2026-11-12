@@ -6,7 +6,7 @@ import type {PricingBookingActivity} from './dynamic-pricing-activity.ts';
 
 export const PRICING_WINDOWS = [7,30,60,90] as const;
 export type PricingWindowDays = typeof PRICING_WINDOWS[number];
-export const PRICING_SORTS = ['name','occupancy','market','gap','open','rate','base','floor','ceiling','connection','booked7','booked45'] as const;
+export const PRICING_SORTS = ['name','occupancy','occupancy30','occupancy60','occupancy90','market','gap','open','rate','base','floor','ceiling','connection','booked7','booked45'] as const;
 export type PricingPortfolioSort = typeof PRICING_SORTS[number];
 export type PricingPortfolioView = {window:PricingWindowDays;query:string;filter:'all'|'below'|'data';sort:PricingPortfolioSort;direction:'asc'|'desc';connection:'all'|'shadow'|'helm_direct'};
 export function pricingPortfolioView(params:Record<string,string|string[]|undefined>={}):PricingPortfolioView {
@@ -53,6 +53,9 @@ export function sortPricingPortfolioRows(rows:PricingPortfolioRow[],view:Pick<Pr
     const w=row.windows[view.window];
     switch(view.sort) {
       case 'name':return row.name;
+      case 'occupancy30':return row.windows[30].occupancyPct;
+      case 'occupancy60':return row.windows[60].occupancyPct;
+      case 'occupancy90':return row.windows[90].occupancyPct;
       case 'connection':return row.mode==='helm_direct'?'Helm direct':'Compare only';
       case 'rate':return row.currentRateCents?.[view.window]??null;
       case 'booked7':case 'booked45':{

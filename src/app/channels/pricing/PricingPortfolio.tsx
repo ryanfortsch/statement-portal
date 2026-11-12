@@ -1,113 +1,70 @@
 'use client';
-import {useEffect,useRef,useState} from 'react';
+import {useEffect,useRef,useState,type ReactNode} from 'react';
 import Link from 'next/link';
 import {Button} from '@/components/Button';
-import {EmptyState} from '@/components/EmptyState';
 import {etStamp} from '@/lib/stable-time';
 import {pricingMoney as money,pricingPercent as percent,pricingDateRange,pricingPeriodDates} from '@/lib/dynamic-pricing-display';
 import {PRICING_WINDOWS,pricingPortfolioView,pricingPortfolioHref,pricingPortfolioTotals,sortPricingPortfolioRows,type PricingPortfolioRow,type PricingWindowDays,type PricingPortfolioView,type PricingPortfolioSort} from '@/lib/dynamic-pricing-portfolio';
-import PricingIcon from './PricingIcon';
 import {pricingActivityValue,pricingActivityDescription} from '@/lib/dynamic-pricing-activity';
+import PricingIcon from './PricingIcon';
 import './pricing.css';
 
-const points=(n:number|null)=>{if(n===null)return '–';const rounded=Math.round(n*10)/10;return `${rounded>0?'+':''}${rounded.toFixed(1)} pts`;};
-const sortLabels:Record<PricingPortfolioSort,string>={name:'Listing',occupancy:'Adj. occupancy',market:'Market occupancy',gap:'Difference',open:'Available nights',rate:'Avg. asking rate',base:'Base price',floor:'Min price',ceiling:'Max price',connection:'Connection',booked7:'Nights booked',booked45:'Nights booked'};
+type Column={key:PricingPortfolioSort;label:string;period?:string;width:number;description:string;render:(r:PricingPortfolioRow)=>ReactNode};
+const points=(n:number|null)=>n===null?'–':`${n>0?'+':''}${Math.round(n*10)/10} pts`;
 
 export default function PricingPortfolio({rows,onOpen,demo=false,observed=false,initialView=pricingPortfolioView()}:{rows:PricingPortfolioRow[];onOpen?:(id:string)=>void;demo?:boolean;observed?:boolean;initialView?:PricingPortfolioView}) {
   const [window,setWindow]=useState<PricingWindowDays>(initialView.window),[query,setQuery]=useState(initialView.query),[filter,setFilter]=useState(initialView.filter);
   const [sort,setSort]=useState(initialView.sort),[direction,setDirection]=useState(initialView.direction),[connection,setConnection]=useState(initialView.connection);
-  const [bounds,setBounds]=useState(false),[showConnection,setShowConnection]=useState(false),[showOpen,setShowOpen]=useState(observed),[showRate,setShowRate]=useState(true);
-  const tableRef=useRef<HTMLDivElement>(null);
-  const [showBooked7,setShowBooked7]=useState(false),[showBooked45,setShowBooked45]=useState(false);
-  useEffect(()=>{tableRef.current?.scrollTo({top:0});},[window,query,filter,sort,direction,connection]);
-  const searched=rows.filter(r=>`${r.name} ${r.city} ${r.id}`.toLowerCase().includes(query.trim().toLowerCase())&&(connection==='all'||connection===r.mode));
-  const needsData=(r:PricingPortfolioRow)=>r.windows[window].unknown>0||(!observed&&r.windows[window].marketIssue!==null)||r.error!==null;
-  const below=(r:PricingPortfolioRow)=>r.windows[window].gapPp!==null&&r.windows[window].gapPp!<0;
-  const visible=sortPricingPortfolioRows(searched.filter(r=>filter==='all'||filter==='below'&&below(r)||filter==='data'&&needsData(r)),{sort,direction,window});
-  // Keep the overview anchored to the full portfolio when narrowing the listing table.
-  const totals=pricingPortfolioTotals(rows,window);
-  const scope=`${totals.comparableHomes} of ${rows.length} homes compared`;
-  const period=`Next ${window} days`,dates=pricingPeriodDates(rows.map(r=>r.windows[window]));
-  const definitions:Partial<Record<PricingPortfolioSort,string>>={
-    occupancy:'Adjusted occupancy: reserved nights divided by reserved plus available nights. All blocked nights are excluded.',
-    market:'Market occupancy on the same bookable dates. Requires current imported market data.',
-    gap:'Your occupancy minus market occupancy, in percentage points.',
-    open:'Nights available to book in this period. Reserved and blocked nights are excluded.',
-    rate:'Average current asking price on available nights in this period, rounded to whole dollars. Excludes taxes, fees and discounts. This is not booked ADR.',
-    booked7:'Whole nights in surviving bookings made in the past 7 days, for any stay dates. ≥ means a verified minimum; incomplete counts sort last.',
-    booked45:'Whole nights in surviving bookings made in the past 45 days, for any stay dates. ≥ means a verified minimum; incomplete counts sort last.',
+  const [optional,setOptional]=useState<PricingPortfolioSort[]>(observed?['occupancy60','occupancy90','rate','booked7']:['market','gap','base']);
+  const table=useRef<HTMLDivElement>(null);
+  useEffect(()=>{table.current?.scrollTo({top:0});},[window,query,filter,sort,direction,connection]);
+  const totals=pricingPortfolioTotals(rows,window),period=`Next ${window} days`,dates=pricingPeriodDates(rows.map(r=>r.windows[window]));
+  const missing=(r:PricingPortfolioRow)=>!!r.error||(observed?[window,30,60,90]:[window]).some(n=>r.windows[n as PricingWindowDays].unknown>0);
+  const unavailable=rows.filter(missing).length;
+  const visible=sortPricingPortfolioRows(rows.filter(r=>`${r.name} ${r.city}`.toLowerCase().includes(query.trim().toLowerCase())&&(connection==='all'||connection===r.mode)&&
+    (filter==='all'||filter==='data'&&missing(r)||filter==='below'&&r.windows[window].gapPp!==null&&r.windows[window].gapPp!<0)),{sort,direction,window});
+  const description='Reserved nights ÷ reserved plus available nights. Blocks excluded. Missing calendars are not treated as vacant.';
+  const occupancy=(r:PricingPortfolioRow,n:PricingWindowDays)=>{
+    const w=r.windows[n];return <div className="portfolio-occupancy-cell" title={`${pricingDateRange(w.start,w.end)}: ${w.unknown?'Calendar incomplete':`${w.booked} reserved / ${w.bookable} bookable nights; ${w.blocked} blocked`}`}>
+      <strong>{percent(w.occupancyPct)}</strong><span aria-hidden="true">{w.occupancyPct!==null&&<i style={{width:`${w.occupancyPct}%`}}/>}</span>
+    </div>;
   };
-  function sortHeader(key:PricingPortfolioSort,label=sortLabels[key]) {
-    const active=sort===key,next=active&&direction==='asc'?'desc':'asc';
-    const definition=definitions[key];
-    const activity=key==='booked7'||key==='booked45',metricPeriod=activity?`Past ${key==='booked7'?7:45} days`:period;
-    return <th scope="col" className={key==='name'?'portfolio-sticky':undefined} aria-sort={active?(direction==='asc'?'ascending':'descending'):undefined}>
-      <Button variant="quiet" title={`${definition?`${definition} ${activity?'':dates+'. '}`:''}Sort ${next==='asc'?'ascending':'descending'}.`} onClick={()=>{setSort(key);setDirection(next);}}>
-        <span>{label}{definition&&<small className="portfolio-metric-period">{metricPeriod}</small>}</span><span className="portfolio-sort-icon" aria-hidden="true" data-active={active||undefined}><svg width="10" height="14" viewBox="0 0 10 14" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round"><path d="m2 5 3-3 3 3" opacity={active&&direction==='desc'?.2:1}/><path d="m2 9 3 3 3-3" opacity={active&&direction==='asc'?.2:1}/></svg></span>
-      </Button>
-    </th>;
-  }
-  function openLink(row:PricingPortfolioRow,review=false) {
-    const label=review?'Review prices':row.name;
-    const className=review?'portfolio-review':'portfolio-home-link';
-    const accessible=review?`Review prices for ${row.name}`:undefined;
-    return onOpen?<Button variant="quiet" size="sm" className={className} aria-label={accessible} title={accessible} onClick={()=>onOpen(row.id)}>{label}</Button>:
-      <Link prefetch={false} href={pricingPortfolioHref({window,query,filter,sort,direction,connection},row.id)} className={className} aria-label={accessible} title={accessible}>{label}</Link>;
-  }
-  function dataNote(row:PricingPortfolioRow) {
-    const w=row.windows[window];
-    return row.error?'Calendar unavailable':w.unknown?'Calendar incomplete':!w.bookable?'No bookable nights':observed?null:w.marketIssue==='stale'?'Market outdated':w.marketIssue==='partial'?'Market incomplete':w.marketIssue==='missing'?'Market unavailable':null;
-  }
-  return <section className="helm-pricing pricing-portfolio" aria-label="Pricing dashboard">
-    <header className="portfolio-overview-heading"><h2>Pricing dashboard <span>{rows.length} homes</span></h2><div className="portfolio-period"><label><span className="sr-only">Metric period</span><select aria-label="Metric period" value={window} onChange={e=>setWindow(Number(e.target.value) as PricingWindowDays)}>{PRICING_WINDOWS.map(n=><option key={n} value={n}>Next {n} days</option>)}</select></label><span>{dates}</span></div></header>
-    <div className="portfolio-overview" role="region" aria-label="Portfolio overview">
-      <div className="portfolio-comparison"><h3 title={definitions.occupancy}>{observed?'Adjusted occupancy':'Occupancy vs market'}<small className="portfolio-metric-period">{period}</small></h3>
-        {(observed?[['Your homes',totals.occupancyPct] as const]:[['Your homes',totals.comparedOccupancyPct] as const,['Market',totals.marketPct] as const]).map(([label,value])=><div className="portfolio-comparison-row" key={label}><span>{label}</span><div aria-hidden="true">{value!==null&&<i style={{width:`${value}%`}}/>}</div><strong>{percent(value)}</strong></div>)}
-        <p hidden={observed}><b>{totals.gapPp===null?'No comparison':`${points(totals.gapPp)} vs market`}</b><span title="Weighted by bookable nights. Both sides use the same homes and dates with complete, current data.">{scope}</span></p>{observed&&<p><span>{totals.booked} of {totals.bookable} bookable nights</span><span>Blocks excluded</span></p>}
-      </div>
-      <div className="portfolio-overview-stat"><h3 title={definitions.open}>Available nights<small className="portfolio-metric-period">{period}</small></h3><strong>{totals.currentHomes?totals.open.toLocaleString('en-US'):'–'}</strong><p>Across {totals.currentHomes} homes</p></div>
-      <div className="portfolio-overview-stat"><h3>{observed?'Reserved nights':'Homes below market'}<small className="portfolio-metric-period">{period}</small></h3><strong>{observed?(totals.currentHomes?totals.booked:'–'):(totals.comparableHomes?totals.belowMarket:'–')}{!observed&&<span> / {totals.comparableHomes}</span>}</strong><p>{observed?'Nights with a booking':'Compared homes'}</p></div>
+  const columns:Column[]=[
+    ...([30,60,90] as const).map(n=>({key:`occupancy${n}` as PricingPortfolioSort,label:'Occupancy',period:`Next ${n} days`,width:100,description,render:(r:PricingPortfolioRow)=>occupancy(r,n)})),
+    {key:'occupancy',label:'Occupancy',period,width:100,description,render:r=>occupancy(r,window)},
+    {key:'market',label:'Market',period,width:100,description:'Market occupancy on the same bookable dates, from current imported evidence.',render:r=><span title={r.marketSource||'Market data unavailable'}>{percent(r.windows[window].marketPct)}</span>},
+    {key:'gap',label:'Difference',period,width:100,description:'Your occupancy minus market occupancy, in percentage points.',render:r=>points(r.windows[window].gapPp)},
+    {key:'open',label:'Available',period,width:94,description:'Available nights in the selected period. Booked and blocked nights excluded.',render:r=>r.windows[window].unknown?'–':r.windows[window].open},
+    {key:'rate',label:'Asking rate',period,width:106,description:'Average current price of available nights, not booked ADR. Taxes and fees excluded.',render:r=>money(r.currentRateCents?.[window]??null)},
+    ...([7,45] as const).map(n=>({key:`booked${n}` as PricingPortfolioSort,label:'Nights booked',period:`Past ${n} days`,width:108,description:'Whole nights in surviving bookings received in this period, for any stay dates. ≥ means incomplete booking-date coverage.',render:(r:PricingPortfolioRow)=><span title={pricingActivityDescription(r.activity,n)}>{pricingActivityValue(r.activity,n)}</span>})),
+    ...(['floor','base','ceiling'] as const).map(key=>({key,label:{floor:'Min price',base:'Base price',ceiling:'Max price'}[key],width:95,description:'Saved pricing policy, not the current nightly rate.',render:(r:PricingPortfolioRow)=>money(key==='floor'?r.floorCents:key==='base'?r.baseCents:r.ceilingCents)})),
+    {key:'connection',label:'Connection',width:120,description:'Pricing authority and delivery mode.',render:r=>r.mode==='helm_direct'?'Helm direct':'Compare only'},
+  ];
+  const primary=observed?'occupancy30':'occupancy',available=columns.filter(c=>observed?['occupancy30','occupancy60','occupancy90','open','rate','booked7','booked45'].includes(c.key):!['occupancy30','occupancy60','occupancy90','rate','booked7','booked45'].includes(c.key));
+  const shown=available.filter(c=>c.key===primary||optional.includes(c.key));
+  function toggle(key:PricingPortfolioSort){setOptional(v=>v.includes(key)?v.filter(k=>k!==key):[...v,key]);if(sort===key){setSort('name');setDirection('asc');}}
+  function header(key:PricingPortfolioSort,label:string,sub?:string,tip?:string){const active=sort===key;return <th key={key} scope="col" className={key==='name'?'portfolio-sticky':undefined} aria-sort={active?(direction==='asc'?'ascending':'descending'):undefined}><Button variant="quiet" title={tip} aria-label={`Sort ${label}${sub?` ${sub}`:''}`} onClick={()=>{setSort(key);setDirection(active&&direction==='asc'?'desc':'asc');}}><span>{label}{sub&&<small>{sub}</small>}</span><span className="portfolio-order" data-active={active||undefined} aria-hidden="true">{active&&direction==='desc'?'↓':'↑'}</span></Button></th>;}
+  function open(row:PricingPortfolioRow,icon=false){const label=icon?<PricingIcon name="next"/>:row.name;return onOpen?<Button variant="quiet" className={icon?'portfolio-open':'portfolio-home-link'} aria-label={icon?`Review prices for ${row.name}`:undefined} onClick={()=>onOpen(row.id)}>{label}</Button>:<Link prefetch={false} className={icon?'portfolio-open':'portfolio-home-link'} aria-label={icon?`Review prices for ${row.name}`:undefined} href={pricingPortfolioHref({window,query,filter,sort,direction,connection},row.id)}>{label}</Link>;}
+  const clear=()=>{setQuery('');setFilter('all');setConnection('all');};
+  return <section className="helm-pricing pricing-portfolio pricing-portfolio-v2" aria-label="Pricing dashboard">
+    <header className="portfolio-title-row"><h2>Portfolio <span>{rows.length} listings</span></h2><div className="portfolio-period"><label><span className="sr-only">Metric period</span><select aria-label="Metric period" value={window} onChange={e=>setWindow(Number(e.target.value) as PricingWindowDays)}>{PRICING_WINDOWS.map(n=><option key={n} value={n}>Summary · next {n} days</option>)}</select></label></div></header>
+    <div className="portfolio-summary-strip" role="region" aria-label="Portfolio overview">
+      <div title={description}><span>{observed?'Occupancy':'Compared occupancy'} <small>{period}</small></span><strong>{percent(observed?totals.occupancyPct:totals.comparedOccupancyPct)}</strong><i className="portfolio-summary-meter" aria-hidden="true"><i style={{width:`${(observed?totals.occupancyPct:totals.comparedOccupancyPct)??0}%`}}/></i></div>
+      <div><span>Available nights <small>{period}</small></span><strong>{totals.currentHomes?totals.open.toLocaleString('en-US'):'–'}</strong></div>
+      <div><span>Reserved nights <small>{period}</small></span><strong>{totals.currentHomes?totals.booked.toLocaleString('en-US'):'–'}</strong></div>
+      {!observed&&<div><span>Market occupancy <small>{totals.comparableHomes} homes compared</small></span><strong>{percent(totals.marketPct)}</strong></div>}
     </div>
-    <header className="portfolio-heading"><h3>Listings <span className="portfolio-count">{visible.length}{visible.length!==rows.length?` / ${rows.length}`:''}</span></h3>
-    <div className="portfolio-controls">
-      <label className="portfolio-search"><span className="sr-only">Search listings</span><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg><input type="search" placeholder="Search listings" value={query} onChange={e=>setQuery(e.target.value)}/></label>
-      <div className="portfolio-toolbar">
-      <details className="pricing-menu" name="portfolio-options"><summary><PricingIcon name="sliders"/>Filters{filter!=='all'||connection!=='all'?<span className="pricing-filter-dot"/>:null}</summary><div className="pricing-menu-panel">
-        <label>Show<select value={filter} onChange={e=>setFilter(e.target.value as PricingPortfolioView['filter'])}><option value="all">All listings</option>{!observed&&<option value="below">Occupancy below market</option>}<option value="data">Unavailable measurements</option></select></label>
-        <label hidden={observed}>Pricing connection<select value={connection} onChange={e=>setConnection(e.target.value as PricingPortfolioView['connection'])}><option value="all">All connections</option><option value="helm_direct">Helm direct</option><option value="shadow">Compare only</option></select></label>
-        <label>Sort by<select value={sort} onChange={e=>{const value=e.target.value as PricingPortfolioSort;setSort(value);setDirection(value==='open'?'desc':'asc');}}>{Object.entries(sortLabels).filter(([key])=>observed?['name','occupancy','open','rate','booked7','booked45'].includes(key):!['rate','booked7','booked45'].includes(key)).map(([value,label])=><option value={value} key={value}>{label}{value==='booked7'?' · past 7 days':value==='booked45'?' · past 45 days':''}</option>)}</select></label>
-        <label>Order<select value={direction} onChange={e=>setDirection(e.target.value as 'asc'|'desc')}><option value="asc">Ascending</option><option value="desc">Descending</option></select></label>
-      </div></details>
-      <details className="pricing-menu" name="portfolio-options"><summary><PricingIcon name="columns"/>Add Column</summary><div className="pricing-menu-panel"><label className="pricing-menu-check"><input type="checkbox" checked={showOpen} onChange={e=>setShowOpen(e.target.checked)}/>Available nights</label>{observed?<label className="pricing-menu-check"><input type="checkbox" checked={showRate} onChange={e=>setShowRate(e.target.checked)}/>Avg. asking rate</label>:<><label className="pricing-menu-check"><input type="checkbox" checked={bounds} onChange={e=>setBounds(e.target.checked)}/>Min / max prices</label><label className="pricing-menu-check"><input type="checkbox" checked={showConnection} onChange={e=>setShowConnection(e.target.checked)}/>Connection</label></>}</div></details>
-      {observed&&<details className="pricing-menu" name="portfolio-options"><summary><PricingIcon name="columns"/>Add Metrics</summary><div className="pricing-menu-panel"><label className="pricing-menu-check"><input type="checkbox" checked={showBooked7} onChange={e=>setShowBooked7(e.target.checked)}/>Nights booked · past 7 days</label><label className="pricing-menu-check"><input type="checkbox" checked={showBooked45} onChange={e=>setShowBooked45(e.target.checked)}/>Nights booked · past 45 days</label></div></details>}
-      {(filter!=='all'||connection!=='all'||query)&&<Button variant="quiet" size="sm" onClick={()=>{setQuery('');setFilter('all');setConnection('all');}} aria-label="Clear filters" title="Clear filters"><PricingIcon name="close"/></Button>}
+    <div className="portfolio-context"><span>{dates} · {totals.currentHomes}/{rows.length} calendars · Blocks excluded</span><span>{observed?'Market data not connected':demo?'Simulated data':`Market: ${totals.comparableHomes} homes compared`}</span></div>
+    <div className="portfolio-command-row"><div className="portfolio-filter-tabs" role="group" aria-label="Listing filters"><Button variant="quiet" aria-pressed={filter==='all'} onClick={()=>setFilter('all')}>All <span>{rows.length}</span></Button>{unavailable>0&&<Button variant="quiet" aria-pressed={filter==='data'} onClick={()=>setFilter('data')}>Unavailable <span>{unavailable}</span></Button>}{!observed&&<Button variant="quiet" aria-pressed={filter==='below'} onClick={()=>setFilter('below')}>Below market <span>{totals.belowMarket}</span></Button>}</div>
+      <div className="portfolio-controls"><label className="portfolio-search"><span className="sr-only">Search listings</span><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg><input type="search" placeholder="Find a listing" value={query} onChange={e=>setQuery(e.target.value)}/></label>
+        <details className="pricing-menu" name="portfolio-options"><summary><PricingIcon name="columns"/>Columns</summary><div className="pricing-menu-panel">{available.filter(c=>c.key!==primary).map(c=><label className="pricing-menu-check" key={c.key}><input type="checkbox" checked={optional.includes(c.key)} onChange={()=>toggle(c.key)}/>{c.label}{c.period?` · ${c.period.toLowerCase()}`:''}</label>)}{!observed&&<label>Connection<select value={connection} onChange={e=>setConnection(e.target.value as PricingPortfolioView['connection'])}><option value="all">All</option><option value="helm_direct">Helm direct</option><option value="shadow">Compare only</option></select></label>}</div></details>
+        {(query||filter!=='all'||connection!=='all')&&<Button variant="quiet" aria-label="Clear filters" title="Clear filters" onClick={clear}><PricingIcon name="close"/></Button>}
       </div>
     </div>
-    </header>
-    <div className="portfolio-surface">
-    <div ref={tableRef} className="portfolio-table-wrap" tabIndex={0} role="region" aria-label="Listing prices and occupancy. Scroll for more listings and columns."><table className="portfolio-table" style={{minWidth:`calc(var(--portfolio-listing-width) + ${observed?116*(1+Number(showOpen)+Number(showRate)+Number(showBooked7)+Number(showBooked45))+112:3*116+92+112+(showOpen?116:0)+(bounds?184:0)+(showConnection?150:0)}px)`}}><colgroup><col className="portfolio-listing-col"/><col className="portfolio-metric-col"/>{observed?<>{showOpen&&<col className="portfolio-metric-col"/>}{showRate&&<col className="portfolio-metric-col"/>}{showBooked7&&<col className="portfolio-metric-col"/>}{showBooked45&&<col className="portfolio-metric-col"/>}</>:<><col className="portfolio-metric-col"/><col className="portfolio-metric-col"/>{showOpen&&<col className="portfolio-metric-col"/>}{bounds&&<col className="portfolio-price-col"/>}<col className="portfolio-price-col"/>{bounds&&<col className="portfolio-price-col"/>}{showConnection&&<col className="portfolio-mode-col"/>}</>}<col className="portfolio-action-col"/></colgroup><caption className="sr-only">{period}, {dates}: {observed?'adjusted occupancy, available nights and average current asking rate on available nights. Blocked nights excluded.':'your adjusted occupancy and market occupancy, excluding blocked nights. Difference is in percentage points.'}</caption><thead><tr>
-      {sortHeader('name')}{sortHeader('occupancy')}{observed?<>{showOpen&&sortHeader('open')}{showRate&&sortHeader('rate')}{showBooked7&&sortHeader('booked7')}{showBooked45&&sortHeader('booked45')}</>:<>{sortHeader('market')}{sortHeader('gap')}{showOpen&&sortHeader('open')}
-      {bounds&&sortHeader('floor','Min')}{sortHeader('base')}{bounds&&sortHeader('ceiling','Max')}{showConnection&&sortHeader('connection')}</>}<th scope="col">Calendar</th>
-    </tr></thead><tbody>{visible.map(row=>{const w=row.windows[window],note=dataNote(row);return <tr key={row.id}>
-      <td className="portfolio-home portfolio-sticky">{openLink(row)}<span hidden={observed} className="portfolio-home-meta">{row.city}{row.bedrooms!==null?` · ${row.bedrooms} BR`:''}</span>{note&&<span className="portfolio-data-note">{note}</span>}</td>
-      <td className="portfolio-value" title={`${pricingDateRange(w.start,w.end)}: ${w.unknown?'Calendar incomplete':`${w.booked} reserved / ${w.bookable} bookable nights; ${w.blocked} blocked nights excluded`}`}>{percent(w.occupancyPct)}</td>
-      {observed?<>{showOpen&&<td className="portfolio-value" title={`${pricingDateRange(w.start,w.end)}: nights available to book`}>{w.unknown?'–':w.open}</td>}{showRate&&<td className="portfolio-base" title={`${pricingDateRange(w.start,w.end)}: average asking rate on available nights. Taxes, fees and discounts excluded.`}><b>{money(row.currentRateCents?.[window]??null)}</b></td>}{([7,45] as const).filter(n=>n===7?showBooked7:showBooked45).map(n=><td key={n} className={`portfolio-value${row.activity?.undatedStays?' portfolio-partial':''}`} title={pricingActivityDescription(row.activity,n)}>{pricingActivityValue(row.activity,n)}</td>)}</>:<><td className="portfolio-value" title={w.marketPct===null?(note??'Market unavailable'):`${row.marketSource}; ${row.marketObservedAt?etStamp(row.marketObservedAt):'observation time unavailable'}`}>{percent(w.marketPct)}</td>
-      <td><span className="portfolio-difference" data-direction={w.gapPp===null?'unknown':w.gapPp<0?'below':w.gapPp>0?'above':'even'} title="Percentage points: your occupancy minus market occupancy">{points(w.gapPp)}</span></td>
-      {showOpen&&<td className="portfolio-value" title={`${pricingDateRange(w.start,w.end)}: nights available to book`}>{w.unknown?'–':w.open}</td>}
-      {bounds&&<td>{money(row.floorCents)}</td>}<td className="portfolio-base"><b title={!row.configured?'Draft base price':undefined}>{money(row.baseCents)}</b></td>{bounds&&<td>{money(row.ceilingCents)}</td>}
-      {showConnection&&<td><span className="portfolio-connection-state" data-connected={row.mode==='helm_direct'||undefined}>{row.mode==='helm_direct'?'Helm direct':'Compare only'}</span><span className="portfolio-row-note">{row.lastAppliedAt?`Published ${etStamp(row.lastAppliedAt)}`:row.mode==='helm_direct'?'Manual publish':'Publishing off'}</span></td>}
-      </>}<td>{openLink(row,true)}</td>
-    </tr>;})}</tbody></table></div>
-    {!visible.length&&<div className="portfolio-empty"><EmptyState>{rows.length?'No listings match these filters.':'No active listings found.'}</EmptyState></div>}
-    <div className="portfolio-table-footer"><span>{dates} · Blocks excluded</span><span>{totals.currentHomes} / {rows.length} calendars available</span></div></div>
-    <footer className="portfolio-footer"><details className="portfolio-method"><summary>Sources & methodology</summary>
-      <p>{observed?'Current calendar records from Helm. Guesty homes use their latest stored sync; Helm-run homes use canonical availability and rates. This view cannot change or publish prices. No market feed is connected.':demo?'All homes, bookings, prices and market values in this preview are simulated. No live market feed is connected.':'Market comparisons use per-home imports. No automatic market-data feed is connected.'}</p>
-      <p>Adjusted occupancy is reserved nights divided by reserved plus available nights. All blocked nights are excluded. These are on-the-books figures, not a prediction of final occupancy. {observed?'Average asking rate is the current nightly price on available dates, not booked ADR or a proposed price. All available nights must have a current USD price; otherwise it stays blank. Rates and occupancy display as whole dollars and percentages; calculations retain full precision.':'Difference is your occupancy minus market occupancy, in percentage points.'}</p>
-      <p>{period} includes today and the following {window-1} nights in each property’s time zone, through the end date shown. Available nights exclude reservations and blocks; they may require a minimum stay. Reserved nights count stay dates in this period, not nights newly booked recently.</p>
-      {observed&&<p>Nights booked counts whole nights in currently confirmed or completed bookings received in the past 7 or 45 days, including today in the property’s time zone, for any stay dates. Original Guesty dates must match a canonical stay by confirmation code and stay dates; direct Helm bookings use their recorded booking time. Import and manual-entry times are not treated as booking dates. ≥ marks a verified minimum when other stays lack dates; incomplete zero counts stay blank. Incomplete counts sort after complete counts. These are surviving bookings, not net pickup or same-time-last-year pace.</p>}
-      <p>The overview covers all {rows.length} homes and the selected period, regardless of table filters. Market comparisons include only homes with complete, current data on both sides, weighted by bookable nights. Night totals include complete calendars only.</p>
-      <p hidden={observed}>Market is the average imported daily occupancy for the same bookable dates. Both sources need complete coverage, updated within 36 hours. Missing or stale data shows a dash.</p>
-      <ul>{rows.map(row=><li key={row.id}><b>{row.name}:</b> calendar {row.observedAt?etStamp(row.observedAt):'unavailable'}; {row.marketSource||'no market source'}{row.marketObservedAt?` · ${etStamp(row.marketObservedAt)}`:''}.</li>)}</ul>
-    </details><span className="portfolio-source-status">{observed?'Market: not connected':demo?'Market: simulated':`Market: imports · ${totals.comparableHomes}/${rows.length} compared`}</span><span role="status" className="sr-only">{visible.length===rows.length?`${rows.length} listings`:`${visible.length} of ${rows.length} listings`}</span></footer>
+    <div className="portfolio-surface"><div ref={table} className="portfolio-table-wrap" tabIndex={0} role="region" aria-label="Listing prices and occupancy. Scroll for more listings and columns."><table className="portfolio-table" style={{minWidth:180+shown.reduce((n,c)=>n+c.width,0)+42}}><colgroup><col style={{width:180}}/>{shown.map(c=><col key={c.key} style={{width:c.width}}/>)}<col style={{width:42}}/></colgroup><caption className="sr-only">Forward occupancy uses the period in each column. Asking rates and available nights use {period}, {dates}. Nights booked uses the past window shown.</caption><thead><tr>{header('name','Listing')}{shown.map(c=>header(c.key,c.label,c.period,c.description))}<th scope="col"><span className="sr-only">Open calendar</span></th></tr></thead><tbody>{visible.map(row=><tr key={row.id}><td className="portfolio-home portfolio-sticky">{open(row)}{missing(row)?<span className="portfolio-data-note">{row.error?'Calendar unavailable':'Calendar incomplete'}</span>:!row.windows[window].bookable?<span className="portfolio-data-note">Fully blocked</span>:null}</td>{shown.map(c=><td key={c.key} className="portfolio-number">{c.render(row)}</td>)}<td>{open(row,true)}</td></tr>)}</tbody></table></div>
+      {!visible.length&&<div className="portfolio-empty"><p>{rows.length?'No listings match.':'No active listings.'}</p>{rows.length>0&&<Button variant="quiet" onClick={clear}>Clear filters</Button>}</div>}
+      <div className="portfolio-table-footer"><span role="status">{visible.length} of {rows.length} listings</span><span>USD / night · Current asking rates</span></div>
+    </div>
+    <footer className="portfolio-footer"><details className="portfolio-method"><summary>Sources & definitions</summary><p>{observed?'Rates and availability come from Helm’s stored Guesty mirrors and native calendars. Refresh rereads Helm; it does not force an upstream sync. No independent market feed is connected.':demo?'All listing, rate and market figures are simulated.':'Market comparisons require current, complete imported evidence.'}</p><p>{description} These figures are current booked occupancy, not a forecast of final occupancy. Each column names its date horizon. Summary totals cover the whole portfolio regardless of table filters. The summary period also controls asking-rate and available-night columns.</p><p>Asking rate is the average available nightly price, not booked ADR. Nights booked counts whole nights in surviving confirmed/completed bookings received in the past 7 or 45 local days, for any stay dates. ≥ means some original booking dates are unverified; those measurements sort last. Counts do not reconstruct net cancellations or historical pace.</p><p>Missing or stale calendar data stays blank. Market comparisons use the same homes and bookable dates on both sides. The summary’s market figure covers {totals.comparableHomes} homes; matched listing occupancy is {percent(totals.comparedOccupancyPct)}.</p><ul>{rows.map(row=><li key={row.id}>{row.name}: calendar {row.observedAt?etStamp(row.observedAt):'unavailable'}; {row.marketSource||'no market source'}.</li>)}</ul></details></footer>
   </section>;
 }

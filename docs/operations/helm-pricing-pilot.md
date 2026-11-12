@@ -833,3 +833,44 @@ Changed files for this slice: `PricingLiveWorkspace.tsx`, `PricingMultiCalendar.
 `pricing.css` under `src/app/channels/pricing/`; `dynamic-pricing-multicalendar.ts`
 and its `__tests__/dynamic-pricing-multicalendar.test.ts` under `src/lib/`; this
 pilot document. Branch: `codex/helm-dynamic-pricing`; draft PR #2189. No main merge.
+
+## Adversarial workflow review and redesign — November 11
+
+Reviewed the actual 800px workspace by trying to compare a 26-listing portfolio,
+identify missing evidence, open a home, inspect November, change rules, and return
+without losing the table view. The earlier design failed the primary workflow:
+
+| Finding | Change |
+| --- | --- |
+| Headers, large summary cards and stacked toolbars consumed most of the dashboard. Only three full listing rows appeared in the initial 800×826 view. | Compact totals and one table toolbar. Eight listings fit in the same viewport, with clear date labels. |
+| Forward occupancy horizons required changing a global selector and remembering earlier values. | Default 30/60/90-day columns together, with proportional bars and independent sorting. Summary/asking-rate periods and recent-booking windows remain separately labeled. |
+| The configured property's calendar panel began around 695px down at this width. | Prices and occupancy sit in a compact sidebar above 650px. Calderwood's calendar panel begins at 262px; the full remaining November grid is visible. Narrow layouts stack the controls. |
+| Two separate column menus, a repeated Review prices button on every row, and repeated unavailable market values added noise. | One Columns menu, a compact row arrow, and one explicit market-data status. Known market comparisons retain Home/Market labels; missing market is never zero. |
+| Opening a low row could retain the page's old vertical scroll. Numeric spinners clipped four-digit limits in a narrow sidebar. | Opening a property returns to the page top. Price inputs have sufficient width and retain numeric keyboard input without the inset spinner. |
+| A blank fully blocked home looked like an incomplete calendar. | Fully blocked calendars are labeled separately; incomplete/missing calendars remain blank and filterable. |
+
+Recent booking details now live in Performance and the dashboard's configurable
+past-7/past-45 columns. Rules, shared groups, date overrides, minimum stays, seasonal
+settings, market/evidence tools and the multi-calendar remain accessible. This is a
+workflow redesign, not evidence that the pricing model is calibrated.
+
+Regression coverage: fixed horizon sorts are tested across all four summary periods,
+both directions, missing values and view-link round trips. Browser checks covered
+24 synthetic homes, column selection, period changes, sorting, incomplete-data
+filtering, rule dialogs, invalid bounds, unsaved-change rejection, preserved search,
+Performance booking details and multi-calendar access. The actual 26-home check was
+read-only; base/min/max and live rates were not changed. The 390px embedded fixture
+was visually checked after fixing wrapped toolbar controls; the browser viewport
+override itself did not apply, so a native phone viewport is not claimed. No synthetic
+browser console errors were observed.
+
+Base: `2d4fb440499b3baa9f2a01aede2764045df433f8`; branch
+`codex/helm-dynamic-pricing`. Final code gates: 4,515 passed, seven skipped
+(4,522 total), TypeScript, targeted ESLint and diff checks clean. The final CSS-only
+spacing changes were verified in the browser. Changed files: `PricingPortfolio.tsx`,
+`PricingWorkbench.tsx`, `PricingOccupancy.tsx`, `PricingLiveWorkspace.tsx`, `pricing.css`,
+the portfolio logic and its test, the synthetic preview fixture, and this document.
+
+Unresolved product dependencies remain explicit: automatic licensed market data,
+historical pace/cancellation evidence, durable shared draft storage, calibrated model
+performance, and verified live rate delivery. No production migration or main merge.

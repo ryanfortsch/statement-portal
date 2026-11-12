@@ -66,7 +66,7 @@ export default function PricingWorkbench({propertyId,name,authority,navigation,i
     setProfile(r.value);setReview(null);
     await refresh();setMessage('');
   });}
-  return <div className="helm-pricing">
+  return <div className="helm-pricing pricing-workbench-v2">
     <header className="pricing-workbench-header">
       <div className="pricing-title-block" title={`${authority==='helm'?'Helm':'Guesty'} · Updated ${etStamp(snapshot.observedAt)}`}>{navigation}<h2 className={navigation?'sr-only':'pricing-property-title'}>{name}</h2></div>
       <div className="pricing-header-actions">{draftOnly?<span className="pricing-connection">Draft · Not syncing</span>:<Button variant="quiet" className="pricing-connection" data-connected={profile?.mode==='helm_direct'||undefined} onClick={()=>openCustomizations('connection')}>{profile?.mode==='helm_direct'?'Helm direct':'Compare only'}</Button>}
@@ -95,10 +95,11 @@ export default function PricingWorkbench({propertyId,name,authority,navigation,i
           </div>
           <div className="pricing-configure-actions"><Button variant={!dirty?'secondary':'primary'} title="Save rules and refresh the preview. Does not publish rates." disabled={busy||!preview||!dirty} onClick={()=>void saveRules()}>{!dirty?'Saved':draftOnly?'Save draft':'Save'}</Button><Button variant="secondary" onClick={()=>openCustomizations()}><PricingIcon name="sliders"/>Rules</Button></div>
         </fieldset>
-        <div className="pricing-listing-metrics" aria-label="Listing occupancy"><div className="pricing-metrics-heading"><h3>Adjusted occupancy</h3></div>{listingMetrics.map(w=><div className="pricing-listing-metric" key={w.nights}><span>Next {w.nights} days</span><PricingOccupancy window={w}/></div>)}{listingActivity}</div>
+        <div className="pricing-listing-metrics" aria-label="Listing occupancy"><div className="pricing-metrics-heading"><h3>Adjusted occupancy</h3></div>{listingMetrics.map(w=><div className="pricing-listing-metric" key={w.nights}><span>Next {w.nights} days</span><PricingOccupancy window={w} compact/></div>)}<span className="pricing-market-availability">{listingMetrics.some(w=>w.marketPct!==null)?"Market benchmark shown":snapshot.evidence?.market.length?"Market data unavailable":"Market data not connected"}</span></div>
       </aside>
       <div className="pricing-calendar-workspace">{draftOnly&&<div className="pricing-draft-toolbar"><div className="pricing-view-switch" role="group" aria-label="Rates shown"><Button variant="quiet" aria-pressed={currentOnly} onClick={()=>setCurrentOnly(true)}>Current rates</Button><Button variant="quiet" aria-pressed={!currentOnly} onClick={()=>setCurrentOnly(false)}>Helm draft</Button></div>{calendarTools}</div>}<PricingCalendar key={review?.id??'draft'} snapshot={snapshot} preview={currentOnly?null:preview} currentOnly={currentOnly} onOverride={onOverride}/></div>
     </div>
+    {section==='occupancy'&&listingActivity}
     <PricingInsights draftOnly={draftOnly} onOpenData={()=>setSection('data')} view={section==='occupancy'?'occupancy':section==='data'?'data':section==='market'?'market':'hidden'} propertyId={propertyId} snapshot={snapshot} preview={preview} policy={policy} busy={busy}
       onUseLearned={base=>{setPolicy(p=>({...p,baseCents:Math.max(p.floorCents,Math.min(p.ceilingCents,base)),priceShape:'history'}));setReview(null);setSection('prices');openCustomizations();}}
       onSave={async data=>perform(async()=>{const r=await services.evidence({propertyId,data,version:evidenceVersion});if(!r.ok)throw Error(r.error);

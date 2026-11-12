@@ -588,3 +588,161 @@ body:has(.pricing-page-shell) { background: #f6f7f8; }
 .helm-pricing .pricing-stay-result dl>div:last-child {padding-top:14px;border-top:1px solid var(--pricing-line);font-weight:600;font-size:15px}
 .helm-pricing .pricing-stay-result :is(ul,p) {margin-top:12px;color:var(--pricing-muted);font-size:12px;line-height:1.6}
 .helm-pricing .pricing-stay-result ul {padding-left:16px;list-style:disc}
+
+/* Pricing workspace: the portfolio and calendar carry the hierarchy. */
+.helm-pricing.pricing-live-workspace { --pricing-ink:#24322f; --pricing-muted:#65746e; --pricing-line:#dee5e1; }
+.helm-pricing .pricing-live-toolbar { padding-top:10px; gap:10px; font-size:11px; min-height:38px; }
+.helm-pricing .pricing-live-toolbar > span { display:flex; align-items:center; gap:7px; }
+.helm-pricing .pricing-live-toolbar > .rt-btn { min-height:28px; padding:4px 9px; font-size:11px; box-shadow:none; }
+.helm-pricing .pricing-source-dot { display:inline-block; width:5px; height:5px; border-radius:50%; background:#6f8d7d; }
+.helm-pricing .pricing-local-label { margin-left:6px; padding-left:12px; border-left:1px solid var(--pricing-line); }
+.helm-pricing .pricing-portfolio-tools { margin:10px 0 0; padding:0 0 12px; border-bottom:1px solid var(--pricing-line); gap:10px; }
+.helm-pricing .pricing-portfolio-tools > .pricing-portfolio-views { border:0; background:transparent; padding:0; gap:18px; }
+.helm-pricing .pricing-portfolio-tools > .pricing-portfolio-views .rt-quiet-btn { padding:8px 0; border-radius:0; background:none; border-bottom:2px solid transparent; color:#738079; font-weight:500; }
+.helm-pricing .pricing-portfolio-tools > .pricing-portfolio-views [aria-pressed=true] { border-color:#315e4c; color:#254d3d; }
+.helm-pricing .pricing-portfolio-tools > .rt-btn { min-height:30px; font-size:12px; box-shadow:none; }
+.helm-pricing .pricing-group-filter select { padding:5px 8px; max-width:180px; }
+.helm-pricing .pricing-portfolio-v2 { --portfolio-listing-width:180px; padding-top:0; }
+.helm-pricing .portfolio-title-row { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:18px 0 14px; }
+.helm-pricing .portfolio-title-row h2 { font-size:24px; letter-spacing:-.7px; font-weight:600; line-height:1.2; }
+.helm-pricing .portfolio-title-row h2 > span { font-size:12px; color:var(--pricing-muted); font-weight:400; margin-left:10px; letter-spacing:0; }
+.helm-pricing .portfolio-title-row select { padding:6px 8px; font-size:11px; background:transparent; border-color:transparent; }
+.helm-pricing .portfolio-summary-strip { display:grid; grid-auto-flow:column; grid-auto-columns:1fr; background:#fff; border:1px solid var(--pricing-line); border-radius:8px; overflow:hidden; }
+.helm-pricing .portfolio-summary-strip > div { position:relative; display:flex; align-items:center; flex-wrap:wrap; gap:5px 16px; padding:15px 18px; border-right:1px solid var(--pricing-line); }
+.helm-pricing .portfolio-summary-strip > div:last-child { border-right:0; }
+.helm-pricing .portfolio-summary-strip > div:first-child { background:#f1f6f2; }
+.helm-pricing .portfolio-summary-strip > div > span { flex:1; font-size:12px; font-weight:500; color:#394d43; }
+.helm-pricing .portfolio-summary-strip small { display:block; font-size:10px; font-weight:400; color:var(--pricing-muted); margin-top:3px; }
+.helm-pricing .portfolio-summary-strip strong { font-size:29px; font-weight:550; letter-spacing:-1px; line-height:1; }
+.helm-pricing .portfolio-summary-meter { position:absolute; left:0; bottom:0; right:0; height:3px; background:#e9efeb; }
+.helm-pricing .portfolio-summary-meter > i { display:block; height:100%; background:#467b60; }
+.helm-pricing .portfolio-context { display:flex; justify-content:space-between; flex-wrap:wrap; gap:5px 12px; font-size:10px; color:var(--pricing-muted); padding:8px 1px 14px; }
+.helm-pricing .portfolio-command-row { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:10px; }
+.helm-pricing .portfolio-filter-tabs { display:flex; gap:4px; white-space:nowrap; }
+.helm-pricing .portfolio-filter-tabs .rt-quiet-btn { display:flex; align-items:center; gap:7px; padding:6px 9px; border-radius:5px; font-size:12px; color:#69766f; }
+.helm-pricing .portfolio-filter-tabs [aria-pressed=true] { background:#e8eeea; color:#243d30; }
+.helm-pricing .portfolio-filter-tabs span { font-size:10px; color:#738277; }
+.helm-pricing .pricing-portfolio-v2 .portfolio-controls { gap:8px; }
+.helm-pricing .pricing-portfolio-v2 .portfolio-search { width:195px; border-radius:5px; }
+.helm-pricing .pricing-portfolio-v2 .portfolio-search input { padding-top:7px; padding-bottom:7px; }
+.helm-pricing .pricing-portfolio-v2 .pricing-menu summary { min-height:32px; padding:6px 9px; font-size:12px; }
+.helm-pricing .pricing-portfolio-v2 .portfolio-table-wrap { max-height:max(360px,calc(100dvh - 370px)); border-radius:7px 7px 0 0; scroll-padding-top:56px; }
+.helm-pricing .pricing-portfolio-v2 .portfolio-table th { height:55px; padding:9px 12px; background:#f3f6f4; color:#45594b; font-size:11px; }
+.helm-pricing .pricing-portfolio-v2 .portfolio-table th small { display:block; color:#718077; font-size:10px; font-weight:400; margin-top:3px; white-space:nowrap; }
+.helm-pricing .pricing-portfolio-v2 .portfolio-table th .rt-quiet-btn { position:relative; }
+.helm-pricing .portfolio-order { position:absolute; right:-6px; opacity:0; color:#355c46; font-size:12px; }
+.helm-pricing th:hover .portfolio-order,.helm-pricing .portfolio-order[data-active] { opacity:1; }
+.helm-pricing .pricing-portfolio-v2 .portfolio-table td { height:47px; padding:8px 12px; font-size:13px; }
+.helm-pricing .pricing-portfolio-v2 .portfolio-home-link { font-size:13px; color:#283f32; font-weight:550; line-height:1.3; }
+.helm-pricing .pricing-portfolio-v2 .portfolio-data-note { font-size:10px; margin-top:3px; color:#926f43; }
+.helm-pricing .portfolio-number { font-variant-numeric:tabular-nums; color:#304537; }
+.helm-pricing .portfolio-occupancy-cell { width:100%; max-width:66px; }
+.helm-pricing .portfolio-occupancy-cell strong { display:block; font-size:14px; line-height:1; font-weight:500; }
+.helm-pricing .portfolio-occupancy-cell > span { display:block; height:3px; border-radius:2px; background:#edf1ee; margin-top:7px; overflow:hidden; }
+.helm-pricing .portfolio-occupancy-cell i { display:block; height:100%; background:#7eaa8f; border-radius:2px; }
+.helm-pricing .portfolio-open { display:flex; justify-content:center; align-items:center; width:28px; height:28px; border-radius:5px; color:#7a8c80; }
+.helm-pricing .portfolio-open:hover { background:#e9f0eb; color:#254d3c; }
+.helm-pricing .pricing-portfolio-v2 .portfolio-table :is(th,td):last-child { padding:0 6px; }
+.helm-pricing .pricing-portfolio-v2 .portfolio-table-footer { padding:8px 12px; font-size:10px; }
+.helm-pricing .pricing-portfolio-v2 .portfolio-footer { margin-top:10px; padding-top:0; }
+.helm-pricing .pricing-portfolio-v2 .portfolio-method summary { font-size:10px; }
+.helm-pricing .pricing-multi-heading { margin:16px 0 12px; }
+.helm-pricing .pricing-multi-heading h2 { font-size:24px; }
+.helm-pricing .pricing-multi-toolbar { gap:10px; margin-bottom:10px; }
+.helm-pricing .pricing-multi-home { min-height:44px; }
+.helm-pricing .pricing-multi-table .pricing-multi-night { min-height:44px; padding:7px 3px; gap:3px; }
+.helm-pricing .pricing-multi-scroll { max-height:max(360px,calc(100dvh - 285px)); }
+/* Property: compact controls, forward occupancy, then the working calendar. */
+.helm-pricing.pricing-workbench-v2 .pricing-workbench-header { padding:16px 0 12px; }
+.helm-pricing.pricing-workbench-v2 .pricing-title-select select { font-size:25px; max-width:450px; }
+.helm-pricing.pricing-workbench-v2 .pricing-navigation { margin-bottom:0; }
+.helm-pricing.pricing-workbench-v2 .pricing-tab { padding:10px 0 11px; }
+.helm-pricing.pricing-workbench-v2 .pricing-property-layout { display:flex; flex-direction:column; padding-top:14px; gap:12px; }
+.helm-pricing.pricing-workbench-v2 .pricing-sidebar { display:contents; }
+.helm-pricing.pricing-workbench-v2 .pricing-configure { display:flex; align-items:flex-end; justify-content:space-between; gap:18px; padding:0; border:0; border-radius:0; background:transparent; width:100%; }
+.helm-pricing.pricing-workbench-v2 .pricing-base-fields { display:grid; grid-template-columns:1.2fr 1fr 1fr; gap:12px; width:350px; }
+.helm-pricing.pricing-workbench-v2 .pricing-base-primary { grid-column:auto; }
+.helm-pricing.pricing-workbench-v2 .pricing-base-fields input { height:37px; padding:6px 8px 6px 24px; font-size:18px; background:white; border-radius:5px; }
+.helm-pricing.pricing-workbench-v2 .pricing-base-fields label { font-size:10px; }
+.helm-pricing.pricing-workbench-v2 .pricing-base-primary .pricing-money-input > span { left:10px; font-size:13px; }
+.helm-pricing.pricing-workbench-v2 .pricing-configure-actions { margin:0; gap:7px; }
+.helm-pricing.pricing-workbench-v2 .pricing-configure-actions > .rt-btn { min-height:35px; height:35px; min-width:66px; font-size:12px; }
+.helm-pricing.pricing-workbench-v2 .pricing-listing-metrics { display:grid; grid-template-columns:120px repeat(3,minmax(0,1fr)) auto; gap:20px; align-items:center; margin:0; padding:13px 0; width:100%; background:transparent; border:0; border-top:1px solid var(--pricing-line); border-bottom:1px solid var(--pricing-line); border-radius:0; }
+.helm-pricing.pricing-workbench-v2 .pricing-metrics-heading { margin:0; grid-column:auto; }
+.helm-pricing.pricing-workbench-v2 .pricing-metrics-heading h3 { font-size:11px; margin:0; }
+.helm-pricing.pricing-workbench-v2 .pricing-listing-metric { display:flex; flex-wrap:wrap; align-items:center; gap:4px 10px; margin:0; }
+.helm-pricing.pricing-workbench-v2 .pricing-listing-metric > span { display:block; margin:0; font-size:10px; white-space:nowrap; }
+.helm-pricing .pricing-occupancy-compact { min-width:48px; flex:1; }
+.helm-pricing .pricing-occupancy-compact .pricing-occupancy-labels { display:none; }
+.helm-pricing .pricing-occupancy-compact .pricing-occupancy-values { margin:0; font-size:17px; line-height:1; }
+.helm-pricing .pricing-occupancy-compact .pricing-occupancy-track { margin-top:5px; height:3px; }
+.helm-pricing .pricing-market-availability { font-size:10px; max-width:80px; color:var(--pricing-muted); }
+.helm-pricing.pricing-workbench-v2 .pricing-calendar-workspace { width:100%; }
+.helm-pricing.pricing-workbench-v2 .pricing-draft-toolbar { margin-bottom:8px; gap:8px; }
+.helm-pricing.pricing-workbench-v2 .pricing-draft-toolbar .rt-btn { min-height:30px; padding:5px 9px; font-size:11px; }
+.helm-pricing.pricing-workbench-v2 .pricing-draft-toolbar > .pricing-view-switch .rt-quiet-btn { height:28px; padding:5px 9px; font-size:11px; }
+.helm-pricing.pricing-workbench-v2 .pricing-calendar { padding:14px; border-radius:8px; box-shadow:none; }
+.helm-pricing.pricing-workbench-v2 .pricing-calendar-toolbar { margin-bottom:12px; }
+.helm-pricing.pricing-workbench-v2 .pricing-month-control select { font-size:17px; }
+.helm-pricing.pricing-workbench-v2 .pricing-days > * { min-height:88px; }
+.helm-pricing.pricing-workbench-v2 .pricing-day { padding:9px 11px; }
+.helm-pricing.pricing-workbench-v2 .pricing-day-rate { font-size:21px; padding-top:12px; }
+.helm-pricing.pricing-workbench-v2 .pricing-weekdays span { padding:8px 10px; }
+.helm-pricing.pricing-workbench-v2 .pricing-calendar-caption { padding-top:10px; }
+.helm-pricing.pricing-workbench-v2 .pricing-rate-unit { margin-top:8px; font-size:10px; }
+@container pricing (max-width:650px) {
+  .helm-pricing .portfolio-command-row { flex-wrap:wrap; }
+  .helm-pricing .portfolio-command-row > .portfolio-controls { width:100%; justify-content:space-between; }
+  .helm-pricing .portfolio-summary-strip > div { padding:12px; gap:8px; }
+  .helm-pricing .portfolio-summary-strip strong { font-size:24px; }
+  .helm-pricing .portfolio-summary-strip > div > span { flex-basis:100%; font-size:11px; }
+  .helm-pricing .portfolio-summary-strip small { display:none; }
+  .helm-pricing .portfolio-title-row h2 { font-size:21px; }
+  .helm-pricing .portfolio-title-row h2 > span { font-size:11px; display:block; margin:4px 0 0; }
+  .helm-pricing .portfolio-title-row select { max-width:180px; }
+  .helm-pricing .portfolio-context { font-size:9px; }
+  .helm-pricing .pricing-local-label { display:none; }
+  .helm-pricing.pricing-workbench-v2 .pricing-configure { gap:10px; flex-wrap:wrap; }
+  .helm-pricing.pricing-workbench-v2 .pricing-base-fields { width:100%; gap:8px; }
+  .helm-pricing.pricing-workbench-v2 .pricing-listing-metrics { grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; padding:10px 0; }
+  .helm-pricing.pricing-workbench-v2 .pricing-metrics-heading { display:none; }
+  .helm-pricing .pricing-market-availability { grid-column:1/-1; max-width:none; }
+  .helm-pricing.pricing-workbench-v2 .pricing-title-select select { max-width:240px; font-size:22px; }
+  .helm-pricing.pricing-workbench-v2 .pricing-calendar { padding:10px 8px; }
+  .helm-pricing.pricing-workbench-v2 .pricing-days > * { min-height:70px; }
+  .helm-pricing.pricing-workbench-v2 .pricing-day { padding:8px 5px; }
+  .helm-pricing.pricing-workbench-v2 .pricing-day-rate { font-size:15px; }
+  .helm-pricing.pricing-workbench-v2 .pricing-day-rate[data-long] { font-size:12px; }
+}
+@container pricing (min-width:651px) {
+  .helm-pricing.pricing-workbench-v2 .pricing-property-layout { display:grid; grid-template-columns:212px minmax(0,1fr); gap:18px; }
+  .helm-pricing.pricing-workbench-v2 .pricing-sidebar { display:block; min-width:0; padding:14px; border-radius:8px; }
+  .helm-pricing.pricing-workbench-v2 .pricing-configure { display:block; }
+  .helm-pricing.pricing-workbench-v2 .pricing-base-fields { width:100%; grid-template-columns:1fr 1fr; gap:10px; }
+  .helm-pricing.pricing-workbench-v2 .pricing-base-primary { grid-column:1/-1; }
+  .helm-pricing.pricing-workbench-v2 .pricing-base-primary input { height:45px; font-size:23px; }
+  .helm-pricing.pricing-workbench-v2 .pricing-configure-actions { margin-top:14px; }
+  .helm-pricing.pricing-workbench-v2 .pricing-configure-actions > .rt-btn { flex:1; min-width:0; }
+  .helm-pricing.pricing-workbench-v2 .pricing-listing-metrics { display:block; padding:20px 0 0; margin:20px 0 0; border-bottom:0; }
+  .helm-pricing.pricing-workbench-v2 .pricing-metrics-heading { margin-bottom:14px; }
+  .helm-pricing.pricing-workbench-v2 .pricing-listing-metric { margin-top:16px; display:grid; grid-template-columns:78px minmax(0,1fr); gap:12px; }
+  .helm-pricing.pricing-workbench-v2 .pricing-calendar-workspace { grid-row:1; grid-column:2; }
+  .helm-pricing.pricing-workbench-v2 .pricing-market-availability { display:block; max-width:none; margin-top:16px; }
+  .helm-pricing.pricing-workbench-v2 .pricing-day-rate { font-size:clamp(15px,2.8cqi,21px); }
+}
+
+.helm-pricing.pricing-workbench-v2 .pricing-base-fields input { appearance:textfield; font-size:16px; }
+.helm-pricing.pricing-workbench-v2 .pricing-base-fields input::-webkit-inner-spin-button,
+.helm-pricing.pricing-workbench-v2 .pricing-base-fields input::-webkit-outer-spin-button { -webkit-appearance:none; margin:0; }
+.helm-pricing.pricing-workbench-v2 .pricing-base-primary input { font-size:23px; }
+.helm-pricing .pricing-occupancy-compact[data-market] .pricing-occupancy-labels { display:flex; font-size:9px; margin-bottom:4px; }
+@container pricing (max-width:650px) {
+  .helm-pricing .pricing-portfolio-tools { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px 10px; }
+  .helm-pricing .pricing-portfolio-tools > .pricing-portfolio-views { grid-column:1; grid-row:1; width:auto; gap:14px; }
+  .helm-pricing .pricing-portfolio-tools > .pricing-icon-button { grid-column:2; grid-row:1; justify-self:end; }
+  .helm-pricing .pricing-portfolio-tools > .pricing-group-filter { grid-column:1; grid-row:2; justify-content:flex-start; min-width:0; }
+  .helm-pricing .pricing-portfolio-tools > .pricing-group-filter select { min-width:0; max-width:165px; }
+  .helm-pricing .pricing-portfolio-tools > .rt-btn { grid-column:2; grid-row:2; }
+  .helm-pricing .pricing-portfolio-v2 .portfolio-command-row .portfolio-controls { flex-wrap:nowrap; }
+  .helm-pricing .pricing-portfolio-v2 .portfolio-command-row .portfolio-search { flex:1; width:auto; }
+}
