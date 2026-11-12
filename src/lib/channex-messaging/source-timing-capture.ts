@@ -1,17 +1,9 @@
 import 'server-only';
 import { z } from 'zod';
 import { readVerifiedMessagePreparation, type PreparationDeps } from './preparation.ts';
-import { confirmationInstant, MESSAGE_TIMEZONE } from './preparation-timing.ts';
+import { confirmationInstant } from './preparation-timing.ts';
+import { sourceTimingRowSchema as row } from './timing-evidence.ts';
 
-const localTime = z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/);
-const row = z.object({
-  bookingId: z.uuid(), guestyId: z.string().regex(/^[a-f0-9]{24}$/),
-  code: z.string().regex(/^[A-Za-z0-9_-]{1,160}$/), start: z.iso.date(), end: z.iso.date(),
-  source: z.enum(['ical_import', 'guesty_legacy']), status: z.literal('confirmed'),
-  clocks: z.object({ timezone: z.literal(MESSAGE_TIMEZONE), plannedArrival: localTime.nullable(),
-    plannedDeparture: localTime.nullable(), defaultArrival: localTime, defaultDeparture: localTime,
-    confirmedAt: z.iso.datetime({ precision: 3 }) }).strict(),
-}).strict();
 export type SourceTimingRow = z.infer<typeof row>;
 export type SourceTimingCapture = { rows: SourceTimingRow[]; startedAt: string; checkedAt: string };
 export class SourceTimingCaptureError extends Error {

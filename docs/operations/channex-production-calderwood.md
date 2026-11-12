@@ -1187,12 +1187,122 @@ are historical observations, so such a repeat cannot enqueue or send messages.
 Channex confirmed there is no dedicated original Airbnb confirmation timestamp
 or new-versus-imported booking marker. `inserted_at` is revision receipt time and
 changes on modifications/pulls; it cannot anchor the existing +30-minute rule.
-The OTA timestamp is available only if supplied in `raw_message`; its Airbnb
-field path, semantics and availability still need verification. A targeted
-follow-up requested a synthetic/redacted example. `arrival_hour` is the property
+Evan's follow-up at 06:58 Eastern explicitly says raw fields are undocumented
+and unsupported, supplied at the consumer's own risk. There is no supported raw
+timestamp contract to wait for. Do not infer one from a sample or silently switch
+the +30-minute anchor to revision receipt, first observation or a replayed import.
+`arrival_hour` is the property
 default in local time, not a reservation override, and Channex supplies no
 per-booking departure/late-checkout time. Preserve captured Guesty evidence for
 existing stays; do not silently substitute these limited fields for new stays.
+
+The coordinator now requires `timing-evidence.ts` validation before any schedule
+registration. The only accepted lineage is the retained double-read Guesty capture
+plus a separately reviewed binding to the current booking context, route generation,
+source-stop evidence, remote booking and thread. Stay identity, dates and every
+clock value must match exactly; capture, confirmation and review chronology must
+also agree. Missing evidence or changed inputs return `timing_review` without
+registering further jobs. Raw fields, revision timestamps and property-default
+substitutes have no accepted lineage. The capture writer and gate share one row
+schema, with no change to the stored contract.
+
+This gate validates a trusted loader's input; it is not cryptographic proof of
+storage origin. The separately prepared timing-binding migration and server
+adapter now provide persistence and a validating reader. They read retained
+evidence and an existing binding, never construct a fresh binding by copying
+today's context onto old clocks. The writer requires a fresh trusted review
+assertion whose complete timing row matches the original capture, together with
+the exact current context and route. Source/mapping identity and context changes
+invalidate reads; conflicting retries cannot overwrite or refresh review history.
+SQL cannot itself verify Guesty's clocks or the provider's booking/thread relation.
+The trusted double-read review caller, owner review surface and production runtime
+loader still need implementation before use. The adapter defaults off and is not
+called by any route or cron. No live binding has been created; the earlier capture
+of three stays remains historical evidence. Installing this migration alone adds
+no scopes, jobs, template releases or sender activation.
+The coordinator still has no runtime caller. Synthetic SQL tests establish that
+unsupported source evidence creates zero jobs, while reviewed synthetic evidence
+continues through registration and fake-provider delivery.
+
+New Airbnb reservations remain blocked for the existing +30-minute confirmation
+rule until a reliable original timestamp source or an explicitly approved different
+timing policy exists. Imported stays cannot be classified as new merely because
+Helm first sees them after activation. Arrival/departure overrides, DST semantics,
+source queue drainage and the live sender handover remain separate launch work.
+
+Airbnb's native after-booking schedule is now a verified timing option, but not
+an activated or approved replacement sender. On November 12, a read-only check
+of Hosting → Messages → Messaging settings → Manage quick replies found an
+existing **Reservation Confirmation** template with **0 listings** and the exact
+schedule **30 minutes after a guest books**. Its editor showed a last-modified
+date of January 23, 2025. No template, assignment or schedule was saved or changed.
+This verifies the account supports the requested offset; it does not prove delivery,
+Calderwood coverage, current reservation queue contents or other hosts' schedules.
+
+The existing template's wording differs from the retained Calderwood Guesty
+confirmation. It must not be assigned wholesale as if it were an approved text
+replacement. A proposed Calderwood-only native confirmation would preserve the
+captured wording and +30-minute trigger. The other guest messages and cleaner SMS
+remain separate workflows; this option does not resolve their missing inputs.
+
+Airbnb's [scheduled-reply help](https://www.airbnb.com/help/article/2897), checked
+November 12, says schedules apply to current and upcoming reservations and use
+the listing time zone. Last-minute/short-stay settings can skip messages or send
+them at another time. The reservation timeline shows sent, skipped and future
+replies, including who scheduled them; co-host templates are not all shared.
+The documentation does **not** establish how assigning this existing after-booking
+template treats a booking whose trigger is already past, or a booking made during
+the switch. Those cases still need verification before any assignment.
+
+Channex replied on November 12 that it could not confirm native quick-reply
+coexistence or whether those outgoing messages appear in its history/webhooks;
+both need testing. This is an unanswered compatibility question, not provider
+approval or evidence that the native option is incompatible. No further timestamp
+field or supported message-origin contract was supplied.
+
+Before relying on that option, prepare a controlled test using an explicitly
+authorized test listing/reservation and recipient. Record the native scheduled
+time, actual Airbnb message ID/time, Channex history/webhook observations, and
+whether repeats or booking modifications introduce a second confirmation. Check
+new, already-confirmed and last-minute cases, with exactly one sender assigned.
+If native messages have no reliable Channex delivery evidence, define the native
+timeline as the audited confirmation record and review that ownership split;
+absence from Channex must never trigger a replacement confirmation from Helm.
+This test remains unexecuted and does not authorize connecting or messaging the
+live Calderwood listing for experimentation.
+
+### Next handover work, in dependency order
+
+1. **Finish the native-confirmation assessment.** Verify Calderwood's exact listing
+   identity, applicable host/team/co-host schedules, last-minute setting, and the
+   behavior of old bookings and bookings arriving during the transition. Prepare
+   the exact captured text without assigning a listing. A future native sender
+   needs retained evidence and an explicit ownership boundary; a screenshot of a
+   timing option alone cannot authorize it.
+2. **Complete the production scheduling path.** Release the tested timing-binding
+   persistence, implement its trusted provider review caller and the full current
+   booking/merge/history loader, then the reviewed template
+   release and bounded runtime caller. Existing stays use retained Guesty timings;
+   new stays still need an authoritative policy for arrival/departure overrides.
+   If native confirmation is adopted, Helm's confirmation rule must remain unable
+   to enqueue or dispatch. Do not invent a confirmation timestamp to make the
+   other three guest workflows pass the current all-clock gate. Review that
+   separation explicitly, including replay and concurrent-change tests.
+3. **Resolve source ownership before switching senders.** Obtain Guesty's engineering
+   answer on internal workers and SMS provider expiry/retries, reconcile existing
+   guest/cleaner history, and record the actual stop/hold boundary. No guessed
+   waiting interval counts as evidence that provider dispatch has drained.
+4. **Run the reviewed Calderwood cutover and verify it.** Recheck booking and hold
+   coverage, the Channex route, PriceLabs ownership and channel mappings. Enable
+   only the reviewed senders and verify the first eligible real booking's calendar
+   and message outcomes against the provider timelines. Preserve a rollback plan
+   that cannot start two senders. This is future execution, not a completed test.
+
+The native option removes uncertainty about the available 30-minute control. It
+does not make the dormant coordinator production-ready or remove the separate
+calendar, cleaner SMS and sender-handover requirements. Guesty still runs the
+live calendar and messages; no native confirmation assignment is authorized by
+this document.
 
 Guesty escalated the in-flight worker and Vonage expiry/retry questions to its
 developers on November 12. No bounded queue-drain or safe waiting interval has

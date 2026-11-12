@@ -21,6 +21,7 @@ on:
       - 'scripts/test-channex-schedule.mts'
       - 'scripts/test-channex-schedule-coordinator.mts'
       - 'scripts/test-channex-source-timing.mts'
+      - 'scripts/test-channex-timing-binding.mts'
       - 'src/app/api/channex/message-preparation/**'
       - 'scripts/test-channex-reconciliation.mts'
       - 'scripts/tests/channex*'
@@ -71,4 +72,5 @@ jobs:
       - run: bash scripts/tests/channex-schedule-concurrency.sh
       - run: node --import ./scripts/server-only-test-hook.mjs scripts/test-channex-schedule-coordinator.mts
       - run: node --import ./scripts/server-only-test-hook.mjs scripts/test-channex-source-timing.mts
+      - run: node --import ./scripts/server-only-test-hook.mjs scripts/test-channex-timing-binding.mts
       - run: bash scripts/tests/channex-messages-concurrency.sh

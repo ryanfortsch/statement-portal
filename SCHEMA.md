@@ -690,6 +690,19 @@ runs itself.
   `bookings.booked_at`, create schedules, establish queue-drain evidence, or prove
   clocks are still current after cutover. Retained evidence must be revalidated
   before a future scheduler can consume it.
+  `timing_bindings` retains an append-only association of one captured stay to an
+  exact reviewed booking context, route, remote booking/thread and source handover.
+  The service-only `helm_channex_timing_binding_review` RPC checks a fresh trusted
+  review assertion against the original capture and current database identities
+  under locks. Identical lost-response recovery retains the original review;
+  conflicting replay cannot replace it. `helm_channex_timing_binding_read` returns
+  only the retained evidence and refuses changed context, route or source identity.
+  The default-off server adapter validates that evidence against the caller's
+  expected snapshot. No direct table access is granted to client/service roles.
+  This stores review evidence, not a live provider-clock guarantee. The trusted
+  provider double-read/thread review caller and runtime scheduling loader remain
+  separate work; there is no browser endpoint, activation, job creation or sender
+  in this migration.
 - **`guest_threads`**: one thread per stay per channel (`sms`, `email`,
   `airbnb`, `vrbo`, `booking_com`, `direct`), keyed to `booking_id`,
   `guest_id` and `property_id`, with `external_thread_key` (E.164 for
