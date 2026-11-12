@@ -2,10 +2,11 @@
 import type {PricingPolicy, PricingSnapshot} from './dynamic-pricing.ts';
 import {evidenceFresh} from './dynamic-pricing-evidence.ts';
 import {shiftIsoDay} from './sca-quotes-types.ts';
+import type {PricingBookingActivity} from './dynamic-pricing-activity.ts';
 
 export const PRICING_WINDOWS = [7,30,60,90] as const;
 export type PricingWindowDays = typeof PRICING_WINDOWS[number];
-export const PRICING_SORTS = ['name','occupancy','market','gap','open','rate','base','floor','ceiling','connection'] as const;
+export const PRICING_SORTS = ['name','occupancy','market','gap','open','rate','base','floor','ceiling','connection','booked7','booked45'] as const;
 export type PricingPortfolioSort = typeof PRICING_SORTS[number];
 export type PricingPortfolioView = {window:PricingWindowDays;query:string;filter:'all'|'below'|'data';sort:PricingPortfolioSort;direction:'asc'|'desc';connection:'all'|'shadow'|'helm_direct'};
 export function pricingPortfolioView(params:Record<string,string|string[]|undefined>={}):PricingPortfolioView {
@@ -41,6 +42,7 @@ export type PricingPortfolioRow = PricingPortfolioHome & {
   mode:'shadow'|'helm_direct'; configured:boolean; baseCents:number|null; floorCents:number|null; ceilingCents:number|null;
   observedAt:string|null; marketObservedAt:string|null; marketSource:string; lastAppliedAt:string|null;
   currentRateCents?:Record<PricingWindowDays,number|null>;
+  activity?:PricingBookingActivity;
   error:string|null; windows:Record<PricingWindowDays,PricingWindow>;
 };
 
@@ -53,6 +55,11 @@ export function sortPricingPortfolioRows(rows:PricingPortfolioRow[],view:Pick<Pr
       case 'name':return row.name;
       case 'connection':return row.mode==='helm_direct'?'Helm direct':'Compare only';
       case 'rate':return row.currentRateCents?.[view.window]??null;
+      case 'booked7':case 'booked45':{
+        const activity=row.activity,n=view.sort==='booked7'?7:45;
+        // Incomplete counts are not comparable with complete counts.
+        return activity&&!activity.undatedStays?activity.windows[n].nights:null;
+      }
       case 'base':return row.baseCents;
       case 'floor':return row.floorCents;
       case 'ceiling':return row.ceilingCents;

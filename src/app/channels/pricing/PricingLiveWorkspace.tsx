@@ -15,6 +15,7 @@ import PricingIcon from './PricingIcon';
 import PricingGroupManager from './PricingGroupManager';
 import PricingCustomizationControls from './PricingCustomizationControls';
 import PricingStayControls from './PricingStayControls';
+import PricingBookingActivity from './PricingBookingActivity';
 import './pricing.css';
 
 type Result<T>={ok:true;value:T}|{ok:false;error:string};
@@ -53,13 +54,14 @@ export default function PricingLiveWorkspace({initialPortfolio,refreshAction,cal
   return <div className="helm-pricing pricing-live-workspace" aria-busy={busy}>
     <div className="pricing-live-toolbar"><span>Live calendars · {etStamp(portfolio.readAt)} · Drafts saved on this device</span><Button variant="secondary" size="sm" disabled={busy||!ready} onClick={()=>void refresh()}>{busy?'Loading…':'Refresh'}</Button></div>
     {error&&<p role="alert" className="pricing-feedback">{error}</p>}
-    {!calendar&&<div inert={busy||!ready}><div className="pricing-portfolio-tools">{drafts.groups.length>0&&<label className="pricing-group-filter">Group<select value={filter} onChange={e=>setFilter(e.target.value)}><option value="">All listings</option>{drafts.groups.map(g=><option key={g.id} value={g.id}>{pricingGroupName(drafts,g.id)}</option>)}</select></label>}<Button variant="secondary" size="sm" onClick={()=>setManaging(true)}>Groups & rules</Button></div><PricingPortfolio rows={portfolio.rows.filter(r=>!filter||pricingInGroup(drafts,r.id,filter))} observed onOpen={id=>void open(id)}/></div>}
+    <div hidden={!!calendar} inert={busy||!ready}><div className="pricing-portfolio-tools">{drafts.groups.length>0&&<label className="pricing-group-filter">Group<select value={filter} onChange={e=>setFilter(e.target.value)}><option value="">All listings</option>{drafts.groups.map(g=><option key={g.id} value={g.id}>{pricingGroupName(drafts,g.id)}</option>)}</select></label>}<Button variant="secondary" size="sm" onClick={()=>setManaging(true)}>Groups & rules</Button></div><PricingPortfolio rows={portfolio.rows.filter(r=>!filter||pricingInGroup(drafts,r.id,filter))} observed onOpen={id=>void open(id)}/></div>
     {managing&&<PricingGroupManager state={drafts} homes={portfolio.rows} today={portfolio.rows[0]?.windows[30]?.start??portfolio.readAt.slice(0,10)} commit={persist} close={()=>setManaging(false)}/>}
     {calendar&&selection&&<div inert={busy}>
       {selection.services?<DraftProperty key={`${calendar.home.id}-${revision}`} calendar={calendar} navigation={navigation} services={selection.services} drafts={drafts} commit={persist}/>:<>
         <div className="pricing-workbench-header">{navigation}</div>
         <PricingDraftSetup calendar={calendar} inheritedFrom={pricingGroupId(drafts,calendar.home.id)?pricingGroupName(drafts,pricingGroupId(drafts,calendar.home.id)):drafts.account?'Account defaults':null} onCreate={(policy)=>{persist({...stored.current,homes:{...stored.current.homes,[calendar.home.id]:{policy,version:1,groupId:pricingGroupId(stored.current,calendar.home.id),inheritRules:true,ruleCategories:[],overrides:[]}}});setSelection({calendar,services:adapter(calendar)});}}/>
         <PricingCalendar snapshot={calendar.snapshot} preview={null} currentOnly/>
+        <PricingBookingActivity activity={calendar.activity}/>
       </>}
       <p className="pricing-live-source">{calendar.source} · {calendar.sourceObservedAt?`Updated ${etStamp(calendar.sourceObservedAt)}`:'Update time unavailable'} · Live rates unchanged</p>
     </div>}
@@ -68,6 +70,7 @@ export default function PricingLiveWorkspace({initialPortfolio,refreshAction,cal
 function DraftProperty({calendar,navigation,services,drafts,commit}:{calendar:PricingLiveCalendar;navigation:React.ReactNode;services:DraftServices;drafts:PricingDrafts;commit:(s:PricingDrafts)=>void}) {
   const [revision,setRevision]=useState(0),controls=useRef<PricingDraftControlsRef>(null),workspace=services.inspect(),home=drafts.homes[calendar.home.id],custom=resolvePricingCustomizations(drafts,{kind:"listing",id:calendar.home.id}).rules;
   return <><PricingWorkbench key={revision} propertyId={calendar.home.id} name={calendar.home.name} authority={calendar.home.authority} navigation={navigation} services={services} draftOnly
+    listingActivity={<PricingBookingActivity activity={calendar.activity}/>}
     draftCustomizations={custom} extraRuleActions={closeRules=><PricingCustomizationControls state={drafts} propertyId={calendar.home.id} today={calendar.snapshot.today} closeRules={closeRules} commit={next=>{commit(next);setRevision(v=>v+1);}}/>}
     initialPolicy={workspace.policy} initialSnapshot={workspace.snapshot} initialProfile={workspace.profile} initialRuns={[]} initialEvidenceVersion={workspace.evidenceVersion} initialObservations={workspace.observations}
     previewTransform={(p,policy,snapshot)=>applyPricingDraftOverrides(p,policy,snapshot,home.overrides,pricingInheritedOverrides(drafts,calendar.home.id),custom)}

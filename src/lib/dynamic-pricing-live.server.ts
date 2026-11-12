@@ -5,10 +5,27 @@ import {dateInZone,pricingSnapshot,type PricingContext} from './dynamic-pricing-
 import {shiftIsoDay} from './sca-quotes-types.ts';
 import {currentPricingSnapshot,pricingLiveRow,type PricingLiveHome,type PricingLiveCalendar,type PricingLivePortfolio} from './dynamic-pricing-live.ts';
 import type {RatePlanRow,RateDayRow} from './rate-plan.ts';
+import {pricingBookingActivity,type PricingActivityBooking,type PricingActivityTimestamp} from './dynamic-pricing-activity.ts';
 
 const registryColumns='id,name,city,bedrooms,timezone,calendar_authority';
 type RegistryHome={id:string;name:string;city:string;bedrooms:number|null;timezone:string|null;calendar_authority:'helm'|'guesty'};
 const homeFrom=(r:RegistryHome):PricingLiveHome=>({id:r.id,name:r.name,city:r.city,bedrooms:r.bedrooms,timezone:r.timezone??'America/New_York',authority:r.calendar_authority});
+
+/** Original booking dates only. No guest identities, financials or event payloads. */
+export async function readPricingBookingActivity(db:SupabaseClient,home:PricingLiveHome,now=new Date()) {
+  const floor=shiftIsoDay(dateInZone(now,home.timezone),-44);
+  const bookings=await selectAllPaged<PricingActivityBooking>((from,to)=>db.from('bookings')
+    .select('id,status,duplicate_of,source,external_confirmation_code,check_in,check_out,booked_at')
+    .eq('property_id',home.id).is('duplicate_of',null).in('status',['confirmed','completed']).gt('check_out',floor)
+    .order('id').range(from,to),{label:'Pricing booking dates',maxRows:10000});
+  // Read timestamp evidence on this property only. Never let stale Guesty status
+  // resurrect a cancelled booking, and never match on guest name or dates alone.
+  const timestamps=bookings.some(b=>b.source!=='direct_booking'&&b.external_confirmation_code)?
+    await selectAllPaged<PricingActivityTimestamp>((from,to)=>db.from('guesty_reservations')
+      .select('confirmation_code,check_in,check_out,booked_at').eq('property_id',home.id).gt('check_out',floor)
+      .order('guesty_reservation_id').range(from,to),{label:'Pricing original dates',maxRows:10000}):[];
+  return pricingBookingActivity(bookings,timestamps,home.timezone,now);
+}
 
 /** Caller must be an owner route or the explicitly authorized, authenticated localhost preview. SELECT only. */
 export async function readPricingLiveHomes(db:SupabaseClient):Promise<PricingLiveHome[]> {
@@ -39,7 +56,9 @@ export async function readPricingLiveCalendar(db:SupabaseClient,home:PricingLive
   }
   const raw=pricingSnapshot(context,start,180,now),snapshot=currentPricingSnapshot(raw,now);
   const stamps=(home.authority==='guesty'?context.mirror.map(d=>d.synced_at):[now.toISOString()]).filter(Boolean).sort();
-  return {home,snapshot,source:home.authority==='helm'?'Helm calendar':'Guesty calendar mirror',sourceObservedAt:stamps[0]??null};
+  // A missing timestamp column or ambiguous stay must not erase a usable calendar.
+  const activity=await readPricingBookingActivity(db,home,now).catch(()=>undefined);
+  return {home,snapshot,source:home.authority==='helm'?'Helm calendar':'Guesty calendar mirror',sourceObservedAt:stamps[0]??null,activity};
 }
 
 export async function readPricingLivePortfolio(db:SupabaseClient,now=new Date()):Promise<PricingLivePortfolio> {
@@ -48,8 +67,8 @@ export async function readPricingLivePortfolio(db:SupabaseClient,now=new Date())
   await Promise.all(Array.from({length:Math.min(4,homes.length)},async()=>{
     while(next<homes.length) {
       const index=next++,home=homes[index],start=dateInZone(now,home.timezone);
-      try {const calendar=await readPricingLiveCalendar(db,home,now);rows[index]={...pricingLiveRow(home,calendar.snapshot,now,start),observedAt:calendar.sourceObservedAt};}
-      catch {rows[index]=pricingLiveRow(home,null,now,start);}
+      try {const calendar=await readPricingLiveCalendar(db,home,now);rows[index]={...pricingLiveRow(home,calendar.snapshot,now,start),observedAt:calendar.sourceObservedAt,activity:calendar.activity};}
+      catch {rows[index]={...pricingLiveRow(home,null,now,start),activity:await readPricingBookingActivity(db,home,now).catch(()=>undefined)};}
     }
   }));
   return {readAt:now.toISOString(),rows};

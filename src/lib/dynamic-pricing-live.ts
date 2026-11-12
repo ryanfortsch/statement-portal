@@ -1,9 +1,10 @@
 import type {PricingSnapshot} from './dynamic-pricing.ts';
 import {pricingOccupancyWindow,PRICING_WINDOWS,type PricingPortfolioHome,type PricingPortfolioRow} from './dynamic-pricing-portfolio.ts';
 import {evidenceFresh} from './dynamic-pricing-evidence.ts';
+import type {PricingBookingActivity} from './dynamic-pricing-activity.ts';
 
 export type PricingLiveHome=PricingPortfolioHome & {timezone:string};
-export type PricingLiveCalendar={home:PricingLiveHome;snapshot:PricingSnapshot;source:string;sourceObservedAt:string|null};
+export type PricingLiveCalendar={home:PricingLiveHome;snapshot:PricingSnapshot;source:string;sourceObservedAt:string|null;activity?:PricingBookingActivity};
 export type PricingLivePortfolio={readAt:string;rows:PricingPortfolioRow[]};
 
 /** Current asking rates, never fabricated base prices or booked ADR. Require every open night to be priced. */

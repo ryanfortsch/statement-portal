@@ -548,7 +548,7 @@ default calendar view; the Helm draft is an explicit toggle.
 | Date overrides | Inclusive date ranges, selected weekdays, fixed nightly rate, percentage of recommendation or minimum stay; edit/remove | No expiry, fixed-price bounds bypass, date-specific base/min/max or drag-to-select range |
 | Groups | Account defaults, groups/subgroups, per-category listing overrides, source table, bulk assignments and date overrides at all four levels | Device-local settings, no server synchronization or live migration |
 | Market | Qualified CSV evidence, source and freshness checks, market charts/model inputs | No connected neighborhood feed, hotel feed, comp-set manager or licensed automatic vendor API |
-| Performance | Current forward occupancy and evidence-backed forecasts/history analysis | No real booking pickup, earned ADR/RevPAR, cancellation or acquisition-channel analytics without reservation/revenue evidence |
+| Performance | Current forward occupancy, verified recent booking/night counts and evidence-backed forecasts/history analysis | No net cancellation-adjusted pickup, reconstructed STLY pace, earned ADR/RevPAR or acquisition-channel analytics |
 | History | Actual observation snapshots and rate/availability comparison in session | No invented historical captures; durable daily collection remains an infrastructure step |
 | Delivery | Read-only calendars, local drafts; existing separately gated Helm-direct implementation retained | Live prototype has no publishing. No OTA/Guesty/Channex pricing handoff, scheduler or delivered-rate verification |
 | Stay pricing | Up to eight configurable length thresholds, discounts/premiums, inherited arrival/departure weekdays, date-range accommodation calculation | No booking quotes, fee/tax calculation, smart gap avoidance, extra-guest fees or channel delivery |
@@ -717,6 +717,65 @@ saving/reloading local rules, 24-home group controls, inherited account seasons,
 listing precedence, and an affected-home conflict when a shared seasonal base
 exceeds that home's maximum. The actual-data preview remains read-only.
 
-Remaining: licensed market and comp-set data, verified pickup, seasonal pricing and
+Remaining at that checkpoint: licensed market and comp-set data, verified pickup, seasonal pricing and
 stay-profile libraries, fixed/market-driven presets, smart gaps, durable shared
 storage and verified channel delivery. No replacement savings are booked yet.
+
+## November 11: verified recent bookings
+
+The actual-data portfolio has an Add Metrics menu for Nights booked / Past 7 days
+and Past 45 days. Both columns sort, with incomplete counts last in either direction.
+The property page shows the same two figures beside occupancy, with expandable
+date ranges, booking counts, verification coverage and read time. Returning to the
+dashboard retains its search, sort, selected period and visible columns for the
+session. Forward occupancy periods do not alter the recent-booking windows.
+
+These metrics use canonical `bookings` rows (confirmed/completed, duplicate_of null).
+The original booking date comes either from a native `direct_booking.booked_at` or
+from `guesty_reservations.booked_at`, matched on the same property, exact normalized
+confirmation code, and identical arrival/departure dates. The Guesty writer records
+confirmedAt, with createdAt as fallback; its status is not used. No guest identities,
+financials, notes or booking-event payloads are selected. Identifiers/codes and raw
+stay rows are reduced to aggregates on the server and never returned to the browser.
+
+The iCal importer can set booked_at to first-import time minus 25 hours, or a later
+poll time. Those values, first_seen_at, created_at, and manual entry time are not
+accepted as demand evidence. Unknown, conflicting, future or invalid original dates
+remain unverified. A missing evidence column/query withholds activity without erasing
+the calendar. A missing rate plan does not prevent portfolio activity from loading.
+
+Windows include today plus the preceding 6/44 local dates, including across DST.
+They count full nights in surviving stays received in that period, independent of
+the 180-day pricing horizon. Scope includes all canonical stays ending after the
+45-day window start, with no upper check-in bound. Cancelled stays and blocks are
+excluded. Exact duplicate copies collapse; conflicting canonical codes reject the
+measurement. Partial positive counts display ≥; partial zero stays blank. Empty,
+successfully read canonical scope is zero. Coverage describes stored canonical
+records, not proof that every upstream channel has delivered every reservation.
+
+This is not net pickup or historical on-the-books pace: current cancelled rows
+cannot reconstruct when cancellations occurred. Neither these counts nor last
+verified booking date feeds the rate engine or its recency factor automatically.
+
+Read-only verification: the actual roster loaded 26 homes. Calderwood measured zero
+nights booked in the past 7 days and 14 nights in four bookings in the past 45 days,
+matching the vendor's observed 0/14 Nights Booked values. That is one point-in-time
+cross-check, not proof of algorithm or fleet-wide metric parity.
+
+The account's API Details page shows Enable, so Customer API access is disabled.
+The page and [official API documentation](https://developers.pricelabs.co/customer-api/api-reference/enable-the-api)
+list $1 per synced listing/month plus tax. The AI Connector settings page advertises
+free beta through March 31, 2027, with 60 days' notice before paid plans; all displayed
+connectors were disconnected, with no custom clients. The available
+[market tools](https://developers.pricelabs.co/mcp/tools/market-insights) are a potential
+data source once authorized access and permitted use are established. No API or MCP
+access was enabled, key generated, subscription changed, or data feed connected.
+Definitions were checked against [PriceLabs performance metrics](https://help.pricelabs.co/portal/en/kb/articles/performance-metrics).
+
+Validation on integrated main `8c1f919a52369d75c42cdb16a3a03f238c4d747c`:
+4,480 tests pass, seven skipped; TypeScript and targeted ESLint clean. Eleven new
+tests cover DST and window boundaries, whole future stays, import/manual timestamp
+rejection, exact matching, canonical statuses/deduplication, invalid/conflicting dates,
+partial counts, sorting and server projections. Synthetic browser checks use 24 homes;
+actual verification is read-only. Remaining: real market access, cancellation history
+and historical pace, durable shared settings, and verified channel delivery.

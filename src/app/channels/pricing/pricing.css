@@ -77,6 +77,16 @@
 .helm-pricing .portfolio-listing-col { width: var(--portfolio-listing-width); }
 .helm-pricing .portfolio-action-col { width: 112px; }
 .helm-pricing .portfolio-metric-col { width: 116px; }
+.helm-pricing .portfolio-partial { color: #8a651e; }
+.helm-pricing .pricing-booking-activity { margin-top: 24px; padding-top: 22px; border-top: 1px solid var(--pricing-line); }
+.helm-pricing .pricing-listing-metrics .pricing-booking-activity { grid-column: 1 / -1; }
+.helm-pricing .pricing-booking-activity h3 { font-size: 12px; font-weight: 600; margin: 0 0 14px; }
+.helm-pricing .pricing-activity-values { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; }
+.helm-pricing .pricing-activity-values span { display: block; color: #667488; font-size: 11px; }
+.helm-pricing .pricing-activity-values strong { display: block; margin-top: 6px; font-size: 24px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.helm-pricing .pricing-activity-details { margin-top: 14px; color: #667488; font-size: 11px; }
+.helm-pricing .pricing-activity-details summary { cursor: pointer; }
+.helm-pricing .pricing-activity-details p { margin-top: 12px; line-height: 1.6; }
 .helm-pricing .portfolio-price-col { width: 92px; }
 .helm-pricing .portfolio-mode-col { width: 150px; }
 .helm-pricing .portfolio-table th { position: sticky; top: 0; z-index: 3; background: #f7f8fa; padding: 12px 16px; font-size: 11px; font-weight: 500; color: #657182; border-bottom: 1px solid var(--pricing-line); white-space: normal; vertical-align: middle; height: 58px; }
@@ -329,9 +339,15 @@ body:has(.pricing-page-shell) { background: #f6f7f8; }
   .helm-pricing .pricing-metrics-heading { margin: 0; }
   .helm-pricing .pricing-listing-metric { display: block; margin: 0; }
   .helm-pricing .pricing-listing-metric > span { display: block; margin-bottom: 6px; }
+  .helm-pricing .pricing-listing-metrics .pricing-booking-activity { margin: 0; padding-top: 16px; display: grid; grid-template-columns: 120px minmax(0,1fr); gap: 12px 30px; }
+  .helm-pricing .pricing-booking-activity h3 { margin: 0; align-self: center; }
+  .helm-pricing .pricing-activity-values > div { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+  .helm-pricing .pricing-activity-values strong { margin: 0; font-size: 22px; }
+  .helm-pricing .pricing-activity-details { grid-column: 1 / -1; margin: 0; }
   .helm-pricing .pricing-days > * { min-height: 92px; }
 }
 @container pricing (max-width: 580px) {
+  .helm-pricing .pricing-listing-metrics .pricing-booking-activity { grid-template-columns: minmax(0,1fr); }
   .helm-pricing .portfolio-overview-heading { align-items: flex-start; flex-wrap: wrap; gap: 14px; }
   .helm-pricing .portfolio-period { width: 100%; flex-direction: row; justify-content: space-between; align-items: center; gap: 8px; }
   .helm-pricing .portfolio-overview-heading h2 { font-size: 23px; }
