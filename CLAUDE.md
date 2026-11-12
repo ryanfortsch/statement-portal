@@ -426,7 +426,8 @@ gate, garage, alarm or thermostat code**. The door code arrives in the check-in 
 inside the stay link below. The properties select is an explicit column list (`GUEST_APP_PROPERTY_COLS`), Wi-Fi comes
 through `getGuestWifiPasswords` (a select of the two Wi-Fi columns only), rooms through
 `guestRoomFacts`, how-tos from open guest-facing notes (the concierge's KB), trash from
-`civic.ts`, guest check-in from the rate plan. `guest-app.test.ts` reads the loader and fails on a
+`civic.ts`, guest check-in from the rate plan or, on a Guesty-run home, the listing's own time
+(`guesty_listings.checkin_time`, synced nightly; never the cleaner deadline). `guest-app.test.ts` reads the loader and fails on a
 broader read. Every load is live, so a fact fixed on the property page is on the guest's phone
 next open. On a phone it opens on a home screen: the Wi-Fi card, a chip for today (sunset, trash
 night), search, and one tile per section with its answer ("Checkout · 11:00 AM"); each section is

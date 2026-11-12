@@ -135,6 +135,25 @@ describe('nothing that opens a door reaches the guest app', () => {
     assert.match(read('src/lib/guest-app-db.ts'), /from\('property_rate_plans'\)\.select\('checkin_time'\)/);
   });
 
+  test("a Guesty-run home takes Guesty's check-in time, never the cleaner deadline", () => {
+    const db = read('src/lib/guest-app-db.ts');
+    const fn = db.slice(db.indexOf('export async function guestyCheckinTime'), db.indexOf('export async function loadGuestApp'));
+    assert.match(fn, /from\('guesty_listings'\)\.select\('checkin_time'\)/);
+    // Two listings that disagree give no time, not the first one.
+    assert.match(fn, /times\.size === 1/);
+    // The rate plan wins; Guesty's time only fills a blank.
+    assert.match(db, /checkin_time \|\| guestyCheckin/);
+    assert.match(read('src/lib/guest-app-stays-db.ts'), /t\?\.checkin \|\| guestyCheckin/);
+    for (const f of ['src/lib/guest-app-db.ts', 'src/lib/guest-app-stays-db.ts']) {
+      assert.ok(!read(f).replace(/^\s*(\/\/|\*).*$/gm, '').includes('default_checkin_time'), `${f} must not read the cleaner deadline`);
+    }
+
+    // The sync writes the listing's time to guesty_listings, and only there.
+    const sync = read('src/app/api/sync-guesty/route.ts').replace(/^\s*(\/\/|\*).*$/gm, '');
+    assert.match(sync, /\.from\('guesty_listings'\)\s*\.update\(\{ checkin_time:/);
+    assert.ok(!/default_checkin_time\s*:/.test(sync), 'sync-guesty must never write the cleaner deadline');
+  });
+
   test('the loader reads Wi-Fi through the two-column read and nothing broader', () => {
     const db = read('src/lib/guest-app-db.ts');
     assert.match(db, /getGuestWifiPasswords\(propertyId\)/);

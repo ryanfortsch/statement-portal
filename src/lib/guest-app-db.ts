@@ -135,6 +135,26 @@ async function readHome(propertyId: string): Promise<GuestAppHome | null> {
 }
 
 /**
+ * Guesty's guest arrival time for the home (guesty_listings.checkin_time,
+ * which /api/sync-guesty copies from the listing's defaultCheckInTime). The
+ * fallback when the home has no Helm rate plan, which is every Guesty-run
+ * home. Null when the home has no mapped listing, when its listings disagree
+ * (never a guess), or when the column is not on this database yet.
+ * Never properties.default_checkin_time: that is the cleaner deadline.
+ */
+export async function guestyCheckinTime(propertyId: string): Promise<string | null> {
+  if (!isServiceConfigured || !propertyId) return null;
+  const { data, error } = await supabaseAdmin.from('guesty_listings').select('checkin_time').eq('property_id', propertyId);
+  if (error || !Array.isArray(data)) return null;
+  const times = new Set(
+    (data as Array<{ checkin_time: string | null }>)
+      .map((r) => r.checkin_time)
+      .filter((t): t is string => typeof t === 'string' && /^\d{2}:\d{2}$/.test(t)),
+  );
+  return times.size === 1 ? [...times][0] : null;
+}
+
+/**
  * Everything one home's app shows, read live. `now` is passed in so the
  * property page and the guest page agree on "today".
  */
@@ -142,7 +162,7 @@ export async function loadGuestApp(propertyId: string, welcomeNote: string | nul
   const home = await readHome(propertyId);
   if (!home) return null;
 
-  const [wifi, roomsRes, notesRes, planRes, photoRes] = await Promise.all([
+  const [wifi, roomsRes, notesRes, planRes, guestyCheckin, photoRes] = await Promise.all([
     getGuestWifiPasswords(propertyId),
     supabaseAdmin
       .from('property_rooms')
@@ -158,6 +178,7 @@ export async function loadGuestApp(propertyId: string, welcomeNote: string | nul
       .is('resolved_at', null)
       .order('created_at', { ascending: true }),
     supabaseAdmin.from('property_rate_plans').select('checkin_time').eq('property_id', propertyId).maybeSingle(),
+    guestyCheckinTime(propertyId),
     supabaseAdmin
       .from('property_listing_photos')
       .select('url, is_hero, sort_order')
@@ -173,7 +194,8 @@ export async function loadGuestApp(propertyId: string, welcomeNote: string | nul
   const notes: GuestAppNote[] = ((notesRes.data ?? []) as Array<{ title: string | null; body: string | null }>)
     .map((n) => ({ title: (n.title ?? '').trim(), body: (n.body ?? '').trim() }))
     .filter((n) => n.title || n.body);
-  const checkInTime = (planRes.data as { checkin_time: string | null } | null)?.checkin_time ?? null;
+  // The rate plan is the store on a Helm-run home; Guesty's listing on the rest.
+  const checkInTime = (planRes.data as { checkin_time: string | null } | null)?.checkin_time || guestyCheckin;
   const heroPhotoUrl = ((photoRes.data ?? []) as Array<{ url: string | null }>)[0]?.url ?? null;
 
   const listing = findGuideListing(GUIDE, {
