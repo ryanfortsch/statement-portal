@@ -35,7 +35,8 @@ export class TimingEvidenceError extends Error {
  * No supported Channex source currently supplies original confirmation time or
  * reservation-specific arrival/departure overrides. inserted_at, raw_message,
  * first-seen time and property arrival_hour are deliberately not alternatives.
- * There is no production binding writer/loader yet. Capturing alone is insufficient.
+ * timing-binding-store.ts reads retained database bindings. Its trusted provider
+ * review caller and the full runtime loader are not wired. Capturing alone is insufficient.
  */
 export function requireTimingEvidence(raw: unknown, expected: {
   bookingId: string; sourceIdentity: unknown; clocks: SourceClocks; observedAt: string;

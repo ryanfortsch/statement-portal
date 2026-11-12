@@ -1207,10 +1207,19 @@ substitutes have no accepted lineage. The capture writer and gate share one row
 schema, with no change to the stored contract.
 
 This gate validates a trusted loader's input; it is not cryptographic proof of
-storage origin. A production binding writer and loader still need implementation
-and review. They must read retained evidence and an existing binding, never
-construct a fresh binding by copying today's context onto old clocks. No such
-binding is created here, and the earlier capture of three stays remains historical evidence.
+storage origin. The separately prepared timing-binding migration and server
+adapter now provide persistence and a validating reader. They read retained
+evidence and an existing binding, never construct a fresh binding by copying
+today's context onto old clocks. The writer requires a fresh trusted review
+assertion whose complete timing row matches the original capture, together with
+the exact current context and route. Source/mapping identity and context changes
+invalidate reads; conflicting retries cannot overwrite or refresh review history.
+SQL cannot itself verify Guesty's clocks or the provider's booking/thread relation.
+The trusted double-read review caller, owner review surface and production runtime
+loader still need implementation before use. The adapter defaults off and is not
+called by any route or cron. No live binding has been created; the earlier capture
+of three stays remains historical evidence. Installing this migration alone adds
+no scopes, jobs, template releases or sender activation.
 The coordinator still has no runtime caller. Synthetic SQL tests establish that
 unsupported source evidence creates zero jobs, while reviewed synthetic evidence
 continues through registration and fake-provider delivery.
@@ -1253,8 +1262,9 @@ the switch. Those cases still need verification before any assignment.
    the exact captured text without assigning a listing. A future native sender
    needs retained evidence and an explicit ownership boundary; a screenshot of a
    timing option alone cannot authorize it.
-2. **Complete the production scheduling path.** Implement and review the persistent
-   binding writer and trusted loader described above, then the reviewed template
+2. **Complete the production scheduling path.** Release the tested timing-binding
+   persistence, implement its trusted provider review caller and the full current
+   booking/merge/history loader, then the reviewed template
    release and bounded runtime caller. Existing stays use retained Guesty timings;
    new stays still need an authoritative policy for arrival/departure overrides.
    If native confirmation is adopted, Helm's confirmation rule must remain unable
