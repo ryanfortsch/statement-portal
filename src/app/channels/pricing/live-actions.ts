@@ -5,7 +5,7 @@ import {readPricingLiveHomes,readPricingLiveCalendar,readPricingLivePortfolio} f
 
 export async function refreshPricingLiveAction() {
   await requireOwnerEmail();
-  try {return {ok:true as const,value:await readPricingLivePortfolio(supabaseAdmin)};}
+  try {return {ok:true as const,value:await readPricingLivePortfolio(supabaseAdmin,new Date(),true)};}
   catch {return {ok:false as const,error:'Calendar data is unavailable'};}
 }
 export async function readPricingLiveCalendarAction(id:string) {
@@ -13,6 +13,6 @@ export async function readPricingLiveCalendarAction(id:string) {
   try {
     const home=(await readPricingLiveHomes(supabaseAdmin)).find(h=>h.id===id);
     if(!home)throw Error('Choose an active property');
-    return {ok:true as const,value:await readPricingLiveCalendar(supabaseAdmin,home)};
+    return {ok:true as const,value:await readPricingLiveCalendar(supabaseAdmin,home,new Date(),true)};
   } catch {return {ok:false as const,error:'Calendar data is unavailable'};}
 }

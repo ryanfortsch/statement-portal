@@ -27,11 +27,11 @@ November 12, 2026.** It created only the two draft storage tables and their save
 function. Its receipt was recorded in the same transaction; both tables have RLS
 enabled. The dormant pricing publisher and observations migrations remain separate.
 
-Rollout procedure: publish this branch and use **Save to Helm** from the browser
-holding the imported settings. Verify listing/group counts and re-open in a fresh
-browser before considering the browser copy migrated. If any activation step
-fails, the existing browser draft remains the working copy. Do not apply all
-pending migrations.
+Shared-settings rollout completed November 12 at 18:59 UTC: production revision 1
+contains 22 imported listing drafts, Rising Tide Standard, and five date overrides.
+A separate Chrome browser with no previous pricing drafts loaded the shared copy;
+3 Locust's bounds and all five Master 2027 booking-window minimum stays matched.
+Do not apply all pending migrations.
 
 The save does not enable rate syncing, connections or scheduled publishing.
 Imported market evidence and comparison histories remain session-only, and no
@@ -43,6 +43,44 @@ and `scripts/tests/pricing-shared-settings.sql` plus
 `helm_synthetic_pricing_settings` database. The browser check exercises Strict
 Mode stale reads, edits during loading, recovery, uncertain retries, concurrent
 updates, unsaved forms and narrow-screen comparison. No customer data is used.
+
+## Shared research checkpoint
+
+`codex/helm-pricing-market-evidence` prepares durable, per-property imports of daily
+PriceLabs Neighborhood Data and historical inventory. It requires the separate
+research-only migration `20261112210000_helm_pricing_research.sql` before activation.
+**Prepared, not applied.** No PriceLabs API, paid product, automatic feed or live
+rate delivery is enabled by this work.
+
+The owner saves an export with its original observation time and comparable-set
+label. Helm validates scope, dates and numeric fields, retains immutable import
+receipts, rejects stale versions, and retries an uncertain save with the same
+request ID. Failed reads remain distinct from empty data. Current calendar reads
+remain usable if research storage is unavailable. Research never enters the
+shared rule document or changes the calendar's source timestamps.
+
+Fresh imports appear in the 30/60/90-day property comparisons and sortable Market
+and Difference dashboard columns. Comparisons exclude the home's blocked dates;
+portfolio benchmarks count only homes/dates with a complete, fresh comparison.
+The matched-home occupancy appears beside the market summary so a partial market
+sample cannot be mistaken for the whole portfolio. Missing, partial and expired
+imports remain blank. After 36 hours, imported asking-price and occupancy series
+are withheld; the source and original observation date remain visible. Property
+freshness is reevaluated each minute and on refresh/import.
+
+Activation: apply only the reviewed research migration, publish, then import a
+current daily export for its exact listing. Verify its source, observed time,
+dashboard result and a second-browser reload before expanding to more homes.
+Existing downloaded exports must keep their original observation times. Never
+redate an old export to bypass expiry or copy one property's comparison set across
+the portfolio without verifying it is appropriate.
+
+Validation uses synthetic exports and a 24-listing browser fixture, plus the
+`dynamic-pricing-research` tests and disposable PostgreSQL checks in
+`scripts/tests/pricing-research.sql` and `pricing-research-concurrency.mjs`.
+The browser fixture deliberately stores its fake backend in a separate synthetic
+local key to exercise reload; real production persistence still needs activation
+and a second-browser check. Comparison history remains session-only.
 
 ## What the account actually costs
 
@@ -195,7 +233,7 @@ a conflicting short gap is flagged rather than silently published as fillable.
 
 | Capability | Implemented prototype | Remaining work |
 | --- | --- | --- |
-| Base/min/max | Exact-ID PriceLabs export import, original unset bounds retained, integer cents | Automatic refresh and shared persistence |
+| Base/min/max | Exact-ID PriceLabs export import, original unset bounds retained, integer cents, shared settings | Automatic refresh |
 | Seasonality / weekdays | Manual factors, learned historical shape with shrinkage, or base-anchored market asking-price shape | Independent market feed; distinguish historical provider effects |
 | Forward occupancy | Booked/sellable plus conditional pickup and final-occupancy scenarios | Calibrate on real inventory histories and cancellation snapshots |
 | Market demand / pace | Imported occupancy, same-time baseline, seven-day pickup; bounded price response | Automated licensed source, local comp matching, validation |
@@ -210,7 +248,7 @@ a conflicting short gap is flagged rather than silently published as fillable.
 | Prospective comparison tracking | Append-only 180-night captures, original forecasts, observed state changes, opt-in daily collector | Production installation/activation, cancellation-aware outcomes and calibration |
 | Listing connection | Manual owner review, direct-rate publishing, atomic undo | Production installation and pilot approval |
 | OTA publishing / scheduling | Not connected | Verified Channex rate mapping, single writer, journal, readback and daily runs |
-| Groups / bulk profiles | Local account/group/subgroup/listing inheritance, source export imports, local bulk overrides | Shared persistence, reusable named-profile editing and controlled live rollout |
+| Groups / bulk profiles | Local account/group/subgroup/listing inheritance, source export imports, local bulk overrides | Reusable named-profile editing and controlled live rollout |
 
 ## Model v3, precisely
 

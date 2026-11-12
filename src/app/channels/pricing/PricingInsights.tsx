@@ -10,25 +10,25 @@ import type {PricingPolicy,PricingPreview,PricingSnapshot} from '@/lib/dynamic-p
 const money=(n:number|null)=>n===null?'–':`$${(n/100).toFixed(0)}`;
 const pct=(n:number|null)=>n===null?'Unavailable':`${Math.round(n)}%`;
 const field='mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm';
-export default function PricingInsights({view,propertyId,snapshot,preview,policy,busy,onSave,onUseLearned,onOpenData,draftOnly=false}:{draftOnly?:boolean;onOpenData?:()=>void;view:'prices'|'market'|'occupancy'|'data'|'hidden';propertyId:string;snapshot:PricingSnapshot;preview:PricingPreview|null;policy:PricingPolicy;busy:boolean;onSave:(e:PricingEvidence)=>Promise<boolean>;onUseLearned:(base:number)=>void}) {
+export default function PricingInsights({view,propertyId,snapshot,preview,policy,busy,onSave,onUseLearned,onOpenData,draftOnly=false,sharedEvidence=false,evaluationAt}:{evaluationAt:Date;sharedEvidence?:boolean;draftOnly?:boolean;onOpenData?:()=>void;view:'prices'|'market'|'occupancy'|'data'|'hidden';propertyId:string;snapshot:PricingSnapshot;preview:PricingPreview|null;policy:PricingPolicy;busy:boolean;onSave:(e:PricingEvidence)=>Promise<boolean>;onUseLearned:(base:number)=>void}) {
   const evidence=useMemo(()=>snapshot.evidence??emptyPricingEvidence(propertyId),[snapshot.evidence,propertyId]);
   const [type,setType]=useState('market'),[source,setSource]=useState(''),[observed,setObserved]=useState(''),[pending,setPending]=useState<PricingEvidence|null>(null),[error,setError]=useState('');
   const [elasticity,setElasticity]=useState(2);
   const [chartDays,setChartDays]=useState(90);
   const [chartOpen,setChartOpen]=useState(false),[marketChartOpen,setMarketChartOpen]=useState(false);
   useUnsavedWorkGuard(!!pending);
-  const analysis=useMemo(()=>analyzePricingEvidence(evidence,snapshot.today,new Date(snapshot.observedAt)),[evidence,snapshot]);
-  const forecasts=useMemo(()=>new Map(snapshot.days.map(d=>[d.date,forecastNight(evidence,d.date,snapshot.today,new Date(snapshot.observedAt))])),[evidence,snapshot]);
+  const analysis=useMemo(()=>analyzePricingEvidence(evidence,snapshot.today,evaluationAt),[evidence,snapshot,evaluationAt]);
+  const forecasts=useMemo(()=>new Map(snapshot.days.map(d=>[d.date,forecastNight(evidence,d.date,snapshot.today,evaluationAt)])),[evidence,snapshot,evaluationAt]);
   const backtest=useMemo(()=>backtestOccupancy(evidence.history,snapshot.today),[evidence,snapshot.today]);
   const data=snapshot.days.map(d=>{const r=preview?.days.find(n=>n.date===d.date),m=evidence.market.find(n=>n.date===d.date),f=forecasts.get(d.date);
     return {date:d.date,current:d.currentCents===null?null:d.currentCents/100,helm:r?.recommendedCents==null?null:r.recommendedCents/100,
-      vendor:m?.vendorCents==null?null:m.vendorCents/100,p25:m?.p25Cents==null?null:m.p25Cents/100,p75:m?.p75Cents==null?null:m.p75Cents/100,
+      vendor:!analysis.marketFresh||m?.vendorCents==null?null:m.vendorCents/100,p25:!analysis.marketFresh||m?.p25Cents==null?null:m.p25Cents/100,p75:!analysis.marketFresh||m?.p75Cents==null?null:m.p75Cents/100,
       market:analysis.marketFresh?m?.occupancyPct:null,final:analysis.marketFresh&&m?.occupancyPct!=null&&f?.basis.startsWith('market')&&f.probability!==null?m.occupancyPct+(100-m.occupancyPct)*f.probability:null};});
   const months=[...new Set(snapshot.days.map(d=>d.date.slice(0,7)))].map(month=>{
     const days=snapshot.days.filter(d=>d.date.startsWith(month)),sellable=days.filter(d=>d.state==='open'||d.state==='booked'),booked=days.filter(d=>d.state==='booked').length;
     let expected=booked,low=booked,high=booked,missing=days.filter(d=>d.state==='unknown').length;
     for(const day of sellable.filter(d=>d.state==='open')){const f=forecasts.get(day.date)!;if(f.probability===null)missing++;else{expected+=f.probability;low+=f.low!;high+=f.high!;}}
-    const stale=days.some(d=>Date.parse(snapshot.observedAt)-Date.parse(d.observedAt)>36*3600000||Date.parse(d.observedAt)>Date.parse(snapshot.observedAt));
+    const stale=days.some(d=>evaluationAt.getTime()-Date.parse(d.observedAt)>36*3600000||Date.parse(d.observedAt)>evaluationAt.getTime());
     const valid=sellable.length>0&&!missing&&!stale;
     return {month,booked,sellable:sellable.length,blocked:days.filter(d=>d.state==='blocked').length,missing,expected:valid?100*expected/sellable.length:null,low:valid?100*low/sellable.length:null,high:valid?100*high/sellable.length:null};
   });
@@ -60,9 +60,10 @@ export default function PricingInsights({view,propertyId,snapshot,preview,policy
   </div>;}
   return <div hidden={view==='hidden'}>
     <section hidden={view!=='market'} aria-label="Market data" className="pricing-panel pricing-market-panel">
+      <div className="pricing-market-source"><span>{evidence.marketSource||'No market import'}{evidence.marketObservedAt&&<> · {analysis.marketFresh?'Observed':'Expired'} {etStamp(evidence.marketObservedAt)}</>}</span>{onOpenData&&<Button size="sm" variant="secondary" onClick={onOpenData}>{evidence.market.length?'Update market data':'Import market data'}</Button>}</div>
       <div className="pricing-insight-card"><header><h3>Nightly rates</h3><div className="pricing-range-control" role="group" aria-label="Chart range">{[30,90,180].map(days=><Button key={days} variant="quiet" aria-pressed={chartDays===days} onClick={()=>setChartDays(days)}>{days}d</Button>)}</div></header>
-        {view==='market'&&chart('rates')}<footer>{analysis.marketFresh?'Market rates are asking prices':'Current rates and Helm draft. Market rates not connected.'}</footer></div>
-      <div className="pricing-insight-card"><header><h3>Market occupancy</h3><span>Next {chartDays} days</span></header>{view==='market'&&(analysis.marketFresh&&data.some(d=>d.market!=null)?<>{chart('occupancy')}<footer>Projected includes estimated future bookings.</footer></>:<div className="pricing-insight-empty"><h4>Market data not connected</h4><p>Import a dated neighborhood export to compare occupancy.</p>{onOpenData&&<Button variant="secondary" onClick={onOpenData}>Import market data</Button>}</div>)}</div>
+        {view==='market'&&chart('rates')}<footer>{analysis.marketFresh?'Market rates are asking prices':evidence.market.length?'Current and draft rates · Market import expired':'Current and draft rates · No market import'}</footer></div>
+      <div className="pricing-insight-card"><header><h3>Market occupancy</h3><span>Next {chartDays} days</span></header>{view==='market'&&(analysis.marketFresh&&data.some(d=>d.market!=null)?<>{chart('occupancy')}<footer>Projected includes estimated future bookings.</footer></>:<div className="pricing-insight-empty"><h4>{evidence.market.length?'Market import expired':'No market import'}</h4><p>Import a current daily export to compare occupancy.</p></div>)}</div>
       <details className="pricing-source-details"><summary>Sources & methodology</summary><p>{evidence.marketSource||'No market source imported'} · {analysis.marketFresh?`Updated ${etStamp(evidence.marketObservedAt!)}`:'Current market data needed'}. Market rates are asking prices, not booked rates.</p></details>
     </section>
     <section hidden={view!=='prices'} aria-label="Rate comparison">
@@ -90,7 +91,7 @@ export default function PricingInsights({view,propertyId,snapshot,preview,policy
         {type==='history'&&<p className="mt-3 text-xs text-slate-500">Columns: date,state,booked_on,rent_cents. States: open, booked, blocked, unknown. Rent is accommodation only, allocated per night; leave unknown values blank.</p>}
         <label className="my-4 block text-sm">CSV file<input type="file" accept=".csv,text/csv" disabled={busy} className="mt-2 block max-w-full text-sm" onChange={e=>void readFile(e.target.files?.[0])}/></label>
         {error&&<p role="alert" className="my-3 text-sm text-red-700">{error}</p>}
-        {pending&&<div className="border-l-2 border-amber-500 pl-4 text-sm"><p>{type==='market'?pending.market.length:pending.history.length} nights ready. {draftOnly?'Imported data stays in this session.':'Replaces this source and invalidates previous publishing reviews.'}</p><Button className="mt-3" variant="primary" disabled={busy} onClick={async()=>{if(await onSave(pending))setPending(null);}}>Save imported data</Button></div>}
+        {pending&&<div className="border-l-2 border-amber-500 pl-4 text-sm"><p>{type==='market'?pending.market.length:pending.history.length} nights ready. {sharedEvidence?'Saves this listing’s research in Helm.':draftOnly?'Imported data stays in this session.':'Replaces this source and invalidates previous publishing reviews.'}</p><Button className="mt-3" variant="primary" disabled={busy} onClick={async()=>{if(await onSave(pending))setPending(null);}}>Save imported data</Button></div>}
       </details>
       <details className="border-t pt-4"><summary className="cursor-pointer font-medium">Historical pricing patterns</summary>
         <div className="my-4 flex flex-wrap items-center justify-between gap-3"><p className="text-sm">Base reference <b>{money(analysis.shape.baseCents)}</b> · {analysis.shape.nights} booked nights</p><Button size="sm" disabled={!analysis.shape.qualified||busy} onClick={()=>onUseLearned(analysis.shape.baseCents!)}>Use in draft rules</Button></div>

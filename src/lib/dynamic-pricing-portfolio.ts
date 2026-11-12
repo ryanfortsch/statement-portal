@@ -47,6 +47,13 @@ export type PricingPortfolioRow = PricingPortfolioHome & {
   error:string|null; windows:Record<PricingWindowDays,PricingWindow>;
 };
 
+/** An open dashboard cannot keep an expired benchmark looking current. */
+export function expirePricingMarketRows(rows:PricingPortfolioRow[],now:Date):PricingPortfolioRow[] {
+  return rows.map(row=>!row.marketSource||evidenceFresh(row.marketObservedAt,now)?row:{...row,
+    windows:Object.fromEntries(PRICING_WINDOWS.map(n=>[n,{...row.windows[n],marketPct:null,gapPp:null,marketIssue:'stale'}])) as PricingPortfolioRow['windows'],
+  });
+}
+
 /** Missing measurements stay last in either direction; ties have a stable natural-name order. */
 export function sortPricingPortfolioRows(rows:PricingPortfolioRow[],view:Pick<PricingPortfolioView,'sort'|'direction'|'window'>):PricingPortfolioRow[] {
   const text=(a:string,b:string)=>a.localeCompare(b,'en',{numeric:true,sensitivity:'base'});
