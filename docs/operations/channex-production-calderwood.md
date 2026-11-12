@@ -1087,3 +1087,50 @@ a fake provider and prove one POST plus receipt readback. These are synthetic
 tests, not evidence of live channel delivery. Remaining execution work includes
 reviewed template release, verified post-cutover clocks, planner integration,
 cleaner SMS delivery and the live dispatcher/source handover.
+
+## Guest schedule coordinator (November 11, 2026)
+
+`channex-messaging/schedule-coordinator.ts` now joins the existing source-offset
+planner to atomic registration for one canonical Calderwood stay. It is disabled
+by default and performs at most four guest registrations per invocation. There
+is still no environment loader, HTTP endpoint, cron or live invocation. No new
+database migration is required for this application-only batch.
+
+The coordinator brackets each private snapshot read with the service-only context
+RPC and reloads before each registration. It compares all non-ledger inputs with
+the initial snapshot, then reconciles the fresh ledger through the existing
+planner. History is required in full for the stay; a future loader must reject
+pagination or query errors rather than supply a partial/empty success. Snapshots
+older than 30 seconds, future observations, reversed clocks, and cycles exceeding
+60 seconds stop further registrations. Earlier successful inserts remain intact.
+
+Each guest rule must match retained, valid captured-template evidence with the
+same ID, body and configuration. Only a future reviewed release's three dispatch
+flags and archived policy field may differ. Current frozen templates are rejected
+as `release_required`; this module cannot modify or release them. It derives fire
+times from the captured offsets, preserves Guesty's long-date format, refuses
+missing/masked merge fields, and sends only the rendered-body hash to registration.
+The expiration interval is a required caller policy, bounded by the SQL contract;
+no live expiration policy has been selected by these tests.
+
+The send UUID is namespaced and deterministic for canonical stay plus workflow.
+Uncertain writes stop the batch without an internal retry. On restart, the complete
+ledger preserves existing/sent/held/uncertain history; an uncommitted attempt uses
+the same identity. Changed intent never rewrites an existing job. Outcomes contain
+workflow states and IDs, without message text, merge values or underlying errors.
+Every result still has `canSend: false`; only the worker's separate claim and
+receipt path can dispatch.
+
+Synthetic PostgreSQL coverage now traverses the source-offset planner, this
+coordinator, real registration RPC, job reader, worker and fake provider in one
+test. It checks four schedules, restart after a lost committed response, concurrent
+coordinators, a cancellation between the final read and insert, held jobs, and
+cancellation after registration. These fixtures create independent active test
+rules: they do not claim to test a production template-release process.
+
+Remaining launch prerequisites are unchanged: retain verifiable template-release
+evidence and exclude the generic planner; implement the authoritative post-cutover
+clock/merge/thread loader; complete cleaner SMS and live dispatch integration;
+verify Guesty queue drainage and approve the actual sender handover. Repeated
+snapshot reads detect changes, but are not proof of clock provenance, channel
+delivery or source shutdown. Guesty remains the production sender.

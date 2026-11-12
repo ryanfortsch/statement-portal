@@ -19,6 +19,7 @@ on:
       - 'scripts/test-channex-cycle.mts'
       - 'scripts/test-channex-messages.mts'
       - 'scripts/test-channex-schedule.mts'
+      - 'scripts/test-channex-schedule-coordinator.mts'
       - 'scripts/test-channex-reconciliation.mts'
       - 'scripts/tests/channex*'
       - '.github/workflows/channex-production.yml'
@@ -66,4 +67,5 @@ jobs:
       - run: node --import ./scripts/server-only-test-hook.mjs scripts/test-channex-messages.mts
       - run: node --import ./scripts/server-only-test-hook.mjs scripts/test-channex-schedule.mts
       - run: bash scripts/tests/channex-schedule-concurrency.sh
+      - run: node --import ./scripts/server-only-test-hook.mjs scripts/test-channex-schedule-coordinator.mts
       - run: bash scripts/tests/channex-messages-concurrency.sh
