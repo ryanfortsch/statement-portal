@@ -56,6 +56,7 @@ import { EXPORT_FOR_CHANNELS, exportUrlFor, type ExportForChannel } from './ical
 import { channelLabel, helmConversationId, HELM_SMS_MODULE } from './helm-inbox-core.ts';
 import { toE164Phone } from './guests-identity-core.ts';
 import { isHelmCode, type BookingConflict } from './bookings-write-core.ts';
+import { isPartnerHome, PARTNER_KIND } from './property-scope.ts';
 import type { BookingFinance } from './channels-types.ts';
 import type { BookingEx } from './channels.ts';
 import type { ReservationPick } from './stay-concierge.ts';
@@ -179,7 +180,8 @@ export type BridgeFailure =
   | { ok: false; error: 'quote_expired' }
   | { ok: false; error: 'quote_invalid'; detail: string }
   | { ok: false; error: 'quote_drift'; quoted_total_cents: number; current_total_cents: number }
-  | { ok: false; error: 'booking_overlap'; conflict: BookingConflict };
+  | { ok: false; error: 'booking_overlap'; conflict: BookingConflict }
+  | { ok: false; error: 'partner_not_bookable'; property_id: string };
 
 export type BridgeErrorCode = BridgeFailure['error'];
 
@@ -193,6 +195,7 @@ const STATUS_BY_ERROR: Record<BridgeErrorCode, number> = {
   unavailable: 409,
   quote_drift: 409,
   booking_overlap: 409,
+  partner_not_bookable: 409,
   quote_expired: 410,
   terms: 422,
   not_configured: 503,
@@ -261,16 +264,25 @@ export async function getBridgeProperty(propertyId: string): Promise<BridgePrope
   return shapeProperty(data as Record<string, unknown>);
 }
 
-/** Active managed homes, Helm-run by default; 'all' widens to the whole fleet. */
-export async function listBridgeProperties(authority: 'helm' | 'all' = 'helm'): Promise<BridgeProperty[]> {
+/**
+ * Active managed homes, Helm-run by default; 'all' widens to the whole fleet.
+ *
+ * Partner homes (a host's own home listed on staycapeann.com) come back only
+ * when the caller asks with includePartners: the site lists them, nothing
+ * else that reads this fleet may (the concierge stay picker, the fleet
+ * watch). A partner row is never is_active, so it is named by its kind.
+ */
+export async function listBridgeProperties(
+  authority: 'helm' | 'all' = 'helm',
+  opts: { includePartners?: boolean } = {},
+): Promise<BridgeProperty[]> {
   if (!isServiceConfigured) return [];
   const rows = await selectAllPaged<Record<string, unknown>>(
     (from, to) => {
       let q = supabaseAdmin
         .from('properties')
         .select(PROPERTY_COLS)
-        .eq('is_active', true)
-        .eq('kind', 'managed')
+        .or(opts.includePartners ? `and(is_active.eq.true,kind.eq.managed),kind.eq.${PARTNER_KIND}` : 'and(is_active.eq.true,kind.eq.managed)')
         .order('id', { ascending: true })
         .range(from, to);
       if (authority === 'helm') q = q.eq('calendar_authority', 'helm');
@@ -755,6 +767,8 @@ const centsToDollarsOrNull = (v: number | null | undefined): number | null => (v
  *      written, and the automations planner runs for the property, each
  *      inside its own try/catch so a side effect never undoes a booking
  *      that is already committed.
+ *
+ * A partner home answers 'partner_not_bookable' (409) before any of it.
  */
 export async function createReservationFromBridge(
   input: CreateReservationInput,
@@ -766,6 +780,13 @@ export async function createReservationFromBridge(
   const now = opts.now ?? new Date();
   const sourceRef = input.source_ref.trim();
   const guests = Math.round(Number(input.guests));
+
+  // 0. A partner home is its host's: the guest pays the host through Stripe
+  //    Connect and the host accepts a booking request. Neither exists yet,
+  //    and this path writes a Rising Tide direct booking (finance row,
+  //    automations, our guest record), so it refuses a partner home first.
+  const target = await getBridgeProperty(input.property_id);
+  if (target && isPartnerHome(target)) return fail({ ok: false, error: 'partner_not_bookable', property_id: target.id });
 
   // 1. Idempotency.
   const existing = await findBySourceRef(sourceRef);
@@ -1143,6 +1164,10 @@ export type BridgePropertyDescription = {
   lng: number | null;
   region: string | null;
   calendar_authority: 'guesty' | 'helm';
+  /** 'managed' (Rising Tide runs it) or 'partner' (its own host does). */
+  kind: string;
+  /** A partner home takes no booking here yet; the site offers an inquiry. */
+  bookable: boolean;
   rate_plan: RatePlanRow | null;
   tax: BridgeTax;
   listing: ScaListing | null;
@@ -1206,6 +1231,8 @@ export async function describePropertyForBridge(
     lng: property.longitude,
     region: property.region,
     calendar_authority: property.calendar_authority,
+    kind: property.kind,
+    bookable: !isPartnerHome(property),
     rate_plan: bundle.plan,
     tax,
     listing: record ? toScaListing(record, bundle.plan) : null,
@@ -1218,8 +1245,11 @@ export async function describePropertyForBridge(
 }
 
 /** GET /api/pms/properties. */
-export async function describeFleetForBridge(authority: 'helm' | 'all' = 'helm', opts: { now?: Date } = {}): Promise<BridgePropertyDescription[]> {
-  const props = await listBridgeProperties(authority);
+export async function describeFleetForBridge(
+  authority: 'helm' | 'all' = 'helm',
+  opts: { now?: Date; includePartners?: boolean } = {},
+): Promise<BridgePropertyDescription[]> {
+  const props = await listBridgeProperties(authority, { includePartners: opts.includePartners });
   if (props.length === 0) return [];
   const links = await channelLinksByProperty(props.map((p) => p.id));
   const out: BridgePropertyDescription[] = [];

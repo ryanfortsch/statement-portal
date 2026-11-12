@@ -25,6 +25,7 @@ import { createReservationFromBridge, listReservationPicks, bridgeStatus, type C
  *   422 {error:'terms', violations} arrival on a No arrival (CTA) day or departure on a No departure (CTD) day
  *   410 {error:'quote_expired'}; 400 {error:'quote_invalid'} tampered or for another stay
  *   409 calendar_authority_guesty; 404 unknown property; 400 validation
+ *   409 {error:'partner_not_bookable'} a partner home: its host takes bookings, not this path
  *
  * GET ?days=60&property_id=: ReservationPick rows for the concierge stay
  * picker over canonical confirmed / completed stays of Helm-run homes.
