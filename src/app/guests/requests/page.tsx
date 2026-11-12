@@ -156,6 +156,12 @@ function OpenRequest({ r, now, overlapping }: { r: ReviewRequest; now: Date; ove
         </p>
       )}
 
+      {r.cancellation_terms && (
+        <p style={{ fontSize: 12.5, color: 'var(--ink-3)', marginTop: 8, maxWidth: 720, lineHeight: 1.5 }}>
+          Cancellation they agreed to: {r.cancellation_terms}
+        </p>
+      )}
+
       <div style={meta}>
         GUEST <a href={`mailto:${r.guest_email}`} style={{ color: 'inherit' }}>{r.guest_email}</a>
         {r.guest_phone && <> · <a href={`tel:${r.guest_phone}`} style={{ color: 'inherit' }}>{r.guest_phone}</a></>}

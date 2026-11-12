@@ -345,7 +345,10 @@ the bar again on the server and refuses an open line; **Take it off the site** a
 immediate. `listedPartnerIds()` (`src/lib/partner-listed.ts`) is the switch: the bridge's
 `GET /api/pms/properties?include=partner` names only listed partner homes (the office's own reads
 of `listBridgeProperties` still see them all), and `POST /api/pms/requests` answers `not_found` for
-any other, before it prices. A failed read lists nobody.
+any other, before it prices. A failed read lists nobody. A request keeps what
+the guest agreed to: the home's cancellation policy and house rules as they
+stood, and the site's Terms version (`requestTerms`, `booking_requests.cancellation_terms`);
+a home with no cancellation policy takes no request.
 
 **A partner home's own calendars never become bookings** (`src/lib/partner-calendar.ts`). The
 host keeps selling on Airbnb, Vrbo or their software, so the office adds each export link on the
