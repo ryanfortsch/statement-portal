@@ -700,9 +700,11 @@ runs itself.
   The default-off server adapter validates that evidence against the caller's
   expected snapshot. No direct table access is granted to client/service roles.
   This stores review evidence, not a live provider-clock guarantee. The trusted
-  provider double-read/thread review caller and runtime scheduling loader remain
-  separate work; there is no browser endpoint, activation, job creation or sender
-  in this migration.
+  provider caller (`timing-provider-review.ts`) now double-reads Guesty clocks and
+  Channex booking/thread identity before using the adapter. It defaults off and
+  needs a trusted production snapshot loader/owner surface; the runtime scheduling
+  loader remains separate work. There is no browser endpoint, activation, job
+  creation or sender in this migration.
 - **`guest_threads`**: one thread per stay per channel (`sms`, `email`,
   `airbnb`, `vrbo`, `booking_com`, `direct`), keyed to `booking_id`,
   `guest_id` and `property_id`, with `external_thread_key` (E.164 for

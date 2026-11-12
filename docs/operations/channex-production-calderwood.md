@@ -1215,14 +1215,48 @@ assertion whose complete timing row matches the original capture, together with
 the exact current context and route. Source/mapping identity and context changes
 invalidate reads; conflicting retries cannot overwrite or refresh review history.
 SQL cannot itself verify Guesty's clocks or the provider's booking/thread relation.
-The trusted double-read review caller, owner review surface and production runtime
-loader still need implementation before use. The adapter defaults off and is not
+The trusted double-read review caller is now implemented as described below; its
+production snapshot loader, owner review surface and production runtime loader
+still need implementation before use. The adapter defaults off and is not
 called by any route or cron. No live binding has been created; the earlier capture
 of three stays remains historical evidence. Installing this migration alone adds
 no scopes, jobs, template releases or sender activation.
 The coordinator still has no runtime caller. Synthetic SQL tests establish that
 unsupported source evidence creates zero jobs, while reviewed synthetic evidence
 continues through registration and fake-provider delivery.
+
+`timing-provider-review.ts` handles an explicit, default-off review of one retained
+stay. Its request contains only three UUIDs: binding, capture and canonical booking.
+A trusted server loader must supply the retained capture, current enabled schedule
+context, persisted latest remote-booking revision, and reviewed channel/thread
+destination. Browser clocks, credentials and handover assertions are not inputs.
+The caller must retain the binding ID for readback if a save is unconfirmed.
+
+Before one binding write, it checks both providers twice: projected Guesty V2
+reservation identity/local overrides/defaults, Guesty V3 original `confirmedAt`,
+Channex's latest booking-by-ID and the open message thread's exact property,
+channel, provider and booking relation. It shares the capture's Guesty projection
+and dispatch's thread validator. The booking's room/rate plan, confirmation code,
+dates, active status and latest revision must match the persisted mapping. All
+captured clock values must remain identical; missing overrides do not become
+defaults. A final database snapshot must equal the first before calling the
+existing binding RPC, which rechecks current context/identity under locks.
+
+The review makes at most eight GETs to fixed provider hosts, bounds each request
+and response, refuses redirects and Channex warning/error envelopes, and rejects
+clock rollback, midnight rollover or observations lasting 80 seconds. It discards
+guest/payment/message data and returns only status, binding ID and counts. A lost
+save response is uncertain, with no retry or ID rotation. This is a review-time
+observation, not a guarantee providers cannot change afterward; dispatch-time
+context/identity checks remain required.
+
+The synthetic PostgreSQL test now exercises this actual provider-review caller
+through the binding RPC and downstream scheduling coordinator, including changed
+provider clocks and a lost committed response. Only test fixtures implement the
+snapshot loader in this release. No owner endpoint, credential/env wiring, live
+provider call, new database migration, template activation or scheduling occurs
+on deployment. The production loader must use a narrowly scoped service-only
+read; do not grant direct private-table access to implement it.
 
 New Airbnb reservations remain blocked for the existing +30-minute confirmation
 rule until a reliable original timestamp source or an explicitly approved different

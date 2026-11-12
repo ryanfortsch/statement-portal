@@ -7,6 +7,8 @@ import { createChannexTimingBindingStore } from '../src/lib/channex-messaging/ti
 import { requireTimingEvidence } from '../src/lib/channex-messaging/timing-evidence.ts';
 import { createChannexScheduleStore } from '../src/lib/channex-messaging/schedule-store.ts';
 import { registerCalderwoodStaySchedules } from '../src/lib/channex-messaging/schedule-coordinator.ts';
+import { reviewCalderwoodTimingBinding } from '../src/lib/channex-messaging/timing-provider-review.ts';
+import { syntheticTimingProvider } from '../src/lib/__tests__/fixtures/channex-timing-provider.ts';
 import { MESSAGE_RULE_FIELDS } from '../src/lib/channex-messaging/preparation-rules.ts';
 import { MESSAGE_SCHEDULE_LEDGER_FIELDS } from '../src/lib/channex-messaging/schedule-plan.ts';
 import { syntheticScheduleSnapshot } from '../src/lib/__tests__/fixtures/channex-schedule-snapshot.ts';
@@ -121,8 +123,41 @@ for (const mutation of [
   sql(mutation); assert.equal(await store.load(p.bindingId,expected(p),Date.now()),null);
   assert.equal((await store.bind(p,'owner@synthetic.test')).state,'uncertain'); assert.equal(count(),'1');
 }
-// The production coordinator can consume actual persisted evidence, rather than
-// the previous test-only helper manufacturing a binding from current context.
+// Real provider-review orchestration -> SQL binding -> coordinator. This loader
+// reads synthetic database fixtures as the test database owner; it is deliberately
+// NOT an application/service-role loader or a production activation writer.
+function providerReview(plan: ReturnType<typeof setup>, corruptSecondClock = false) {
+  const load = async () => JSON.parse(sql(`select jsonb_build_object(
+    'capture',jsonb_build_object('id',c.id,'checkedAt',to_char(c.checked_at at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+      'savedAt',to_char(c.saved_at at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),'sourceContract',c.source_contract,'row',item),
+    'context',public.helm_channex_message_schedule_context('${bid}'),
+    'scope',jsonb_build_object('environment',s.environment,'propertyId',s.remote_property,'channelId',s.channel_id,'provider',s.provider),
+    'route',jsonb_build_object('remoteBookingId',r.remote_id,'threadId','${thread}','revisionId',r.latest_revision))
+    from helm_channex_messages.source_timing_captures c cross join lateral jsonb_array_elements(c.rows) item
+    cross join helm_channex_messages.scope s join helm_airbnb_bookings.bookings r on r.canonical_id='${bid}'
+    where c.id='${plan.captureId}' and item->>'bookingId'='${bid}' and s.property_id='65_calderwood';`));
+  let reads = 0;
+  return reviewCalderwoodTimingBinding({bindingId:plan.bindingId,captureId:plan.captureId,bookingId:bid},'owner@synthetic.test',{
+    load,store,clock:Date.now,credentials:async()=>({guestyToken:'synthetic-guesty',channexKey:'synthetic-channex'}),
+    fetcher:async(url,init)=>{
+      assert.equal(init?.method,'GET'); assert.equal(init?.body,undefined); reads++;
+      const s=await load(), source=syntheticTimingProvider(s.capture.row,{...s.route,channelId:s.scope.channelId});
+      if(corruptSecondClock && reads>4) source.v2.plannedArrival='22:00';
+      const path=new URL(String(url)).pathname;
+      return Response.json(path.includes('/reservations/')?source.v2:path.endsWith('/reservations-v3')?source.v3
+        :path.includes('/bookings/')?source.booking:source.thread);
+    },
+  },{enabled:true});
+}
+p=setup();
+assert.equal((await providerReview(p,true)).state,'changed'); assert.equal(count(),'0');
+assert.equal(sql('select count(*) from helm_channex_messages.jobs;'),'0');
+loseResponse=true;
+assert.equal((await providerReview(p)).state,'uncertain'); assert.equal(count(),'1');
+loseResponse=false;
+assert.ok(await store.load(p.bindingId,expected(p),Date.now()));
+assert.equal(sql('select count(*) from helm_channex_messages.jobs;'),'0');
+
 // Templates/merge inputs are still synthetic; this is not their release workflow.
 p=setup();
 const snapshot=syntheticScheduleSnapshot(Date.now());
@@ -130,7 +165,9 @@ sql('delete from message_automations;');
 for (const rule of snapshot.currentRules.filter(r=>r.audience==='guest')) sql(`insert into message_automations(${MESSAGE_RULE_FIELDS})
  select ${MESSAGE_RULE_FIELDS} from jsonb_populate_record(null::message_automations,${str(JSON.stringify(rule))}::jsonb);`);
 p.context=JSON.parse(sql(`select helm_channex_message_schedule_context('${bid}');`));
-assert.equal((await store.bind(p,'owner@synthetic.test')).state,'created');
+const reviewed=await providerReview(p);
+assert.equal(reviewed.state,'created'); assert.equal(reviewed.sourceReads,8);
+assert.equal(reviewed.jobsCreated+reviewed.messagesSent,0);
 const schedules=createChannexScheduleStore(rpc,{enabled:true});
 const load=async()=>{
   const e=expected(p), evidence=await store.load(p.bindingId,e,Date.now());
@@ -167,4 +204,4 @@ assert.ok(waiting);
 assert.equal((await store.bind(p,'owner@synthetic.test')).state,'uncertain'); await done; assert.equal(count(),'0');
 sql(`delete from helm_channex_messages.timing_bindings; delete from helm_airbnb_bookings.bookings where canonical_id='${bid}';
   select channex_synthetic_timing_setup(); delete from bookings where id='${bid}'; delete from guesty_reservations;`);
-console.log('PASS: retained capture -> reviewed binding -> trusted loader -> coordinator; role isolation, drift, conflicts, response loss, concurrent review/cancellation; review itself creates zero jobs/messages');
+console.log('PASS: retained capture -> provider double-read -> SQL binding -> trusted loader -> coordinator; provider drift, lost committed response, role isolation, conflicts, concurrent review/cancellation; review itself creates zero jobs/messages');

@@ -24,7 +24,9 @@ function record(value: unknown): Record<string, unknown> {
 // https://open-api-docs.guesty.com/reference/reservationsv2get
 const fields = '_id accountId listingId confirmationCode checkInDateLocalized checkOutDateLocalized status integration.platform plannedArrival plannedDeparture listing.defaultCheckInTime listing.defaultCheckOutTime listing.timezone';
 type Read = (path: string, maxBytes: number) => Promise<unknown>;
-async function readTiming(stays: GuestyHandoffStay[], read: Read, now: number) {
+/** Private provider projection shared by capture and explicit handover review.
+ * Callers validate stay identities and bound/authenticate the read transport. */
+export async function readGuestySourceTiming(stays: GuestyHandoffStay[], read: Read, now: number) {
   const out: { canonicalId: string; clocks: SourceClocks }[] = [];
   for (const s of stays) {
     const d = record(await read(`/reservations/${s.id}?${new URLSearchParams({ fields })}`, 100_000));
@@ -85,7 +87,7 @@ export async function readVerifiedMessagePreparation(env: Record<string, string 
   await deps.verifyDormant();
   const before = await context(); remaining();
   let requests = 0;
-  let first: Awaited<ReturnType<typeof readTiming>> = [];
+  let first: Awaited<ReturnType<typeof readGuestySourceTiming>> = [];
   if (before.stays.length) {
     const token = await deps.token();
     if (!token || token.length > 4096 || /[\x00-\x20\x7f]/.test(token)) throw new MessagePreparationError('SOURCE_READ_FAILED');
@@ -106,8 +108,8 @@ export async function readVerifiedMessagePreparation(env: Record<string, string 
         throw new MessagePreparationError('SOURCE_READ_FAILED');
       }
     };
-    first = await readTiming(before.stays, read, started);
-    const second = await readTiming(before.stays, read, started);
+    first = await readGuestySourceTiming(before.stays, read, started);
+    const second = await readGuestySourceTiming(before.stays, read, started);
     if (fingerprint(first) !== fingerprint(second)) throw new MessagePreparationError('SOURCES_CHANGED');
   }
   const after = await context(); await deps.verifyDormant(); remaining();
