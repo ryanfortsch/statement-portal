@@ -748,6 +748,22 @@ runs itself.
   stay server-side. The TypeScript reader remains default-off; retained template
   release evidence, provider revalidation and runtime wiring remain separate.
   These reads create no activation, jobs or sends.
+  Scoped message history now serializes on the canonical booking, including
+  indirect duplicate descendants. Registration and claim refuse descendant or
+  ambiguous history. Late descendant history against an existing job is an error
+  requiring reconciliation; it is never silently discarded. Scoped history cannot
+  be deleted or reassigned, and scoped booking family identity cannot change.
+  Routine booking date/status updates and new canonical bookings remain allowed.
+  Initial scope installation briefly locks booking/send writes and rejects
+  malformed cross-property ancestry. Ordinary unrelated-home writes stay unchanged.
+  `template_captures` retains the six installed, frozen rule rows (including their
+  canonical IDs, body and original migration policy), a bundle digest, actor and
+  timestamp. It is append-only and inaccessible directly to client/service roles.
+  Service-only `helm_channex_capture_templates` requires dormant Guesty authority
+  and exact prepared rules; identical retries reuse the original capture.
+  `helm_channex_read_template_capture` requires the explicit capture ID and digest.
+  Its default-off server adapter validates all six original rules and keeps text
+  private. No capture is seeded and no release/enablement action is added.
 - **`guest_threads`**: one thread per stay per channel (`sms`, `email`,
   `airbnb`, `vrbo`, `booking_com`, `direct`), keyed to `booking_id`,
   `guest_id` and `property_id`, with `external_thread_key` (E.164 for

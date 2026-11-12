@@ -1429,3 +1429,58 @@ existing coordinator with separately supplied synthetic template-release evidenc
 It covers permissions, current-data drift, missing bindings, merged history,
 oversized history and repeat scheduling. No live provider, customer message or
 production activation is exercised.
+
+
+## Message history fences and retained templates (prepared November 12, 2026)
+
+Two migrations are prepared, not yet applied to production in this batch:
+`20261112230000_channex_message_family_guards.sql` and
+`20261112231000_channex_template_retention.sql`.
+
+The scheduling reader's earlier merged-history check is now backed by write-side
+serialization. A history insert/update for any existing Calderwood duplicate
+walks its bounded ancestry and locks the canonical booking used by registration
+and claim. History committing first prevents registration, including rollback of
+its first ledger insert. Registration committing first rejects a late descendant
+history write with `message_descendant_history_conflict`. Claim checks pre-existing
+conflicts too. Importers must surface that error for reconciliation; they must not
+interpret it as proof of an empty source queue, discard the source evidence, or
+send a replacement message. This fence cannot recall a provider request that has
+already been claimed or dispatched; source drainage is still mandatory.
+
+While a message scope exists, booking family identity (`id`, `property_id`,
+`duplicate_of`) and history identity are protected, and deletion of scoped history
+is refused. A merge/unmerge requires an explicit reconciliation procedure; do not
+remove the scope or bypass triggers to make a merge succeed. Ordinary date/status
+updates and new canonical bookings continue to work. Scope installation takes a
+short table lock to exclude an already-running merge/history write and rejects
+missing/cross-property parents. Subsequent operations use the canonical row lock,
+not fleet-wide locks. Scoped operations require READ COMMITTED; older repeatable-read
+snapshots cannot bypass checks after waiting for a lock. Legacy callers that lock send rows before bookings can still
+receive PostgreSQL deadlock/serialization errors; these are failed operations and
+must not be treated as a send permit. There is no automatic retry of a provider POST.
+
+The retained template path stores the real six prepared rules before a future
+release could change flags or policy. `helm_channex_capture_templates(actor)` is an
+explicit service-only write, permitted only while Guesty owns the property,
+automations are off, no scope/send rows exist, and all six installed rules pass
+the frozen-policy validator. The capture and its digest are immutable. A retry
+reuses the original only if the installed rules still match. The capture contains
+private template bodies (merge placeholders, not rendered access credentials),
+so neither its raw row nor the reader result belongs in a browser DTO or logs.
+
+`template-retention.ts` reads an explicitly chosen capture ID plus digest and
+validates the original identities, policy hashes, chronology and full six-rule
+bundle. It defaults off. It does not reconstruct original rules from active ones,
+select a latest capture, enable templates, or wire a scheduler. The live release
+transition, legacy-planner ownership exclusion, fresh provider revalidation and
+bounded runtime are still separate work. Confirmation ownership and cleaner SMS
+handover remain unresolved as described above. Production installation of these
+migrations creates no capture, evidence, scope, schedule or message.
+
+Synthetic validation uses the actual PostgreSQL guards and service RPCs, with
+separate sessions for history-first, registration-first, claim-first, cancellation
+and both scope-install/merge orderings.
+It checks pre-existing conflicts, atomic rollback, merge protection, retained
+history, unrelated-home behavior, capture immutability/permissions and the real
+private TypeScript capture reader. Tests use no provider calls or customer data.
