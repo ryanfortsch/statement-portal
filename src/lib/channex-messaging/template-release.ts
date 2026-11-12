@@ -10,7 +10,8 @@ export type TemplateReleaseResult =
   | { state: 'released' | 'existing'; releaseId: string; guestRules: 4; canSend: false };
 
 /** Private explicit operation; a caller must authenticate the owner and present
- * the retained capture for review. Default off, no environment or HTTP caller.
+ * the retained capture for review. Default off; the owner workflow is its only
+ * application caller. No background/cron activation is provided here.
  * Keep the same request and actor when reconciling an uncertain database result.
  * This releases template configuration only: it cannot enable a home or scope,
  * prove source drainage, register jobs, or send messages. */

@@ -1577,3 +1577,48 @@ new-booking confirmation/timing ownership, cleaner SMS and source queue clearanc
 then the reviewed channel/inventory/PriceLabs cutover and live pilot validation.
 Guesty remains the live sender. No fixed waiting period substitutes for a drained
 provider queue. New-booking confirmation must not use Channex revision receipt time.
+
+## Owner template workflow and final dispatch checks (12 November 2026)
+
+The owner page at `/channels/65_calderwood/message-preparation/templates` now
+separates archiving all six originals, reviewing their exact retained digest,
+and releasing the four guest templates. It calls the already installed service
+RPCs through an owner-authenticated, same-origin, bounded JSON endpoint. There is
+no new migration. Opening the page performs no mutation. Reviews return labels,
+offsets, character counts and hashes; original bodies and access details stay on
+the server. Preview deployments cannot mutate production configuration.
+
+Release requires a separate acknowledgment and confirmation. The browser saves
+the original request ID before POST and reuses it after an uncertain response;
+cross-tab request creation is serialized. A configuration already released without
+its request ID cannot create a replacement release. SQL remains the authority for
+the exact six-rule bundle, dormant Guesty ownership and immutable release receipt.
+The page does not switch ownership, enable a sender, register jobs or clear queues.
+
+`dispatchRetainedCalderwoodMessage` adds the final retained-stay execution path.
+One explicit send ID is joined to its booking, binding and template archive. The
+dispatcher verifies the source-derived due time, exact released rule, fresh
+provider booking/thread and current rendered body hash. It repeats the provider
+and render checks immediately before SQL's one-use claim. Holds, cancellation,
+changed source proof and local context remain protected by the SQL transaction.
+No response uncertainty permits a second provider POST.
+
+Each invocation allows at most 17 provider GETs and one POST within a 90-second
+budget. Receipt/unknown-outcome persistence still runs after that budget so a slow
+provider cannot silently discard the result. Accepted means provider acceptance,
+not confirmed guest delivery; read-only receipt reconciliation remains separate.
+Scheduling and dispatch share the same fresh retained-stay reader. They default
+off and still have no HTTP, environment or cron activation caller.
+
+Synthetic tests connect the owner workflow to the actual PostgreSQL release,
+retained timing, registration and dispatcher. The final send waits for an actual
+source-derived due time rather than changing the job timestamp. Providers remain
+fake. Tests cover changed source data, frozen templates, legacy-worker refusal,
+holds, lost responses, repeated runs and one provider POST with receipt readback.
+Route tests cover owner access, origin/content type, strict bounded input and
+private error handling. These are not proof of live delivery or queue clearance.
+
+No production archive or release is invoked as part of this deployment. Remaining
+launch gates are bounded runtime activation, new-booking confirmation ownership,
+cleaner SMS and source queue proof, then controlled channel/inventory/PriceLabs
+handover and live pilot validation. Guesty remains the sender until that handover.

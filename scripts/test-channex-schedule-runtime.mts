@@ -8,11 +8,11 @@ import { randomUUID } from 'node:crypto';
 import { scheduleRetainedCalderwoodStay } from '../src/lib/channex-messaging/schedule-runtime.ts';
 import { reviewCalderwoodTimingBinding } from '../src/lib/channex-messaging/timing-provider-review.ts';
 import { createChannexTimingBindingStore } from '../src/lib/channex-messaging/timing-binding-store.ts';
-import { createCalderwoodScheduleInputReader } from '../src/lib/channex-messaging/schedule-inputs.ts';
+import { dispatchRetainedCalderwoodMessage } from '../src/lib/channex-messaging/dispatch-runtime.ts';
+import { runCalderwoodTemplateWorkflow, reviewCalderwoodTemplateRelease } from '../src/lib/channex-messaging/template-workflow.ts';
 import { createChannexJobStore } from '../src/lib/channex-messaging/store.ts';
 import { ChannexMessageWorker } from '../src/lib/channex-messaging/worker.ts';
 import { ChannexMessageTransport } from '../src/lib/channex-messaging/transport.ts';
-import { renderTemplate } from '../src/lib/automations-core.ts';
 import { MESSAGE_RULE_FIELDS } from '../src/lib/channex-messaging/preparation-rules.ts';
 import { syntheticTimingProvider } from '../src/lib/__tests__/fixtures/channex-timing-provider.ts';
 if (process.env.PGHOST !== '127.0.0.1' || process.env.PGDATABASE !== 'helm_synthetic_channex') throw Error('Synthetic loopback database required');
@@ -35,11 +35,13 @@ sql(`begin; alter table message_automations disable trigger channex_prepared_rul
  alter table message_automations enable trigger channex_prepared_rule_guard; commit;`);
 const archive = JSON.parse(sql('select jsonb_build_object(\'id\',id,\'digest\',rules_sha256) from helm_channex_messages.template_captures;'));
 const source = JSON.parse(sql(`set role service_role; select helm_channex_capture_source_timing(
- channex_synthetic_timing_plan(),clock_timestamp()-interval '5 seconds',clock_timestamp(),'synthetic-runtime-owner');`));
+ jsonb_set(channex_synthetic_timing_plan(),'{0,clocks,confirmedAt}',${str(JSON.stringify(new Date(Date.now()-1770000).toISOString()))}::jsonb),clock_timestamp()-interval '5 seconds',clock_timestamp(),'synthetic-runtime-owner');`));
 const request = { bookingId: bid, bindingId: randomUUID(), templateCaptureId: archive.id, templateDigest: archive.digest };
 let lostResponse = false, writes = 0, reads = 0;
 const rpc = async (name: string, args: Record<string, unknown>) => {
-  const params = name === 'helm_channex_message_schedule_context' ? str(String(args.p_booking_id))+'::uuid'
+  const params = name === 'helm_channex_capture_templates' ? str(String(args.p_actor))
+    : name === 'helm_channex_release_templates' ? str(String(args.p_release_id))+'::uuid,'+str(String(args.p_capture_id))+'::uuid,'+str(String(args.p_rules_sha256))+','+str(String(args.p_actor))
+    : name === 'helm_channex_message_schedule_context' ? str(String(args.p_booking_id))+'::uuid'
     : name === 'helm_channex_message_schedule_inputs' ? str(String(args.p_booking_id))+'::uuid,'+str(String(args.p_binding_id))+'::uuid'
     : name === 'helm_channex_read_template_capture' ? str(String(args.p_capture_id))+'::uuid,'+str(String(args.p_rules_sha256))
     : name === 'helm_channex_timing_review_snapshot' ? str(String(args.p_capture_id))+'::uuid,'+str(String(args.p_booking_id))+'::uuid'
@@ -89,9 +91,17 @@ const savedScope = sql('select to_jsonb(s) from helm_channex_messages.scope s;')
 sql(`delete from helm_channex_messages.timing_bindings;
  delete from helm_channex_messages.scope;
  update properties set calendar_authority='guesty',automations_enabled=false where id='65_calderwood';`);
-const released = JSON.parse(sql(`set role service_role; select helm_channex_release_templates(
- '${randomUUID()}','${archive.id}','${archive.digest}','synthetic-runtime-owner');`));
-assert.equal(released.guestRules, 4); assert.equal(released.reused, false);
+const workflowDeps = { rpc, current: async () => ({ authority: 'guesty' as const, automationsEnabled: false,
+ rules: JSON.parse(sql(`select jsonb_agg(to_jsonb(r)-array['created_at','updated_at','created_by'] order by id) from message_automations r;`)) }) };
+const archived = await runCalderwoodTemplateWorkflow({ action: 'capture' },'synthetic-runtime-owner',workflowDeps,{ enabled: true });
+assert.equal(archived.state,'captured');
+const reference = { captureId: archive.id, rulesSha256: archive.digest };
+assert.equal((await reviewCalderwoodTemplateRelease(reference,workflowDeps)).configuration,'prepared');
+const releaseRequest = { action: 'release', ...reference, releaseId: randomUUID(), confirmation: 'release_four_guest_templates_only' };
+const released = await runCalderwoodTemplateWorkflow(releaseRequest,'synthetic-runtime-owner',workflowDeps,{ enabled: true });
+assert.equal(released.state,'released');
+assert.equal((await runCalderwoodTemplateWorkflow(releaseRequest,'synthetic-runtime-owner',workflowDeps,{ enabled: true })).state,'existing');
+assert.equal((await reviewCalderwoodTemplateRelease(reference,workflowDeps)).configuration,'released');
 assert.equal(sql("select count(*) from message_automations where audience='cleaner' and not enabled and migration_policy is not null;"), '2');
 assert.equal(sql('select count(*) from automation_sends;'), '0');
 sql(`update properties set calendar_authority='helm',automations_enabled=true where id='65_calderwood';
@@ -102,17 +112,17 @@ provider.v2.plannedArrival = null;
 lostResponse = true; const uncertain = await run(); assert.equal(uncertain.state, 'uncertain'); assert.equal(writes, 1);
 assert.equal(sql('select count(*) from helm_channex_messages.jobs;'), '1');
 lostResponse = false; const completed = await run(); assert.equal(completed.state, 'complete');
-assert.equal(writes, 3); assert.equal(sql('select count(*) from helm_channex_messages.jobs;'), '3');
-assert.equal((await run()).outcomes.filter(o => o.state === 'created').length, 0); assert.equal(writes, 3);
+assert.equal(writes, 4); assert.equal(sql('select count(*) from helm_channex_messages.jobs;'), '4');
+assert.equal((await run()).outcomes.filter(o => o.state === 'created').length, 0); assert.equal(writes, 4);
 
 // Old generic workers cannot reserve a missing migrated key, cancel active jobs
 // as superseded, retime them, change the body, or claim their send rows.
 const ledgerBefore = sql('select jsonb_agg(to_jsonb(s) order by id) from automation_sends s;');
-sql(`insert into automation_sends(booking_id,property_id,automation_id,automation_key,fire_at,status,planned_check_in,planned_check_out)
+assert.throws(() => sql(`insert into automation_sends(booking_id,property_id,automation_id,automation_key,fire_at,status,planned_check_in,planned_check_out)
  select '${bid}','65_calderwood',id,key,now()+interval '1 hour','scheduled',
  (select check_in from bookings where id='${bid}'),(select check_out from bookings where id='${bid}')
- from message_automations where key='booking_confirmed';
- update automation_sends set status='cancelled',error='rule superseded';
+ from message_automations where key='cleaner_reminder';`), /prepared_template_not_dispatchable/);
+sql(`update automation_sends set status='cancelled',error='rule superseded';
  update automation_sends set fire_at=fire_at+interval '1 hour';
  update automation_sends set body_rendered='synthetic changed body';
  update automation_sends set status='sending';`);
@@ -120,21 +130,23 @@ assert.equal(sql('select jsonb_agg(to_jsonb(s) order by id) from automation_send
 
 // The real worker can consume one registered due job; only a fake provider sees
 // the synthetic rendered text. This proves release/plumbing, not live delivery or source clearance.
-const sendId = sql("select send_id from helm_channex_messages.jobs where automation_key='checkin_day';");
-sql(`begin; alter table automation_sends disable trigger channex_message_send_guard;
- update automation_sends set fire_at=now()-interval '1 minute' where id='${sendId}';
- update helm_channex_messages.jobs set fire_at=now()-interval '1 minute',expires_at=now()+interval '29 minutes',prepared_at=now()-interval '2 minutes'
- where send_id='${sendId}'; alter table automation_sends enable trigger channex_message_send_guard; commit;`);
+const sendId = sql("select send_id from helm_channex_messages.jobs where automation_key='booking_confirmed';");
+// Use an actual due schedule derived from the retained confirmation instant.
+// No trigger bypass or fabricated job timestamp is needed for this dispatch.
+const fireAt = Date.parse(sql(`select fire_at from helm_channex_messages.jobs where send_id='${sendId}';`));
+const waitMs = Math.max(0, fireAt-Date.now()+50); assert.ok(waitMs<35000);
+await new Promise(resolve => setTimeout(resolve,waitMs));
 const scope = JSON.parse(sql("select jsonb_build_object('environment',environment,'propertyId',remote_property,'channelId',channel_id,'provider',provider) from helm_channex_messages.scope;"));
 const jobStore = createChannexJobStore(rpc); let posts = 0; const messageId = randomUUID(); let sent = '';
-const transport = new ChannexMessageTransport({ scope, apiKey: 'synthetic-channex', sendEnabled: true, fetcher: async (url, init) => {
-  const path = new URL(url).pathname;
-  if (!path.endsWith('/messages')) return Response.json(provider.thread);
-  if (init.method === 'POST') { posts++; sent = JSON.parse(String(init.body)).message.message; }
+const dispatchFetcher: typeof fetch = async (url, init) => {
+  const path = new URL(String(url)).pathname;
+  if (!path.endsWith('/messages')) return fetcher(url, init);
+  if (init?.method === 'POST') { posts++; sent = JSON.parse(String(init.body)).message.message; }
   const row = { id: messageId, type: 'message', attributes: { sender: 'property', message: sent, attachments: [] },
     relationships: { message_thread: { data: { type: 'message_thread', id: thread } } } };
-  return Response.json(init.method === 'POST' ? { data: row } : { data: [row], meta: { page: 1, limit: 100, total: 1 } });
-} });
+  return Response.json(init?.method === 'POST' ? { data: row } : { data: [row], meta: { page: 1, limit: 100, total: 1 } });
+};
+const transport = new ChannexMessageTransport({ scope, apiKey: 'synthetic-channex', sendEnabled: true, fetcher: (url,init) => dispatchFetcher(url,init) });
 const worker = new ChannexMessageWorker({ store: jobStore, transport, enabled: true });
 // A replaced source-drain receipt cannot authorize a job created under the old one.
 const proof = sql('select source_evidence_id from helm_channex_messages.scope;');
@@ -144,14 +156,13 @@ assert.equal(await jobStore.claim(sendId, randomUUID(), currentJob), false);
 assert.equal(sql(`select state from helm_channex_messages.jobs where send_id='${sendId}';`), 'prepared');
 sql(`update helm_channex_messages.scope set source_evidence_id='${proof}';`);
 
-const render = async () => {
-  const s = await createCalderwoodScheduleInputReader(rpc, { enabled: true }).load(bid, request.bindingId); assert.ok(s);
-  const rule = s.snapshot.currentRules.find(r => r.key === 'checkin_day')!;
-  return { text: renderTemplate(rule.body, s.snapshot.merge).text, contextRevision: s.context.contextRevision };
-};
-assert.equal((await worker.dispatch(sendId, render)).state, 'accepted'); assert.equal(posts, 1);
-assert.equal((await worker.dispatch(sendId, render)).state, 'needs_reconciliation'); assert.equal(posts, 1);
+const dispatchRequest = { ...request, sendId };
+const dispatch = () => dispatchRetainedCalderwoodMessage(dispatchRequest,{ rpc,credentials,fetcher: dispatchFetcher },{ enabled: true });
+provider.v2.plannedArrival = '22:00'; assert.equal((await dispatch()).state,'blocked'); assert.equal(posts,0);
+provider.v2.plannedArrival = null;
+assert.equal((await dispatch()).state,'accepted'); assert.equal(posts,1);
+assert.equal((await dispatch()).state,'needs_reconciliation'); assert.equal(posts,1);
 assert.equal((await worker.reconcile(sendId)).state, 'recorded'); assert.equal(posts, 1);
 sql(`select helm_move_booking('${bid}',check_in,check_out,'cancelled','synthetic-runtime') from bookings where id='${bid}';`);
-assert.equal((await run()).state, 'unavailable'); assert.equal(writes, 3);
-console.log('PASS: real template release + immutable templates + retained clocks + provider revalidation + atomic runtime scheduling + one fake worker POST/receipt; frozen/dormant/drift/cancellation blocks, lost response and repeat safety');
+assert.equal((await run()).state, 'unavailable'); assert.equal(writes, 4);
+console.log('PASS: real template release + immutable templates + retained clocks + provider revalidation + atomic runtime scheduling + final provider/render validation + one fake dispatch POST/receipt; frozen/dormant/drift/cancellation blocks, lost response and repeat safety');
