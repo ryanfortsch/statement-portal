@@ -1400,7 +1400,9 @@ rule rows or 5,000 history rows makes the entire read unavailable; no truncated 
 is called complete. Prior history on merged duplicate descendants also blocks the
 read and requires reconciliation. These checks are observations, not locks against
 future changes; existing context rechecks and atomic registration/claim fences remain
-mandatory, and future runtime wiring must preserve them.
+mandatory. Before activation, merged-family history also needs a transactional check
+shared with history writers, so a new descendant history row cannot race the final
+read. This reader does not add that write-side guarantee.
 
 The TypeScript reader in `schedule-inputs.ts` defaults off, validates the returned
 booking, binding, clocks, source chronology, rule set and full history, and rejects
@@ -1417,7 +1419,10 @@ revalidate providers before scheduling. A timing binding remains evidence of a
 past review, not a guarantee that Guesty or Channex cannot change afterward.
 This batch has no route, cron, environment loader, provider calls, schedule writer,
 release/activation action or cleaner-recipient changes. Installation creates no
-data. No production migration has been applied for this batch yet.
+data. The approved migration was applied to production STATEMENTS and its exact
+definition, service-only access and read-only settings were verified. Guesty remains
+the calendar authority, all six prepared templates are disabled, and scopes, timing
+bindings and jobs remain empty.
 
 Validation uses synthetic values only: the real service-role SQL reader feeds the
 existing coordinator with separately supplied synthetic template-release evidence.
