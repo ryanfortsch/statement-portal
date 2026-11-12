@@ -116,7 +116,7 @@ const v3 = { _id: id(1), status: 'confirmed', confirmedAt: clocks.confirmedAt,
   stay: [{ unitId: GUESTY_CALDERWOOD, unitTypeId: GUESTY_CALDERWOOD, checkInDateLocalized: clocks.start, checkOutDateLocalized: clocks.end }] };
 function fixture() {
   const calls: string[] = []; let guards = 0;
-  const context = { canonical, mirror, rules: [rule], automationsEnabled: false,
+  const context = { canonical, mirror, rules: [rule], ledger: [] as unknown[], automationsEnabled: false,
     renderInputs: { property: { id: '65_calderwood', name: 'Synthetic home', wifi_name: null }, access: null, lockMapped: false, cleanerRecipients: [] as { enabled: boolean; property_ids: string[]; region: string }[],
       bookings: [{ id: uid(1), property_id: '65_calderwood', status: 'confirmed', check_in: clocks.start, check_out: clocks.end, guest_name: 'PRIVATE_GUEST' }] } };
   const deps = { clock: () => now, context: async () => structuredClone(context),
@@ -188,7 +188,7 @@ test('changed render data discards the review and its private comparison digest 
   f.deps.context = async () => { const c = await read(); if (++reads === 2) c.renderInputs.bookings[0].guest_name = 'CHANGED'; return c; };
   await assert.rejects(reviewMessagePreparation(env, f.deps), /SOURCES_CHANGED/);
   const clean = await reviewMessagePreparation(env, fixture().deps);
-  assert.equal(clean.format, 3);
+  assert.equal(clean.format, 4);
   assert.equal('privateRenderRevision' in clean, false); assert.equal('renderInputs' in clean, false);
 });
 
@@ -277,4 +277,31 @@ test('cleaner scope changes during a review invalidate the entire result', async
     return c;
   };
   await assert.rejects(reviewMessagePreparation(env, f.deps), /SOURCES_CHANGED/);
+});
+
+test('send history changes invalidate the whole review; no partial schedule is returned', async () => {
+  const f = fixture(), read = f.deps.context; let count = 0;
+  f.deps.context = async () => {
+    const c = await read();
+    if (++count === 2) c.ledger = [{ id: uid(800), booking_id: uid(1), property_id: '65_calderwood',
+      automation_id: rule.id, automation_key: rule.key, fire_at: '2026-11-07T18:20:22.123Z', status: 'sending',
+      planned_check_in: clocks.start, planned_check_out: clocks.end, sent_at: null, provider_message_id: null }];
+    return c;
+  };
+  await assert.rejects(reviewMessagePreparation(env, f.deps), /SOURCES_CHANGED/);
+});
+test('missing, failed and malformed ledger reads are never an empty history', async () => {
+  for (const ledger of [undefined, null, {}, [{ status: 'PRIVATE' }]]) {
+    const f = fixture(), read = f.deps.context;
+    f.deps.context = async () => ({ ...await read(), ledger: ledger as unknown[] });
+    await assert.rejects(reviewMessagePreparation(env, f.deps));
+    assert.equal(f.calls.length, 0);
+  }
+});
+test('schedule review is explicit about missing preparation and cannot authorize a write', async () => {
+  const r = await reviewMessagePreparation(env, fixture().deps);
+  assert.deepEqual(r.schedule, { mode: 'review_only', historyRead: true, total: 6, futureCandidates: 0,
+    pastNotReplayed: 0, historyProtected: 0, needsReview: 6, canSchedule: false });
+  assert.equal(r.stays[0].schedule.length, 6);
+  assert.equal(JSON.stringify(r).includes('privateScheduleRevision'), false);
 });

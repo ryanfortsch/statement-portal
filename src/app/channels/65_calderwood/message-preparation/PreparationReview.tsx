@@ -11,7 +11,7 @@ const stamp = (s: string | null) => s ? new Intl.DateTimeFormat('en-US', {
 }).format(new Date(s)) : 'Time unverified';
 const day = (s: string) => new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(`${s}T12:00:00Z`));
 const errors: Record<string, string> = {
-  SOURCES_CHANGED: 'A reservation or rule changed during the review. Refresh to read the latest setup.',
+  SOURCES_CHANGED: 'A reservation, rule, access detail or message history changed during the review. Refresh to read the latest setup.',
   SOURCE_READ_FAILED: 'Guesty could not confirm every reservation and time. No partial result is treated as verified.',
   IDENTITY_REVIEW_REQUIRED: 'A reservation match needs review before its message schedule can be compared.',
   READ_LIMIT_REACHED: 'The review reached its time or size limit. No partial result is treated as verified.',
@@ -25,7 +25,7 @@ export function PreparationReview() {
     try {
       const res = await fetch('/api/channex/message-preparation', { cache: 'no-store', signal: AbortSignal.timeout(110000) });
       const body = await res.json();
-      if (!res.ok || body.ok !== true || body.format !== 3) {
+      if (!res.ok || body.ok !== true || body.format !== 4) {
         setError(errors[body.code] ?? 'The review is unavailable. Check your owner sign-in and the Channex preparation status.');
       } else setReview(body);
     } catch { setError('The review could not finish. Try again when the connection is available.'); }
@@ -113,6 +113,16 @@ export function PreparationReview() {
     </section>
     {review && <section className="mt-8">
       <h2 className="text-xl font-semibold">Reservation timing review</h2>
+      <div className="mt-4 mb-5 rounded-xl border p-5" style={{ borderColor: 'var(--rule)', background: 'var(--paper-2)' }}>
+        <h3 className="font-semibold">Schedule rehearsal · nothing queued</h3>
+        <dl className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4 text-sm">
+          <div><dt style={{ color: 'var(--ink-3)' }}>Future times calculated</dt><dd className="mt-1 text-2xl font-semibold">{review.schedule.futureCandidates}</dd></div>
+          <div><dt style={{ color: 'var(--ink-3)' }}>Past times kept out</dt><dd className="mt-1 text-2xl font-semibold">{review.schedule.pastNotReplayed}</dd></div>
+          <div><dt style={{ color: 'var(--ink-3)' }}>Existing history protected</dt><dd className="mt-1 text-2xl font-semibold">{review.schedule.historyProtected}</dd></div>
+          <div><dt style={{ color: 'var(--ink-3)' }}>Needs review</dt><dd className="mt-1 text-2xl font-semibold">{review.schedule.needsReview}</dd></div>
+        </dl>
+        <p className="mt-4 text-xs leading-5" style={{ color: 'var(--ink-3)' }}>Helm’s message history was checked twice. Sent or uncertain attempts, holds and replaced rules cannot become a second message in this plan. Guesty’s queue and the sending handover still need verification.</p>
+      </div>
       <p className="text-sm mt-2 mb-5 leading-6" style={{ color: 'var(--ink-3)' }}>Times use the reservation’s arrival or departure override, or an explicitly confirmed listing default. Past times are never replayed. Daylight-saving differences require Guesty’s queued timestamp.</p>
       <p className="text-sm mb-5 leading-6" style={{ color: 'var(--ink-3)' }}>Open a message below to rehearse the prepared wording with this stay’s dates. Names and access details are masked. A stored value still needs verification against Guesty; a linked lock needs a verified stay code. No preview can be sent.</p>
       {review.stays.length === 0 && <EmptyState>No current or upcoming stays were found in the review window.</EmptyState>}
@@ -131,6 +141,7 @@ export function PreparationReview() {
               : t.status === 'dst_review' ? `Calendar: ${stamp(t.conflict?.calendarAt ?? null)} · Elapsed: ${stamp(t.conflict?.elapsedAt ?? null)}` : 'No default time has been assumed'}</p>
           </div>
           </div>
+          <p className="mt-2 text-xs" style={{ color: 'var(--signal)' }}>{stay.schedule.find(p => p.key === t.key)?.label}</p>
           {stay.messages.filter(m => m.key === t.key).map(message => <details key={message.key} className="mt-3 rounded-lg border p-3" style={{ borderColor: 'var(--rule)' }}>
             <summary className="cursor-pointer font-medium">{message.status === 'template_unavailable' ? 'Template needs preparation'
               : message.missingFields.length ? `${message.missingFields.length} missing ${message.missingFields.length === 1 ? 'field' : 'fields'} · Review message`

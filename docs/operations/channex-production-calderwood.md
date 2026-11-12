@@ -1004,3 +1004,38 @@ configured link is not proof of SMS delivery or an empty Guesty/provider queue.
 Source queue clearance, timing-policy execution, the explicit sender cutover and
 sharing the link remain separate handover steps. Daily digest enrollment is not
 required for this per-reservation link and is not modified.
+
+## Migration schedule planner and history review (November 11, 2026)
+
+`channex-messaging/schedule-plan.ts` now reconciles all six captured offsets with
+Helm's send ledger. Capture validation, time review and planning use one offset
+contract. A planning identity is property + canonical stay + workflow key; changing
+or deleting a rule ID does not reset it. Past/due times with no prior job are not
+bootstrapped to now. Daylight-saving disagreements and unavailable source clocks
+remain blocked, with no assumed default or imported-at confirmation timestamp.
+
+Sent records stay sent. In-flight, failed or provider-marked attempts need
+reconciliation, including under a replaced rule. Cancelled/skipped/approval-held
+records stay held; a moved date never clears a hold. An unchanged scheduled row is
+retained. Date/time changes, duplicate identities, orphaned history and conflicting
+rule keys require review instead of a replacement insert. This is a deterministic
+planning decision, not an atomic delivery guarantee.
+
+The owner preparation route reads all Calderwood ledger metadata twice and rejects
+changes during review. Read errors, malformed rows, duplicate IDs and pagination
+limits fail the whole review; unavailable history is never treated as empty. No
+message body, destination or error text is queried. Only plan statuses/counts leave
+the server. The UI labels this as a rehearsal, with nothing queued.
+
+The generic automation reader now preserves `migration_policy`; its planner,
+preview-time function and dispatcher reject any non-null migration marker. This
+adds application protection alongside the existing frozen-rule SQL triggers, so
+an enabled flag or generic manual approval cannot select legacy midnight/immediate
+scheduling for migrated templates. Ordinary fleet rules keep their existing timing.
+
+No migration, scope row, message job, provider call, sender activation or source
+workflow change is part of this release. The new planner currently runs only in
+the owner review. Atomic job creation, source handover evidence, clock provenance
+after cutover and the live dispatcher still need to be connected and verified
+before it can execute automatically. The existing Channex claim/receipt machinery
+and prepared-template SQL protections remain in place.
