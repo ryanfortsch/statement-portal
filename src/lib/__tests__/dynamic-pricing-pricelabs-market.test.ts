@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {importPriceLabsMcpMarket,matchPriceLabsMarketHomes,priceLabsMarketCatalog} from '../dynamic-pricing-pricelabs-market.ts';
+import {importPriceLabsMcpMarket,matchPriceLabsMarketHomes,priceLabsMarketCatalog,PriceLabsMarketUnavailable} from '../dynamic-pricing-pricelabs-market.ts';
 import {emptyPricingEvidence} from '../dynamic-pricing-evidence.ts';
 import {createPriceLabsMarketClient} from '../pricelabs-market-client.server.ts';
 import type {PricingLiveHome} from '../dynamic-pricing-live.ts';
@@ -57,6 +57,9 @@ test('reject wrong identity, currency, failed initialization, duplicate dates an
 test('zero occupancy remains zero; missing prices remain missing, never inferred',()=>{
   const input=fixture();input.data.data.occupancy.daily.market_occupancy[2]=0;input.data.data.future_prices.market_price[1]=null;
   const result=importPriceLabsMcpMarket(input,context,'a');assert.equal(result.market[0].occupancyPct,0);assert.equal(result.market[0].p50Cents,null);
+});
+test('inactive vendor listings stay unavailable; do not manufacture market data or change sync settings',()=>{
+  assert.throws(()=>importPriceLabsMcpMarket({success:false,status_code:422,data:{error_code:'ERR-MCP-LISTING-NOT-SYNCING'}},context,'a'),PriceLabsMarketUnavailable);
 });
 function transportFixture(mode:'json'|'sse'='json',fail=false){
   const requests:{method:string;params:{name?:string;arguments?:unknown};id:number}[]=[];

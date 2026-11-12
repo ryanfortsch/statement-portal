@@ -9,6 +9,12 @@ disabled. The account's connector screen showed free beta through March 31, 2027
 on November 12, 2026; this is not a promise of permanent free access. Customer API
 access is a separate paid feature and is not required by this importer.
 
+The live connector returned `ERR-MCP-LISTING-NOT-SYNCING` (422) for an inactive
+listing. An existing account subscription alone does not grant this data for
+every listing. Such homes are reported as unavailable; the importer never
+enables vendor sync to obtain data. Do not assume that reducing paid/syncing
+listings preserves a portfolio-wide direct market feed.
+
 ## Run
 
 The operator must be authorized to read the PriceLabs account and import market

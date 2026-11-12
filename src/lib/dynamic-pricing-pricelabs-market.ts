@@ -34,7 +34,12 @@ const payloadSchema=z.object({success:z.literal(true),status_code:z.literal(200)
   meta:z.object({listing:z.object({listing_id:z.string(),pms_name:z.string()}),initialize:z.object({http_status:z.literal(200),error:z.null()})}),
 })});
 export type PriceLabsMarketRead={listingId:string;pms:string;observedAt:string;today:string};
+export class PriceLabsMarketUnavailable extends Error {
+  constructor(){super('PriceLabs market data requires an actively syncing listing');this.name='PriceLabsMarketUnavailable';}
+}
 export function importPriceLabsMcpMarket(input:unknown,context:PriceLabsMarketRead,propertyId:string,previous?:PricingEvidence):PricingEvidence {
+  const unavailable=z.object({success:z.literal(false),status_code:z.literal(422),data:z.object({error_code:z.literal('ERR-MCP-LISTING-NOT-SYNCING')})}).safeParse(input);
+  if(unavailable.success)throw new PriceLabsMarketUnavailable();
   const {data:{data,meta}}=payloadSchema.parse(input);
   if(meta.listing.listing_id!==context.listingId||meta.listing.pms_name!==context.pms||data.initialize_detail.listing_id!==context.listingId||data.initialize_detail.pms!==context.pms)throw Error('PriceLabs returned another listing');
   date.parse(context.today);z.string().datetime().parse(context.observedAt);

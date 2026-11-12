@@ -7,7 +7,7 @@ import {readPricingLiveHomes} from '../src/lib/dynamic-pricing-live.server.ts';
 import {readPricingResearch,savePricingResearch} from '../src/lib/dynamic-pricing-research.server.ts';
 import {dateInZone} from '../src/lib/dynamic-pricing-inputs.ts';
 import {validatePricingResearch} from '../src/lib/dynamic-pricing-research.ts';
-import {importPriceLabsMcpMarket,matchPriceLabsMarketHomes} from '../src/lib/dynamic-pricing-pricelabs-market.ts';
+import {importPriceLabsMcpMarket,matchPriceLabsMarketHomes,PriceLabsMarketUnavailable} from '../src/lib/dynamic-pricing-pricelabs-market.ts';
 import {createPriceLabsMarketClient} from '../src/lib/pricelabs-market-client.server.ts';
 
 const args=process.argv.slice(2),write=args.includes('--write');
@@ -34,7 +34,7 @@ if(obtained+lifetime*1000<Date.now()+60000){
 const allowedReads=new Set(['properties','helm_pricing_research']);
 const db={from(table){if(!allowedReads.has(table))throw Error('Database table is not allowed');return supabaseAdmin.from(table);},rpc(name,params){if(!write||name!=='helm_save_pricing_research')throw Error('Database write is not allowed');return supabaseAdmin.rpc(name,params);}};
 const client=await createPriceLabsMarketClient(token),homes=await readPricingLiveHomes(db),matches=matchPriceLabsMarketHomes(await client.listings(),homes);
-const report={mode:write?'write':'dry-run',catalog:matches.length,homes:homes.length,matched:matches.filter(m=>m.home).length,unmatched:matches.filter(m=>!m.home).length,validated:0,saved:0,failed:0,nights:0,failures:[]};
+const report={mode:write?'write':'dry-run',catalog:matches.length,homes:homes.length,matched:matches.filter(m=>m.home).length,unmatched:matches.filter(m=>!m.home).length,validated:0,saved:0,unavailable:0,failed:0,nights:0,failures:[]};
 console.log(JSON.stringify({mode:report.mode,catalog:report.catalog,matched:report.matched,unmatched:report.unmatched}));
 const receipts=[],receiptPath=join(directory,`import-${randomUUID()}.json`);
 for(const match of matches){
@@ -53,8 +53,8 @@ for(const match of matches){
       receipt.status='saved';report.saved++;
       await writeFile(receiptPath,JSON.stringify(receipts),{mode:0o600});
     }
-  }catch(error){report.failed++;report.failures.push({index:matches.indexOf(match),reason:error instanceof Error&&error.name!=='ZodError'?error.message:'Provider data failed validation'});}
-  if((report.validated+report.failed)%4===0)console.log(JSON.stringify({validated:report.validated,saved:report.saved,failed:report.failed}));
+  }catch(error){if(error instanceof PriceLabsMarketUnavailable)report.unavailable++;else report.failed++;report.failures.push({index:matches.indexOf(match),reason:error instanceof Error&&error.name!=='ZodError'?error.message:'Provider data failed validation'});}
+  if((report.validated+report.failed+report.unavailable)%4===0)console.log(JSON.stringify({validated:report.validated,saved:report.saved,unavailable:report.unavailable,failed:report.failed}));
 }
 console.log(JSON.stringify(report,null,2));
 if(report.failed)process.exitCode=1;
