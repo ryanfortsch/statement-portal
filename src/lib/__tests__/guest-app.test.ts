@@ -19,6 +19,7 @@ import {
   missingFacts,
   phoneDisplay,
   smsHref,
+  splitLong,
   sunsetAt,
   wifiJoinUri,
   type GuestAppHome,
@@ -134,6 +135,25 @@ describe('nothing that opens a door reaches the guest app', () => {
     assert.match(read('src/lib/guest-app-db.ts'), /from\('property_rate_plans'\)\.select\('checkin_time'\)/);
   });
 
+  test("a Guesty-run home takes Guesty's check-in time, never the cleaner deadline", () => {
+    const db = read('src/lib/guest-app-db.ts');
+    const fn = db.slice(db.indexOf('export async function guestyCheckinTime'), db.indexOf('export async function loadGuestApp'));
+    assert.match(fn, /from\('guesty_listings'\)\.select\('checkin_time'\)/);
+    // Two listings that disagree give no time, not the first one.
+    assert.match(fn, /times\.size === 1/);
+    // The rate plan wins; Guesty's time only fills a blank.
+    assert.match(db, /checkin_time \|\| guestyCheckin/);
+    assert.match(read('src/lib/guest-app-stays-db.ts'), /t\?\.checkin \|\| guestyCheckin/);
+    for (const f of ['src/lib/guest-app-db.ts', 'src/lib/guest-app-stays-db.ts']) {
+      assert.ok(!read(f).replace(/^\s*(\/\/|\*).*$/gm, '').includes('default_checkin_time'), `${f} must not read the cleaner deadline`);
+    }
+
+    // The sync writes the listing's time to guesty_listings, and only there.
+    const sync = read('src/app/api/sync-guesty/route.ts').replace(/^\s*(\/\/|\*).*$/gm, '');
+    assert.match(sync, /\.from\('guesty_listings'\)\s*\.update\(\{ checkin_time:/);
+    assert.ok(!/default_checkin_time\s*:/.test(sync), 'sync-guesty must never write the cleaner deadline');
+  });
+
   test('the loader reads Wi-Fi through the two-column read and nothing broader', () => {
     const db = read('src/lib/guest-app-db.ts');
     assert.match(db, /getGuestWifiPasswords\(propertyId\)/);
@@ -215,7 +235,7 @@ describe('what the guest reads', () => {
     assert.equal(line, '+19788652575');
     assert.equal(app.contact.phoneDisplay, '(978) 865-2575');
     assert.equal(phoneDisplay(line), '(978) 865-2575');
-    for (const href of [app.contact.text, app.contact.report, app.contact.lateCheckout]) {
+    for (const href of [app.contact.text, app.contact.lateCheckout]) {
       assert.ok(href.startsWith(`sms:${line}?&body=`), href);
       assert.ok(decodeURIComponent(href).includes('Stay by the Harbor (12 Test)'), href);
     }
@@ -279,6 +299,71 @@ describe('what the guest reads', () => {
   test('a welcome note replaces the house welcome; blank keeps it', () => {
     assert.match(buildGuestApp(input()).welcome, /We are so glad you are here/);
     assert.equal(buildGuestApp(input({ welcomeNote: '  Fresh flowers on the table.  ' })).welcome, 'Fresh flowers on the table.');
+  });
+});
+
+describe('on a phone: tiles, pages, fewer words', () => {
+  test('every section has a tile name and a one-line answer', () => {
+    const app = buildGuestApp(input());
+    for (const s of app.sections) {
+      assert.ok(s.nav, `${s.id} has no tile name`);
+      assert.ok(s.glance && s.glance.length <= 32, `${s.id} glance "${s.glance}"`);
+    }
+    assert.equal(app.sections.find((s) => s.id === 'checkout')?.glance, '10:00 AM');
+    assert.equal(app.sections.find((s) => s.id === 'trash')?.glance, 'Tuesday pickup');
+    assert.equal(app.sections.find((s) => s.id === 'arrival')?.glance, 'Check-in 4:00 PM');
+  });
+
+  test('the house and its how-tos are one page', () => {
+    const app = buildGuestApp(input());
+    const ids = app.sections.map((s) => s.id as string);
+    assert.ok(!ids.includes('howto'));
+    assert.equal(new Set(ids).size, ids.length);
+  });
+
+  test('a page heading says TV only when the home has TV facts', () => {
+    const plain = buildGuestApp(input({ rooms: [] }, { smart_tv: null }));
+    assert.equal(plain.sections[0].title, 'Wi-Fi');
+    const tv = buildGuestApp(input({}, { smart_tv: 'Roku in the living room' }));
+    assert.equal(tv.sections[0].title, 'Wi-Fi & TV');
+  });
+
+  test('today on the home screen is a chip or nothing', () => {
+    // Wednesday: an ordinary trash day says nothing on the home screen; the tile carries it.
+    const wednesday = buildGuestApp(input());
+    assert.equal(wednesday.today.find((t) => t.kind === 'trash')?.chip, null);
+    assert.match(wednesday.today.find((t) => t.kind === 'sun')?.chip ?? '', /^Sunset \d{1,2}:\d{2} [AP]M$/);
+    const monday = buildGuestApp(input({ now: new Date('2026-11-09T23:00:00Z') }));
+    assert.equal(monday.today.find((t) => t.kind === 'trash')?.chip, 'Trash night');
+  });
+
+  test('a long paragraph shows its first sentence and keeps the rest', () => {
+    const noise =
+      'Gloucester prohibits excessive noise that crosses property lines and disrupts neighbors’ comfort, especially between 10 p.m. and 7 a.m. Music, hot tubs, and outdoor gatherings should be kept quiet during these hours.';
+    const split = splitLong(noise);
+    assert.ok(split);
+    assert.equal(split![0], 'Gloucester prohibits excessive noise that crosses property lines and disrupts neighbors’ comfort, especially between 10 p.m. and 7 a.m.');
+    assert.equal(`${split![0]} ${split![1]}`, noise);
+    assert.equal(splitLong('Short and sweet.'), null);
+    // One run-on sentence with nowhere to cut reads whole.
+    assert.equal(splitLong('a'.repeat(400)), null);
+  });
+
+  test('one Text us button, and nothing asks a guest what went wrong', () => {
+    const body = read('src/app/h/[token]/GuestAppBody.tsx');
+    assert.equal((body.match(/className="ga-action"/g) ?? []).length, 1);
+    for (const f of ['src/app/h/[token]/GuestAppBody.tsx', 'src/lib/guest-app.ts']) {
+      const src = read(f);
+      assert.ok(!/Something(&rsquo;|'|’)s wrong/i.test(src), `${f} asks what went wrong`);
+      assert.ok(!/needs attention/i.test(src), `${f} asks what needs attention`);
+    }
+  });
+
+  test('a section is its own screen, chosen by the URL, not by script', () => {
+    const css = read('src/app/h/[token]/guest-app-css.ts');
+    assert.match(css, /\.ga-page \{ display: none; \}/);
+    assert.match(css, /\.ga-page:target \{ display: block; \}/);
+    assert.match(css, /\.ga:has\(\.ga-page:target\) \.ga-home \{ display: none; \}/);
   });
 });
 

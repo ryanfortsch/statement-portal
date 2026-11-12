@@ -123,7 +123,7 @@ different questions and you must pick the right one or get a wrong answer.
 | `guesty_reservations` | `/api/sync-guesty` (Guesty API) | Per-stay financials Guesty knows about | Channel, TOTAL_PAID, taxes, commission. The "what does Guesty say" mirror. Cancel signal is NOT reliable here -- it lags. Empty for a helm-run home after its cutover: sync-guesty skips it. |
 | `bookings` + `booking_finance` | iCal sync + Channels module | Multi-channel calendar + Helm-native per-stay financials | The Helm-native ledger going forward. iCal cancel signal from the direct OTA feed (channel="airbnb" not "guesty") IS trusted; the Guesty aggregate is not. |
 | `bookings` (Helm-native writer) | `helm_create_booking` / `helm_move_booking` / `helm_cancel_booking` RPCs, called from the Channels pages, `/book`, the SCA quote accept path and `/api/pms` | The stay itself on a helm-run home | Direct and manual stays, owner and maintenance blocks (`hold_kind`). Advisory-locked per property; an overlap raises SQLSTATE `P0002 booking_overlap` unless `p_allow_overlap`. Every write appends a `booking_events` row. Never insert into `bookings` by hand for these. |
-| `guesty_listings` | `/api/sync-guesty` | Guesty listing-id → Helm property-id map | Lookup table, not a stay record. `flip_calendar_authority(..., 'helm')` deletes the property's row; the id is kept on `properties.former_guesty_listing_id`. |
+| `guesty_listings` | `/api/sync-guesty` | Guesty listing-id → Helm property-id map | Lookup table, not a stay record. Also carries each listing's guest arrival time (`checkin_time`, HH:MM, from Guesty's `defaultCheckInTime` every sync), which the guest app reads when the home has no rate plan; never the cleaner deadline. `flip_calendar_authority(..., 'helm')` deletes the property's row; the id is kept on `properties.former_guesty_listing_id`. |
 
 Cancel signal reliability: the direct OTA iCal feed is trusted; the Guesty
 aggregate feed and `guesty_reservations` are NOT trusted for cancellations.
@@ -680,6 +680,16 @@ runs itself.
   establish authoritative timing/body/thread provenance. SQL bounds timestamps
   but does not certify a supplied fire time against Guesty's source clocks. See
   the Channex production operations document for remaining handoff requirements.
+  `source_timing_captures` stores private, append-only Guesty timing observations
+  for existing Calderwood stays (no guest names, contacts, message bodies or keys).
+  The service-only `helm_channex_capture_source_timing` RPC accepts a bounded,
+  complete, freshly double-read snapshot, rechecks canonical/mirror identities
+  under locks, and requires Guesty authority with automations off and no message
+  scope/jobs. `/api/channex/message-preparation/capture` is an explicit same-origin
+  owner POST; the preparation GET remains read-only. Capture does not update
+  `bookings.booked_at`, create schedules, establish queue-drain evidence, or prove
+  clocks are still current after cutover. Retained evidence must be revalidated
+  before a future scheduler can consume it.
 - **`guest_threads`**: one thread per stay per channel (`sms`, `email`,
   `airbnb`, `vrbo`, `booking_com`, `direct`), keyed to `booking_id`,
   `guest_id` and `property_id`, with `external_thread_key` (E.164 for

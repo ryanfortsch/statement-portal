@@ -13,7 +13,7 @@ export class MessagePreparationError extends Error {
   constructor(code: MessagePreparationError['code']) { super(code); this.code = code; }
 }
 export type PreparationContext = { canonical: unknown; mirror: unknown; rules: unknown; ledger: unknown; automationsEnabled: boolean; renderInputs: unknown };
-type Deps = { context: () => Promise<PreparationContext>; verifyDormant: () => Promise<void>;
+export type PreparationDeps = { context: () => Promise<PreparationContext>; verifyDormant: () => Promise<void>;
   token: () => Promise<string>; fetcher?: typeof fetch; clock?: () => number };
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new MessagePreparationError('SOURCE_READ_FAILED');
@@ -60,8 +60,8 @@ async function readTiming(stays: GuestyHandoffStay[], read: Read, now: number) {
   }
   return out;
 }
-/** Owner observation. No planner, queue registration, history import, hold change or send. */
-export async function reviewMessagePreparation(env: Record<string, string | undefined>, deps: Deps) {
+/** Private source observation. Never return this snapshot from an HTTP handler. */
+export async function readVerifiedMessagePreparation(env: Record<string, string | undefined>, deps: PreparationDeps) {
   requireProductionInspectionEnvironment(env);
   const clock = deps.clock ?? Date.now, fetcher = deps.fetcher ?? fetch;
   const started = clock(), start = todayInEastern(new Date(started)), end = shiftIsoDay(start, 500);
@@ -77,7 +77,7 @@ export async function reviewMessagePreparation(env: Record<string, string | unde
     const canonical = parseCanonicalSnapshot(c.canonical), rules = parsePreparationRules(c.rules), ledger = parseScheduleLedger(c.ledger);
     const stays = resolveMessageStayIdentities(canonical, c.mirror, start, end);
     const renderInputs = parsePreparationRenderInputs(c.renderInputs, stays);
-    return { revision: fingerprint({ canonical, mirror: c.mirror, rules }), stays, rules, renderInputs, ledger,
+    return { revision: fingerprint({ canonical, mirror: c.mirror, rules }), canonical, stays, rules, renderInputs, ledger,
       privateScheduleRevision: fingerprint(ledger),
       // This private digest must never be returned: access codes can have low entropy.
       privateRenderRevision: fingerprint(renderInputs) };
@@ -115,6 +115,11 @@ export async function reviewMessagePreparation(env: Record<string, string | unde
     || before.privateScheduleRevision !== after.privateScheduleRevision)
     throw new MessagePreparationError('SOURCES_CHANGED');
   const observedAt = clock();
+  return { before, first, started, observedAt, requests };
+}
+/** Owner observation. No queue registration, history import, hold change or send. */
+export async function reviewMessagePreparation(env: Record<string, string | undefined>, deps: PreparationDeps) {
+  const { before, first, observedAt, requests } = await readVerifiedMessagePreparation(env, deps);
   const plans = first.map(r => ({ canonicalId: r.canonicalId, rows: planCalderwoodSchedule({
     stay: { canonicalId: r.canonicalId, status: 'confirmed', duplicateOf: null, clocks: r.clocks },
     rules: before.rules, ledger: before.ledger, now: observedAt,

@@ -19,7 +19,7 @@
 import 'server-only';
 import { randomBytes } from 'node:crypto';
 import { supabaseAdmin, isServiceConfigured } from '@/lib/supabase-admin';
-import { getGuestAppRow, guestAppOrigin, guestAppUrl, loadGuestApp } from '@/lib/guest-app-db';
+import { getGuestAppRow, guestAppOrigin, guestAppUrl, guestyCheckinTime, loadGuestApp } from '@/lib/guest-app-db';
 import { getLiveStayCode } from '@/lib/guest-locks';
 import { loadGuestTimes } from '@/lib/property-rates';
 import { isCapeAnnOps } from '@/lib/property-scope';
@@ -108,8 +108,9 @@ async function homeAllowsStays(propertyId: string): Promise<{ welcomeNote: strin
 }
 
 async function stayTimes(propertyId: string, checkIn: string): Promise<StayTimes> {
-  const [times, adjRes] = await Promise.all([
+  const [times, guestyCheckin, adjRes] = await Promise.all([
     loadGuestTimes([propertyId]),
+    guestyCheckinTime(propertyId),
     supabaseAdmin
       .from('checkout_adjustments')
       .select('adjusted_check_out, adjusted_checkout_time, created_at')
@@ -122,7 +123,8 @@ async function stayTimes(propertyId: string, checkIn: string): Promise<StayTimes
   const t = times.get(propertyId);
   const adj = ((adjRes.data ?? []) as Array<{ adjusted_check_out: string | null; adjusted_checkout_time: string | null }>)[0];
   return {
-    checkInTime: t?.checkin ?? null,
+    // The rate plan on a Helm-run home; Guesty's listing time on the rest.
+    checkInTime: t?.checkin || guestyCheckin,
     checkOutTime: t?.checkout ?? null,
     adjustedCheckOut: adj?.adjusted_check_out ?? null,
     adjustedCheckOutTime: adj?.adjusted_checkout_time ?? null,

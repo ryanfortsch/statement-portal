@@ -1134,3 +1134,83 @@ clock/merge/thread loader; complete cleaner SMS and live dispatch integration;
 verify Guesty queue drainage and approve the actual sender handover. Repeated
 snapshot reads detect changes, but are not proof of clock provenance, channel
 delivery or source shutdown. Guesty remains the production sender.
+
+
+## Existing-stay timing evidence (November 11, 2026)
+
+The explicit owner-only `POST /api/channex/message-preparation/capture` accepts
+only `{"action":"capture_source_timing"}` as a same-origin JSON request. It uses
+the preparation review's bounded double reads of Guesty V2 local override/default
+times and V3 `confirmedAt`. An omitted override is unknown; only explicit `null`
+permits a default. Missing confirmation evidence, incomplete scope, source drift,
+or unsupported clocks prevents the entire capture. The GET remains read-only.
+
+`20261111210000_channex_source_timing_capture.sql` installs private historical
+snapshots and a service-only capture RPC. It creates no snapshots by itself.
+The commit rechecks Guesty authority, disabled automations, absent message
+scope/jobs, complete stay coverage, and exact unique canonical/mirror identities.
+Short transaction locks cover direct Guesty backfill writes as well as canonical
+RPC writers. No remote reads occur while those locks are held. A later observation
+appends a new capture; it does not overwrite earlier evidence or booking fields.
+Only clock values and source/canonical identity are retained, with observation
+start/end, authenticated actor, and server save time. Table access is revoked from
+API roles, including the service role; only the scoped security-definer RPC writes.
+
+These records are **historical evidence, not current scheduling authority**.
+A future loader must bind a reviewed capture to the handover and reject subsequent
+booking/date/source/timing changes. This release neither resolves DST day-offset
+ambiguities nor supplies an original confirmation time for new Channex bookings.
+It does not release templates, register jobs, certify Guesty's queue is drained,
+share the cleaner link, change provider settings, or send a message. A failed
+response can conceal a successful capture; the endpoint reports `unconfirmed`
+and never retries automatically. Inspect retained records before repeating it.
+
+Release order: approve/apply the production migration, verify its private
+permissions and zero captures/jobs, deploy the owner endpoint, then explicitly
+capture the verified existing stays. No production capture is implicit in merge
+or deployment. Synthetic tests cover privacy, complete-batch rollback, source
+ambiguity, expired observations, unknown times, access checks and a real concurrent
+cancellation. Runtime delivery remains off pending the separate handover.
+
+The owner-only message-preparation page provides **Save verified timings**. It
+performs a fresh server-side verification rather than submitting browser clocks
+or an earlier review. The control permits one explicit attempt per page visit,
+disables the review while saving, and validates the response before reporting a
+saved reservation count. Success, an empty scope, and an unconfirmed save are
+distinct outcomes. There is no application retry or pending-watchdog reload;
+inspect private capture metadata before repeating an unconfirmed attempt.
+Network transports can still repeat a request after a lost connection. Captures
+are historical observations, so such a repeat cannot enqueue or send messages.
+
+### Provider timing clarification (November 12, 2026)
+
+Channex confirmed there is no dedicated original Airbnb confirmation timestamp
+or new-versus-imported booking marker. `inserted_at` is revision receipt time and
+changes on modifications/pulls; it cannot anchor the existing +30-minute rule.
+The OTA timestamp is available only if supplied in `raw_message`; its Airbnb
+field path, semantics and availability still need verification. A targeted
+follow-up requested a synthetic/redacted example. `arrival_hour` is the property
+default in local time, not a reservation override, and Channex supplies no
+per-booking departure/late-checkout time. Preserve captured Guesty evidence for
+existing stays; do not silently substitute these limited fields for new stays.
+
+Guesty escalated the in-flight worker and Vonage expiry/retry questions to its
+developers on November 12. No bounded queue-drain or safe waiting interval has
+been confirmed. Neither provider changed channel settings or automations.
+
+
+## Cleaner queue clarification (received November 10 Eastern)
+
+Guesty support explicitly clarified that the future cleaner queue was **not
+retrievable**, rather than verified empty. Their documentation confirms disabling
+an automation removes unsent messages from Guesty's internal queue. They could
+not establish whether already-dispatched provider messages can be recalled or
+independently inspected. Their 240-hour DST interpretation remains an inference
+from the historical send; it is not a documented scheduling contract.
+
+A follow-up on ticket 2193130 asks the automation/SMS engineering team whether an
+already-running worker can submit after deactivation, what message validity/retry
+period Guesty configures with its SMS provider, and whether a documented waiting
+interval supports a safe sender handover. No arbitrary delay is accepted as proof
+of an empty provider queue. All source automations and pending messages remain
+active and unchanged; no deactivation, cancellation, resend or test was requested.
