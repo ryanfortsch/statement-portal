@@ -1,18 +1,29 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import type { GuestApp, GuestItem, GuestSection } from '@/lib/guest-app';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { splitLong, type GuestApp, type GuestItem, type GuestSection, type GuestSectionId } from '@/lib/guest-app';
 import type { NearbyPlace } from '@/lib/guest-app-nearby';
 
 /**
- * The guest app below the hero: quick tiles, today at the house, the
- * section chips, search, every section, and the fixed Text us bar.
+ * The guest app as a phone reads it (2026-11-11, Dotti: "sections at the
+ * top as options ... it's all gonna be on the phone, too much text").
  *
- * Everything renders on the server first, so the page reads in full with
- * JavaScript off or blocked. This component adds the three things that need
- * a browser: copying a password, filtering by a search, and registering the
- * offline copy (the moment the Wi-Fi drops is the moment a guest needs the
- * page that says how to fix it).
+ * Two views, one document:
+ *  - HOME: the hero and welcome (server-rendered, passed in), the stay card
+ *    on a stay link, the Wi-Fi card, today's one or two notes, a search
+ *    field, and a grid of tiles, one per section, each with the answer most
+ *    guests open it for ("Checkout · 11:00 AM").
+ *  - PAGES: each section is its own screen at #<id>, with a back link.
+ *
+ * The switch is CSS (`:target` and `:has`, in guest-app-css.ts), not React
+ * state, so it works with JavaScript off, a tile tap is a real history
+ * entry, and the phone's back gesture returns to the tiles. A browser too
+ * old for `:has` gets the home screen with the section under it, which is
+ * still the right content.
+ *
+ * Fewer words: long text (a city ordinance, a parking regulation) shows
+ * its first sentence and a More toggle; one Text us button is pinned to
+ * the bottom of every screen, and nothing asks a guest what went wrong.
  */
 
 type Props = {
@@ -21,6 +32,10 @@ type Props = {
   wifiQr: Record<string, string>;
   /** Mark of the Stay Cape Ann brand, server-rendered. */
   mark: React.ReactNode;
+  /** The hero, server-rendered. */
+  hero: React.ReactNode;
+  /** The welcome, and the stay card on a stay link, server-rendered. */
+  intro: React.ReactNode;
 };
 
 const GUIDE_LINKS = [
@@ -31,6 +46,9 @@ const GUIDE_LINKS = [
   { href: 'https://staycapeann.com/guide/day-trips', label: 'Day trips' },
   { href: 'https://staycapeann.com/guide/seasonal', label: 'This season' },
 ];
+
+/** The tile order on the home screen: what a guest in the house reaches for first. Safety is its own row under the grid, and Wi-Fi has its card. */
+const TILE_ORDER: GuestSectionId[] = ['house', 'checkout', 'nearby', 'trash', 'rules', 'arrival'];
 
 function words(q: string): string[] {
   return q.toLowerCase().split(/\s+/).map((w) => w.trim()).filter(Boolean);
@@ -44,232 +62,269 @@ function matches(text: string, ws: string[]): boolean {
   return ws.every((w) => text.includes(w));
 }
 
-export function GuestAppBody({ app, wifiQr, mark }: Props) {
+function placeText(p: NearbyPlace): string {
+  return `${p.name} ${p.town} ${p.category} ${p.blurb}`.toLowerCase();
+}
+
+export function GuestAppBody({ app, wifiQr, mark, hero, intro }: Props) {
   const [query, setQuery] = useState('');
   const ws = useMemo(() => words(query), [query]);
+  // Whether the open page was reached from the home screen, so Back can
+  // step back through history instead of stacking a new entry.
+  const fromHome = useRef(false);
 
-  // The offline copy. Scoped to /h/ so it never touches Helm's own pages.
   useEffect(() => {
-    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
-    navigator.serviceWorker.register('/h/sw.js', { scope: '/h/' }).catch(() => {});
-  }, []);
-
-  const filtered = useMemo(() => {
-    if (ws.length === 0) return app.sections.map((s) => ({ section: s, items: s.items, whole: true }));
-    const out: Array<{ section: GuestSection; items: GuestItem[]; whole: boolean }> = [];
-    for (const s of app.sections) {
-      const head = `${s.title} ${s.nav} ${s.intro ?? ''}`.toLowerCase();
-      if (matches(head, ws)) {
-        out.push({ section: s, items: s.items, whole: true });
-        continue;
-      }
-      const items = s.items.filter((i) => matches(itemText(i), ws));
-      const extra =
-        (s.id === 'wifi' && app.wifi.some((n) => matches(`wifi wi-fi internet password network ${n.ssid} ${n.label ?? ''}`.toLowerCase(), ws))) ||
-        (s.id === 'nearby' && app.nearby.some((p) => matches(`${p.name} ${p.town} ${p.category} ${p.blurb}`.toLowerCase(), ws))) ||
-        (s.id === 'safety' && matches('emergency 911 hospital doctor fire police ambulance', ws));
-      if (items.length || extra) out.push({ section: s, items, whole: false });
+    // The offline copy. Scoped to /h/ so it never touches Helm's own pages.
+    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/h/sw.js', { scope: '/h/' }).catch(() => {});
     }
-    return out;
-  }, [app, ws]);
+    const ids = new Set(app.sections.map((s) => s.id as string));
+    const isPage = (h: string) => ids.has(h.replace(/^#/, ''));
+    let prev = window.location.hash;
+    const onHash = () => {
+      const now = window.location.hash;
+      fromHome.current = isPage(now) && !isPage(prev);
+      prev = now;
+    };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, [app.sections]);
 
-  const askHref = app.contact.text.replace(/body=([^&]*)$/, (_m, b) => `body=${b}${encodeURIComponent(query.trim() ? `Quick question: ${query.trim()}` : '')}`);
+  function back(e: React.MouseEvent<HTMLAnchorElement>) {
+    if (!fromHome.current) return; // a page opened from a link: "#" lands on the tiles
+    e.preventDefault();
+    fromHome.current = false;
+    window.history.back();
+  }
 
+  const byId = new Map(app.sections.map((s) => [s.id, s]));
+  const tiles = TILE_ORDER.map((id) => byId.get(id)).filter((s): s is GuestSection => Boolean(s));
+  const safety = byId.get('safety') ?? null;
+  const wifiPage = byId.get('wifi') ?? null;
+  const chips = app.today.filter((t) => t.chip);
   const firstWifi = app.wifi[0] ?? null;
-  const trashToday = app.today.find((t) => t.kind === 'trash') ?? null;
-  const urgentTrash = trashToday && (trashToday.title === 'Trash night' || trashToday.title === 'Pickup day');
 
   return (
     <>
-      {/* QUICK TILES: the four things asked most, one tap each. */}
-      <section className="ga-quick" aria-label="At a glance">
-        <div className="ga-tile ga-tile-wifi">
-          <a className="ga-tile-k ga-tile-k-link" href="#wifi">
-            Wi-Fi{app.wifi.length > 1 ? ` · ${app.wifi.length} networks` : ''}
-          </a>
-          {firstWifi ? (
-            <>
-              <span className="ga-tile-v ga-mono" translate="no">{firstWifi.ssid}</span>
-              {firstWifi.password ? (
-                <span className="ga-tile-pass">
-                  <span className="ga-mono" translate="no">{firstWifi.password}</span>
-                  <CopyButton value={firstWifi.password} label="Copy" />
-                </span>
-              ) : (
-                <span className="ga-tile-sub">No password, just join</span>
-              )}
-            </>
-          ) : (
-            <span className="ga-tile-sub">See the card by the entry, or text us.</span>
-          )}
-        </div>
+      <div className="ga-home">
+        {hero}
+        <main className="ga-main">
+          {intro}
 
-        <a className="ga-tile" href="#checkout">
-          <span className="ga-tile-k">Checkout</span>
-          <span className="ga-tile-v">{app.checkOut ?? 'See below'}</span>
-          <span className="ga-tile-sub">No chores required</span>
-        </a>
-
-        {app.trashDay && trashToday ? (
-          <a className={`ga-tile${urgentTrash ? ' ga-tile-alert' : ''}`} href="#trash">
-            <span className="ga-tile-k">{trashToday.title}</span>
-            <span className="ga-tile-v">{app.trashDay}</span>
-            <span className="ga-tile-sub">{urgentTrash ? 'Tap for what to do' : 'Carts out the night before'}</span>
-          </a>
-        ) : app.checkIn ? (
-          <a className="ga-tile" href="#arrival">
-            <span className="ga-tile-k">Check-in</span>
-            <span className="ga-tile-v">{app.checkIn}</span>
-            <span className="ga-tile-sub">Getting here</span>
-          </a>
-        ) : (
-          <a className="ga-tile" href="#rules">
-            <span className="ga-tile-k">House rules</span>
-            <span className="ga-tile-v">Quick read</span>
-            <span className="ga-tile-sub">Quiet hours and more</span>
-          </a>
-        )}
-
-        <a className="ga-tile ga-tile-help" href={app.contact.text}>
-          <span className="ga-tile-k">Need anything?</span>
-          <span className="ga-tile-v">Text us</span>
-          <span className="ga-tile-sub ga-mono" translate="no">{app.contact.phoneDisplay}</span>
-        </a>
-      </section>
-
-      {/* TODAY AT THE HOUSE: date-aware, Eastern time. */}
-      {app.today.length > 0 && (
-        <section className="ga-today" aria-label="Today at the house">
-          {app.today.map((t) => (
-            <div key={t.kind} className={`ga-today-line${t.kind === 'trash' && urgentTrash ? ' is-alert' : ''}`}>
-              <span className="ga-today-k">{t.title}</span>
-              <span className="ga-today-v">{t.text}</span>
+          {/* WI-FI: the thing asked most, readable without a tap. */}
+          <section className="ga-wificard" aria-label="Wi-Fi">
+            <div className="ga-wificard-head">
+              <span className="ga-wificard-k">
+                <Icon id="wifi" />
+                Wi-Fi
+              </span>
+              {wifiPage ? (
+                <a className="ga-wificard-more" href="#wifi">
+                  {app.wifi.length > 1 ? `${app.wifi.length} networks` : 'More'} &rarr;
+                </a>
+              ) : null}
             </div>
-          ))}
-        </section>
-      )}
+            {firstWifi ? (
+              <>
+                <div className="ga-wificard-ssid ga-mono" translate="no">
+                  {firstWifi.ssid}
+                </div>
+                {firstWifi.password ? (
+                  <div className="ga-wificard-pass">
+                    <span className="ga-mono" translate="no">
+                      {firstWifi.password}
+                    </span>
+                    <CopyButton value={firstWifi.password} label="Copy" />
+                  </div>
+                ) : (
+                  <div className="ga-wificard-sub">No password, just join.</div>
+                )}
+              </>
+            ) : (
+              <div className="ga-wificard-sub">The network and password are on the card by the entry.</div>
+            )}
+          </section>
 
-      {/* CHIPS + SEARCH */}
-      <div className="ga-bar">
-        <nav className="ga-chips" aria-label="Sections">
-          {app.sections.map((s) => (
-            <a key={s.id} href={`#${s.id}`} className="ga-chip">
-              {s.nav}
-            </a>
-          ))}
-        </nav>
-        <label className="ga-search">
-          <span className="ga-sr">Search this guide</span>
-          <input
-            type="search"
-            inputMode="search"
-            placeholder="Search: towels, heat, beach, TV"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            enterKeyHint="search"
-          />
-        </label>
+          {chips.length > 0 ? (
+            <div className="ga-today" aria-label="Today">
+              {chips.map((t) =>
+                t.kind === 'trash' ? (
+                  <a key={t.kind} className="ga-today-chip is-alert" href="#trash">
+                    {t.chip} &rarr;
+                  </a>
+                ) : (
+                  <span key={t.kind} className="ga-today-chip">
+                    {t.chip}
+                  </span>
+                ),
+              )}
+            </div>
+          ) : null}
+
+          <label className="ga-search">
+            <span className="ga-sr">Search this guide</span>
+            <input
+              type="search"
+              inputMode="search"
+              placeholder="Search: towels, heat, beach"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              enterKeyHint="search"
+            />
+          </label>
+
+          {ws.length > 0 ? (
+            <Results app={app} ws={ws} query={query} />
+          ) : (
+            <nav className="ga-grid" aria-label="Guide">
+              {tiles.map((s) => (
+                <a key={s.id} className="ga-tile" href={`#${s.id}`}>
+                  <Icon id={s.id} />
+                  <span className="ga-tile-name">{s.nav}</span>
+                  <span className="ga-tile-glance">{s.glance}</span>
+                </a>
+              ))}
+              {safety ? (
+                <a className="ga-tile ga-tile-row" href="#safety">
+                  <Icon id="safety" />
+                  <span className="ga-tile-name">{safety.nav}</span>
+                  <span className="ga-tile-glance">{safety.glance}</span>
+                </a>
+              ) : null}
+            </nav>
+          )}
+
+          {ws.length === 0 ? (
+            <section className="ga-next">
+              <div className="ga-next-mark">{mark}</div>
+              <h2 className="ga-h2 ga-h2-light">Come back to Cape Ann.</h2>
+              <div className="ga-next-links">
+                {app.bookAgainUrl ? (
+                  <a className="ga-btn ga-btn-light" href={app.bookAgainUrl} target="_blank" rel="noreferrer">
+                    Book this home
+                  </a>
+                ) : null}
+                <a className="ga-btn ga-btn-ghost" href="https://staycapeann.com/stays" target="_blank" rel="noreferrer">
+                  All our homes
+                </a>
+              </div>
+            </section>
+          ) : null}
+
+          <footer className="ga-foot">
+            <p>
+              Stay Cape Ann &middot;{' '}
+              <a href={`mailto:${app.contact.email}`} translate="no">
+                {app.contact.email}
+              </a>
+            </p>
+            <p className="ga-foot-tip">Add this page to your home screen for the stay.</p>
+          </footer>
+        </main>
       </div>
 
-      {ws.length > 0 && filtered.length === 0 && (
-        <div className="ga-empty">
-          <p>Nothing here for &ldquo;{query.trim()}&rdquo;.</p>
-          <a className="ga-btn" href={askHref}>Text us your question</a>
-        </div>
-      )}
+      {/* PAGES: one screen per section, shown by its #id. */}
+      {app.sections.map((s) => (
+        <section key={s.id} id={s.id} className="ga-page" aria-labelledby={`${s.id}-h`}>
+          <div className="ga-pagebar">
+            <a className="ga-back" href="#" onClick={back}>
+              <span aria-hidden="true">&lsaquo;</span> Guide
+            </a>
+            <span className="ga-pagebar-t">{app.title}</span>
+          </div>
+          <div className="ga-main">
+            <h2 id={`${s.id}-h`} className="ga-h2 ga-page-h">
+              {s.title}
+            </h2>
+            {s.intro ? <p className="ga-intro">{s.intro}</p> : null}
 
-      {filtered.map(({ section, items, whole }) => (
-        <section key={section.id} id={section.id} className="ga-section">
-          <h2 className="ga-h2">{section.title}</h2>
-          {section.intro && (whole || ws.length === 0) ? <p className="ga-intro">{section.intro}</p> : null}
+            {s.id === 'wifi' && <WifiCards app={app} wifiQr={wifiQr} />}
+            {s.id === 'safety' && <SafetyCards app={app} />}
 
-          {section.id === 'wifi' && <WifiCards app={app} wifiQr={wifiQr} />}
-          {section.id === 'safety' && <SafetyCards app={app} />}
+            {s.items.length > 0 && (
+              <div className="ga-items">
+                {s.items.map((i, idx) => (
+                  <Item key={`${s.id}-${idx}`} item={i} />
+                ))}
+              </div>
+            )}
 
-          {items.length > 0 && (
-            <div className="ga-items">
-              {items.map((i, idx) => (
-                <Item key={`${section.id}-${idx}`} item={i} />
-              ))}
-            </div>
-          )}
-
-          {section.id === 'checkout' && (whole || ws.length === 0) && (
-            <p className="ga-sign">Thank you for staying with us. Travel safely.</p>
-          )}
-
-          {section.id === 'nearby' && <Nearby places={app.nearby} ws={ws} />}
+            {s.id === 'checkout' && <p className="ga-sign">Thank you for staying with us. Travel safely.</p>}
+            {s.id === 'nearby' && <Nearby places={app.nearby} />}
+          </div>
         </section>
       ))}
 
-      {/* NEXT STAY + FOOTER */}
-      {ws.length === 0 && (
-        <section className="ga-next">
-          <div className="ga-next-mark">{mark}</div>
-          <h2 className="ga-h2 ga-h2-light">Come back to Cape Ann.</h2>
-          <p>Book your next stay direct with us on staycapeann.com.</p>
-          <div className="ga-next-links">
-            {app.bookAgainUrl ? (
-              <a className="ga-btn ga-btn-light" href={app.bookAgainUrl} target="_blank" rel="noreferrer">
-                This home
-              </a>
-            ) : null}
-            <a className="ga-btn ga-btn-ghost" href="https://staycapeann.com/stays" target="_blank" rel="noreferrer">
-              Browse the homes
-            </a>
-          </div>
-          <a className="ga-next-quiet" href="https://staycapeann.com/contact" target="_blank" rel="noreferrer">
-            Join the list for first word on openings
-          </a>
-        </section>
-      )}
-
-      <footer className="ga-foot">
-        <p>
-          Stay Cape Ann &middot; {app.title}
-          {app.address ? (
-            <>
-              {' '}&middot; <span translate="no">{app.address}</span>
-            </>
-          ) : null}
-        </p>
-        <p>
-          Questions any time: text{' '}
-          <a href={app.contact.text} translate="no">
-            {app.contact.phoneDisplay}
-          </a>{' '}
-          or email{' '}
-          <a href={`mailto:${app.contact.email}`} translate="no">
-            {app.contact.email}
-          </a>
-          .
-        </p>
-        <p className="ga-foot-tip">Tip: add this page to your home screen to keep it handy for the stay.</p>
-      </footer>
-
-      {/* FIXED ACTIONS: a person is always one tap away. */}
+      {/* One way to reach a person, on every screen. */}
       <div className="ga-actions" role="navigation" aria-label="Contact">
-        <a className="ga-action ga-action-primary" href={app.contact.text}>
+        <a className="ga-action" href={app.contact.text}>
           Text us
-        </a>
-        <a className="ga-action" href={app.contact.report}>
-          Something&rsquo;s wrong
         </a>
       </div>
     </>
   );
 }
 
+/** Search results: the matching lines, each under the section it opens. */
+function Results({ app, ws, query }: { app: GuestApp; ws: string[]; query: string }) {
+  const groups: Array<{ section: GuestSection; lines: string[] }> = [];
+  for (const s of app.sections) {
+    const lines: string[] = [];
+    const head = `${s.title} ${s.nav} ${s.intro ?? ''}`.toLowerCase();
+    for (const i of s.items) if (matches(itemText(i), ws)) lines.push(i.label ? `${i.label}: ${i.text}` : i.text);
+    if (s.id === 'wifi') {
+      for (const n of app.wifi) if (matches(`wifi wi-fi internet password network ${n.ssid} ${n.label ?? ''}`.toLowerCase(), ws)) lines.push(`Network: ${n.ssid}`);
+    }
+    if (s.id === 'nearby') for (const p of app.nearby) if (matches(placeText(p), ws)) lines.push(`${p.name}, ${p.travel}`);
+    if (s.id === 'safety' && matches('emergency 911 hospital doctor fire police ambulance', ws)) lines.unshift('Call 911 first, then text us.');
+    if (lines.length || matches(head, ws)) groups.push({ section: s, lines: lines.slice(0, 4) });
+  }
+  const ask = app.contact.text.replace(/body=([^&]*)$/, (_m, b) => `body=${b}${encodeURIComponent(`Quick question: ${query.trim()}`)}`);
+  if (groups.length === 0) {
+    return (
+      <div className="ga-empty">
+        <p>Nothing in the guide for &ldquo;{query.trim()}&rdquo;.</p>
+        <a className="ga-btn" href={ask}>
+          Ask us instead
+        </a>
+      </div>
+    );
+  }
+  return (
+    <div className="ga-results">
+      {groups.map(({ section, lines }) => (
+        <a key={section.id} className="ga-result" href={`#${section.id}`}>
+          <span className="ga-result-h">
+            {section.title} <span aria-hidden="true">&rarr;</span>
+          </span>
+          {lines.map((l, i) => (
+            <span key={i} className="ga-result-line">
+              {l}
+            </span>
+          ))}
+        </a>
+      ))}
+    </div>
+  );
+}
+
 function Item({ item }: { item: GuestItem }) {
+  const split = item.copy ? null : splitLong(item.text);
   return (
     <div className={`ga-item${item.aside ? ' is-aside' : ''}`}>
       {item.label ? <div className="ga-item-k">{item.label}</div> : null}
       <div className="ga-item-v">
         <span className={item.copy ? 'ga-mono' : undefined} translate={item.noTranslate ? 'no' : undefined}>
-          {item.text}
+          {split ? split[0] : item.text}
         </span>
         {item.copy ? <CopyButton value={item.text} label="Copy" /> : null}
       </div>
+      {split ? (
+        <details className="ga-more">
+          <summary>More</summary>
+          <p>{split[1]}</p>
+        </details>
+      ) : null}
       {item.link ? (
         <a className="ga-link" href={item.link.href} target={item.link.href.startsWith('http') ? '_blank' : undefined} rel="noreferrer">
           {item.link.label} &rarr;
@@ -281,7 +336,7 @@ function Item({ item }: { item: GuestItem }) {
 
 function WifiCards({ app, wifiQr }: { app: GuestApp; wifiQr: Record<string, string> }) {
   if (app.wifi.length === 0) {
-    return <p className="ga-intro">The network and password are on the card by the entry. Text us if you cannot find it.</p>;
+    return <p className="ga-intro">The network and password are on the card by the entry.</p>;
   }
   return (
     <div className="ga-wifi">
@@ -290,13 +345,17 @@ function WifiCards({ app, wifiQr }: { app: GuestApp; wifiQr: Record<string, stri
           {n.label ? <div className="ga-item-k">{n.label}</div> : null}
           <div className="ga-wifi-row">
             <span className="ga-wifi-k">Network</span>
-            <span className="ga-mono ga-wifi-v" translate="no">{n.ssid}</span>
+            <span className="ga-mono ga-wifi-v" translate="no">
+              {n.ssid}
+            </span>
           </div>
           <div className="ga-wifi-row">
             <span className="ga-wifi-k">Password</span>
             {n.password ? (
               <>
-                <span className="ga-mono ga-wifi-v" translate="no">{n.password}</span>
+                <span className="ga-mono ga-wifi-v" translate="no">
+                  {n.password}
+                </span>
                 <CopyButton value={n.password} label="Copy" />
               </>
             ) : (
@@ -307,7 +366,7 @@ function WifiCards({ app, wifiQr }: { app: GuestApp; wifiQr: Record<string, stri
             <details className="ga-wifi-qr">
               <summary>Join from another phone</summary>
               <div className="ga-wifi-qr-box" dangerouslySetInnerHTML={{ __html: wifiQr[n.ssid] }} />
-              <p className="ga-aside">Point the other phone&rsquo;s camera at this code and tap to join.</p>
+              <p className="ga-aside">Point the other phone&rsquo;s camera here and tap to join.</p>
             </details>
           ) : null}
         </div>
@@ -326,7 +385,8 @@ function SafetyCards({ app }: { app: GuestApp }) {
           Fire, police, ambulance.
           {app.emergency.address ? (
             <>
-              {' '}The address to give: <strong translate="no">{app.emergency.address}</strong>
+              {' '}
+              Give this address: <strong translate="no">{app.emergency.address}</strong>
             </>
           ) : null}
         </span>
@@ -335,65 +395,58 @@ function SafetyCards({ app }: { app: GuestApp }) {
         <div className="ga-hospital">
           <div className="ga-item-k">Nearest emergency room</div>
           <div className="ga-hospital-name">{h.name}</div>
-          <div className="ga-aside" translate="no">{h.address}</div>
-          <div className="ga-aside">{h.note}</div>
+          <div className="ga-aside" translate="no">
+            {h.address} &middot; open 24 hours
+          </div>
           <div className="ga-hospital-links">
-            <a className="ga-link" href={h.tel}>{h.phone} &rarr;</a>
-            <a className="ga-link" href={h.directionsUrl} target="_blank" rel="noreferrer">Directions &rarr;</a>
+            <a className="ga-link" href={h.tel}>
+              {h.phone} &rarr;
+            </a>
+            <a className="ga-link" href={h.directionsUrl} target="_blank" rel="noreferrer">
+              Directions &rarr;
+            </a>
           </div>
         </div>
       ) : null}
-      <a className="ga-urgent" href={app.contact.report}>
-        <strong>Something urgent at the house?</strong> No heat, water where it should not be, a lock that will not open: text us. An urgent text reaches our team day or night.
-      </a>
     </div>
   );
 }
 
-function Nearby({ places, ws }: { places: NearbyPlace[]; ws: string[] }) {
-  const shown = ws.length ? places.filter((p) => matches(`${p.name} ${p.town} ${p.category} ${p.blurb}`.toLowerCase(), ws)) : places;
+function Nearby({ places }: { places: NearbyPlace[] }) {
   return (
     <>
       <div className="ga-places">
-        {shown.map((p) => (
-          <div key={p.name} className="ga-place">
-            <div className="ga-place-head">
+        {places.map((p) => (
+          <a key={p.name} className="ga-place" href={p.directionsUrl} target="_blank" rel="noreferrer">
+            <span className="ga-place-head">
               <span className="ga-place-name">{p.name}</span>
               <span className={`ga-place-travel${p.walk ? ' is-walk' : ''}`}>{p.travel}</span>
-            </div>
-            <div className="ga-place-meta">
-              {p.ourPick ? <span className="ga-pick">Our pick</span> : null}
-              <span>{p.town}</span>
-            </div>
-            {p.blurb ? <p className="ga-place-blurb">{p.blurb}</p> : null}
-            <a className="ga-link" href={p.directionsUrl} target="_blank" rel="noreferrer">
-              Directions &rarr;
-            </a>
-          </div>
+            </span>
+            {p.ourPick ? <span className="ga-pick">Our pick</span> : null}
+            {p.blurb ? <span className="ga-place-blurb">{p.blurb}</span> : null}
+          </a>
         ))}
       </div>
-      {ws.length === 0 && (
-        <div className="ga-guide">
-          <div className="ga-item-k">More from our Cape Ann guide</div>
-          <div className="ga-guide-links">
-            {GUIDE_LINKS.map((g) => (
-              <a key={g.href} href={g.href} target="_blank" rel="noreferrer" className="ga-chip">
-                {g.label}
-              </a>
-            ))}
-          </div>
+      <div className="ga-guide">
+        <div className="ga-item-k">More from our Cape Ann guide</div>
+        <div className="ga-guide-links">
+          {GUIDE_LINKS.map((g) => (
+            <a key={g.href} href={g.href} target="_blank" rel="noreferrer" className="ga-chip">
+              {g.label}
+            </a>
+          ))}
         </div>
-      )}
+      </div>
     </>
   );
 }
 
-function CopyButton({ value, label, className }: { value: string; label: string; className?: string }) {
+function CopyButton({ value, label }: { value: string; label: string }) {
   const [done, setDone] = useState(false);
   return (
     <button
       type="button"
-      className={`ga-copy${className ? ` ${className}` : ''}`}
+      className="ga-copy"
       onClick={async () => {
         try {
           await navigator.clipboard.writeText(value);
@@ -416,5 +469,70 @@ function CopyButton({ value, label, className }: { value: string; label: string;
     >
       {done ? 'Copied' : label}
     </button>
+  );
+}
+
+/** One line icon per section, 24px, drawn in the tile's ink. */
+function Icon({ id }: { id: GuestSectionId }) {
+  const paths: Record<GuestSectionId, React.ReactNode> = {
+    wifi: (
+      <>
+        <path d="M2.5 9a14 14 0 0 1 19 0" />
+        <path d="M5.5 12.5a9.5 9.5 0 0 1 13 0" />
+        <path d="M8.7 15.8a5 5 0 0 1 6.6 0" />
+        <circle cx="12" cy="19" r="1" />
+      </>
+    ),
+    house: (
+      <>
+        <path d="M3 11l9-7 9 7" />
+        <path d="M5 10v10h14V10" />
+        <path d="M10 20v-5h4v5" />
+      </>
+    ),
+    checkout: (
+      <>
+        <path d="M14 4H6v16h8" />
+        <path d="M10.5 12H21" />
+        <path d="M18 9l3 3-3 3" />
+      </>
+    ),
+    nearby: (
+      <>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M15.5 8.5l-2 5-5 2 2-5z" />
+      </>
+    ),
+    trash: (
+      <>
+        <path d="M4 7h16" />
+        <path d="M9 7V4h6v3" />
+        <path d="M6 7l1 13h10l1-13" />
+      </>
+    ),
+    rules: (
+      <>
+        <rect x="5" y="4" width="14" height="17" rx="2" />
+        <path d="M9 4V3h6v1" />
+        <path d="M8.5 10h7M8.5 14h7M8.5 18h4" />
+      </>
+    ),
+    arrival: (
+      <>
+        <path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z" />
+        <circle cx="12" cy="10" r="2.5" />
+      </>
+    ),
+    safety: (
+      <>
+        <path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z" />
+        <path d="M12 9v6M9 12h6" />
+      </>
+    ),
+  };
+  return (
+    <svg className="ga-ico" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {paths[id]}
+    </svg>
   );
 }
