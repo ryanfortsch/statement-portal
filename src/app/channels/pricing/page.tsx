@@ -37,9 +37,9 @@ export default async function PricingPage({searchParams}:{searchParams:Promise<R
   if(selected) try { [workspace,history]=await Promise.all([readPricingWorkspace(selected.id),readPricingObservationWorkspace(selected.id)]); } catch { error='Pricing is unavailable. Refresh or ask Ryan to finish setup.'; }
   return <>
       <HelmMasthead />
-      <GuestyWritesNotice scope={selected?{kind:'home',guestyRun:selected.calendar_authority!=='helm',otaReadsHelm:false}:{kind:'unknown'}} />
+      <GuestyWritesNotice scope={selected?{kind:'home',guestyRun:selected.calendar_authority!=='helm',otaReadsHelm:false}:{kind:'unknown'}} compact />
     <div className="pricing-page-shell"><header className="pricing-page-heading">
-      <HelmHero plain eyebrow="" title="Helm pricing" paddingTop={16} paddingBottom={16}/>
+      <HelmHero plain eyebrow="" title="Pricing" paddingTop={16} paddingBottom={16}/>
       <details className="pricing-page-options"><summary>More</summary><div className="flex gap-4"><Link href={live?'/channels/pricing?live=0':'/channels/pricing'}>{live?'Pricing model':'Dashboard'}</Link><Link href="/channels/pricing/demo">Sample portfolio</Link></div></details>
     </header><main>
     {liveError&&<EmptyState>Calendar data is unavailable. Refresh to try again.</EmptyState>}

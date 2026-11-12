@@ -74,7 +74,7 @@ export default function PricingWorkbench({propertyId,name,authority,navigation,i
   return <div className="helm-pricing pricing-workbench-v2">
     <header className="pricing-workbench-header">
       <div className="pricing-title-block" title={`${authority==='helm'?'Helm':'Guesty'} · Updated ${etStamp(snapshot.observedAt)}`}>{navigation}<h2 className={navigation?'sr-only':'pricing-property-title'}>{name}</h2></div>
-      <div className="pricing-header-actions">{draftOnly?<span className="pricing-connection" title="Draft settings are saved in this browser. No live rates sync.">Not syncing</span>:<Button variant="quiet" className="pricing-connection" data-connected={profile?.mode==='helm_direct'||undefined} onClick={()=>openCustomizations('connection')}>{profile?.mode==='helm_direct'?'Helm direct':'Compare only'}</Button>}
+      <div className="pricing-header-actions">{draftOnly?<span className="pricing-connection" title="Helm draft. No live rates sync.">Not syncing</span>:<Button variant="quiet" className="pricing-connection" data-connected={profile?.mode==='helm_direct'||undefined} onClick={()=>openCustomizations('connection')}>{profile?.mode==='helm_direct'?'Helm direct':'Compare only'}</Button>}
         {headerActions}{changed&&!busy&&<span className="pricing-unsaved">Unsaved</span>}{busy&&<span role="status">Updating…</span>}
       </div>
     </header>
@@ -103,7 +103,7 @@ export default function PricingWorkbench({propertyId,name,authority,navigation,i
         <button type="button" className="pricing-minimum-summary" aria-label="Edit minimum stays" onClick={()=>openCustomizations('stays')}>
           <span>Minimum stay</span><strong>{policy.weekdayMinNights===policy.weekendMinNights?`${policy.weekdayMinNights} nights`:`${policy.weekdayMinNights} weekday · ${policy.weekendMinNights} weekend`}</strong><PricingIcon name="next"/>
         </button>
-        <div className="pricing-listing-metrics" aria-label="Listing occupancy"><div className="pricing-metrics-heading"><h3>Adjusted occupancy</h3></div>{listingMetrics.map(w=><div className="pricing-listing-metric" key={w.nights}><span>Next {w.nights} days</span><PricingOccupancy window={w} compact/></div>)}</div>
+        <div className="pricing-listing-metrics" aria-label="Listing occupancy"><div className="pricing-metrics-heading"><h3>Adjusted occupancy</h3>{listingMetrics.some(w=>w.marketPct!==null)&&<div className="pricing-metrics-columns" aria-hidden="true"><span>Your home</span><span>Market</span></div>}</div>{listingMetrics.map(w=><div className="pricing-listing-metric" key={w.nights}><span>Next {w.nights} days</span><PricingOccupancy window={w} compact/></div>)}</div>
       </aside>
       <div className="pricing-calendar-workspace">{draftOnly&&<div className="pricing-draft-toolbar"><div className="pricing-view-switch" role="group" aria-label="Rates shown"><Button variant="quiet" aria-pressed={currentOnly} onClick={()=>setCurrentOnly(true)}>Current rates</Button><Button variant="quiet" aria-pressed={!currentOnly} onClick={()=>setCurrentOnly(false)}>Helm draft</Button></div>{calendarTools}</div>}<PricingCalendar key={review?.id??'draft'} snapshot={snapshot} preview={currentOnly?null:preview} currentOnly={currentOnly} onOverride={onOverride}/></div>
     </div>

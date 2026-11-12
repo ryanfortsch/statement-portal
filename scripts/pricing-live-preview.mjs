@@ -24,19 +24,19 @@ import PricingLiveWorkspace from '${root}/src/app/channels/pricing/PricingLiveWo
 import {ConfirmProvider} from '${root}/src/components/ConfirmDialog.tsx';
 const root=createRoot(document.getElementById('root'));
 const get=async(url)=>{const r=await fetch(url,{cache:'no-store'});if(!r.ok)throw Error('Calendar unavailable');return r.json();};
-get('/portfolio').then(p=>root.render(<ConfirmProvider><main className="pricing-preview-shell"><header className="pricing-preview-toolbar"><h1><b>Helm</b><span>/</span>Pricing</h1><span>Current data</span></header><PricingLiveWorkspace initialPortfolio={p.value} refreshAction={()=>get('/portfolio')} calendarAction={id=>get('/calendar?property='+encodeURIComponent(id))}/></main></ConfirmProvider>)).catch(()=>root.render(<main>Could not load the portfolio. Refresh to try again.</main>));
+get('/portfolio').then(p=>root.render(<ConfirmProvider><main className="pricing-preview-shell"><header className="pricing-preview-toolbar"><h1>Pricing</h1><span>Helm · Current data</span></header><PricingLiveWorkspace initialPortfolio={p.value} refreshAction={()=>get('/portfolio')} calendarAction={id=>get('/calendar?property='+encodeURIComponent(id))}/></main></ConfirmProvider>)).catch(()=>root.render(<main>Could not load the portfolio. Refresh to try again.</main>));
 `);
 await new Promise((resolve,reject)=>{const c=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.tsx'),output:{path:scratch,filename:'bundle.js'},
   resolve:{extensions:['.ts','.tsx','.js'],modules:[join(root,'node_modules')],alias:{'@':join(root,'src'),'next/link$':join(scratch,'link.tsx')}},
   module:{rules:[{test:/\.tsx?$/,exclude:/node_modules/,use:join(scratch,'loader.cjs')},{test:/\.css$/,use:join(scratch,'css-loader.cjs')}]},performance:{hints:false}});
   c.run((e,s)=>c.close(()=>e||s?.hasErrors()?reject(e||Error(s.toString({all:false,errors:true}))):resolve()));});
 const css=await require('postcss')([require('@tailwindcss/postcss')({base:root})]).process(await readFile(join(root,'src/app/globals.css'),'utf8'),{from:join(root,'src/app/globals.css')});
-const shellCss='html,body{background:#f6f7f8}.pricing-preview-shell{max-width:1440px;margin:0 auto;padding:0 32px 40px;min-height:100vh}.pricing-preview-toolbar{display:flex;align-items:center;justify-content:space-between;height:62px;border-bottom:1px solid #e7e9ee;font-size:11px;color:#66727a}.pricing-preview-toolbar h1{display:flex;align-items:center;gap:14px;font-size:13px;font-weight:450}.pricing-preview-toolbar h1 b{font-size:16px;font-weight:650}.pricing-preview-toolbar h1 span{color:#aeb7b4}@media(max-width:480px){.pricing-preview-shell{padding:0 16px 24px}}';
+const shellCss='html,body{background:#f8f9fa}.pricing-preview-shell{max-width:1540px;margin:0 auto;padding:0 36px 40px;min-height:100vh}.pricing-preview-toolbar{display:flex;align-items:center;justify-content:space-between;height:78px;font-family:var(--font-inter),system-ui,sans-serif;font-size:11px;color:#77817f}.pricing-preview-toolbar h1{font-size:30px;letter-spacing:-1px;font-weight:600;color:#172a27}@media(max-width:650px){.pricing-preview-shell{padding:0 16px 24px}.pricing-preview-toolbar{height:66px}}';
 const html='<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Helm pricing · current portfolio</title><link rel="stylesheet" href="/style.css"></head><body><div id="root">Loading current calendars…</div><script src="/bundle.js"></script></body></html>';
 const token=randomBytes(32).toString('hex');
 let pending=null;
-const portfolio=()=>pending??(pending=readPricingLivePortfolio(db).finally(()=>{pending=null;}));
-const calendar=async(id)=>{const home=(await readPricingLiveHomes(db)).find(h=>h.id===id);if(!home)throw Error('Unknown property');return readPricingLiveCalendar(db,home);};
+const portfolio=()=>pending??(pending=readPricingLivePortfolio(db,new Date(),true).finally(()=>{pending=null;}));
+const calendar=async(id)=>{const home=(await readPricingLiveHomes(db)).find(h=>h.id===id);if(!home)throw Error('Unknown property');return readPricingLiveCalendar(db,home,new Date(),true);};
 const server=createServer((req,res)=>void pricingPreviewRequest(req,res,{port:server.address().port,token,portfolio,calendar,
   asset:async(path)=>path==='/'?{type:'text/html; charset=utf-8',body:html}:path==='/bundle.js'?{type:'text/javascript; charset=utf-8',body:await readFile(join(scratch,'bundle.js'))}:path==='/style.css'?{type:'text/css',body:css.css+await readFile(join(root,'src/app/channels/pricing/pricing.css'),'utf8')+shellCss}:null}));
 server.listen(Number(process.env.PRICING_LIVE_PORT||0),'127.0.0.1',async()=>{
