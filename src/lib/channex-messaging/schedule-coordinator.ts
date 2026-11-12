@@ -7,6 +7,7 @@ import { formatGuestyMessageDate } from './preparation-render.ts';
 import { parsePreparationRules, preparedRulePolicy } from './preparation-rules.ts';
 import { parseScheduleLedger, planCalderwoodSchedule, type ScheduleState } from './schedule-plan.ts';
 import { scheduleContextSchema, type createChannexScheduleStore } from './schedule-store.ts';
+import { requireTimingEvidence, TimingEvidenceError } from './timing-evidence.ts';
 
 const guestKeys = ['booking_confirmed', 'pre_arrival', 'checkin_day', 'pre_checkout'] as const;
 type GuestKey = typeof guestKeys[number];
@@ -19,6 +20,7 @@ const snapshotSchema = z.object({
     plannedArrival: text, plannedDeparture: text, defaultArrival: text, defaultDeparture: text,
     confirmedAt: text }).strict(),
   route: z.object({ remoteBookingId: z.uuid(), threadId: z.uuid() }).strict(),
+  sourceIdentity: z.unknown(), timingEvidence: z.unknown(),
   capturedRules: z.unknown(), currentRules: z.unknown(), ledger: z.unknown(),
   merge: z.partialRecord(z.enum(MERGE_FIELDS), text),
 }).strict();
@@ -26,7 +28,7 @@ type Store = Pick<ReturnType<typeof createChannexScheduleStore>, 'context' | 're
 type Outcome = { key: GuestKey; state: Exclude<ScheduleState, 'future_candidate'>
   | 'release_required' | 'render_review' | 'out_of_window' | 'created' | 'existing' | 'uncertain'; sendId?: string };
 export type ScheduleCycleResult = {
-  state: 'disabled' | 'invalid' | 'complete' | 'unavailable' | 'changed' | 'uncertain';
+  state: 'disabled' | 'invalid' | 'complete' | 'unavailable' | 'changed' | 'uncertain' | 'timing_review';
   outcomes: Outcome[]; canSend: false;
 };
 const hash = (s: string) => createHash('sha256').update(s).digest('hex');
@@ -58,7 +60,9 @@ function unchangedInputs(s: Snapshot) {
  * Default off. It has no environment loader, route, cron, release or sender.
  *
  * The trusted loader must provide COMPLETE stay history and current context-bound
- * merge inputs, clocks and booking/thread mapping. capturedRules must come from
+ * merge inputs, clocks and booking/thread mapping. Timing must match retained
+ * Guesty evidence and a reviewed binding to this exact context and route; a
+ * capture alone cannot schedule. capturedRules must come from
  * retained release evidence, not a fabricated copy of active rules. Double reads
  * detect changes; they do NOT establish the clocks' provenance or release approval.
  * The production loader and reviewed template-release flow are still required.
@@ -87,6 +91,8 @@ export async function registerCalderwoodStaySchedules(bookingId: string, deps: {
     const after = scheduleContextSchema.parse(await deps.store.context(bookingId));
     now();
     if (!isDeepStrictEqual(before, after)) throw Error('Unavailable');
+    requireTimingEvidence(snapshot.timingEvidence, { bookingId, sourceIdentity: snapshot.sourceIdentity,
+      clocks: snapshot.clocks, observedAt: snapshot.observedAt, route: snapshot.route, context: after }, now());
     return { snapshot, context: after };
   };
   try {
@@ -133,5 +139,5 @@ export async function registerCalderwoodStaySchedules(bookingId: string, deps: {
       outcomes.push({ key, state: saved.state, sendId });
     }
     return result('complete');
-  } catch { return result('unavailable'); }
+  } catch (error) { return result(error instanceof TimingEvidenceError ? 'timing_review' : 'unavailable'); }
 }

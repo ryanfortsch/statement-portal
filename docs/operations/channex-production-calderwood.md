@@ -1187,12 +1187,48 @@ are historical observations, so such a repeat cannot enqueue or send messages.
 Channex confirmed there is no dedicated original Airbnb confirmation timestamp
 or new-versus-imported booking marker. `inserted_at` is revision receipt time and
 changes on modifications/pulls; it cannot anchor the existing +30-minute rule.
-The OTA timestamp is available only if supplied in `raw_message`; its Airbnb
-field path, semantics and availability still need verification. A targeted
-follow-up requested a synthetic/redacted example. `arrival_hour` is the property
+Evan's follow-up at 06:58 Eastern explicitly says raw fields are undocumented
+and unsupported, supplied at the consumer's own risk. There is no supported raw
+timestamp contract to wait for. Do not infer one from a sample or silently switch
+the +30-minute anchor to revision receipt, first observation or a replayed import.
+`arrival_hour` is the property
 default in local time, not a reservation override, and Channex supplies no
 per-booking departure/late-checkout time. Preserve captured Guesty evidence for
 existing stays; do not silently substitute these limited fields for new stays.
+
+The coordinator now requires `timing-evidence.ts` validation before any schedule
+registration. The only accepted lineage is the retained double-read Guesty capture
+plus a separately reviewed binding to the current booking context, route generation,
+source-stop evidence, remote booking and thread. Stay identity, dates and every
+clock value must match exactly; capture, confirmation and review chronology must
+also agree. Missing evidence or changed inputs return `timing_review` without
+registering further jobs. Raw fields, revision timestamps and property-default
+substitutes have no accepted lineage. The capture writer and gate share one row
+schema, with no change to the stored contract.
+
+This gate validates a trusted loader's input; it is not cryptographic proof of
+storage origin. A production binding writer and loader still need implementation
+and review. They must read retained evidence and an existing binding, never
+construct a fresh binding by copying today's context onto old clocks. No such
+binding is created here, and the earlier capture of three stays remains historical evidence.
+The coordinator still has no runtime caller. Synthetic SQL tests establish that
+unsupported source evidence creates zero jobs, while reviewed synthetic evidence
+continues through registration and fake-provider delivery.
+
+New Airbnb reservations remain blocked for the existing +30-minute confirmation
+rule until a reliable original timestamp source or an explicitly approved different
+timing policy exists. Imported stays cannot be classified as new merely because
+Helm first sees them after activation. Arrival/departure overrides, DST semantics,
+source queue drainage and the live sender handover remain separate launch work.
+
+An alternative worth checking before changing the timing policy is Airbnb's own
+scheduled confirmation reply. Its [official guide](https://www.airbnb.com/resources/hosting-homes/a/using-quick-replies-to-save-time-73)
+supports automatic replies after booking, but the exact 30-minute option has not
+been verified in this account. Its [scheduled-reply help](https://www.airbnb.com/help/article/2897)
+says schedules apply to current and upcoming reservations and describes last-minute
+exceptions. Any adoption must first verify the precise timing, existing-stay
+behavior, message history and one-sender ownership. No Airbnb template or schedule
+was created or changed, and this is not an approved fallback.
 
 Guesty escalated the in-flight worker and Vonage expiry/retry questions to its
 developers on November 12. No bounded queue-drain or safe waiting interval has

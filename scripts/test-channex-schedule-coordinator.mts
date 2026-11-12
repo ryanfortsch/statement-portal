@@ -11,7 +11,7 @@ import { ChannexMessageTransport } from '../src/lib/channex-messaging/transport.
 import { renderTemplate } from '../src/lib/automations-core.ts';
 import { MESSAGE_RULE_FIELDS } from '../src/lib/channex-messaging/preparation-rules.ts';
 import { MESSAGE_SCHEDULE_LEDGER_FIELDS } from '../src/lib/channex-messaging/schedule-plan.ts';
-import { syntheticScheduleSnapshot, scheduleFixtureId as id } from '../src/lib/__tests__/fixtures/channex-schedule-snapshot.ts';
+import { syntheticScheduleSnapshot, syntheticTimingEvidence, scheduleFixtureId as id } from '../src/lib/__tests__/fixtures/channex-schedule-snapshot.ts';
 
 if (process.env.PGHOST !== '127.0.0.1' || process.env.PGDATABASE !== 'helm_synthetic_channex') throw Error('Synthetic loopback database required');
 function sql(query: string) {
@@ -53,6 +53,8 @@ function setup() {
     sql(`insert into message_automations(${MESSAGE_RULE_FIELDS}) select ${MESSAGE_RULE_FIELDS}
       from jsonb_populate_record(null::message_automations,${str(JSON.stringify(r))}::jsonb);`);
   }
+  const context = JSON.parse(sql(`select to_jsonb(helm_channex_message_schedule_context('${id(1)}'));`));
+  fixture.timingEvidence = syntheticTimingEvidence(fixture, context, Date.now());
   registrations = 0;
 }
 const rows = (table: string, fields: string) => JSON.parse(sql(`select coalesce(jsonb_agg(x),'[]'::jsonb) from (select ${fields} from ${table}) x;`));
@@ -62,6 +64,14 @@ const load = async () => ({ ...structuredClone(fixture), observedAt: new Date().
 const run = () => registerCalderwoodStaySchedules(id(1), { store, load, now: Date.now }, { enabled: true, expiresAfterMs: 1800_000 });
 const counts = () => sql("select (select count(*) from automation_sends)||':'||(select count(*) from helm_channex_messages.jobs);");
 setup();
+// Rejected source substitutes must not reach SQL registration at all.
+const verifiedTiming = structuredClone(fixture.timingEvidence);
+for (const evidence of [null, { ...verifiedTiming, kind: 'channex_raw_message' },
+  { ...verifiedTiming, kind: 'channex_inserted_at' }]) {
+  fixture.timingEvidence = evidence as typeof fixture.timingEvidence;
+  assert.equal((await run()).state, 'timing_review'); assert.equal(counts(), '0:0'); assert.equal(registrations, 0);
+}
+fixture.timingEvidence = verifiedTiming;
 const first = await run(); assert.equal(first.state, 'complete'); assert.equal(counts(), '4:4');
 assert.ok(first.outcomes.every(o => o.state === 'created')); assert.equal(registrations, 4);
 assert.equal(sql('select bool_and(body_rendered is null and to_address is null) from automation_sends;'), 't');
