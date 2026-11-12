@@ -360,7 +360,9 @@ describe('the guards across files', () => {
 
   test('an accepted request holds nights only on a partner home calendar', () => {
     const bridge = code('src/lib/pms-bridge.ts');
-    assert.ok(bridge.includes('isPartnerHome(property) ? acceptedRequestsInWindow(property.id, start, endExclusive) : Promise.resolve([])'));
+    assert.ok(bridge.includes('const partner = isPartnerHome(property);'));
+    assert.ok(bridge.includes('partner ? acceptedRequestsInWindow(property.id, start, endExclusive) : Promise.resolve([])'));
+    assert.ok(bridge.includes('partner ? partnerHoldsInWindow(property.id, start, endExclusive) : Promise.resolve([])'), "and the host's own nights from their calendars");
     const reader = bridge.slice(bridge.indexOf('async function acceptedRequestsInWindow('), bridge.indexOf('async function staysInWindow('));
     assert.ok(reader.includes(".eq('status', 'accepted')"));
     assert.ok(reader.includes('throw new Error'), 'a calendar that cannot see its accepted stays fails closed');

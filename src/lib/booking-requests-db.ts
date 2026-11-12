@@ -31,6 +31,9 @@
 import { supabaseAdmin, isServiceConfigured } from '@/lib/supabase-admin';
 import { bridgeStatus, getBridgeProperty, quoteForBridge, rangeCheckForBridge, type BridgeFailure } from '@/lib/pms-bridge';
 import { isPartnerHome } from '@/lib/property-scope';
+import { isListedPartner } from '@/lib/partner-listed';
+import { listPartnerFeeds, syncPartnerFeeds } from '@/lib/partner-calendar-db';
+import { staleFeedsBlockAccept } from '@/lib/partner-calendar';
 import { sendRequestOutcome, sendRequestReceipt } from '@/lib/booking-request-email';
 import { getPaymentAccount, retryConfirmations } from '@/lib/partner-payments-db';
 import { holdMismatch, holdsAccepted, partnerFeeCents, paymentsReady } from '@/lib/partner-payments';
@@ -103,6 +106,9 @@ export async function createBookingRequest(raw: unknown, opts: { now?: Date } = 
   const property = await getBridgeProperty(input.property_id);
   if (!property) return { ok: false, error: 'not_found' };
   if (!isPartnerHome(property)) return { ok: false, error: 'books_instantly', property_id: property.id };
+  // Only a home an owner listed takes requests (lib/partner-listing); one
+  // taken off the site is not there for the guest.
+  if (!(await isListedPartner(property.id))) return { ok: false, error: 'not_found' };
 
   const priced = await quoteForBridge(property.id, input.check_in, input.check_out, input.guests, 'sca', { now });
   if (!priced.ok) return priced;
@@ -339,7 +345,9 @@ export async function withdrawBookingRequest(id: string, by: string, now: Date =
  * The host said yes. In order:
  *   1. the request is open and carries a card hold (a request without one
  *      cannot be paid for, so it cannot be accepted);
- *   2. the calendar, read live, has no other stay on its nights;
+ *   2. the calendar, read live after the host's own calendars are read
+ *      again, has no other stay on its nights, and each of those calendars
+ *      has a good read from the last six hours;
  *   3. the claim: pending, a live clock and a live hold, in the where
  *      clause. Two accepted requests can never share a night (the table's
  *      exclusion constraint), so a race between two yeses books one.
@@ -355,6 +363,12 @@ export async function acceptBookingRequest(id: string, by: string, now: Date = n
   if (!isOpen(row, now)) return { ok: false, reason: 'This request is already closed.' };
   if (row.hold_status !== 'held') return { ok: false, reason: 'There is no card on hold for this request, so it cannot be accepted. Decline it and ask the guest to send it again.' };
 
+  // The host's own calendars, read again now: a night they sold on Airbnb a
+  // minute ago must stop the yes. A feed that cannot be read keeps its last
+  // good read, which counts below only while it is recent.
+  await syncPartnerFeeds({ propertyId: row.property_id, now });
+  const stale = staleFeedsBlockAccept(await listPartnerFeeds(row.property_id), now);
+  if (stale) return { ok: false, reason: stale };
   const cal = await rangeCheckForBridge(row.property_id, row.check_in, row.check_out, { now });
   if (!cal.ok) return { ok: false, reason: 'The calendar could not be read just now. Try again in a minute.' };
   if (cal.reservedDates.length > 0) return { ok: false, reason: 'Another stay holds some of these nights now. Decline this request.' };

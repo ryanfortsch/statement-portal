@@ -144,7 +144,7 @@ describe("the importer's Guesty-echo set fails closed", () => {
   test('the fleet sync derives it from the listing read it already made', () => {
     const sync = squash(read('src/lib/ical-sync.ts'));
     assert.ok(sync.includes(': guestyEchoPropertyIds((data ?? []) as ListingScopeRow[], authoritiesFrom(data ?? []));'));
-    assert.ok(sync.includes('export_subscribed, properties(calendar_authority)'), 'authority rides the listing read, no second read');
+    assert.ok(sync.includes('export_subscribed, properties(calendar_authority, kind)'), 'authority rides the listing read, no second read');
   });
 });
 

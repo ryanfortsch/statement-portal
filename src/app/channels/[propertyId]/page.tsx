@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { headers } from 'next/headers';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
@@ -13,7 +13,7 @@ import { WiringCard } from '../listings/WiringCard';
 import { lastPullsByProperty, type ExportPull } from '@/lib/ical-export-pulls';
 import { linkedFeedPathFor } from '@/lib/listing-links';
 import { getFleetProperty } from '@/lib/fleet';
-import { regionLabel } from '@/lib/property-scope';
+import { isPartnerHome, regionLabel } from '@/lib/property-scope';
 import {
   anonymousPulls,
   listAutomationSendsForProperty,
@@ -87,6 +87,9 @@ export default async function ChannelsPropertyPage({
   const sp = await searchParams;
   const property = await getFleetProperty(propertyId);
   if (!property) notFound();
+  // A partner home's calendars live on its property page (lib/partner-calendar):
+  // the OTA wiring here would read its host's guests into bookings.
+  if (isPartnerHome(property)) redirect(`/properties/${property.id}#partner-setup`);
 
   const now = new Date();
   const today = todayInEastern(now);

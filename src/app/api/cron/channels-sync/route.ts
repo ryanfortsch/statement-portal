@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { syncAllListings } from '@/lib/ical-sync';
+import { syncPartnerFeeds } from '@/lib/partner-calendar-db';
 import { loadGuestyListingMap, syncCalendarDays } from '@/lib/calendar-days';
 import { backfillReservationGaps } from '@/lib/reservation-gap-backfill';
 import { recordSyncFailure, recordSyncResult } from '@/lib/sync-status';
@@ -157,6 +158,9 @@ async function run(request: NextRequest) {
 
   try {
     const result = await syncAllListings({});
+    // Partner homes' own calendars (the host's Airbnb, Vrbo, software), read
+    // into partner_calendar_holds, never bookings. Never throws.
+    const partnerCalendars = await syncPartnerFeeds();
     // The cutover switch, read once per run. Empty on a failed read means
     // nothing is skipped and no Helm mirror is written: today's behaviour.
     const helmRunIds = await loadHelmRunPropertyIds();
@@ -173,7 +177,7 @@ async function run(request: NextRequest) {
     const otaThreads = await ensureOtaThreads(await loadHelmGuestHomeIds());
     return NextResponse.json({
       ok: true, ...result, helm_calendar: helmCalendar, calendar_days: calendarDays,
-      extension_holds: extensionHolds, ota_threads: otaThreads,
+      extension_holds: extensionHolds, ota_threads: otaThreads, partner_calendars: partnerCalendars,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

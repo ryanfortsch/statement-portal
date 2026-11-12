@@ -131,7 +131,7 @@ as modules land, so read it as where the weight sits today.
 | `/messaging` | The Guests tab: guest message drafts awaiting approval (Inbox), Send (`/messaging/send`: a message, or a payment link under Charge), Saved replies and Quality; Delivery & sync at `/messaging/status`. The Inbox carries the New numbers card, where a text from an unknown number is attached to a contact, made a new one, or set aside (Not ours). Conversations steps back past its 60 days and takes a check-in range |
 | `/owner-messaging` | Owner reply drafts (SMS + email), owners only |
 | `/messaging/team` | The Team inbox: cleaner drafts (Portuguese with the English beside them) and contractor drafts in one list, an All / Cleaners / Contractors filter, the schedule text and "clean after?" under it. `/cleaner-messaging` and `/contractor-messaging` redirect here |
-| `/guests` | Reviews (the last 30 days by default). The subscriber list is `/guests/contacts` (Add contact, New campaign, and a Manage list menu: campaigns, the CSV import, Sync from Guesty); `/guests/import` redirects there and `/guests/segments` to `/guests/campaigns/new`, whose audience select carries the segments. `/guests/agreements` for SCA rental agreements. `/guests/quotes` for SCA custom quotes and booking requests (composed here, paid on staycapeann.com). `/guests/requests` (owners only) is a partner home's booking requests from staycapeann.com: the 24-hour clock, the calendar read live, the office's Accept (with a card on hold: the nights are booked and the card is charged on the host's Stripe), Told the host, Decline (the guest is emailed, the hold released) and Guest withdrew; a request nobody answers closes on its own (`src/lib/booking-requests.ts`); open ones lead the owners' queues on the home feed. Under them, Host payments: each partner home's Stripe status, our fee and its setup link (see Partner home payments below). Testimonials from direct guests (`guest_testimonials`: the concierge's review ask links a form on staycapeann.com, see `src/lib/guest-testimonials.ts`) are approved or hidden on the Reviews tab and render ahead of Guesty's reviews on the home's listing page. All of these, `/marketing` and `/competitors` share the Growth strip |
+| `/guests` | Reviews (the last 30 days by default). The subscriber list is `/guests/contacts` (Add contact, New campaign, and a Manage list menu: campaigns, the CSV import, Sync from Guesty); `/guests/import` redirects there and `/guests/segments` to `/guests/campaigns/new`, whose audience select carries the segments. `/guests/agreements` for SCA rental agreements. `/guests/quotes` for SCA custom quotes and booking requests (composed here, paid on staycapeann.com). `/guests/requests` (owners only) is a partner home's booking requests from staycapeann.com: the 24-hour clock, the calendar read live, the office's Accept (with a card on hold: the nights are booked and the card is charged on the host's Stripe), Told the host, Decline (the guest is emailed, the hold released) and Guest withdrew; a request nobody answers closes on its own (`src/lib/booking-requests.ts`); open ones lead the owners' queues on the home feed. Under them, Partner homes: each one's setup progress, whether it is on staycapeann.com, its Stripe status, our fee and its setup link, and Add a partner home (see Partner home setup and Partner home payments below). Testimonials from direct guests (`guest_testimonials`: the concierge's review ask links a form on staycapeann.com, see `src/lib/guest-testimonials.ts`) are approved or hidden on the Reviews tab and render ahead of Guesty's reviews on the home's listing page. All of these, `/marketing` and `/competitors` share the Growth strip |
 | `/crm` | Contacts, each with its Activity (calls, texts, emails and notes), and meetings. It opens on the contact list; one Refresh runs its syncs. Unknown numbers are triaged on the Messaging inbox (the New numbers card), not here. An important meeting (owner and prospect meetings by default) texts the evening before from the 24/7 line to `MEETING_REMINDER_PHONES`, else `DOTTI_PHONE` (the AirDNA reminder's rail); business meetings in the next 30 days feed the home agenda for owners, with attendance held for review; staff see the meetings they logged. The reminder cron and the home card failed every read from 10/07 until #2040 (2026-10-22): `contact_meetings.property_id` has no foreign key, so never embed `properties(...)` on it |
 | `/channels` | The Helm-native Guesty replacement: multi-channel listings, iCal sync, bookings. Hidden from the nav lists (the route and Cmd+K stay) until a Cape Ann home is Helm-run; its pages light the Properties tab |
 | `/marketing` | Site traffic and conversions for both sites. `/marketing/airdna` for comps (owners only) |
@@ -328,6 +328,36 @@ Helm calendar from `booking_requests` itself (`holdsInWindow` in `pms-bridge.ts`
 `bookings` row, so a partner guest never reaches Rosa, Work, statements or the concierge. The money
 is the host's: nothing here touches `owner_payout`, the books or the forecast.
 `partner-payments.test.ts` holds it.
+
+**A partner home reaches staycapeann.com only when an owner lists it** (`src/lib/partner-listing.ts`,
+since 2026-11-13). An owner adds the home on `/guests/requests` (address, town, host): Helm writes a
+`properties` row with `kind` `partner`, `is_active` false, `calendar_authority` `helm`, no fee and
+the host in the owner columns, and opens its property page on the Partner home panel. The office
+builds the listing, rooms, rates and house policy on the page's usual tabs; the panel lists the
+fourteen lines of the listing bar (`setupItems`), each with where it is fixed. Four are a person's
+word, kept with the date and who in `partner_listings`: the walk, the insurance proof (with its
+expiry), the signed listing agreement, the photos. **List on staycapeann.com** (owners only) reads
+the bar again on the server and refuses an open line; **Take it off the site** asks why and is
+immediate. `listedPartnerIds()` (`src/lib/partner-listed.ts`) is the switch: the bridge's
+`GET /api/pms/properties?include=partner` names only listed partner homes (the office's own reads
+of `listBridgeProperties` still see them all), and `POST /api/pms/requests` answers `not_found` for
+any other, before it prices. A failed read lists nobody.
+
+**A partner home's own calendars never become bookings** (`src/lib/partner-calendar.ts`). The
+host keeps selling on Airbnb, Vrbo or their software, so the office adds each export link on the
+panel (`partner_calendar_feeds`, https and a public host only, never Helm's own). The 30-minute
+`/api/cron/channels-sync` reads them after the OTA import, and Accept reads the home's again first.
+A read keeps only stay or block and the dates in `partner_calendar_holds`, replaced whole per feed
+(`replace_partner_calendar_holds`); an empty read after two or more future stays is not believed.
+The bridge's calendar (`holdsInWindow`) adds those nights on a partner home only. Accept refuses
+while any of the home's feeds has no good read in six hours (`staleFeedsBlockAccept`). The OTA
+import skips a partner home's listings (`ical-sync.ts`), `saveListing` refuses one and
+`/channels/<id>` sends it to the panel, so a stranger's guests never reach `bookings`, Rosa, Work,
+statements or the concierge. Helm's export (`/api/channels/ical/<token>`, the lines on the panel the
+host pastes into each channel) carries only accepted staycapeann.com stays for a partner home, never
+the host's own nights, so no calendar echoes another; the bar's last calendar line checks that
+every channel the host sells on pulled it in three days. `partner-listing.test.ts` and
+`partner-calendar.test.ts` hold it.
 
 The home appointment agenda also has `/appointments` for capture, review,
 rescheduling and cancellation. Saved business appointments are private to the

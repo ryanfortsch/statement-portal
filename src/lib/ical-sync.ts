@@ -23,6 +23,7 @@ import {
 import { CHANNEL_LABELS, type BookingChannel } from '@/lib/channels-types';
 import { recordSyncFailure, recordSyncResult } from '@/lib/sync-status';
 import { selectAllPaged } from '@/lib/paged-select';
+import { isPartnerHome } from '@/lib/property-scope';
 import { planDedupe, type DedupRow } from '@/lib/booking-dedupe';
 import { planCancelPass, keepsEmptyFeedGuardUp, holdsAreReservations, releaseAnswers, type CancelGuard } from '@/lib/ical-cancel-policy';
 import { nextAge, type AgeWrite, type HeldAge, type PriorRow } from '@/lib/echo-cause';
@@ -663,6 +664,12 @@ export type DedupResult = {
  * run a portfolio-wide dedup pass. The cron entrypoint calls this with no
  * args.
  */
+/** The listing's home is a partner home (the embedded properties row says so). */
+function listingOnPartnerHome(l: { properties?: unknown }): boolean {
+  const p = Array.isArray(l.properties) ? l.properties[0] : l.properties;
+  return isPartnerHome({ kind: (p as { kind?: string | null } | null | undefined)?.kind ?? null });
+}
+
 export async function syncAllListings(opts: { onlyListingId?: string } = {}): Promise<{
   total: number;
   succeeded: number;
@@ -680,7 +687,7 @@ export async function syncAllListings(opts: { onlyListingId?: string } = {}): Pr
     const sb = getServiceClient();
     let q = sb
       .from('channel_listings')
-      .select('id, property_id, channel, display_name, ical_import_url, ical_import_enabled, is_active, mass_cancel_acknowledged_at, mass_cancel_ack_run_id, export_subscribed, properties(calendar_authority)');
+      .select('id, property_id, channel, display_name, ical_import_url, ical_import_enabled, is_active, mass_cancel_acknowledged_at, mass_cancel_ack_run_id, export_subscribed, properties(calendar_authority, kind)');
     if (opts.onlyListingId) q = q.eq('id', opts.onlyListingId);
 
     // Before the read the drop rule is derived from: see syncListing's rulesReadAt.
@@ -688,8 +695,11 @@ export async function syncAllListings(opts: { onlyListingId?: string } = {}): Pr
     const { data, error } = await q;
     if (error) throw new Error(`load channel_listings: ${error.message}`);
 
+    // A partner home's calendars are read into partner_calendar_holds, never
+    // into bookings (lib/partner-calendar-db), so a listing row on one is
+    // never read here, whatever wrote it.
     const eligible = (data ?? []).filter(
-      (l) => l.is_active && l.ical_import_enabled && !!l.ical_import_url,
+      (l) => l.is_active && l.ical_import_enabled && !!l.ical_import_url && !listingOnPartnerHome(l),
     );
 
     // Which homes still ride Guesty's aggregate feed with no OTA reading Helm

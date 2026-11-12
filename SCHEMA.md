@@ -158,6 +158,27 @@ The host's Stripe Connect account (`stripe_account_id`, written once), our
 the SHA-256 of the host's setup link. No Stripe secret lives in Helm. RLS on,
 service role only. See `src/lib/partner-payments.ts`.
 
+**`partner_listings`** (since 2026-11-13): one row per partner home, the
+listing switch and the four checks a person makes. `walked_on` / `walked_by`,
+`insurance_checked_on` / `insurance_expires_on` / `insurance_checked_by`,
+`agreement_signed_on` / `agreement_recorded_by`, `photos_ok_on` /
+`photos_ok_by`; then `listed_at` / `listed_by` and `unlisted_at` /
+`unlisted_by` / `unlisted_reason`. A home is on staycapeann.com while
+`listed_at` is set and `unlisted_at` is null. A trigger refuses a row for any
+home that is not `kind = 'partner'`. RLS on, service role only. See
+`src/lib/partner-listing.ts`.
+
+**`partner_calendar_feeds`** and **`partner_calendar_holds`** (since
+2026-11-13): a partner home's own calendars, kept apart from `bookings` and
+`channel_listings` on purpose. A feed is one export link (`channel` airbnb,
+vrbo, booking_com or other; `url` https only; unique per home) with its read
+state (`last_synced_at`, `last_tried_at`, `last_error`, `hold_count`); the same
+partner-only trigger guards it. A hold is one stay or block from a feed
+(`kind`, `check_in`, `check_out`, `uid`), no guest text, replaced whole per
+feed by `replace_partner_calendar_holds(feed, holds, read_at)` and dropped
+with its feed. The bridge's calendar reads holds for partner homes only. RLS
+on, service role only, the function too. See `src/lib/partner-calendar.ts`.
+
 - **`booking_events`**: append-only change log per booking (`created`,
   `dates_changed`, `status_changed`, `cancelled`, `guest_changed`,
   `money_changed`, `feed_moved`, `note`) with `actor`, `before` and

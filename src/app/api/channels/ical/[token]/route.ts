@@ -3,6 +3,9 @@ import { supabaseAdmin, isServiceConfigured } from '@/lib/supabase-admin';
 import { buildIcalExport, EXPORTABLE_STATUSES, isToolUserAgent, resolveExportAudience, type ExportBooking } from '@/lib/ical-export';
 import { recordExportPull } from '@/lib/ical-export-pulls';
 import { selectAllPaged } from '@/lib/paged-select';
+import { isPartnerHome } from '@/lib/property-scope';
+import { exportRowsForRequests } from '@/lib/partner-calendar';
+import { acceptedStaysForExport } from '@/lib/partner-calendar-db';
 
 export const dynamic = 'force-dynamic';
 // Public-facing feed. No maxDuration override needed; the query is fast.
@@ -59,7 +62,7 @@ export async function GET(
 
   const { data: prop, error: propErr } = await sb
     .from('properties')
-    .select('id, name, address, ical_export_token')
+    .select('id, name, address, ical_export_token, kind')
     .eq('ical_export_token', token)
     .maybeSingle();
   if (propErr) return new NextResponse(`db error: ${propErr.message}`, { status: 500 });
@@ -108,6 +111,17 @@ export async function GET(
     );
   } catch (err) {
     return new NextResponse(`db error: ${err instanceof Error ? err.message : String(err)}`, { status: 500 });
+  }
+
+  // A partner home's export is its staycapeann.com stays: the accepted
+  // booking requests, which live outside bookings (lib/partner-calendar).
+  // The nights its host's own calendars hold are never sent back out.
+  if (isPartnerHome(prop as { kind?: string | null })) {
+    try {
+      bookings = [...bookings, ...(exportRowsForRequests(await acceptedStaysForExport(prop.id, fromIso)) as unknown as ExportBooking[])];
+    } catch (err) {
+      return new NextResponse(`db error: ${err instanceof Error ? err.message : String(err)}`, { status: 500 });
+    }
   }
 
   const body = buildIcalExport({
