@@ -667,8 +667,19 @@ runs itself.
   exact provider readback is `recorded`, not proof of recipient delivery.
   Reserved rows are excluded from legacy dispatch and protected by SQL triggers,
   including replacement-rule inserts. No route/job seeds, activation, scheduler
-  or source-proof creation RPC ships with this migration. See the Channex
-  production operations document for remaining handoff requirements.
+  or source-proof creation RPC ships with this migration.
+  `helm_channex_message_schedule_context` exposes the booking revision and existing
+  handover identifiers to the service role only. `helm_channex_message_register`
+  atomically inserts a canonical send and private job, or reads back an identical
+  registration retry without changing holds/history. It requires existing enabled
+  scope, matching handover evidence, Helm authority, an active property-specific
+  guest rule and unchanged canonical booking/context/mapping. Prior workflow
+  history blocks registration. Captured `migration_policy` rules remain refused.
+  The server adapter is disabled by default and has no runtime caller. Its four
+  guest workflow keys exclude cleaner SMS; future callers must independently
+  establish authoritative timing/body/thread provenance. SQL bounds timestamps
+  but does not certify a supplied fire time against Guesty's source clocks. See
+  the Channex production operations document for remaining handoff requirements.
 - **`guest_threads`**: one thread per stay per channel (`sms`, `email`,
   `airbnb`, `vrbo`, `booking_com`, `direct`), keyed to `booking_id`,
   `guest_id` and `property_id`, with `external_thread_key` (E.164 for
