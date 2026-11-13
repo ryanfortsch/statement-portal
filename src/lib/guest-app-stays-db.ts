@@ -28,6 +28,7 @@ import { isCapeAnnOps } from '@/lib/property-scope';
 import {
   appForStay,
   buildStayLayer,
+  extendForStay,
   codeIsLive,
   codeState,
   opensLine,
@@ -274,6 +275,27 @@ async function resolveStay(token: string): Promise<ResolvedStay | null> {
   };
 }
 
+/** A calendar mirror row older than this is not believed. It refreshes every 30 minutes. */
+const CALENDAR_FRESH_MS = 6 * 3600_000;
+
+/**
+ * Whether the night of `date` is for sale at the home, from
+ * property_calendar_days (Guesty's mirror, or Helm's own on a helm-run
+ * home). A missing, stale or unreadable row reads as no: the page never
+ * offers a night it cannot vouch for.
+ */
+async function nightForSale(propertyId: string, date: string, now: Date): Promise<boolean> {
+  const { data, error } = await supabaseAdmin
+    .from('property_calendar_days')
+    .select('status, synced_at')
+    .eq('property_id', propertyId)
+    .eq('date', date)
+    .maybeSingle();
+  const row = data as { status: string | null; synced_at: string | null } | null;
+  if (error || !row?.synced_at) return false;
+  return row.status === 'available' && now.getTime() - new Date(row.synced_at).getTime() < CALENDAR_FRESH_MS;
+}
+
 /**
  * What /h/s/<token> renders. The digits never reach this return value:
  * the live code becomes a StayCodeState here, and only revealStayCode
@@ -286,22 +308,23 @@ export async function loadGuestStay(token: string, now = new Date()): Promise<Gu
   if (!app) return { kind: 'void' };
   const join = stay.mayAskEmail;
   const phase = stayPhase(now, stay.window);
-  if (phase === 'over') return { kind: 'over', app, join };
-  if (phase === 'before') return { kind: 'before', app, opens: opensLine(stay.window), join };
+  if (phase === 'over') return { kind: 'over', app: extendForStay(app, stay.window.leaveDay, false), join };
+  const extended = extendForStay(app, stay.window.leaveDay, await nightForSale(stay.propertyId, stay.window.leaveDay, now));
+  if (phase === 'before') return { kind: 'before', app: extended, opens: opensLine(stay.window), join };
 
   const [mapped, live] = await Promise.all([lockMapped(stay.propertyId), getLiveStayCode(stay.propertyId, stay.bookingIds, now)]);
   const layer = buildStayLayer({
     dates: stay.dates,
     times: stay.times,
     window: stay.window,
-    app,
+    app: extended,
     lockBrand: stay.home.lockBrand,
     lockMapped: mapped,
     code: codeState(live, now, stay.window),
     now,
   });
   if (!layer) return { kind: 'void' };
-  return { kind: 'open', app: appForStay(app, layer), stay: layer, join };
+  return { kind: 'open', app: appForStay(extended, layer), stay: layer, join };
 }
 
 /**

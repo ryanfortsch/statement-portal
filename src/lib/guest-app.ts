@@ -173,14 +173,6 @@ export type WifiNetwork = {
   joinUri: string | null;
 };
 
-export type TodayLine = {
-  kind: 'trash' | 'sun';
-  title: string;
-  text: string;
-  /** The few words the home screen shows for it, or null when it is not worth a guest's attention today. */
-  chip: string | null;
-};
-
 export type Hospital = { name: string; address: string; phone: string; tel: string; note: string; directionsUrl: string };
 
 export type MissingFact = { label: string; where: string };
@@ -194,7 +186,6 @@ export type GuestApp = {
   heroUrl: string | null;
   welcome: string;
   directionsUrl: string | null;
-  today: TodayLine[];
   wifi: WifiNetwork[];
   checkIn: string | null;
   checkOut: string | null;
@@ -205,7 +196,8 @@ export type GuestApp = {
     phoneDisplay: string;
     tel: string;
     text: string;
-    lateCheckout: string;
+    /** Asks for the night after checkout; the concierge prices it from the live calendar. */
+    extend: string;
     email: string;
   };
   emergency: { address: string | null; hospital: Hospital | null };
@@ -243,6 +235,28 @@ export function smsHref(e164: string, body: string): string {
   return `sms:${e164}?&body=${encodeURIComponent(body)}`;
 }
 
+/**
+ * Checking out's last line: one more night, asked of us by text (Dotti,
+ * 2026-11-13: no late-checkout tease). The guest's words ("another night")
+ * are what the concierge's extension path keys on; it reads the live
+ * calendar, quotes the real rate and sends the payment link, every step
+ * approved. The printed page cannot know whose stay it is, so it only
+ * asks; a stay link names the dates and shows it only when that night is
+ * open (the stay layer's extendForStay).
+ */
+export const EXTEND_ITEM = {
+  text: 'Looking to extend your stay another night?',
+  link: { label: 'Text us to extend' },
+} as const;
+
+/** The text the extend link pre-fills, to the GUESTS line. */
+export function extendHref(where: string, dates?: { leaveDay: string; throughDay: string }): string {
+  const ask = dates
+    ? `Could we extend our stay another night, checking out ${dates.throughDay} instead of ${dates.leaveDay}?`
+    : 'Could we extend our stay another night?';
+  return smsHref(QUO_LINES.guests.number, `Hi, we are staying at ${where}. ${ask}`);
+}
+
 export function telHref(e164: string): string {
   return `tel:${e164}`;
 }
@@ -251,11 +265,6 @@ export function telHref(e164: string): string {
 export function phoneDisplay(e164: string): string {
   const d = e164.replace(/\D/g, '').replace(/^1/, '');
   return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : e164;
-}
-
-/** Today's weekday name in Eastern time. */
-export function easternWeekday(now: Date): string {
-  return new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: ET }).format(now);
 }
 
 /** Today's Eastern date as YYYY-MM-DD. */
@@ -277,41 +286,6 @@ export function paragraphs(text: string | null | undefined): string[] {
     .split(/\n\s*\n|\n(?=\s*[-*•]\s)/)
     .map((p) => p.replace(/^\s*[-*•]\s+/, '').replace(/\s*\n\s*/g, ' ').trim())
     .filter(Boolean);
-}
-
-// ── Sunset ─────────────────────────────────────────────────────────────────
-
-/**
- * Sunset for a date and place, NOAA's general solar position method
- * (accurate to a minute or two at Cape Ann's latitude), or null when the sun
- * does not set. Exported for the test.
- */
-export function sunsetAt(isoDate: string, lat: number, lng: number): Date | null {
-  const day = new Date(`${isoDate}T00:00:00Z`);
-  const start = Date.UTC(day.getUTCFullYear(), 0, 1);
-  const n = Math.floor((day.getTime() - start) / 86_400_000) + 1;
-  const g = ((2 * Math.PI) / 365) * (n - 1);
-  const eqTime =
-    229.18 *
-    (0.000075 + 0.001868 * Math.cos(g) - 0.032077 * Math.sin(g) - 0.014615 * Math.cos(2 * g) - 0.040849 * Math.sin(2 * g));
-  const decl =
-    0.006918 -
-    0.399912 * Math.cos(g) +
-    0.070257 * Math.sin(g) -
-    0.006758 * Math.cos(2 * g) +
-    0.000907 * Math.sin(2 * g) -
-    0.002697 * Math.cos(3 * g) +
-    0.00148 * Math.sin(3 * g);
-  const latR = (lat * Math.PI) / 180;
-  const cosHa = Math.cos((90.833 * Math.PI) / 180) / (Math.cos(latR) * Math.cos(decl)) - Math.tan(latR) * Math.tan(decl);
-  if (cosHa < -1 || cosHa > 1) return null;
-  const haDeg = (Math.acos(cosHa) * 180) / Math.PI;
-  const minutesUtc = 720 - 4 * (lng - haDeg) - eqTime;
-  return new Date(day.getTime() + minutesUtc * 60_000);
-}
-
-function easternClock(d: Date): string {
-  return new Intl.DateTimeFormat('en-US', { timeZone: ET, hour: 'numeric', minute: '2-digit' }).format(d);
 }
 
 // ── Emergency ──────────────────────────────────────────────────────────────
@@ -378,24 +352,8 @@ function overrideText(ov: HomeGuideOverrides | null, key: 'wifi' | 'climate' | '
   return clean(ov?.[key]);
 }
 
-function trashToday(home: GuestAppHome, civic: CivicInfo, now: Date): TodayLine | null {
-  const setOut = cartSetOutFor(cityShort(home), civic.trashDay, { cartsHandledByUs: home.carts_handled_by_us === true });
-  if (!setOut) return null;
-  const today = easternWeekday(now);
-  if (today === setOut.outNight) {
-    return { kind: 'trash', title: 'Trash night', text: `${setOut.outLine} Pickup is ${setOut.day} morning.`, chip: 'Trash night' };
-  }
-  if (today === setOut.day) {
-    // When the team handles the carts, the guest has nothing to bring in.
-    const ours = home.carts_handled_by_us === true;
-    const back = ours ? 'We bring the carts back in.' : `${setOut.backLine.replace(/\.$/, '')} once they are emptied.`;
-    return { kind: 'trash', title: 'Pickup day', text: `The truck comes this morning. ${back}`, chip: ours ? null : 'Carts back in today' };
-  }
-  return { kind: 'trash', title: 'Trash day', text: `Pickup is ${setOut.day} morning, so the carts go out ${setOut.outNight} night.`, chip: null };
-}
-
 export function buildGuestApp(input: GuestAppInput): GuestApp {
-  const { home, now } = input;
+  const { home } = input;
   const civic = civicOf(home);
   const city = cityShort(home);
   const ov = home.home_guide_overrides ?? null;
@@ -422,7 +380,7 @@ export function buildGuestApp(input: GuestAppInput): GuestApp {
     phoneDisplay: phoneDisplay(guestLine),
     tel: telHref(guestLine),
     text: smsHref(guestLine, `Hi, this is a guest at ${where}. `),
-    lateCheckout: smsHref(guestLine, `Hi, we are staying at ${where}. Is a late checkout possible on our last day?`),
+    extend: extendHref(where),
     email: 'hello@staycapeann.com',
   };
 
@@ -461,7 +419,7 @@ export function buildGuestApp(input: GuestAppInput): GuestApp {
     });
   }
   checkoutItems.push({ label: 'On your way out', text: 'Lock the door behind you.' });
-  checkoutItems.push({ label: 'More time?', text: 'A late checkout depends on who arrives next.', link: { href: contact.lateCheckout, label: 'Ask about late checkout' } });
+  checkoutItems.push({ ...EXTEND_ITEM, link: { href: contact.extend, label: EXTEND_ITEM.link.label } });
   sections.push({
     id: 'checkout',
     nav: 'Checkout',
@@ -588,15 +546,6 @@ export function buildGuestApp(input: GuestAppInput): GuestApp {
     sections.push({ id: 'nearby', nav: 'Nearby', glance: 'Our favorite places', title: 'Around Cape Ann', intro: 'Our favorites, with the time from your door.', items: [] });
   }
 
-  // Today, at this house. Eastern time; Gloucester's cart night from civic.
-  const today: TodayLine[] = [];
-  const trash = trashToday(home, civic, now);
-  if (trash) today.push(trash);
-  if (coords) {
-    const set = sunsetAt(easternDate(now), coords.lat, coords.lng);
-    if (set) today.push({ kind: 'sun', title: 'Sunset', text: `${easternClock(set)} tonight.`, chip: `Sunset ${easternClock(set)}` });
-  }
-
   return {
     propertyId: home.id,
     title,
@@ -606,7 +555,6 @@ export function buildGuestApp(input: GuestAppInput): GuestApp {
     heroUrl: input.heroPhotoUrl,
     welcome: clean(input.welcomeNote) || DEFAULT_WELCOME,
     directionsUrl,
-    today,
     wifi,
     checkIn,
     checkOut,

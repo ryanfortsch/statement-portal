@@ -76,10 +76,6 @@ export const guestAppCss = `
 .ga-wificard-pass { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; padding-top: 10px; border-top: 1px dashed var(--rule); font-size: 17px; }
 .ga-wificard-sub { font-size: 14px; color: var(--ink-3); }
 
-/* Today: one or two chips, never a paragraph */
-.ga-today { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
-.ga-today-chip { display: inline-flex; align-items: center; padding: 6px 12px; border-radius: 999px; background: var(--paper); border: 1px solid var(--rule); font-size: 13px; font-weight: 500; color: var(--ink-2); text-decoration: none; }
-.ga-today-chip.is-alert { background: var(--alert-bg); border-color: rgba(168,69,43,0.35); color: var(--alert); font-weight: 600; }
 
 /* Search */
 .ga-search { display: block; margin: 0 0 12px; }
@@ -235,7 +231,6 @@ export const guestAppCss = `
 .ga-code button.ga-btn[disabled] { opacity: 0.7; cursor: wait; }
 .ga-code-err { margin: 0; font-size: 14px; color: var(--alert); }
 .ga-stay .ga-items { background: transparent; border: 0; padding: 0; border-radius: 0; }
-.ga-stay-until { margin: 6px 0 10px; font-size: 13px; color: var(--ink-3); }
 .ga-stay-later { margin: 16px 0 6px; background: var(--paper); border: 1px solid var(--rule); border-left: 3px solid var(--drift); border-radius: 14px; padding: 13px 16px; font-size: 15px; color: var(--ink-2); }
 
 @media (min-width: 640px) {

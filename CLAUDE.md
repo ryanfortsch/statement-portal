@@ -496,11 +496,17 @@ through `getGuestWifiPasswords` (a select of the two Wi-Fi columns only), rooms 
 `civic.ts`, guest check-in from the rate plan or, on a Guesty-run home, the listing's own time
 (`guesty_listings.checkin_time`, synced nightly; never the cleaner deadline). `guest-app.test.ts` reads the loader and fails on a
 broader read. Every load is live, so a fact fixed on the property page is on the guest's phone
-next open. On a phone it opens on a home screen: the Wi-Fi card, a chip for today (sunset, trash
-night), search, and one tile per section with its answer ("Checkout · 11:00 AM"); each section is
+next open. On a phone it opens on a home screen: the Wi-Fi card, search, and one tile per
+section with its answer ("Checkout · 11:00 AM"), with no chips (trash lives in its own section,
+no sunset: Dotti, 2026-11-13); each section is
 its own screen at `#<id>`, shown by CSS `:target` and `:has`, so Back returns to the tiles and it
 works with JavaScript off. A long paragraph shows its first sentence and More (`splitLong`). One
 Text us button on every screen, and nothing asks a guest what went wrong (Dotti, 2026-11-11).
+Checkout ends on "Looking to extend your stay another night?" (`EXTEND_ITEM`), never a
+late-checkout tease: its text names the extra night, so the concierge's extension path prices it
+from the live calendar and sends the payment link on approve. The stay link shows it only when the
+night after checkout reads `available` in `property_calendar_days`, synced within six hours
+(`extendForStay`), with the exact dates in the text; the printed home link asks plainly.
 Every way to reach us is an `sms:` to the GUESTS line naming the home; nothing on the
 page writes to Helm except the open counter. Around Cape Ann is staycapeann.com's own list
 (`src/data/sca-guide.json`, refreshed with `npm run sync-sca-guide -- --src=<stay-cape-ann
