@@ -831,6 +831,14 @@ runs itself.
   cancellation; it never retries unknown sends. See the production operations
   document for activation gates and credential requirements.
   These reads create no activation, jobs or sends.
+  The service-only `helm_channex_message_control_read` exposes a minimal hold
+  snapshot for an existing guest or cleaner job. `helm_channex_message_control`
+  compares its change token under booking/send/job locks, then calls the existing
+  audited hold writer. It cannot create a schedule, reset a send attempt, extend
+  its send window or change sender authority. Guest versions and cleaner audit
+  event IDs prevent stale hold/resume cycles from releasing a newer hold. Owner
+  API access is production-only and same-origin for writes; the actor comes from
+  the authenticated session. Installation creates no rows or holds.
   Scoped message history now serializes on the canonical booking, including
   indirect duplicate descendants. Registration and claim refuse descendant or
   ambiguous history. Late descendant history against an existing job is an error

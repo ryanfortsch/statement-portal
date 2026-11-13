@@ -1856,8 +1856,8 @@ that separate handover is completed.
 
 `/channels/65_calderwood/message-status` joins the existing canonical send ledger
 to guest and cleaner receipt readers. It is owner-only, production-storage-only,
-and read-only: no source/provider requests, scheduling, claims, holds or receipt
-writes. It loads history even when sender configuration is off, so disabling a
+and its history loader is read-only: no source/provider requests, scheduling,
+claims, holds or receipt writes. It loads history even when sender configuration is off, so disabling a
 worker does not hide an accepted or uncertain attempt. Configuration is not a
 worker heartbeat. An accepted message is not presented as delivered; Channex
 readback and an SMS delivery receipt have distinct labels. A cancelled canonical
@@ -1874,8 +1874,44 @@ Guesty/Airbnb source queues and live provider delivery are not queried by this v
 The synthetic browser check is
 `node --import ./scripts/server-only-test-hook.mjs scripts/channex-automation-operations-smoke.mjs`.
 It renders the actual panel at desktop/mobile widths, tests empty/unavailable/partial
-history and receipt wording, and proves Refresh uses only GET. No new migration
-or sender activation is part of this view.
+history and receipt wording, and proves Refresh uses only GET. The original
+history view requires no new migration or sender activation.
+
+### Owner hold and resume controls
+
+Each existing message now has an explicit **Review hold** action. Its separate
+owner-only GET returns current hold state and available actions, without a provider
+call. Holding or resuming requires a confirmation and same-origin owner POST to
+`/api/channex/message-control`. The authenticated session supplies the audit actor;
+the request cannot choose an actor, property, source evidence or new schedule.
+
+`20261113220000_channex_message_controls.sql` installs a minimal private read RPC
+and a compare-and-set wrapper around the existing guest and cleaner hold writers.
+It adds no tables or jobs, creates no holds, changes no templates or configuration,
+and grants no browser role database access. Both RPCs are service-only. The
+installation needs separate production migration approval; the app refuses action
+if the functions are missing.
+
+The wrapper locks booking, canonical send and job in the same order as dispatch.
+A hold that wins that lock prevents a later claim; a claim that already won cannot
+be recalled. Only an unclaimed, scheduled job can be held. Resume also requires
+current stay details, authority and an unexpired original send window. It never
+retimes a message, recreates a job or resets uncertain/accepted history. An enabled
+sender may send on its next automatic check after a hold is removed.
+
+Guest job versions and cleaner hold-event IDs fence stale screens, including a
+hold/resume/hold cycle that returns to the same visible state. A lost response is
+uncertain, not a reason to retry automatically; read current status and make a new
+explicit decision. Controls do not affect Guesty or Airbnb-native schedules, do
+not prove source queue clearance, and cannot hold a message that has not yet been
+registered. A delay beyond the original window still needs review; this is not a
+new late-send policy.
+
+The real-PostgreSQL cleaner integration also exercises both guest and cleaner
+controls, concurrent owner changes, stale tokens, expired/changed bookings,
+permission denial and already-claimed messages. The browser check exercises the
+actual component's confirmations, cancellation, conflict and lost-response
+readback. All provider calls in those tests remain synthetic.
 
 ### November 13 deployment and lifecycle rehearsal
 

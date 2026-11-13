@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { MessageHoldControl } from './MessageHoldControl';
 import type { AutomationLane, AutomationOperations } from '@/lib/channex-messaging/operations';
 
 const workflows: Record<string, string> = {
@@ -60,12 +61,13 @@ export function AutomationStatusPanel({ report }: { report: AutomationOperations
               <Link href={`/channels/bookings/${row.bookingId}`} className="mt-1 inline-block text-sm underline underline-offset-4">{day(row.start)} – {day(row.end)} stay</Link>
               <p className="mt-2 text-xs" style={{ color: 'var(--muted-foreground)' }}>Scheduled {instant(row.fireAt)}</p></div>
             <div className="min-w-0"><span className={`inline-block rounded-md px-2.5 py-1 text-xs font-semibold ${row.category === 'attention' ? 'bg-amber-50 text-amber-950' : row.category === 'recorded' ? 'bg-emerald-50 text-emerald-950' : 'bg-slate-100 text-slate-700'}`}>{row.state}</span>
-              <p className="mt-2 text-sm leading-6" style={{ color: 'var(--muted-foreground)' }}>{row.note}</p></div>
+              <p className="mt-2 text-sm leading-6" style={{ color: 'var(--muted-foreground)' }}>{row.note}</p>
+              {row.audience !== 'unknown' && <MessageHoldControl sendId={row.id} bookingId={row.bookingId} />}</div>
           </li>)}
         </ul>}
       </>}
       <p className="mt-5 border-t pt-4 text-xs leading-5" style={{ borderColor: 'var(--rule)', color: 'var(--muted-foreground)' }}>
-        Accepted means the provider accepted the message. Channex readback confirms the provider record, not guest delivery. Only an SMS delivery receipt is labeled delivered. This page cannot send, retry, cancel or release messages.</p>
+        Accepted means the provider accepted the message. Channex readback confirms the provider record, not guest delivery. Only an SMS delivery receipt is labeled delivered. Holds affect existing Helm schedules only; removing a hold can allow an enabled automatic sender to continue.</p>
     </section>
     <section className="rounded-2xl border p-5 sm:p-6" style={card} aria-labelledby="handover-next-title">
       <h2 id="handover-next-title" className="text-lg font-semibold">Before new bookings move to Helm</h2>
