@@ -41,6 +41,11 @@ function attentionFlags(load: LaunchLoad): string[] {
       `${load.facts.upcomingStays} upcoming ${load.facts.upcomingStays === 1 ? 'stay' : 'stays'} and the Guesty cleaning automation is unconfirmed: the cleaners may not be hearing about bookings.`,
     );
   }
+  if (open.has('guesty_guest_messages') && load.facts.upcomingStays > 0) {
+    flags.push(
+      `${load.facts.upcomingStays} upcoming ${load.facts.upcomingStays === 1 ? 'stay' : 'stays'} and the Guesty guest messages are unconfirmed: guests may get no check-in details, or the wrong day's.`,
+    );
+  }
   if (open.has('pricing_flowing') && load.ctx.forwardDistinctPrices === 1) {
     flags.push('One flat nightly price across the next 60 days: PriceLabs is not pushing to this listing.');
   }

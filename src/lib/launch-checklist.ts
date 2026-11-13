@@ -338,6 +338,17 @@ export const LAUNCH_STEPS: ReadonlyArray<LaunchStep> = [
     action: 'open_guesty_automations',
   },
   {
+    key: 'guesty_guest_messages',
+    phase: 'integrations',
+    title: 'Guest message automation set up in Guesty',
+    required: true,
+    who: 'ops',
+    description:
+      'In Guesty: Operations > Front desk > Message automation. Duplicate another home\'s "Messaging" set (it carries everything below), set Properties to this listing only, and fix any door code or Wi-Fi typed into a message, in the original and in its early-arrival copy. The set needs: the day-before-checkout notice conditioned "Checkout moved is not"; the day-before Check-in Information and the hour-before door code message conditioned "Arrival moved is not"; and an "(early arrival)" copy of each of those two, conditioned "Arrival moved is Yes", sent 2 days and 25 hours before check-in, with "tomorrow" in place of the check-in date.',
+    why: 'A paid extension or early arrival never changes the Guesty reservation, so Guesty times its messages off the old dates. The concierge marks the reservation (Checkout moved, Arrival moved), and these conditions are what make Guesty hold its message or send it a day early. A set without them tells an extended guest to leave a day early and sends an early guest the door code after they arrive. Guesty exposes no API for automations, so this is a hand tick.',
+    action: 'open_guesty_automations',
+  },
+  {
     key: 'code_roster_entry',
     phase: 'integrations',
     title: 'Book page resolves',
@@ -508,6 +519,13 @@ const NOT_APPLICABLE_OFF_GUESTY_OR_OUT_OF_REGION: ReadonlySet<string> = new Set(
  */
 const NOT_APPLICABLE_OUT_OF_REGION: ReadonlySet<string> = new Set(['cleaner_bank_sent']);
 
+/**
+ * Steps about Guesty itself and nothing regional: every Guesty-run home
+ * messages its guests through Guesty, Lighthouse Point and 65 Calderwood
+ * included, so only a home Helm runs resolves them n_a.
+ */
+const NOT_APPLICABLE_OFF_GUESTY: ReadonlySet<string> = new Set(['guesty_guest_messages']);
+
 export function deriveStepNotApplicable(
   stepKey: string,
   ctx: LaunchDerivationContext,
@@ -515,8 +533,9 @@ export function deriveStepNotApplicable(
   const p = ctx.property;
   const outOfRegion = (p.region ?? 'cape_ann') !== 'cape_ann';
   if (NOT_APPLICABLE_OUT_OF_REGION.has(stepKey)) return outOfRegion;
-  if (!NOT_APPLICABLE_OFF_GUESTY_OR_OUT_OF_REGION.has(stepKey)) return false;
   const helmRun = p.calendar_authority === 'helm';
+  if (NOT_APPLICABLE_OFF_GUESTY.has(stepKey)) return helmRun;
+  if (!NOT_APPLICABLE_OFF_GUESTY_OR_OUT_OF_REGION.has(stepKey)) return false;
   return helmRun || outOfRegion;
 }
 
