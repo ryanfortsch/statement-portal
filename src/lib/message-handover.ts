@@ -16,3 +16,10 @@ const MESSAGE_HANDOVER_HREF: Readonly<Record<string, string>> = {
 export function messageHandoverHref(propertyId: string): string | null {
   return Object.prototype.hasOwnProperty.call(MESSAGE_HANDOVER_HREF, propertyId) ? MESSAGE_HANDOVER_HREF[propertyId] : null;
 }
+
+const AUTOMATION_STATUS_HREF: Readonly<Record<string, string>> = {
+  '65_calderwood': '/channels/65_calderwood/message-status',
+};
+export function automationStatusHref(propertyId: string): string | null {
+  return Object.prototype.hasOwnProperty.call(AUTOMATION_STATUS_HREF, propertyId) ? AUTOMATION_STATUS_HREF[propertyId] : null;
+}

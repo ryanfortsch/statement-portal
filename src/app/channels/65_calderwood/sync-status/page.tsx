@@ -33,6 +33,7 @@ export default async function CalendarSyncStatusPage() {
     <main className="mx-auto w-full max-w-[1100px] px-5 pb-14 sm:px-10">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <Link href="/channels/65_calderwood" className="text-sm underline underline-offset-4">← Calderwood</Link>
+        <Link href="/channels/65_calderwood/message-status" className="text-sm underline underline-offset-4">Automation status →</Link>
         <form action="/channels/65_calderwood/sync-status" method="get"><button className="rounded-lg border px-4 py-2 text-sm font-medium" style={{ borderColor:'var(--rule)' }}>Refresh status</button></form>
       </div>
       <Suspense fallback={<section className="mt-7 rounded-2xl border p-6" aria-live="polite" style={{ borderColor: 'var(--rule)' }}>Checking the Airbnb connection…</section>}>

@@ -1,0 +1,80 @@
+/** Actual owner status panel; only synthetic read-only reports and local HTTP. */
+import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+import { readFile, writeFile, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createServer } from 'node:http';
+import ts from 'typescript';
+import postcss from 'postcss';
+import tailwind from '@tailwindcss/postcss';
+import puppeteer from 'puppeteer-core';
+import chromium from '@sparticuz/chromium';
+import { syntheticAutomationOperations } from '../src/lib/__tests__/fixtures/channex-automation-operations.ts';
+
+const root = process.cwd(), scratch = await mkdtemp(join(tmpdir(), 'helm-automation-operations-'));
+const { webpack } = createRequire(import.meta.url)('next/dist/compiled/webpack/webpack');
+const compile = text => ts.transpileModule(text, { compilerOptions: {
+  target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX,
+} }).outputText;
+await writeFile(join(scratch, 'panel.js'), compile(await readFile(join(root,
+  'src/app/channels/65_calderwood/message-status/AutomationStatusPanel.tsx'), 'utf8')));
+await writeFile(join(scratch, 'link.js'), compile('export default function Link({children,...props}) {return <a {...props}>{children}</a>}'));
+const report = await syntheticAutomationOperations();
+await writeFile(join(scratch, 'entry.js'), compile(`
+import React from 'react';import {createRoot} from 'react-dom/client';import {AutomationStatusPanel} from './panel.js';
+const report=${JSON.stringify(report)},params=new URLSearchParams(location.search);
+if(params.has('empty')){report.rows=[];report.total=0;}
+if(params.has('unavailable')){report.rows=[];report.history='unavailable';report.total=null;}
+if(params.has('partial')){report.history='partial';report.total=120;}
+createRoot(document.getElementById('root')).render(<main className="mx-auto max-w-[1100px] px-5 py-10 sm:px-10"><p className="text-xs uppercase tracking-widest">65 Calderwood · Messages</p><h1 className="mt-3 font-serif text-4xl">Automation status</h1><p className="mt-4">See what is scheduled, what reached a provider and what needs attention.</p><AutomationStatusPanel report={report}/></main>);
+`));
+await new Promise((resolve, reject) => {
+  const compiler = webpack({ mode: 'development', devtool: false, context: scratch, entry: join(scratch, 'entry.js'),
+    output: { path: scratch, filename: 'bundle.js' }, resolve: { modules: [join(root, 'node_modules')],
+      alias: { 'next/link': join(scratch, 'link.js') } }, performance: { hints: false } });
+  compiler.run((err, stats) => compiler.close(() => err || stats?.hasErrors()
+    ? reject(err || Error(stats.toString({ all: false, errors: true }))) : resolve()));
+});
+const css = (await postcss([tailwind({ base: root })]).process(await readFile(join(root, 'src/app/globals.css'), 'utf8'),
+  { from: join(root, 'src/app/globals.css') })).css;
+const methods = [];
+const server = createServer(async (req, res) => {
+  methods.push(req.method);
+  if (req.url === '/bundle.js') { res.setHeader('Content-Type', 'text/javascript'); res.end(await readFile(join(scratch, 'bundle.js'))); return; }
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.end('<!doctype html><html lang="en"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Synthetic automation status</title><style>'
+    + css + 'body{background:var(--paper);color:var(--ink);font-family:Arial,sans-serif}</style><div id="root"></div><script src="/bundle.js"></script></html>');
+});
+let browser;
+try {
+  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
+  const origin = 'http://127.0.0.1:' + server.address().port;
+  browser = await puppeteer.launch({ executablePath: process.env.CHROME_EXECUTABLE_PATH || (process.platform === 'darwin'
+    ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : await chromium.executablePath()), headless: true,
+    args: process.platform === 'darwin' ? ['--no-sandbox'] : chromium.args });
+  const page = await browser.newPage(), errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setRequestInterception(true); page.on('request', r => r.url().startsWith(origin + '/') ? r.continue() : r.abort());
+  for (const mode of ['', '?empty', '?unavailable', '?partial']) {
+    await page.goto(origin + '/' + mode); await page.waitForSelector('#message-history-title');
+    const text = await page.$eval('body', e => e.innerText);
+    assert.match(text, /Guest messages · Channex/i); assert.match(text, /Cleaner texts · SMS/i);
+    assert.match(text, /Automatic enrollment of new Airbnb stays is not implemented/);
+    if (mode === '?unavailable') { assert.match(text, /history could not be verified/); assert.doesNotMatch(text, /No Helm message records/); }
+    else if (mode === '?empty') { assert.match(text, /No Helm message records/); assert.match(text, /does not confirm that Guesty or Airbnb has no queued/); }
+    else { assert.match(text, /accepted · readback pending/); assert.match(text, /SMS accepted · receipt pending/); }
+    if (mode === '?partial') assert.match(text, /Older records, including unresolved attempts/);
+    assert.deepEqual(await page.$$eval('form', fs => fs.map(f => f.method)), ['get']);
+    assert.equal(await page.$$eval('button', bs => bs.length), 1);
+    for (const width of [1360, 390, 320]) {
+      await page.setViewport({ width, height: 1000 });
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `${mode} width ${width}`);
+      if (width !== 320 && ['', '?empty'].includes(mode)) await page.screenshot({
+        path: join(tmpdir(), `helm-automation-operations-${mode ? 'empty' : 'receipts'}-${width}.png`), fullPage: true });
+    }
+  }
+  await Promise.all([page.waitForNavigation(), page.click('button')]);
+  assert.ok(page.url().includes('/channels/65_calderwood/message-status'));
+  assert.ok(methods.every(m => m === 'GET')); assert.deepEqual(errors, []);
+  console.log('PASS: actual status panel; receipt distinctions, off senders, empty/error/partial history, GET-only refresh; 1360/390/320px layouts');
+} finally { await browser?.close(); await new Promise(resolve => server.close(resolve)); await rm(scratch, { recursive: true, force: true }); }

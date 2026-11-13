@@ -52,7 +52,7 @@ import { EXPORT_FOR_CHANNELS, exportUrlFor, exportUrlForListing } from '@/lib/ic
 import { type CalendarRowVM } from '../calendar/MultiCalendarGrid';
 import { PropertyMonthCalendar } from './PropertyMonthCalendar';
 import { CalendarRangeTools } from './CalendarRangeTools';
-import { messageHandoverHref } from '@/lib/message-handover';
+import { automationStatusHref, messageHandoverHref } from '@/lib/message-handover';
 import { inventoryStatusHref } from '@/lib/channex-inventory/operations';
 import { confirmBookingComEchoAction, flipCalendarAuthorityAction, readGuestyCalendarAheadAction } from './cutover-actions';
 import { massCancelConfirm, releaseClosureConfirm } from '@/lib/irreversible-confirms';
@@ -198,6 +198,7 @@ export default async function ChannelsPropertyPage({
   const prepare = one(sp.prepare) === '1' || !!(flipped || flipError || flipNote);
   const runbook = helmRun || (owner && (prepare || cutoverUnderway));
   const handoverHref = messageHandoverHref(propertyId);
+  const automationHref = automationStatusHref(propertyId);
   const syncHref = inventoryStatusHref(propertyId);
 
   return (
@@ -222,6 +223,7 @@ export default async function ChannelsPropertyPage({
           <Link href="/channels" style={ghostButton}>← Channels</Link>
           {helmRun && <Link href={`/properties/${propertyId}`} style={ghostButton}>Property record →</Link>}
           {owner && handoverHref && <Link href={handoverHref} style={ghostButton}>Message handover →</Link>}
+          {owner && automationHref && <Link href={automationHref} style={ghostButton}>Automation status →</Link>}
           {owner && syncHref && <Link href={syncHref} style={ghostButton}>Calendar sync →</Link>}
           <Link href={`/book/${propertyId}`} target="_blank" style={ghostButton}>Public booking page ↗</Link>
           {!helmRun && owner && !runbook && (
