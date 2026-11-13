@@ -11,6 +11,13 @@ test('a payment reminder card reads as proactive, in the add-on plum', () => {
   assert.equal(proactiveKind('quo_sms:abc123', 'general'), null);
 });
 
+test('a stay page card reads as proactive, never a guest reply', () => {
+  const id = 'quo_sms:staypage:6b1f0c2e9a4d7e3b5c8a1f20';
+  assert.equal(proactiveKind(id, 'stay_page'), 'staypage');
+  assert.equal(proactiveKind(id, ''), 'staypage');
+  assert.deepEqual(proactiveBadge('staypage'), { label: 'Stay page', tone: '#2f6b7a' });
+});
+
 test('our review of a guest and our reply to theirs are lens kinds, never Inbox cards', async () => {
   const { isReviewLensKind } = await import('../../app/messaging/format.ts');
   assert.equal(proactiveKind('hostreview:6aadab46:stop', 'host_review_stop'), 'hostreview');
