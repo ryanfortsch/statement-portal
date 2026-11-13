@@ -37,7 +37,7 @@
  * Pure (relative .ts imports, no server-only), so node:test pins it.
  */
 import { addDays, formatLongDate, nightsBetween, zonedTimeToMs } from './automations-core.ts';
-import { clockLabel, type GuestApp, type GuestItem } from './guest-app.ts';
+import { clockLabel, EXTEND_ITEM, extendHref, type GuestApp, type GuestItem } from './guest-app.ts';
 
 export const STAY_TIMEZONE = 'America/New_York';
 
@@ -220,8 +220,6 @@ export type StayLayer = {
   /** The keypad, for the step that uses the code. */
   lockBrand: string | null;
   steps: GuestItem[];
-  /** "This link works until 10:00 AM on Sunday, November 15." */
-  until: string;
 };
 
 export type StayLayerInput = {
@@ -272,7 +270,6 @@ export function buildStayLayer(input: StayLayerInput): StayLayer | null {
     code,
     lockBrand: brand,
     steps,
-    until: `This link works until ${easternMoment(window.closesAt)}. The QR card in the house opens the home guide any time.`,
   };
 }
 
@@ -302,6 +299,29 @@ export function appForStay(app: GuestApp, layer: StayLayer | null): GuestApp {
             ),
           },
     ),
+  };
+}
+
+/**
+ * Checking out's extra-night line on a stay link. The printed page only
+ * asks; a stay knows its last day, so the line names the dates in the text
+ * it pre-fills, and shows only when that night is for sale (`nightOpen`,
+ * the calendar mirror read by guest-app-stays-db.ts; unknown reads as no).
+ * Offering a night that is booked would be the tease Dotti cut.
+ */
+export function extendForStay(app: GuestApp, leaveDay: string, nightOpen: boolean): GuestApp {
+  return {
+    ...app,
+    sections: app.sections.map((s) => {
+      if (s.id !== 'checkout') return s;
+      const items = s.items.filter((i) => i.text !== EXTEND_ITEM.text);
+      if (!nightOpen) return { ...s, items };
+      const href = extendHref(`${app.title} (${app.name})`, {
+        leaveDay: formatLongDate(leaveDay),
+        throughDay: formatLongDate(addDays(leaveDay, 1)),
+      });
+      return { ...s, items: [...items, { text: EXTEND_ITEM.text, link: { href, label: EXTEND_ITEM.link.label } }] };
+    }),
   };
 }
 

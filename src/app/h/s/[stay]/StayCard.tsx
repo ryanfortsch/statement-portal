@@ -127,7 +127,6 @@ export function StayCard({ token, stay, textUs }: { token: string; stay: StayLay
           </div>
         ))}
       </div>
-      <p className="ga-stay-until">{stay.until}</p>
     </section>
   );
 }

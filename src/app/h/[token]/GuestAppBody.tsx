@@ -10,8 +10,7 @@ import type { NearbyPlace } from '@/lib/guest-app-nearby';
  *
  * Two views, one document:
  *  - HOME: the hero and welcome (server-rendered, passed in), the stay card
- *    on a stay link, the Wi-Fi card, today's one or two notes, a search
- *    field, and a grid of tiles, one per section, each with the answer most
+ *    on a stay link, the Wi-Fi card, a search field, and a grid of tiles, one per section, each with the answer most
  *    guests open it for ("Checkout · 11:00 AM").
  *  - PAGES: each section is its own screen at #<id>, with a back link.
  *
@@ -103,7 +102,6 @@ export function GuestAppBody({ app, wifiQr, mark, hero, intro, join }: Props) {
   const tiles = TILE_ORDER.map((id) => byId.get(id)).filter((s): s is GuestSection => Boolean(s));
   const safety = byId.get('safety') ?? null;
   const wifiPage = byId.get('wifi') ?? null;
-  const chips = app.today.filter((t) => t.chip);
   const firstWifi = app.wifi[0] ?? null;
 
   return (
@@ -146,22 +144,6 @@ export function GuestAppBody({ app, wifiQr, mark, hero, intro, join }: Props) {
               <div className="ga-wificard-sub">The network and password are on the card by the entry.</div>
             )}
           </section>
-
-          {chips.length > 0 ? (
-            <div className="ga-today" aria-label="Today">
-              {chips.map((t) =>
-                t.kind === 'trash' ? (
-                  <a key={t.kind} className="ga-today-chip is-alert" href="#trash">
-                    {t.chip} &rarr;
-                  </a>
-                ) : (
-                  <span key={t.kind} className="ga-today-chip">
-                    {t.chip}
-                  </span>
-                ),
-              )}
-            </div>
-          ) : null}
 
           <label className="ga-search">
             <span className="ga-sr">Search this guide</span>

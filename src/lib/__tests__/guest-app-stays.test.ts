@@ -17,6 +17,7 @@ import { readFileSync } from 'node:fs';
 import {
   appForStay,
   buildStayLayer,
+  extendForStay,
   codeIsLive,
   codeState,
   easternMoment,
@@ -37,6 +38,7 @@ import {
   type StayWindow,
 } from '../guest-app-stays.ts';
 import { buildGuestApp, type GuestAppHome } from '../guest-app.ts';
+import { QUO_LINES } from '../quo-lines.ts';
 import { buildMergeContext, renderTemplate, SECRET_FIELDS, MASK, MERGE_FIELDS } from '../automations-core.ts';
 
 const read = (repoPath: string): string => readFileSync(new URL(`../../../${repoPath}`, import.meta.url), 'utf8');
@@ -209,7 +211,29 @@ describe('the stay layer never renders outside its window', () => {
     assert.match(door?.text ?? '', /Show my door code above, then enter it on the Schlage keypad\./);
     assert.ok(stay!.steps.some((s) => s.label === 'Parking'));
     assert.ok(stay!.steps.some((s) => s.label === 'Address'));
-    assert.match(stay!.until, /works until 10:00 AM on Sunday, November 15\./);
+    assert.ok(!('until' in stay!), 'no "This link works until" line (Dotti, 2026-11-13)');
+  });
+
+  test('one more night: offered with the dates when that night is for sale, gone when it is not', () => {
+    const checkout = (a: typeof app) => a.sections.find((s) => s.id === 'checkout')!;
+    const ask = 'Looking to extend your stay another night?';
+    const open = checkout(extendForStay(app, DATES.checkOut, true)).items.filter((i) => i.text === ask);
+    assert.equal(open.length, 1, 'replaces the printed ask, never adds a second');
+    const body = decodeURIComponent(open[0].link!.href);
+    assert.ok(body.startsWith(`sms:${QUO_LINES.guests.number}?&body=`));
+    assert.match(body, /Could we extend our stay another night, checking out Monday, November 16 instead of Sunday, November 15\?$/);
+    assert.equal(open[0].link!.label, 'Text us to extend');
+    const booked = checkout(extendForStay(app, DATES.checkOut, false));
+    assert.ok(!booked.items.some((i) => i.text === ask), 'a booked or unknown night is not offered');
+    assert.ok(checkout(app).items.some((i) => i.text === ask), 'the printed page keeps its plain ask');
+  });
+
+  test('the loader asks the calendar mirror, believes only a fresh available night, and never after checkout', () => {
+    const db = read('src/lib/guest-app-stays-db.ts');
+    assert.match(db, /from\('property_calendar_days'\)\s*\.select\('status, synced_at'\)/);
+    assert.match(db, /row\.status === 'available' && now\.getTime\(\) - new Date\(row\.synced_at\)\.getTime\(\) < CALENDAR_FRESH_MS/);
+    assert.match(db, /if \(phase === 'over'\) return \{ kind: 'over', app: extendForStay\(app, stay\.window\.leaveDay, false\), join \};/);
+    assert.match(db, /appForStay\(extended, layer\)/);
   });
 
   test('no Seam lock, or no live code: the code is promised in the check-in message', () => {

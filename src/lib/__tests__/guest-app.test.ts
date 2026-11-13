@@ -20,7 +20,6 @@ import {
   phoneDisplay,
   smsHref,
   splitLong,
-  sunsetAt,
   wifiJoinUri,
   type GuestAppHome,
   type GuestAppInput,
@@ -236,55 +235,49 @@ describe('what the guest reads', () => {
     assert.equal(line, '+19788652575');
     assert.equal(app.contact.phoneDisplay, '(978) 865-2575');
     assert.equal(phoneDisplay(line), '(978) 865-2575');
-    for (const href of [app.contact.text, app.contact.lateCheckout]) {
+    for (const href of [app.contact.text, app.contact.extend]) {
       assert.ok(href.startsWith(`sms:${line}?&body=`), href);
       assert.ok(decodeURIComponent(href).includes('Stay by the Harbor (12 Test)'), href);
     }
     assert.equal(smsHref(line, 'a b&c'), 'sms:+19788652575?&body=a%20b%26c');
   });
 
-  test('Gloucester trash: the night before, the morning of, and the back-in clause', () => {
-    // Trash day Tuesday. Monday evening Eastern is the night the carts go out.
-    const monday = buildGuestApp(input({ now: new Date('2026-11-09T23:00:00Z') }));
-    const night = monday.today.find((t) => t.kind === 'trash');
-    assert.equal(night?.title, 'Trash night');
-    assert.match(night?.text ?? '', /roll the carts to the curb/);
-    assert.match(night?.text ?? '', /Pickup is Tuesday morning\./);
-
-    const tuesday = buildGuestApp(input({ now: new Date('2026-11-10T13:00:00Z') }));
-    const pickup = tuesday.today.find((t) => t.kind === 'trash');
-    assert.equal(pickup?.title, 'Pickup day');
-    // Sec. 5-66(q): a cart left at the curb is $400 a day, so "back in" is never dropped.
-    assert.match(pickup?.text ?? '', /Bring the carts back in once they are emptied\./);
-
-    const ours = buildGuestApp(input({ now: new Date('2026-11-10T13:00:00Z') }, { carts_handled_by_us: true }));
-    assert.match(ours.today.find((t) => t.kind === 'trash')?.text ?? '', /We bring the carts back in\./);
-
-    const wednesday = buildGuestApp(input());
-    assert.equal(wednesday.today.find((t) => t.kind === 'trash')?.title, 'Trash day');
-
-    const trash = wednesday.sections.find((s) => s.id === 'trash');
+  test('Gloucester trash lives in its section, back-in clause included', () => {
+    const app = buildGuestApp(input());
+    const trash = app.sections.find((s) => s.id === 'trash');
     assert.ok(trash?.items.some((i) => i.label === 'The City rule'));
     assert.ok(trash?.items.some((i) => i.text === 'The carts live beside the garage.'));
+    // Sec. 5-66(q): a cart left at the curb is $400 a day, so "back in" is never dropped.
+    assert.match(JSON.stringify(trash), /back in/);
+    const checkout = app.sections.find((s) => s.id === 'checkout');
+    assert.match(JSON.stringify(checkout), /We bring them back in\./);
   });
 
   test('Rockport gets no cart night and no cart wording', () => {
     const app = buildGuestApp(input({}, { city: 'Rockport', trash_day: null }));
-    assert.equal(app.today.find((t) => t.kind === 'trash'), undefined);
     const text = JSON.stringify(app.sections);
     assert.ok(!/roll the carts/i.test(text));
     assert.ok(!/purple bag/i.test(JSON.stringify(app)));
   });
 
-  test('sunset is within a few minutes of the almanac', () => {
-    // Gloucester, June 21: about 8:24 PM EDT (00:24 UTC on the 22nd).
-    const june = sunsetAt('2026-06-21', 42.6159, -70.662);
-    assert.ok(june);
-    assert.ok(Math.abs(june!.getTime() - Date.parse('2026-06-22T00:24:00Z')) < 6 * 60_000, june!.toISOString());
-    // December 21: about 4:13 PM EST (21:13 UTC).
-    const dec = sunsetAt('2026-12-21', 42.6159, -70.662);
-    assert.ok(Math.abs(dec!.getTime() - Date.parse('2026-12-21T21:13:00Z')) < 6 * 60_000, dec!.toISOString());
-    assert.ok(buildGuestApp(input()).today.some((t) => t.kind === 'sun'));
+  test('the home screen carries no chips: trash is in its tile, no sunset (Dotti, 2026-11-13)', () => {
+    const app = buildGuestApp(input({ now: new Date('2026-11-10T13:00:00Z') }));
+    assert.ok(!('today' in app));
+    const body = readFileSync(new URL('../../app/h/[token]/GuestAppBody.tsx', import.meta.url), 'utf8');
+    assert.ok(!body.includes('ga-today'));
+    assert.ok(!/sunset/i.test(readFileSync(new URL('../guest-app.ts', import.meta.url), 'utf8')));
+  });
+
+  test('checkout ends on one more night, never a late-checkout tease', () => {
+    const app = buildGuestApp(input());
+    const checkout = app.sections.find((s) => s.id === 'checkout');
+    const last = checkout?.items.at(-1);
+    assert.equal(last?.text, 'Looking to extend your stay another night?');
+    assert.equal(last?.link?.label, 'Text us to extend');
+    assert.equal(last?.link?.href, app.contact.extend);
+    const body = decodeURIComponent(app.contact.extend);
+    assert.match(body, /Stay by the Harbor \(12 Test\)\. Could we extend our stay another night\?$/);
+    assert.ok(!/late checkout/i.test(JSON.stringify(app)), 'no late checkout line anywhere');
   });
 
   test('safety leads with 911 and the nearest emergency department', () => {
@@ -327,15 +320,6 @@ describe('on a phone: tiles, pages, fewer words', () => {
     assert.equal(plain.sections[0].title, 'Wi-Fi');
     const tv = buildGuestApp(input({}, { smart_tv: 'Roku in the living room' }));
     assert.equal(tv.sections[0].title, 'Wi-Fi & TV');
-  });
-
-  test('today on the home screen is a chip or nothing', () => {
-    // Wednesday: an ordinary trash day says nothing on the home screen; the tile carries it.
-    const wednesday = buildGuestApp(input());
-    assert.equal(wednesday.today.find((t) => t.kind === 'trash')?.chip, null);
-    assert.match(wednesday.today.find((t) => t.kind === 'sun')?.chip ?? '', /^Sunset \d{1,2}:\d{2} [AP]M$/);
-    const monday = buildGuestApp(input({ now: new Date('2026-11-09T23:00:00Z') }));
-    assert.equal(monday.today.find((t) => t.kind === 'trash')?.chip, 'Trash night');
   });
 
   test('a long paragraph shows its first sentence and keeps the rest', () => {
