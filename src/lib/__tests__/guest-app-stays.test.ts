@@ -239,10 +239,10 @@ describe('the stay layer never renders outside its window', () => {
   test('no Seam lock, or no live code: the code is promised in the check-in message', () => {
     const noLock = buildStayLayer(layerInput(NOW_OPEN, { lockMapped: false }));
     assert.equal(noLock?.code, null);
-    assert.match(noLock?.steps.find((s) => s.label === 'The door')?.text ?? '', /comes in your check-in message/);
+    assert.match(noLock?.steps.find((s) => s.label === 'The door')?.text ?? '', /^Your door code arrives between 3:30 and 4 PM on check-in day\.$/);
     const noCode = buildStayLayer(layerInput(NOW_OPEN, { code: codeState(null, NOW_OPEN, win()) }));
     assert.equal(noCode?.code?.available, false);
-    assert.match(noCode?.steps.find((s) => s.label === 'The door')?.text ?? '', /comes in your check-in message/);
+    assert.match(noCode?.steps.find((s) => s.label === 'The door')?.text ?? '', /^Your door code arrives between 3:30 and 4 PM on check-in day\.$/);
   });
 });
 

@@ -37,7 +37,7 @@
  * Pure (relative .ts imports, no server-only), so node:test pins it.
  */
 import { addDays, formatLongDate, nightsBetween, zonedTimeToMs } from './automations-core.ts';
-import { clockLabel, EXTEND_ITEM, extendHref, type GuestApp, type GuestItem } from './guest-app.ts';
+import { clockLabel, DOOR_CODE_WHEN, EXTEND_ITEM, extendHref, type GuestApp, type GuestItem } from './guest-app.ts';
 
 export const STAY_TIMEZONE = 'America/New_York';
 
@@ -258,7 +258,7 @@ export function buildStayLayer(input: StayLayerInput): StayLayer | null {
     const doors = code.doorCount > 1 ? ' The same code works on every keypad at the house.' : '';
     steps.push({ label: 'The door', text: `Tap Show my door code above, then enter it on ${keypad}.${doors}` });
   } else {
-    steps.push({ label: 'The door', text: 'Your door code comes in your check-in message. Text us if you cannot find it.' });
+    steps.push({ label: 'The door', text: DOOR_CODE_WHEN });
   }
   steps.push({ label: 'Checkout', text: `By ${leaveTime} on ${leaveDay}. Lock the door behind you.` });
 
