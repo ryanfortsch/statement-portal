@@ -22,6 +22,10 @@ import { acceptBookingRequest, declineBookingRequest } from '@/lib/booking-reque
 import { BOOKING_REQUEST_COLS, type BookingRequestRow } from '@/lib/booking-requests';
 import { displayTitle } from '@/lib/sca-quotes-types';
 import { sendHostCode } from '@/lib/partner-host-email';
+import { selectAllPaged } from '@/lib/paged-select';
+import { listedPartners } from '@/lib/partner-listed';
+import type { PartnerFeedChannel } from '@/lib/partner-calendar';
+import { hostCalendarSpans, hostCalendarWindow, hostFeedView, type HostCalendarSpan, type HostFeedView } from '@/lib/partner-host-calendar';
 import {
   HOST_CODE_MINUTES,
   HOST_CODE_TRIES,
@@ -229,4 +233,98 @@ export async function hostDecide(
   const r = decision === 'accept' ? await acceptBookingRequest(id, by, now) : await declineBookingRequest(id, by, reason, now);
   if (!r.ok) return { ok: false, reason: r.reason };
   return { ok: true, request: hostRequestView(r.row, home.title, now) };
+}
+
+// ── The host's calendar ─────────────────────────────────────────────────────
+
+export type HostCalendarHome = {
+  id: string;
+  title: string;
+  /** On staycapeann.com right now. */
+  listed: boolean;
+  /** The host's own calendars Helm reads, with when each was last read. Never the link itself. */
+  feeds: HostFeedView[];
+  spans: HostCalendarSpan[];
+  /** Stays booked here that have not checked out, soonest first. */
+  stays: HostRequestView[];
+};
+
+/**
+ * Each of the host's homes: its nights for this month and the next eleven
+ * (booked here, waiting on them, held on their own calendars) and the stays
+ * still to come. Throws on a failed read: a calendar that cannot see a stay
+ * must not show the night open.
+ */
+export async function hostCalendar(session: HostSession, now: Date = new Date()): Promise<{ today: string; from: string; to: string; homes: HostCalendarHome[] }> {
+  const window = hostCalendarWindow(now);
+  const ids = session.homes.map((h) => h.id);
+  if (ids.length === 0) return { ...window, homes: [] };
+
+  const [requests, feeds, holds, listed] = await Promise.all([
+    selectAllPaged<BookingRequestRow>(
+      (from, to) =>
+        supabaseAdmin
+          .from('booking_requests')
+          .select(BOOKING_REQUEST_COLS)
+          .in('property_id', ids)
+          .in('status', ['accepted', 'pending'])
+          .gt('check_out', window.from)
+          .lt('check_in', window.to)
+          .order('check_in', { ascending: true })
+          .order('id', { ascending: true })
+          .range(from, to),
+      { label: 'host calendar requests' },
+    ),
+    selectAllPaged<{ id: string; property_id: string; channel: PartnerFeedChannel; last_synced_at: string | null }>(
+      (from, to) =>
+        supabaseAdmin
+          .from('partner_calendar_feeds')
+          .select('id, property_id, channel, last_synced_at')
+          .in('property_id', ids)
+          .order('created_at', { ascending: true })
+          .order('id', { ascending: true })
+          .range(from, to),
+      { label: 'host calendar feeds' },
+    ),
+    selectAllPaged<{ feed_id: string; property_id: string; kind: 'stay' | 'block'; check_in: string; check_out: string }>(
+      (from, to) =>
+        supabaseAdmin
+          .from('partner_calendar_holds')
+          .select('feed_id, property_id, kind, check_in, check_out, id')
+          .in('property_id', ids)
+          .gt('check_out', window.from)
+          .lt('check_in', window.to)
+          .order('check_in', { ascending: true })
+          .order('id', { ascending: true })
+          .range(from, to),
+      { label: 'host calendar holds' },
+    ),
+    listedPartners(),
+  ]);
+
+  const channelOf = new Map(feeds.map((f) => [f.id, f.channel]));
+  return {
+    ...window,
+    homes: session.homes.map((home) => {
+      const mine = requests.filter((r) => r.property_id === home.id);
+      return {
+        id: home.id,
+        title: home.title,
+        listed: listed.has(home.id),
+        feeds: feeds.filter((f) => f.property_id === home.id).map((f) => hostFeedView(f, now)),
+        spans: hostCalendarSpans(
+          {
+            requests: mine,
+            holds: holds
+              .filter((h) => h.property_id === home.id)
+              .map((h) => ({ kind: h.kind, check_in: h.check_in, check_out: h.check_out, channel: channelOf.get(h.feed_id) ?? 'other' })),
+            from: window.from,
+            to: window.to,
+          },
+          now,
+        ),
+        stays: mine.filter((r) => r.status === 'accepted' && r.check_out > window.today).map((r) => hostRequestView(r, home.title, now)),
+      };
+    }),
+  };
 }

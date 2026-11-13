@@ -317,6 +317,7 @@ describe('the guards across files', () => {
     'src/lib/partner-host.ts',
     'src/lib/partner-host-db.ts',
     'src/lib/partner-host-email.ts',
+    'src/lib/partner-host-calendar.ts',
     ...sources('src/app/api/pms/host'),
     ...sources('src/app/guests/requests'),
   ];
