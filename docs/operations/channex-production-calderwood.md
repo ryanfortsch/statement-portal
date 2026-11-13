@@ -1622,3 +1622,81 @@ No production archive or release is invoked as part of this deployment. Remainin
 launch gates are bounded runtime activation, new-booking confirmation ownership,
 cleaner SMS and source queue proof, then controlled channel/inventory/PriceLabs
 handover and live pilot validation. Guesty remains the sender until that handover.
+
+## Bounded retained-stay message runner (12 November 2026)
+
+`/api/cron/channex-messages` is scheduled every minute. It requires the exact
+`CRON_SECRET` bearer credential; a signed-in owner, query parameter, browser probe
+or `HEAD` request cannot execute it. The endpoint returns fixed states and counts,
+never booking IDs, messages, access details, provider errors or credentials.
+Unresolved or unavailable work returns HTTP 503. The existing
+`/api/cron/channex-production` configuration check remains inspection-only.
+
+This deployment leaves `HELM_CHANNEX_MESSAGES_MODE` unset/off. Disabled ticks
+return before any database/provider access. Enabling this runner is a separate
+reviewed cutover, not part of deploying it. No new database migration, source
+handover evidence, template release, enrollment or production jobs are created.
+
+The runner's server configuration requires all of:
+
+- `VERCEL_ENV=production`, the STATEMENTS database URL and its service role key,
+  the production Channex key, and `CRON_SECRET`; isolated-staging flags must be off.
+- `HELM_CHANNEX_MESSAGES_MODE=retained-pilot-v1`.
+- `HELM_CHANNEX_MESSAGES_MANIFEST`: strict JSON, at most 4096 bytes, shaped as
+  `{ "format": 1, "stays": [{ "bookingId": "...", "bindingId": "...",
+  "templateCaptureId": "...", "templateDigest": "..." }] }`. One to four unique
+  canonical stays, exact saved binding/archive IDs and the archive digest. No
+  request-supplied enrollment or automatic discovery of new stays.
+
+Do not configure those last two values until source queue clearance, the actual
+template release, message scope and route/timing reviews have been established.
+Configuration alone cannot manufacture any of those records or bypass the SQL
+guards. Full channel/inventory/PriceLabs handover and live pilot validation remain
+required. Native new bookings are not covered by this retained-stay manifest;
+their original-confirmation/timing ownership still needs provider verification.
+Cleaner SMS has no sender in this runner and remains a separate launch gate.
+
+Each enrolled stay reads its four deterministic guest-job IDs and complete
+retained scheduling inputs. It dispatches at most one due guest job, or registers
+up to four future guest jobs. Existing due work takes priority; already-sent,
+uncertain, held or expired jobs are not recreated. The 30-minute late window is
+measured from the original fire time. An expired earlier job is flagged for review
+but cannot starve a later due workflow. Cleaner rules are excluded from work
+selection. Once future jobs exist, idle ticks make no provider calls.
+Known missing render inputs or unreleased rules also return review status without
+repeating provider scans. Work selection grants no send permission; the scheduler
+and dispatcher still perform their full fresh checks before a write.
+
+Independently, at most one accepted receipt per stay is verified through provider
+GETs. Selection rotates across accepted receipts so a missing row cannot hide the
+others forever. Receipt checks still run if a booking is cancelled, a binding is
+stale, or a future template cannot render. They verify the stored immutable
+target/body hash and never retry a provider POST. `recorded` means exact Channex
+history readback, not proof the guest read or received the message.
+
+Four stays execute concurrently, each with one execution action and one receipt
+check. Registration permits up to 40 provider GETs, dispatch up to 17 GETs and
+one POST, and receipt verification up to six GETs. Existing phase deadlines apply;
+the route has a 180-second platform limit and RPCs have eight-second cancellation
+signals. Claim/registration uncertainty never authorizes another POST. Durable
+outcome recording retains its own bounded opportunity after a provider timeout.
+Overlapping cron invocations still require the same one-use SQL claim.
+
+Execution reads the shared `guesty_auth` cache once per tick and requires a token
+with at least two minutes remaining. It performs no OAuth refresh/retries inside
+a due-message run. The existing Guesty sync must keep that cache current; a stale
+token produces an unavailable result and must be resolved before activation.
+Receipt-only recovery needs only the Channex key.
+
+To halt new execution, set `HELM_CHANNEX_MESSAGES_MODE=off` and deploy that server
+configuration. Confirm the disabled response and inspect any already claimed
+attempt; a settings change cannot revoke a POST already accepted by the provider.
+Never delete/reset an uncertain job to retry it. Monitor non-200 cron runs and the
+owner's message preparation/history view during the controlled pilot.
+
+Synthetic coverage includes off/configuration/auth gates, no-effect `HEAD`, strict
+four-stay enrollment, idle/no-provider ticks, due priority, late-window handling,
+lost claim/provider responses, holds and drift, and receipt recovery after
+cancellation. The real PostgreSQL integration runs two overlapping runner ticks
+against the actual one-use claim and verifies one fake POST plus receipt recovery.
+No live messages are sent by these tests.

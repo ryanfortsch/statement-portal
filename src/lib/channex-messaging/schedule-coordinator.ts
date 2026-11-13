@@ -9,7 +9,7 @@ import { parseScheduleLedger, planCalderwoodSchedule, type ScheduleState } from 
 import { scheduleContextSchema, type createChannexScheduleStore } from './schedule-store.ts';
 import { requireTimingEvidence, TimingEvidenceError } from './timing-evidence.ts';
 
-const guestKeys = ['booking_confirmed', 'pre_arrival', 'checkin_day', 'pre_checkout'] as const;
+export const guestKeys = ['booking_confirmed', 'pre_arrival', 'checkin_day', 'pre_checkout'] as const;
 type GuestKey = typeof guestKeys[number];
 const text = z.string().max(16000).nullable();
 const snapshotSchema = z.object({
@@ -34,7 +34,8 @@ export type ScheduleCycleResult = {
 const hash = (s: string) => createHash('sha256').update(s).digest('hex');
 // A namespaced UUIDv8 derived only from the canonical stay + workflow. Never
 // rotate it for a timeout, rule replacement, booking edit, or new route generation.
-function sendIdentity(bookingId: string, key: GuestKey) {
+export function retainedGuestSendId(bookingId: string, key: GuestKey) {
+  z.uuid().parse(bookingId); z.enum(guestKeys).parse(key);
   const h = hash(`helm:channex:guest-schedule:v1:65_calderwood:${bookingId}:${key}`);
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-8${h.slice(13, 16)}-${((parseInt(h[16], 16) & 3) | 8).toString(16)}${h.slice(17, 20)}-${h.slice(20, 32)}`;
 }
@@ -125,7 +126,7 @@ export async function registerCalderwoodStaySchedules(bookingId: string, deps: {
         outcomes.push({ key, state: 'render_review' }); continue;
       }
       now();
-      const sendId = sendIdentity(bookingId, key);
+      const sendId = retainedGuestSendId(bookingId, key);
       let saved;
       try {
         saved = await deps.store.register({ ...current.context, ...s.route, sendId, bookingId,

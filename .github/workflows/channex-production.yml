@@ -11,6 +11,7 @@ on:
       - 'src/lib/rental-periods.ts'
       - 'src/lib/channex-production*'
       - 'src/app/api/cron/channex-production/**'
+      - 'src/app/api/cron/channex-messages/**'
       - 'src/app/api/channex/reconciliation/**'
       - 'supabase/migrations/*channex*'
       - 'scripts/test-channex-database.mjs'

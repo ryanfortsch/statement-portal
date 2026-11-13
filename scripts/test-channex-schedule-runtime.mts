@@ -9,10 +9,9 @@ import { scheduleRetainedCalderwoodStay } from '../src/lib/channex-messaging/sch
 import { reviewCalderwoodTimingBinding } from '../src/lib/channex-messaging/timing-provider-review.ts';
 import { createChannexTimingBindingStore } from '../src/lib/channex-messaging/timing-binding-store.ts';
 import { dispatchRetainedCalderwoodMessage } from '../src/lib/channex-messaging/dispatch-runtime.ts';
+import { runRetainedCalderwoodPilot } from '../src/lib/channex-messaging/pilot-runtime.ts';
 import { runCalderwoodTemplateWorkflow, reviewCalderwoodTemplateRelease } from '../src/lib/channex-messaging/template-workflow.ts';
 import { createChannexJobStore } from '../src/lib/channex-messaging/store.ts';
-import { ChannexMessageWorker } from '../src/lib/channex-messaging/worker.ts';
-import { ChannexMessageTransport } from '../src/lib/channex-messaging/transport.ts';
 import { MESSAGE_RULE_FIELDS } from '../src/lib/channex-messaging/preparation-rules.ts';
 import { syntheticTimingProvider } from '../src/lib/__tests__/fixtures/channex-timing-provider.ts';
 if (process.env.PGHOST !== '127.0.0.1' || process.env.PGDATABASE !== 'helm_synthetic_channex') throw Error('Synthetic loopback database required');
@@ -136,7 +135,6 @@ const sendId = sql("select send_id from helm_channex_messages.jobs where automat
 const fireAt = Date.parse(sql(`select fire_at from helm_channex_messages.jobs where send_id='${sendId}';`));
 const waitMs = Math.max(0, fireAt-Date.now()+50); assert.ok(waitMs<35000);
 await new Promise(resolve => setTimeout(resolve,waitMs));
-const scope = JSON.parse(sql("select jsonb_build_object('environment',environment,'propertyId',remote_property,'channelId',channel_id,'provider',provider) from helm_channex_messages.scope;"));
 const jobStore = createChannexJobStore(rpc); let posts = 0; const messageId = randomUUID(); let sent = '';
 const dispatchFetcher: typeof fetch = async (url, init) => {
   const path = new URL(String(url)).pathname;
@@ -146,8 +144,6 @@ const dispatchFetcher: typeof fetch = async (url, init) => {
     relationships: { message_thread: { data: { type: 'message_thread', id: thread } } } };
   return Response.json(init?.method === 'POST' ? { data: row } : { data: [row], meta: { page: 1, limit: 100, total: 1 } });
 };
-const transport = new ChannexMessageTransport({ scope, apiKey: 'synthetic-channex', sendEnabled: true, fetcher: (url,init) => dispatchFetcher(url,init) });
-const worker = new ChannexMessageWorker({ store: jobStore, transport, enabled: true });
 // A replaced source-drain receipt cannot authorize a job created under the old one.
 const proof = sql('select source_evidence_id from helm_channex_messages.scope;');
 sql('update helm_channex_messages.scope set source_evidence_id=gen_random_uuid();');
@@ -160,9 +156,15 @@ const dispatchRequest = { ...request, sendId };
 const dispatch = () => dispatchRetainedCalderwoodMessage(dispatchRequest,{ rpc,credentials,fetcher: dispatchFetcher },{ enabled: true });
 provider.v2.plannedArrival = '22:00'; assert.equal((await dispatch()).state,'blocked'); assert.equal(posts,0);
 provider.v2.plannedArrival = null;
-assert.equal((await dispatch()).state,'accepted'); assert.equal(posts,1);
+const tick = () => runRetainedCalderwoodPilot({ format: 1, stays: [request] }, {
+  rpc, credentials, fetcher: dispatchFetcher, receiptKey: async () => 'synthetic-channex',
+}, { enabled: true });
+const concurrent = await Promise.all([tick(), tick()]);
+assert.equal(concurrent.filter(r => r.stays[0].state === 'accepted').length, 1); assert.equal(posts, 1);
 assert.equal((await dispatch()).state,'needs_reconciliation'); assert.equal(posts,1);
-assert.equal((await worker.reconcile(sendId)).state, 'recorded'); assert.equal(posts, 1);
 sql(`select helm_move_booking('${bid}',check_in,check_out,'cancelled','synthetic-runtime') from bookings where id='${bid}';`);
+// Cancellation blocks active inputs but must not strand an accepted receipt.
+const recovered = await tick(); assert.equal(recovered.stays[0].receiptState, 'recorded'); assert.equal(posts, 1);
+assert.equal((await tick()).stays[0].action, 'idle'); assert.equal(posts, 1);
 assert.equal((await run()).state, 'unavailable'); assert.equal(writes, 4);
-console.log('PASS: real template release + immutable templates + retained clocks + provider revalidation + atomic runtime scheduling + final provider/render validation + one fake dispatch POST/receipt; frozen/dormant/drift/cancellation blocks, lost response and repeat safety');
+console.log('PASS: real template release + retained clocks + atomic scheduling + overlapping pilot ticks + one fake POST + receipt recovery after cancellation; frozen/dormant/drift blocks and lost-response safety');
