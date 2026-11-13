@@ -338,6 +338,19 @@ Helm calendar from `booking_requests` itself (`holdsInWindow` in `pms-bridge.ts`
 is the host's: nothing here touches `owner_payout`, the books or the forecast.
 `partner-payments.test.ts` holds it.
 
+**A partner home's host answers their own requests on staycapeann.com** (`src/lib/partner-host.ts`,
+since 2026-11-13). The host is an email on the home's row; they sign in at `staycapeann.com/host`
+with a six-digit code Helm emails (ten minutes, five tries, five codes an hour; Helm keeps hashes
+only), and the site keeps the session token in an httpOnly cookie and sends it as the
+`x-host-session` header on the bridge (`/api/pms/host/code`, `/session`, `/requests`), never in a
+URL. A host sees their homes' requests with the guest's first name and initial until the stay is
+booked, and the contact only then. Their Accept and Decline call `acceptBookingRequest` and
+`declineBookingRequest`, recorded as `host:<email>`, after a check that the request is on one of
+their homes, so every check Accept runs for the office runs for them; a host accepts only over a
+card on hold (`HOST_NO_HOLD`), so before Stripe is live the office settles each one. When a request lands, Helm
+emails the host from hello@ (`booking_requests.host_emailed_at`; the hourly sweep retries).
+`partner-host.test.ts` holds it.
+
 **A partner home reaches staycapeann.com only when an owner lists it** (`src/lib/partner-listing.ts`,
 since 2026-11-13). An owner adds the home on `/guests/requests` (address, town, host): Helm writes a
 `properties` row with `kind` `partner`, `is_active` false, `calendar_authority` `helm`, no fee and
