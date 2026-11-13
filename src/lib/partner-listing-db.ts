@@ -239,6 +239,23 @@ export async function recordPartnerCheck(
 }
 
 /**
+ * Where the home sits on staycapeann.com (parseSiteRank): one number on the
+ * scale the site's registry gives our homes, lower first. Null clears it.
+ * It changes the order only; it is not a line of the bar.
+ */
+export async function setPartnerSiteRank(propertyId: string, rank: number | null, by: string): Promise<{ ok: true } | { ok: false; reason: string }> {
+  if (!isServiceConfigured) return { ok: false, reason: 'Helm is not connected to its database.' };
+  const notPartner = await requirePartnerHome(propertyId);
+  if (notPartner) return { ok: false, reason: notPartner };
+  const seedErr = await seedRow(propertyId);
+  if (seedErr) return { ok: false, reason: seedErr };
+  const { error } = await supabaseAdmin.from(LISTINGS).update({ site_rank: rank }).eq('property_id', propertyId);
+  if (error) return { ok: false, reason: error.message };
+  console.info('[partner-listing] site rank', propertyId, rank, 'by', by);
+  return { ok: true };
+}
+
+/**
  * Put the home on staycapeann.com. The bar is read again here, never taken
  * from the button: a line that went bad since the page loaded stops it.
  */

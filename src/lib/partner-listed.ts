@@ -3,26 +3,37 @@
  * rows listed and not taken off (src/lib/partner-listing.ts isListed).
  *
  * The PMS bridge reads this twice: GET /api/pms/properties?include=partner
- * names only these homes, and a booking request for any other partner home
- * is refused. Its own module so the bridge can read it without importing
- * the setup screen's loaders. Fails closed: a read that fails lists nobody.
+ * names only these homes (listedPartners), and a booking request for any
+ * other partner home is refused (isListedPartner). Its own module so the
+ * bridge can read it without importing the setup screen's loaders. Fails
+ * closed: a read that fails lists nobody.
  */
 
 import { supabaseAdmin, isServiceConfigured } from './supabase-admin.ts';
 
-export async function listedPartnerIds(): Promise<Set<string>> {
-  if (!isServiceConfigured) return new Set();
+/**
+ * The listed partner homes, each with its place on the site (site_rank,
+ * null when no owner has set one). The bridge's fleet read hands the place
+ * to staycapeann.com, which orders every home on one scale.
+ */
+export async function listedPartners(): Promise<Map<string, { site_rank: number | null }>> {
+  if (!isServiceConfigured) return new Map();
   const { data, error } = await supabaseAdmin
     .from('partner_listings')
-    .select('property_id')
+    .select('property_id, site_rank')
     .not('listed_at', 'is', null)
     .is('unlisted_at', null)
     .limit(1000);
   if (error) {
     console.error('[partner-listed] read failed', error.message);
-    return new Set();
+    return new Map();
   }
-  return new Set(((data ?? []) as Array<{ property_id: string }>).map((r) => r.property_id));
+  return new Map(
+    ((data ?? []) as Array<{ property_id: string; site_rank: number | null }>).map((r) => [
+      r.property_id,
+      { site_rank: typeof r.site_rank === 'number' ? r.site_rank : null },
+    ]),
+  );
 }
 
 export async function isListedPartner(propertyId: string): Promise<boolean> {

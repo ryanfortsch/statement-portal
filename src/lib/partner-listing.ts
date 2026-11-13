@@ -47,10 +47,27 @@ export type PartnerListingRow = {
   unlisted_at: string | null;
   unlisted_by: string | null;
   unlisted_reason: string | null;
+  /** Its place on staycapeann.com (parseSiteRank); null until an owner sets one. */
+  site_rank: number | null;
 };
 
 export const PARTNER_LISTING_COLS =
-  'property_id, walked_on, walked_by, insurance_checked_on, insurance_expires_on, insurance_checked_by, agreement_signed_on, agreement_recorded_by, photos_ok_on, photos_ok_by, listed_at, listed_by, unlisted_at, unlisted_by, unlisted_reason';
+  'property_id, walked_on, walked_by, insurance_checked_on, insurance_expires_on, insurance_checked_by, agreement_signed_on, agreement_recorded_by, photos_ok_on, photos_ok_by, listed_at, listed_by, unlisted_at, unlisted_by, unlisted_reason, site_rank';
+
+/**
+ * A partner home's place on staycapeann.com. The site orders every home by
+ * one number, lower first: ours carry theirs in the site's registry, a
+ * partner home carries this one. Empty clears it, and the home then shows
+ * after every home that has a place. The database holds the same range.
+ */
+export const SITE_RANK_MAX = 999;
+
+export function parseSiteRank(raw: unknown): { ok: true; rank: number | null } | { ok: false; error: string } {
+  const s = typeof raw === 'string' ? raw.trim() : typeof raw === 'number' ? String(raw) : '';
+  if (s === '') return { ok: true, rank: null };
+  if (!/^\d{1,3}$/.test(s) || Number(s) < 1) return { ok: false, error: `Give a whole number from 1 to ${SITE_RANK_MAX}.` };
+  return { ok: true, rank: Number(s) };
+}
 
 export type ListingState = 'not_listed' | 'listed' | 'taken_off';
 

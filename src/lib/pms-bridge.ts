@@ -58,7 +58,7 @@ import { toE164Phone } from './guests-identity-core.ts';
 import { isHelmCode, type BookingConflict } from './bookings-write-core.ts';
 import { isPartnerHome, PARTNER_KIND } from './property-scope.ts';
 import { partnerHoldsInWindow } from './partner-calendar-db.ts';
-import { listedPartnerIds } from './partner-listed.ts';
+import { listedPartners } from './partner-listed.ts';
 import type { BookingFinance } from './channels-types.ts';
 import type { BookingEx } from './channels.ts';
 import type { ReservationPick } from './stay-concierge.ts';
@@ -1204,6 +1204,12 @@ export type BridgePropertyDescription = {
   kind: string;
   /** A partner home takes no booking here yet; the site offers an inquiry. */
   bookable: boolean;
+  /**
+   * A listed partner home's place on staycapeann.com (partner_listings.site_rank),
+   * on the scale the site's registry gives our homes; null for every home we
+   * run, which the registry ranks, and for a partner home with no place yet.
+   */
+  site_rank: number | null;
   rate_plan: RatePlanRow | null;
   tax: BridgeTax;
   listing: ScaListing | null;
@@ -1243,7 +1249,7 @@ async function channelLinksByProperty(propertyIds: readonly string[]): Promise<M
  */
 export async function describePropertyForBridge(
   property: BridgeProperty,
-  opts: { channels?: BridgeChannelLink[]; now?: Date } = {},
+  opts: { channels?: BridgeChannelLink[]; now?: Date; siteRank?: number | null } = {},
 ): Promise<BridgePropertyDescription> {
   const today = todayInEastern(opts.now ?? new Date());
   const [bundle, record] = await Promise.all([loadPricingBundle(property.id, today, today), getListingRecord(property.id)]);
@@ -1269,6 +1275,7 @@ export async function describePropertyForBridge(
     calendar_authority: property.calendar_authority,
     kind: property.kind,
     bookable: !isPartnerHome(property),
+    site_rank: isPartnerHome(property) ? (opts.siteRank ?? null) : null,
     rate_plan: bundle.plan,
     tax,
     listing: record ? toScaListing(record, bundle.plan) : null,
@@ -1287,8 +1294,9 @@ export async function describeFleetForBridge(
 ): Promise<BridgePropertyDescription[]> {
   // Partner homes reach the site only once an owner lists them (lib/partner-listing).
   let props = await listBridgeProperties(authority, { includePartners: opts.includePartners });
+  let listed = new Map<string, { site_rank: number | null }>();
   if (opts.includePartners && props.some(isPartnerHome)) {
-    const listed = await listedPartnerIds();
+    listed = await listedPartners();
     props = props.filter((p) => !isPartnerHome(p) || listed.has(p.id));
   }
   if (props.length === 0) return [];
@@ -1296,6 +1304,8 @@ export async function describeFleetForBridge(
   const out: BridgePropertyDescription[] = [];
   // Sequential on purpose: each home is four reads and the fleet is small;
   // a fan-out across twenty homes would hammer PostgREST for no gain.
-  for (const p of props) out.push(await describePropertyForBridge(p, { channels: links.get(p.id) ?? [], now: opts.now }));
+  for (const p of props) {
+    out.push(await describePropertyForBridge(p, { channels: links.get(p.id) ?? [], now: opts.now, siteRank: listed.get(p.id)?.site_rank ?? null }));
+  }
   return out;
 }

@@ -168,7 +168,9 @@ listing switch and the four checks a person makes. `walked_on` / `walked_by`,
 `agreement_signed_on` / `agreement_recorded_by`, `photos_ok_on` /
 `photos_ok_by`; then `listed_at` / `listed_by` and `unlisted_at` /
 `unlisted_by` / `unlisted_reason`. A home is on staycapeann.com while
-`listed_at` is set and `unlisted_at` is null. A trigger refuses a row for any
+`listed_at` is set and `unlisted_at` is null. `site_rank` (1 to 999, null
+until an owner sets it) is its place in the site's order, on the scale the
+site's registry gives our homes. A trigger refuses a row for any
 home that is not `kind = 'partner'`. RLS on, service role only. See
 `src/lib/partner-listing.ts`.
 
