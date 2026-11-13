@@ -33,6 +33,7 @@ const jobSchema = z.object({ sendId: id, bookingId: id, automationId: id, releas
     ctx.addIssue({ code: 'custom', message: 'Invalid cleaner delivery job' });
 });
 export type CleanerSmsJob = Readonly<z.infer<typeof jobSchema>>;
+export const parseCleanerSmsJob = (value: unknown): CleanerSmsJob => Object.freeze(jobSchema.parse(value));
 export type CleanerSmsOutcome = { state: 'unknown' | 'aborted' } | { state: 'rejected'; rejectionStatus: number }
   | { state: 'accepted'; providerMessageId: string; providerStatus: CleanerSmsStatus }
   | { state: 'delivered' | 'undelivered' | 'accepted'; providerMessageId: string; providerStatus: CleanerSmsStatus; providerUpdatedAt: string };
@@ -52,7 +53,7 @@ export type CleanerWorkerResult = { state: 'disabled' | 'blocked' | 'needs_recon
   | { state: 'ledger_uncertain'; attemptId: string; outcome?: CleanerSmsOutcome };
 
 const fields = ['property_name', 'check_in_long', 'check_out_long', 'cleaner_schedule_url'];
-const recipients = z.array(cleanerReminderRecipientSchema.extend({ id })).max(200);
+const recipients = z.array(cleanerReminderRecipientSchema).max(200);
 /** Wire render stays server-only. Frozen retained wording is required; the durable
  * release/store supplies permission separately. No property deadline substitutes
  * for Guesty's arrival clock and no confirmation timestamp is needed for SMS. */
@@ -63,7 +64,6 @@ export function renderRetainedCleanerSms(review: CleanerSmsReview, transport: Cl
     || typeof review.propertyName !== 'string' || !review.propertyName.trim() || review.propertyName.length > 200
     || templateFields(rule.body).some(f => !fields.includes(f))) throw Error('Cleaner render needs review');
   const rs = recipients.parse(review.recipients);
-  if (new Set(rs.map(r => r.id)).size !== rs.length) throw Error('Cleaner recipient needs review');
   const link = resolveCleanerReminderLink('65_calderwood', rs);
   const selected = rs.filter(r => r.enabled && r.property_ids.length === 1 && r.property_ids[0] === '65_calderwood');
   if (!link || selected.length !== 1) throw Error('Cleaner recipient needs review');
@@ -78,7 +78,7 @@ export function renderRetainedCleanerSms(review: CleanerSmsReview, transport: Cl
   if (body.missing.length || !attempt) throw Error('Cleaner body needs review');
   return { text: body.text, phone: link.phone, fireAt: timing.at, contextRevision: review.contextRevision,
     automationId: rule.id, key: rule.key, ...attempt,
-    recipientHmac: transport.fingerprint('recipient', JSON.stringify([selected[0].id, selected[0].region,
+    recipientHmac: transport.fingerprint('recipient', JSON.stringify([selected[0].region,
       selected[0].property_ids, link.phone, link.token, link.language])) };
 }
 const sameAttempt = (job: CleanerSmsAttempt, attempt: CleanerSmsAttempt) =>

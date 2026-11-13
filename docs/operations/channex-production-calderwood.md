@@ -1701,13 +1701,15 @@ cancellation. The real PostgreSQL integration runs two overlapping runner ticks
 against the actual one-use claim and verifies one fake POST plus receipt recovery.
 No live messages are sent by these tests.
 
-## Cleaner SMS delivery protocol (12 November 2026)
+## Cleaner SMS delivery and saved schedules (13 November 2026)
 
 `cleaner-sms-transport.ts` and `cleaner-sms-worker.ts` implement the isolated
-Calderwood cleaner delivery boundary. Both default off. They have no environment
-loader, production caller, schedule registration, durable store or cron activation.
-Deploying this code cannot send SMS. This is a delivery layer, not a completed
-cleaner automation handover. No database migration is included.
+Calderwood cleaner delivery boundary. Both default off. The service-only
+`cleaner-sms-store.ts` adapter and `20261113090000_channex_cleaner_schedule.sql`
+add atomic saved schedules, claims, holds and receipts. They have no environment
+loader, production caller or cron activation. App deployment cannot send SMS.
+The migration needs separate production approval and verification; neither its
+presence in source nor a green preview proves it is installed or activated.
 
 The transport uses Quo's documented
 [send endpoint](https://www.quo.com/docs/mdx/api-reference/messages/send-a-text-message)
@@ -1723,7 +1725,7 @@ cannot bind an older message with the same body.
 
 The worker renders the two original frozen cleaner rules against the source
 arrival/departure clocks and one enabled English Calderwood-only recipient.
-Recipient ID, phone, token, scope and language are bound to the reviewed job using
+Recipient phone, token, region, scope and language are bound to the reviewed job using
 a versioned HMAC; the rendered body has its own SHA-256. Plain phone numbers,
 portal tokens and message bodies are not returned in outcomes. The private HMAC
 key must remain available for historical receipts and must not be generated per
@@ -1740,23 +1742,50 @@ regressions are refused. Arrival wording remains tied to the 4 PM source check-i
 not the 3 PM cleaner-ready deadline. Missing original booking confirmation does
 not block these independent cleaner clocks; a DST disagreement still does.
 
-The injected `CleanerSmsStore` is a contract, not an installed database adapter.
-Its tests use a synthetic atomic store and fake Quo responses. They verify worker
-behavior under duplicate invocations, lost responses, stale renders, recipient
-revocation, malformed receipts and failed persistence. They do not establish
-PostgreSQL concurrency guarantees, provider queue clearance or real delivery.
+The database adapter uses the existing phone-keyed recipient table, including
+its supported 16- and 32-character portal tokens. It does not invent recipient
+UUIDs, create portal access or turn on daily digests. A private immutable release
+binds a reviewed recipient revision, HMAC target/key, original template archive
+and cleaner-specific source stop/drain evidence. The guest workflow's evidence
+alone is insufficient. There is no enrollment writer in this batch; do not use
+the synthetic fixture as a production handover script.
 
-Before connecting the production caller, implement and test one atomic database
-registration/claim path that joins the immutable original-template release,
-reservation family/history, current recipient revision, source cleaner-queue
-clearance, due time, holds and sender authority. Integrate the existing frozen
-template and legacy-worker guards instead of creating a parallel unguarded
-`automation_sends` writer. Outcome updates must be idempotent and monotonic under
-concurrent receipt checks; no terminal or uncertain job may be reset. The caller
-must use bounded explicit pilot enrollment and keep receipt reconciliation
-available independently of execution.
+Registration reserves the canonical ledger and private cleaner job together.
+It rejects missing source evidence, stale booking/timing/template/recipient
+context, previous workflow/ambiguous/descendant history, past schedules and
+unreviewed DST semantics. Identical lost-response recovery returns the saved job
+without changing it. Claim locks serialize booking/history, holds, source scope,
+property/rule and recipient writes, including a competing-recipient insertion.
+It checks the complete immutable job and due window, then issues one permit.
+No response replay can issue another permit. Generic scheduler writes remain
+fenced, while canonical cancellation/property disable can cancel the scheduled
+row. The two original cleaner templates remain frozen and disabled throughout.
 
-Remaining launch gates are that durable cleaner integration and Guesty's queue
+Only the five service RPCs expose metadata/read, registration, claim, finish and
+hold operations. Private tables have RLS and no direct client/service grants.
+Raw phone, token and body are not stored in the new job ledger. A canonical
+`automation_sends.status='sent'` means provider acceptance, not verified delivery;
+the private state/status records the distinction, including undelivered results.
+Receipt writes require the original attempt, retain the provider ID, reject
+older observations/status regressions and never return a job to prepared.
+
+`scripts/test-channex-cleaner-schedules.mts` runs after the existing database suite
+against the disposable loopback database. It verifies empty installation and
+permissions, the real recipient schema, SQL/TypeScript DST agreement, registration
+replay, generic-worker fences, holds, booking/source/recipient drift, a concurrent
+recipient insertion, overlapping real claims and receipt recovery after
+cancellation. Only a fake SMS provider is reachable. It waits for the actual
+synthetic reminder clock instead of rewriting claim predicates. During the
+10-day DST conflict window it explicitly reports the due-dispatch case unavailable
+and verifies refusal; it never forces a send across that business restriction.
+
+Before connecting the caller, finish the bounded explicit cleaner enrollment and
+fresh provider/input review. SQL checks retained database evidence, not current
+provider clocks or external queue emptiness. Keep receipt reconciliation available
+independently of dispatch. Future recipient/key changes need a reviewed release
+transition; do not edit the immutable receipt or reset old jobs.
+
+Remaining launch gates are that caller/enrollment integration and Guesty's queue
 answer; verified new-Airbnb-booking confirmation ownership/timing; and the
 reviewed channel/inventory/PriceLabs handover followed by a controlled live pilot.
 Guesty remains the live sender. This batch creates no schedules, releases or
