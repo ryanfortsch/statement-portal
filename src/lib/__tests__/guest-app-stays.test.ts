@@ -152,7 +152,14 @@ describe('the window: 10 AM Eastern the day before check-in to checkout', () => 
     const w = win();
     assert.equal(w.opensAt.toISOString(), '2026-11-12T15:00:00.000Z'); // Thu 10:00 AM EST
     assert.equal(w.closesAt.toISOString(), '2026-11-15T15:00:00.000Z'); // Sun 10:00 AM EST
-    assert.equal(opensLine(w), 'Your arrival steps and door code appear here at 10:00 AM on Thursday, November 12.');
+    assert.equal(opensLine(w, true), 'Your arrival steps and door code appear here at 10:00 AM on Thursday, November 12.');
+    // No code on the page: it comes by message, and the line says when (Dotti, 2026-11-13).
+    assert.equal(
+      opensLine(w, false),
+      'Your arrival steps appear here at 10:00 AM on Thursday, November 12. Your door code arrives between 3:30 and 4 PM on check-in day.',
+    );
+    const db = read('src/lib/guest-app-stays-db.ts');
+    assert.match(db, /opensLine\(stay\.window, mapped && !!live\)/, 'the before line asks the same question the open card does');
   });
 
   test('daylight time is Eastern too', () => {
