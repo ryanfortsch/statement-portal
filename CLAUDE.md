@@ -507,8 +507,18 @@ page writes to Helm except the open counter. Around Cape Ann is staycapeann.com'
 checkout>`; only verified businesses are in it). The property page's Guest app panel (Guest &
 listing) holds the link, Turn off (the card shows "This guide link has moved"), New link (retires
 every printed card) and the welcome note, and lists what the app has nothing for yet. A Helm
-session previewing the page is not counted as an open. `GUEST_APP_ORIGIN` can put a guest-facing
-domain in front later; printed cards keep working because `/h/` stays on Helm.
+session previewing the page is not counted as an open (the panel's Open goes to Helm's own host for
+that reason).
+
+**The links read staycapeann.com** (since 2026-11-13). Helm renders every byte; staycapeann.com's
+`next.config.js` forwards `/h/*` and `/helm-assets/*` here (`beforeFiles` rewrites to `HELM_URL`).
+`/helm-assets` is Helm's `assetPrefix`: both sites are Next 16 and both build into
+`/_next/static/immutable/`, so Helm's JS, CSS and fonts ride their own path or one site's chunks
+would shadow the other's. The proxy matcher and the guest app's service worker key on the prefix
+(`guest-app-asset-prefix.test.ts`). `guestAppOrigin()` is `GUEST_APP_ORIGIN`, then
+`SCA_PUBLIC_ORIGIN`, then `https://staycapeann.com`. The join route accepts a form from either
+host. Cards printed before the switch name helm.risingtidestr.com and keep working, because `/h/`
+stays on Helm.
 
 **The stay link** (`/h/s/<token>`, phase 2; `src/lib/guest-app-stays.ts` is pure,
 `guest-app-stays-db.ts` reads, `src/app/h/s/`). One short-lived link per reservation
@@ -1257,7 +1267,7 @@ counted 2026-10-22).
   offers nothing. The form link itself is `SCA_PUBLIC_ORIGIN/review/<token>`.
 - **Origins in links**, all defaulted: `SCA_PUBLIC_ORIGIN` (quote links), `NEXT_PUBLIC_APP_URL`,
   `NEXT_PUBLIC_HELM_URL`, `NEXT_PUBLIC_HELM_ORIGIN`, `NEXT_PUBLIC_SITE_URL`, `GUEST_APP_ORIGIN`
-  (the guest app link and its QR; unset = `NEXT_PUBLIC_APP_URL`, then the Helm host)
+  (the guest app link and its QR; unset = `SCA_PUBLIC_ORIGIN`, then `https://staycapeann.com`)
 - **Other**: `GITHUB_TOKEN`, `BLOB_READ_WRITE_TOKEN`, `GOOGLE_SERVICE_ACCOUNT_KEY`,
   `DRIVE_HELM_RECORDS_FOLDER_ID` (with the service account, turns on the Drive archive),
   `VERCEL_API_TOKEN` (Speed Insights on `/marketing`), `CLEANING_AUTO_CONFIRM_MINUTES` (default

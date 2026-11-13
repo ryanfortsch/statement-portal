@@ -57,9 +57,16 @@ export function newGuestAppToken(): string {
 
 export const GUEST_APP_TOKEN_RE = /^[a-f0-9]{16,64}$/;
 
-/** Where the link lives. Overridable so a guest-facing domain can front Helm later. */
+/**
+ * Where the link lives: staycapeann.com, which forwards /h/* (and Helm's
+ * /helm-assets/*) here, so a guest's link and the QR card name the site
+ * they booked, not Helm. Helm still renders every byte. GUEST_APP_ORIGIN
+ * overrides it; SCA_PUBLIC_ORIGIN is the same site's address elsewhere in
+ * Helm. Cards printed before 2026-11-13 name helm.risingtidestr.com and
+ * keep working, because /h/ stays on Helm.
+ */
 export function guestAppOrigin(): string {
-  return (process.env.GUEST_APP_ORIGIN || process.env.NEXT_PUBLIC_APP_URL || 'https://helm.risingtidestr.com').replace(/\/+$/, '');
+  return (process.env.GUEST_APP_ORIGIN || process.env.SCA_PUBLIC_ORIGIN || 'https://staycapeann.com').replace(/\/+$/, '');
 }
 
 export function guestAppUrl(token: string): string {
@@ -70,6 +77,11 @@ export function guestAppUrl(token: string): string {
 export type GuestAppView = {
   enabled: boolean;
   url: string;
+  /**
+   * The same page on Helm's own host, for the panel's Open: staff carry
+   * their Helm session there, so a preview is never counted as an open.
+   */
+  previewPath: string;
   welcomeNote: string;
   openCount: number;
   /** Eastern calendar days (YYYY-MM-DD), so the panel never shows a UTC day. */
@@ -87,6 +99,7 @@ export function guestAppView(row: GuestAppRow): GuestAppView {
   return {
     enabled: row.enabled,
     url: guestAppUrl(row.token),
+    previewPath: `/h/${row.token}`,
     welcomeNote: row.welcome_note ?? '',
     openCount: row.open_count ?? 0,
     lastOpenedDay: easternDay(row.last_opened_at),
