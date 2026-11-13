@@ -747,6 +747,70 @@ export async function loadPaymentLinkLite(requestKey: string): Promise<PaymentLi
   return (data as PaymentLinkLite | null) ?? null;
 }
 
+/** How far back the concierge looks for panel links; matches its own sweep. */
+export const PANEL_LINK_LOOKBACK_DAYS = 45;
+
+export type PanelLink = Pick<
+  PaymentLinkRow,
+  | 'request_key'
+  | 'property_id'
+  | 'label'
+  | 'guest_name'
+  | 'guest_phone'
+  | 'base_cents'
+  | 'amount_cents'
+  | 'url'
+  | 'reservation_id'
+  | 'conversation_id'
+  | 'sms_body'
+  | 'created_at'
+  | 'paid_at'
+>;
+
+/**
+ * Links an operator made on the Send lens's panel (source 'helm'), for the
+ * concierge's paid sweep (stay-concierge panel_links.py). A stay change
+ * charged here (a late checkout, an extra night) used to reach nobody: the
+ * concierge only knew the links it minted itself, so a paid extra night was
+ * never blocked on the calendar, Guesty's checkout notice still named the old
+ * day, and no corrected one was queued. The concierge reads these, keeps the
+ * stay changes, and runs them through the same paid sweep as its own. Only
+ * live links: a cancelled one is never charged. Null on any failure, never
+ * [], so the caller can tell "none" from "could not look".
+ */
+export async function listPanelLinks(nowMs = Date.now()): Promise<PanelLink[] | null> {
+  if (!isServiceConfigured) return null;
+  const cutoff = new Date(nowMs - PANEL_LINK_LOOKBACK_DAYS * 86_400_000).toISOString();
+  try {
+    const { data, error } = await supabase
+      .from('payment_link_requests')
+      .select(PAYMENT_LINK_COLUMNS)
+      .eq('source', 'helm')
+      .is('deactivated_at', null)
+      .gte('created_at', cutoff)
+      .order('created_at', { ascending: true })
+      .limit(500);
+    if (error) return null;
+    return ((data ?? []) as unknown as PaymentLinkRow[]).map((r) => ({
+      request_key: r.request_key,
+      property_id: r.property_id,
+      label: r.label,
+      guest_name: r.guest_name,
+      guest_phone: r.guest_phone,
+      base_cents: r.base_cents,
+      amount_cents: r.amount_cents,
+      url: r.url,
+      reservation_id: r.reservation_id || reservationIdFromRequestKey(r.request_key),
+      conversation_id: r.conversation_id,
+      sms_body: r.sms_body,
+      created_at: r.created_at,
+      paid_at: r.paid_at,
+    }));
+  } catch {
+    return null;
+  }
+}
+
 export type DueReminder = {
   request_key: string;
   /** Which reminder this is: 1 or 2. */

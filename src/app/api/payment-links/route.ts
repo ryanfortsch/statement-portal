@@ -6,6 +6,7 @@ import {
   deactivatePaymentLink,
   deactivatePaymentLinkById,
   listLinksForReservation,
+  listPanelLinks,
   listRemindersDue,
   loadPaymentLinkLite,
   mintPaymentLink,
@@ -146,6 +147,16 @@ export async function GET(req: Request) {
       deactivated: !!row.deactivated_at,
       nudge_count: row.nudge_count ?? 0,
     });
+  }
+
+  // Links made on the Send lens's panel: ?panel_links=1. The concierge keeps
+  // the stay changes (late checkout, extra night) and runs them through its
+  // paid sweep: nights blocked, Guesty's checkout notice held, the corrected
+  // one queued. ok:false means "could not look", never "none".
+  if (searchParams.get('panel_links')) {
+    const links = await listPanelLinks();
+    if (!links) return NextResponse.json({ ok: false, error: 'lookup_failed' }, { status: 200 });
+    return NextResponse.json({ ok: true, links });
   }
 
   // Unpaid links due a reminder card in the Guests queue: ?reminders_due=1.
