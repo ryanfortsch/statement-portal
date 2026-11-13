@@ -36,6 +36,7 @@ import {
   stayPhase,
   stayWindow,
   STAY_TOKEN_RE,
+  stayTokenFrom,
   type GuestStayView,
   type StayClusterRow,
   type StayDates,
@@ -44,11 +45,17 @@ import {
 } from '@/lib/guest-app-stays';
 
 export function newStayToken(): string {
-  return randomBytes(16).toString('hex');
+  return stayTokenFrom((n) => randomBytes(n));
 }
 
+/**
+ * The link a guest is sent: /s/<token>, short in a text. Both hosts
+ * redirect it to /h/s/<token>, where the page lives inside the guest app's
+ * service worker scope (next.config.ts here, next.config.js on
+ * staycapeann.com).
+ */
 export function guestStayUrl(token: string): string {
-  return `${guestAppOrigin()}/h/s/${token}`;
+  return `${guestAppOrigin()}/s/${token}`;
 }
 
 type StayRow = {

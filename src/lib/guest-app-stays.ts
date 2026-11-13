@@ -30,8 +30,9 @@
  *    stop nobody who holds the message (it greets the guest by name) while
  *    it would stop the friend who arrives first with a forwarded link, and
  *    fail on OTA placeholders ("Guest to be announced") and on spelling.
- *    What the link alone cannot be is guessed (128 bits) or derived: the
- *    stay token is independent of the printed home token.
+ *    What the link alone cannot be is guessed (16 characters from 62, about
+ *    95 bits) or derived: the stay token is independent of the printed home
+ *    token.
  *
  * Pure (relative .ts imports, no server-only), so node:test pins it.
  */
@@ -40,8 +41,31 @@ import { clockLabel, type GuestApp, type GuestItem } from './guest-app.ts';
 
 export const STAY_TIMEZONE = 'America/New_York';
 
-/** 128 random bits as 32 lowercase hex: twice the home token, because this one opens a door. */
-export const STAY_TOKEN_RE = /^[a-f0-9]{32}$/;
+/**
+ * A stay token: 16 characters from 62 (about 95 random bits), so the link
+ * in a guest's text stays short (staycapeann.com/s/<token>, since
+ * 2026-11-13) and still cannot be guessed. Links minted before then are 32
+ * lowercase hex (128 bits) and keep working.
+ */
+export const STAY_TOKEN_RE = /^(?:[A-Za-z0-9]{16}|[a-f0-9]{32})$/;
+
+export const STAY_TOKEN_LENGTH = 16;
+const BASE62 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+
+/**
+ * A new stay token from a source of random bytes (node:crypto's in
+ * guest-app-stays-db.ts). Each character takes one byte under 248 (4 x 62)
+ * and the rest are thrown away, so every character is equally likely.
+ */
+export function stayTokenFrom(random: (n: number) => Uint8Array): string {
+  let out = '';
+  while (out.length < STAY_TOKEN_LENGTH) {
+    for (const b of random(32)) {
+      if (b < 248 && out.length < STAY_TOKEN_LENGTH) out += BASE62[b % 62];
+    }
+  }
+  return out;
+}
 
 /** The stay opens this many days before check-in, at STAY_OPENS_AT Eastern. */
 export const STAY_OPENS_DAYS_BEFORE = 1;

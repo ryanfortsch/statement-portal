@@ -114,6 +114,16 @@ const nextConfig: NextConfig = {
         destination: '/c/:token',
         permanent: true,
       },
+      // A stay's guest app link is short in a text: /s/<token> (since
+      // 2026-11-13). The page lives at /h/s/<token>, inside the guest app's
+      // service worker scope. staycapeann.com, where the links point, makes
+      // the same redirect itself; this one serves Helm's own host. Never
+      // remove it: a texted link lives on a guest's phone.
+      {
+        source: '/s/:token',
+        destination: '/h/s/:token',
+        permanent: false,
+      },
       // ─── Canonical domain: statements. → helm. ──────────────────────
       // The deployment answers on multiple aliases (helm.risingtidestr.com,
       // statements.risingtidestr.com, plus vercel.app URLs), but AUTH_URL
