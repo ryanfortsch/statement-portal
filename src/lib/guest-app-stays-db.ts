@@ -9,6 +9,10 @@
  *   - the stay from `bookings` (the minted row, followed through
  *     duplicate_of to the canonical one), live, so a date change moves the
  *     window and a cancellation ends it;
+ *   - the calendar mirror's held nights just before check-in: a paid early
+ *     arrival is a hold, never a booking change, so the stay starts on the
+ *     hold's first night (early-arrival-holds.ts); a paid extension reaches
+ *     the window through checkout_adjustments, the same way;
  *   - the door code ONLY through getLiveStayCode (guest-locks.ts), and only
  *     in revealStayCode. loadGuestStay, which builds the page's HTML, turns
  *     the code into a StayCodeState (no digits) before it returns.
@@ -24,6 +28,8 @@ import { supabaseAdmin, isServiceConfigured } from '@/lib/supabase-admin';
 import { getGuestAppRow, guestAppOrigin, guestAppUrl, guestyCheckinTime, loadGuestApp } from '@/lib/guest-app-db';
 import { getLiveStayCode } from '@/lib/guest-locks';
 import { loadGuestTimes } from '@/lib/property-rates';
+import { earlyArrivalReachStart, stayArrival } from '@/lib/early-arrival-holds';
+import type { HeldNight } from '@/lib/owner-hold-checkouts';
 import { isCapeAnnOps } from '@/lib/property-scope';
 import {
   appForStay,
@@ -151,6 +157,24 @@ async function stayTimes(propertyId: string, checkIn: string): Promise<StayTimes
   };
 }
 
+/**
+ * The day the guest arrives. A paid early arrival is a Guesty hold on the
+ * nights before check-in and leaves the booking alone, so `bookings` keeps
+ * the old day. A failed read keeps the booked day: the page may then open a
+ * day late, never name a day the guest did not book.
+ */
+async function arrivalDay(propertyId: string, bookedCheckIn: string): Promise<string> {
+  const { data, error } = await supabaseAdmin
+    .from('property_calendar_days')
+    .select('property_id, date, block_type, block_reason, block_note, block_start, block_end')
+    .eq('property_id', propertyId)
+    .not('block_type', 'is', null)
+    .gte('date', earlyArrivalReachStart(bookedCheckIn))
+    .lt('date', bookedCheckIn);
+  if (error || !Array.isArray(data)) return bookedCheckIn;
+  return stayArrival(data as HeldNight[], propertyId, bookedCheckIn);
+}
+
 async function lockMapped(propertyId: string): Promise<boolean> {
   const { data } = await supabaseAdmin.from('lock_devices').select('device_id').eq('property_id', propertyId).eq('active', true).limit(1);
   return Array.isArray(data) && data.length > 0;
@@ -195,7 +219,7 @@ export async function ensureStayLink(bookingId: string, opts: MintOptions): Prom
   const { canonical, cluster } = found;
   if (!(await homeAllowsStays(canonical.property_id))) return null;
   const window = stayWindow(
-    { checkIn: canonical.check_in, checkOut: canonical.check_out },
+    { checkIn: await arrivalDay(canonical.property_id, canonical.check_in), checkOut: canonical.check_out },
     await stayTimes(canonical.property_id, canonical.check_in),
   );
   if (!window || stayPhase(now, window) === 'over') return null;
@@ -258,8 +282,12 @@ async function resolveStay(token: string): Promise<ResolvedStay | null> {
   if (!found || !STAY_STATUSES.has(found.canonical.status) || found.canonical.property_id !== row.property_id) return null;
   const home = await homeAllowsStays(row.property_id);
   if (!home) return null;
-  const dates = { checkIn: found.canonical.check_in, checkOut: found.canonical.check_out };
-  const times = await stayTimes(row.property_id, dates.checkIn);
+  // Adjustments are filed under the booked check-in; the page shows the day the guest comes.
+  const [arrives, times] = await Promise.all([
+    arrivalDay(row.property_id, found.canonical.check_in),
+    stayTimes(row.property_id, found.canonical.check_in),
+  ]);
+  const dates = { checkIn: arrives, checkOut: found.canonical.check_out };
   const window = stayWindow(dates, times);
   if (!window) return null;
   return {

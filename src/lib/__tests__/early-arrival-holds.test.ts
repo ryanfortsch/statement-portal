@@ -11,9 +11,11 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
+  earlyArrivalReachStart,
   earlyArrivals,
   isEarlyArrivalNight,
   isEarlyArrivalNote,
+  stayArrival,
 } from '../early-arrival-holds.ts';
 import type { HeldNight } from '../owner-hold-checkouts.ts';
 
@@ -111,5 +113,34 @@ describe('the schedule and the extension detector read it', () => {
   test('an early-arrival hold on a same-day turn is never filed as the departing guest extending', () => {
     assert.match(extension, /if \(isEarlyArrivalNote\(hold\.block_note\)\) continue;/);
     assert.match(extension, /if \(isEarlyArrivalNote\(n\)\) return false;/);
+  });
+});
+
+describe('stayArrival (the guest app stay link)', () => {
+  test('a paid night before check-in is the day the guest arrives', () => {
+    assert.equal(stayArrival([night('3_south_st', '2026-11-23')], '3_south_st', '2026-11-24'), '2026-11-23');
+  });
+  test('no early arrival keeps the booked day', () => {
+    assert.equal(stayArrival([], '3_south_st', '2026-11-24'), '2026-11-24');
+  });
+  test('an extension or owner hold before check-in is not an arrival', () => {
+    const others = [
+      night('3_south_st', '2026-11-23', { block_note: 'Extension hold - Pat Rowe (paid, Helm)' }),
+      night('3_south_st', '2026-11-22', { block_note: 'Owner use' }),
+    ];
+    assert.equal(stayArrival(others, '3_south_st', '2026-11-24'), '2026-11-24');
+  });
+  test('a hold at another home, or one that ends a day early, moves nothing', () => {
+    assert.equal(stayArrival([night('7_sumac', '2026-11-23')], '3_south_st', '2026-11-24'), '2026-11-24');
+    assert.equal(stayArrival([night('3_south_st', '2026-11-22')], '3_south_st', '2026-11-24'), '2026-11-24');
+  });
+  test('the read reaches a week back', () => {
+    assert.equal(earlyArrivalReachStart('2026-11-24'), '2026-11-17');
+  });
+  test('the stay link reads it, and keeps adjustments on the booked day', () => {
+    const db = readFileSync(new URL('../guest-app-stays-db.ts', import.meta.url), 'utf8');
+    assert.ok(db.includes('arrivalDay(row.property_id, found.canonical.check_in)'), 'the page shows the day the guest comes');
+    assert.ok(db.includes('stayTimes(row.property_id, found.canonical.check_in)'), 'checkout_adjustments are filed under the booked check-in');
+    assert.ok(db.includes('checkIn: await arrivalDay(canonical.property_id, canonical.check_in)'), 'minting uses the same window');
   });
 });

@@ -16,7 +16,16 @@
  * restored_at and the sweep never touches that row again, the same
  * once-a-human-decided rule as the work board's organized_at.
  *
- * One rule, two callers: the schedule page runs the sweep on load and
+ * The second rule: a proposal the stay's applied change already answers is
+ * dismissed too. A paid extension is applied from its Guesty hold
+ * (extension-holds.ts), and every message that then says the new day (the
+ * offer before payment, our own reminder the day before) came back as a
+ * second, low-confidence proposal of the same day. Anne at 3 South had
+ * three, two of them carrying a 3 PM checkout no message named; an Apply on
+ * any one would have moved the crew. Same day, and no time or the same time:
+ * nothing is left to ask. A proposal with a different day or time stays.
+ *
+ * One sweep, two callers: the schedule page runs it on load and
  * /api/cron/expire-queues runs it nightly, so a list nobody opens still
  * drains.
  *
@@ -71,6 +80,41 @@ export function expiredProposalNote(stayEnd: string, today: string): string {
   return `Expired: stay ended ${shortDay(stayEnd, today)}`;
 }
 
+/** A proposal's day and time, as the sweep compares them. */
+export type ProposalChange = ProposalStay & { adjusted_checkout_time: string | null };
+
+/** The day a change leaves on: the date it moves to, else the booked checkout. */
+function leaveDay(c: ProposalStay): string {
+  return (c.adjusted_check_out || c.original_check_out).slice(0, 10);
+}
+
+function hhmm(t: string | null | undefined): string | null {
+  return t ? t.slice(0, 5) : null;
+}
+
+/**
+ * The stay's applied change already says everything this proposal does: the
+ * same leaving day, and no time or the same time. A proposal naming another
+ * day, or a time the applied change does not carry, is still a question.
+ */
+export function isProposalCovered(p: ProposalChange, applied: ProposalChange): boolean {
+  if (leaveDay(p) !== leaveDay(applied)) return false;
+  const t = hhmm(p.adjusted_checkout_time);
+  return t === null || t === hhmm(applied.adjusted_checkout_time);
+}
+
+function clockLabel(t: string): string {
+  const [h, m] = t.split(':').map(Number);
+  const h12 = h % 12 || 12;
+  return `${h12}${m ? `:${String(m).padStart(2, '0')}` : ''} ${h < 12 ? 'AM' : 'PM'}`;
+}
+
+/** The note a covered proposal carries in the fold. */
+export function coveredProposalNote(applied: ProposalChange, today: string): string {
+  const t = hhmm(applied.adjusted_checkout_time);
+  return `Already applied: checkout ${shortDay(leaveDay(applied), today)}${t ? ` at ${clockLabel(t)}` : ''}`;
+}
+
 /** Who wrote a dismissal the sweep made (dismissed_by). */
 export const PROPOSAL_EXPIRY_ACTOR = 'helm-expiry';
 
@@ -84,7 +128,13 @@ type Candidate = ProposalStay & { id: string; property_id: string; stay_check_in
 export async function expireStaleProposals(
   supabase: SupabaseClient,
   today: string,
-): Promise<{ expired: number }> {
+): Promise<{ expired: number; covered: number }> {
+  const expired = await expireEnded(supabase, today);
+  const covered = await dismissCovered(supabase, today);
+  return { expired, covered };
+}
+
+async function expireEnded(supabase: SupabaseClient, today: string): Promise<number> {
   // Only a stay whose booked checkout is already behind us can have ended.
   // An extension or a live booking can only push the end LATER, so this is
   // the full candidate set, and the per-row check below settles each one.
@@ -97,7 +147,7 @@ export async function expireStaleProposals(
     .limit(500);
   if (error) throw new Error(`expire proposals: ${error.message}`);
   const candidates = (data ?? []) as Candidate[];
-  if (candidates.length === 0) return { expired: 0 };
+  if (candidates.length === 0) return 0;
 
   // What the booking says now, per stay. Keyed (property_id, check_in) like
   // every other stay lookup: bookings holds several rows per stay by design.
@@ -139,5 +189,58 @@ export async function expireStaleProposals(
       .select('id');
     if (hit && hit.length > 0) expired += 1;
   }
-  return { expired };
+  return expired;
+}
+
+type Waiting = ProposalChange & { id: string; property_id: string; stay_check_in: string };
+
+/**
+ * Dismiss every waiting proposal its stay's applied change already answers.
+ * Guarded like the expiry: still 'proposed', never restored.
+ */
+async function dismissCovered(supabase: SupabaseClient, today: string): Promise<number> {
+  const { data, error } = await supabase
+    .from('checkout_adjustments')
+    .select('id, property_id, stay_check_in, original_check_out, adjusted_check_out, adjusted_checkout_time')
+    .eq('status', 'proposed')
+    .is('restored_at', null)
+    .limit(500);
+  if (error) throw new Error(`covered proposals: ${error.message}`);
+  const waiting = (data ?? []) as Waiting[];
+  if (waiting.length === 0) return 0;
+  const { data: live, error: liveErr } = await supabase
+    .from('checkout_adjustments')
+    .select('property_id, stay_check_in, original_check_out, adjusted_check_out, adjusted_checkout_time, created_at')
+    .eq('status', 'active')
+    .in('property_id', [...new Set(waiting.map((w) => w.property_id))])
+    .in('stay_check_in', [...new Set(waiting.map((w) => w.stay_check_in))]);
+  if (liveErr) throw new Error(`covered proposals (applied): ${liveErr.message}`);
+  // The newest applied change per stay is the one the schedule follows.
+  const applied = new Map<string, ProposalChange & { created_at: string }>();
+  for (const a of (live ?? []) as Array<ProposalChange & { property_id: string; stay_check_in: string; created_at: string }>) {
+    const key = `${a.property_id}|${a.stay_check_in.slice(0, 10)}`;
+    const prior = applied.get(key);
+    if (!prior || a.created_at > prior.created_at) applied.set(key, a);
+  }
+  let covered = 0;
+  const now = new Date().toISOString();
+  for (const w of waiting) {
+    const a = applied.get(`${w.property_id}|${w.stay_check_in.slice(0, 10)}`);
+    if (!a || !isProposalCovered(w, a)) continue;
+    const { data: hit } = await supabase
+      .from('checkout_adjustments')
+      .update({
+        status: 'dismissed',
+        dismissed_at: now,
+        dismissed_by: PROPOSAL_EXPIRY_ACTOR,
+        dismissed_note: coveredProposalNote(a, today),
+        updated_at: now,
+      })
+      .eq('id', w.id)
+      .eq('status', 'proposed')
+      .is('restored_at', null)
+      .select('id');
+    if (hit && hit.length > 0) covered += 1;
+  }
+  return covered;
 }

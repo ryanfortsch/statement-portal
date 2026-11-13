@@ -10,7 +10,9 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
+  coveredProposalNote,
   expiredProposalNote,
+  isProposalCovered,
   isProposalExpired,
   proposalStayEnd,
   shortDay,
@@ -75,6 +77,37 @@ describe('the note', () => {
   });
 });
 
+describe('a proposal the applied change already answers', () => {
+  // Anne / 3 South, 2026-11: the extension to Sunday the 29th was applied
+  // from its Guesty hold; the offer before payment and our own reminder
+  // each came back as a proposal of the same Sunday.
+  const hold = { original_check_out: '2026-11-28', adjusted_check_out: '2026-11-29', adjusted_checkout_time: null };
+  test('the same day and no time is covered', () => {
+    assert.equal(isProposalCovered({ original_check_out: '2026-11-28', adjusted_check_out: '2026-11-29', adjusted_checkout_time: null }, hold), true);
+  });
+  test('a time the applied change does not carry is still a question', () => {
+    // The 3 PM no message named: left for a person, never applied or hidden.
+    assert.equal(isProposalCovered({ original_check_out: '2026-11-28', adjusted_check_out: '2026-11-29', adjusted_checkout_time: '15:00' }, hold), false);
+  });
+  test('another day is still a question', () => {
+    assert.equal(isProposalCovered({ original_check_out: '2026-11-28', adjusted_check_out: '2026-11-30', adjusted_checkout_time: null }, hold), false);
+  });
+  test('a late checkout already applied covers the same time said again', () => {
+    const late = { original_check_out: '2026-11-28', adjusted_check_out: null, adjusted_checkout_time: '13:00:00' };
+    assert.equal(isProposalCovered({ original_check_out: '2026-11-28', adjusted_check_out: null, adjusted_checkout_time: '13:00' }, late), true);
+    assert.equal(isProposalCovered({ original_check_out: '2026-11-28', adjusted_check_out: null, adjusted_checkout_time: '14:00' }, late), false);
+  });
+  test('the same day said as a date covers an applied time-only change on that day', () => {
+    const late = { original_check_out: '2026-11-28', adjusted_check_out: null, adjusted_checkout_time: '13:00' };
+    assert.equal(isProposalCovered({ original_check_out: '2026-11-28', adjusted_check_out: '2026-11-28', adjusted_checkout_time: null }, late), true);
+  });
+  test('the note says what was applied', () => {
+    assert.equal(coveredProposalNote(hold, TODAY), 'Already applied: checkout Nov 29');
+    assert.equal(coveredProposalNote({ ...hold, adjusted_checkout_time: '13:30' }, TODAY), 'Already applied: checkout Nov 29 at 1:30 PM');
+    assert.ok(!coveredProposalNote(hold, TODAY).includes('\u2014'));
+  });
+});
+
 describe('one rule, two callers, and restore is final', () => {
   test('the schedule page runs the sweep before it reads the list', () => {
     const src = read('src/app/turnovers/schedule/page.tsx');
@@ -93,7 +126,7 @@ describe('one rule, two callers, and restore is final', () => {
   });
   test('the sweep never touches a restored row, and restore stamps it', () => {
     const lib = read('src/lib/schedule-proposal-expiry.ts');
-    assert.equal(lib.split(".is('restored_at', null)").length - 1, 2, 'both the read and the write skip restored rows');
+    assert.equal(lib.split(".is('restored_at', null)").length - 1, 4, 'both passes skip restored rows, on the read and on the write');
     const actions = read('src/app/turnovers/schedule/actions.ts');
     const restore = actions.slice(actions.indexOf('export async function restoreProposalAction'));
     assert.ok(restore.includes('restored_at: now'));
