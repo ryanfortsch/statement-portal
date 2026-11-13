@@ -283,7 +283,9 @@ Helm resolves the property through the registry, reuses `checkout_adjustments`, 
 refreshes pending digests. Sent digests are left intact; the resolved-message follow-up
 links to the schedule's existing Send update review. No correction texts automatically.
 Date changes, uncertain extraction, and conflicts with stronger schedule decisions are
-proposals. The bridge uses the existing header-only stay-concierge authorization.
+proposals; a proposal the stay's applied change already answers (same leaving day, no other
+time) is dismissed by the same sweep that expires ended stays (`schedule-proposal-expiry.ts`),
+and the concierge drops a time no message states (`time_stated`). The bridge uses the existing header-only stay-concierge authorization.
 This covers concierge-delivered guest messages; Helm-native thread delivery is a separate
 rail and is not handled by this outbox.
 
@@ -553,7 +555,8 @@ service worker's scope; the concierge's text drops the `https://`. Every older s
 16 from 62 for a day) keeps working, because those links were sent. It is the
 home's app with a Your stay card on top: arrive and leave, the arrival steps, and the stay's own
 Seam door code (`getLiveStayCode` in `guest-locks.ts`, from `guest_access_codes`, never
-`property_access.smart_lock_code`). The window opens at 10:00 AM Eastern the day before check-in,
+`property_access.smart_lock_code`). The window opens at 10:00 AM Eastern the day before check-in
+(a paid early arrival's Guesty hold moves that day, `stayArrival` in `early-arrival-holds.ts`),
 the hour the pre-arrival message sends the code, and closes at the guest checkout, a late checkout
 in `checkout_adjustments` included. Before it the page says when it opens; after it, a thank-you.
 **The code is never in the HTML**: Show my door code POSTs to `/h/s/<token>/code`, which re-checks

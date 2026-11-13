@@ -125,3 +125,20 @@ export function earlyArrivals(nights: HeldNight[], stays: ArrivingStay[]): Early
   }
   return out;
 }
+
+/** The first night a caller must read to find an early arrival before `bookedCheckIn`. */
+export function earlyArrivalReachStart(bookedCheckIn: string): string {
+  return addDay(bookedCheckIn, -EARLY_ARRIVAL_REACH_DAYS);
+}
+
+/**
+ * The day one guest actually arrives: the first night of a paid early
+ * arrival that ends the night before their booked check-in, else the booked
+ * check-in. The guest app's stay link reads it, so a guest who paid to come
+ * Monday is not told on Monday that they arrive Tuesday.
+ */
+export function stayArrival(nights: HeldNight[], propertyId: string, bookedCheckIn: string): string {
+  const hit = earlyArrivals(nights, [{ property_id: propertyId, check_in: bookedCheckIn }])
+    .find((e) => e.propertyId === propertyId && e.bookedCheckIn === bookedCheckIn);
+  return hit ? hit.arrives : bookedCheckIn;
+}
