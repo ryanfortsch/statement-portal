@@ -30,7 +30,7 @@ self.addEventListener('fetch', (event) => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
-  const isGuide = req.mode === 'navigate' && /^\\/h\\/(?:s\\/(?:[A-Za-z0-9]{16}|[a-f0-9]{32})|[a-f0-9]{16,64})\\/?$/.test(url.pathname);
+  const isGuide = req.mode === 'navigate' && /^\\/h\\/(?:s\\/(?:[A-Za-z0-9]{12}|[A-Za-z0-9]{16}|[a-f0-9]{32})|[a-f0-9]{16,64})\\/?$/.test(url.pathname);
   const isStatic = url.pathname.startsWith('/helm-assets/_next/static/') || url.pathname.startsWith('/_next/static/') || url.pathname === '/h/app-icon';
   if (isGuide) {
     event.respondWith((async () => {

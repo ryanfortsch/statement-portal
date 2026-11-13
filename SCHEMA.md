@@ -148,8 +148,10 @@ written from staycapeann.com's reports; `captured` requires `accepted` in the
 database. An accepted request holds its nights on the partner home's Helm
 calendar (an exclusion constraint keeps two accepted requests off one night);
 it is never copied into `bookings`. `receipt_emailed_at` / `outcome_emailed_at`
-/ `confirmation_emailed_at` stamp the guest emails, and the cron retries one
-left null. `cancellation_terms`, `house_rules` and `terms_version` (since
+/ `confirmation_emailed_at` stamp the guest emails and `host_emailed_at` (since
+2026-11-13) the email telling the host it landed; the cron retries one left
+null. `decided_by` is an owner's email, `cron`, or `host:<email>` when the host
+answered on staycapeann.com. `cancellation_terms`, `house_rules` and `terms_version` (since
 2026-11-13) are what the guest agreed to: the home's House policy as it stood
 when the request landed, and the site's Terms of Service by its date; a home
 with no cancellation policy takes no request. RLS on, service role only. See
@@ -161,6 +163,14 @@ The host's Stripe Connect account (`stripe_account_id`, written once), our
 `details_submitted`, `requirements_due`, as staycapeann.com reported it) and
 the SHA-256 of the host's setup link. No Stripe secret lives in Helm. RLS on,
 service role only. See `src/lib/partner-payments.ts`.
+
+**`partner_host_codes`** and **`partner_host_sessions`** (since 2026-11-13): a
+partner home's host signing in on staycapeann.com. The host is an email on the
+home's `properties.owner_emails`. A code row keeps `sha256(email:code)`, ten
+minutes, `attempts` (five) and `used_at`; a session row is keyed by the
+SHA-256 of its token, thirty days, `ended_at` on sign-out. Neither holds a code
+or token. RLS on, service role only, anon and authenticated revoked. See
+`src/lib/partner-host.ts`.
 
 **`partner_listings`** (since 2026-11-13): one row per partner home, the
 listing switch and the four checks a person makes. `walked_on` / `walked_by`,

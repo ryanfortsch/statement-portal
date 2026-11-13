@@ -170,6 +170,7 @@ function OpenRequest({ r, now, overlapping }: { r: ReviewRequest; now: Date; ove
         HOST {host?.host_name || 'no name on file'}
         {host?.host_emails[0] && <> · <a href={`mailto:${host.host_emails[0]}`} style={{ color: 'inherit' }}>{host.host_emails[0]}</a></>}
         {host?.host_phone && <> · <a href={`tel:${host.host_phone}`} style={{ color: 'inherit' }}>{host.host_phone}</a></>}
+        {r.host_emailed_at && <> · emailed {easternShort(r.host_emailed_at)}</>}
         {r.host_told_at && <> · told {easternShort(r.host_told_at)}</>}
       </div>
 

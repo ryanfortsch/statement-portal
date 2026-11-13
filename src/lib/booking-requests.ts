@@ -67,6 +67,8 @@ export type BookingRequestRow = {
   respond_by: string;
   host_told_at: string | null;
   host_told_by: string | null;
+  /** When the host was emailed that the request landed (src/lib/partner-host-email.ts). */
+  host_emailed_at: string | null;
   decided_at: string | null;
   decided_by: string | null;
   decline_reason: string | null;
@@ -93,7 +95,7 @@ export type BookingRequestRow = {
 };
 
 export const BOOKING_REQUEST_COLS =
-  'id, request_key, source, property_id, check_in, check_out, guests, guest_first_name, guest_last_name, guest_email, guest_phone, message, quoted_total_cents, currency, quote, status, respond_by, host_told_at, host_told_by, decided_at, decided_by, decline_reason, receipt_emailed_at, outcome_emailed_at, stripe_account_id, payment_intent_id, hold_cents, fee_cents, hold_status, hold_placed_at, captured_at, released_at, charge_id, hold_error, confirmation_emailed_at, cancellation_terms, house_rules, terms_version, created_at, updated_at';
+  'id, request_key, source, property_id, check_in, check_out, guests, guest_first_name, guest_last_name, guest_email, guest_phone, message, quoted_total_cents, currency, quote, status, respond_by, host_told_at, host_told_by, host_emailed_at, decided_at, decided_by, decline_reason, receipt_emailed_at, outcome_emailed_at, stripe_account_id, payment_intent_id, hold_cents, fee_cents, hold_status, hold_placed_at, captured_at, released_at, charge_id, hold_error, confirmation_emailed_at, cancellation_terms, house_rules, terms_version, created_at, updated_at';
 
 /**
  * What a guest agrees to when they send a request: the home's cancellation

@@ -338,6 +338,19 @@ Helm calendar from `booking_requests` itself (`holdsInWindow` in `pms-bridge.ts`
 is the host's: nothing here touches `owner_payout`, the books or the forecast.
 `partner-payments.test.ts` holds it.
 
+**A partner home's host answers their own requests on staycapeann.com** (`src/lib/partner-host.ts`,
+since 2026-11-13). The host is an email on the home's row; they sign in at `staycapeann.com/host`
+with a six-digit code Helm emails (ten minutes, five tries, five codes an hour; Helm keeps hashes
+only), and the site keeps the session token in an httpOnly cookie and sends it as the
+`x-host-session` header on the bridge (`/api/pms/host/code`, `/session`, `/requests`), never in a
+URL. A host sees their homes' requests with the guest's first name and initial until the stay is
+booked, and the contact only then. Their Accept and Decline call `acceptBookingRequest` and
+`declineBookingRequest`, recorded as `host:<email>`, after a check that the request is on one of
+their homes, so every check Accept runs for the office runs for them; a host accepts only over a
+card on hold (`HOST_NO_HOLD`), so before Stripe is live the office settles each one. When a request lands, Helm
+emails the host from hello@ (`booking_requests.host_emailed_at`; the hourly sweep retries).
+`partner-host.test.ts` holds it.
+
 **A partner home reaches staycapeann.com only when an owner lists it** (`src/lib/partner-listing.ts`,
 since 2026-11-13). An owner adds the home on `/guests/requests` (address, town, host): Helm writes a
 `properties` row with `kind` `partner`, `is_active` false, `calendar_authority` `helm`, no fee and
@@ -489,7 +502,8 @@ QR opens the guest app, which shows the Wi-Fi password.
 (`guest_app_homes`), printed as the guest app card's QR in the house and sent in messages. It
 is Guesty's guest app turned around: Guesty's link is per reservation and expires at checkout,
 so it can never be printed; ours outlives every stay, which is exactly why it carries **no door,
-gate, garage, alarm or thermostat code**. The door code arrives in the check-in message, and
+gate, garage, alarm or thermostat code**. The door code arrives in the check-in message (both pages say between 3:30 and 4 PM on check-in
+day, `DOOR_CODE_WHEN`), and
 inside the stay link below. The properties select is an explicit column list (`GUEST_APP_PROPERTY_COLS`), Wi-Fi comes
 through `getGuestWifiPasswords` (a select of the two Wi-Fi columns only), rooms through
 `guestRoomFacts`, how-tos from open guest-facing notes (the concierge's KB), trash from
@@ -529,9 +543,10 @@ stays on Helm.
 **The stay link** (`/h/s/<token>`, phase 2; `src/lib/guest-app-stays.ts` is pure,
 `guest-app-stays-db.ts` reads, `src/app/h/s/`). One short-lived link per reservation
 (`guest_app_stays`: a token unrelated to the home's, one live link per stay). The link a guest is
-sent is short, `staycapeann.com/s/<token>` (since 2026-11-13): 16 characters from 62, about 95
+sent is short, `staycapeann.com/s/<token>` (since 2026-11-13): 12 characters from 62, about 71
 bits (`stayTokenFrom`), and both hosts redirect `/s/` to `/h/s/`, where the page sits inside the
-service worker's scope. Links minted before then are 32 hex and keep working. It is the
+service worker's scope; the concierge's text drops the `https://`. Every older shape (32 hex, then
+16 from 62 for a day) keeps working, because those links were sent. It is the
 home's app with a Your stay card on top: arrive and leave, the arrival steps, and the stay's own
 Seam door code (`getLiveStayCode` in `guest-locks.ts`, from `guest_access_codes`, never
 `property_access.smart_lock_code`). The window opens at 10:00 AM Eastern the day before check-in,
