@@ -299,14 +299,20 @@ describe('the calendar', () => {
     assert.equal(hostFeedView({ channel: 'airbnb', last_synced_at: null }, NOW).fresh, false);
     assert.equal(channelLabel('booking_com'), 'Booking.com');
     const db = code('src/lib/partner-host-db.ts');
-    const cal = db.slice(db.indexOf('export async function hostCalendar('));
+    const start = db.indexOf('export async function hostCalendar(');
+    const next = db.indexOf('\nexport ', start + 1);
+    // The calendar function alone: a reader added after it is not a calendar read.
+    const cal = db.slice(start, next < 0 ? undefined : next);
     assert.ok(cal.includes(".select('id, property_id, channel, last_synced_at')"), 'the feed read names its columns');
     assert.ok(!/\burl\b/.test(cal), 'the host calendar never reads a feed link');
   });
 
   test('the calendar reads only the signed-in host\'s homes, and fails closed', () => {
     const db = code('src/lib/partner-host-db.ts');
-    const cal = db.slice(db.indexOf('export async function hostCalendar('));
+    const start = db.indexOf('export async function hostCalendar(');
+    const next = db.indexOf('\nexport ', start + 1);
+    // The calendar function alone: a reader added after it is not a calendar read.
+    const cal = db.slice(start, next < 0 ? undefined : next);
     assert.equal((cal.match(/\.in\('property_id', ids\)/g) ?? []).length, 3);
     assert.ok(cal.includes('const ids = session.homes.map((h) => h.id)'));
     assert.ok(!/catch/.test(cal), 'a failed read throws rather than showing a night open');
