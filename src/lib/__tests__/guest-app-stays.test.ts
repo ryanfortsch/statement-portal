@@ -29,7 +29,9 @@ import {
   stayPhase,
   stayWindow,
   STAY_JOIN_MAX,
+  STAY_TOKEN_LENGTH,
   STAY_TOKEN_RE,
+  stayTokenFrom,
   type LiveStayCode,
   type StayLayerInput,
   type StayWindow,
@@ -309,13 +311,36 @@ describe('phase 1 stays as it was', () => {
     }
   });
 
-  test('a stay token is not a home token and cannot be one', () => {
-    assert.ok(STAY_TOKEN_RE.test('0123456789abcdef0123456789abcdef'));
-    assert.ok(!STAY_TOKEN_RE.test('0123456789abcdef'));
-    assert.ok(!STAY_TOKEN_RE.test('0123456789ABCDEF0123456789ABCDEF'));
+  test('a stay token is 16 characters from 62, and the 32-hex links already sent still work', () => {
+    assert.ok(STAY_TOKEN_RE.test('Xq3vB7kP9mR2tL4w'), 'new: 16 base62');
+    assert.ok(STAY_TOKEN_RE.test('0123456789abcdef0123456789abcdef'), 'sent before 2026-11-13: 32 hex');
+    assert.ok(!STAY_TOKEN_RE.test('0123456789ABCDEF0123456789ABCDEF'), 'old shape is lowercase only');
+    assert.ok(!STAY_TOKEN_RE.test('Xq3vB7kP9mR2tL4'), 'too short');
+    assert.ok(!STAY_TOKEN_RE.test('Xq3vB7kP9mR2tL4wZ'), 'too long');
+    assert.ok(!STAY_TOKEN_RE.test('Xq3vB7kP9mR2tL4-'), 'letters and digits only');
     const db = read('src/lib/guest-app-stays-db.ts');
-    assert.match(db, /randomBytes\(16\)\.toString\('hex'\)/);
-    assert.match(db, /\/h\/s\/\$\{token\}/);
+    assert.match(db, /stayTokenFrom\(\(n\) => randomBytes\(n\)\)/, 'node:crypto, never Math.random');
+    assert.match(db, /`\$\{guestAppOrigin\(\)\}\/s\/\$\{token\}`/, 'the short link');
+  });
+
+  test('a new token uses every character evenly and throws away bytes that would skew it', () => {
+    // Bytes 248-255 are dropped: 256 is not a multiple of 62.
+    const bytes = [248, 255, 0, 61, 62, 247, ...Array.from({ length: 26 }, (_, i) => i)];
+    const t = stayTokenFrom(() => Uint8Array.from(bytes));
+    assert.equal(t.length, STAY_TOKEN_LENGTH);
+    assert.ok(STAY_TOKEN_RE.test(t));
+    assert.equal(t.slice(0, 4), '0z0z', '0 -> 0, 61 -> z, 62 -> 0, 247 -> z (247 % 62 = 61)');
+    // A source that hands out only rejected bytes at first still finishes.
+    let calls = 0;
+    const t2 = stayTokenFrom((n) => Uint8Array.from({ length: n }, (_, i) => (calls++ === 0 ? 250 : i % 62)));
+    assert.equal(t2.length, STAY_TOKEN_LENGTH);
+  });
+
+  test('the short link redirects to the stay page on both hosts', () => {
+    const config = read('next.config.ts');
+    assert.match(config, /source: '\/s\/:token',\s*destination: '\/h\/s\/:token',/);
+    const sql = read('supabase/migrations/20261113150000_guest_app_stays_short_tokens.sql');
+    assert.match(sql, /check \(token ~ '\^\(\[A-Za-z0-9\]\{16\}\|\[a-f0-9\]\{32\}\)\$'\)/);
   });
 });
 
@@ -335,7 +360,7 @@ describe('the stay link\'s table and offline copy', () => {
   test('the service worker keeps stay pages and never touches a POST', () => {
     const sw = read('src/app/h/sw.js/route.ts');
     assert.match(sw, /if \(req\.method !== 'GET'\) return;/);
-    assert.ok(sw.includes('(?:s\\\\/[a-f0-9]{32}|[a-f0-9]{16,64})'));
+    assert.ok(sw.includes('(?:s\\\\/(?:[A-Za-z0-9]{16}|[a-f0-9]{32})|[a-f0-9]{16,64})'));
   });
 
   test('a stay page offers no install manifest (it would leak the home token)', () => {
