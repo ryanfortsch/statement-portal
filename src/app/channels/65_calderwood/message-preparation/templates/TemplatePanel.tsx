@@ -143,6 +143,7 @@ export function TemplatePanel({ initialReference }: { initialReference: Referenc
         <Link href="/channels/65_calderwood/message-preparation/timing-review" className="mt-5 block text-sm underline underline-offset-4">View saved timing and handover status →</Link>
       </div>
     </section>}
+    {reference && <Link className="mt-6 block text-sm underline underline-offset-4" href={`/channels/65_calderwood/message-preparation/cleaners?captureId=${encodeURIComponent(reference.captureId)}&templateDigest=${encodeURIComponent(reference.rulesSha256)}`}>Review cleaner automation enrollment →</Link>}
     {reference && <details className="mt-6 text-xs" style={{ color: 'var(--ink-3)' }}><summary className="cursor-pointer">Archive and release references</summary>
       <p className="mt-2 break-all">Archive: {reference.captureId}<br />Digest: {reference.rulesSha256}<br />Release request: {reference.releaseId ?? 'Not submitted'}</p></details>}
   </>;

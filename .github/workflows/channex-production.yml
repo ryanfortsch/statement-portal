@@ -12,6 +12,7 @@ on:
       - 'src/lib/channex-production*'
       - 'src/app/api/cron/channex-production/**'
       - 'src/app/api/cron/channex-messages/**'
+      - 'src/app/api/cron/channex-cleaners/**'
       - 'src/app/api/channex/reconciliation/**'
       - 'supabase/migrations/*channex*'
       - 'scripts/test-channex-database.mjs'
@@ -26,6 +27,8 @@ on:
       - 'scripts/test-channex-release-guards.mts'
       - 'scripts/test-channex-schedule-runtime.mts'
       - 'scripts/test-channex-cleaner-schedules.mts'
+      - 'scripts/channex-cleaner-enrollment-smoke.mjs'
+      - 'src/app/channels/65_calderwood/message-preparation/cleaners/**'
       - 'scripts/test-channex-template-release.mts'
       - 'src/app/api/channex/message-preparation/**'
       - 'scripts/test-channex-reconciliation.mts'
@@ -83,3 +86,4 @@ jobs:
       - run: node --import ./scripts/server-only-test-hook.mjs scripts/test-channex-template-release.mts
       - run: node --import ./scripts/server-only-test-hook.mjs scripts/test-channex-schedule-runtime.mts
       - run: node --import ./scripts/server-only-test-hook.mjs scripts/test-channex-cleaner-schedules.mts
+      - run: node scripts/channex-cleaner-enrollment-smoke.mjs

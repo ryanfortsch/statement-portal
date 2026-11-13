@@ -161,6 +161,10 @@
       "schedule": "* * * * *"
     },
     {
+      "path": "/api/cron/channex-cleaners",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/booking-requests",
       "schedule": "25 * * * *"
     }
