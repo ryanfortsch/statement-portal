@@ -1,7 +1,6 @@
 /** Run after test-channex-schedule-runtime against the disposable loopback DB.
  * Real enrollment, runtime registration/claims/receipts; synthetic source proof and fake SMS only. */
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { createCleanerSmsStore } from '../src/lib/channex-messaging/cleaner-sms-store.ts';
@@ -28,18 +27,15 @@ function asyncSql(query: string) {
 }
 assert.equal(sql('select current_database();'), 'helm_synthetic_channex');
 const bid = '90000000-0000-4000-8000-000000000901', remote = randomUUID(), thread = randomUUID();
+sql(`insert into cleaner_schedule_recipients values('+12025550123','HELMTEST Cleaner','0123456789abcdef',true,array['65_calderwood'],'bridgeport_ct','en',false);`);
+const controlRead=(sid:string)=>JSON.parse(sql(`set role service_role; select helm_channex_message_control_read('${sid}');`) || 'null');
+const controlSql=(sid:string,token:string,held:boolean)=>`select helm_channex_message_control('${sid}','${token}',${held},'synthetic-owner');`;
+const sentGuest=sql("select send_id from helm_channex_messages.jobs where state<>'prepared' limit 1;");
+assert.ok(sentGuest);assert.equal(controlRead(sentGuest).canHold,false);assert.equal(controlRead(sentGuest).canResume,false);
+assert.equal(controlRead(randomUUID()),null);
 sql(`delete from helm_channex_messages.timing_bindings;
  delete from helm_airbnb_bookings.bookings where canonical_id='${bid}'; select channex_synthetic_timing_setup();
- update bookings set guest_name='Synthetic Guest' where id='${bid}';
- -- The real recipient table has a PHONE primary key, never an invented UUID.
- create table cleaner_schedule_recipients(phone text primary key, display_name text not null,
- portal_token text not null unique, enabled boolean not null default false, property_ids text[] not null default '{}',
- region text not null default 'cape_ann',language text not null default 'pt',daily_digest_enabled boolean not null default false);
- insert into cleaner_schedule_recipients values('+12025550123','HELMTEST Cleaner','0123456789abcdef',true,array['65_calderwood'],'bridgeport_ct','en',false);`);
-const before = sql("select jsonb_agg(to_jsonb(r) order by id) from message_automations r;");
-sql(readFileSync(new URL('../supabase/migrations/20261113090000_channex_cleaner_schedule.sql', import.meta.url), 'utf8'));
-sql(readFileSync(new URL('../supabase/migrations/20261113160000_channex_cleaner_enrollment.sql', import.meta.url), 'utf8'));
-assert.equal(sql("select jsonb_agg(to_jsonb(r) order by id) from message_automations r;"), before);
+ update bookings set guest_name='Synthetic Guest' where id='${bid}';`);
 assert.equal(sql("select (select count(*) from helm_channex_messages.cleaner_jobs)||':'||(select count(*) from helm_channex_messages.cleaner_releases)||':'||(select count(*) from automation_sends);"), '0:0:0');
 for (const table of ['cleaner_jobs','cleaner_releases','cleaner_hold_events']) {
   assert.equal(sql(`select relrowsecurity from pg_class where oid='helm_channex_messages.${table}'::regclass;`), 't');
@@ -197,12 +193,25 @@ sql("update automation_sends set fire_at=fire_at+interval '1 hour'; update autom
 assert.equal(sql('select to_jsonb(s) from automation_sends s;'),saved);
 assert.throws(()=>sql(`insert into automation_sends select (jsonb_populate_record(null::automation_sends,to_jsonb(s)||jsonb_build_object('id',gen_random_uuid()))).* from automation_sends s;`),/history_conflict/);
 assert.throws(()=>sql('delete from automation_sends;'),/history/);
+// The owner path uses the same hold ledger; compare-and-set fences stale tabs.
+let cleanerControl=controlRead(plan.sendId);assert.equal(cleanerControl.lane,'cleaner');assert.equal(cleanerControl.canHold,true);
+const holdReplies=await Promise.all([asyncSql(controlSql(plan.sendId,cleanerControl.token,true)),asyncSql(controlSql(plan.sendId,cleanerControl.token,true))]);
+assert.deepEqual(holdReplies.map(x=>JSON.parse(x).state).sort(),['changed','conflict']);
+let heldCleaner=controlRead(plan.sendId);assert.equal(heldCleaner.canResume,true);
+assert.equal(JSON.parse(sql(controlSql(plan.sendId,cleanerControl.token,false))).state,'conflict');
+assert.equal(sql(`begin; update cleaner_schedule_recipients set enabled=false;
+ select (helm_channex_message_control_read('${plan.sendId}')->>'canResume')::boolean; rollback;`),'f');
+assert.equal(JSON.parse(sql(controlSql(plan.sendId,heldCleaner.token,false))).state,'changed');
+cleanerControl=controlRead(plan.sendId);assert.equal(JSON.parse(sql(controlSql(plan.sendId,cleanerControl.token,true))).state,'changed');
+assert.equal(JSON.parse(sql(controlSql(plan.sendId,heldCleaner.token,false))).state,'conflict');
+heldCleaner=controlRead(plan.sendId);assert.equal(JSON.parse(sql(controlSql(plan.sendId,heldCleaner.token,false))).state,'changed');
+const controlHoldCount=Number(sql('select count(*) from helm_channex_messages.cleaner_hold_events;'));
 const waitMs=Math.max(0,due-Date.now()+30);assert.ok(waitMs<76000);console.log(`Waiting ${Math.ceil(waitMs/1000)}s for the real synthetic reminder clock`);
 await new Promise(resolve=>setTimeout(resolve,waitMs));
 const claimSql=(expected=job,attemptId=randomUUID())=>`select helm_channex_cleaner_claim(${str(JSON.stringify(expected))}::jsonb,'${attemptId}',${str(JSON.stringify(proof))}::jsonb);`;
 assert.equal(await store.hold(plan.sendId,true,'synthetic-owner'),true);
 assert.equal(await store.claim(job,randomUUID(),proof),false);assert.equal(await store.hold(plan.sendId,false,'synthetic-owner'),true);
-assert.equal(sql('select count(*) from helm_channex_messages.cleaner_hold_events;'),'2');
+assert.equal(Number(sql('select count(*) from helm_channex_messages.cleaner_hold_events;')),controlHoldCount+2);
 for(const mutation of ["update cleaner_schedule_recipients set enabled=false", "update cleaner_schedule_recipients set portal_token=repeat('b',32)",
  "update cleaner_schedule_recipients set phone='+12025550124'", "update cleaner_schedule_recipients set language='pt'",
  "update cleaner_schedule_recipients set property_ids='{}'", "update properties set automations_enabled=false where id='65_calderwood'",
@@ -249,6 +258,8 @@ const results=await Promise.all([tick(),tick()]);
 assert.equal(results.filter(r=>r.stays[0].state==='accepted').length,1);assert.equal(posts,1);
 job=await store.read(plan.sendId) as CleanerSmsJob;assert.equal(job.state,'accepted');
 assert.equal(await store.hold(plan.sendId,true,'late-owner'),false);
+assert.equal(controlRead(plan.sendId).canHold,false);assert.equal(controlRead(plan.sendId).canResume,false);
+assert.equal(JSON.parse(sql(controlSql(plan.sendId,controlRead(plan.sendId).token,true))).state,'conflict');
 assert.equal((await worker.dispatch(plan.sendId,async()=>review)).state,'needs_reconciliation');assert.equal(posts,1);
 assert.equal(await store.finish(plan.sendId,job.attemptId!,{state:'accepted',providerMessageId:'ACOTHER',providerStatus:'queued'}),false);
 // Revocation/cancellation blocks new work but cannot strand accepted receipts.

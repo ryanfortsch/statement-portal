@@ -3,7 +3,8 @@
  * remains synthetic, and providers are fake. Run after test-channex-template-release.
  */
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { verifyGuestMessageControls } from './channex-message-control-checks.mts';
+import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { scheduleRetainedCalderwoodStay } from '../src/lib/channex-messaging/schedule-runtime.ts';
 import { reviewCalderwoodTimingBinding } from '../src/lib/channex-messaging/timing-provider-review.ts';
@@ -115,6 +116,12 @@ lostResponse = true; const uncertain = await run(); assert.equal(uncertain.state
 assert.equal(sql('select count(*) from helm_channex_messages.jobs;'), '1');
 lostResponse = false; const completed = await run(); assert.equal(completed.state, 'complete');
 assert.equal(writes, 4); assert.equal(sql('select count(*) from helm_channex_messages.jobs;'), '4');
+await verifyGuestMessageControls(sql,query=>new Promise((resolve,reject)=>{
+ const child=spawn(psql,['-X','-Atq','-v','ON_ERROR_STOP=1']);let out='',err='';
+ child.stdout.on('data',c=>{out+=c;});child.stderr.on('data',c=>{err+=c;});child.on('error',reject);
+ child.on('close',code=>code?reject(Error(err)):resolve(out.trim()));child.stdin.end(query);
+}));
+
 assert.equal((await run()).outcomes.filter(o => o.state === 'created').length, 0); assert.equal(writes, 4);
 
 // Old generic workers cannot reserve a missing migrated key, cancel active jobs
