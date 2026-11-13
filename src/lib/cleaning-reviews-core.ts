@@ -265,16 +265,36 @@ export function noticeWord(status: NoticeStatus, crew = 'Crew', report?: ReportS
 
 const HTML_ESC: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 
+/** One line of the email in pieces: its words, and each link as a number
+ *  counted from 1 on that line, so "Fotos: <six storage URLs>" reads
+ *  "Fotos: 1 2 3 4 5 6". The email's HTML and the Team inbox card both draw
+ *  from this, so the card reads the way the crew's inbox will. The text
+ *  keeps the full URLs: they are the links, and a plain-text reader needs them. */
+export type LinkPart = { text: string } | { href: string; label: string };
+
+export function numberedLinkParts(line: string): LinkPart[] {
+  const parts: LinkPart[] = [];
+  let last = 0;
+  let n = 0;
+  for (const m of line.matchAll(/https?:\/\/[^\s<>"']+/g)) {
+    const at = m.index ?? 0;
+    if (at > last) parts.push({ text: line.slice(last, at) });
+    parts.push({ href: m[0], label: String(++n) });
+    last = at + m[0].length;
+  }
+  if (last < line.length) parts.push({ text: line.slice(last) });
+  return parts;
+}
+
 /** The email's text as plain HTML: escaped, line breaks kept, photo links
- *  clickable as 1, 2, 3 (a line of raw storage URLs reads as noise), the stars in the signal color. Nothing else is styled, so the
+ *  clickable as 1, 2, 3 (numberedLinkParts), the stars in the signal color. Nothing else is styled, so the
  *  operator's edit reads in the inbox exactly as it read on the card. */
 export function weeklyEmailHtml(text: string): string {
   const esc = (t: string) => t.replace(/[&<>"']/g, (c) => HTML_ESC[c]);
   const lines = text.split('\n').map((line) => {
-    let out = esc(line).replace(/https?:\/\/[^\s<]+/g, (u, i, all) => {
-      const n = (all.slice(0, i).match(/https?:\/\//g) ?? []).length + 1;
-      return `<a href="${u}" style="color:#1f5e6b">${n}</a>`;
-    });
+    let out = numberedLinkParts(line)
+      .map((p) => ('href' in p ? `<a href="${esc(p.href)}" style="color:#1f5e6b">${p.label}</a>` : esc(p.text)))
+      .join('');
     out = out.replace(/^([★☆]{5})/, '<span style="color:#c85a3a;letter-spacing:1px">$1</span>');
     return out;
   });

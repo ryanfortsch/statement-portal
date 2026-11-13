@@ -27,6 +27,7 @@ import {
   summarizeCleaningReviews,
   weeklyAverage,
   weeklyEmailHtml,
+  numberedLinkParts,
 } from '../cleaning-reviews-core.ts';
 
 describe('which ratings are flagged', () => {
@@ -129,6 +130,20 @@ describe("Friday's email", () => {
     assert.ok(html.includes('<a href="https://x.test/a.jpg" style="color:#1f5e6b">1</a>'));
     assert.ok(html.includes('<a href="https://x.test/b.jpg" style="color:#1f5e6b">2</a>'));
     assert.ok(html.includes('<br>'));
+  });
+
+  test('a line of photo URLs reads as numbers, counted per line', () => {
+    const parts = numberedLinkParts('Fotos: https://x.test/a.jpg https://x.test/b.jpg?x=1&y=2');
+    assert.deepEqual(parts, [
+      { text: 'Fotos: ' },
+      { href: 'https://x.test/a.jpg', label: '1' },
+      { text: ' ' },
+      { href: 'https://x.test/b.jpg?x=1&y=2', label: '2' },
+    ]);
+    assert.deepEqual(numberedLinkParts('No links here.'), [{ text: 'No links here.' }]);
+    const html = weeklyEmailHtml('Fotos: https://x.test/a.jpg\nPhotos: https://x.test/c.jpg?x=1&y=2');
+    assert.ok(html.includes('<a href="https://x.test/c.jpg?x=1&amp;y=2" style="color:#1f5e6b">1</a>'), 'each line counts from 1; the href is escaped');
+    assert.ok(!html.includes('>2</a>'));
   });
 
   test('days print the way each reader writes them', () => {
