@@ -20,6 +20,7 @@ export default async function MessagePreparationPage() {
     <main className="w-full max-w-[1100px] mx-auto px-5 sm:px-10 pb-14">
       <Link href="/channels/65_calderwood" className="text-sm underline underline-offset-4">← Calderwood</Link>
       <Link href="/channels/65_calderwood/message-preparation/templates" className="ml-6 text-sm underline underline-offset-4">Review original templates and release →</Link>
+      <Link href="/channels/65_calderwood/message-status" className="ml-6 text-sm underline underline-offset-4">Automation status →</Link>
       <PreparationReview />
     </main>
     <HelmFooter module="Message handover" right="65 Calderwood" />

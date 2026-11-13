@@ -1852,6 +1852,31 @@ of new bookings. Future recipient/key changes need a reviewed transition; do not
 edit the immutable receipt or reset old jobs. Guesty remains the live sender until
 that separate handover is completed.
 
+### Owner automation operations view
+
+`/channels/65_calderwood/message-status` joins the existing canonical send ledger
+to guest and cleaner receipt readers. It is owner-only, production-storage-only,
+and read-only: no source/provider requests, scheduling, claims, holds or receipt
+writes. It loads history even when sender configuration is off, so disabling a
+worker does not hide an accepted or uncertain attempt. Configuration is not a
+worker heartbeat. An accepted message is not presented as delivered; Channex
+readback and an SMS delivery receipt have distinct labels. A cancelled canonical
+row does not erase a provider attempt.
+
+The page reads the latest 100 records with an exact total, explicitly marking
+larger histories partial, and rechecks the canonical history after receipt reads.
+Missing/malformed/changed history is unavailable, never an empty successful check.
+RPC failures remain visible per message. The DTO excludes source addresses, bodies,
+codes, credentials, HMACs, manifest references and provider IDs. Existing private
+readers do not expose holds, so a scheduled row does not promise send eligibility.
+Guesty/Airbnb source queues and live provider delivery are not queried by this view.
+
+The synthetic browser check is
+`node --import ./scripts/server-only-test-hook.mjs scripts/channex-automation-operations-smoke.mjs`.
+It renders the actual panel at desktop/mobile widths, tests empty/unavailable/partial
+history and receipt wording, and proves Refresh uses only GET. No new migration
+or sender activation is part of this view.
+
 ### November 13 deployment and lifecycle rehearsal
 
 PR #2284's inactive application code was merged at `551149774607e024220afb8f82b3d1f471e078e3`
