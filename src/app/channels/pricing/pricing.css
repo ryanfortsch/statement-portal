@@ -270,9 +270,9 @@
 .helm-pricing .pricing-day-top [data-today] { color: white; background: #42696e; width: 22px; height: 22px; border-radius: 50%; display: inline-grid; place-items: center; margin: -4px -4px -4px 0; font-weight: 500; }
 .helm-pricing .pricing-day-rate { margin-top: auto; padding-top: 26px; color: #344252; font-size: clamp(18px,2.9cqi,23px); font-weight: 500; letter-spacing: -.4px; line-height: 1.1; }
 .helm-pricing .pricing-day-stay { color: #667488; font-size: 11px; font-weight: 400; margin-top: 6px; }
-.helm-pricing .pricing-day-state { color: #7b8998; margin-top: auto; height: 24px; display: flex; align-items: center; }
+.helm-pricing .pricing-day-state { color: #607269; margin-top: auto; height: 24px; display: flex; align-items: center; gap: 4px; font-size: 10px; }
 .helm-pricing .pricing-day-state svg { width: 12px; height: 12px; }
-.helm-pricing .pricing-booked-mark { display: block; width: 22px; height: 3px; border-radius: 3px; background: #6b8173; }
+.helm-pricing .pricing-booked-mark { display: block; width: 4px; height: 4px; border-radius: 50%; background: #6b8173; }
 .helm-pricing .pricing-day[data-status=booked] { background: #f0f3f0; }
 .helm-pricing .pricing-day[data-status=blocked] { background: repeating-linear-gradient(-45deg,#fafbfc,#fafbfc 5px,#f1f3f6 5px,#f1f3f6 6px); }
 .helm-pricing .pricing-day[data-status=manual] .pricing-day-rate { color: #65758a; }
@@ -608,58 +608,58 @@ body:has(.pricing-page-shell) { background: #f8f9fa; }
 .helm-pricing .portfolio-title-row > div > span { font-size:11px; color:var(--pricing-muted); }
 .helm-pricing .portfolio-title-row .portfolio-period { width:auto; flex:0 0 auto; }
 .helm-pricing .portfolio-title-row select { padding:5px 8px; height:30px; font-size:11px; background:transparent; border-color:#dce3df; border-radius:6px; }
-.helm-pricing .portfolio-summary-strip { display:grid; grid-template-columns:minmax(0,1.7fr) minmax(260px,1fr); gap:16px; }
-.helm-pricing .portfolio-summary-occupancy { display:flex; align-items:center; gap:40px; padding:22px 28px; min-height:130px; border-radius:10px; background:#183e34; color:#fff; }
+.helm-pricing .portfolio-summary-strip { display:grid; grid-template-columns:minmax(0,1.6fr) minmax(290px,1fr); gap:0; background:#163c36; border:1px solid #234c43; border-radius:14px; box-shadow:0 10px 24px -16px #163c3666, inset 0 1px 0 #ffffff12; overflow:hidden; }
+.helm-pricing .portfolio-summary-occupancy { display:flex; align-items:center; gap:28px; padding:24px 28px; min-height:138px; color:#fff; background:transparent; }
 .helm-pricing .portfolio-summary-value { flex:1; }
-.helm-pricing .portfolio-summary-value > span { display:block; font-size:12px; color:#bcd0c6; }
-.helm-pricing .portfolio-summary-value > strong { display:block; font-size:46px; font-weight:500; letter-spacing:-2px; line-height:1; margin-top:10px; }
-.helm-pricing .portfolio-summary-nights { display:grid; grid-template-columns:1fr 1fr; gap:13px 28px; min-width:205px; }
+.helm-pricing .portfolio-summary-value > span { display:block; font-size:11px; color:#c3d7cd; }
+.helm-pricing .portfolio-summary-value > strong { display:block; font-size:52px; font-weight:500; letter-spacing:-2.8px; line-height:1; margin-top:12px; }
+.helm-pricing .portfolio-summary-nights { display:grid; grid-template-columns:1fr 1fr; gap:16px 24px; min-width:195px; padding-left:24px; border-left:1px solid #ffffff24; }
 .helm-pricing .portfolio-summary-nights span { display:block; font-size:11px; color:#bcd0c6; white-space:nowrap; }
-.helm-pricing .portfolio-summary-nights b { display:block; font-size:25px; font-weight:450; line-height:1; margin-top:8px; letter-spacing:-.5px; }
-.helm-pricing .portfolio-summary-meter { grid-column:1/-1; height:5px; background:#426256; border-radius:3px; overflow:hidden; }
-.helm-pricing .portfolio-summary-meter > i { display:block; height:100%; background:#bbd9aa; border-radius:3px; }
-.helm-pricing .portfolio-summary-market { border:1px solid var(--pricing-line); border-radius:10px; padding:20px 24px; background:white; }
-.helm-pricing .portfolio-market-heading { display:flex; align-items:center; justify-content:space-between; gap:10px; font-size:12px; font-weight:500; }
-.helm-pricing .portfolio-market-heading small { color:var(--pricing-muted); font-size:10px; font-weight:400; white-space:nowrap; }
-.helm-pricing .portfolio-market-pair { display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-top:17px; }
-.helm-pricing .portfolio-market-pair > div + div { border-left:1px solid var(--pricing-line); padding-left:24px; }
-.helm-pricing .portfolio-market-pair span { display:block; font-size:11px; color:var(--pricing-muted); }
-.helm-pricing .portfolio-market-pair strong { display:block; font-size:28px; line-height:1; font-weight:500; letter-spacing:-.8px; margin-top:6px; }
-.helm-pricing .portfolio-market-pair > div:last-child strong { color:#6b7d9b; }
+.helm-pricing .portfolio-summary-nights b { display:block; font-size:27px; font-weight:450; line-height:1; margin-top:10px; letter-spacing:-.6px; }
+.helm-pricing .portfolio-summary-meter { grid-column:1/-1; height:5px; background:#ffffff24; border-radius:3px; overflow:hidden; }
+.helm-pricing .portfolio-summary-meter > i { display:block; height:100%; background:#c6e5ae; border-radius:3px; }
+.helm-pricing .portfolio-summary-market { padding:24px 28px; margin:0; background:#ffffff06; border:0; border-left:1px solid #ffffff24; border-radius:0; color:#fff; }
+.helm-pricing .portfolio-market-heading { display:flex; align-items:baseline; justify-content:space-between; gap:10px; font-size:11px; font-weight:500; color:#c3d7cd; }
+.helm-pricing .portfolio-market-heading small { color:#b6ccc2; font-size:10px; font-weight:400; white-space:nowrap; }
+.helm-pricing .portfolio-market-pair { display:grid; grid-template-columns:1fr 1fr; gap:24px; margin-top:17px; }
+.helm-pricing .portfolio-market-pair > div + div { border:0; padding:0; }
+.helm-pricing .portfolio-market-pair span { display:block; font-size:10px; color:#c3d7cd; }
+.helm-pricing .portfolio-market-pair strong { display:block; font-size:27px; line-height:1; font-weight:450; letter-spacing:-.6px; margin-top:7px; }
+.helm-pricing .portfolio-market-pair > div:last-child strong { color:#c2dcf4; }
 .helm-pricing .portfolio-market-empty > span { font-size:12px; font-weight:500; }
-.helm-pricing .portfolio-market-empty p { font-size:18px; margin:14px 0 3px; color:#697570; }
-.helm-pricing .portfolio-market-empty small { font-size:11px; color:var(--pricing-muted); }
-.helm-pricing .portfolio-context { display:flex; justify-content:space-between; gap:12px; font-size:10px; color:var(--pricing-muted); padding:9px 1px 20px; }
+.helm-pricing .portfolio-market-empty p { font-size:18px; margin:14px 0 3px; color:#fff; }
+.helm-pricing .portfolio-market-empty small { font-size:11px; color:#c3d7cd; }
+.helm-pricing .portfolio-context { display:flex; justify-content:space-between; gap:12px; font-size:10px; color:#64756d; padding:10px 1px 24px; }
 .helm-pricing .portfolio-command-row { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:12px; }
 .helm-pricing .portfolio-filter-tabs { display:flex; gap:4px; white-space:nowrap; }
-.helm-pricing .portfolio-filter-tabs .rt-quiet-btn { display:flex; align-items:center; gap:7px; padding:7px 10px; border:1px solid transparent; border-radius:6px; font-size:12px; color:#75807c; }
-.helm-pricing .portfolio-filter-tabs [aria-pressed=true] { background:#fff; border-color:#dce4df; color:#1c3b2d; box-shadow:0 1px 2px #152a1e06; }
-.helm-pricing .portfolio-filter-tabs span { font-size:10px; background:#edf1ee; color:#6a7b71; border-radius:4px; padding:1px 5px; }
+.helm-pricing .portfolio-filter-tabs .rt-quiet-btn { display:flex; align-items:center; gap:7px; padding:8px 11px; border:1px solid transparent; border-radius:7px; font-size:12px; color:#53665c; }
+.helm-pricing .portfolio-filter-tabs [aria-pressed=true] { background:#e3ece6; border-color:#d0dfd4; color:#183e34; box-shadow:inset 0 1px 0 #ffffff90; }
+.helm-pricing .portfolio-filter-tabs span { font-size:10px; background:#ffffff90; color:#516a5c; border-radius:4px; padding:1px 5px; }
 .helm-pricing .pricing-portfolio-v2 .portfolio-controls { gap:8px; }
 .helm-pricing .pricing-portfolio-v2 .portfolio-search { width:220px; border-radius:6px; }
 .helm-pricing .pricing-portfolio-v2 .portfolio-search input { padding-top:8px; padding-bottom:8px; }
 .helm-pricing .pricing-portfolio-v2 .pricing-menu summary { min-height:34px; padding:7px 10px; font-size:12px; }
-.helm-pricing .pricing-portfolio-v2 .portfolio-surface { border:1px solid #dde4df; border-radius:9px; background:white; box-shadow:0 3px 12px #1a332004; }
-.helm-pricing .pricing-portfolio-v2 .portfolio-table-wrap { max-height:max(370px,calc(100dvh - 400px)); border-radius:8px 8px 0 0; scroll-padding-top:56px; }
-.helm-pricing .pricing-portfolio-v2 .portfolio-table th { height:56px; padding:10px 16px; background:#f3f5f4; color:#44564b; font-size:11px; border-bottom:1px solid #dbe3dd; }
-.helm-pricing .pricing-portfolio-v2 .portfolio-table th small { display:block; color:#818b85; font-size:10px; font-weight:400; margin-top:4px; white-space:nowrap; }
+.helm-pricing .pricing-portfolio-v2 .portfolio-surface { border:1px solid #d8e0dc; border-radius:12px; background:white; box-shadow:0 2px 3px #1a332003,0 12px 32px -18px #183e3438; }
+.helm-pricing .pricing-portfolio-v2 .portfolio-table-wrap { max-height:max(410px,calc(100dvh - 405px)); border-radius:11px 11px 0 0; scroll-padding-top:66px; }
+.helm-pricing .pricing-portfolio-v2 .portfolio-table th { height:66px; padding:13px 16px; background:#f1f5f2; color:#435b4d; font-size:10px; border-bottom:1px solid #d6e0d9; }
+.helm-pricing .pricing-portfolio-v2 .portfolio-table th small { display:block; color:#233f31; font-size:11px; font-weight:550; margin-top:4px; white-space:nowrap; }
 .helm-pricing .pricing-portfolio-v2 .portfolio-table th .rt-quiet-btn { position:relative; }
 .helm-pricing .portfolio-order { position:absolute; right:-8px; opacity:0; color:#355c46; font-size:12px; }
 .helm-pricing th:hover .portfolio-order,.helm-pricing .portfolio-order[data-active] { opacity:1; }
-.helm-pricing .pricing-portfolio-v2 .portfolio-table th[aria-sort] { color:#1e593d; background:#eaf0eb; }
-.helm-pricing .pricing-portfolio-v2 .portfolio-table td { height:50px; padding:9px 16px; font-size:13px; border-bottom-color:#edf0ee; }
-.helm-pricing .pricing-portfolio-v2 .portfolio-table tbody tr:hover > td { background:#f5f8f5; }
-.helm-pricing .pricing-portfolio-v2 .portfolio-home-link { font-size:14px; color:#283c31; font-weight:550; line-height:1.3; }
+.helm-pricing .pricing-portfolio-v2 .portfolio-table th[aria-sort] { color:#21563f; background:#e5efe7; }
+.helm-pricing .pricing-portfolio-v2 .portfolio-table td { height:58px; padding:12px 16px; font-size:13px; border-bottom-color:#eaf0eb; }
+.helm-pricing .pricing-portfolio-v2 .portfolio-table tbody tr:hover > td { background:#f0f6f2; }
+.helm-pricing .pricing-portfolio-v2 .portfolio-home-link { font-size:14px; color:#1b382b; font-weight:550; line-height:1.3; }
 .helm-pricing .pricing-portfolio-v2 .portfolio-data-note { font-size:10px; margin-top:4px; color:#8d7353; }
 .helm-pricing .portfolio-number { font-variant-numeric:tabular-nums; color:#4b5b51; }
-.helm-pricing .portfolio-occupancy-cell strong { font-size:14px; line-height:1; font-weight:500; }
+.helm-pricing .portfolio-occupancy-cell strong { font-size:14px; line-height:1; font-weight:550; display:block; }
 .helm-pricing .portfolio-number[data-column=occupancy30] { color:#204e37; }
-.helm-pricing .portfolio-number[data-column=market] { color:#6b7d9b; }
-.helm-pricing .portfolio-number[data-sorted] { background:#f8faf8; }
-.helm-pricing .portfolio-open { display:flex; justify-content:center; align-items:center; width:28px; height:28px; border-radius:5px; color:#a0ada3; }
+.helm-pricing .portfolio-number[data-column=market] { color:#547695; background:#f8fafc; border-left:1px solid #e6edf1; border-right:1px solid #e6edf1; }
+.helm-pricing .portfolio-number[data-sorted] { background:#f5f9f5; }
+.helm-pricing .portfolio-open { display:flex; justify-content:center; align-items:center; width:28px; height:28px; border-radius:50%; color:#728b7b; border:1px solid #e2eae4; background:#fafcfb; }
 .helm-pricing .portfolio-open:hover { background:#e7efe8; color:#254d3c; }
 .helm-pricing .pricing-portfolio-v2 .portfolio-table :is(th,td):last-child { padding:0 8px; }
-.helm-pricing .pricing-portfolio-v2 .portfolio-table-footer { padding:10px 16px; font-size:10px; }
+.helm-pricing .pricing-portfolio-v2 .portfolio-table-footer { padding:12px 16px; font-size:10px; background:#fafcfb; border-radius:0 0 11px 11px; }
 .helm-pricing .pricing-portfolio-v2 .portfolio-footer { margin-top:12px; padding-top:0; }
 .helm-pricing .pricing-portfolio-v2 .portfolio-method summary { font-size:10px; }
 .helm-pricing .pricing-multi-heading { margin:20px 0 16px; }
@@ -668,35 +668,46 @@ body:has(.pricing-page-shell) { background: #f8f9fa; }
 .helm-pricing .pricing-multi-home { min-height:48px; }
 .helm-pricing .pricing-multi-table .pricing-multi-night { min-height:48px; padding:7px 3px; gap:3px; }
 .helm-pricing .pricing-multi-scroll { max-height:max(360px,calc(100dvh - 285px)); }
+/* Both occupancy encodings use the same 0–100 scale. */
+.helm-pricing .portfolio-cell-meter { display:block; width:100%; max-width:64px; height:4px; margin-top:8px; border-radius:2px; background:#e7eee9; overflow:hidden; }
+.helm-pricing .portfolio-cell-meter > i { display:block; height:100%; border-radius:inherit; background:#7d9c88; }
+.helm-pricing [data-column=occupancy30] .portfolio-cell-meter > i,.helm-pricing [data-column=occupancy] .portfolio-cell-meter > i { background:#346b50; }
+.helm-pricing .portfolio-cell-meter[data-missing] { visibility:hidden; }
+.helm-pricing .portfolio-market-value { display:inline-block; min-width:44px; font-weight:500; }
+.helm-pricing .portfolio-market-pair .portfolio-comparison-meter { height:4px; margin-top:11px; border-radius:2px; background:#ffffff20; overflow:hidden; }
+.helm-pricing .portfolio-comparison-meter > i { display:block; height:100%; border-radius:inherit; background:#c6e5ae; }
+.helm-pricing .portfolio-market-pair > div:last-child .portfolio-comparison-meter > i { background:#a8cfee; }
+.helm-pricing .pricing-portfolio-v2 .portfolio-table th[data-column=market] { background:#eef3f8; color:#4c7091; border-left:1px solid #e0e8ee; border-right:1px solid #e0e8ee; }
+.helm-pricing .pricing-portfolio-v2 .portfolio-table th[data-column=market] small { color:#385c7d; }
 /* Property workspace. */
 .helm-pricing.pricing-workbench-v2 .pricing-workbench-header { padding:10px 0 22px; }
-.helm-pricing.pricing-workbench-v2 .pricing-title-select select { font-size:28px; font-weight:550; letter-spacing:-.8px; max-width:450px; color:#21382d; }
+.helm-pricing.pricing-workbench-v2 .pricing-title-select select { font-size:32px; font-weight:550; letter-spacing:-1.2px; max-width:450px; color:#17382c; }
 .helm-pricing.pricing-workbench-v2 .pricing-navigation { margin-bottom:0; }
 .helm-pricing.pricing-workbench-v2 .pricing-tab { padding:10px 0 13px; font-size:13px; }
-.helm-pricing.pricing-workbench-v2 .pricing-property-layout { display:grid; grid-template-columns:230px minmax(0,1fr); padding-top:20px; gap:24px; }
-.helm-pricing.pricing-workbench-v2 .pricing-sidebar { display:block; min-width:0; padding:20px; border:1px solid #dfe6e1; border-radius:10px; box-shadow:none; }
-.helm-pricing.pricing-workbench-v2 .pricing-configure { display:block; padding:0; border:0; background:none; }
+.helm-pricing.pricing-workbench-v2 .pricing-property-layout { display:grid; grid-template-columns:224px minmax(0,1fr); padding-top:24px; gap:24px; }
+.helm-pricing.pricing-workbench-v2 .pricing-sidebar { display:block; min-width:0; padding:0; border:0; border-radius:0; box-shadow:none; background:transparent; }
+.helm-pricing.pricing-workbench-v2 .pricing-configure { display:block; padding:22px 20px 18px; border:1px solid #234c43; border-radius:12px; background:#163c36; box-shadow:0 10px 24px -18px #163c3680,inset 0 1px 0 #ffffff12; }
 .helm-pricing.pricing-workbench-v2 .pricing-base-fields { width:100%; grid-template-columns:1fr 1fr; gap:18px 12px; }
 .helm-pricing.pricing-workbench-v2 .pricing-base-primary { grid-column:1/-1; }
 .helm-pricing.pricing-workbench-v2 .pricing-money-input { border:0; background:transparent; border-radius:0; margin-top:6px; }
 .helm-pricing.pricing-workbench-v2 .pricing-base-fields input::placeholder { font-size:12px; }
-.helm-pricing.pricing-workbench-v2 .pricing-base-fields label { font-size:11px; color:#728075; }
-.helm-pricing.pricing-workbench-v2 .pricing-base-fields input { appearance:textfield; height:38px; padding:6px 6px 6px 22px; font-size:17px; background:#f8faf8; border:1px solid #e0e7e0; border-radius:6px; color:#253f2e; }
-.helm-pricing.pricing-workbench-v2 .pricing-base-primary input { height:58px; font-size:34px; font-weight:500; letter-spacing:-1px; background:#fff; padding-left:25px; border-color:transparent; border-bottom:1px solid #dce5dd; border-radius:0; }
-.helm-pricing.pricing-workbench-v2 .pricing-base-primary input:hover,.helm-pricing.pricing-workbench-v2 .pricing-base-primary input:focus { border-color:#b8cbbb; border-radius:6px; background:#f8faf8; }
-.helm-pricing.pricing-workbench-v2 .pricing-base-primary .pricing-money-input > span { left:4px; font-size:23px; color:#87998c; }
+.helm-pricing.pricing-workbench-v2 .pricing-base-fields label { font-size:11px; color:#c3d7cd; }
+.helm-pricing.pricing-workbench-v2 .pricing-base-fields input { appearance:textfield; height:38px; padding:6px 6px 6px 22px; font-size:16px; background:#ffffff09; border:1px solid #ffffff30; border-radius:6px; color:#fff; }
+.helm-pricing.pricing-workbench-v2 .pricing-base-primary input { height:62px; font-size:40px; font-weight:450; letter-spacing:-1.5px; background:transparent; padding-left:24px; border:1px solid transparent; border-bottom-color:#ffffff24; border-radius:0; }
+.helm-pricing.pricing-workbench-v2 .pricing-base-primary input:hover,.helm-pricing.pricing-workbench-v2 .pricing-base-primary input:focus { border-color:#90b7a0; border-radius:6px; background:#ffffff09; }
+.helm-pricing.pricing-workbench-v2 .pricing-base-primary .pricing-money-input > span { left:3px; font-size:22px; color:#b2cdbb; }
 .helm-pricing.pricing-workbench-v2 .pricing-base-fields input::-webkit-inner-spin-button,.helm-pricing.pricing-workbench-v2 .pricing-base-fields input::-webkit-outer-spin-button { -webkit-appearance:none; margin:0; }
 .helm-pricing.pricing-workbench-v2 .pricing-configure-actions { margin-top:18px; gap:8px; }
-.helm-pricing.pricing-workbench-v2 .pricing-configure-actions > .rt-btn { flex:1; min-width:0; min-height:34px; font-size:12px; box-shadow:none; }
-.helm-pricing.pricing-workbench-v2 .pricing-listing-metrics { grid-row:auto; display:block; padding:22px 0 0; margin:22px 0 0; border:0; border-top:1px solid #e2e8e2; border-radius:0; background:none; }
+.helm-pricing.pricing-workbench-v2 .pricing-configure-actions > .rt-btn { flex:1; min-width:0; min-height:34px; font-size:12px; box-shadow:none; background:#ffffff0d; color:#fff; border-color:#ffffff38; }
+.helm-pricing.pricing-workbench-v2 .pricing-listing-metrics { grid-row:auto; display:block; padding:20px; margin:16px 0 0; border:1px solid #dbe4dd; border-radius:12px; background:#fff; box-shadow:0 4px 18px -12px #183e3426; }
 .helm-pricing.pricing-workbench-v2 .pricing-metrics-heading { margin-bottom:18px; }
-.helm-pricing.pricing-workbench-v2 .pricing-metrics-heading h3 { font-size:11px; margin:0; font-weight:550; }
-.helm-pricing.pricing-workbench-v2 .pricing-listing-metric { margin-top:19px; display:grid; grid-template-columns:65px minmax(0,1fr); gap:12px; }
+.helm-pricing.pricing-workbench-v2 .pricing-metrics-heading h3 { font-size:12px; margin:0; font-weight:550; color:#294a37; }
+.helm-pricing.pricing-workbench-v2 .pricing-listing-metric { margin-top:20px; display:grid; grid-template-columns:60px minmax(0,1fr); gap:10px; }
 .helm-pricing.pricing-workbench-v2 .pricing-listing-metric > span { font-size:10px; white-space:nowrap; }
 .helm-pricing .pricing-occupancy-compact { min-width:48px; }
 .helm-pricing .pricing-occupancy-compact .pricing-occupancy-labels { display:none; }
 .helm-pricing .pricing-occupancy-compact[data-market] .pricing-occupancy-labels { display:none; font-size:9px; margin-bottom:5px; }
-.helm-pricing .pricing-metrics-columns { display:flex; justify-content:space-between; margin:16px 0 -6px 77px; font-size:9px; color:#75807c; }
+.helm-pricing .pricing-metrics-columns { display:flex; justify-content:space-between; margin:16px 0 -6px 70px; font-size:9px; color:#64766a; }
 .helm-pricing .pricing-occupancy-compact .pricing-occupancy-values { margin:0; font-size:18px; line-height:1; }
 .helm-pricing .pricing-occupancy-compact .pricing-occupancy-track { margin-top:7px; height:3px; }
 .helm-pricing .pricing-market-availability { display:block; font-size:10px; color:var(--pricing-muted); margin-top:16px; }
@@ -706,20 +717,20 @@ body:has(.pricing-page-shell) { background: #f8f9fa; }
 .helm-pricing.pricing-workbench-v2 .pricing-draft-toolbar > .pricing-view-switch { border:0; background:#e9eeea; padding:3px; border-radius:6px; }
 .helm-pricing.pricing-workbench-v2 .pricing-draft-toolbar > .pricing-view-switch .rt-quiet-btn { height:28px; padding:5px 10px; font-size:11px; border-radius:4px; }
 .helm-pricing.pricing-workbench-v2 .pricing-draft-toolbar > .pricing-view-switch [aria-pressed=true] { background:#fff; color:#254d36; box-shadow:0 1px 3px #18321b12; }
-.helm-pricing.pricing-workbench-v2 .pricing-calendar { padding:20px; border-radius:10px; box-shadow:0 3px 12px #1a332004; }
+.helm-pricing.pricing-workbench-v2 .pricing-calendar { padding:22px; border:1px solid #d8e2da; border-radius:14px; box-shadow:0 2px 3px #1a332003,0 12px 32px -18px #183e3438; }
 .helm-pricing.pricing-workbench-v2 .pricing-calendar-toolbar { margin-bottom:20px; }
-.helm-pricing.pricing-workbench-v2 .pricing-month-control select { font-size:19px; color:#293d30; }
-.helm-pricing.pricing-workbench-v2 .pricing-month-grid { border-color:#e2e7e2; border-radius:6px; }
-.helm-pricing.pricing-workbench-v2 .pricing-days { background:#e5eae5; }
-.helm-pricing.pricing-workbench-v2 .pricing-days > * { min-height:100px; }
-.helm-pricing.pricing-workbench-v2 .pricing-day { padding:11px 13px; }
-.helm-pricing.pricing-workbench-v2 .pricing-day-rate { font-size:clamp(16px,2.6cqi,23px); padding-top:16px; font-weight:450; color:#304333; }
-.helm-pricing.pricing-workbench-v2 .pricing-day-state { gap:6px; font-size:10px; color:#637569; font-weight:400; }
+.helm-pricing.pricing-workbench-v2 .pricing-month-control select { font-size:20px; font-weight:550; letter-spacing:-.5px; color:#203e2c; }
+.helm-pricing.pricing-workbench-v2 .pricing-month-grid { border-color:#dbe4dc; border-radius:8px; }
+.helm-pricing.pricing-workbench-v2 .pricing-days { background:#e0e8e1; }
+.helm-pricing.pricing-workbench-v2 .pricing-days > * { min-height:112px; }
+.helm-pricing.pricing-workbench-v2 .pricing-day { padding:12px; }
+.helm-pricing.pricing-workbench-v2 .pricing-day-rate { font-size:clamp(18px,3cqi,25px); padding-top:20px; font-weight:500; letter-spacing:-.7px; color:#294632; }
+.helm-pricing.pricing-workbench-v2 .pricing-day-state { gap:5px; font-size:10px; color:#44634f; font-weight:500; border-radius:3px; }
 .helm-pricing.pricing-workbench-v2 .pricing-booked-mark { width:4px; height:4px; border-radius:50%; background:#849d85; }
-.helm-pricing.pricing-workbench-v2 .pricing-day[data-status=booked] { background:#eef3ed; }
+.helm-pricing.pricing-workbench-v2 .pricing-day[data-status=booked] { background:#e4eee6; box-shadow:inset 0 -3px 0 #8aaf96; }
 .helm-pricing.pricing-workbench-v2 .pricing-day[data-status=blocked] { background:repeating-linear-gradient(-45deg,#f9faf9,#f9faf9 5px,#eef1ee 5px,#eef1ee 6px); }
-.helm-pricing.pricing-workbench-v2 .pricing-weekdays { background:#fafbf9; }
-.helm-pricing.pricing-workbench-v2 .pricing-weekdays span { padding:9px 12px; font-size:10px; }
+.helm-pricing.pricing-workbench-v2 .pricing-weekdays { background:#f1f5f1; color:#4e6856; }
+.helm-pricing.pricing-workbench-v2 .pricing-weekdays span { padding:11px 12px; font-size:10px; font-weight:550; }
 .helm-pricing.pricing-workbench-v2 .pricing-calendar-caption { padding-top:13px; }
 .helm-pricing.pricing-workbench-v2 .pricing-rate-unit { margin-top:9px; font-size:10px; }
 @container pricing (max-width:850px) {
@@ -785,6 +796,40 @@ body:has(.pricing-page-shell) { background: #f8f9fa; }
  .helm-pricing.pricing-workbench-v2 .pricing-day-rate[data-long] { font-size:12px; }
  .helm-pricing.pricing-workbench-v2 .pricing-day-state { gap:3px; font-size:8px; }
  .helm-pricing.pricing-workbench-v2 .pricing-day-state svg { width:9px; }
+}
+
+/* Price controls and occupancy are separate surfaces. */
+.helm-pricing.pricing-workbench-v2 .pricing-configure input::placeholder { color:#b3c9bd; opacity:1; }
+.helm-pricing.pricing-workbench-v2 .pricing-configure .pricing-money-input > span { color:#b3c9bd; }
+.helm-pricing.pricing-workbench-v2 .pricing-configure :focus-visible { outline-color:#c6e5ae; }
+.helm-pricing.pricing-workbench-v2 .pricing-configure-actions > .rt-btn:disabled { opacity:1; color:#a8beb1; border-color:#ffffff15; background:transparent; }
+.helm-pricing.pricing-workbench-v2 .pricing-configure-actions > .rt-btn:hover:not(:disabled) { background:#ffffff20; }
+.helm-pricing.pricing-workbench-v2 .pricing-configure-actions > .rt-btn--primary { background:#c6e5ae; color:#183e34; border-color:#c6e5ae; }
+.helm-pricing.pricing-workbench-v2 .pricing-configure-actions > .rt-btn--primary:hover:not(:disabled) { background:#d6edc5; }
+.helm-pricing.pricing-workbench-v2 .pricing-minimum-summary { display:grid; width:100%; margin-top:12px; padding:15px 18px; border:1px solid #dbe4dd; border-radius:10px; background:#fff; box-shadow:0 4px 16px -12px #183e3426; }
+.helm-pricing.pricing-workbench-v2 .pricing-minimum-summary:hover { border-color:#91b59d; }
+.helm-pricing.pricing-workbench-v2 .pricing-occupancy-values b:last-child:not(:first-child) { color:#547695; }
+.helm-pricing.pricing-workbench-v2 .pricing-occupancy-track > span { background:#547695; }
+.helm-pricing.pricing-workbench-v2 .pricing-day[data-weekend][data-status=ready] { background:#f9fbf6; }
+.helm-pricing.pricing-workbench-v2 .pricing-day:hover:not(:disabled),.helm-pricing.pricing-workbench-v2 .pricing-day[aria-pressed=true] { box-shadow:inset 0 0 0 2px #4c8460; background:#f0f7e9; }
+@container pricing (max-width:850px) {
+ .helm-pricing.pricing-workbench-v2 .pricing-sidebar { padding:0; }
+ .helm-pricing .portfolio-summary-nights { min-width:160px; padding-left:18px; }
+ .helm-pricing .portfolio-summary-market { padding:22px; }
+}
+@container pricing (max-width:650px) {
+ .helm-pricing .pricing-portfolio-v2 { --portfolio-listing-width:164px; }
+ .helm-pricing .pricing-day-state { font-size:8px; }
+ .helm-pricing .pricing-day-state > :is(svg,i) { display:none; }
+ .helm-pricing .portfolio-summary-strip { gap:0; }
+ .helm-pricing .portfolio-summary-market { border-left:0; border-top:1px solid #ffffff24; padding:18px 20px; }
+ .helm-pricing .portfolio-market-pair { min-width:160px; }
+ .helm-pricing.pricing-workbench-v2 .pricing-sidebar { display:block; padding:0; }
+ .helm-pricing.pricing-workbench-v2 .pricing-configure { padding:18px; }
+ .helm-pricing.pricing-workbench-v2 .pricing-listing-metrics { padding:16px; margin-top:12px; }
+ .helm-pricing.pricing-workbench-v2 .pricing-base-primary input { height:38px; font-size:24px; padding-left:20px; }
+ .helm-pricing.pricing-workbench-v2 .pricing-minimum-summary { margin-top:12px; }
+ .helm-pricing.pricing-workbench-v2 .pricing-day-rate { font-size:17px; letter-spacing:-.5px; }
 }
 
 /* Compact source settings and portfolio import. */
