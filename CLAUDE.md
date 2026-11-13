@@ -68,7 +68,7 @@ supabase/migrations/   302 migrations
 scripts/               parity harnesses and one-off tools (see Testing below)
 ```
 
-**41 cron routes, 40 schedules, and that is correct.** `/api/cron/reviews-to-slips` is a manual
+**42 cron routes, 41 schedules, and that is correct.** `/api/cron/reviews-to-slips` is a manual
 and backfill trigger on purpose; the recurring work runs at the end of `/api/cron/sync-guesty`.
 Do not "fix" it by adding a schedule.
 `/api/cron/pricing-market` checks every six hours at :17 UTC, refreshing imported
@@ -83,6 +83,11 @@ only when the production capture gate is enabled; it never publishes rates.
 `/api/cron/channex-production` checks the disabled production Channex configuration
 every 15 minutes. It does not ingest or acknowledge bookings, publish availability,
 change Guesty authority or send messages. See `docs/operations/channex-production-calderwood.md`.
+`/api/cron/channex-messages` runs every minute but defaults off, returning before
+any database/provider access. Explicit production enrollment permits at most four
+reviewed retained Calderwood stays, one scheduling/dispatch action and one independent
+receipt check per stay/tick. It does not create source handover evidence or activate
+the property. This is separate from the existing inspection-only health cron.
 `/api/cron/weekly-brief` is the Tuesday brief (since 2026-11-09): a printable PDF emailed to
 whoever holds the `weekly_brief` duty in `team.ts` (Ryan and Dotti). Page one is Delaney's three goals (the
 home band's own read) and the check-ins for Tuesday through Monday by day; page two is what guests

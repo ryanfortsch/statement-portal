@@ -35,8 +35,8 @@ function renderCurrent(job: ChannexJob, loaded: Snapshot, at: number) {
   return { text: rendered.text, contextRevision: job.contextRevision };
 }
 
-/** ONE explicitly identified retained-stay job. Default off, no HTTP/cron/env
- * caller. Double provider reads and current rendering run before transport and
+/** ONE explicitly identified retained-stay job. Default off; pilot-runtime is the
+ * bounded caller. Double provider reads and current rendering run before transport and
  * again immediately before the SQL one-use claim. No automatic provider retry.
  * Unknown outcomes stay in the durable ledger; accepted does not mean delivered.
  */

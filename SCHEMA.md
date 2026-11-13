@@ -750,8 +750,9 @@ runs itself.
   scope, matching handover evidence, Helm authority, an active property-specific
   guest rule and unchanged canonical booking/context/mapping. Prior workflow
   history blocks registration. Captured `migration_policy` rules remain refused.
-  The server adapter is disabled by default and has no runtime caller. Its four
-  guest workflow keys exclude cleaner SMS; future callers must independently
+  The server adapter is disabled by default. The explicitly enrolled retained-
+  stay cron caller still requires the existing scope and release. Its four
+  guest workflow keys exclude cleaner SMS; callers must independently
   establish authoritative timing/body/thread provenance. SQL bounds timestamps
   but does not certify a supplied fire time against Guesty's source clocks. See
   the Channex production operations document for remaining handoff requirements.
@@ -792,7 +793,13 @@ runs itself.
   duplicate descendant. Its render inputs include private credentials and must
   stay server-side. The TypeScript reader remains default-off. The bounded retained-
   stay runtime joins it to an explicit immutable template capture and fresh provider
-  checks; owner release review, dispatcher integration and live activation remain separate.
+  checks; owner release review and live activation remain separate. The default-off
+  `/api/cron/channex-messages` caller enrolls at most four exact retained stays via
+  server configuration. It reads deterministic job IDs and these complete inputs,
+  registers future jobs or dispatches one due job per stay, and independently
+  reconciles one accepted receipt. Receipt reconciliation can finish after a
+  cancellation; it never retries unknown sends. See the production operations
+  document for activation gates and credential requirements.
   These reads create no activation, jobs or sends.
   Scoped message history now serializes on the canonical booking, including
   indirect duplicate descendants. Registration and claim refuse descendant or
@@ -820,7 +827,8 @@ runs itself.
   are permanently excluded from the generic scheduler (including fleet/replacement
   rows); generic maintenance cannot cancel, retime or claim Channex jobs. Canonical
   cancellation, property disable and the job's own claim/receipt transitions still
-  work. The default-off release adapter has no route/cron caller. Installing the
+  work. The owner-only template workflow exposes archive/review/release separately;
+  the message cron never invokes a release. Installing the
   migration creates no release/capture, enables no rule, and sends no message.
 - **`guest_threads`**: one thread per stay per channel (`sms`, `email`,
   `airbnb`, `vrbo`, `booking_com`, `direct`), keyed to `booking_id`,
