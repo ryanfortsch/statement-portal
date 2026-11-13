@@ -62,6 +62,7 @@ function row(over: Partial<BookingRequestRow> = {}): BookingRequestRow {
     respond_by: respondByFor(NOW),
     host_told_at: null,
     host_told_by: null,
+    host_emailed_at: null,
     decided_at: null,
     decided_by: null,
     decline_reason: null,

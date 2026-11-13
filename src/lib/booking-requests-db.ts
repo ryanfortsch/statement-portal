@@ -22,7 +22,8 @@
  *                          (src/lib/partner-payments-db.ts). Only a request
  *                          carrying a card hold can be accepted.
  *   sweepBookingRequests   the hourly cron: closes requests whose clock ran
- *                          out and retries any guest email that failed.
+ *                          out and retries any guest or host email that
+ *                          failed.
  *
  * Money: a home whose host's Stripe can take charges must send a hold with
  * every request, and the hold must be the stay's total and our fee to the
@@ -36,6 +37,7 @@ import { isListedPartner } from '@/lib/partner-listed';
 import { listPartnerFeeds, syncPartnerFeeds } from '@/lib/partner-calendar-db';
 import { staleFeedsBlockAccept } from '@/lib/partner-calendar';
 import { sendRequestOutcome, sendRequestReceipt } from '@/lib/booking-request-email';
+import { emailHostAboutRequest } from '@/lib/partner-host-email';
 import { getPaymentAccount, retryConfirmations } from '@/lib/partner-payments-db';
 import { holdMismatch, holdsAccepted, partnerFeeCents, paymentsReady } from '@/lib/partner-payments';
 import {
@@ -194,6 +196,8 @@ export async function createBookingRequest(raw: unknown, opts: { now?: Date } = 
   } catch (err) {
     console.warn('[booking-requests] receipt email failed:', err instanceof Error ? err.message : String(err));
   }
+  // The host hears at once; the sweep retries a send that failed.
+  if (await emailHostAboutRequest(row)) row.host_emailed_at = new Date().toISOString();
 
   return { ok: true, created: true, request: row };
 }
@@ -416,7 +420,7 @@ export async function markHostTold(id: string, by: string, now: Date = new Date(
 
 // ─── The cron ───────────────────────────────────────────────────────────────
 
-export type SweepResult = { ok: true; expired: number; outcomeEmails: number; receipts: number; confirmations: number } | { ok: false; reason: string };
+export type SweepResult = { ok: true; expired: number; outcomeEmails: number; receipts: number; hostEmails: number; confirmations: number } | { ok: false; reason: string };
 
 /**
  * Close every request whose clock ran out, email those guests, and retry the
@@ -483,7 +487,19 @@ export async function sweepBookingRequests(now: Date = new Date()): Promise<Swee
     }
   }
 
+  const { data: unannounced } = await supabaseAdmin
+    .from(TABLE)
+    .select(BOOKING_REQUEST_COLS)
+    .eq('status', 'pending')
+    .is('host_emailed_at', null)
+    .gt('respond_by', nowIso)
+    .limit(100);
+  let hostEmails = 0;
+  for (const row of (unannounced ?? []) as BookingRequestRow[]) {
+    if (await emailHostAboutRequest(row)) hostEmails++;
+  }
+
   const confirmations = await retryConfirmations(now);
 
-  return { ok: true, expired, outcomeEmails, receipts, confirmations };
+  return { ok: true, expired, outcomeEmails, receipts, hostEmails, confirmations };
 }

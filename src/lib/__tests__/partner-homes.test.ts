@@ -114,6 +114,10 @@ test('the negative-kind check catches what it bans and allows the guard', () => 
 const PARTNER_OPT_IN: Record<string, string> = {
   'src/lib/pms-bridge.ts':
     'the staycapeann.com fleet list, only when the caller passes include=partner; the create path refuses partner homes (partner_not_bookable)',
+  'src/lib/partner-host-db.ts':
+    "a host's sign-in and their requests on staycapeann.com: reads partner homes only, to match the host's email to their own homes",
+  'src/lib/partner-host-email.ts':
+    'tells a partner home\'s host a request landed: reads that one partner home, so only a partner home ever emails a host',
 };
 
 const OPT_IN = /kind\.in\.\([^)]*partner|kind\.eq\.(partner\b|\$\{PARTNER_KIND\})|\.in\(\s*['"]kind['"]\s*,\s*\[[^\]]*['"]partner['"]|kinds\s*:\s*\[[^\]]*['"]partner['"]|\.eq\(\s*['"]kind['"]\s*,\s*(['"]partner['"]|PARTNER_KIND)/;

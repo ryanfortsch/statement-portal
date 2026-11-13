@@ -314,6 +314,10 @@ describe('the guards across files', () => {
     'src/app/api/pms/requests/route.ts',
     'src/app/api/pms/requests/settle/route.ts',
     'src/app/api/pms/quote/route.ts',
+    'src/lib/partner-host.ts',
+    'src/lib/partner-host-db.ts',
+    'src/lib/partner-host-email.ts',
+    ...sources('src/app/api/pms/host'),
     ...sources('src/app/guests/requests'),
   ];
 
