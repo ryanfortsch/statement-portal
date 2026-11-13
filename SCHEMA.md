@@ -835,8 +835,13 @@ runs itself.
   The cleaner path has separate private `cleaner_releases`, `cleaner_jobs` and
   `cleaner_hold_events`. A release binds the immutable original cleaner rules,
   one phone-keyed English Calderwood-only recipient revision, HMAC key/target and
-  separate source cleaner-queue clearance. No enrollment writer or release row
-  ships in the installation. `helm_channex_cleaner_register` reserves the canonical
+  separate source cleaner-queue clearance. The service-only
+  `helm_channex_cleaner_enrollment_snapshot` reader and explicit owner-only
+  `helm_channex_cleaner_enroll` writer review and record that enrollment. The
+  writer requires fresh matching recipient/template context, an existing enabled
+  handover scope and separately retained cleaner source-clearance evidence.
+  Exact request/actor retries return the immutable receipt; conflicting enrollment
+  cannot replace it. Installation creates no release row. `helm_channex_cleaner_register` reserves the canonical
   `automation_sends` row and private job atomically against an existing timing
   binding. SQL independently derives the two cleaner fire times, refusing DST
   ambiguity and a late window over 30 minutes. Identical registration retries
@@ -852,9 +857,16 @@ runs itself.
   A later cancellation/revocation does not prevent receipt reconciliation.
   Generic schedulers cannot mutate/reserve these jobs; existing canonical
   cancellation and property disable still work. Original cleaner rules stay
-  frozen/disabled. The default-off TypeScript adapter has no production caller,
-  credential loader or cron activation. Installation creates no schedules,
-  enrollment, queue-clearance evidence or messages.
+  frozen/disabled. The independent default-off `/api/cron/channex-cleaners`
+  caller accepts at most four explicitly reviewed retained stays. It checks fresh
+  provider clocks before atomic registration or dispatch, keeps deterministic
+  identities across lost responses, and never catches up past or uncertain sends.
+  A separate `receipts-only` mode reconciles accepted deliveries even after
+  cancellation/revocation and needs no Guesty/Channex credential. Runtime output
+  contains only bounded status/counters. The owner page is under
+  `/channels/65_calderwood/message-preparation/cleaners` and receives no phone,
+  portal token, body or secret. Installation and default-off cron runs create no
+  schedules, enrollment, queue-clearance evidence or messages.
 - **`guest_threads`**: one thread per stay per channel (`sms`, `email`,
   `airbnb`, `vrbo`, `booking_com`, `direct`), keyed to `booking_id`,
   `guest_id` and `property_id`, with `external_thread_key` (E.164 for

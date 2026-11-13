@@ -1706,8 +1706,9 @@ No live messages are sent by these tests.
 `cleaner-sms-transport.ts` and `cleaner-sms-worker.ts` implement the isolated
 Calderwood cleaner delivery boundary. Both default off. The service-only
 `cleaner-sms-store.ts` adapter and `20261113090000_channex_cleaner_schedule.sql`
-add atomic saved schedules, claims, holds and receipts. They have no environment
-loader, production caller or cron activation. App deployment cannot send SMS.
+add atomic saved schedules, claims, holds and receipts. The cleaner runtime now
+connects them to explicit owner enrollment and a separately gated minute cron.
+The mode defaults off; deployment with the mode absent cannot send SMS.
 The migration needs separate production approval and verification; neither its
 presence in source nor a green preview proves it is installed or activated.
 
@@ -1739,16 +1740,19 @@ remains unknown; neither uncertainty nor an explicit rejection returns a job to
 prepared. An accepted receipt can be checked after the current portal link is
 revoked, without re-rendering or re-sending. Older observations and status
 regressions are refused. Arrival wording remains tied to the 4 PM source check-in,
-not the 3 PM cleaner-ready deadline. Missing original booking confirmation does
-not block these independent cleaner clocks; a DST disagreement still does.
+not the 3 PM cleaner-ready deadline. The standalone cleaner renderer does not
+need a confirmation timestamp; the retained-stay runtime still requires the
+complete reviewed source binding. A DST disagreement blocks the affected clock.
 
 The database adapter uses the existing phone-keyed recipient table, including
 its supported 16- and 32-character portal tokens. It does not invent recipient
 UUIDs, create portal access or turn on daily digests. A private immutable release
 binds a reviewed recipient revision, HMAC target/key, original template archive
 and cleaner-specific source stop/drain evidence. The guest workflow's evidence
-alone is insufficient. There is no enrollment writer in this batch; do not use
-the synthetic fixture as a production handover script.
+alone is insufficient. The new service-only enrollment writer records an explicit
+owner assertion; it cannot manufacture external queue proof, create the channel
+scope, stop Guesty or activate automation. Do not use the synthetic fixture as a
+production handover script.
 
 Registration reserves the canonical ledger and private cleaner job together.
 It rejects missing source evidence, stale booking/timing/template/recipient
@@ -1761,8 +1765,8 @@ No response replay can issue another permit. Generic scheduler writes remain
 fenced, while canonical cancellation/property disable can cancel the scheduled
 row. The two original cleaner templates remain frozen and disabled throughout.
 
-Only the five service RPCs expose metadata/read, registration, claim, finish and
-hold operations. Private tables have RLS and no direct client/service grants.
+Seven service-only RPCs expose enrollment review/write, job read, registration,
+claim, finish and hold operations. Private tables have RLS and no direct client/service grants.
 Raw phone, token and body are not stored in the new job ledger. A canonical
 `automation_sends.status='sent'` means provider acceptance, not verified delivery;
 the private state/status records the distinction, including undelivered results.
@@ -1779,14 +1783,71 @@ synthetic reminder clock instead of rewriting claim predicates. During the
 10-day DST conflict window it explicitly reports the due-dispatch case unavailable
 and verifies refusal; it never forces a send across that business restriction.
 
-Before connecting the caller, finish the bounded explicit cleaner enrollment and
-fresh provider/input review. SQL checks retained database evidence, not current
-provider clocks or external queue emptiness. Keep receipt reconciliation available
-independently of dispatch. Future recipient/key changes need a reviewed release
-transition; do not edit the immutable receipt or reset old jobs.
+### Enrollment and bounded runtime
 
-Remaining launch gates are that caller/enrollment integration and Guesty's queue
-answer; verified new-Airbnb-booking confirmation ownership/timing; and the
-reviewed channel/inventory/PriceLabs handover followed by a controlled live pilot.
-Guesty remains the live sender. This batch creates no schedules, releases or
-recipients, shares no cleaner link and changes no source automations.
+`20261113160000_channex_cleaner_enrollment.sql` adds only the private snapshot
+reader and explicit enrollment function. Installation adds no rows, jobs, sends,
+template activation or source changes. The owner template-archive page links to
+`/channels/65_calderwood/message-preparation/cleaners` with an exact capture ID
+and digest. Same-origin owner POSTs keep the phone, portal token and template body
+server-side. The owner reviews the current recipient/template fingerprints and
+provides the retained cleaner source-clearance evidence reference and actual UTC
+stop/drain times. A stable request ID is saved before submission; uncertain
+responses reuse the exact request instead of replacing its identity. A recorded
+receipt cannot be edited or replaced by this workflow.
+
+The enrollment requires existing Helm calendar authority and an enabled, proven
+channel scope, but it does not require or enable property automation. It rechecks
+recipient/template context before a locked write. SQL independently checks the
+recipient revision, original rules, route generation, actor and ordered evidence
+timestamps. This proves configuration consistency, not external queue emptiness.
+An unavailable Guesty queue remains unresolved, never implicitly cleared.
+
+`/api/cron/channex-cleaners` is scheduled each minute but defaults off before any
+provider, credential-cache or database read. Its independent configuration is:
+
+- `HELM_CHANNEX_CLEANER_MODE`: absent/`off`, `retained-pilot-v1`, or `receipts-only`.
+- `HELM_CHANNEX_CLEANER_MANIFEST`: strict JSON `{format:1,stays:[...]}`, at most
+  four distinct existing stays. Each item contains `bookingId`, `bindingId`,
+  `templateCaptureId`, `templateDigest` and the same immutable cleaner `releaseId`.
+- `HELM_CHANNEX_CLEANER_RECEIPT_KEY`: dedicated durable 32-byte hex HMAC secret;
+  `HELM_CHANNEX_CLEANER_KEY_ID`: its stable version identifier. Keep the original
+  key available for all pending receipts; never rotate it per request.
+- Exact production Vercel/STATEMENTS gates, `CRON_SECRET`, server Supabase service
+  credential and `QUO_API_KEY`. Dispatch additionally requires the Channex production
+  API key and a cached Guesty token valid for at least two more minutes. There is
+  no OAuth refresh in this worker. Receipt-only mode needs no source credentials.
+
+An authorized tick reads the original jobs and complete canonical history. Idle
+stays make no provider requests. Future schedules and due sends freshly compare
+Guesty and Channex clocks/identity, original templates, recipient and route context.
+Each stay has a 135-second budget, at most 25 provider GETs and one Quo POST. The
+claim retains its stricter freshness limits; slow provider checks can safely block
+a send and require attention. One due workflow takes priority; both future cleaner
+workflows can be registered in the same tick. Deterministic IDs recover committed
+registrations after lost responses. The runtime never captures evidence, enrolls
+a recipient, releases a template, replaces jobs or retries unknown sends.
+
+Receipt reconciliation runs independently of dispatch eligibility. Use
+`receipts-only` to pause new work while still tracking accepted deliveries.
+`off` stops all work including reconciliation. Neither mode can revoke a POST
+already accepted by Quo. Cron failures return 503 with bounded status/counters;
+monitor those failures and investigate `review_required`/`unavailable`/`uncertain`.
+Do not use a retry to bypass a changed recipient, hold, timing mismatch or expired
+30-minute window. No live configuration is enabled by installation.
+
+The database integration now uses the real enrollment RPC (including competing
+requests, exact replay, conflict and permissions), the complete runtime with real
+SQL registration/claims, and a fake provider. It verifies lost registration replies,
+concurrent ticks producing one POST, and receipt-only recovery after cancellation.
+The browser smoke renders the actual owner panel and confirmation dialog, checks
+source/configuration gates, cancellation, exact request reuse after response loss,
+and desktop/mobile layout; external requests are blocked.
+
+Remaining launch gates are Guesty's cleaner queue/dispatch answer; verified
+new-Airbnb-booking confirmation ownership/timing; reviewed channel/inventory/PriceLabs
+handover; explicit enrollment and sender activation; and a controlled live pilot.
+This runtime intentionally covers existing reviewed stays, not automatic admission
+of new bookings. Future recipient/key changes need a reviewed transition; do not
+edit the immutable receipt or reset old jobs. Guesty remains the live sender until
+that separate handover is completed.
