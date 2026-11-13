@@ -773,6 +773,11 @@ mint them and both run through `src/lib/payment-links.ts`:
   what for and how much (pre-tax; occupancy tax is added per `src/lib/addon-tax.ts`), and Helm
   mints the link and texts it from the GUESTS line (`quoFromNumber('guests')`). Typing "make a
   payment link" into the Send composer does NOT do this: the composer sends that text to the guest.
+  A stay change charged here (late checkout, early check-in or arrival, extra night) reaches the
+  concierge through the bridge's `?panel_links=1` (`listPanelLinks`, since 2026-11-13), so once paid
+  it runs the same sweep as the concierge's own links: nights blocked, Guesty's checkout notice
+  held, the corrected notice queued, the slip filed. The label is free text and is how the
+  concierge tells a stay change, so name it plainly ("Late checkout 1 PM", "2 extra nights").
 
 `payment_link_requests` is the ledger for both doors. `/api/cron/payment-links` (every 15 minutes)
 and the bridge's `?status_key=` lookup stamp `paid_at` from the link's Stripe checkout sessions (a
