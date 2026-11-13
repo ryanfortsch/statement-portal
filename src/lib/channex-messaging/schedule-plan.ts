@@ -1,7 +1,7 @@
 import 'server-only';
 import { z } from 'zod';
 import { preparedRulePolicy, type PreparationRule } from './preparation-rules.ts';
-import { reviewCalderwoodTiming, type SourceClocks } from './preparation-timing.ts';
+import { calderwoodTimeWordingNeedsReview, reviewCalderwoodTiming, type SourceClocks } from './preparation-timing.ts';
 
 // No bodies, destinations, credentials, error text or approval notes are read.
 export const MESSAGE_SCHEDULE_LEDGER_FIELDS = 'id,booking_id,property_id,automation_id,automation_key,fire_at,status,planned_check_in,planned_check_out,sent_at,provider_message_id';
@@ -24,13 +24,14 @@ export function parseScheduleLedger(value: unknown): ScheduleLedgerRow[] {
 }
 
 export type ScheduleState = 'future_candidate' | 'past_not_replayed' | 'template_review'
-  | 'timing_review' | 'dst_review' | 'stay_inactive' | 'already_sent' | 'delivery_uncertain'
+  | 'timing_review' | 'wording_review' | 'dst_review' | 'stay_inactive' | 'already_sent' | 'delivery_uncertain'
   | 'history_conflict' | 'held' | 'existing_schedule' | 'schedule_changed';
 export const SCHEDULE_STATE_LABELS: Record<ScheduleState, string> = {
   future_candidate: 'Future time calculated · not queued',
   past_not_replayed: 'Past or due · never added as a new send',
   template_review: 'Prepared template needs review',
   timing_review: 'Source time needs verification',
+  wording_review: 'Message wording conflicts with the stay time · review required',
   dst_review: 'Daylight-saving time needs verification',
   stay_inactive: 'Stay cancelled or superseded · no new send',
   already_sent: 'Already recorded as sent · never recreated',
@@ -72,6 +73,7 @@ export function planCalderwoodSchedule(input: {
     else if (!rule || !preparedRulePolicy(rule, now)) state = 'template_review';
     else if (t.status === 'dst_review') state = 'dst_review';
     else if (!t.at) state = 'timing_review';
+    else if (calderwoodTimeWordingNeedsReview(t.key, stay.clocks)) state = 'wording_review';
     else if (existing) state = existing.planned_check_in === stay.clocks.start && existing.planned_check_out === stay.clocks.end
       && Date.parse(existing.fire_at) === Date.parse(t.at) ? 'existing_schedule' : 'schedule_changed';
     else state = t.status === 'future' ? 'future_candidate' : 'past_not_replayed';

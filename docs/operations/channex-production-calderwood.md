@@ -1851,3 +1851,45 @@ This runtime intentionally covers existing reviewed stays, not automatic admissi
 of new bookings. Future recipient/key changes need a reviewed transition; do not
 edit the immutable receipt or reset old jobs. Guesty remains the live sender until
 that separate handover is completed.
+
+### November 13 deployment and lifecycle rehearsal
+
+PR #2284's inactive application code was merged at `551149774607e024220afb8f82b3d1f471e078e3`
+and production deployment `dpl_GVLxb2A7LhBbxdLbj5zoueZ7z1dv` reached READY with
+the `helm.risingtidestr.com` alias. The owner cleaner screen rendered in production;
+anonymous cron GET and enrollment POST returned 401, and cron HEAD returned 405.
+The cleaner mode, manifest and receipt-key configuration were absent. The worker
+returns disabled before database/provider access in that state. The enrollment
+migration still awaits its separate action-time approval; this app deployment is
+not evidence that the functions are installed, enrollment exists or sending is active.
+
+The new-booking rehearsal found a gap in the guest execution path: the preview
+flagged fixed arrival/departure wording conflicts, but a fully verified early-arrival
+or late-departure override could still schedule and attempt that unchanged text.
+The shared planner now returns `wording_review` before registration or dispatch
+eligibility. Preview, cleaner rendering and planning use one fixed-wording rule.
+Both guest execution gates consume that planner, including an old scheduled job.
+Cleaner idle ticks retain an actionable warning. Sent/uncertain/held history is
+preserved; a wording conflict does not recreate or reset a job. The normal 16:00
+arrival and 11:00 departure policies, including the 15:00 key-code trigger, are unchanged.
+
+Run the local acceptance rehearsal without credentials:
+
+```sh
+node --import ./scripts/server-only-test-hook.mjs scripts/test-channex-new-bookings.mts
+```
+
+It runs 15 synthetic scenarios through the actual provider normalizer, scheduler
+and retained-stay runtime: unsupported confirmation evidence, imported/unknown
+origin, missing overrides, both DST transitions, last-minute stays, fixed-wording
+conflicts, date changes, cancellations, duplicates, holds and a provider response
+lost after acceptance. Fake stores/providers are injected; global network fetch
+is disabled. Separate execution regressions reproduce the original wording bug
+and verify that no registration/claim/POST occurs for the affected workflows.
+
+This validates refusal and replay behavior, not live Airbnb compatibility. The
+report explicitly marks new-booking admission, native Airbnb verification and
+cutover readiness false. New stays still need an authoritative clock policy and
+reviewed admission path. An empty Channex history never proves a native reply was
+unsent. Native confirmation testing, Guesty dispatch clearance and the controlled
+live handover remain necessary; this rehearsal grants no sender ownership.

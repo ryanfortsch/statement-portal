@@ -96,6 +96,22 @@ test('missing, masked or unresolved render inputs never create a key-code job', 
     assert.equal(r.outcomes[2].state, 'render_review'); assert.equal(h.writes.some(p => p.key === 'checkin_day'), false);
   }
 });
+test('verified early arrival and late departure do not schedule contradictory frozen wording', async () => {
+  for (const [override, blocked] of [
+    [{ plannedArrival: '13:00' }, ['booking_confirmed', 'pre_arrival']],
+    [{ plannedDeparture: '13:00' }, ['pre_arrival', 'pre_checkout']],
+    [{ plannedArrival: '13:00', plannedDeparture: '13:00' }, ['booking_confirmed', 'pre_arrival', 'pre_checkout']],
+  ] as const) {
+    const h = harness(); Object.assign(h.snapshot.clocks, override);
+    // Independently verified clocks may still contradict literal times in the text.
+    h.snapshot.timingEvidence = syntheticTimingEvidence(h.snapshot, h.context, instant);
+    const result = await run(id(1), h.deps, options);
+    assert.equal(result.state, 'complete');
+    assert.deepEqual(result.outcomes.filter(o => o.state === 'wording_review').map(o => o.key), blocked);
+    assert.ok(h.writes.every(w => !(blocked as readonly string[]).includes(w.key)));
+    assert.ok(h.writes.some(w => w.key === 'checkin_day')); // Relative code-only text is unaffected.
+  }
+});
 test('cancellations and duplicates produce zero new rows', async () => {
   for (const patch of [{ status: 'cancelled' }, { status: 'completed' }, { duplicateOf: id(90) }]) {
     const h = harness(); Object.assign(h.snapshot.booking, patch);

@@ -107,7 +107,7 @@ export async function runRetainedCleanerPilot(raw:unknown,deps:Deps,options:{ena
           const key=p.key as Key,job=jobs.find(j=>j.key===key)!.job;
           if(job&&['future_candidate','past_not_replayed'].includes(p.state)) {attention=true;continue;}
           if(p.state==='existing_schedule'&&(!job||!p.fireAt||Date.parse(job.fireAt)!==Date.parse(p.fireAt))) {attention=true;continue;}
-          if(['held','history_conflict','schedule_changed','dst_review','timing_review','template_review','stay_inactive'].includes(p.state)) {attention=true;continue;}
+          if(['held','history_conflict','schedule_changed','dst_review','timing_review','wording_review','template_review','stay_inactive'].includes(p.state)) {attention=true;continue;}
           if(p.state==='future_candidate'&&!job) {
             try {const rendered=renderRetainedCleanerSms(reviewFor(s,enrollment,key),await sms(),now());
               if(Date.parse(rendered.fireAt)>at+500*86400000)throw Error();future.push(key);

@@ -9,7 +9,7 @@ import { renderTemplate, templateFields } from '../automations-core.ts';
 import { cleanerReminderRecipientSchema, resolveCleanerReminderLink } from '../cleaner-reminder-link.ts';
 import { preparedRulePolicy, type PreparationRule } from './preparation-rules.ts';
 import { formatGuestyMessageDate } from './preparation-render.ts';
-import { reviewCalderwoodTiming, type SourceClocks } from './preparation-timing.ts';
+import { calderwoodTimeWordingNeedsReview, reviewCalderwoodTiming, type SourceClocks } from './preparation-timing.ts';
 import { CleanerSmsTransport, cleanerSmsId, type CleanerSmsAttempt, type CleanerSmsReceipt,
   type CleanerSmsStatus } from './cleaner-sms-transport.ts';
 
@@ -69,7 +69,7 @@ export function renderRetainedCleanerSms(review: CleanerSmsReview, transport: Cl
   if (!link || selected.length !== 1) throw Error('Cleaner recipient needs review');
   const timing = reviewCalderwoodTiming(clocks, now).find(t => t.key === rule.key)!;
   if (!timing.at || timing.status === 'dst_review'
-    || (rule.key === 'cleaner_arrival' && (clocks.plannedArrival === null ? clocks.defaultArrival : clocks.plannedArrival) !== '16:00'))
+    || calderwoodTimeWordingNeedsReview(rule.key, clocks))
     throw Error('Cleaner timing needs review');
   const body = renderTemplate(rule.body, { property_name: review.propertyName,
     check_in_long: formatGuestyMessageDate(clocks.start), check_out_long: formatGuestyMessageDate(clocks.end),
