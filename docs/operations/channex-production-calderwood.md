@@ -1700,3 +1700,64 @@ lost claim/provider responses, holds and drift, and receipt recovery after
 cancellation. The real PostgreSQL integration runs two overlapping runner ticks
 against the actual one-use claim and verifies one fake POST plus receipt recovery.
 No live messages are sent by these tests.
+
+## Cleaner SMS delivery protocol (12 November 2026)
+
+`cleaner-sms-transport.ts` and `cleaner-sms-worker.ts` implement the isolated
+Calderwood cleaner delivery boundary. Both default off. They have no environment
+loader, production caller, schedule registration, durable store or cron activation.
+Deploying this code cannot send SMS. This is a delivery layer, not a completed
+cleaner automation handover. No database migration is included.
+
+The transport uses Quo's documented
+[send endpoint](https://www.quo.com/docs/mdx/api-reference/messages/send-a-text-message)
+and [exact message lookup](https://www.quo.com/docs/mdx/api-reference/messages/get-a-message-by-id).
+A 202 is recorded as accepted, with its queued/sent/delivered/undelivered provider
+status. Only a matching GET observation can finalize delivery. The exact ops
+number and phone-number ID must match Helm's line registry. An unreviewed line
+override, expanded recipient list, attachment, changed body or mismatched receipt
+is refused. There is no SDK retry, fallback host, message search or assumed
+provider idempotency key. Requests and JSON replies are bounded. Invalid receipt
+dates and timestamps more than one minute ahead of Helm are rejected; a POST
+cannot bind an older message with the same body.
+
+The worker renders the two original frozen cleaner rules against the source
+arrival/departure clocks and one enabled English Calderwood-only recipient.
+Recipient ID, phone, token, scope and language are bound to the reviewed job using
+a versioned HMAC; the rendered body has its own SHA-256. Plain phone numbers,
+portal tokens and message bodies are not returned in outcomes. The private HMAC
+key must remain available for historical receipts and must not be generated per
+request. No production key is created or configured by this change.
+
+Dispatch reviews the current recipient, timing and render twice, then requires
+one durable claim before at most one provider POST. The maximum late window is
+30 minutes from the original fire time. A lost claim reply cannot authorize a
+POST. A known slow claim records an abort without sending. A lost provider reply
+remains unknown; neither uncertainty nor an explicit rejection returns a job to
+prepared. An accepted receipt can be checked after the current portal link is
+revoked, without re-rendering or re-sending. Older observations and status
+regressions are refused. Arrival wording remains tied to the 4 PM source check-in,
+not the 3 PM cleaner-ready deadline. Missing original booking confirmation does
+not block these independent cleaner clocks; a DST disagreement still does.
+
+The injected `CleanerSmsStore` is a contract, not an installed database adapter.
+Its tests use a synthetic atomic store and fake Quo responses. They verify worker
+behavior under duplicate invocations, lost responses, stale renders, recipient
+revocation, malformed receipts and failed persistence. They do not establish
+PostgreSQL concurrency guarantees, provider queue clearance or real delivery.
+
+Before connecting the production caller, implement and test one atomic database
+registration/claim path that joins the immutable original-template release,
+reservation family/history, current recipient revision, source cleaner-queue
+clearance, due time, holds and sender authority. Integrate the existing frozen
+template and legacy-worker guards instead of creating a parallel unguarded
+`automation_sends` writer. Outcome updates must be idempotent and monotonic under
+concurrent receipt checks; no terminal or uncertain job may be reset. The caller
+must use bounded explicit pilot enrollment and keep receipt reconciliation
+available independently of execution.
+
+Remaining launch gates are that durable cleaner integration and Guesty's queue
+answer; verified new-Airbnb-booking confirmation ownership/timing; and the
+reviewed channel/inventory/PriceLabs handover followed by a controlled live pilot.
+Guesty remains the live sender. This batch creates no schedules, releases or
+recipients, shares no cleaner link and changes no source automations.
