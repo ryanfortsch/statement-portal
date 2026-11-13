@@ -343,7 +343,9 @@ function logSignInEvidence(
 
 export const config = {
   // Run middleware on everything except Next.js internals and static assets.
+  // helm-assets/ is next.config.ts's assetPrefix: every page's JS and CSS,
+  // the sign-in page's included, so the gate must never see it.
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|apple-icon|icon.png|rising-tide-logo.png|.*\\.(?:png|jpg|jpeg|gif|webp|svg|ico)$).*)",
+    "/((?!_next/static|_next/image|helm-assets/_next/static|favicon.ico|apple-icon|icon.png|rising-tide-logo.png|.*\\.(?:png|jpg|jpeg|gif|webp|svg|ico)$).*)",
   ],
 };

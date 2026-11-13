@@ -32,6 +32,17 @@ const deploymentId =
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+
+  // Helm's own JS, CSS and fonts load from /helm-assets/_next/static/...
+  // instead of /_next/static/..., so staycapeann.com can serve the guest app
+  // (/h/<token>, /h/s/<token>) at its own address: its next.config forwards
+  // /h/* and /helm-assets/* here, and its own /_next/static stays its own.
+  // Both sites are Next 16 and both build into /_next/static/immutable/, so
+  // without the prefix one site's chunks would shadow the other's. Next
+  // serves the prefixed path itself; src/proxy.ts and the guest app's
+  // service worker (src/app/h/sw.js/route.ts) key on it, and
+  // guest-app-asset-prefix.test.ts holds the three together.
+  assetPrefix: '/helm-assets',
   async headers() {
     return [{
       source: '/:path*',
