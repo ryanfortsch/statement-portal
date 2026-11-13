@@ -244,6 +244,14 @@ export function smsHref(e164: string, body: string): string {
  * asks; a stay link names the dates and shows it only when that night is
  * open (the stay layer's extendForStay).
  */
+/**
+ * When the door code reaches a guest whose home has no code Helm shows: the
+ * check-in message sends it between 3:30 and 4 PM on check-in day (Dotti,
+ * 2026-11-13). One sentence, said the same way on the home page and the stay
+ * card.
+ */
+export const DOOR_CODE_WHEN = 'Your door code arrives between 3:30 and 4 PM on check-in day.';
+
 export const EXTEND_ITEM = {
   text: 'Looking to extend your stay another night?',
   link: { label: 'Text us to extend' },
@@ -515,7 +523,7 @@ export function buildGuestApp(input: GuestAppInput): GuestApp {
   arrivalItems.push({ label: 'On the street', text: civic.parking, aside: true });
   arrivalItems.push({
     label: 'The door',
-    text: `${clean(home.smart_lock_brand) ? `The door has a ${clean(home.smart_lock_brand)} keypad. ` : ''}Your door code and entry steps come in your check-in message on arrival day.`,
+    text: `${clean(home.smart_lock_brand) ? `The door has a ${clean(home.smart_lock_brand)} keypad. ` : ''}${DOOR_CODE_WHEN}`,
   });
   if (fullAddress) arrivalItems.push({ label: 'Address', text: fullAddress, copy: true, noTranslate: true, link: directionsUrl ? { href: directionsUrl, label: 'Directions' } : undefined });
   sections.push({ id: 'arrival', nav: 'Getting here', glance: checkIn ? `Check-in ${checkIn}` : 'Parking & directions', title: 'Getting here', items: arrivalItems });

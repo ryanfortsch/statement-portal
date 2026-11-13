@@ -182,8 +182,8 @@ describe('nothing that opens a door reaches the guest app', () => {
     const smuggled = { ...home(), smart_lock_code: '480213', gate_code: '771204', alarm_system: 'code 990311' } as unknown as GuestAppHome;
     const out = JSON.stringify(buildGuestApp(input({ home: smuggled })));
     for (const code of ['480213', '771204', '990311']) assert.ok(!out.includes(code), `${code} leaked`);
-    // The door is described, and the code is promised in the check-in message.
-    assert.match(out, /Your door code and entry steps come in your check-in message on arrival day\./);
+    // The door is described, and when the code arrives (Dotti, 2026-11-13).
+    assert.match(out, /Your door code arrives between 3:30 and 4 PM on check-in day\./);
   });
 
   test('the proxy opens /h/ and the card is a self-guarded document', () => {
