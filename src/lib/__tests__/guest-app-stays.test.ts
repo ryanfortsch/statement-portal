@@ -335,13 +335,15 @@ describe('phase 1 stays as it was', () => {
     }
   });
 
-  test('a stay token is 16 characters from 62, and the 32-hex links already sent still work', () => {
-    assert.ok(STAY_TOKEN_RE.test('Xq3vB7kP9mR2tL4w'), 'new: 16 base62');
+  test('a stay token is 12 characters from 62, and every link already sent still works', () => {
+    assert.equal(STAY_TOKEN_LENGTH, 12);
+    assert.ok(STAY_TOKEN_RE.test('Xq3vB7kP9mR2'), 'new: 12 base62');
+    assert.ok(STAY_TOKEN_RE.test('Xq3vB7kP9mR2tL4w'), 'sent 2026-11-13: 16 base62');
     assert.ok(STAY_TOKEN_RE.test('0123456789abcdef0123456789abcdef'), 'sent before 2026-11-13: 32 hex');
     assert.ok(!STAY_TOKEN_RE.test('0123456789ABCDEF0123456789ABCDEF'), 'old shape is lowercase only');
-    assert.ok(!STAY_TOKEN_RE.test('Xq3vB7kP9mR2tL4'), 'too short');
-    assert.ok(!STAY_TOKEN_RE.test('Xq3vB7kP9mR2tL4wZ'), 'too long');
-    assert.ok(!STAY_TOKEN_RE.test('Xq3vB7kP9mR2tL4-'), 'letters and digits only');
+    assert.ok(!STAY_TOKEN_RE.test('Xq3vB7kP9mR'), 'too short');
+    for (const len of [13, 14, 15, 17]) assert.ok(!STAY_TOKEN_RE.test('Xq3vB7kP9mR2tL4wZa'.slice(0, len)), `${len} is no shape`);
+    assert.ok(!STAY_TOKEN_RE.test('Xq3vB7kP9mR-'), 'letters and digits only');
     const db = read('src/lib/guest-app-stays-db.ts');
     assert.match(db, /stayTokenFrom\(\(n\) => randomBytes\(n\)\)/, 'node:crypto, never Math.random');
     assert.match(db, /`\$\{guestAppOrigin\(\)\}\/s\/\$\{token\}`/, 'the short link');
@@ -365,6 +367,8 @@ describe('phase 1 stays as it was', () => {
     assert.match(config, /source: '\/s\/:token',\s*destination: '\/h\/s\/:token',/);
     const sql = read('supabase/migrations/20261113150000_guest_app_stays_short_tokens.sql');
     assert.match(sql, /check \(token ~ '\^\(\[A-Za-z0-9\]\{16\}\|\[a-f0-9\]\{32\}\)\$'\)/);
+    const sql12 = read('supabase/migrations/20261113190000_guest_app_stays_12_char_tokens.sql');
+    assert.match(sql12, /check \(token ~ '\^\(\[A-Za-z0-9\]\{12\}\|\[A-Za-z0-9\]\{16\}\|\[a-f0-9\]\{32\}\)\$'\)/);
   });
 });
 
@@ -384,7 +388,7 @@ describe('the stay link\'s table and offline copy', () => {
   test('the service worker keeps stay pages and never touches a POST', () => {
     const sw = read('src/app/h/sw.js/route.ts');
     assert.match(sw, /if \(req\.method !== 'GET'\) return;/);
-    assert.ok(sw.includes('(?:s\\\\/(?:[A-Za-z0-9]{16}|[a-f0-9]{32})|[a-f0-9]{16,64})'));
+    assert.ok(sw.includes('(?:s\\\\/(?:[A-Za-z0-9]{12}|[A-Za-z0-9]{16}|[a-f0-9]{32})|[a-f0-9]{16,64})'));
   });
 
   test('a stay page offers no install manifest (it would leak the home token)', () => {
