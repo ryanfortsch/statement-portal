@@ -5,7 +5,7 @@ import { channelWord, shortName, type SetupItem } from '@/lib/partner-listing';
 import { maskFeedUrl } from '@/lib/partner-calendar';
 import { exportUrlFor } from '@/lib/ical-export';
 import { CopyableUrl } from '@/app/channels/listings/CopyableUrl';
-import { AddFeed, CheckForm, FeedVerbs, ListingSwitch, ReadNow } from './PartnerHomeControls';
+import { AddFeed, CheckForm, FeedVerbs, ListingSwitch, ReadNow, SiteRankForm } from './PartnerHomeControls';
 
 /**
  * A partner home's setup, at the top of its property page: whether it is on
@@ -90,6 +90,7 @@ export function PartnerHomePanel({ setup, owner }: { setup: PartnerSetup; owner:
 
         <Calendars setup={setup} />
         <Checks setup={setup} />
+        <Place setup={setup} owner={owner} />
       </div>
     </section>
   );
@@ -180,6 +181,28 @@ function Checks({ setup }: { setup: PartnerSetup }) {
             <CheckForm propertyId={propertyId} check={l.check} on={l.on} expires={l.check === 'insurance' ? (row?.insurance_expires_on ?? null) : undefined} verb={l.verb} />
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Where the home sits among the site's homes. The site orders every home by
+ * one number, lower first; ours carry theirs in the site's registry.
+ */
+function Place({ setup, owner }: { setup: PartnerSetup; owner: boolean }) {
+  const rank = setup.row?.site_rank ?? null;
+  return (
+    <div id="partner-place" style={{ marginTop: 32 }}>
+      <h3 className="eyebrow" style={{ marginBottom: 10 }}>Place on staycapeann.com</h3>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', padding: '8px 2px', borderTop: '1px solid var(--rule)', borderBottom: '1px solid var(--rule)', fontSize: 13 }}>
+        <span style={{ flex: '0 0 300px', color: 'var(--ink-2)' }}>
+          Lower comes first. Our homes run from 1 to 100, the water and the beaches first and the in-town homes last.
+        </span>
+        <span className="tabular-nums" style={{ flex: 1, color: 'var(--ink-3)', minWidth: 0 }}>
+          {rank == null ? 'No place yet: it shows after every home that has one' : rank}
+        </span>
+        {owner && <SiteRankForm propertyId={setup.propertyId} rank={rank} />}
       </div>
     </div>
   );

@@ -31,6 +31,7 @@ import {
   isoDay,
   listingState,
   parseNewPartnerHome,
+  parseSiteRank,
   propertyIdBase,
   readyToList,
   setupItems,
@@ -63,6 +64,7 @@ function checks(over: Partial<PartnerListingRow> = {}): PartnerListingRow {
     unlisted_at: null,
     unlisted_by: null,
     unlisted_reason: null,
+    site_rank: null,
     ...over,
   };
 }
@@ -274,6 +276,15 @@ describe('on or off the site', () => {
     assert.equal(isPersonCheck('listed'), false);
   });
 
+  test("a partner home's place on the site is a whole number from 1 to 999, or empty", () => {
+    assert.deepEqual(parseSiteRank(''), { ok: true, rank: null });
+    assert.deepEqual(parseSiteRank('  '), { ok: true, rank: null });
+    assert.deepEqual(parseSiteRank('35'), { ok: true, rank: 35 });
+    assert.deepEqual(parseSiteRank(' 7 '), { ok: true, rank: 7 });
+    assert.deepEqual(parseSiteRank(999), { ok: true, rank: 999 });
+    for (const bad of ['0', '1000', '-3', '2.5', 'first', '1e2']) assert.equal(parseSiteRank(bad).ok, false, bad);
+  });
+
   test('a check date is a real calendar day', () => {
     assert.equal(isoDay('2026-11-13'), '2026-11-13');
     assert.equal(isoDay(' 2026-11-13 '), '2026-11-13');
@@ -313,11 +324,18 @@ describe('a new partner home', () => {
 describe('the guards around the switch', () => {
   test("the site's fleet names only listed partner homes", () => {
     const bridge = code('src/lib/pms-bridge.ts');
-    assert.ok(bridge.includes('const listed = await listedPartnerIds();'));
+    assert.ok(bridge.includes('listed = await listedPartners();'));
     assert.ok(bridge.includes('props = props.filter((p) => !isPartnerHome(p) || listed.has(p.id));'));
     const listed = code('src/lib/partner-listed.ts');
     assert.ok(listed.includes(".not('listed_at', 'is', null)") && listed.includes(".is('unlisted_at', null)"));
-    assert.ok(/if \(error\) \{[\s\S]*?return new Set\(\);/.test(listed), 'a failed read lists nobody');
+    assert.ok(/if \(error\) \{[\s\S]*?return new Map\(\);/.test(listed), 'a failed read lists nobody');
+  });
+
+  test("a partner home's place rides the fleet, and only a partner home's", () => {
+    const bridge = code('src/lib/pms-bridge.ts');
+    assert.ok(bridge.includes('site_rank: isPartnerHome(property) ? (opts.siteRank ?? null) : null,'));
+    assert.ok(bridge.includes('siteRank: listed.get(p.id)?.site_rank ?? null'));
+    assert.ok(code('src/lib/partner-listed.ts').includes(".select('property_id, site_rank')"));
   });
 
   test('a request for an unlisted partner home is refused before it is priced', () => {

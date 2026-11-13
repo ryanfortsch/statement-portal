@@ -347,8 +347,10 @@ fourteen lines of the listing bar (`setupItems`), each with where it is fixed. F
 word, kept with the date and who in `partner_listings`: the walk, the insurance proof (with its
 expiry), the signed listing agreement, the photos. **List on staycapeann.com** (owners only) reads
 the bar again on the server and refuses an open line; **Take it off the site** asks why and is
-immediate. `listedPartnerIds()` (`src/lib/partner-listed.ts`) is the switch: the bridge's
-`GET /api/pms/properties?include=partner` names only listed partner homes (the office's own reads
+immediate. `listedPartners()` (`src/lib/partner-listed.ts`) is the switch: the bridge's
+`GET /api/pms/properties?include=partner` names only listed partner homes, each with its place on
+the site (`site_rank`, set by an owner on the panel, on the scale staycapeann.com's registry gives
+our homes, lower first; with none it shows after every ranked home) (the office's own reads
 of `listBridgeProperties` still see them all), and `POST /api/pms/requests` answers `not_found` for
 any other, before it prices. A failed read lists nobody. A request keeps what
 the guest agreed to: the home's cancellation policy and house rules as they

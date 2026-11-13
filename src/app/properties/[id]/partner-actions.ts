@@ -3,8 +3,8 @@
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
 import { requireOwnerEmail } from '@/lib/helm-access-server';
-import { isoDay, isPersonCheck } from '@/lib/partner-listing';
-import { listPartnerHome, recordPartnerCheck, unlistPartnerHome } from '@/lib/partner-listing-db';
+import { isoDay, isPersonCheck, parseSiteRank } from '@/lib/partner-listing';
+import { listPartnerHome, recordPartnerCheck, setPartnerSiteRank, unlistPartnerHome } from '@/lib/partner-listing-db';
 import { isPartnerFeedChannel, parseFeedUrl } from '@/lib/partner-calendar';
 import { addPartnerFeed, readPartnerFeed, listPartnerFeeds, removePartnerFeed, syncPartnerFeeds } from '@/lib/partner-calendar-db';
 
@@ -12,8 +12,8 @@ import { addPartnerFeed, readPartnerFeed, listPartnerFeeds, removePartnerFeed, s
  * The partner home panel's verbs (src/app/properties/[id]/PartnerHomePanel.tsx).
  * The setup work (the host's calendars, the walk, the insurance, the
  * agreement, the photos) is anyone's on the team; putting the home on
- * staycapeann.com or taking it off is an owner's. Each returns a result the
- * buttons read back, never a throw.
+ * staycapeann.com, taking it off and choosing its place there are an
+ * owner's. Each returns a result the buttons read back, never a throw.
  */
 export type PartnerActionResult = { ok: true; note?: string } | { ok: false; error: string };
 
@@ -75,6 +75,16 @@ export async function recordPartnerCheckAction(propertyId: string, check: string
     if (expires < (on as string)) return { ok: false, error: 'The policy ends before the day it was checked.' };
   }
   const r = await recordPartnerCheck(propertyId, check, on, by, { insuranceExpiresOn: expires });
+  refresh(propertyId);
+  return r.ok ? { ok: true } : { ok: false, error: r.reason };
+}
+
+/** Where the home sits on staycapeann.com. An owner's, like the listing switch. */
+export async function setPartnerSiteRankAction(propertyId: string, raw: string): Promise<PartnerActionResult> {
+  const by = await requireOwnerEmail();
+  const parsed = parseSiteRank(raw);
+  if (!parsed.ok) return { ok: false, error: parsed.error };
+  const r = await setPartnerSiteRank(propertyId, parsed.rank, by);
   refresh(propertyId);
   return r.ok ? { ok: true } : { ok: false, error: r.reason };
 }

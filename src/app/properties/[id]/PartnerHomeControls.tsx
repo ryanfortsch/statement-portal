@@ -11,6 +11,7 @@ import {
   readPartnerFeedsAction,
   recordPartnerCheckAction,
   removePartnerFeedAction,
+  setPartnerSiteRankAction,
   unlistPartnerHomeAction,
   type PartnerActionResult,
 } from './partner-actions';
@@ -174,6 +175,46 @@ export function CheckForm({
         </>
       )}
       <Button size="sm" variant="primary" pending={busy === 'save'} pendingLabel="Saving" disabled={busy !== null || !date} onClick={save}>
+        Save
+      </Button>
+      <Button size="sm" variant="quiet" disabled={busy !== null} onClick={() => setOpen(false)}>
+        Cancel
+      </Button>
+    </span>
+  );
+}
+
+/** The home's place on staycapeann.com: one number, lower first. Owners only. */
+export function SiteRankForm({ propertyId, rank }: { propertyId: string; rank: number | null }) {
+  const { busy, run } = useRun();
+  const [value, setValue] = useState(rank == null ? '' : String(rank));
+  const [open, setOpen] = useState(false);
+
+  async function save() {
+    const ok = await run('save', () => setPartnerSiteRankAction(propertyId, value));
+    if (ok) setOpen(false);
+  }
+
+  if (!open) {
+    return (
+      <Button size="sm" variant={rank == null ? 'secondary' : 'quiet'} disabled={busy !== null} onClick={() => setOpen(true)}>
+        {rank == null ? 'Give it a place' : 'Change'}
+      </Button>
+    );
+  }
+  return (
+    <span style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+      <input
+        type="number"
+        inputMode="numeric"
+        min={1}
+        max={999}
+        aria-label="Place on staycapeann.com"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        style={{ ...input, width: 80 }}
+      />
+      <Button size="sm" variant="primary" pending={busy === 'save'} pendingLabel="Saving" disabled={busy !== null} onClick={save}>
         Save
       </Button>
       <Button size="sm" variant="quiet" disabled={busy !== null} onClick={() => setOpen(false)}>
