@@ -23,6 +23,7 @@ import { BOOKING_REQUEST_COLS, type BookingRequestRow } from '@/lib/booking-requ
 import { sendFromHello } from '@/lib/partner-host-email';
 import { ensureStayLink } from '@/lib/guest-app-stays-db';
 import { easternIsoDay } from '@/lib/partner-host-calendar';
+import { threadCountsFor } from '@/lib/partner-messages-db';
 import {
   TRIP_CODE_MINUTES,
   TRIP_CODE_TRIES,
@@ -216,7 +217,11 @@ export async function listTrips(session: TripSession, now: Date = new Date()): P
   const titles = await homeTitles([...new Set([...requests.map((r) => r.property_id), ...stays.map((s) => s.property_id)])]);
   const by = guestActor(session.email);
 
-  const trips: TripView[] = requests.map((r) => tripFromRequest(r, titles.get(r.property_id) ?? null, today, now));
+  const counts = await threadCountsFor(
+    requests.map((r) => r.id),
+    'guest',
+  );
+  const trips: TripView[] = requests.map((r) => ({ ...tripFromRequest(r, titles.get(r.property_id) ?? null, today, now), ...counts.get(r.id) }));
   for (const s of stays) {
     const upcoming = s.status === 'confirmed' && s.check_out > today;
     // A failed mint leaves the trip without its link rather than the page without the trip.

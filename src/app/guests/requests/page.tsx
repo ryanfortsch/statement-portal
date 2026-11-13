@@ -21,6 +21,9 @@ import { summarizePartnerHomes, type PartnerHomeSummary } from '@/lib/partner-li
 import { RequestActions } from './RequestActions';
 import { HostPaymentActions } from './HostPaymentActions';
 import { AddPartnerHome } from './AddPartnerHome';
+import { OfficeReply } from './OfficeReply';
+import { officeThreads } from '@/lib/partner-messages-db';
+import type { MessageView } from '@/lib/partner-messages';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,6 +35,8 @@ export const dynamic = 'force-dynamic';
  * office tells the host by hand (Phase 1), then accepts it (the nights are
  * booked and the card held on the host's Stripe is charged), declines it or
  * lets it close; the guest is emailed each way (src/lib/booking-requests-db.ts).
+ * Each request carries its conversation between the guest and the host
+ * (src/lib/partner-messages.ts), where the office can write to both.
  * Under the requests, every partner home: how far its setup is and whether
  * it is on the site (src/lib/partner-listing-db.ts; the work is on its
  * property page), its host's Stripe, our fee and the setup link
@@ -41,6 +46,8 @@ export default async function BookingRequestsPage() {
   const now = new Date();
   const [listed, hosts] = await Promise.all([listBookingRequests({ now }), listPartnerHomePayments().catch(() => null)]);
   const setups = hosts ? await summarizePartnerHomes(hosts.map((h) => h.home.id), now) : new Map<string, PartnerHomeSummary>();
+  // A failed read leaves each request showing the guest's note alone.
+  const threads = listed.ok ? await officeThreads(listed.rows, now).catch(() => null) : null;
 
   return (
     <div className="flex-1 flex flex-col">
@@ -48,7 +55,7 @@ export default async function BookingRequestsPage() {
         {!listed.ok ? (
           <EmptyState>Ask Ryan: booking requests are not switched on yet.</EmptyState>
         ) : (
-          <RequestList rows={listed.rows} now={now} />
+          <RequestList rows={listed.rows} now={now} threads={threads} />
         )}
         <PartnerHomes hosts={hosts} setups={setups} now={now} />
       </section>
@@ -57,7 +64,9 @@ export default async function BookingRequestsPage() {
   );
 }
 
-function RequestList({ rows, now }: { rows: ReviewRequest[]; now: Date }) {
+type Thread = { messages: MessageView[]; can_post: boolean };
+
+function RequestList({ rows, now, threads }: { rows: ReviewRequest[]; now: Date; threads: Map<string, Thread> | null }) {
   const open = rows.filter((r) => isOpen(r, now)).sort((a, b) => a.respond_by.localeCompare(b.respond_by));
   const closed = rows.filter((r) => !isOpen(r, now));
   const overlaps = openOverlaps(rows, now);
@@ -78,7 +87,13 @@ function RequestList({ rows, now }: { rows: ReviewRequest[]; now: Date }) {
       ) : (
         <div style={{ borderTop: '1px solid var(--ink)' }}>
           {open.map((r) => (
-            <OpenRequest key={r.id} r={r} now={now} overlapping={(overlaps.get(r.id) ?? []).map((id) => byId.get(id)).filter((x): x is ReviewRequest => !!x)} />
+            <OpenRequest
+              key={r.id}
+              r={r}
+              now={now}
+              thread={threads?.get(r.id) ?? null}
+              overlapping={(overlaps.get(r.id) ?? []).map((id) => byId.get(id)).filter((x): x is ReviewRequest => !!x)}
+            />
           ))}
         </div>
       )}
@@ -88,7 +103,7 @@ function RequestList({ rows, now }: { rows: ReviewRequest[]; now: Date }) {
           <h2 className="eyebrow" style={{ marginBottom: 10 }}>Closed in the last 30 days</h2>
           <div style={{ borderTop: '1px solid var(--rule)' }}>
             {closed.map((r) => (
-              <ClosedRequest key={r.id} r={r} now={now} />
+              <ClosedRequest key={r.id} r={r} now={now} thread={threads?.get(r.id) ?? null} />
             ))}
           </div>
         </div>
@@ -120,7 +135,27 @@ function CalendarLine({ c }: { c: RequestCalendar | null }) {
 
 const meta: CSSProperties = { fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.06em', marginTop: 6 };
 
-function OpenRequest({ r, now, overlapping }: { r: ReviewRequest; now: Date; overlapping: ReviewRequest[] }) {
+/** The note the guest sent and every message since, oldest first, then the office's box. */
+function Conversation({ id, guest, thread }: { id: string; guest: string; thread: Thread }) {
+  return (
+    <div style={{ marginTop: 10, maxWidth: 720 }}>
+      {thread.messages.map((m) => (
+        <div key={m.id} style={{ marginTop: 8 }}>
+          <div style={{ ...meta, marginTop: 0 }}>
+            {m.label.toUpperCase()} · {m.at_label}
+            {m.masked && ' · contact hidden until booked'}
+          </div>
+          <p style={{ fontSize: 13, color: 'var(--ink-2)', marginTop: 2, whiteSpace: 'pre-wrap', lineHeight: 1.55, borderLeft: '2px solid var(--rule)', paddingLeft: 12 }}>
+            {m.body}
+          </p>
+        </div>
+      ))}
+      {thread.can_post && <OfficeReply id={id} guest={guest} />}
+    </div>
+  );
+}
+
+function OpenRequest({ r, now, overlapping, thread }: { r: ReviewRequest; now: Date; overlapping: ReviewRequest[]; thread: Thread | null }) {
   const guest = guestFullName(r);
   const urgent = isUrgent(r, now);
   const host = r.home;
@@ -150,10 +185,14 @@ function OpenRequest({ r, now, overlapping }: { r: ReviewRequest; now: Date; ove
         )}
       </div>
 
-      {r.message && (
-        <p style={{ fontSize: 13, color: 'var(--ink-2)', marginTop: 10, whiteSpace: 'pre-wrap', maxWidth: 720, lineHeight: 1.55, borderLeft: '2px solid var(--rule)', paddingLeft: 12 }}>
-          {r.message}
-        </p>
+      {thread ? (
+        <Conversation id={r.id} guest={guest} thread={thread} />
+      ) : (
+        r.message && (
+          <p style={{ fontSize: 13, color: 'var(--ink-2)', marginTop: 10, whiteSpace: 'pre-wrap', maxWidth: 720, lineHeight: 1.55, borderLeft: '2px solid var(--rule)', paddingLeft: 12 }}>
+            {r.message}
+          </p>
+        )
       )}
 
       {r.cancellation_terms && (
@@ -189,23 +228,34 @@ function OpenRequest({ r, now, overlapping }: { r: ReviewRequest; now: Date; ove
   );
 }
 
-function ClosedRequest({ r, now }: { r: ReviewRequest; now: Date }) {
+function ClosedRequest({ r, now, thread }: { r: ReviewRequest; now: Date; thread: Thread | null }) {
   const status = effectiveStatus(r, now);
+  // A booked stay keeps its conversation open; a closed one shows only what was said.
+  const written = thread ? thread.messages.filter((m) => !m.id.startsWith('request-')).length : 0;
+  const shown = thread && (written > 0 || thread.can_post) ? thread : null;
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', padding: '10px 4px', borderBottom: '1px solid var(--rule)', fontSize: 13 }}>
-      <span>
-        {homeLabel(r)} · {guestFullName(r)} · <span className="tabular-nums">{fmtShortDate(r.check_in)} to {fmtShortDate(r.check_out)}</span>
-        {r.decline_reason && <span style={{ color: 'var(--ink-4)' }}> · {r.decline_reason}</span>}
-        {r.hold_status !== 'none' && (
-          <span className="tabular-nums" style={{ color: r.hold_status === 'failed' ? 'var(--signal)' : 'var(--ink-4)' }}> · {holdLine(r)}</span>
-        )}
-      </span>
-      <span style={{ color: 'var(--ink-3)' }}>
-        {BOOKING_REQUEST_STATUS_LABEL[status]}
-        {r.decided_at && <span style={{ color: 'var(--ink-4)' }}> · {easternShort(r.decided_at)}</span>}
-        {(status === 'declined' || status === 'expired') && !r.outcome_emailed_at && <span style={{ color: 'var(--signal)' }}> · email not sent yet</span>}
-        {status === 'accepted' && r.hold_status === 'captured' && !r.confirmation_emailed_at && <span style={{ color: 'var(--signal)' }}> · confirmation not sent yet</span>}
-      </span>
+    <div style={{ padding: '10px 4px', borderBottom: '1px solid var(--rule)', fontSize: 13 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+        <span>
+          {homeLabel(r)} · {guestFullName(r)} · <span className="tabular-nums">{fmtShortDate(r.check_in)} to {fmtShortDate(r.check_out)}</span>
+          {r.decline_reason && <span style={{ color: 'var(--ink-4)' }}> · {r.decline_reason}</span>}
+          {r.hold_status !== 'none' && (
+            <span className="tabular-nums" style={{ color: r.hold_status === 'failed' ? 'var(--signal)' : 'var(--ink-4)' }}> · {holdLine(r)}</span>
+          )}
+        </span>
+        <span style={{ color: 'var(--ink-3)' }}>
+          {BOOKING_REQUEST_STATUS_LABEL[status]}
+          {r.decided_at && <span style={{ color: 'var(--ink-4)' }}> · {easternShort(r.decided_at)}</span>}
+          {(status === 'declined' || status === 'expired') && !r.outcome_emailed_at && <span style={{ color: 'var(--signal)' }}> · email not sent yet</span>}
+          {status === 'accepted' && r.hold_status === 'captured' && !r.confirmation_emailed_at && <span style={{ color: 'var(--signal)' }}> · confirmation not sent yet</span>}
+        </span>
+      </div>
+      {shown && (
+        <details style={{ marginTop: 6 }}>
+          <summary style={{ cursor: 'pointer', fontSize: 12.5, color: 'var(--ink-3)' }}>{written === 0 ? 'Write to the guest and host' : `Messages (${written})`}</summary>
+          <Conversation id={r.id} guest={guestFullName(r)} thread={shown} />
+        </details>
+      )}
     </div>
   );
 }

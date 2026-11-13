@@ -181,6 +181,15 @@ guest's trips are read by email from `booking_requests` (indexed on
 `guest_email`) and direct canonical `bookings`. RLS on, service role only,
 anon and authenticated revoked. See `src/lib/guest-trips.ts`.
 
+**`partner_messages`** (since 2026-11-13): the conversation on a partner home's
+booking request, one row per message. `request_id` (cascades with the
+request), `author` (`guest`, `host` or `office`), `author_email`, `body` (1 to
+2,000 characters, stored masked before the stay is booked, with `masked`
+set), `created_at`, then per reader `guest_read_at` / `host_read_at` and
+`guest_emailed_at` / `host_emailed_at`. The request's own note is
+`booking_requests.message`, never copied here. RLS on, service role only,
+anon and authenticated revoked. See `src/lib/partner-messages.ts`.
+
 **`partner_listings`** (since 2026-11-13): one row per partner home, the
 listing switch and the four checks a person makes. `walked_on` / `walked_by`,
 `insurance_checked_on` / `insurance_expires_on` / `insurance_checked_by`,

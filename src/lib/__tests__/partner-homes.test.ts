@@ -118,6 +118,8 @@ const PARTNER_OPT_IN: Record<string, string> = {
     "a host's sign-in and their requests on staycapeann.com: reads partner homes only, to match the host's email to their own homes",
   'src/lib/partner-host-email.ts':
     'tells a partner home\'s host a request landed: reads that one partner home, so only a partner home ever emails a host',
+  'src/lib/partner-messages-db.ts':
+    "the conversation on a partner home's request: reads that one partner home for the host's name and email, so only a partner host is ever written to",
 };
 
 const OPT_IN = /kind\.in\.\([^)]*partner|kind\.eq\.(partner\b|\$\{PARTNER_KIND\})|\.in\(\s*['"]kind['"]\s*,\s*\[[^\]]*['"]partner['"]|kinds\s*:\s*\[[^\]]*['"]partner['"]|\.eq\(\s*['"]kind['"]\s*,\s*(['"]partner['"]|PARTNER_KIND)/;

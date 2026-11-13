@@ -371,6 +371,21 @@ host's contact or the decline reason. A request still waiting can be withdrawn t
 `withdrawBookingRequest`, recorded as `guest:<email>`. The request receipt and the confirmation
 email link the page. `guest-trips.test.ts` holds it.
 
+**A partner home's request is one conversation** (`src/lib/partner-messages.ts`, since
+2026-11-13): the guest writes on `staycapeann.com/trips/<id>`, the host on
+`staycapeann.com/host/requests/<id>`, the office under the request on `/guests/requests` (owners
+only, `postOfficeMessageAction`). One row per message in `partner_messages`; the guest's request
+note opens the thread. The bridge is `/api/pms/host/messages/<id>` (`x-host-session`) and
+`/api/pms/trips/messages/<id>` (`x-trip-session`), the id in the path, and each reader is checked
+against the request before anything is read. Until the stay is booked, an email, phone number or
+link in a guest's or host's words is stored as `[shared once booked]` (`maskContact`; the office
+is never masked), and the host sees the guest's note the same way. It is open while the request
+waits and, once accepted, until 14 days after checkout; a declined, withdrawn or expired request
+is closed. Twenty a side an hour, a repeat inside two minutes is the same message. Each message
+emails the other side from hello@ (the office's, both), stamped per reader; the hourly
+`/api/cron/booking-requests` retries an unread, unsent one for three days. A message never
+reaches the concierge, Rosa or Work. `partner-messages.test.ts` holds it.
+
 **A partner home reaches staycapeann.com only when an owner lists it** (`src/lib/partner-listing.ts`,
 since 2026-11-13). An owner adds the home on `/guests/requests` (address, town, host): Helm writes a
 `properties` row with `kind` `partner`, `is_active` false, `calendar_authority` `helm`, no fee and
