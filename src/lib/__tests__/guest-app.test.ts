@@ -435,3 +435,17 @@ test('no em dashes in anything a guest or the team reads', () => {
     assert.ok(!read(f).includes('—'), `${f} has an em dash`);
   }
 });
+
+test('copyable text uses the page font with clear characters, never a typewriter face (Dotti, 2026-11-13)', () => {
+  const css = read('src/app/h/[token]/guest-app-css.ts');
+  assert.match(css, /\.ga-exact \{ font-feature-settings: 'ss02', 'zero', 'tnum';/);
+  assert.ok(!css.includes('.ga-mono'));
+  // The one typewriter face left is the big door code digits.
+  assert.deepEqual(css.match(/^.*font-family: var\(--mono\).*$/gm)?.map((l) => l.split(' ')[0]), ['.ga-code-digits']);
+  for (const f of ['src/app/h/[token]/GuestAppBody.tsx', 'src/app/h/s/[stay]/StayCard.tsx']) assert.ok(!read(f).includes('ga-mono'), f);
+});
+
+test('the offline copy registers in production only, so a local preview shows each edit', () => {
+  const body = read('src/app/h/[token]/GuestAppBody.tsx');
+  assert.match(body, /if \(process\.env\.NODE_ENV === 'production'\) \{\s*navigator\.serviceWorker\.register\('\/h\/sw\.js', \{ scope: '\/h\/' \}\)/);
+});

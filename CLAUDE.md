@@ -590,7 +590,7 @@ sent is short, `staycapeann.com/s/<token>` (since 2026-11-13): 12 characters fro
 bits (`stayTokenFrom`), and both hosts redirect `/s/` to `/h/s/`, where the page sits inside the
 service worker's scope; the concierge's text drops the `https://`. Every older shape (32 hex, then
 16 from 62 for a day) keeps working, because those links were sent. It is the
-home's app with a Your stay card on top: arrive and leave, the arrival steps, and the stay's own
+home's app with a Your stay card on top: Check in and Check out (said once), the arrival steps, and the stay's own
 Seam door code (`getLiveStayCode` in `guest-locks.ts`, from `guest_access_codes`, never
 `property_access.smart_lock_code`). The window opens at 10:00 AM Eastern the day before check-in
 (a paid early arrival's Guesty hold moves that day, `stayArrival` in `early-arrival-holds.ts`),

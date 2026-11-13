@@ -62,12 +62,12 @@ export function StayCard({ token, stay, textUs }: { token: string; stay: StayLay
       <h2 className="ga-h2">Your stay</h2>
       <div className="ga-stay-dates">
         <div className="ga-stay-date">
-          <div className="ga-item-k">Arrive</div>
+          <div className="ga-item-k">Check in</div>
           <div className="ga-stay-date-v">{stay.arriveDay}</div>
           {stay.arriveTime ? <div className="ga-stay-date-t">From {stay.arriveTime}</div> : null}
         </div>
         <div className="ga-stay-date">
-          <div className="ga-item-k">Leave</div>
+          <div className="ga-item-k">Check out</div>
           <div className="ga-stay-date-v">{stay.leaveDay}</div>
           <div className="ga-stay-date-t">By {stay.leaveTime}</div>
         </div>
@@ -115,7 +115,7 @@ export function StayCard({ token, stay, textUs }: { token: string; stay: StayLay
           <div key={`${s.label ?? 'step'}-${i}`} className="ga-item">
             {s.label ? <div className="ga-item-k">{s.label}</div> : null}
             <div className="ga-item-v">
-              <span className={s.copy ? 'ga-mono' : undefined} translate={s.noTranslate ? 'no' : undefined}>
+              <span className={s.copy ? 'ga-exact' : undefined} translate={s.noTranslate ? 'no' : undefined}>
                 {s.text}
               </span>
             </div>

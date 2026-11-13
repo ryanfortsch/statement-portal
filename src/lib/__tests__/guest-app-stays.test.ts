@@ -243,6 +243,17 @@ describe('the stay layer never renders outside its window', () => {
     assert.match(db, /appForStay\(extended, layer\)/);
   });
 
+  test('the dates are said once: Check in and Check out on top, no repeat rows below (Dotti, 2026-11-13)', () => {
+    const layer = buildStayLayer(layerInput(NOW_OPEN));
+    const labels = (layer?.steps ?? []).map((s) => s.label);
+    assert.ok(!labels.includes('Check in') && !labels.includes('Checkout'), labels.join(', '));
+    assert.deepEqual(labels.slice(-1), ['The door']);
+    const card = read('src/app/h/s/[stay]/StayCard.tsx');
+    assert.match(card, />Check in<\/div>/);
+    assert.match(card, />Check out<\/div>/);
+    assert.ok(!/>Arrive<|>Leave</.test(card));
+  });
+
   test('no Seam lock, or no live code: the code is promised in the check-in message', () => {
     const noLock = buildStayLayer(layerInput(NOW_OPEN, { lockMapped: false }));
     assert.equal(noLock?.code, null);

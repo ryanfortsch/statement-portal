@@ -250,7 +250,6 @@ export function buildStayLayer(input: StayLayerInput): StayLayer | null {
   const fromArrival = (label: string): GuestItem[] => (arrival?.items ?? []).filter((i) => i.label === label);
 
   const steps: GuestItem[] = [];
-  steps.push({ label: 'Check in', text: arriveTime ? `From ${arriveTime} on ${arriveDay}.` : `${arriveDay}.` });
   steps.push(...fromArrival('Address'));
   steps.push(...fromArrival('Parking'));
   if (code?.available) {
@@ -260,7 +259,6 @@ export function buildStayLayer(input: StayLayerInput): StayLayer | null {
   } else {
     steps.push({ label: 'The door', text: DOOR_CODE_WHEN });
   }
-  steps.push({ label: 'Checkout', text: `By ${leaveTime} on ${leaveDay}. Lock the door behind you.` });
 
   return {
     arriveDay,
