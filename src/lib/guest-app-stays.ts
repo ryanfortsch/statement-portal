@@ -274,9 +274,14 @@ export function buildStayLayer(input: StayLayerInput): StayLayer | null {
   };
 }
 
-/** Before the window: the one stay line the page shows. */
-export function opensLine(window: StayWindow): string {
-  return `Your arrival steps and door code appear here at ${easternMoment(window.opensAt)}.`;
+/**
+ * Before the window: the one stay line the page shows. It promises the door
+ * code here only when the page will show one (a mapped lock with a code for
+ * the stay); otherwise the code comes by message, and the line says when.
+ */
+export function opensLine(window: StayWindow, codeOnPage: boolean): string {
+  const at = easternMoment(window.opensAt);
+  return codeOnPage ? `Your arrival steps and door code appear here at ${at}.` : `Your arrival steps appear here at ${at}. ${DOOR_CODE_WHEN}`;
 }
 
 /**

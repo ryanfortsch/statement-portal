@@ -310,9 +310,10 @@ export async function loadGuestStay(token: string, now = new Date()): Promise<Gu
   const phase = stayPhase(now, stay.window);
   if (phase === 'over') return { kind: 'over', app: extendForStay(app, stay.window.leaveDay, false), join };
   const extended = extendForStay(app, stay.window.leaveDay, await nightForSale(stay.propertyId, stay.window.leaveDay, now));
-  if (phase === 'before') return { kind: 'before', app: extended, opens: opensLine(stay.window), join };
-
   const [mapped, live] = await Promise.all([lockMapped(stay.propertyId), getLiveStayCode(stay.propertyId, stay.bookingIds, now)]);
+  // Only whether a code exists leaves here before the window, never the digits.
+  if (phase === 'before') return { kind: 'before', app: extended, opens: opensLine(stay.window, mapped && !!live), join };
+
   const layer = buildStayLayer({
     dates: stay.dates,
     times: stay.times,
