@@ -172,6 +172,15 @@ SHA-256 of its token, thirty days, `ended_at` on sign-out. Neither holds a code
 or token. RLS on, service role only, anon and authenticated revoked. See
 `src/lib/partner-host.ts`.
 
+**`guest_trip_codes`** and **`guest_trip_sessions`** (since 2026-11-13): a
+guest signing in on staycapeann.com/trips. The same shape as the host tables,
+kept apart so neither session opens the other: a code row keeps
+`sha256('trip:' || email || ':' || code)`, ten minutes, five `attempts`,
+`used_at`; a session row is keyed by its token's SHA-256, thirty days. The
+guest's trips are read by email from `booking_requests` (indexed on
+`guest_email`) and direct canonical `bookings`. RLS on, service role only,
+anon and authenticated revoked. See `src/lib/guest-trips.ts`.
+
 **`partner_listings`** (since 2026-11-13): one row per partner home, the
 listing switch and the four checks a person makes. `walked_on` / `walked_by`,
 `insurance_checked_on` / `insurance_expires_on` / `insurance_checked_by`,
