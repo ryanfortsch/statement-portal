@@ -77,7 +77,12 @@ export function GuestAppBody({ app, wifiQr, mark, hero, intro, join }: Props) {
   useEffect(() => {
     // The offline copy. Scoped to /h/ so it never touches Helm's own pages.
     if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/h/sw.js', { scope: '/h/' }).catch(() => {});
+      if (process.env.NODE_ENV === 'production') {
+        navigator.serviceWorker.register('/h/sw.js', { scope: '/h/' }).catch(() => {});
+      } else {
+        // A local preview: a saved copy of the last edit's code would hide this one.
+        navigator.serviceWorker.getRegistrations().then((rs) => rs.forEach((r) => r.unregister())).catch(() => {});
+      }
     }
     const ids = new Set(app.sections.map((s) => s.id as string));
     const isPage = (h: string) => ids.has(h.replace(/^#/, ''));
@@ -126,12 +131,12 @@ export function GuestAppBody({ app, wifiQr, mark, hero, intro, join }: Props) {
             </div>
             {firstWifi ? (
               <>
-                <div className="ga-wificard-ssid ga-mono" translate="no">
+                <div className="ga-wificard-ssid ga-exact" translate="no">
                   {firstWifi.ssid}
                 </div>
                 {firstWifi.password ? (
                   <div className="ga-wificard-pass">
-                    <span className="ga-mono" translate="no">
+                    <span className="ga-exact" translate="no">
                       {firstWifi.password}
                     </span>
                     <CopyButton value={firstWifi.password} label="Copy" />
@@ -299,7 +304,7 @@ function Item({ item }: { item: GuestItem }) {
     <div className={`ga-item${item.aside ? ' is-aside' : ''}`}>
       {item.label ? <div className="ga-item-k">{item.label}</div> : null}
       <div className="ga-item-v">
-        <span className={item.copy ? 'ga-mono' : undefined} translate={item.noTranslate ? 'no' : undefined}>
+        <span className={item.copy ? 'ga-exact' : undefined} translate={item.noTranslate ? 'no' : undefined}>
           {split ? split[0] : item.text}
         </span>
         {item.copy ? <CopyButton value={item.text} label="Copy" /> : null}
@@ -330,7 +335,7 @@ function WifiCards({ app, wifiQr }: { app: GuestApp; wifiQr: Record<string, stri
           {n.label ? <div className="ga-item-k">{n.label}</div> : null}
           <div className="ga-wifi-row">
             <span className="ga-wifi-k">Network</span>
-            <span className="ga-mono ga-wifi-v" translate="no">
+            <span className="ga-exact ga-wifi-v" translate="no">
               {n.ssid}
             </span>
           </div>
@@ -338,7 +343,7 @@ function WifiCards({ app, wifiQr }: { app: GuestApp; wifiQr: Record<string, stri
             <span className="ga-wifi-k">Password</span>
             {n.password ? (
               <>
-                <span className="ga-mono ga-wifi-v" translate="no">
+                <span className="ga-exact ga-wifi-v" translate="no">
                   {n.password}
                 </span>
                 <CopyButton value={n.password} label="Copy" />

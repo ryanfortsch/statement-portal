@@ -41,7 +41,10 @@ export const guestAppCss = `
 /* :where keeps this at class weight, so every .ga-btn and .ga-action colour wins. */
 .ga :where(a) { color: inherit; }
 .ga-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-.ga-mono { font-family: var(--mono); font-size: 0.94em; letter-spacing: 0; word-break: break-all; }
+/* Text a guest copies or types (an address, a Wi-Fi name and password): the
+   page's own Inter with its disambiguation set, so I, l, 1, O and 0 cannot be
+   confused, instead of a typewriter face (Dotti, 2026-11-13). */
+.ga-exact { font-feature-settings: 'ss02', 'zero', 'tnum'; overflow-wrap: anywhere; }
 
 /* Home and pages */
 .ga-page { display: none; }
