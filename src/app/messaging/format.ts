@@ -27,7 +27,7 @@ export function prettifySlug(slug: string): string {
  */
 export type ProactiveKind =
   | 'extension' | 'nudge' | 'reminder' | 'scheduled' | 'review' | 'trash' | 'payment'
-  | 'hostreview' | 'reviewreply' | null;
+  | 'staypage' | 'hostreview' | 'reviewreply' | null;
 
 export function proactiveKind(
   guestyMessageId: string | null | undefined,
@@ -38,6 +38,9 @@ export function proactiveKind(
   // An unpaid payment link coming back as a guest-text card
   // (stay-concierge payment_reminders.py).
   if (id.startsWith('quo_sms:payremind:') || t === 'payment_reminder') return 'payment';
+  // A direct stay's own guest app link, texted from the Guests line on
+  // approve (stay-concierge stay_page.py).
+  if (id.startsWith('quo_sms:staypage:') || t === 'stay_page') return 'staypage';
   if (id.startsWith('extension:') || t === 'extension_offer') return 'extension';
   if (id.startsWith('nudge:') || t === 'guest_count_nudge') return 'nudge';
   if (id.startsWith('trash:') || id.startsWith('trash-manual:') || t === 'trash_reminder') return 'trash';
@@ -84,6 +87,8 @@ export function proactiveBadge(
     case 'payment':
       // The add-on plum, so it reads as the same money thread as the link.
       return { label: 'Payment reminder', tone: '#6b4f7a' };
+    case 'staypage':
+      return { label: 'Stay page', tone: '#2f6b7a' };
     default:
       return null;
   }

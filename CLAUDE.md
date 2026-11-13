@@ -538,6 +538,17 @@ stay its reader is on. A plain form posts to `/h/s/<token>/join` (same origin on
 also uses: tags `insider`, `guest_app` and the home's name, source detail `staycapeann_guest_app`,
 the usual welcome email.
 
+**A direct stay's link reaches the guest as a Guests card** (since 2026-11-12; stay-concierge
+`src/stay_page.py`). Guesty's Keycode message is one static text per home, so it cannot carry a
+stay link. From 10 AM Eastern the day before check-in until checkout day, the concierge files one
+card per confirmed direct stay (Guesty source `direct` or `manual`, never an OTA stay) with the
+link from `POST /api/guest-app-links`, id `quo_sms:staypage:<reservation>`, badged Stay page
+(`proactiveKind` in `src/app/messaging/format.ts`). Approve texts it from the GUESTS line; it never
+auto-sends, and a rejected card never comes back. A stay Helm can only answer with the home link
+waits for the next pass. The send re-reads the reservation live and refuses a text without the
+stay link, and the text never enters the concierge's voice corpus, edit distiller or
+checkout-change outbox.
+
 `/api/archive-onboarding` also self-guards: staff may archive by projection ID; owners must
 send that projection's onboarding token in the POST body. The thank-you page passes its
 validated token to the silent archive trigger. Keep authorization ahead of both the existing
