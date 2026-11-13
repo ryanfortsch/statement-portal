@@ -90,6 +90,21 @@ test('provider change or hold after first review blocks the final claim', async 
     assert.equal(f.counts().claims, 0); assert.equal(f.counts().posts, 0);
   }
 });
+test('previously scheduled confirmation cannot send fixed arrival wording for a verified early arrival', async () => {
+  const f = fixture();
+  f.s.clocks.plannedArrival = f.evidence.row.clocks.plannedArrival = f.provider.v2.plannedArrival = '13:00';
+  assert.equal((await f.run()).state, 'blocked');
+  assert.equal(f.counts().claims, 0); assert.equal(f.counts().posts, 0);
+});
+test('previously scheduled checkout cannot send fixed 11 AM wording for a verified late departure', async () => {
+  const f = fixture(), rule = f.s.capturedRules.find(r => r.key === 'pre_checkout')!;
+  f.s.clocks.plannedDeparture = f.evidence.row.clocks.plannedDeparture = f.provider.v2.plannedDeparture = '13:00';
+  f.time(Date.parse('2026-11-27T18:05:00Z'));
+  Object.assign(f.s.ledger[0], { automation_id: rule.id, automation_key: rule.key, fire_at: '2026-11-27T18:00:00Z' });
+  Object.assign(f.job, { bodySha256: createHash('sha256').update(renderTemplate(rule.body, { guest_first: 'Synthetic' }).text).digest('hex') });
+  assert.equal((await f.run()).state, 'blocked');
+  assert.equal(f.counts().claims, 0); assert.equal(f.counts().posts, 0);
+});
 test('lost claim response never POSTs; lost provider response records unknown without retry', async () => {
   const f = fixture(), rpc = f.deps.rpc;
   f.deps.rpc = async (name, args) => { const out = await rpc(name, args); if (name === 'helm_channex_message_claim') throw Error('PRIVATE'); return out; };

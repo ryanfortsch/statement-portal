@@ -30,6 +30,15 @@ test('full tick registers two original times, idles, sends one due SMS and track
   f.status('delivered');assert.equal((await f.tick()).stays[0].receiptState,'delivered');assert.equal(f.counts().posts,1);
   assert.ok(!JSON.stringify([first,idle,sent]).includes('12025550123'));assert.ok(!JSON.stringify(sent).includes(f.request.bookingId));
 });
+test('verified early arrival keeps the cleaner wording warning visible on later idle ticks',async()=>{
+  const f=fixture();
+  f.s.clocks.plannedArrival=f.evidence.row.clocks.plannedArrival=f.provider.v2.plannedArrival='13:00';
+  const first=await f.tick();assert.equal(first.ok,false);assert.equal(f.jobs.size,1);
+  assert.ok(f.jobs.has(retainedCleanerSendId(f.request.bookingId,'cleaner_reminder')));
+  assert.ok(!f.jobs.has(retainedCleanerSendId(f.request.bookingId,'cleaner_arrival')));
+  const idle=await f.tick();assert.equal(idle.ok,false);assert.equal(idle.stays[0].state,'review_required');
+  assert.equal(f.counts().posts,0);assert.equal(f.counts().claims,0);
+});
 test('overlapping cleaner ticks have one claim winner and one provider POST',async()=>{
   const f=fixture();await f.tick();f.time(due);const results=await Promise.all([f.tick(),f.tick()]);
   assert.equal(results.filter(r=>r.stays[0].state==='accepted').length,1);assert.equal(f.counts().posts,1);

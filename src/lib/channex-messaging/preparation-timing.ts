@@ -50,6 +50,15 @@ export type SourceClocks = {
   start: string; end: string; timezone: unknown; plannedArrival: unknown; plannedDeparture: unknown;
   defaultArrival: unknown; defaultDeparture: unknown; confirmedAt: unknown;
 };
+/** The retained Calderwood copy names fixed arrival/departure times. A verified
+ * override changes the trigger, not those literal promises. Review and every
+ * execution planner must use the same refusal; never silently rewrite the archive. */
+export function calderwoodTimeWordingNeedsReview(key: string, clocks: SourceClocks) {
+  const arrival = clocks.plannedArrival === null ? clocks.defaultArrival : clocks.plannedArrival;
+  const departure = clocks.plannedDeparture === null ? clocks.defaultDeparture : clocks.plannedDeparture;
+  return (['booking_confirmed', 'pre_arrival', 'cleaner_arrival'].includes(key) && arrival !== '16:00')
+    || (['pre_arrival', 'pre_checkout'].includes(key) && departure !== '11:00');
+}
 export function reviewCalderwoodTiming(input: SourceClocks, now: number) {
   if (!Number.isFinite(now) || !dateValid(input.start) || !dateValid(input.end) || input.start >= input.end)
     throw Error('Invalid timing review');

@@ -247,10 +247,16 @@ const load=async()=>{
   return {...inputs.snapshot,capturedRules:snapshot.capturedRules};
 };
 const cycle=await registerCalderwoodStaySchedules(bid,{store:schedules,load,now:Date.now},{enabled:true,expiresAfterMs:1800_000});
-assert.equal(cycle.state,'complete'); assert.equal(cycle.outcomes.filter(o=>o.state==='created').length,3);
-assert.equal(sql('select count(*) from helm_channex_messages.jobs;'),'3');
+assert.equal(cycle.state,'complete');
+// This source fixture has an independently verified noon departure. The frozen
+// pre-arrival/checkout copy still says 11 AM; only the code-only job may register.
+assert.deepEqual(cycle.outcomes.map(o=>[o.key,o.state]),[
+ ['booking_confirmed','past_not_replayed'],['pre_arrival','wording_review'],
+ ['checkin_day','created'],['pre_checkout','wording_review'],
+]);
+assert.equal(sql('select count(*) from helm_channex_messages.jobs;'),'1');
 assert.equal((await registerCalderwoodStaySchedules(bid,{store:schedules,load,now:Date.now},{enabled:true,expiresAfterMs:1800_000})).outcomes.filter(o=>o.state==='created').length,0);
-assert.equal((await inputReader.load(bid,p.bindingId))?.snapshot.ledger.length,3);
+assert.equal((await inputReader.load(bid,p.bindingId))?.snapshot.ledger.length,1);
 
 // A cancelled/held row on a merged-away stay (including an indirect descendant)
 // is not empty history. Block instead of replaying it under the canonical ID.

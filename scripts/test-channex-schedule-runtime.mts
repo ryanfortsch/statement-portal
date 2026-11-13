@@ -33,8 +33,11 @@ sql(`begin; alter table message_automations disable trigger channex_prepared_rul
  from jsonb_populate_recordset(null::message_automations,(select rules from helm_channex_messages.template_captures));
  alter table message_automations enable trigger channex_prepared_rule_guard; commit;`);
 const archive = JSON.parse(sql('select jsonb_build_object(\'id\',id,\'digest\',rules_sha256) from helm_channex_messages.template_captures;'));
+// Standard-time happy path; the noon-departure refusal is exercised by the
+// preceding timing-binding integration. Do not release contradictory text here.
 const source = JSON.parse(sql(`set role service_role; select helm_channex_capture_source_timing(
- jsonb_set(channex_synthetic_timing_plan(),'{0,clocks,confirmedAt}',${str(JSON.stringify(new Date(Date.now()-1770000).toISOString()))}::jsonb),clock_timestamp()-interval '5 seconds',clock_timestamp(),'synthetic-runtime-owner');`));
+ jsonb_set(jsonb_set(channex_synthetic_timing_plan(),'{0,clocks,plannedDeparture}','null'::jsonb),
+ '{0,clocks,confirmedAt}',${str(JSON.stringify(new Date(Date.now()-1770000).toISOString()))}::jsonb),clock_timestamp()-interval '5 seconds',clock_timestamp(),'synthetic-runtime-owner');`));
 const request = { bookingId: bid, bindingId: randomUUID(), templateCaptureId: archive.id, templateDigest: archive.digest };
 let lostResponse = false, writes = 0, reads = 0;
 const rpc = async (name: string, args: Record<string, unknown>) => {

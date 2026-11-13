@@ -2,7 +2,7 @@ import 'server-only';
 import { z } from 'zod';
 import { cleanerReminderRecipientSchema, resolveCleanerReminderLink, withCleanerReminderLink } from '../cleaner-reminder-link.ts';
 import { guestNameIdentity, renderTemplate, templateFields, MERGE_FIELDS, MASK, type MergeContext } from '../automations-core.ts';
-import { CALDERWOOD_MESSAGE_WORKFLOWS, type SourceClocks } from './preparation-timing.ts';
+import { CALDERWOOD_MESSAGE_WORKFLOWS, calderwoodTimeWordingNeedsReview, type SourceClocks } from './preparation-timing.ts';
 import { preparedRulePolicy } from './preparation-rules.ts';
 import type { PreparationRule } from './preparation-rules.ts';
 import type { GuestyHandoffStay } from '../channex-bookings/message-identity.ts';
@@ -72,8 +72,6 @@ export function rehearsePreparedMessages(rules: readonly PreparationRule[], inpu
   stay: GuestyHandoffStay, clocks: SourceClocks) {
   const b = input.bookings.find(b => b.id === stay.canonicalId);
   if (!b || b.check_in !== clocks.start || b.check_out !== clocks.end) throw Error('Message render identity changed');
-  const arrival = clocks.plannedArrival === null ? clocks.defaultArrival : clocks.plannedArrival;
-  const departure = clocks.plannedDeparture === null ? clocks.defaultDeparture : clocks.plannedDeparture;
   const staticCode = present(input.access?.smart_lock_code);
   // A key location is not necessarily a keypad code. Do not call it verified.
   const codeForRehearsal = !input.lockMapped && staticCode;
@@ -102,8 +100,7 @@ export function rehearsePreparedMessages(rules: readonly PreparationRule[], inpu
       ...input.cleanerRecipients.flatMap(r => [r.phone, r.portal_token])]
       .filter((v): v is string => Boolean(v?.trim())).sort((a, b) => b.length - a.length))
       preview = preview.replaceAll(value.trim(), MASK);
-    const timeWordingReview = (['booking_confirmed', 'pre_arrival', 'cleaner_arrival'].includes(flow.key) && arrival !== '16:00')
-      || (['pre_arrival', 'pre_checkout'].includes(flow.key) && departure !== '11:00');
+    const timeWordingReview = calderwoodTimeWordingNeedsReview(flow.key, clocks);
     return { key: flow.key, status: rendered.missing.length ? 'missing_fields' as const : 'fields_present' as const,
       preview, missingFields: rendered.missing, timeWordingReview, canSend: false as const };
   });

@@ -27,6 +27,9 @@ on:
       - 'scripts/test-channex-release-guards.mts'
       - 'scripts/test-channex-schedule-runtime.mts'
       - 'scripts/test-channex-cleaner-schedules.mts'
+      - 'scripts/test-channex-new-bookings.mts'
+      - 'src/lib/__tests__/channex-new-booking-lifecycle.test.ts'
+      - 'src/lib/__tests__/fixtures/channex-new-booking-rehearsal.ts'
       - 'scripts/channex-cleaner-enrollment-smoke.mjs'
       - 'src/app/channels/65_calderwood/message-preparation/cleaners/**'
       - 'scripts/test-channex-template-release.mts'
@@ -87,3 +90,4 @@ jobs:
       - run: node --import ./scripts/server-only-test-hook.mjs scripts/test-channex-schedule-runtime.mts
       - run: node --import ./scripts/server-only-test-hook.mjs scripts/test-channex-cleaner-schedules.mts
       - run: node scripts/channex-cleaner-enrollment-smoke.mjs
+      - run: node --import ./scripts/server-only-test-hook.mjs scripts/test-channex-new-bookings.mts
