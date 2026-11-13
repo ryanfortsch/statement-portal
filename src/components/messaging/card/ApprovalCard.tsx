@@ -123,6 +123,9 @@ export type ApprovalCardProps = {
     emptyLabel?: string;
     /** Under the draft text. */
     after?: ReactNode;
+    /** Draws the draft for reading (a link as a short label); the editor
+     *  and every verb keep the text itself. */
+    render?: (text: string) => ReactNode;
   } | null;
   /** Under the columns: View conversation. */
   afterColumns?: ReactNode;
@@ -647,7 +650,7 @@ export function ApprovalCard(props: ApprovalCardProps) {
         reply.override
       ) : (
         <>
-          <BodyText emphasis>{shownDraft || '(no draft)'}</BodyText>
+          <BodyText emphasis>{shownDraft ? (reply.render ? reply.render(shownDraft) : shownDraft) : '(no draft)'}</BodyText>
           {/* The English is for the text that sends: only once a saved edit
               is the server's draft again. */}
           {savedDraft == null && reply.english}

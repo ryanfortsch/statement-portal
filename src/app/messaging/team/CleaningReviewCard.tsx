@@ -1,13 +1,19 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import { Fragment, type ReactNode } from 'react';
 import { ApprovalCard, sentAgoLabel } from '@/components/messaging/card/ApprovalCard';
 import type { QueueCardHelpers } from '@/components/messaging/card/ApprovalQueue';
 import type { WaitReason } from '@/components/messaging/card/types';
-import { EnglishLine } from '@/components/messaging/TranslationLine';
+import { TranslationLine } from '@/components/messaging/TranslationLine';
 import { PhotoThumbs } from '@/components/PhotoUploader';
 import { houseDay } from '@/lib/house-date';
-import { CLEANING_HANDLED_REASONS, enShort, needsCleaningNotice, type CleaningReviewCardData } from '@/lib/cleaning-reviews-core';
+import {
+  CLEANING_HANDLED_REASONS,
+  enShort,
+  needsCleaningNotice,
+  numberedLinkParts,
+  type CleaningReviewCardData,
+} from '@/lib/cleaning-reviews-core';
 import { approveCleaningReviewAction, editCleaningReviewAction, markCleaningReviewHandledAction } from './cleaning-review-actions';
 
 /**
@@ -97,11 +103,12 @@ export function CleaningReviewCard({
       reply={{
         label: `${noEmail ? 'Email to the crew' : `Email to ${to}`} (${language})${card.copy.length ? `, copy ${card.copy.join(', ')}` : ''}`,
         text: card.text,
+        render: (text) => <NumberedLinks text={text} />,
         english:
           card.language === 'pt' ? (
-            <EnglishLine text={card.english} label={card.edited ? 'English, as drafted before your edit' : 'English'} />
+            <English text={card.english} label={card.edited ? 'English, as drafted before your edit' : 'English'} />
           ) : undefined,
-        englishWhileEditing: card.language === 'pt' ? <EnglishLine text={card.english} label="English, as drafted" /> : undefined,
+        englishWhileEditing: card.language === 'pt' ? <English text={card.english} label="English, as drafted" /> : undefined,
       }}
       approveBlocked={
         noEmail ? 'No cleaner email on file.' : card.status === 'approving' && !card.stuck ? 'Someone is sending this one.' : undefined
@@ -119,6 +126,38 @@ export function CleaningReviewCard({
       regenStalled={false}
     />
   );
+}
+
+/** The email as the crew's inbox draws it: each photo link a number on its
+ *  line (numberedLinkParts, the same pieces weeklyEmailHtml prints). */
+function NumberedLinks({ text }: { text: string }) {
+  return (
+    <>
+      {text.split('\n').map((line, i) => (
+        <Fragment key={i}>
+          {i > 0 && '\n'}
+          {numberedLinkParts(line).map((p, j) =>
+            'href' in p ? (
+              <a key={j} href={p.href} target="_blank" rel="noreferrer" style={{ color: 'var(--tide-deep)' }}>
+                {p.label}
+              </a>
+            ) : (
+              <Fragment key={j}>{p.text}</Fragment>
+            ),
+          )}
+        </Fragment>
+      ))}
+    </>
+  );
+}
+
+function English({ text, label }: { text: string; label: string }) {
+  const english = text.trim();
+  return english ? (
+    <TranslationLine label={label}>
+      <NumberedLinks text={english} />
+    </TranslationLine>
+  ) : null;
 }
 
 function Stars({ n }: { n: number }) {
