@@ -42,12 +42,12 @@ test('DST disagreement, omitted arrival override and changed hardcoded arrival w
     assert.throws(() => renderRetainedCleanerSms(f.review, f.transport, f.now()));
   }
 });
-test('recipient revocation, rotation, change of record, language and extra coverage block before claim', async () => {
+test('recipient revocation, rotation, region, language and extra coverage block before claim', async () => {
   const mutations = [
     (r: Record<string, unknown>) => { r.enabled = false; },
     (r: Record<string, unknown>) => { r.portal_token = 'f'.repeat(32); },
     (r: Record<string, unknown>) => { r.phone = '+12025550124'; },
-    (r: Record<string, unknown>) => { r.id = cleanerId(99); },
+    (r: Record<string, unknown>) => { r.region = 'cape_ann'; },
     (r: Record<string, unknown>) => { r.language = 'pt'; },
     (r: Record<string, unknown>) => { r.property_ids = ['65_calderwood', 'another']; },
   ];
@@ -59,7 +59,7 @@ test('recipient revocation, rotation, change of record, language and extra cover
     assert.equal(result.state, 'blocked'); assert.equal(f.counts().claims, 0); assert.equal(f.calls.length, 0);
   }
   const f = cleanerSmsFixture();
-  f.review.recipients = [...f.review.recipients, { ...(f.review.recipients[0] as object), id: cleanerId(98), property_ids: [] }];
+  f.review.recipients = [...f.review.recipients, { ...(f.review.recipients[0] as object), phone: '+12025550124', property_ids: [] }];
   assert.equal((await f.worker().dispatch(f.job().sendId, f.load)).state, 'blocked');
 });
 test('body, booking context, immutable due time and rule identity must still match', async () => {

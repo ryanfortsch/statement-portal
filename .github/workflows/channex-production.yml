@@ -25,6 +25,7 @@ on:
       - 'scripts/test-channex-timing-binding.mts'
       - 'scripts/test-channex-release-guards.mts'
       - 'scripts/test-channex-schedule-runtime.mts'
+      - 'scripts/test-channex-cleaner-schedules.mts'
       - 'scripts/test-channex-template-release.mts'
       - 'src/app/api/channex/message-preparation/**'
       - 'scripts/test-channex-reconciliation.mts'
@@ -35,7 +36,7 @@ permissions:
 jobs:
   channex-database:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 8
     services:
       postgres:
         image: postgres:16
@@ -81,3 +82,4 @@ jobs:
       - run: node --import ./scripts/server-only-test-hook.mjs scripts/test-channex-release-guards.mts
       - run: node --import ./scripts/server-only-test-hook.mjs scripts/test-channex-template-release.mts
       - run: node --import ./scripts/server-only-test-hook.mjs scripts/test-channex-schedule-runtime.mts
+      - run: node --import ./scripts/server-only-test-hook.mjs scripts/test-channex-cleaner-schedules.mts

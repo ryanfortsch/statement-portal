@@ -832,6 +832,29 @@ runs itself.
   work. The owner-only template workflow exposes archive/review/release separately;
   the message cron never invokes a release. Installing the
   migration creates no release/capture, enables no rule, and sends no message.
+  The cleaner path has separate private `cleaner_releases`, `cleaner_jobs` and
+  `cleaner_hold_events`. A release binds the immutable original cleaner rules,
+  one phone-keyed English Calderwood-only recipient revision, HMAC key/target and
+  separate source cleaner-queue clearance. No enrollment writer or release row
+  ships in the installation. `helm_channex_cleaner_register` reserves the canonical
+  `automation_sends` row and private job atomically against an existing timing
+  binding. SQL independently derives the two cleaner fire times, refusing DST
+  ambiguity and a late window over 30 minutes. Identical registration retries
+  preserve the first schedule and outcome. `helm_channex_cleaner_claim` locks the
+  scope, booking family, canonical/private send, recipient table and current
+  property/rule, then rechecks readiness and issues one non-replayable permit.
+  Recipient table locking also excludes a concurrent competing enrollment.
+  `helm_channex_cleaner_read`, `helm_channex_cleaner_finish` and
+  `helm_channex_cleaner_hold` are service-only. No client/service role receives
+  direct access to these private tables. Receipt writes are monotonic and never
+  reset an uncertain, refused, aborted or terminal attempt. Canonical `sent` means
+  provider acceptance here; the private receipt distinguishes delivery/failure.
+  A later cancellation/revocation does not prevent receipt reconciliation.
+  Generic schedulers cannot mutate/reserve these jobs; existing canonical
+  cancellation and property disable still work. Original cleaner rules stay
+  frozen/disabled. The default-off TypeScript adapter has no production caller,
+  credential loader or cron activation. Installation creates no schedules,
+  enrollment, queue-clearance evidence or messages.
 - **`guest_threads`**: one thread per stay per channel (`sms`, `email`,
   `airbnb`, `vrbo`, `booking_com`, `direct`), keyed to `booking_id`,
   `guest_id` and `property_id`, with `external_thread_key` (E.164 for

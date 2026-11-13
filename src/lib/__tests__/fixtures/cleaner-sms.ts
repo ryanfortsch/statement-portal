@@ -23,7 +23,7 @@ export function cleanerSmsFixture(workflow: 'cleaner_arrival' | 'cleaner_reminde
         sourceSha256: sha('HELMTEST source'), bodySha256: sha(body), fieldMappingVersion: 1, timing: MIGRATION_TIMING[workflow] } },
     clocks: { start: '2026-11-24', end: '2026-11-28', timezone: 'America/New_York', plannedArrival: null,
       defaultArrival: '16:00', plannedDeparture: null, defaultDeparture: '11:00', confirmedAt: null },
-    recipients: [{ id: cleanerId(4), enabled: true, property_ids: ['65_calderwood'], region: 'bridgeport_ct',
+    recipients: [{ enabled: true, property_ids: ['65_calderwood'], region: 'bridgeport_ct',
       language: 'en', phone: '+12025550123', portal_token: '0123456789abcdef0123456789abcdef' }],
   };
   const calls: Array<{ url: string; init: RequestInit }> = [];
