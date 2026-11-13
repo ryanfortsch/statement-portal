@@ -12,6 +12,7 @@ import { ageToneColor, relativeTimeShort, sendsInLabel } from '@/app/messaging/f
 import type { MessageOutcomes as Outcomes } from '@/lib/message-outcomes';
 import { PrimaryButton, QuietButton, SecondaryButton } from './buttons';
 import { Button } from '@/components/Button';
+import { useConfirm } from '@/components/ConfirmDialog';
 import { AlsoOnApprove } from './AlsoOnApprove';
 import { WaitLine } from './WaitLine';
 import type { AlsoItem, CardResult, CardVerbs, Decision, HandledCapture, WaitReason } from './types';
@@ -169,6 +170,7 @@ export function ApprovalCard(props: ApprovalCardProps) {
   } = props;
   const draft = reply?.text ?? '';
   const [isPending, startTransition] = useTransition();
+  const { ask } = useConfirm();
   const [error, setError] = useState<string | null>(null);
   const [receipt, setReceipt] = useState<ApprovalReceipt | null>(null);
   const [pending, setPending] = useState<PendingAction>(null);
@@ -453,7 +455,27 @@ export function ApprovalCard(props: ApprovalCardProps) {
     });
   };
 
-  const sendNow = () => !approveBlocked && verbs.sendNow && run('send-now', verbs.sendNow);
+  // A queued card was put on a clock on purpose (a checkout notice for the
+  // night before checkout, a reminder for the morning of). Send now beside
+  // Show on the folded row took one tap with no question, and Anne's 3 South
+  // checkout notice, queued for Sat Nov 28, reached her on Nov 12 telling her
+  // checkout was "tomorrow". So it asks, and names the time it gives up.
+  const sendNow = async () => {
+    if (approveBlocked || !verbs.sendNow) return;
+    const send = verbs.sendNow;
+    const when = sendsInLabel(sendAt || '');
+    const ok = await ask({
+      title: `Send to ${name} now?`,
+      body: when
+        ? `${when}. If it says "tomorrow" or "tonight", ${name} reads that today.`
+        : 'It goes out at once instead of at its scheduled time.',
+      confirmLabel: 'Send now',
+      cancelLabel: 'Keep the schedule',
+      irreversible: true,
+    });
+    if (!ok) return;
+    run('send-now', send);
+  };
   const cancelSchedule = () => verbs.cancelSchedule && run('cancel-schedule', verbs.cancelSchedule);
 
   const ageLabel =
