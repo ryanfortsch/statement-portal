@@ -85,7 +85,7 @@ export function GuestAppPanel({
           </span>
           <CopyValue value={view.url} label="guest app link" />
           {view.enabled ? (
-            <a href={view.url} target="_blank" rel="noreferrer" style={linkStyle}>
+            <a href={view.previewPath} target="_blank" rel="noreferrer" style={linkStyle}>
               Open ↗
             </a>
           ) : null}
