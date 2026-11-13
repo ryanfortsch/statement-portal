@@ -258,6 +258,8 @@ describe('the guards', () => {
     const notFound = decide.indexOf("if (!home) return { ok: false, reason: 'No such request.', notFound: true }");
     const write = decide.indexOf('acceptBookingRequest(id, by, now)');
     assert.ok(check > 0 && notFound > check && write > notFound, 'the home check comes before the write');
+    const noHold = decide.indexOf("if (decision === 'accept' && found?.hold_status !== 'held') return { ok: false, reason: HOST_NO_HOLD }");
+    assert.ok(noHold > notFound && noHold < write, 'a host books only over a card on hold');
     assert.ok(decide.includes('declineBookingRequest(id, by, reason, now)'));
     assert.ok(decide.includes('const by = hostActor(session.email)'));
     for (const f of ['src/lib/partner-host.ts', 'src/lib/partner-host-db.ts', 'src/lib/partner-host-email.ts', ...routes]) {

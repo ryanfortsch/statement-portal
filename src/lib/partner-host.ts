@@ -46,6 +46,9 @@ export const HOST_SESSION_DAYS = 30;
 export const HOST_HISTORY_DAYS = 60;
 export const HOST_SESSION_HEADER = 'x-host-session';
 export const HOST_ACTOR_PREFIX = 'host:';
+/** A host's Accept with no card on hold: the office settles that one with them. */
+export const HOST_NO_HOLD =
+  "There's no card on hold for this request, so Stay Cape Ann will confirm it with you. Write to hello@staycapeann.com.";
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const CODE = /^\d{6}$/;

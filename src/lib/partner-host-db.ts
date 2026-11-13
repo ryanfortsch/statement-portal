@@ -27,6 +27,7 @@ import {
   HOST_CODE_TRIES,
   HOST_CODES_PER_HOUR,
   HOST_HISTORY_DAYS,
+  HOST_NO_HOLD,
   HOST_SESSION_DAYS,
   homesForHost,
   hostActor,
@@ -215,10 +216,14 @@ export async function hostDecide(
 ): Promise<HostDecideResult> {
   const id = typeof rawId === 'string' && UUID.test(rawId) ? rawId : null;
   if (!id) return { ok: false, reason: 'No such request.', notFound: true };
-  const { data, error } = await supabaseAdmin.from('booking_requests').select('property_id').eq('id', id).maybeSingle();
+  const { data, error } = await supabaseAdmin.from('booking_requests').select('property_id, hold_status').eq('id', id).maybeSingle();
   if (error) throw new Error(`host request read failed: ${error.message}`);
-  const home = session.homes.find((h) => h.id === (data as { property_id: string } | null)?.property_id);
+  const found = data as { property_id: string; hold_status: string } | null;
+  const home = session.homes.find((h) => h.id === found?.property_id);
   if (!home) return { ok: false, reason: 'No such request.', notFound: true };
+  // A host books only over a card on hold. Without one nobody has paid, so
+  // the office settles it with them (its own Accept has no such rule).
+  if (decision === 'accept' && found?.hold_status !== 'held') return { ok: false, reason: HOST_NO_HOLD };
 
   const by = hostActor(session.email);
   const r = decision === 'accept' ? await acceptBookingRequest(id, by, now) : await declineBookingRequest(id, by, reason, now);

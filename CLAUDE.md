@@ -346,7 +346,8 @@ only), and the site keeps the session token in an httpOnly cookie and sends it a
 URL. A host sees their homes' requests with the guest's first name and initial until the stay is
 booked, and the contact only then. Their Accept and Decline call `acceptBookingRequest` and
 `declineBookingRequest`, recorded as `host:<email>`, after a check that the request is on one of
-their homes, so every check Accept runs for the office runs for them. When a request lands, Helm
+their homes, so every check Accept runs for the office runs for them; a host accepts only over a
+card on hold (`HOST_NO_HOLD`), so before Stripe is live the office settles each one. When a request lands, Helm
 emails the host from hello@ (`booking_requests.host_emailed_at`; the hourly sweep retries).
 `partner-host.test.ts` holds it.
 
