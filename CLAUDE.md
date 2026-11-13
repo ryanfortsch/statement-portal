@@ -355,6 +355,20 @@ calendars (a booked night outranks the block Airbnb echoes back), when each of t
 was last read (never its link), and the stays still to come with the guest's contact.
 `partner-host.test.ts` holds it.
 
+**A guest sees their trips on staycapeann.com/trips** (`src/lib/guest-trips.ts`, since
+2026-11-13). The guest is the email they asked or booked with: a partner home's requests
+(`booking_requests.guest_email`) and the direct stays Helm holds (`bookings.guest_email`, channel
+`direct`, the canonical row). A Guesty-run home keeps its guest's email in Guesty, so those stays
+are not listed yet. Sign-in is the host area's, in tables of its own (`guest_trip_codes`,
+`guest_trip_sessions`) with the code's hash salted `trip:`, and the `x-trip-session` header on
+the bridge (`/api/pms/trips/code`, `/session`, `/api/pms/trips`); an email with no trip gets the
+answer a send gets and no code. A trip shows where it stands, the total and the card, the
+cancellation policy and house rules the guest agreed to, and on a booked direct stay at a guest
+app home its stay link (minted on read, a failed mint leaves the trip without it); never the
+host's contact or the decline reason. A request still waiting can be withdrawn through
+`withdrawBookingRequest`, recorded as `guest:<email>`. The request receipt and the confirmation
+email link the page. `guest-trips.test.ts` holds it.
+
 **A partner home reaches staycapeann.com only when an owner lists it** (`src/lib/partner-listing.ts`,
 since 2026-11-13). An owner adds the home on `/guests/requests` (address, town, host): Helm writes a
 `properties` row with `kind` `partner`, `is_active` false, `calendar_authority` `helm`, no fee and

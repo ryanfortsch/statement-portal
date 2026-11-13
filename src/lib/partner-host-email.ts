@@ -16,7 +16,8 @@ import { hostCodeEmail, hostEmailsOf, hostNewRequestEmail, type HostEmail } from
 
 const HELLO = 'hello@staycapeann.com';
 
-async function sendToHost(to: string, email: HostEmail, idempotencyKey: string): Promise<boolean> {
+/** One email from hello@, the RESEND_FROM_EMAIL fallback after. Guest sign-in codes use it too (guest-trips-db.ts). */
+export async function sendFromHello(to: string, email: HostEmail, idempotencyKey: string): Promise<boolean> {
   const base = { to, subject: email.subject, html: email.html, text: email.text, replyTo: HELLO, fromName: 'Stay Cape Ann', idempotencyKey };
   if (await sendTransactionalViaResend({ ...base, fromEmail: HELLO })) return true;
   const fallback = process.env.RESEND_FROM_EMAIL || '';
@@ -26,7 +27,7 @@ async function sendToHost(to: string, email: HostEmail, idempotencyKey: string):
 
 export async function sendHostCode(email: string, code: string, codeId: string): Promise<boolean> {
   try {
-    return await sendToHost(email, hostCodeEmail(code), `partner-host-code:${codeId}`);
+    return await sendFromHello(email, hostCodeEmail(code), `partner-host-code:${codeId}`);
   } catch (err) {
     console.warn('[partner-host-email] code email failed:', err instanceof Error ? err.message : String(err));
     return false;
@@ -50,7 +51,7 @@ export async function emailHostAboutRequest(row: BookingRequestRow): Promise<boo
     const email = hostNewRequestEmail(row, h.title ?? h.name, SCA_SITE_ORIGIN);
     let sent = false;
     for (const to of hostEmailsOf(h)) {
-      if (await sendToHost(to, email, `booking-request:${row.id}:host:${to}`)) sent = true;
+      if (await sendFromHello(to, email, `booking-request:${row.id}:host:${to}`)) sent = true;
     }
     if (!sent) return false;
     await supabaseAdmin.from('booking_requests').update({ host_emailed_at: new Date().toISOString() }).eq('id', row.id).is('host_emailed_at', null);

@@ -37,7 +37,7 @@ function nothingCharged(r: Row): string {
 export type CopyContext = {
   /** The listing title, e.g. "Stay at Rocky Neck". */
   title: string | null;
-  /** staycapeann.com, for the "other homes" link. */
+  /** staycapeann.com, for the "other homes" and "Your trips" links. */
   siteOrigin: string;
 };
 
@@ -92,11 +92,16 @@ const WRAP_CLOSE = '</div>';
 const SIGN_OFF_TEXT = `Stay Cape Ann\n${GUEST_EMAIL} · ${GUEST_PHONE}`;
 const SIGN_OFF_HTML = `<p style="margin-top: 28px;">Stay Cape Ann<br/><span style="color: #506068; font-size: 13px;">${GUEST_EMAIL} &middot; ${GUEST_PHONE}</span></p>`;
 
+/** The guest's own page on the site: every request and stay under their email. */
+export function tripsLink(siteOrigin: string): string {
+  return `${siteOrigin.replace(/\/+$/, '')}/trips`;
+}
+
 /**
- * Paragraphs to an email. A paragraph is plain text, or [text, url] for a
- * line that ends in a link.
+ * Paragraphs to an email. A paragraph is plain text, or [text, url, label?]
+ * for a line that ends in a link ("See what is open" unless it says).
  */
-function build(subject: string, paragraphs: Array<string | [string, string]>): RequestEmail {
+function build(subject: string, paragraphs: Array<string | [string, string] | [string, string, string]>): RequestEmail {
   const text = [...paragraphs.map((p) => (typeof p === 'string' ? p : `${p[0]} ${p[1]}`)), SIGN_OFF_TEXT].join('\n\n');
   const html =
     WRAP_OPEN +
@@ -104,7 +109,7 @@ function build(subject: string, paragraphs: Array<string | [string, string]>): R
       .map((p) =>
         typeof p === 'string'
           ? `<p>${escapeHtml(p)}</p>`
-          : `<p>${escapeHtml(p[0])} <a href="${escapeHtml(p[1])}" style="color: #1e2e34;">See what is open</a></p>`,
+          : `<p>${escapeHtml(p[0])} <a href="${escapeHtml(p[1])}" style="color: #1e2e34;">${escapeHtml(p[2] ?? 'See what is open')}</a></p>`,
       )
       .join('') +
     SIGN_OFF_HTML +
@@ -122,6 +127,7 @@ export function receiptEmail(r: Row, ctx: CopyContext): RequestEmail {
     heldCents(r) == null
       ? `Nothing has been charged. The quoted total is ${fmtCents(r.quoted_total_cents, r.currency)}${totalCovers(r.quote)}. If the host says yes, we will email you to confirm and pay.`
       : `We placed a hold of ${fmtCents(heldCents(r) as number, r.currency)}${totalCovers(r.quote)} on your card. You are charged only if the host says yes. If they can't, the hold is released.`,
+    ['You can check on it any time, signed in with this email:', tripsLink(ctx.siteOrigin), 'Your trips'],
     'If anything changes, just reply to this email.',
   ]);
 }
@@ -160,5 +166,6 @@ export function confirmedEmail(r: Row & { charged_cents: number }, ctx: CopyCont
     `Good news: the host said yes. You're booked at ${home}, ${staySummary(r)}.`,
     `We charged ${fmtCents(r.charged_cents, r.currency)}${totalCovers(r.quote)} to your card. The charge comes from the host's own account, so your statement may show their name.`,
     'Your host will be in touch before you arrive with directions and check-in details. If you have a question in the meantime, just reply to this email.',
+    ['Your trip, with the cancellation policy and house rules you agreed to:', tripsLink(ctx.siteOrigin), 'Your trips'],
   ]);
 }
