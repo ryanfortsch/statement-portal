@@ -24,6 +24,7 @@ import { displayTitle } from '@/lib/sca-quotes-types';
 import { sendHostCode } from '@/lib/partner-host-email';
 import { selectAllPaged } from '@/lib/paged-select';
 import { listedPartners } from '@/lib/partner-listed';
+import { threadCountsFor } from '@/lib/partner-messages-db';
 import type { PartnerFeedChannel } from '@/lib/partner-calendar';
 import { hostCalendarSpans, hostCalendarWindow, hostFeedView, type HostCalendarSpan, type HostFeedView } from '@/lib/partner-host-calendar';
 import {
@@ -205,7 +206,12 @@ export async function listHostRequests(session: HostSession, now: Date = new Dat
     .limit(200);
   if (error) throw new Error(`host requests read failed: ${error.message}`);
   const titles = new Map(session.homes.map((h) => [h.id, h.title]));
-  return sortHostRequests(((data ?? []) as BookingRequestRow[]).map((r) => hostRequestView(r, titles.get(r.property_id) ?? null, now)));
+  const rows = (data ?? []) as BookingRequestRow[];
+  const counts = await threadCountsFor(
+    rows.map((r) => r.id),
+    'host',
+  );
+  return sortHostRequests(rows.map((r) => ({ ...hostRequestView(r, titles.get(r.property_id) ?? null, now), ...counts.get(r.id) })));
 }
 
 export type HostDecision = 'accept' | 'decline';

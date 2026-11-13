@@ -36,6 +36,7 @@ import {
 import type { HoldStatus } from './partner-payments.ts';
 import { datesLine } from './booking-request-copy.ts';
 import { displayTitle, fmtCents } from './sca-quotes-types.ts';
+import { maskContact } from './partner-messages.ts';
 
 export const HOST_CODE_MINUTES = 10;
 export const HOST_CODE_TRIES = 5;
@@ -152,6 +153,9 @@ export type HostRequestView = {
   house_rules: string | null;
   decided_at: string | null;
   created_at: string;
+  /** Messages in the request's conversation and how many the host has not opened (src/lib/partner-messages.ts). Filled by the list. */
+  messages: number;
+  unread: number;
 };
 
 export function hostRequestView(row: BookingRequestRow, title: string | null, now: Date): HostRequestView {
@@ -169,7 +173,8 @@ export function hostRequestView(row: BookingRequestRow, title: string | null, no
     nights: nightsOf(row.check_in, row.check_out),
     guests: row.guests,
     guest_name: hostGuestName(row, booked),
-    message: row.message,
+    // Contact in the guest's note stays hidden until the stay is booked, as in their messages.
+    message: row.message && !booked ? maskContact(row.message).body : row.message,
     status,
     respond_by: row.respond_by,
     clock: clockLabel(row, now),
@@ -186,6 +191,8 @@ export function hostRequestView(row: BookingRequestRow, title: string | null, no
     house_rules: row.house_rules,
     decided_at: row.decided_at,
     created_at: row.created_at,
+    messages: 0,
+    unread: 0,
   };
 }
 
@@ -266,10 +273,10 @@ export function hostNewRequestEmail(row: BookingRequestRow, title: string | null
       : `The quoted total is ${fmtCents(row.quoted_total_cents, row.currency)}.`;
   return build(`Booking request for ${home}: ${datesLine(row.check_in, row.check_out)}`, [
     `${hostGuestName(row, false)} asked to stay at ${home}, ${datesLine(row.check_in, row.check_out)} (${n} night${n === 1 ? '' : 's'}, ${row.guests} guest${row.guests === 1 ? '' : 's'}).`,
-    ...(row.message ? [`They wrote: "${row.message.trim()}"`] : []),
+    ...(row.message ? [`They wrote: "${maskContact(row.message.trim()).body}"`] : []),
     money,
     `Please answer by ${easternWhen(row.respond_by)} Eastern, within ${RESPONSE_WINDOW_HOURS} hours of the request. If no one answers by then, the request closes and the hold is released.`,
-    ['Accept or decline it here:', hostAreaUrl(siteOrigin), 'Your requests'],
+    ['Accept or decline it, or write to them first:', hostAreaUrl(siteOrigin), 'Your requests'],
     'Before you accept, check the dates against your other calendars. You can also reply to this email and we will help.',
   ]);
 }

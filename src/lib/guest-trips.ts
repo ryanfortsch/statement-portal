@@ -117,6 +117,9 @@ export type TripView = {
   house_rules: string | null;
   /** When it closed without a stay; null otherwise. */
   closed_at: string | null;
+  /** On a request: messages with the host and how many the guest has not opened (src/lib/partner-messages.ts). Filled by the list. */
+  messages: number;
+  unread: number;
 };
 
 const STATUS: Record<BookingRequestRow['status'], TripStatus> = {
@@ -170,6 +173,8 @@ export function tripFromRequest(row: RequestRow, title: string | null, today: st
     house_rules: row.house_rules,
     // An expired request closed when its clock ran out.
     closed_at: group === 'closed' ? (row.decided_at ?? row.respond_by) : null,
+    messages: 0,
+    unread: 0,
   };
 }
 
@@ -205,6 +210,8 @@ export function tripFromBooking(row: TripBookingRow, title: string | null, today
     cancellation_terms: null,
     house_rules: null,
     closed_at: null,
+    messages: 0,
+    unread: 0,
   };
 }
 

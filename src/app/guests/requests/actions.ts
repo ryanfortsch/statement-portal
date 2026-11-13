@@ -8,6 +8,7 @@ import { parseFeePct, setupLinkFor, MAX_FEE_PCT } from '@/lib/partner-payments';
 import { SCA_SITE_ORIGIN } from '@/lib/booking-request-email';
 import { parseNewPartnerHome } from '@/lib/partner-listing';
 import { createPartnerHome } from '@/lib/partner-listing-db';
+import { officePost } from '@/lib/partner-messages-db';
 
 /**
  * The owner verbs on /guests/requests. Each returns a result the buttons
@@ -85,4 +86,15 @@ export async function createPartnerHomeAction(input: Record<string, string>): Pr
   revalidatePath('/guests/requests');
   revalidatePath('/properties');
   return r.ok ? { ok: true, id: r.id } : { ok: false, error: r.reason };
+}
+
+// ─── Messages ───────────────────────────────────────────────────────────────
+
+/** Write in a request's conversation as Stay Cape Ann; the guest and the host are emailed a link. */
+export async function postOfficeMessageAction(id: string, body: string): Promise<RequestActionResult> {
+  const by = await requireOwnerEmail();
+  const r = await officePost(id, by, body).catch((err: unknown) => ({ ok: false as const, reason: err instanceof Error ? err.message : 'Could not send it.' }));
+  revalidatePath('/guests/requests');
+  if (!r.ok) return { ok: false, error: r.reason };
+  return r.emailed ? { ok: true } : { ok: true, note: 'Sent. The email about it did not go; it is retried every hour.' };
 }
