@@ -42,14 +42,15 @@ import { clockLabel, EXTEND_ITEM, extendHref, type GuestApp, type GuestItem } fr
 export const STAY_TIMEZONE = 'America/New_York';
 
 /**
- * A stay token: 16 characters from 62 (about 95 random bits), so the link
- * in a guest's text stays short (staycapeann.com/s/<token>, since
- * 2026-11-13) and still cannot be guessed. Links minted before then are 32
- * lowercase hex (128 bits) and keep working.
+ * A stay token: 12 characters from 62 (about 71 random bits), so the link
+ * in a guest's text stays short (staycapeann.com/s/<token>) and still cannot
+ * be guessed. Every shape ever minted keeps working, because those links have
+ * been sent: 32 lowercase hex (128 bits, until 2026-11-13), then 16 from 62
+ * (about 95 bits, 2026-11-13 for a day), then 12 (Dotti, 2026-11-13).
  */
-export const STAY_TOKEN_RE = /^(?:[A-Za-z0-9]{16}|[a-f0-9]{32})$/;
+export const STAY_TOKEN_RE = /^(?:[A-Za-z0-9]{12}|[A-Za-z0-9]{16}|[a-f0-9]{32})$/;
 
-export const STAY_TOKEN_LENGTH = 16;
+export const STAY_TOKEN_LENGTH = 12;
 const BASE62 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
 
 /**

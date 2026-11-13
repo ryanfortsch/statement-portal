@@ -529,9 +529,10 @@ stays on Helm.
 **The stay link** (`/h/s/<token>`, phase 2; `src/lib/guest-app-stays.ts` is pure,
 `guest-app-stays-db.ts` reads, `src/app/h/s/`). One short-lived link per reservation
 (`guest_app_stays`: a token unrelated to the home's, one live link per stay). The link a guest is
-sent is short, `staycapeann.com/s/<token>` (since 2026-11-13): 16 characters from 62, about 95
+sent is short, `staycapeann.com/s/<token>` (since 2026-11-13): 12 characters from 62, about 71
 bits (`stayTokenFrom`), and both hosts redirect `/s/` to `/h/s/`, where the page sits inside the
-service worker's scope. Links minted before then are 32 hex and keep working. It is the
+service worker's scope; the concierge's text drops the `https://`. Every older shape (32 hex, then
+16 from 62 for a day) keeps working, because those links were sent. It is the
 home's app with a Your stay card on top: arrive and leave, the arrival steps, and the stay's own
 Seam door code (`getLiveStayCode` in `guest-locks.ts`, from `guest_access_codes`, never
 `property_access.smart_lock_code`). The window opens at 10:00 AM Eastern the day before check-in,
