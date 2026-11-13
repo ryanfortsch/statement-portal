@@ -355,7 +355,15 @@ The host's calendar is `/api/pms/host/calendar` (`src/lib/partner-host-calendar.
 months of nights per home, booked here, a request waiting, a stay or a block on their own
 calendars (a booked night outranks the block Airbnb echoes back), when each of their calendars
 was last read (never its link), and the stays still to come with the guest's contact.
-`partner-host.test.ts` holds it.
+`partner-host.test.ts` holds it. The host's money is `/api/pms/host/payouts`
+(`src/lib/partner-host-payouts.ts`): each home's Stripe standing in the host's words and every
+booked stay with the charge, our fee and what reaches them before Stripe's card fee, plus what
+Stripe charged by Eastern year. The payouts themselves are in the host's own Stripe dashboard (a
+Standard account, so the page links `dashboard.stripe.com`); nothing here says a payout happened,
+and a stay the office settled by hand claims no fee or payout. `/api/pms/host/payouts/setup` lets
+a host start or finish with Stripe themselves: it mints a fresh setup link for one of their homes
+through `makeSetupLink`, recorded as `host:<email>`, so the office's earlier link stops working.
+`partner-host-payouts.test.ts` holds it.
 
 **A guest sees their trips on staycapeann.com/trips** (`src/lib/guest-trips.ts`, since
 2026-11-13). The guest is the email they asked or booked with: a partner home's requests

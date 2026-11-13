@@ -14,6 +14,9 @@
  *   hostDecide        Accept or Decline, through the office's own writers
  *                     (acceptBookingRequest, declineBookingRequest), after
  *                     checking the request is on one of their homes.
+ *   hostPayouts       their homes' Stripe standing and every booked stay's
+ *                     money (src/lib/partner-host-payouts.ts).
+ *   hostSetupLink     a fresh Stripe setup link for one of their homes.
  *
  * Helm keeps sha256 hashes of codes and tokens, never the values.
  */
@@ -25,6 +28,9 @@ import { sendHostCode } from '@/lib/partner-host-email';
 import { selectAllPaged } from '@/lib/paged-select';
 import { listedPartners } from '@/lib/partner-listed';
 import { threadCountsFor } from '@/lib/partner-messages-db';
+import { makeSetupLink } from '@/lib/partner-payments-db';
+import { PARTNER_PAYMENT_COLS, shapeAccount, type PartnerPaymentAccount } from '@/lib/partner-payments';
+import { HOST_PAYOUT_STAYS, hostPayoutsView, type HostPayoutsView } from '@/lib/partner-host-payouts';
 import type { PartnerFeedChannel } from '@/lib/partner-calendar';
 import { hostCalendarSpans, hostCalendarWindow, hostFeedView, type HostCalendarSpan, type HostFeedView } from '@/lib/partner-host-calendar';
 import {
@@ -333,4 +339,47 @@ export async function hostCalendar(session: HostSession, now: Date = new Date())
       };
     }),
   };
+}
+
+/**
+ * The host's money: each home's Stripe standing as staycapeann.com last
+ * reported it, and their booked stays, newest first, up to HOST_PAYOUT_STAYS.
+ * Throws on a failed read; the bridge answers 503.
+ */
+export async function hostPayouts(session: HostSession, now: Date = new Date()): Promise<HostPayoutsView> {
+  const ids = session.homes.map((h) => h.id);
+  if (ids.length === 0) return hostPayoutsView([], new Map(), [], now);
+  const [accountsRead, staysRead] = await Promise.all([
+    supabaseAdmin.from('partner_payment_accounts').select(PARTNER_PAYMENT_COLS).in('property_id', ids),
+    supabaseAdmin
+      .from('booking_requests')
+      .select(BOOKING_REQUEST_COLS)
+      .in('property_id', ids)
+      .eq('status', 'accepted')
+      .order('check_in', { ascending: false })
+      .order('id', { ascending: true })
+      .limit(HOST_PAYOUT_STAYS),
+  ]);
+  if (accountsRead.error) throw new Error(`host payment accounts read failed: ${accountsRead.error.message}`);
+  if (staysRead.error) throw new Error(`host stays read failed: ${staysRead.error.message}`);
+  const accounts = new Map<string, PartnerPaymentAccount>();
+  for (const raw of (accountsRead.data ?? []) as Array<Record<string, unknown>>) {
+    const a = shapeAccount(raw);
+    accounts.set(a.property_id, a);
+  }
+  return hostPayoutsView(session.homes, accounts, (staysRead.data ?? []) as BookingRequestRow[], now);
+}
+
+export type HostSetupLinkResult = { ok: true; token: string } | { ok: false; reason: string; notFound?: boolean };
+
+/**
+ * A fresh Stripe setup link for one of the host's homes, so they can start
+ * or finish with Stripe without waiting on the office. The same writer the
+ * office uses, recorded as the host; the home's earlier link stops working.
+ */
+export async function hostSetupLink(session: HostSession, rawPropertyId: unknown, now: Date = new Date()): Promise<HostSetupLinkResult> {
+  const home = typeof rawPropertyId === 'string' ? session.homes.find((h) => h.id === rawPropertyId) : undefined;
+  if (!home) return { ok: false, reason: 'That home is not one of yours.', notFound: true };
+  const made = await makeSetupLink(home.id, hostActor(session.email), now);
+  return made.ok ? { ok: true, token: made.token } : { ok: false, reason: made.reason };
 }
