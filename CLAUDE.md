@@ -349,6 +349,10 @@ booked, and the contact only then. Their Accept and Decline call `acceptBookingR
 their homes, so every check Accept runs for the office runs for them; a host accepts only over a
 card on hold (`HOST_NO_HOLD`), so before Stripe is live the office settles each one. When a request lands, Helm
 emails the host from hello@ (`booking_requests.host_emailed_at`; the hourly sweep retries).
+The host's calendar is `/api/pms/host/calendar` (`src/lib/partner-host-calendar.ts`): twelve
+months of nights per home, booked here, a request waiting, a stay or a block on their own
+calendars (a booked night outranks the block Airbnb echoes back), when each of their calendars
+was last read (never its link), and the stays still to come with the guest's contact.
 `partner-host.test.ts` holds it.
 
 **A partner home reaches staycapeann.com only when an owner lists it** (`src/lib/partner-listing.ts`,

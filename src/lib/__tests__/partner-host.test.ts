@@ -45,6 +45,7 @@ import {
   sortHostRequests,
 } from '../partner-host.ts';
 import { respondByFor, type BookingRequestRow } from '../booking-requests.ts';
+import { channelLabel, easternIsoDay, hostCalendarSpans, hostCalendarWindow, hostFeedView } from '../partner-host-calendar.ts';
 
 const root = new URL('../../../', import.meta.url);
 const read = (p: string): string => readFileSync(new URL(p, root), 'utf8');
@@ -228,8 +229,94 @@ describe('email to the host', () => {
   });
 });
 
+describe('the calendar', () => {
+  test('the window is this Eastern month and the eleven after it', () => {
+    assert.deepEqual(hostCalendarWindow(NOW), { today: '2026-11-13', from: '2026-11-01', to: '2027-11-01' });
+    // 11 PM Eastern on Dec 31 is already Jan 1 in UTC; the window is still December's.
+    assert.deepEqual(hostCalendarWindow(new Date('2027-01-01T04:00:00Z')), { today: '2026-12-31', from: '2026-12-01', to: '2027-12-01' });
+    assert.equal(easternIsoDay(new Date('2026-11-14T03:30:00Z')), '2026-11-13');
+  });
+
+  test('four kinds of night, each named the way the host would say it', () => {
+    const spans = hostCalendarSpans(
+      {
+        requests: [
+          row({ status: 'accepted', check_in: '2027-07-03', check_out: '2027-07-10' }),
+          row({ check_in: '2027-08-01', check_out: '2027-08-04', guest_first_name: 'Morgan', guest_last_name: 'Tate' }),
+        ],
+        holds: [
+          { kind: 'stay', check_in: '2027-06-01', check_out: '2027-06-05', channel: 'airbnb' },
+          { kind: 'block', check_in: '2027-07-03', check_out: '2027-07-10', channel: 'airbnb' },
+          { kind: 'block', check_in: '2027-09-01', check_out: '2027-09-02', channel: 'other' },
+        ],
+        from: '2026-11-01',
+        to: '2027-11-01',
+      },
+      NOW,
+    );
+    assert.deepEqual(
+      spans.map((s) => [s.kind, s.check_in, s.label]),
+      [
+        ['elsewhere', '2027-06-01', 'Airbnb'],
+        ['booked', '2027-07-03', 'Jamie Rivera'],
+        ['blocked', '2027-07-03', 'Blocked on Airbnb'],
+        ['request', '2027-08-01', 'Request from Morgan T.'],
+        ['blocked', '2027-09-01', 'Blocked on your other calendar'],
+      ],
+    );
+  });
+
+  test('a booked night outranks the block Airbnb echoes back', () => {
+    const spans = hostCalendarSpans(
+      { requests: [row({ status: 'accepted' })], holds: [{ kind: 'block', check_in: '2027-07-03', check_out: '2027-07-10', channel: 'airbnb' }], from: '2026-11-01', to: '2027-11-01' },
+      NOW,
+    );
+    assert.equal(spans[0].kind, 'booked');
+  });
+
+  test('a closed request holds nothing, and nothing leaves the window', () => {
+    const spans = hostCalendarSpans(
+      {
+        requests: [
+          row({ respond_by: hours(-1).toISOString() }),
+          row({ status: 'declined' }),
+          row({ status: 'accepted', check_in: '2026-10-28', check_out: '2026-11-03' }),
+          row({ status: 'accepted', check_in: '2027-10-30', check_out: '2027-11-04' }),
+          row({ status: 'accepted', check_in: '2027-12-01', check_out: '2027-12-03' }),
+        ],
+        holds: [],
+        from: '2026-11-01',
+        to: '2027-11-01',
+      },
+      NOW,
+    );
+    assert.deepEqual(spans.map((s) => [s.check_in, s.check_out]), [['2026-11-01', '2026-11-03'], ['2027-10-30', '2027-11-01']]);
+  });
+
+  test("a host's calendar shows when it was last read, never its link", () => {
+    assert.deepEqual(hostFeedView({ channel: 'vrbo', last_synced_at: hours(-1).toISOString() }, NOW), { channel: 'vrbo', label: 'Vrbo', last_read_at: hours(-1).toISOString(), fresh: true });
+    assert.equal(hostFeedView({ channel: 'airbnb', last_synced_at: hours(-7).toISOString() }, NOW).fresh, false);
+    assert.equal(hostFeedView({ channel: 'airbnb', last_synced_at: null }, NOW).fresh, false);
+    assert.equal(channelLabel('booking_com'), 'Booking.com');
+    const db = code('src/lib/partner-host-db.ts');
+    const cal = db.slice(db.indexOf('export async function hostCalendar('));
+    assert.ok(cal.includes(".select('id, property_id, channel, last_synced_at')"), 'the feed read names its columns');
+    assert.ok(!/\burl\b/.test(cal), 'the host calendar never reads a feed link');
+  });
+
+  test('the calendar reads only the signed-in host\'s homes, and fails closed', () => {
+    const db = code('src/lib/partner-host-db.ts');
+    const cal = db.slice(db.indexOf('export async function hostCalendar('));
+    assert.equal((cal.match(/\.in\('property_id', ids\)/g) ?? []).length, 3);
+    assert.ok(cal.includes('const ids = session.homes.map((h) => h.id)'));
+    assert.ok(!/catch/.test(cal), 'a failed read throws rather than showing a night open');
+    const route = code('src/app/api/pms/host/calendar/route.ts');
+    assert.ok(route.indexOf("if (!session) return NextResponse.json({ ok: false, error: 'signed_out' }, { status: 401 })") < route.indexOf('hostCalendar(session)'));
+  });
+});
+
 describe('the guards', () => {
-  const routes = ['src/app/api/pms/host/code/route.ts', 'src/app/api/pms/host/session/route.ts', 'src/app/api/pms/host/requests/route.ts'];
+  const routes = ['src/app/api/pms/host/code/route.ts', 'src/app/api/pms/host/session/route.ts', 'src/app/api/pms/host/requests/route.ts', 'src/app/api/pms/host/calendar/route.ts'];
 
   test('every route takes the bridge key, and no secret rides a query string', () => {
     for (const f of routes) {
