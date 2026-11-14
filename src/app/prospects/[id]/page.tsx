@@ -37,6 +37,8 @@ import { getOwnerPortfolio } from '@/lib/owner-portfolio';
 import { normalizePhone } from '@/lib/quo';
 import { ProspectTexts, type ProspectText } from './ProspectTexts';
 import type { ProjectionRow } from '@/lib/projections-types';
+import { prospectFactsLine } from '@/lib/prospect-facts';
+import { deriveReadinessContext } from '@/lib/projections-readiness';
 import {
   computeProjection,
   fmtMoney,
@@ -207,6 +209,7 @@ export default async function ProjectionDetailPage({
   const onboardingMarkedDone = !!projection.onboarding_marked_done_at;
   const onboardingDone = onboardingSubmitted || onboardingMarkedDone;
   const promoted = !!projection.property_id;
+  const factsLine = prospectFactsLine(projection, { withType: true });
   // Promote unlock counts a manual contract mark the same as a real
   // owner signature — the staff member is saying "the legal piece is
   // settled, move on."
@@ -260,7 +263,13 @@ export default async function ProjectionDetailPage({
           <span style={{ color: 'var(--tide-deep)' }}>
             {projection.prospect_name}
           </span>
+          {factsLine && <span>{' · '}{factsLine}</span>}
         </p>
+        {projection.prospect_notes && (
+          <p style={{ marginTop: 10, fontSize: 14, color: 'var(--ink-2)', lineHeight: 1.55, maxWidth: 720, whiteSpace: 'pre-line' }}>
+            {projection.prospect_notes}
+          </p>
+        )}
 
         {/* Existing-owner banner: this prospect's owner already manages
             (or is being prospected for) other properties with us. A
@@ -1060,14 +1069,14 @@ function OnboardingStageBody({
   // Show a one-line "computed for X guests / Y bedrooms / Z bathrooms"
   // hint so it's clear how the punch-list numbers were derived before
   // opening the doc.
-  const beds = Math.max(1, Math.round(projection.bedrooms || 1));
-  const guests = beds * 2;
-  const intakeBaths = projection.onboarding_data?.bathrooms;
-  const bathsParsed = intakeBaths ? parseFloat(String(intakeBaths).replace(/[^0-9.]/g, '')) : NaN;
-  const baths = Number.isFinite(bathsParsed) && bathsParsed > 0
-    ? Math.ceil(bathsParsed)
-    : Math.max(1, Math.round(beds * 0.75));
-  const bathsSource = Number.isFinite(bathsParsed) ? 'from intake' : 'estimated';
+  // One rule with the checklist itself (deriveReadinessContext).
+  const ctx = deriveReadinessContext(projection);
+  const beds = ctx.bedrooms;
+  const guests = ctx.maxGuests;
+  const baths = ctx.bathrooms;
+  const bathsSource =
+    ctx.bathroomsSource === 'intake' ? 'from intake' : ctx.bathroomsSource === 'prospect' ? 'as entered' : 'estimated';
+  const guestsSource = ctx.guestsSource === 'prospect' ? 'as entered' : 'estimated';
 
   return (
     <>
@@ -1098,8 +1107,8 @@ function OnboardingStageBody({
         </div>
         <p style={{ margin: '0 0 12px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 720 }}>
           Room-by-room punch list to turn the property from owner-ready to guest-ready. Quantities
-          are computed for {guests} guests across {beds} bedroom{beds === 1 ? '' : 's'} and {baths}{' '}
-          bathroom{baths === 1 ? '' : 's'} ({bathsSource}). Useful for owners new to STR who need
+          are computed for {guests} guests ({guestsSource}) across {beds} bedroom{beds === 1 ? '' : 's'} and{' '}
+          {baths} bathroom{baths === 1 ? '' : 's'} ({bathsSource}). Useful for owners new to STR who need
           help sizing pots, towels, and the supply closet.
         </p>
         <DeliverableActions

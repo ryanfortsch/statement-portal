@@ -3,6 +3,7 @@ import { SyncGmailButton } from '@/components/projections/SyncGmailButton';
 import { InactiveQuickAction } from '@/components/projections/ProspectInactiveControls';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import type { GmailTouchType, ProjectionRow } from '@/lib/projections-types';
+import { prospectFactsLine } from '@/lib/prospect-facts';
 import { computeProjection, fmtMoneyRange } from '@/lib/projections-model';
 import { prospectMailboxes, prospectSyncNote } from '@/lib/prospect-mailboxes';
 import { gmailMailbox } from '@/lib/gmail-draft';
@@ -216,7 +217,7 @@ function ProjectionRowItem({ projection: p, number }: { projection: ProjectionRo
             <p style={{ marginTop: 4, fontSize: 13, color: 'var(--ink-3)' }}>
               {p.prospect_name}
               {p.market ? ` · ${p.market}` : ''}
-              {p.bedrooms ? ` · ${p.bedrooms} BR` : ''}
+              {prospectFactsLine(p) ? ` · ${prospectFactsLine(p)}` : ''}
             </p>
             {isInactive && p.inactive_reason && (
               <p style={{ marginTop: 4, fontSize: 12, color: 'var(--ink-4)', fontStyle: 'italic' }}>

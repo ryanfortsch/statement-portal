@@ -202,43 +202,60 @@ export const READINESS_NOTE_FIELDS: ReadinessNoteField[] = [
 // ─── Context derivation ────────────────────────────────────────────────────
 
 export type ReadinessContext = {
-  /** Max overnight occupancy. Default heuristic: 2 × bedrooms when not
-   *  explicitly entered. Used for "3 x Guest" quantities. */
+  /** Max overnight occupancy: the prospect's Sleeps when the office typed
+   *  one, else 2 × bedrooms. Used for "3 x Guest" quantities. */
   maxGuests: number;
+  /** Where maxGuests came from (a prospect's context only; the property
+   *  order checklist builds its own). */
+  guestsSource?: 'prospect' | 'estimate';
   /** Number of bedrooms. */
   bedrooms: number;
-  /** Number of bathrooms. Pulled from onboarding intake when available,
-   *  else estimated as max(1, round(bedrooms × 0.75)) so 2-bed → 2 bath
-   *  defaults instead of 0. */
+  /** Number of bathrooms, half-baths rounded up. The owner's onboarding
+   *  answer first, then the prospect's Bathrooms, else estimated as
+   *  max(1, round(bedrooms × 0.75)) so 2-bed → 2 bath instead of 0. */
   bathrooms: number;
-  /** True when bathrooms came from the owner's submitted onboarding form
-   *  rather than the heuristic — surfaced as a hint on the page. */
+  /** Where bathrooms came from (a prospect's context only). */
+  bathroomsSource?: 'intake' | 'prospect' | 'estimate';
+  /** True when bathrooms is a real count (intake or prospect), not the
+   *  heuristic. The printed checklist says "(est.)" otherwise. */
   bathroomsFromIntake: boolean;
 };
+
+/** A bathroom count from "2", "2.5" or 1.5; null when it is not one. */
+function bathsCount(raw: unknown): number | null {
+  if (raw == null || raw === '') return null;
+  const parsed = parseFloat(String(raw).replace(/[^0-9.]/g, ''));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
 
 export function deriveReadinessContext(projection: ProjectionRow): ReadinessContext {
   const bedrooms = Math.max(1, Math.round(projection.bedrooms || 1));
 
-  // Bathrooms: onboarding_data.bathrooms is a free-text string like "2"
-  // or "2.5". Parse forgivingly.
-  let bathrooms = Math.max(1, Math.round(bedrooms * 0.75));
-  let bathroomsFromIntake = false;
-  const intakeBaths = projection.onboarding_data?.bathrooms;
-  if (intakeBaths) {
-    const parsed = parseFloat(String(intakeBaths).replace(/[^0-9.]/g, ''));
-    if (Number.isFinite(parsed) && parsed > 0) {
-      // Round half-baths up — a "2.5 bath" property has 3 toilet brushes,
-      // 3 plungers, etc., not 2.
-      bathrooms = Math.ceil(parsed);
-      bathroomsFromIntake = true;
-    }
-  }
+  // Bathrooms: onboarding_data.bathrooms is the owner's free text ("2",
+  // "2.5"), parsed forgivingly; it wins over what the office typed. Round
+  // half-baths up: a "2.5 bath" home has 3 toilet brushes, 3 plungers.
+  const intake = bathsCount(projection.onboarding_data?.bathrooms);
+  const typed = bathsCount(projection.bathrooms);
+  const bathroomsSource = intake != null ? 'intake' : typed != null ? 'prospect' : 'estimate';
+  const bathrooms = intake != null
+    ? Math.ceil(intake)
+    : typed != null
+      ? Math.ceil(typed)
+      : Math.max(1, Math.round(bedrooms * 0.75));
 
-  // Max guests: default to bedrooms × 2 (industry rule of thumb).
-  // Later we may add an explicit max_guests column; for now infer.
-  const maxGuests = bedrooms * 2;
+  // Max guests: the prospect's Sleeps, else bedrooms × 2 (rule of thumb).
+  const sleeps = Number(projection.sleeps);
+  const guestsSource = projection.sleeps != null && Number.isInteger(sleeps) && sleeps > 0 ? 'prospect' : 'estimate';
+  const maxGuests = guestsSource === 'prospect' ? sleeps : bedrooms * 2;
 
-  return { maxGuests, bedrooms, bathrooms, bathroomsFromIntake };
+  return {
+    maxGuests,
+    guestsSource,
+    bedrooms,
+    bathrooms,
+    bathroomsSource,
+    bathroomsFromIntake: bathroomsSource !== 'estimate',
+  };
 }
 
 // ─── Quantity math ─────────────────────────────────────────────────────────

@@ -21,6 +21,7 @@ import { deriveLegacyFromOwners } from '@/lib/projections-types';
 import { carriedRedlines, renewalOwners, renewalPlace, type PriorAgreement } from '@/lib/contract-renewal';
 import type { HomeGuideOverrides } from '@/lib/properties';
 import { getDriveTimeMinutes } from '@/lib/projections-distance';
+import { parseBathrooms, parseSleeps } from '@/lib/prospect-facts';
 import { geocodeAddress } from '@/lib/geocode';
 import {
   interpretContractRedlines,
@@ -244,6 +245,14 @@ function buildPayload(formData: FormData) {
     // Only when the form carries the field, so a form without it never
     // clears the forecast's weight.
     ...(formData.has('close_likelihood_pct') ? { close_likelihood_pct: likelihoodOrNull(formData) } : {}),
+
+    // The home's size and the office's note, each only when the form
+    // carries the field, so a form without them never clears them.
+    ...(formData.has('bathrooms') ? { bathrooms: parseBathrooms(str(formData, 'bathrooms')) } : {}),
+    ...(formData.has('sleeps') ? { sleeps: parseSleeps(str(formData, 'sleeps')) } : {}),
+    ...(formData.has('prospect_notes')
+      ? { prospect_notes: String(formData.get('prospect_notes') ?? '').trim().slice(0, 2000) || null }
+      : {}),
   };
 }
 
@@ -984,6 +993,11 @@ export async function promoteToProperty(projectionId: string) {
     // count and the owner left the field blank in onboarding, prefer the
     // prospect's input over null.
     bedrooms: numOr(ob.bedrooms, projRow.bedrooms as number),
+    // Same for bathrooms and how many it sleeps, which the office types on
+    // the prospect before the onboarding form exists. The owner's answer
+    // wins; the onboarding form does not ask for occupancy at all.
+    bathrooms: numOr(ob.bathrooms, (projRow.bathrooms as number | null | undefined) ?? null),
+    ...(projRow.sleeps != null ? { max_occupancy: Number(projRow.sleeps) } : {}),
 
     // Guest-guide answers from the intake seed the printed Welcome Home
     // guide the moment the property exists (fresh row, nothing to merge).
