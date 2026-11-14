@@ -51,7 +51,7 @@ const ref = JSON.parse(sql(`select jsonb_build_object('templateCaptureId',t.id,'
  from helm_channex_messages.template_captures t join helm_channex_messages.cleaner_releases r on r.capture_id=t.id;`));
 const rules = parsePreparationRules(JSON.parse(sql('select rules from helm_channex_messages.template_captures limit 1;')));
 let n = 0;
-function booking(startOverride?: string) {
+function booking(startOverride?: string, receivedAt?: string) {
   n++; const raw = intakeRow(), remote = randomUUID(); raw.id = randomUUID();
   const start = startOverride ?? new Date(Date.now() + (45 + n * 6) * 86400000).toISOString().slice(0,10);
   const end = new Date(Date.parse(start) + 3 * 86400000).toISOString().slice(0,10);
@@ -60,6 +60,9 @@ function booking(startOverride?: string) {
   const revision = normalizeAirbnbBookingRevision(raw, { environment: 'production', propertyId: mapping.propertyId,
     roomTypeId: mapping.roomTypeId, ratePlanId: mapping.ratePlanId, generation: 1 });
   const receipt = JSON.parse(sql(`set role service_role; select helm_airbnb_revision_commit(${quote(JSON.stringify(revision))}::jsonb);`));
+  // Synthetic initial receipt age only; no admitted job or delivery predicate is altered.
+  if (receivedAt) sql(`update helm_airbnb_bookings.bookings set first_received_at=${quote(receivedAt)} where canonical_id='${receipt.canonicalBookingId}';
+    update helm_airbnb_bookings.receipts set first_received_at=${quote(receivedAt)} where canonical_id='${receipt.canonicalBookingId}';`);
   sql('set role service_role; select helm_channex_new_stays_admit();');
   return { bookingId: receipt.canonicalBookingId as string, revision, threadId: randomUUID() };
 }
@@ -193,3 +196,6 @@ assert.equal(sql(`select count(*) from automation_sends where booking_id='${firs
 assert.equal(sql(`select helm_channex_messages.new_stay_fire('${first.bookingId}','booking_confirmed') is null;`), 't');
 assert.equal(sql(`select helm_channex_message_claim('${retainedGuestSendId(first.bookingId,'booking_confirmed')}','${randomUUID()}','{}');`), 'f');
 console.log('PASS: atomic six-workflow new-stay schedules, real SQL clock parity, duplicate races, lost replies, hold preservation, invalid-time rollback, source/recipient revocation, live-provider mismatch and cancellation; zero provider POSTs');
+
+export const deliveryFixture = {sql,asyncSql,quote,counts,ref,booking,provider,rpc,run,smsProof};
+await (await import('./test-channex-new-stay-delivery.mts')).testNewStayDelivery(deliveryFixture);

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { hasMessageCronCredential } from '@/lib/channex-messaging/runtime-config';
 import { executeRetainedMessageTick } from '@/lib/channex-messaging/pilot-runtime.server';
 import { executeNewStayScheduleTick } from '@/lib/channex-messaging/new-stay-schedule.server';
+import { executeNewStayDeliveryTick } from '@/lib/channex-messaging/new-stay-delivery.server';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 180;
@@ -16,10 +17,11 @@ export async function GET(request: Request) {
     // Independent lanes: a new-stay preparation failure must not prevent
     // retained-stay dispatch or receipt reconciliation from running.
     const unavailable = () => ({ state: 'unavailable', ok: false, stays: [] });
-    const [retained, newStays] = await Promise.all([
+    const [retained, newStays, newDelivery] = await Promise.all([
       executeRetainedMessageTick().catch(unavailable), executeNewStayScheduleTick().catch(unavailable),
+      executeNewStayDeliveryTick('guest').catch(unavailable),
     ]);
-    const result = { ...retained, newStays, ok: retained.ok && newStays.ok };
+    const result = { ...retained, newStays, newDelivery, ok: retained.ok && newStays.ok && newDelivery.ok };
     // Only fixed states/counters leave the DAL; no stay IDs, bodies or provider errors.
     return NextResponse.json(result, { status: result.ok ? 200 : 503, headers });
   } catch {

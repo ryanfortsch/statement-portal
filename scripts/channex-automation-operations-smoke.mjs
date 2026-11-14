@@ -28,6 +28,7 @@ import React from 'react';import {createRoot} from 'react-dom/client';import {Au
 const report=${JSON.stringify(report)},params=new URLSearchParams(location.search);
 if(params.has('empty')){report.rows=[];report.total=0;}
 if(params.has('unavailable')){report.rows=[];report.history='unavailable';report.total=null;}
+if(params.has('new')){report.guest={state:'configured',stays:null};report.cleaner={state:'receipts_only',stays:null};}
 if(params.has('partial')){report.history='partial';report.total=120;}
 if(params.has('controls')){report.rows[0].state='Scheduled';report.rows[0].category='waiting';report.rows[0].note='Scheduled time only. The sender still rechecks holds, booking details and eligibility.';}
 createRoot(document.getElementById('root')).render(<main className="mx-auto max-w-[1100px] px-5 py-10 sm:px-10"><p className="text-xs uppercase tracking-widest">65 Calderwood · Messages</p><h1 className="mt-3 font-serif text-4xl">Automation status</h1><p className="mt-4">See what is scheduled, what reached a provider and what needs attention.</p><AutomationStatusPanel report={report}/></main>);
@@ -68,11 +69,12 @@ try {
     args: process.platform === 'darwin' ? ['--no-sandbox'] : chromium.args });
   const page = await browser.newPage(), errors = []; page.on('pageerror', e => errors.push(e.message));
   await page.setRequestInterception(true); page.on('request', r => r.url().startsWith(origin + '/') ? r.continue() : r.abort());
-  for (const mode of ['', '?empty', '?unavailable', '?partial']) {
+  for (const mode of ['', '?empty', '?unavailable', '?partial', '?new']) {
     await page.goto(origin + '/' + mode); await page.waitForSelector('#message-history-title');
     const text = await page.$eval('body', e => e.innerText);
     assert.match(text, /Guest messages · Channex/i); assert.match(text, /Cleaner texts · SMS/i);
-    assert.match(text, /Automatic enrollment of new Airbnb stays is not implemented/);
+    assert.match(text, /New Airbnb bookings require a reviewed handover and separate sender activation/);
+    if(mode==='?new'){assert.match(text,/Sending is configured for eligible stays/);assert.match(text,/Delivery checks only/);assert.doesNotMatch(text,/null reviewed/);}
     if (mode === '?unavailable') { assert.match(text, /history could not be verified/); assert.doesNotMatch(text, /No Helm message records/); }
     else if (mode === '?empty') { assert.match(text, /No Helm message records/); assert.match(text, /does not confirm that Guesty or Airbnb has no queued/); }
     else { assert.match(text, /accepted · readback pending/); assert.match(text, /SMS accepted · receipt pending/); }
@@ -82,8 +84,8 @@ try {
     for (const width of [1360, 390, 320]) {
       await page.setViewport({ width, height: 1000 });
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `${mode} width ${width}`);
-      if (width !== 320 && ['', '?empty'].includes(mode)) await page.screenshot({
-        path: join(tmpdir(), `helm-automation-operations-${mode ? 'empty' : 'receipts'}-${width}.png`), fullPage: true });
+      if (width !== 320 && ['', '?empty', '?new'].includes(mode)) await page.screenshot({
+        path: join(tmpdir(), `helm-automation-operations-${mode==='?new'?'new-stays':mode?'empty':'receipts'}-${width}.png`), fullPage: true });
     }
   }
   await Promise.all([page.waitForNavigation(), page.click('form button')]);

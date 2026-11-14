@@ -6,8 +6,11 @@ const require = createRequire(import.meta.url), { registerHooks } = require('nod
 const url = new URL('../../app/api/cron/channex-cleaners/route.ts', import.meta.url).href;
 const symbol = Symbol.for('helm.cleaner-cron-test');
 let calls = 0, fail = false, ok = true;
+let deliveryCalls = 0, deliveryFail = false;
+const deliveryOff = { state: 'disabled', ok: true, dispatch: [], receipts: [] };
 const secret = process.env.CRON_SECRET;
 (globalThis as unknown as Record<symbol, unknown>)[symbol] = {
+  executeNewStayDeliveryTick: async (audience: string) => { assert.equal(audience, 'cleaner'); deliveryCalls++; if(deliveryFail) throw Error("PRIVATE"); return deliveryOff; },
   executeCleanerMessageTick: async () => { calls++; if (fail) throw Error('PRIVATE credentials');
     return { state: 'disabled', ok, stays: [] }; },
 };
@@ -17,6 +20,8 @@ const hook = registerHooks({ resolve(s: string, c: { parentURL?: string }, next:
     if (s.endsWith('/runtime-config')) return { url: new URL('../channex-messaging/runtime-config.ts', import.meta.url).href, shortCircuit: true };
     if (s.endsWith('/cleaner-runtime.server')) return { url: 'data:text/javascript,' + encodeURIComponent(
       `export const executeCleanerMessageTick=globalThis[Symbol.for('helm.cleaner-cron-test')].executeCleanerMessageTick;`), shortCircuit: true };
+    if (s.endsWith('/new-stay-delivery.server')) return { url: 'data:text/javascript,' + encodeURIComponent(
+      `export const executeNewStayDeliveryTick=globalThis[Symbol.for('helm.cleaner-cron-test')].executeNewStayDeliveryTick;`), shortCircuit: true };
     throw Error('Unmocked route dependency: ' + s);
   } return next(s, c);
 } });
@@ -26,7 +31,7 @@ after(() => {
   delete (globalThis as unknown as Record<symbol, unknown>)[symbol];
   if (secret === undefined) delete process.env.CRON_SECRET; else process.env.CRON_SECRET = secret;
 });
-beforeEach(() => { calls = 0; fail = false; ok = true; process.env.CRON_SECRET = 'synthetic-cron'; });
+beforeEach(() => { deliveryCalls = 0; deliveryFail = false; calls = 0; fail = false; ok = true; process.env.CRON_SECRET = 'synthetic-cron'; });
 const request = (token = 'Bearer synthetic-cron', query = '') => new Request('https://helm.synthetic.test/api/cron/channex-cleaners' + query,
   { headers: { authorization: token, cookie: 'synthetic-owner-session' } });
 test('route only accepts exact cron credential; browser session or query cannot execute', async () => {
@@ -35,7 +40,7 @@ test('route only accepts exact cron credential; browser session or query cannot 
   assert.equal((await route.GET(request(undefined, '?sendId=forged'))).status, 400);
   assert.equal(route.POST, undefined); assert.equal((await route.HEAD()).status, 405);
   delete process.env.CRON_SECRET; assert.equal((await route.GET(request())).status, 401);
-  assert.equal(calls, 0);
+  assert.equal(calls, 0); assert.equal(deliveryCalls, 0);
 });
 test('authorized ticks run once and return uncached redacted status; failure is not retried', async () => {
   const out = await route.GET(request()); assert.equal(out.status, 200);
@@ -43,5 +48,10 @@ test('authorized ticks run once and return uncached redacted status; failure is 
   ok = false; assert.equal((await route.GET(request())).status, 503); assert.equal(calls, 2);
   fail = true; const unavailable = await route.GET(request());
   assert.equal(unavailable.status, 503); assert.equal(calls, 3);
-  assert.deepEqual(await unavailable.json(), { state: 'unavailable', ok: false, stays: [] });
+  assert.deepEqual(await unavailable.json(), { state: 'unavailable', ok: false, stays: [], newDelivery: deliveryOff });
+});
+
+test("new delivery failure does not prevent the existing lane from running", async () => {
+ deliveryFail=true; const r=await route.GET(request()); assert.equal(r.status,503);
+ assert.equal(calls,1); assert.equal(deliveryCalls,1); assert.ok(!(await r.text()).includes("PRIVATE"));
 });

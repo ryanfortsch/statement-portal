@@ -2195,3 +2195,56 @@ POST is available to this runtime. This is scheduling integration, not proof of
 live delivery. New-stay dispatch/receipt orchestration, owner time exception controls
 with future-job reconciliation, and the independently reviewed cutover baseline
 remain required before activating the pilot.
+
+### New-stay delivery and independent receipt recovery (prepared November 14)
+
+The new-stay delivery runtime connects the six prepared workflows to the existing
+one-use guest/SMS workers. It uses the existing minute crons; it adds no cron or
+public send endpoint. The retained, new-scheduling and new-delivery lanes run
+independently. Authenticated cron failures return 503 with fixed states/counters;
+HEAD, browser cookies and caller-selected job IDs cannot invoke delivery.
+
+Both new modes default off. `HELM_CHANNEX_NEW_GUEST_MODE` and
+`HELM_CHANNEX_NEW_CLEANER_MODE` accept `calderwood-v1` or `receipts-only` only on the
+production database. Dispatch also requires the reviewed
+`HELM_CHANNEX_NEW_STAY_SCHEDULE_REFERENCE` used for registration. Guest delivery
+needs the Channex key; cleaner dispatch additionally needs the Quo credential and
+retained receipt HMAC key/id. Cleaner receipt-only mode needs no Channex credential.
+Neither receipt-only mode needs a schedule reference or current enrollment. Do not
+remove receipt credentials while accepted attempts remain unresolved.
+
+`20261114120000_channex_new_stay_delivery_worklist.sql` installs one service-only,
+read-only function. It selects existing new-stay jobs, at most four due dispatches
+and four accepted receipts per audience per tick. Each lane rotates its selection
+and refuses more than 200 eligible records. Holds, expired windows and non-scheduled
+canonical rows are excluded from dispatch. Accepted receipts are still found after
+cancellation, expiry or scope revocation. Installation creates no operational rows.
+
+Each dispatch verifies the archived body, deterministic stay/workflow ID, current
+admission, booking revision, thread, full history, approved clock and exact render.
+Cleaner dispatch also brackets the provider checks with enrollment snapshots and
+verifies the retained recipient proof. It completes provider scans before the SMS
+transport's short permit window, then rereads SQL context/enrollment before claim.
+The existing SQL claim atomically validates current holds, context, clocks, releases
+and source/recipient authority. Each attempt permits at most one provider POST.
+Missing/lost claims cannot POST; unknown provider outcomes cannot retry. Final
+outcome persistence remains available when the provider-read deadline expires.
+
+Receipt recovery uses only the saved immutable target, body hash and provider ID.
+A held/cancelled stay or disabled recipient does not erase the accepted attempt.
+Channex readback means the provider record was found, not guest delivery. Only the
+SMS provider's delivery receipt is shown as delivered. No unresolved attempt ID,
+provider ID, private error, recipient or body enters cron responses.
+
+Acceptance exercises all six orchestrated workflows against SQL-created synthetic
+schedules and fake provider replies, including lost claims, lost POST replies,
+lost outcome writes, body/context/recipient drift and no-resend behavior. Later
+stay dates use an explicitly in-memory one-use store; this is not evidence of a
+real future SQL dispatch. A separate real-time SQL confirmation test covers due
+selection, holds, simultaneous claims, exactly one fake POST and receipt recovery
+after cancellation/source revocation. No real guest or cleaner is contacted.
+
+Remaining launch work: owner clock exceptions with future-schedule reconciliation,
+the independently reviewed baseline/epoch and sender handover, source queue
+clearance, and controlled live channel verification. This release alone does not
+activate messaging or transfer Guesty's authority.

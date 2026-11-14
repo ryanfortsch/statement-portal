@@ -7,7 +7,7 @@ const workflows: Record<string, string> = {
   pre_checkout: 'Check-out reminder', cleaner_reminder: 'Cleaner · 10-day reminder', cleaner_arrival: 'Cleaner · arrival day',
 };
 const labels: Record<AutomationLane['state'], string> = {
-  off: 'Off', configured: 'Configured for retained stays', receipts_only: 'Delivery checks only', invalid: 'Configuration needs review',
+  off: 'Off', configured: 'Sender configured', receipts_only: 'Delivery checks only', invalid: 'Configuration needs review',
 };
 const instant = (value: string) => new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York',
   month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).format(new Date(value));
@@ -20,8 +20,9 @@ function Lane({ title, value, cleaner = false }: { title: string; value: Automat
     <h2 className="mt-3 text-lg font-semibold">{labels[value.state]}</h2>
     <p className="mt-2 text-sm leading-6" style={{ color: 'var(--muted-foreground)' }}>
       {value.state === 'off' ? 'Helm sends no messages and checks no new delivery receipts in this lane. Existing records remain visible below.'
-        : value.state === 'invalid' ? 'The sender cannot run with its current configuration. Existing attempts still need review.'
-        : value.state === 'receipts_only' ? 'New sends are paused. Accepted SMS can still be checked for delivery.'
+        : value.state === 'invalid' ? 'Part of the sender configuration needs review. Other configured work may still run; check existing attempts before changing settings.'
+        : value.state === 'receipts_only' ? 'New sends are paused. Accepted messages can still be checked for provider receipts.'
+        : value.stays === null ? 'Sending is configured for eligible stays. Each attempt still requires an approved schedule and a fresh check. This does not confirm that a message was sent.'
         : `${value.stays} reviewed ${value.stays === 1 ? 'stay is' : 'stays are'} configured. This does not confirm the worker ran or a message was sent.`}
     </p>
     <Link href={cleaner ? '/channels/65_calderwood/message-preparation/templates' : '/channels/65_calderwood/message-preparation'}
@@ -72,7 +73,7 @@ export function AutomationStatusPanel({ report }: { report: AutomationOperations
     <section className="rounded-2xl border p-5 sm:p-6" style={card} aria-labelledby="handover-next-title">
       <h2 id="handover-next-title" className="text-lg font-semibold">Before new bookings move to Helm</h2>
       <p className="mt-2 max-w-3xl text-sm leading-6" style={{ color: 'var(--muted-foreground)' }}>
-        These senders cover explicitly reviewed existing stays. Automatic enrollment of new Airbnb stays is not implemented. The 30-minute confirmation sender, arrival and departure rules, and source-message handover still need a verified end-to-end test.</p>
+        New Airbnb bookings require a reviewed handover and separate sender activation. Confirm the 30-minute confirmation, arrival and departure rules, cleaner texts, and source-message queue clearance before switching. Software tests alone do not confirm live channel delivery.</p>
       <div className="mt-4 flex flex-wrap gap-x-6 gap-y-3 text-sm font-medium">
         <Link href="/channels/65_calderwood/sync-status" className="underline underline-offset-4">Check Airbnb & calendar connection →</Link>
         <Link href="/channels/65_calderwood/message-preparation/timing-review" className="underline underline-offset-4">Review retained stay times →</Link>
