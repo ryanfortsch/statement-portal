@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { runProductionBookingTick } from '../src/lib/channex-bookings/runtime.ts';
 import { intakeEnv, intakeHarness, intakeId, intakeRow } from '../src/lib/__tests__/fixtures/channex-booking-intake.ts';
+import { reviewNewAirbnbConfirmation } from '../src/lib/channex-messaging/new-booking-confirmation.ts';
 if (process.env.PGHOST !== '127.0.0.1' || process.env.PGDATABASE !== 'helm_synthetic_channex') throw Error('Synthetic loopback database required');
 globalThis.fetch = async () => { throw Error('Real network disabled'); };
 const sql = (input: string) => {
@@ -38,12 +39,25 @@ assert.equal(Number(sql('select count(*) from bookings;')), before + 1);
 const saved = JSON.parse(receiptBefore), canonical = saved.canonicalBookingId;
 assert.equal(saved.revision.guestDetails.mail, 'synthetic@example.invalid');
 assert.equal(sql(`select guest_email is null from bookings where id='${canonical}';`), 't');
+// Origin is synthetic verification here, not inferred from status=new. In live
+// use, independent origin/ownership admission remains mandatory and disabled.
+const confirmation = (currentReceipt: typeof saved, status = 'confirmed') => reviewNewAirbnbConfirmation({
+  origin: 'verified_new', firstReceipt: saved, currentReceipt, now: Date.now(),
+  stay: { id: canonical, remoteBookingId: saved.revision.bookingId, code: saved.revision.reservationCode,
+    start: currentReceipt.revision.checkIn, end: currentReceipt.revision.checkOut, status, duplicateOf: null },
+});
+const initialPlan = confirmation(saved);
+assert.equal(initialPlan.state, 'future_candidate');
+assert.equal(initialPlan.fireAt, sql(`select to_char(to_timestamp(ceil(extract(epoch from
+ (first_received_at+interval '30 minutes'))*1000)/1000) at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+ from helm_airbnb_bookings.receipts where revision_id='${intakeId(1)}';`));
+assert.equal(initialPlan.canSchedule, false); assert.equal(initialPlan.canSend, false);
 
 const modification = intakeRow(2, 'modified');
 modification.attributes.booking_id = intakeId(101); modification.attributes.ota_reservation_code = 'INTAKESYNTHETIC1';
 const cancellation = structuredClone(modification); cancellation.id = intakeId(3);
 cancellation.attributes.status = 'cancelled'; cancellation.attributes.inserted_at = '2026-11-13T12:00:00.000003Z';
-const lifecycle = intakeHarness([cancellation, modification]);
+const lifecycle = intakeHarness([modification]);
 // The base booking fixture has a minimal history table; the complete CI chain
 // installs property/family guards and required scheduling columns. Supply real
 // identity in the latter, rather than disabling those production protections.
@@ -58,6 +72,15 @@ sql(`do $$begin
  end if;
 end$$;`);
 assert.equal((await runProductionBookingTick(intakeEnv, { ...lifecycle, rpc })).ok, true);
+const modifiedReceipt = JSON.parse(sql(`set role service_role; select helm_airbnb_revision_receipt('${intakeId(2)}');`));
+assert.equal(modifiedReceipt.firstReceivedAt, saved.firstReceivedAt);
+assert.equal(confirmation(modifiedReceipt).fireAt, initialPlan.fireAt);
+assert.equal(confirmation(modifiedReceipt).state, 'future_candidate');
+assert.equal((await runProductionBookingTick(intakeEnv, { ...intakeHarness([cancellation]), rpc })).ok, true);
+const cancelledReceipt = JSON.parse(sql(`set role service_role; select helm_airbnb_revision_receipt('${intakeId(3)}');`));
+assert.equal(cancelledReceipt.firstReceivedAt, saved.firstReceivedAt);
+assert.equal(confirmation(cancelledReceipt, 'cancelled').state, 'stay_inactive');
+assert.equal(confirmation(cancelledReceipt).state, 'receipt_review');
 assert.equal(sql(`select status||':'||check_in||':'||check_out from bookings where id='${canonical}';`), 'cancelled:2035-02-05:2035-02-06');
 assert.equal(sql(`select status from automation_sends where booking_id='${canonical}';`), 'cancelled');
 assert.equal(Number(sql('select count(*) from bookings;')), before + 1);
@@ -68,6 +91,9 @@ const staleResult = await runProductionBookingTick(intakeEnv, { ...intakeHarness
 assert.equal(staleResult.state, 'page_processed');
 assert.equal(staleResult.staleReceipts, 1);
 assert.equal(sql(`select status from bookings where id='${canonical}';`), 'cancelled');
+const staleReceipt = JSON.parse(sql(`set role service_role; select helm_airbnb_revision_receipt('${intakeId(4)}');`));
+assert.equal(staleReceipt.firstReceivedAt, saved.firstReceivedAt);
+assert.equal(confirmation(staleReceipt).state, 'receipt_review');
 
 const existing = intakeRow(5); existing.attributes.ota_reservation_code = 'EXISTINGSYNTHETIC';
 sql("insert into bookings(property_id,channel,source,status,check_in,check_out,external_confirmation_code) values('65_calderwood','airbnb','ical_import','confirmed','2030-01-01','2030-01-02','EXISTINGSYNTHETIC');");
@@ -81,4 +107,4 @@ const stopped = intakeHarness([intakeRow(6)]);
 assert.equal((await runProductionBookingTick(intakeEnv, { ...stopped, rpc })).ok, false);
 assert.deepEqual(stopped.events, []);
 sql('update helm_airbnb_bookings.scope set enabled=true;');
-console.log('PASS: booking intake real SQL lifecycle, immutable replay, pre-ACK contact retention, cancellation, stale revisions, existing-stay refusal, and disabled gate');
+console.log('PASS: booking intake real SQL lifecycle, immutable replay and 30-minute receipt clock, pre-ACK contact retention, cancellation, stale revisions, existing-stay refusal, and disabled gate');

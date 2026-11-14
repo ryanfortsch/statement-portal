@@ -2023,4 +2023,50 @@ be automatically adopted; complete inventory coverage, conflict reconciliation,
 and source handover remain prerequisites. This runner does not publish availability
 or prices, enroll message schedules, establish an original confirmation clock,
 change Guesty workflows, or prove automatic message delivery. The +30-minute
-confirmation and new-stay message admission gaps remain explicitly unresolved.
+confirmation and new-stay message admission gaps remain explicitly unresolved at
+that release. The confirmation-clock decision was subsequently settled below.
+
+### Approved new Airbnb confirmation clock — 13 November 2026
+
+Ryan approved **30 elapsed minutes after Helm first receives a verified new Airbnb
+booking**. This is a timing-policy decision only, not permission to activate
+sending. The original confirmation time remains unavailable from Channex.
+`confirmation-policy.ts` names the approved policy;
+`new-booking-confirmation.ts` calculates it from immutable private SQL receipts.
+It does not write a `confirmedAt` value or change the retained Guesty evidence
+contract. Existing/imported stays continue through their separate handover review.
+
+The first and current saved receipts must agree on canonical/remote identity,
+Calderwood production property/room/rate, generation and the original
+`firstReceivedAt`. Only an applied initial `new` receipt, applied current state and
+independently verified new origin can yield a candidate. Provider `status=new`
+alone is insufficient. The clock ignores provider `inserted_at`, later commit
+times and tick time; sub-millisecond SQL timestamps round upward so the calculated
+time is never earlier than receipt plus 30 minutes. Lost-response replay and date
+modifications retain that same clock. Cancelled, stale, conflicting, imported or
+unverified inputs cannot produce a new confirmation candidate. A missing schedule
+at or after the calculated time is not automatically caught up.
+
+`planNewAirbnbSchedule` integrates this calculation with the existing six-workflow
+history reconciliation. The other five workflows, including the usual 3 PM key
+code, keep the original timing/wording/DST checks. Sent, uncertain, held and
+existing schedules retain their existing decisions. Both planning entry points
+return `canSchedule=false` and `canSend=false`.
+
+**This batch does not implement production new-booking admission.** Its origin
+classification must eventually come from a trusted persisted handover/origin
+reader, not a browser flag or a provider's `new` status. No live runtime calls the
+new planner yet; retained-stay registration still requires retained Guesty
+evidence. New-stay admission, its registration/dispatch integration, source queue
+clearance and the live pilot remain work before activation. No schema migration,
+new sender flag, template change, enrollment, schedule or send is introduced here.
+The owner automation-status page displays the approved policy separately from
+actual sender state.
+
+Validation includes synthetic unit cases for receipt identity, future/malformed
+clocks, microsecond rounding, retries, booking edits/cancellation, history
+deduplication, unchanged key-code/cleaner timing and refusal to reuse this policy
+as Guesty evidence. `test-channex-booking-intake.mts` also exercises the actual SQL
+commit/receipt path: a lost response, exact replay, modification, cancellation and
+stale revision preserve the first clock; PostgreSQL independently calculates the
+same 30-minute instant. This is local test evidence, not proof of live delivery.

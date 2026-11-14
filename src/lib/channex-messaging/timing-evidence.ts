@@ -34,7 +34,10 @@ export class TimingEvidenceError extends Error {
  *
  * No supported Channex source currently supplies original confirmation time or
  * reservation-specific arrival/departure overrides. inserted_at, raw_message,
- * first-seen time and property arrival_hour are deliberately not alternatives.
+ * first-seen time and property arrival_hour are deliberately not alternatives
+ * for these retained Guesty stays. The separately approved receipt-plus-30-minute
+ * policy applies only to verified NEW Airbnb bookings; its read-only calculation
+ * in new-booking-confirmation.ts cannot satisfy this evidence contract.
  * timing-binding-store.ts reads retained database bindings. Its trusted provider
  * review caller now verifies Guesty clocks and Channex booking/thread identity;
  * the owner surface uses a private snapshot reader. Capturing alone is insufficient.
