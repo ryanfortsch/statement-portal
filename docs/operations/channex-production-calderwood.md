@@ -1921,8 +1921,9 @@ the `helm.risingtidestr.com` alias. The owner cleaner screen rendered in product
 anonymous cron GET and enrollment POST returned 401, and cron HEAD returned 405.
 The cleaner mode, manifest and receipt-key configuration were absent. The worker
 returns disabled before database/provider access in that state. The enrollment
-migration still awaits its separate action-time approval; this app deployment is
-not evidence that the functions are installed, enrollment exists or sending is active.
+migration was subsequently installed with the message-control migration after
+combined action-time approval; see the verification below. Deployment alone is
+not evidence that enrollment exists or sending is active.
 
 The new-booking rehearsal found a gap in the guest execution path: the preview
 flagged fixed arrival/departure wording conflicts, but a fully verified early-arrival
@@ -1954,3 +1955,72 @@ cutover readiness false. New stays still need an authoritative clock policy and
 reviewed admission path. An empty Channex history never proves a native reply was
 unsent. Native confirmation testing, Guesty dispatch clearance and the controlled
 live handover remain necessary; this rehearsal grants no sender ownership.
+
+### November 13 combined enrollment and hold installation
+
+After the user's combined approval, the exact #2284 and #2294 migration batch
+was applied to production STATEMENTS (`qjueexujiuticjrtqdyj`) in one guarded
+transaction. Independent readback matched all four function bodies and confirmed
+service-only execution. The before/after operational comparison was unchanged:
+Guesty authority, automations disabled, zero Channex scopes, guest/cleaner jobs,
+holds, cleaner releases and canonical sends; three recipients, two existing daily
+texts and two frozen cleaner rules. No enrollment or message was created.
+
+PR #2294 merged at `b6ba263222b1d9950e45c539ab22372291113035` and deployment
+`dpl_9JyJH3F6QWLCaEpUtbLfpMGyCzsC` reached READY on the Helm production alias.
+An authenticated read of a nonexistent synthetic booking returned `control: null`,
+verifying that the installed read RPC was callable without creating a record.
+The owner status page still showed both senders off and no Channex jobs.
+
+### Bounded production booking intake
+
+`GET /api/cron/channex-bookings` is a minute cron with a separate, default-off
+`HELM_CHANNEX_BOOKINGS_MODE` gate. Missing/empty/`off` performs no database or
+provider IO. Unknown modes fail closed. The only active value is `calderwood-v1`;
+it also requires production Vercel, the exact STATEMENTS database, explicit server
+credentials, no isolated-staging mode, and `CHANNEX_PRODUCTION_MODE=off`. The latter
+explicitly retires the old *dormant-state inspection* check; its disabled response
+does not certify the active worker's health. Deployment changes none of these
+environment values or database gates.
+
+This endpoint has exact cron-bearer authentication, no owner/session fallback,
+no query/body controls, no caching, and an explicit nonexecuting HEAD (405).
+The provider property/room/rate/generation are compiled constants. Fresh storage
+readback must match that scope, enabled import/capture, and Helm calendar authority
+before provider reads, each commit and each ACK. The SQL transaction independently
+locks and checks authority/capture before the canonical write and immutable receipt.
+
+Each tick reads page one once, validates the entire returned page (up to 100),
+sorts oldest first and processes at most five. Foreign or malformed suffix rows
+cannot be hidden by the processing limit. ACK follows durable commit plus exact
+independent receipt readback, then provider mapping/revision revalidation. Network
+and SQL calls share a 90-second deadline, with 20-second provider and 8-second SQL
+limits; the route has 120 seconds. No callback starts IO after that deadline.
+The next tick starts at page one because ACK removes rows. It does not paginate
+after ACK, scan an unlimited backlog, or infer complete initial coverage.
+
+Responses contain only fixed states and aggregate counters. `page_processed`
+means the bounded selection completed, not that every booking/channel is covered.
+`more_pending` reports deferred rows in that page. `appliedReceipts` and
+`staleReceipts` count verified outcomes, including replay, not new unique bookings.
+On `incomplete`, `acknowledgedRevisions` is a lower bound on verified progress;
+`partialEffectsPossible` remains true once a commit was attempted. A lost SQL/ACK
+response never proves there were no effects. SQL replay preserves the original
+receipt and canonical ID. Concurrent ticks can race on ACK; a rejected duplicate
+ACK is incomplete, not a reason to recreate the booking. Use the existing exact
+revision acknowledgment inspector for an uncertain ACK; a later empty feed does
+not settle it. Provider errors, IDs, contact details and keys are never returned.
+
+The local SQL acceptance script uses the actual runner, client and store with a
+synthetic provider and service-role RPCs. It covers new → modified → cancelled,
+stale revisions, lost commit response, retained private contact data, pending-job
+cancellation, existing-Guesty-identity refusal and the disabled gate. Unit tests
+add concurrent ticks, lost ACK, abort-after-commit, configuration/scope drift and
+malformed rows beyond the processing limit. Neither suite contacts live providers.
+
+Activation is still a separate reviewed calendar handover. Existing stays cannot
+be automatically adopted; complete inventory coverage, conflict reconciliation,
+and source handover remain prerequisites. This runner does not publish availability
+or prices, enroll message schedules, establish an original confirmation clock,
+change Guesty workflows, or prove automatic message delivery. The +30-minute
+confirmation and new-stay message admission gaps remain explicitly unresolved.

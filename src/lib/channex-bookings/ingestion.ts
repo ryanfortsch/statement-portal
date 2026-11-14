@@ -1,5 +1,5 @@
 import 'server-only';
-/** No runtime wiring: concrete adapters must enforce this durable storage contract. */
+/** Concrete adapters must enforce this durable storage contract. */
 import { z } from 'zod';
 import { revisionTime } from './primitives.ts';
 import { airbnbMappingSchema, airbnbRevisionSchema, normalizeAirbnbBookingRevision, parseAirbnbBookingRevision,
