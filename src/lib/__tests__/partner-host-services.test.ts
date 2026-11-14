@@ -5,8 +5,9 @@
  * under src/app/api/pms/host/services/, the Partner home panel).
  *
  * These hold:
- *   - the menu is the five rungs, the same five the database allows, and
- *     full management is not one of them;
+ *   - the menu is the four rungs, the same four the database allows; the
+ *     walk is not one (it is free, before a home lists) and neither is full
+ *     management, and the words are Stay Cape Ann's, never Rising Tide's;
  *   - an ask is a question: nothing here books, schedules or charges;
  *   - a host asks only on one of their own homes, an owner answers only an
  *     ask on the home in front of them, and only once;
@@ -41,6 +42,7 @@ const code = (p: string): string =>
     .replace(/(^|[^:'"`])\/\/.*$/gm, '$1');
 
 const MIGRATION = 'supabase/migrations/20261114020000_partner_service_asks.sql';
+const MENU_MIGRATION = 'supabase/migrations/20261114030000_partner_service_asks_walk_free.sql';
 const DB = 'src/lib/partner-host-services-db.ts';
 const ROUTE = 'src/app/api/pms/host/services/route.ts';
 const WITHDRAW = 'src/app/api/pms/host/services/withdraw/route.ts';
@@ -69,18 +71,29 @@ function row(over: Partial<ServiceAskRow> = {}): ServiceAskRow {
 }
 
 describe('the menu', () => {
-  test('the five rungs above listing, in ladder order', () => {
-    assert.deepEqual(
-      PARTNER_SERVICES.map((s) => s.key),
-      ['verified_walk', 'photo_shoot', 'guest_app', 'turnovers', 'guest_messages'],
-    );
+  test('the four rungs above listing, in ladder order', () => {
+    assert.deepEqual(PARTNER_SERVICES.map((s) => s.key), ['photo_shoot', 'guest_app', 'turnovers', 'guest_messages']);
   });
 
-  test('the database allows exactly the same five', () => {
-    const m = read(MIGRATION).match(/check \(service in \(([^)]*)\)\)/);
-    assert.ok(m, 'the migration names the services');
-    const allowed = m[1].split(',').map((s) => s.trim().replace(/'/g, ''));
-    assert.deepEqual(allowed, PARTNER_SERVICES.map((s) => s.key));
+  test('the database allows exactly the same four', () => {
+    const src = read(MENU_MIGRATION);
+    const checks = [...src.matchAll(/check \(service in \(([^)]*)\)\)/g)].map((m) => m[1].split(',').map((s) => s.trim().replace(/'/g, '')));
+    assert.equal(checks.length, 2, 'the validated and the not-valid branch');
+    for (const allowed of checks) assert.deepEqual(allowed, PARTNER_SERVICES.map((s) => s.key));
+    assert.match(src, /drop constraint partner_service_asks_service_check/);
+    assert.doesNotMatch(src, /\bdelete\b/i, 'an old walk ask is closed and kept, never deleted');
+  });
+
+  test('the walk is free: every partner home gets it before it lists, so a host cannot ask about it', () => {
+    assert.equal(isPartnerService('verified_walk'), false);
+    assert.ok(!PARTNER_SERVICES.some((s) => /walk|verified/i.test(`${s.key} ${s.name} ${s.line}`)));
+    assert.equal(parseServiceAsk({ service: 'verified_walk' }).ok, false);
+  });
+
+  test('the words are Stay Cape Ann\'s: Rising Tide is the name owners know, never guests', () => {
+    assert.ok(!PARTNER_SERVICES.some((s) => /rising tide/i.test(`${s.name} ${s.phrase} ${s.line}`)));
+    const email = serviceReplyEmail('Stay at the Point', 'photo_shoot', '$400, the week of May 12.', 'https://staycapeann.com');
+    assert.doesNotMatch(JSON.stringify(email), /rising tide/i);
   });
 
   test('full management is not a button: we see how a home books first, and a manager is never offered it', () => {

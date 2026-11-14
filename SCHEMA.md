@@ -213,8 +213,9 @@ one `pending` per home by a partial unique index), `decided_at` /
 `src/lib/partner-host-listing.ts`.
 
 **`partner_service_asks`** (since 2026-11-14): a partner home's host asking
-about a paid service. `property_id`, `host_email`, `service` (`verified_walk`,
-`photo_shoot`, `guest_app`, `turnovers`, `guest_messages`), `note`, `status`
+about a paid service. `property_id`, `host_email`, `service` (`photo_shoot`,
+`guest_app`, `turnovers`, `guest_messages`; `verified_walk` left the check on
+2026-11-14 because the walk is free), `note`, `status`
 (`open`, `answered`, `closed`, `withdrawn`; one `open` or `answered` per home
 and service by a partial unique index), `reply` / `answered_at` /
 `answered_by` (an owner's answer, required once `answered`),
