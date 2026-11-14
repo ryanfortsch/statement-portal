@@ -212,6 +212,15 @@ one `pending` per home by a partial unique index), `decided_at` /
 `property_listing_content` until Approve. RLS on, service role only. See
 `src/lib/partner-host-listing.ts`.
 
+**`partner_applications`** (since 2026-11-14): a host applying on
+staycapeann.com/host/apply. `name`, `email`, `phone`, `address`, `city`,
+`bedrooms`, `listed_on` (any of `airbnb`, `vrbo`, `booking`, `own_site`,
+`not_yet`), `run_by` (`self` or `manager`), `note`, `status` (`new`,
+`added`, `declined`; one `new` per lower(email) and lower(address) by a
+partial unique index), `property_id` (the home Add made), `decided_at` /
+`decided_by` / `decline_reason`. Service role only
+(`src/lib/partner-applications-db.ts`).
+
 **`partner_service_asks`** (since 2026-11-14): a partner home's host asking
 about a paid service. `property_id`, `host_email`, `service` (`photo_shoot`,
 `guest_app`, `turnovers`, `guest_messages`; `verified_walk` left the check on

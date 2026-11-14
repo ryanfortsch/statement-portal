@@ -20,6 +20,9 @@ import { accountStatusLabel, holdLine, paymentsReady } from '@/lib/partner-payme
 import { summarizePartnerHomes, type PartnerHomeSummary } from '@/lib/partner-listing-db';
 import { pendingListingProposals } from '@/lib/partner-host-listing-db';
 import { waitingServiceAsks } from '@/lib/partner-host-services-db';
+import { newApplications } from '@/lib/partner-applications-db';
+import { RUN_BY, listedOnLine, type ApplicationRow } from '@/lib/partner-applications';
+import { ApplicationActions } from './ApplicationActions';
 import { RequestActions } from './RequestActions';
 import { HostPaymentActions } from './HostPaymentActions';
 import { AddPartnerHome } from './AddPartnerHome';
@@ -42,15 +45,18 @@ export const dynamic = 'force-dynamic';
  * Under the requests, every partner home: how far its setup is and whether
  * it is on the site (src/lib/partner-listing-db.ts; the work is on its
  * property page), its host's Stripe, our fee and the setup link
- * (src/lib/partner-payments-db.ts), and Add a partner home.
+ * (src/lib/partner-payments-db.ts), and Add a partner home. Above them,
+ * hosts who applied on staycapeann.com/host/apply, to add or decline
+ * (src/lib/partner-applications-db.ts).
  */
 export default async function BookingRequestsPage() {
   const now = new Date();
   const [listed, hosts] = await Promise.all([listBookingRequests({ now }), listPartnerHomePayments().catch(() => null)]);
-  const [setups, changes, asks] = await Promise.all([
+  const [setups, changes, asks, applications] = await Promise.all([
     hosts ? summarizePartnerHomes(hosts.map((h) => h.home.id), now) : new Map<string, PartnerHomeSummary>(),
     pendingListingProposals(),
     waitingServiceAsks(),
+    newApplications().catch(() => null),
   ]);
   const changeWaiting = new Set(changes.map((c) => c.property_id));
   const askWaiting = new Set(asks.map((a) => a.property_id));
@@ -65,6 +71,7 @@ export default async function BookingRequestsPage() {
         ) : (
           <RequestList rows={listed.rows} now={now} threads={threads} />
         )}
+        <Applications rows={applications} />
         <PartnerHomes hosts={hosts} setups={setups} changeWaiting={changeWaiting} askWaiting={askWaiting} now={now} />
       </section>
       <HelmFooter module="Requests" right="Stay Cape Ann · Rising Tide" />
@@ -275,6 +282,52 @@ function setupLine(s: PartnerHomeSummary | undefined): { text: string; tone: str
   return { text: `Not on the site yet · ${s.done} of ${s.total} ready`, tone: 'var(--ink-3)' };
 }
 
+/** Hosts who applied to list a home and nobody has answered. Shown only when there is one. */
+function Applications({ rows }: { rows: ApplicationRow[] | null }) {
+  if (rows == null) {
+    return (
+      <div id="applications" style={{ marginTop: 56 }}>
+        <h2 className="eyebrow" style={{ marginBottom: 10 }}>Applications</h2>
+        <EmptyState>Applications could not be read just now.</EmptyState>
+      </div>
+    );
+  }
+  if (rows.length === 0) return null;
+  return (
+    <div id="applications" style={{ marginTop: 56 }}>
+      <h2 className="eyebrow" style={{ marginBottom: 6 }}>Applications</h2>
+      <p style={{ fontSize: 12, color: 'var(--ink-4)', marginBottom: 12, maxWidth: 640, lineHeight: 1.5 }}>
+        Hosts asking to list their home. Add makes it a partner home with them as its host; nothing is sent either way.
+      </p>
+      <div style={{ borderTop: '1px solid var(--rule)' }}>
+        {rows.map((a) => (
+          <div key={a.id} style={{ padding: '14px 4px', borderBottom: '1px solid var(--rule)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 16, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 14, fontWeight: 500 }}>
+                {a.address}, {a.city}
+              </span>
+              <span style={{ fontSize: 12.5, color: 'var(--ink-4)' }}>Applied {easternShort(a.created_at)}</span>
+            </div>
+            <div style={{ fontSize: 13, marginTop: 4 }}>
+              {a.name} · <a href={`mailto:${a.email}`}>{a.email}</a>
+              {a.phone && <> · {a.phone}</>}
+            </div>
+            <div className="tabular-nums" style={meta}>
+              {a.bedrooms != null && <>{a.bedrooms === 1 ? '1 BEDROOM' : `${a.bedrooms} BEDROOMS`} · </>}
+              {listedOnLine(a.listed_on).toUpperCase()}
+            </div>
+            <div style={{ fontSize: 12.5, marginTop: 4, color: a.run_by === 'manager' ? 'var(--signal)' : 'var(--ink-3)' }}>{RUN_BY[a.run_by]}</div>
+            {a.note && <p style={{ fontSize: 13, marginTop: 8, whiteSpace: 'pre-line', maxWidth: 640 }}>{a.note}</p>}
+            <div style={{ marginTop: 10 }}>
+              <ApplicationActions id={a.id} address={a.address} name={a.name} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function PartnerHomes({
   hosts,
   setups,
@@ -296,7 +349,7 @@ function PartnerHomes({
       <p style={{ fontSize: 12, color: 'var(--ink-4)', marginBottom: 12, maxWidth: 640, lineHeight: 1.5 }}>
         Homes their own hosts run, listed on staycapeann.com for our fee. Each is built on its property page and goes on the
         site once every line of its setup is ready. Each host connects their own Stripe account: guests are charged there,
-        our fee comes off each charge, and the rest is the host&apos;s.
+        our fee comes off each charge, and the rest is the host&apos;s. A host applies at staycapeann.com/host/apply.
       </p>
       <div style={{ marginBottom: 14 }}>
         <AddPartnerHome />

@@ -9,6 +9,7 @@ import { SCA_SITE_ORIGIN } from '@/lib/booking-request-email';
 import { parseNewPartnerHome } from '@/lib/partner-listing';
 import { createPartnerHome } from '@/lib/partner-listing-db';
 import { officePost } from '@/lib/partner-messages-db';
+import { addFromApplication, declineApplication } from '@/lib/partner-applications-db';
 
 /**
  * The owner verbs on /guests/requests. Each returns a result the buttons
@@ -86,6 +87,25 @@ export async function createPartnerHomeAction(input: Record<string, string>): Pr
   revalidatePath('/guests/requests');
   revalidatePath('/properties');
   return r.ok ? { ok: true, id: r.id } : { ok: false, error: r.reason };
+}
+
+// ─── A host's application ───────────────────────────────────────────────────
+
+/** Add the home a host applied with: the same home Add a partner home makes, with them as its host. */
+export async function addApplicationAction(id: string): Promise<CreatePartnerResult> {
+  const by = await requireOwnerEmail();
+  const r = await addFromApplication(id, by);
+  revalidatePath('/guests/requests');
+  revalidatePath('/properties');
+  return r.ok && r.id ? { ok: true, id: r.id } : { ok: false, error: r.ok ? 'The home was not made.' : r.error };
+}
+
+/** Not for us. Nothing is sent; the reason stays in Helm. */
+export async function declineApplicationAction(id: string, reason: string): Promise<RequestActionResult> {
+  const by = await requireOwnerEmail();
+  const r = await declineApplication(id, by, reason);
+  revalidatePath('/guests/requests');
+  return r.ok ? { ok: true, note: r.note } : { ok: false, error: r.error };
 }
 
 // ─── Messages ───────────────────────────────────────────────────────────────
