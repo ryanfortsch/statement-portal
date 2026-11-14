@@ -19,6 +19,8 @@ on:
       - 'supabase/migrations/*channex*'
       - 'scripts/test-channex-database.mjs'
       - 'scripts/test-channex-booking-intake.mts'
+      - 'src/lib/__tests__/channex-booking-runtime.test.ts'
+      - 'src/lib/__tests__/fixtures/channex-booking-intake.ts'
       - 'scripts/test-channex-planner.mts'
       - 'scripts/test-channex-delivery.mts'
       - 'scripts/test-channex-cycle.mts'
