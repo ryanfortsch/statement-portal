@@ -354,3 +354,13 @@ test('stay evidence swaps the "confirm the guest stayed" gap for the lock record
   const without = stayEvidence({ ...base, kind: 'not_received' });
   assert.ok(without.gaps.some((g) => g.includes('Attach arrival proof')));
 });
+
+
+test('a signature cannot establish refund entitlement without the cancellation timeline', () => {
+  for (const reservationStatus of ['confirmed', 'cancelled']) {
+    const ev = stayEvidence({ ...base, reservationStatus, agreement: signed });
+    assert.ok(ev.forBank.some((sentence) => sentence.includes('50% refund')));
+    assert.ok(ev.forBank.every((sentence) => !sentence.includes('is not owed')));
+    assert.ok(ev.gaps.some((gap) => gap.includes('refund promise') && gap.includes('refunds already processed')));
+  }
+});
