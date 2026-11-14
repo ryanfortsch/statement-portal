@@ -371,6 +371,17 @@ minimum across dates, or back to the plan), on one of their homes only, through 
 and `setRateDays` as `host:<email>`; a season merges and never moves the office's closed, arrival
 or departure flags. Everything else on the plan stays the office's. Helm's owner-only price rule
 is about Helm logins; a partner home's price is the host's. `partner-host-rates.test.ts` holds it.
+The host's listing words are `/api/pms/host/listing` (`src/lib/partner-host-listing.ts`,
+since 2026-11-14), and they reach the site only through the office. A host sees the home's own listing
+record in their terms (title, short summary, highlights, about the home, the neighborhood) and sends a
+change; Helm keeps the changed columns of four (`title`, `summary`, `space`, `neighborhood`) as one
+pending row per home in `partner_listing_proposals` (a second send replaces the first; `/withdraw`
+takes it back), refusing a phone number, an email or a link in any of them. The office sees it on the
+home's Partner home panel, word for word beside how it reads now, flagged where Helm changed it since;
+**Approve** (anyone signed in, like the Listing tab's editor) writes those columns through
+`upsertListingContent`, the one listing writer, and **Decline** takes a reason; either emails the host
+from hello@. Owners get a queue line on the home feed and the partner homes list flags it. Photos,
+rooms, amenities and house rules stay the office's. `partner-host-listing.test.ts` holds it.
 
 **A guest sees their trips on staycapeann.com/trips** (`src/lib/guest-trips.ts`, since
 2026-11-13). The guest is the email they asked or booked with: a partner home's requests

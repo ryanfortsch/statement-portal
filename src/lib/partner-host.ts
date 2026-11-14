@@ -223,8 +223,8 @@ const WRAP_OPEN =
 const SIGN_OFF_TEXT = `Stay Cape Ann\n${HELLO} · ${PHONE}`;
 const SIGN_OFF_HTML = `<p style="margin-top: 28px;">Stay Cape Ann<br/><span style="color: #506068; font-size: 13px;">${HELLO} &middot; ${PHONE}</span></p>`;
 
-/** Paragraphs to an email; a [text, url, label] paragraph ends in a link. */
-function build(subject: string, paragraphs: Array<string | [string, string, string]>): HostEmail {
+/** Paragraphs to an email from Stay Cape Ann; a [text, url, label] paragraph ends in a link. */
+export function buildHostEmail(subject: string, paragraphs: Array<string | [string, string, string]>): HostEmail {
   const text = [...paragraphs.map((p) => (typeof p === 'string' ? p : `${p[0]} ${p[1]}`)), SIGN_OFF_TEXT].join('\n\n');
   const html =
     WRAP_OPEN +
@@ -271,7 +271,7 @@ export function hostNewRequestEmail(row: BookingRequestRow, title: string | null
     held != null && row.fee_cents != null
       ? `The guest's card is on hold for ${fmtCents(held, row.currency)}. If you accept, it is charged and ${fmtCents(held - row.fee_cents, row.currency)} reaches your Stripe account after our fee, before Stripe's card fee.`
       : `The quoted total is ${fmtCents(row.quoted_total_cents, row.currency)}.`;
-  return build(`Booking request for ${home}: ${datesLine(row.check_in, row.check_out)}`, [
+  return buildHostEmail(`Booking request for ${home}: ${datesLine(row.check_in, row.check_out)}`, [
     `${hostGuestName(row, false)} asked to stay at ${home}, ${datesLine(row.check_in, row.check_out)} (${n} night${n === 1 ? '' : 's'}, ${row.guests} guest${row.guests === 1 ? '' : 's'}).`,
     ...(row.message ? [`They wrote: "${maskContact(row.message.trim()).body}"`] : []),
     money,

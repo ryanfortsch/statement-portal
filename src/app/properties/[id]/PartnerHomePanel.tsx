@@ -1,18 +1,20 @@
 import type { CSSProperties } from 'react';
 import Link from 'next/link';
 import type { PartnerSetup } from '@/lib/partner-listing-db';
+import type { OfficeListingProposal } from '@/lib/partner-host-listing-db';
 import { channelWord, shortName, type SetupItem } from '@/lib/partner-listing';
 import { maskFeedUrl } from '@/lib/partner-calendar';
 import { exportUrlFor } from '@/lib/ical-export';
 import { CopyableUrl } from '@/app/channels/listings/CopyableUrl';
-import { AddFeed, CheckForm, FeedVerbs, ListingSwitch, ReadNow, SiteRankForm } from './PartnerHomeControls';
+import { AddFeed, CheckForm, FeedVerbs, ListingChangeVerbs, ListingSwitch, ReadNow, SiteRankForm } from './PartnerHomeControls';
 
 /**
  * A partner home's setup, at the top of its property page: whether it is on
  * staycapeann.com, every line of the listing bar with where it is fixed, the
  * host's calendars and the line they paste back, and the four checks a
  * person makes. An owner lists it once every line is green
- * (src/lib/partner-listing.ts).
+ * (src/lib/partner-listing.ts). A change the host sent to the listing's
+ * words waits here for someone to approve it (src/lib/partner-host-listing.ts).
  */
 
 const meta: CSSProperties = { fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.06em' };
@@ -45,7 +47,7 @@ function fmtWhen(iso: string | null): string {
   return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' });
 }
 
-export function PartnerHomePanel({ setup, owner }: { setup: PartnerSetup; owner: boolean }) {
+export function PartnerHomePanel({ setup, owner, listingChange }: { setup: PartnerSetup; owner: boolean; listingChange?: OfficeListingProposal | null }) {
   const { propertyId, row, items, ready, state } = setup;
   const done = items.filter((i) => i.ok).length;
   const listed = state === 'listed';
@@ -88,6 +90,7 @@ export function PartnerHomePanel({ setup, owner }: { setup: PartnerSetup; owner:
           })}
         </div>
 
+        {listingChange && <ListingChange setup={setup} change={listingChange} />}
         <Calendars setup={setup} />
         <Checks setup={setup} />
         <Place setup={setup} owner={owner} />
@@ -203,6 +206,51 @@ function Place({ setup, owner }: { setup: PartnerSetup; owner: boolean }) {
           {rank == null ? 'No place yet: it shows after every home that has one' : rank}
         </span>
         {owner && <SiteRankForm propertyId={setup.propertyId} rank={rank} />}
+      </div>
+    </div>
+  );
+}
+
+const COLUMN_LABEL: Record<OfficeListingProposal['fields'][number]['column'], string> = {
+  title: 'Title',
+  summary: 'Summary and highlights',
+  space: 'About the home',
+  neighborhood: 'The neighborhood',
+};
+
+/** The host's words beside the listing's, with Approve and Decline. */
+function ListingChange({ setup, change }: { setup: PartnerSetup; change: OfficeListingProposal }) {
+  const { proposal, fields } = change;
+  const text: CSSProperties = { whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.55, margin: 0 };
+  return (
+    <div id="partner-listing-change" style={{ marginTop: 32 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 16, flexWrap: 'wrap', marginBottom: 6 }}>
+        <h3 className="eyebrow">Listing change from the host</h3>
+        <ListingChangeVerbs propertyId={setup.propertyId} proposalId={proposal.id} home={setup.name} />
+      </div>
+      <p style={{ fontSize: 12, color: 'var(--ink-4)', maxWidth: 680, lineHeight: 1.5, marginBottom: 12 }}>
+        Sent {fmtWhen(proposal.created_at)} by {proposal.host_email}. Nothing reaches staycapeann.com until it is approved. Phone numbers, emails and links
+        were refused before it got here.
+      </p>
+      {proposal.note && (
+        <p style={{ fontSize: 13, color: 'var(--ink-2)', borderLeft: '2px solid var(--rule)', paddingLeft: 10, marginBottom: 12, whiteSpace: 'pre-wrap' }}>
+          {proposal.note}
+        </p>
+      )}
+      <div style={{ borderTop: '1px solid var(--rule)' }}>
+        {fields.map((f) => (
+          <div key={f.column} style={{ padding: '10px 2px', borderBottom: '1px solid var(--rule)' }}>
+            <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>{COLUMN_LABEL[f.column]}</div>
+            {f.movedSince && (
+              <p style={{ fontSize: 12, color: 'var(--signal)', margin: '0 0 6px' }}>Changed in Helm since the host sent this. Approving replaces it.</p>
+            )}
+            <p style={text}>{f.proposed || <span style={{ color: 'var(--ink-4)' }}>Empty</span>}</p>
+            <details style={{ marginTop: 6 }}>
+              <summary style={{ fontSize: 12, color: 'var(--ink-3)', cursor: 'pointer' }}>How it reads now</summary>
+              <p style={{ ...text, color: 'var(--ink-3)', marginTop: 6 }}>{f.now || 'Empty'}</p>
+            </details>
+          </div>
+        ))}
       </div>
     </div>
   );

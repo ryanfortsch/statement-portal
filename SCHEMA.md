@@ -202,6 +202,16 @@ site's registry gives our homes. A trigger refuses a row for any
 home that is not `kind = 'partner'`. RLS on, service role only. See
 `src/lib/partner-listing.ts`.
 
+**`partner_listing_proposals`** (since 2026-11-14): a partner home's host asking
+to change the listing's words. `property_id`, `host_email`, `changes` (jsonb,
+only the changed `property_listing_content` columns of `title`, `summary`,
+`space`, `neighborhood`), `before` (the same keys as they read when sent),
+`note`, `status` (`pending`, `approved`, `declined`, `withdrawn`, `replaced`;
+one `pending` per home by a partial unique index), `decided_at` /
+`decided_by` / `decline_reason`, `host_emailed_at`. Nothing reaches
+`property_listing_content` until Approve. RLS on, service role only. See
+`src/lib/partner-host-listing.ts`.
+
 **`partner_calendar_feeds`** and **`partner_calendar_holds`** (since
 2026-11-13): a partner home's own calendars, kept apart from `bookings` and
 `channel_listings` on purpose. A feed is one export link (`channel` airbnb,

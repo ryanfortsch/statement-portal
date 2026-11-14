@@ -7,6 +7,8 @@ import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import type { PersonCheck } from '@/lib/partner-listing';
 import {
   addPartnerFeedAction,
+  approveListingChangeAction,
+  declineListingChangeAction,
   listPartnerHomeAction,
   readPartnerFeedsAction,
   recordPartnerCheckAction,
@@ -261,5 +263,43 @@ export function ListingSwitch({ propertyId, home, listed, ready }: { propertyId:
     <Button size="md" variant="primary" pending={busy === 'list'} pendingLabel="Listing" disabled={busy !== null || !ready} onClick={list}>
       List on staycapeann.com
     </Button>
+  );
+}
+
+/** Approve or decline the host's listing change. Approve puts it on the site; Decline asks for the line the host reads. */
+export function ListingChangeVerbs({ propertyId, proposalId, home }: { propertyId: string; proposalId: string; home: string }) {
+  const { ask, askText } = useConfirm();
+  const { busy, run } = useRun();
+
+  async function approve() {
+    const yes = await ask({
+      title: `Put these words on ${home}'s listing?`,
+      body: 'Guests see them on staycapeann.com within a few minutes, and the host is emailed.',
+      confirmLabel: 'Approve',
+    });
+    if (!yes) return;
+    await run('approve', () => approveListingChangeAction(propertyId, proposalId), 'Approved');
+  }
+  async function decline() {
+    const reason = await askText({
+      title: 'Decline this change?',
+      body: 'The listing stays as it reads now. The host is emailed this reason and can change it and send it again.',
+      inputLabel: 'Why, in a line the host will read',
+      confirmLabel: 'Decline',
+      tone: 'danger',
+    });
+    if (reason === null) return;
+    await run('decline', () => declineListingChangeAction(propertyId, proposalId, reason), 'Declined');
+  }
+
+  return (
+    <div style={{ display: 'flex', gap: 8 }}>
+      <Button size="sm" variant="primary" pending={busy === 'approve'} pendingLabel="Approving" disabled={busy !== null} onClick={approve}>
+        Approve
+      </Button>
+      <Button size="sm" variant="secondary" pending={busy === 'decline'} pendingLabel="Declining" disabled={busy !== null} onClick={decline}>
+        Decline
+      </Button>
+    </div>
   );
 }

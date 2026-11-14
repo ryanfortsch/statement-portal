@@ -7,6 +7,7 @@ import { isoDay, isPersonCheck, parseSiteRank } from '@/lib/partner-listing';
 import { listPartnerHome, recordPartnerCheck, setPartnerSiteRank, unlistPartnerHome } from '@/lib/partner-listing-db';
 import { isPartnerFeedChannel, parseFeedUrl } from '@/lib/partner-calendar';
 import { addPartnerFeed, readPartnerFeed, listPartnerFeeds, removePartnerFeed, syncPartnerFeeds } from '@/lib/partner-calendar-db';
+import { approveListingProposal, declineListingProposal } from '@/lib/partner-host-listing-db';
 
 /**
  * The partner home panel's verbs (src/app/properties/[id]/PartnerHomePanel.tsx).
@@ -101,4 +102,34 @@ export async function unlistPartnerHomeAction(propertyId: string, reason: string
   const r = await unlistPartnerHome(propertyId, by, reason);
   refresh(propertyId);
   return r.ok ? { ok: true, note: 'Taken off. New requests stop now, and the site drops the page within a few minutes.' } : { ok: false, error: r.reason };
+}
+
+/**
+ * The host's listing change: Approve puts the changed words on
+ * staycapeann.com through the listing editor's own writer and emails the
+ * host; Decline emails them the reason. Anyone on the team, the same as the
+ * Listing tab's editor (src/lib/partner-host-listing-db.ts).
+ */
+export async function approveListingChangeAction(propertyId: string, proposalId: string): Promise<PartnerActionResult> {
+  const by = await signedIn();
+  if (!by) return { ok: false, error: 'Sign in again.' };
+  try {
+    const r = await approveListingProposal(proposalId, propertyId, by);
+    refresh(propertyId);
+    return r.ok ? { ok: true, note: r.note } : { ok: false, error: r.error };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'The change could not be saved.' };
+  }
+}
+
+export async function declineListingChangeAction(propertyId: string, proposalId: string, reason: string): Promise<PartnerActionResult> {
+  const by = await signedIn();
+  if (!by) return { ok: false, error: 'Sign in again.' };
+  try {
+    const r = await declineListingProposal(proposalId, propertyId, by, reason);
+    refresh(propertyId);
+    return r.ok ? { ok: true, note: r.note } : { ok: false, error: r.error };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'The answer could not be saved.' };
+  }
 }
