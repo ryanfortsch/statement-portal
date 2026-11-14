@@ -210,6 +210,24 @@ export function codeState(code: LiveStayCode | null, now: Date, window: StayWind
 
 // ── Your stay ──────────────────────────────────────────────────────────────
 
+/** The end of DOOR_CODE_WHEN's window: from this hour on the arrival day the code has gone out. */
+export const DOOR_CODE_SENT_BY = '16:00';
+
+/**
+ * The door line on a stay with no code on the page. Until 4 PM on the
+ * arrival day it says when the code comes; after that the check-in message
+ * is in the guest's hands, so it says where to look (Dotti, 2026-11-14).
+ * The weekday names the message for six days; a longer stay gets the date.
+ */
+export function doorLineForStay(arriveDay: string, now: Date): string {
+  const sent = zonedTimeToMs(arriveDay, DOOR_CODE_SENT_BY, STAY_TIMEZONE);
+  if (now.getTime() < sent) return DOOR_CODE_WHEN;
+  const day = now.getTime() - sent < 6 * 86_400_000
+    ? new Intl.DateTimeFormat('en-US', { timeZone: STAY_TIMEZONE, weekday: 'long' }).format(new Date(sent))
+    : formatLongDate(arriveDay);
+  return `Your door code is in your check-in message from ${day}.`;
+}
+
 export type StayLayer = {
   arriveDay: string;
   arriveTime: string | null;
@@ -257,7 +275,7 @@ export function buildStayLayer(input: StayLayerInput): StayLayer | null {
     const doors = code.doorCount > 1 ? ' The same code works on every keypad at the house.' : '';
     steps.push({ label: 'The door', text: `Tap Show my door code above, then enter it on ${keypad}.${doors}` });
   } else {
-    steps.push({ label: 'The door', text: DOOR_CODE_WHEN });
+    steps.push({ label: 'The door', text: doorLineForStay(dates.checkIn, now) });
   }
 
   return {
@@ -284,11 +302,15 @@ export function opensLine(window: StayWindow, codeOnPage: boolean): string {
 
 /**
  * The home's app as the stay page shows it: the Getting here door line
- * points at the stay card instead of the check-in message when the card
- * has a code. Everything else is the permanent page, unchanged.
+ * says what the stay card says, pointing at the card when it has a code
+ * and otherwise at the check-in message (doorLineForStay). Everything else
+ * is the permanent page, unchanged.
  */
 export function appForStay(app: GuestApp, layer: StayLayer | null): GuestApp {
-  if (!layer?.code?.available) return app;
+  if (!layer) return app;
+  const door = layer.code?.available
+    ? 'Your door code is under Your stay, at the top of this page.'
+    : (layer.steps.find((s) => s.label === 'The door')?.text ?? DOOR_CODE_WHEN);
   return {
     ...app,
     sections: app.sections.map((s) =>
@@ -298,7 +320,7 @@ export function appForStay(app: GuestApp, layer: StayLayer | null): GuestApp {
             ...s,
             items: s.items.map((i) =>
               i.label === 'The door'
-                ? { ...i, text: `${layer.lockBrand ? `The door has a ${layer.lockBrand} keypad. ` : ''}Your door code is under Your stay, at the top of this page.` }
+                ? { ...i, text: `${layer.lockBrand ? `The door has a ${layer.lockBrand} keypad. ` : ''}${door}` }
                 : i,
             ),
           },

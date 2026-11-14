@@ -20,6 +20,7 @@ import {
   extendForStay,
   codeIsLive,
   codeState,
+  doorLineForStay,
   easternMoment,
   opensLine,
   parseLinkRequest,
@@ -261,6 +262,24 @@ describe('the stay layer never renders outside its window', () => {
     const noCode = buildStayLayer(layerInput(NOW_OPEN, { code: codeState(null, NOW_OPEN, win()) }));
     assert.equal(noCode?.code?.available, false);
     assert.match(noCode?.steps.find((s) => s.label === 'The door')?.text ?? '', /^Your door code arrives between 3:30 and 4 PM on check-in day\.$/);
+  });
+
+  test('after 4 PM on the arrival day, no code on the page: the line points at the check-in message (Dotti, 2026-11-14)', () => {
+    const sentLine = /^Your door code is in your check-in message from Friday\.$/;
+    const at = (iso: string) => buildStayLayer(layerInput(new Date(iso), { lockMapped: false }));
+    const door = (l: ReturnType<typeof at>) => l?.steps.find((s) => s.label === 'The door')?.text ?? '';
+    assert.match(door(at('2026-11-13T20:59:00Z')), /^Your door code arrives between 3:30 and 4 PM/, '3:59 PM Friday still says when');
+    assert.match(door(at('2026-11-13T21:00:00Z')), sentLine, '4:00 PM Friday');
+    assert.match(door(at('2026-11-15T13:00:00Z')), sentLine, 'Sunday morning, checkout day');
+    const layer = at('2026-11-14T15:00:00Z');
+    const getting = appForStay(app, layer).sections.find((s) => s.id === 'arrival')!.items.find((i) => i.label === 'The door');
+    assert.match(getting?.text ?? '', /Your door code is in your check-in message from Friday\.$/, 'Getting here says the same');
+    assert.ok(!/3:30/.test(JSON.stringify(appForStay(app, layer))), 'no stale arrival time anywhere on the page');
+  });
+
+  test('a stay past six days names the date, not a weekday that has come round again', () => {
+    assert.equal(doorLineForStay('2026-11-13', new Date('2026-11-19T20:00:00Z')), 'Your door code is in your check-in message from Friday.');
+    assert.equal(doorLineForStay('2026-11-13', new Date('2026-11-20T12:00:00Z')), 'Your door code is in your check-in message from Friday, November 13.');
   });
 });
 
