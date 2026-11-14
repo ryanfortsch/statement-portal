@@ -14,6 +14,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   buildGuestApp,
+  petsForGuests,
   clockLabel,
   GUEST_APP_PROPERTY_COLS,
   missingFacts,
@@ -448,4 +449,17 @@ test('copyable text uses the page font with clear characters, never a typewriter
 test('the offline copy registers in production only, so a local preview shows each edit', () => {
   const body = read('src/app/h/[token]/GuestAppBody.tsx');
   assert.match(body, /if \(process\.env\.NODE_ENV === 'production'\) \{\s*navigator\.serviceWorker\.register\('\/h\/sw\.js', \{ scope: '\/h\/' \}\)/);
+});
+
+test('house rules: guests on the reservation only, and pets without the service animal line (Dotti, 2026-11-13)', () => {
+  const rules = (app: ReturnType<typeof buildGuestApp>) => app.sections.find((s) => s.id === 'rules')?.items ?? [];
+  const a = buildGuestApp(input({ home: home({ max_occupancy: 10, pet_policy: 'No pets. Service animals are always welcome.' }) }));
+  assert.equal(rules(a).find((i) => i.label === 'Guests')?.text, 'Approved guests on the original reservation only.');
+  assert.equal(rules(a).find((i) => i.label === 'Pets')?.text, 'No pets.');
+  assert.ok(!JSON.stringify(a).includes('stay overnight'), 'no head count');
+  assert.ok(!/service animal/i.test(JSON.stringify(a)));
+  const b = buildGuestApp(input({ home: home({ max_occupancy: null, pet_policy: 'Service animals are always welcome.' }) }));
+  assert.equal(rules(b).find((i) => i.label === 'Guests')?.text, 'Approved guests on the original reservation only.', 'said for every home');
+  assert.equal(rules(b).find((i) => i.label === 'Pets'), undefined, 'nothing left, no Pets line');
+  assert.equal(petsForGuests('Dogs welcome with approval. Service dogs always welcome.'), 'Dogs welcome with approval.');
 });

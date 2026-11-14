@@ -252,6 +252,21 @@ export function smsHref(e164: string, body: string): string {
  */
 export const DOOR_CODE_WHEN = 'Your door code arrives between 3:30 and 4 PM on check-in day.';
 
+/** Who may stay: no head count, just the reservation (Dotti, 2026-11-13). */
+export const GUESTS_RULE = 'Approved guests on the original reservation only.';
+
+/**
+ * The pet policy as the guest app says it: without the service animal
+ * sentence (Dotti, 2026-11-13). The property's own pet_policy keeps it, and
+ * the concierge still reads it there, so a guest who asks is answered right.
+ */
+export function petsForGuests(policy: string | null | undefined): string {
+  return (policy ?? '')
+    .replace(/[^.!?]*\bservice (?:animal|dog)s?\b[^.!?]*[.!?]?/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export const EXTEND_ITEM = {
   text: 'Looking to extend your stay another night?',
   link: { label: 'Text us to extend' },
@@ -509,8 +524,9 @@ export function buildGuestApp(input: GuestAppInput): GuestApp {
   // House rules.
   const ruleItems: GuestItem[] = [];
   ruleItems.push({ label: 'Quiet hours', text: clean(home.quiet_hours) ? sentence(clean(home.quiet_hours)) : civic.noise });
-  if (home.max_occupancy) ruleItems.push({ label: 'Guests', text: `Up to ${home.max_occupancy} guests stay overnight.` });
-  if (clean(home.pet_policy)) ruleItems.push({ label: 'Pets', text: sentence(clean(home.pet_policy)) });
+  ruleItems.push({ label: 'Guests', text: GUESTS_RULE });
+  const pets = petsForGuests(home.pet_policy);
+  if (pets) ruleItems.push({ label: 'Pets', text: sentence(pets) });
   if (clean(home.smoking_policy)) ruleItems.push({ label: 'Smoking', text: sentence(clean(home.smoking_policy)) });
   for (const p of paragraphs(home.house_rules)) ruleItems.push({ text: sentence(p) });
   sections.push({ id: 'rules', nav: 'House rules', glance: 'Quiet hours & more', title: 'House rules', items: ruleItems });
