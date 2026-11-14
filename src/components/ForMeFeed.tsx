@@ -36,6 +36,8 @@ import { requestQueueText } from '@/lib/booking-requests';
 import { openRequestClocks } from '@/lib/booking-requests-db';
 import { pendingListingProposals } from '@/lib/partner-host-listing-db';
 import { listingQueueCard } from '@/lib/partner-host-listing';
+import { waitingServiceAsks } from '@/lib/partner-host-services-db';
+import { serviceQueueCard } from '@/lib/partner-host-services';
 
 type MyWork = {
   id: string;
@@ -896,9 +898,10 @@ function PlannedWalkRow({ walk }: { walk: PlannedWalk }) {
  */
 async function loadQueueCards(role: HelmRole): Promise<QueueCard[]> {
   const owner = role === 'owner';
-  const [requests, listingChanges, leases, creative, packets, statements, handoff] = await Promise.all([
+  const [requests, listingChanges, serviceAsks, leases, creative, packets, statements, handoff] = await Promise.all([
     owner ? loadBookingRequestQueue() : null,
     owner ? loadListingChangeQueue() : null,
+    owner ? loadServiceAskQueue() : null,
     owner ? loadLeaseQueue() : null,
     owner ? loadCreativeQueue() : null,
     // Staff approve submitted packets too (2026-10-20); the card names no
@@ -907,7 +910,7 @@ async function loadQueueCards(role: HelmRole): Promise<QueueCard[]> {
     owner ? loadStatementQueue() : null,
     loadCloseHandoffQueue(role),
   ]);
-  return [requests, listingChanges, leases, creative, ...packets, statements, handoff]
+  return [requests, listingChanges, serviceAsks, leases, creative, ...packets, statements, handoff]
     .filter((c): c is QueueCard => !!c)
     .filter((c) => roleMayOpen(role, c.href));
 }
@@ -972,6 +975,24 @@ async function loadListingChangeQueue(): Promise<QueueCard | null> {
     const names = new Map(((data ?? []) as Array<{ id: string; name: string | null }>).map((p) => [p.id, p.name]));
     const card = listingQueueCard(waiting, (id) => names.get(id) ?? null);
     return card ? { id: 'queue-listing-changes', ...card } : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A partner home's host asked about one of our paid services and no owner
+ * has answered (src/lib/partner-host-services.ts). Owners only: the answer
+ * is a price.
+ */
+async function loadServiceAskQueue(): Promise<QueueCard | null> {
+  try {
+    const waiting = await waitingServiceAsks();
+    if (waiting.length === 0) return null;
+    const { data } = await supabase.from('properties').select('id, name').in('id', [...new Set(waiting.map((w) => w.property_id))]);
+    const names = new Map(((data ?? []) as Array<{ id: string; name: string | null }>).map((p) => [p.id, p.name]));
+    const card = serviceQueueCard(waiting, (id) => names.get(id) ?? null);
+    return card ? { id: 'queue-service-asks', ...card } : null;
   } catch {
     return null;
   }

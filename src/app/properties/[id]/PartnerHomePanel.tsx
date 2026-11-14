@@ -2,11 +2,12 @@ import type { CSSProperties } from 'react';
 import Link from 'next/link';
 import type { PartnerSetup } from '@/lib/partner-listing-db';
 import type { OfficeListingProposal } from '@/lib/partner-host-listing-db';
+import { serviceOf, type ServiceAskRow } from '@/lib/partner-host-services';
 import { channelWord, shortName, type SetupItem } from '@/lib/partner-listing';
 import { maskFeedUrl } from '@/lib/partner-calendar';
 import { exportUrlFor } from '@/lib/ical-export';
 import { CopyableUrl } from '@/app/channels/listings/CopyableUrl';
-import { AddFeed, CheckForm, FeedVerbs, ListingChangeVerbs, ListingSwitch, ReadNow, SiteRankForm } from './PartnerHomeControls';
+import { AddFeed, CheckForm, FeedVerbs, ListingChangeVerbs, ListingSwitch, ReadNow, ServiceAskVerbs, SiteRankForm } from './PartnerHomeControls';
 
 /**
  * A partner home's setup, at the top of its property page: whether it is on
@@ -14,7 +15,9 @@ import { AddFeed, CheckForm, FeedVerbs, ListingChangeVerbs, ListingSwitch, ReadN
  * host's calendars and the line they paste back, and the four checks a
  * person makes. An owner lists it once every line is green
  * (src/lib/partner-listing.ts). A change the host sent to the listing's
- * words waits here for someone to approve it (src/lib/partner-host-listing.ts).
+ * words waits here for someone to approve it (src/lib/partner-host-listing.ts),
+ * and an owner answers the host's asks about our paid services
+ * (src/lib/partner-host-services.ts).
  */
 
 const meta: CSSProperties = { fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.06em' };
@@ -47,7 +50,17 @@ function fmtWhen(iso: string | null): string {
   return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' });
 }
 
-export function PartnerHomePanel({ setup, owner, listingChange }: { setup: PartnerSetup; owner: boolean; listingChange?: OfficeListingProposal | null }) {
+export function PartnerHomePanel({
+  setup,
+  owner,
+  listingChange,
+  serviceAsks,
+}: {
+  setup: PartnerSetup;
+  owner: boolean;
+  listingChange?: OfficeListingProposal | null;
+  serviceAsks?: ServiceAskRow[] | null;
+}) {
   const { propertyId, row, items, ready, state } = setup;
   const done = items.filter((i) => i.ok).length;
   const listed = state === 'listed';
@@ -90,6 +103,7 @@ export function PartnerHomePanel({ setup, owner, listingChange }: { setup: Partn
           })}
         </div>
 
+        {owner && serviceAsks && serviceAsks.length > 0 && <ServiceAsks setup={setup} asks={serviceAsks} />}
         {listingChange && <ListingChange setup={setup} change={listingChange} />}
         <Calendars setup={setup} />
         <Checks setup={setup} />
@@ -251,6 +265,43 @@ function ListingChange({ setup, change }: { setup: PartnerSetup; change: OfficeL
             </details>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+/** The host's asks about our paid services: an owner answers with the price, then closes it once settled. */
+function ServiceAsks({ setup, asks }: { setup: PartnerSetup; asks: ServiceAskRow[] }) {
+  const quiet: CSSProperties = { fontSize: 12, color: 'var(--ink-4)', margin: '2px 0 0' };
+  const text: CSSProperties = { whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.55, margin: '6px 0 0' };
+  return (
+    <div id="partner-services" style={{ marginTop: 32 }}>
+      <h3 className="eyebrow" style={{ marginBottom: 6 }}>The host asked about</h3>
+      <p style={{ fontSize: 12, color: 'var(--ink-4)', maxWidth: 680, lineHeight: 1.5, marginBottom: 12 }}>
+        Nothing is booked or charged. Answer with the price and when we can do it; the host is emailed from hello@ and replies there. Close it once it is
+        booked or they are not going ahead.
+      </p>
+      <div style={{ borderTop: '1px solid var(--rule)' }}>
+        {asks.map((a) => {
+          const service = serviceOf(a.service);
+          const answered = a.status === 'answered';
+          return (
+            <div key={a.id} style={{ padding: '10px 2px', borderBottom: '1px solid var(--rule)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 16, flexWrap: 'wrap' }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 500 }}>{service.name}</div>
+                  <p style={quiet}>
+                    Asked {fmtWhen(a.created_at)} by {a.host_email}
+                    {answered ? `. Answered ${fmtWhen(a.answered_at)}${a.host_emailed_at ? '' : ', the email did not go'}` : ''}
+                  </p>
+                </div>
+                <ServiceAskVerbs propertyId={setup.propertyId} askId={a.id} service={service.phrase} home={setup.name} answered={answered} />
+              </div>
+              {a.note && <p style={{ ...text, color: 'var(--ink-2)', borderLeft: '2px solid var(--rule)', paddingLeft: 10 }}>{a.note}</p>}
+              {answered && a.reply && <p style={{ ...text, color: 'var(--ink-3)' }}>{a.reply}</p>}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

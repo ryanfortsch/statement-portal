@@ -382,6 +382,16 @@ home's Partner home panel, word for word beside how it reads now, flagged where 
 `upsertListingContent`, the one listing writer, and **Decline** takes a reason; either emails the host
 from hello@. Owners get a queue line on the home feed and the partner homes list flags it. Photos,
 rooms, amenities and house rules stay the office's. `partner-host-listing.test.ts` holds it.
+A host asks about our paid services at `/api/pms/host/services` (`src/lib/partner-host-services.ts`,
+since 2026-11-14): the five rungs above listing (a Verified walk, a photo shoot, the guest app, turnovers,
+guest messages), their words in Helm only. An ask is a question, one live row per home and service in
+`partner_service_asks` (`/withdraw` takes it back); nothing books, schedules or charges, and a partner home
+stays walled off from every one of those services until someone opens it on purpose. No price is set, so
+an owner answers on the home's Partner home panel in their own words (the price and a date), which emails
+the host from hello@ once; the rest goes by email, and Close settles it. Owners only end to end (the panel's
+section, the page's read, the actions, the home feed's line), because the answer is a price. Full management
+is not on the menu: we see how a home books before we offer it, and a manager-run home is never offered it.
+`partner-host-services.test.ts` holds it.
 
 **A guest sees their trips on staycapeann.com/trips** (`src/lib/guest-trips.ts`, since
 2026-11-13). The guest is the email they asked or booked with: a partner home's requests
