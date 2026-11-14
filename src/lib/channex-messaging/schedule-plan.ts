@@ -2,6 +2,7 @@ import 'server-only';
 import { z } from 'zod';
 import { preparedRulePolicy, type PreparationRule } from './preparation-rules.ts';
 import { calderwoodTimeWordingNeedsReview, reviewCalderwoodTiming, type SourceClocks } from './preparation-timing.ts';
+import { reviewNewAirbnbConfirmation } from './new-booking-confirmation.ts';
 
 // No bodies, destinations, credentials, error text or approval notes are read.
 export const MESSAGE_SCHEDULE_LEDGER_FIELDS = 'id,booking_id,property_id,automation_id,automation_key,fire_at,status,planned_check_in,planned_check_out,sent_at,provider_message_id';
@@ -46,13 +47,38 @@ export const SCHEDULE_STATE_LABELS: Record<ScheduleState, string> = {
  * never per rule row: replacing a rule must not recreate a sent/uncertain message.
  * This release runs it in review only. Persisting jobs and enabling dispatch still
  * require the source handover and an atomic store adapter; a result grants neither. */
-export function planCalderwoodSchedule(input: {
+type SchedulePlanInput = {
   stay: { canonicalId: string; status: string; duplicateOf: string | null; clocks: SourceClocks };
   rules: readonly PreparationRule[]; ledger: readonly ScheduleLedgerRow[]; now: number;
+};
+export function planCalderwoodSchedule(input: SchedulePlanInput) {
+  return reconcileSchedule(input, reviewCalderwoodTiming(input.stay.clocks, input.now));
+}
+
+/** Read-only new-stay rehearsal using the approved receipt clock. The other five
+ * workflows use the unchanged Guesty-offset planner. No confirmedAt substitution,
+ * sender release, origin inference, schedule registration or catch-up occurs. */
+export function planNewAirbnbSchedule(input: SchedulePlanInput & {
+  confirmation: Omit<Parameters<typeof reviewNewAirbnbConfirmation>[0], 'now' | 'stay'> & {
+    remoteBookingId: string; code: string;
+  };
 }) {
+  const { stay, confirmation: c, now } = input;
+  const confirmation = reviewNewAirbnbConfirmation({ ...c, now, stay: {
+    id: stay.canonicalId, remoteBookingId: c.remoteBookingId, code: c.code, status: stay.status,
+    duplicateOf: stay.duplicateOf, start: stay.clocks.start, end: stay.clocks.end,
+  } });
+  // An accidental original confirmation value can never override this policy.
+  const timings = reviewCalderwoodTiming({ ...stay.clocks, confirmedAt: null }, now);
+  timings[0] = { ...timings[0], at: confirmation.fireAt,
+    status: confirmation.state === 'future_candidate' ? 'future'
+      : confirmation.state === 'past_not_replayed' ? 'past_or_due' : 'unverified' };
+  return { confirmation, workflows: reconcileSchedule(input, timings), canSchedule: false as const, canSend: false as const };
+}
+
+function reconcileSchedule(input: SchedulePlanInput, timings: ReturnType<typeof reviewCalderwoodTiming>) {
   const { stay, rules, ledger, now } = input;
   if (!z.uuid().safeParse(stay.canonicalId).success) throw Error('Invalid message stay');
-  const timings = reviewCalderwoodTiming(stay.clocks, now);
   const history = ledger.filter(r => r.booking_id === stay.canonicalId);
   const resolvedKey = (h: ScheduleLedgerRow) => h.automation_key ?? rules.find(r => r.id === h.automation_id)?.key ?? null;
   return timings.map(t => {
