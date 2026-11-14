@@ -924,8 +924,31 @@ runs itself.
   Active existing checkout adjustments participate in the read; conflicting
   times or unreconciled dates refuse scheduling inputs. Exception writes refuse
   existing message history until schedule reconciliation is implemented. No
-  owner HTTP caller or new-stay message scheduler is supplied by this migration.
-  Installation creates no epoch, admissions, exceptions, schedules or messages.
+  owner HTTP caller is supplied by the admission migration. Installation creates
+  no epoch, admissions, exceptions, schedules or messages.
+  `helm_channex_new_stay_schedule_inputs` adds a single private read of admission,
+  current context, complete bounded history and render inputs. The renderer can
+  use the persisted pre-ACK guest name when the canonical row has no name; conflicting
+  populated names require review. New-stay contexts include immutable receipt/clock
+  provenance; retained-stay context hashes remain unchanged. The private SQL clock
+  independently derives all six approved fire times and refuses DST ambiguity,
+  stale dated exceptions and fixed-time wording conflicts at registration/claim.
+  Cleaner jobs have exactly one timing origin: a retained `binding_id`, or a
+  `new_stay_id` equal to the canonical booking and referencing its admission.
+  `helm_channex_new_stay_schedule_register` atomically registers up to six future
+  guest/cleaner workflows under the import/scope/booking locks, using the existing
+  canonical job ledgers, releases, recipient proofs and deterministic identities.
+  Failed checks roll back the entire batch; identical retries preserve all holds
+  and outcomes. The cleaner registration helper is not executable by service roles.
+  The service-only worklist selects at most four stays, prioritizes new confirmation
+  clocks and rotates one slot; more than 200 eligible stays returns an explicit
+  overflow. The existing authenticated message cron adds a separately default-off
+  `HELM_CHANNEX_NEW_STAY_SCHEDULE_MODE=calderwood-v1` lane with an explicit template
+  capture/digest and cleaner release reference. Two bounded Channex booking/thread
+  reads and final SQL/recipient reads precede its one atomic write. This lane never
+  POSTs to a provider, claims a send, or enables a release. New-stay dispatch,
+  reviewed cutover installation and post-registration time reconciliation remain
+  separate work; installing this migration creates no operational records.
 - **`guest_threads`**: one thread per stay per channel (`sms`, `email`,
   `airbnb`, `vrbo`, `booking_com`, `direct`), keyed to `booking_id`,
   `guest_id` and `property_id`, with `external_thread_key` (E.164 for

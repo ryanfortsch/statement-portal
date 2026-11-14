@@ -2125,10 +2125,10 @@ The exception writer records immutable compare-and-save versions, retains actor
 and dates, and recovers identical lost-response retries. It refuses any existing
 message history until explicit schedule reconciliation is implemented.
 
-**Remaining integration:** owner exception controls, the reviewed cutover/epoch
-producer, and the new-stay guest/cleaner registration and dispatch callers still
-need to be completed. This batch implements durable admission and clock storage;
-it does not claim that admitted stays are yet served by Helm. Guesty remains in
+**Remaining after the admission release:** owner exception controls, reviewed
+cutover/epoch installation, and the new-stay guest/cleaner runtime. The scheduling
+portion is implemented in the next section; dispatch and time-change reconciliation
+remain outstanding. Admission alone does not serve a guest. Guesty remains in
 control. The latest Channex and Guesty support replies were rechecked on November
 13; the native-reply compatibility question and Guesty's internal dispatch/expiry
 answer remain unresolved.
@@ -2141,3 +2141,57 @@ inputs, defaults/exceptions, unchanged 3 PM/9 AM clocks, DST refusal, private er
 handling and admission recovery on an empty intake feed. Production installation
 must verify function fingerprints, grants, and unchanged operational row counts
 before the already-authorized app release.
+
+
+### Atomic scheduling for admitted new stays (prepared November 13)
+
+`20261114020000_channex_new_stay_scheduling.sql` and the new-stay scheduling runtime
+connect the durable admission to the existing four guest and two cleaner job
+ledgers. This release does not activate either sender, open a cutover epoch, release
+templates, enroll a cleaner, or create production jobs during installation.
+
+The existing `/api/cron/channex-messages` route runs an independent preparation
+lane only when `HELM_CHANNEX_NEW_STAY_SCHEDULE_MODE=calderwood-v1` is configured.
+`HELM_CHANNEX_NEW_STAY_SCHEDULE_REFERENCE` is strict JSON containing only
+`templateCaptureId`, `templateDigest` and `cleanerReleaseId`; values must come from
+actual retained/reviewed receipts. It also requires the existing production database,
+service key, cron secret, Channex key and cleaner HMAC key/id. The scheduling lane
+needs no Quo API credential. Leave the mode absent/off until the complete cutover
+and automatic delivery path are ready. No flags are changed by this release.
+
+The service-only worklist examines a complete bounded population (200 stays
+maximum), returns at most four and reserves one rotating slot to avoid permanently
+starving an older blocked stay. Other slots prioritize still-future receipt-based
+confirmations. Overflow is a failed status requiring intervention, not a partial
+successful scan. Each stay gets a 90-second budget and at most 14 Channex GETs.
+A failure in this lane does not prevent the retained-stay lane or its receipt
+reconciliation from running. Cron responses contain only fixed states and counts.
+
+A consistent private SQL snapshot supplies current admission receipts, Helm clocks,
+merge inputs, all canonical history and rules. Channex booking/revision identity
+and the unique booking thread are checked twice; a later database/recipient change
+invalidates the prepared batch. The greeting uses the operational name preserved
+before ACK if the canonical booking has no name. Conflicting populated names,
+masked/incomplete receipts, missing access data and mapped-lock gaps require review.
+No customer content, access code, portal token or provider credential leaves the
+server renderer or enters a public result.
+
+The six-workflow batch is one database transaction. It retains the existing stable
+stay/workflow IDs, template archive/release, source clearance and cleaner recipient
+proofs. SQL independently derives the receipt-plus-30-minute confirmation and the
+five existing offsets, including DST and literal wording checks, and repeats those
+checks at claim. Cleaner jobs explicitly reference either their retained Guesty
+binding or their genuine new-stay admission, never fabricated source evidence.
+New-stay context hashes include the current receipt and clock record; hashes for
+retained stays are unchanged. A failed cleaner check rolls back earlier guest
+inserts. Lost replies are uncertain; the next tick reads history instead of rotating
+IDs or recreating messages. Holds and terminal outcomes remain intact on retries.
+
+Acceptance uses the real loopback PostgreSQL chain plus fake GET responses: six
+registrations, duplicate concurrent retries, response loss, hold preservation,
+wrong-time rollback, identity/recipient/scope changes, receipt-backed greeting,
+clock-exception invalidation, DST refusal and canonical cancellation. No provider
+POST is available to this runtime. This is scheduling integration, not proof of
+live delivery. New-stay dispatch/receipt orchestration, owner time exception controls
+with future-job reconciliation, and the independently reviewed cutover baseline
+remain required before activating the pilot.
