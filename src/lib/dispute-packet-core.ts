@@ -668,7 +668,7 @@ export function stayEvidence(input: StayEvidenceInput): StayEvidence {
     case 'credit_not_processed': {
       if (signed) {
         forBank.push(
-          `The guest signed our rental agreement on ${signed.signedAt!.slice(0, 10)}, which sets the cancellation terms: ${agreementCancellationWords(signed)}. The refund the guest is claiming is not owed under those terms.`,
+          `The guest signed our rental agreement on ${signed.signedAt!.slice(0, 10)}, which sets the cancellation terms: ${agreementCancellationWords(signed)}.`,
         );
       } else if (policy) {
         gaps.push('No signed agreement for this stay in Helm. Attach proof the guest accepted the policy at booking (the channel confirmation or the booking checkbox), or the bank will treat the policy as unseen.');
@@ -676,6 +676,7 @@ export function stayEvidence(input: StayEvidenceInput): StayEvidence {
         gaps.push('Helm has no cancellation policy for this stay or home. Attach the policy the guest saw at booking.');
       }
       gaps.push('Helm does not record the day the guest cancelled. Add it from Guesty and count the days before check-in against the policy.');
+      gaps.push('Before stating whether a refund is owed, compare the cancellation date with the accepted terms, any refund promise, and refunds already processed. A signature alone does not establish the refund outcome.');
       break;
     }
     case 'not_as_described': {
