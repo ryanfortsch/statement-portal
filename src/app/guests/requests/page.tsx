@@ -18,6 +18,7 @@ import { displayTitle, fmtCents, fmtShortDate } from '@/lib/sca-quotes-types';
 import { listPartnerHomePayments, type PartnerHomePayments } from '@/lib/partner-payments-db';
 import { accountStatusLabel, holdLine, paymentsReady } from '@/lib/partner-payments';
 import { summarizePartnerHomes, type PartnerHomeSummary } from '@/lib/partner-listing-db';
+import { pendingListingProposals } from '@/lib/partner-host-listing-db';
 import { RequestActions } from './RequestActions';
 import { HostPaymentActions } from './HostPaymentActions';
 import { AddPartnerHome } from './AddPartnerHome';
@@ -45,7 +46,11 @@ export const dynamic = 'force-dynamic';
 export default async function BookingRequestsPage() {
   const now = new Date();
   const [listed, hosts] = await Promise.all([listBookingRequests({ now }), listPartnerHomePayments().catch(() => null)]);
-  const setups = hosts ? await summarizePartnerHomes(hosts.map((h) => h.home.id), now) : new Map<string, PartnerHomeSummary>();
+  const [setups, changes] = await Promise.all([
+    hosts ? summarizePartnerHomes(hosts.map((h) => h.home.id), now) : new Map<string, PartnerHomeSummary>(),
+    pendingListingProposals(),
+  ]);
+  const changeWaiting = new Set(changes.map((c) => c.property_id));
   // A failed read leaves each request showing the guest's note alone.
   const threads = listed.ok ? await officeThreads(listed.rows, now).catch(() => null) : null;
 
@@ -57,7 +62,7 @@ export default async function BookingRequestsPage() {
         ) : (
           <RequestList rows={listed.rows} now={now} threads={threads} />
         )}
-        <PartnerHomes hosts={hosts} setups={setups} now={now} />
+        <PartnerHomes hosts={hosts} setups={setups} changeWaiting={changeWaiting} now={now} />
       </section>
       <HelmFooter module="Requests" right="Stay Cape Ann · Rising Tide" />
     </div>
@@ -267,7 +272,17 @@ function setupLine(s: PartnerHomeSummary | undefined): { text: string; tone: str
   return { text: `Not on the site yet · ${s.done} of ${s.total} ready`, tone: 'var(--ink-3)' };
 }
 
-function PartnerHomes({ hosts, setups, now }: { hosts: PartnerHomePayments[] | null; setups: Map<string, PartnerHomeSummary>; now: Date }) {
+function PartnerHomes({
+  hosts,
+  setups,
+  changeWaiting,
+  now,
+}: {
+  hosts: PartnerHomePayments[] | null;
+  setups: Map<string, PartnerHomeSummary>;
+  changeWaiting: Set<string>;
+  now: Date;
+}) {
   return (
     <div id="partner-homes" style={{ marginTop: 56 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 16, flexWrap: 'wrap', marginBottom: 6 }}>
@@ -299,6 +314,13 @@ function PartnerHomes({ hosts, setups, now }: { hosts: PartnerHomePayments[] | n
                   </Link>
                   <span style={{ fontSize: 12.5, color: setup.tone }}>{setup.text}</span>
                 </div>
+                {changeWaiting.has(home.id) && (
+                  <div style={{ marginTop: 4 }}>
+                    <Link href={`/properties/${home.id}#partner-listing-change`} style={{ fontSize: 12.5, color: 'var(--signal)' }}>
+                      The host sent a listing change to review
+                    </Link>
+                  </div>
+                )}
                 <div className="tabular-nums" style={meta}>
                   <span style={{ color: ready ? '#1d6b46' : undefined }}>{accountStatusLabel(account, now)}</span>
                   {' · '}FEE {account?.fee_pct == null ? 'not set' : `${account.fee_pct}% of the stay before tax`}
