@@ -19,6 +19,8 @@ on:
       - 'supabase/migrations/*channex*'
       - 'scripts/test-channex-database.mjs'
       - 'scripts/test-channex-booking-intake.mts'
+      - 'scripts/test-channex-new-stay-admission.mts'
+      - 'src/lib/__tests__/channex-new-stay-admission.test.ts'
       - 'src/lib/__tests__/channex-booking-runtime.test.ts'
       - 'src/lib/__tests__/fixtures/channex-booking-intake.ts'
       - 'scripts/test-channex-planner.mts'
@@ -101,3 +103,4 @@ jobs:
       - run: node --import ./scripts/server-only-test-hook.mjs scripts/channex-automation-operations-smoke.mjs
       - run: node --import ./scripts/server-only-test-hook.mjs scripts/test-channex-new-bookings.mts
       - run: node --import ./scripts/server-only-test-hook.mjs scripts/test-channex-booking-intake.mts
+      - run: node --import ./scripts/server-only-test-hook.mjs scripts/test-channex-new-stay-admission.mts

@@ -6,6 +6,7 @@ import { createAirbnbRevisionReader } from './client.ts';
 import { createAirbnbBookingStore } from './store.ts';
 import { ingestAirbnbBookingRevisions } from './ingestion.ts';
 import { normalizeAirbnbBookingRevision } from './revision.ts';
+import { createNewStayStore } from '../channex-messaging/new-stay-store.ts';
 
 type Env = Record<string, string | undefined>;
 type Rpc = (name: string, args: Record<string, unknown>, signal: AbortSignal) => Promise<{ data: unknown; error: unknown }>;
@@ -33,8 +34,10 @@ export function bookingIntakeConfiguration(env: Env) {
     || env.CHANNEX_PRODUCTION_MODE !== 'off' || env.NEXT_PUBLIC_SUPABASE_URL !== PRODUCTION_DB_URL
     || !credential(env.SUPABASE_SERVICE_ROLE_KEY) || !credential(env.CHANNEX_PRODUCTION_API_KEY)
     || !credential(env.CRON_SECRET) || env.HELM_ISOLATED_CALENDAR_ENABLED === 'true'
-    || env.CHANNEX_WORKER_MODE === 'isolated-staging') throw Error('Booking intake configuration unavailable');
-  return Object.freeze({ apiKey: env.CHANNEX_PRODUCTION_API_KEY });
+    || env.CHANNEX_WORKER_MODE === 'isolated-staging'
+    || ![undefined, '', 'off', 'calderwood-v1'].includes(env.HELM_CHANNEX_NEW_STAYS_MODE)) throw Error('Booking intake configuration unavailable');
+  return Object.freeze({ apiKey: env.CHANNEX_PRODUCTION_API_KEY,
+    admitNewStays: env.HELM_CHANNEX_NEW_STAYS_MODE === 'calderwood-v1' });
 }
 
 /** One page-one pull, at most five revisions, bounded by a shared IO deadline.
@@ -97,8 +100,14 @@ export async function runProductionBookingTick(env: Env, dependencies: {
         return store.commit(revision);
       },
     }, mapping);
+    // Separate optional admission, after durable intake. Even an empty feed runs
+    // this step, recovering a prior committed admission with a lost response.
+    // SQL reads the independently reviewed epoch; no request creates origin proof.
+    const admissions = await createNewStayStore((name, args) => rpc(name, args, signal),
+      { enabled: config.admitNewStays }).admit();
     return { ...invariant, state: validated > result.acknowledged ? 'more_pending' as const : 'page_processed' as const,
-      ok: true, validatedRevisions: validated, acknowledgedRevisions: acknowledged,
+      ok: admissions.state !== 'uncertain', admissions,
+      validatedRevisions: validated, acknowledgedRevisions: acknowledged,
       appliedReceipts: result.applied, staleReceipts: result.stale,
       deferredRevisions: validated - result.acknowledged };
   } catch {

@@ -904,6 +904,28 @@ runs itself.
   `/channels/65_calderwood/message-preparation/cleaners` and receives no phone,
   portal token, body or secret. Installation and default-off cron runs create no
   schedules, enrollment, queue-clearance evidence or messages.
+- **New Channex stay admission**: private `helm_channex_messages.new_stay_epochs`
+  retains the independently reviewed cutover baseline, source clearance, route
+  generation and approved timing policies. No client/service grant or RPC can
+  create that evidence. A real epoch requires complete source/OTA coverage and
+  completed initial imports; a matching pair of API scans alone is insufficient.
+  Reconnects and further imports require stopping the lane and reviewing a new
+  route generation. `new_stay_admissions` pins each eligible canonical/remote
+  identity to its initial applied receipt. `helm_channex_new_stays_admit()` admits
+  at most five per transaction, rejects baseline identities, old receipts,
+  existing history and duplicates, and serializes with the importer. The optional
+  `HELM_CHANNEX_NEW_STAYS_MODE=calderwood-v1` step runs after durable booking intake,
+  including empty-feed recovery, and defaults off. It does not register jobs.
+  `helm_channex_new_stay_read(uuid)` returns private provenance and Helm-owned
+  clocks; these are not retained Guesty timing evidence. The defaults are 16:00
+  arrival and 11:00 departure in America/New_York. Append-only
+  `new_stay_clock_exceptions` records per-stay dated exceptions with compare-and-
+  save and idempotent receipts through `helm_channex_new_stay_clock_save`.
+  Active existing checkout adjustments participate in the read; conflicting
+  times or unreconciled dates refuse scheduling inputs. Exception writes refuse
+  existing message history until schedule reconciliation is implemented. No
+  owner HTTP caller or new-stay message scheduler is supplied by this migration.
+  Installation creates no epoch, admissions, exceptions, schedules or messages.
 - **`guest_threads`**: one thread per stay per channel (`sms`, `email`,
   `airbnb`, `vrbo`, `booking_com`, `direct`), keyed to `booking_id`,
   `guest_id` and `property_id`, with `external_thread_key` (E.164 for
