@@ -44,7 +44,19 @@ modification.attributes.booking_id = intakeId(101); modification.attributes.ota_
 const cancellation = structuredClone(modification); cancellation.id = intakeId(3);
 cancellation.attributes.status = 'cancelled'; cancellation.attributes.inserted_at = '2026-11-13T12:00:00.000003Z';
 const lifecycle = intakeHarness([cancellation, modification]);
-sql(`insert into automation_sends(booking_id,status) values('${canonical}','scheduled');`);
+// The base booking fixture has a minimal history table; the complete CI chain
+// installs property/family guards and required scheduling columns. Supply real
+// identity in the latter, rather than disabling those production protections.
+sql(`do $$begin
+ if exists(select 1 from information_schema.columns where table_schema='public'
+   and table_name='automation_sends' and column_name='property_id') then
+  insert into automation_sends(booking_id,property_id,automation_key,fire_at,status,planned_check_in,planned_check_out)
+  select id,property_id,'synthetic_intake_history',clock_timestamp(),'scheduled',check_in,check_out
+  from bookings where id='${canonical}';
+ else
+  insert into automation_sends(booking_id,status) values('${canonical}','scheduled');
+ end if;
+end$$;`);
 assert.equal((await runProductionBookingTick(intakeEnv, { ...lifecycle, rpc })).ok, true);
 assert.equal(sql(`select status||':'||check_in||':'||check_out from bookings where id='${canonical}';`), 'cancelled:2035-02-05:2035-02-06');
 assert.equal(sql(`select status from automation_sends where booking_id='${canonical}';`), 'cancelled');
