@@ -364,6 +364,13 @@ and a stay the office settled by hand claims no fee or payout. `/api/pms/host/pa
 a host start or finish with Stripe themselves: it mints a fresh setup link for one of their homes
 through `makeSetupLink`, recorded as `host:<email>`, so the office's earlier link stops working.
 `partner-host-payouts.test.ts` holds it.
+The host's prices are `/api/pms/host/rates` and `/rates/season` (`src/lib/partner-host-rates.ts`):
+the home's own rate plan and day rows, the same stores every quote reads. A host sets four plan
+lines (nightly price, weekend price, minimum stay, cleaning fee) and seasons (a price and / or a
+minimum across dates, or back to the plan), on one of their homes only, through `upsertRatePlan`
+and `setRateDays` as `host:<email>`; a season merges and never moves the office's closed, arrival
+or departure flags. Everything else on the plan stays the office's. Helm's owner-only price rule
+is about Helm logins; a partner home's price is the host's. `partner-host-rates.test.ts` holds it.
 
 **A guest sees their trips on staycapeann.com/trips** (`src/lib/guest-trips.ts`, since
 2026-11-13). The guest is the email they asked or booked with: a partner home's requests
@@ -490,7 +497,7 @@ a money action, call `requireOwnerEmail()`. Owner money on the pages staff keep 
 only, decided on the server with `isOwnerSession()` (#1772 and after): the home payout tile, the
 fee on the properties list ("Managed" for staff), a property page's fee, bank, owner emails,
 statements and contract, the calendar hover payout, the Field board and the channels bookings
-payouts; only an owner sets a nightly price. `helm-access.test.ts` asserts each one. A new
+payouts; only an owner sets a nightly price (a partner home's host sets theirs on staycapeann.com). `helm-access.test.ts` asserts each one. A new
 owner-money figure on a page staff can open needs the same check and a line in that test.
 
 **View as staff** (#1961): an owner can switch their own session to staff from the avatar menu

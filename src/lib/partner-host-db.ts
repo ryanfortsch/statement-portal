@@ -17,6 +17,11 @@
  *   hostPayouts       their homes' Stripe standing and every booked stay's
  *                     money (src/lib/partner-host-payouts.ts).
  *   hostSetupLink     a fresh Stripe setup link for one of their homes.
+ *   hostRates         their homes' prices: the plan's four host lines and
+ *                     the seasons ahead (src/lib/partner-host-rates.ts).
+ *   hostSavePlan,     write those prices, on one of their homes only,
+ *   hostSaveSeason    through the office's own rate writers, recorded as
+ *                     host:<email>, then rebuild the home's calendar mirror.
  *
  * Helm keeps sha256 hashes of codes and tokens, never the values.
  */
@@ -29,10 +34,22 @@ import { selectAllPaged } from '@/lib/paged-select';
 import { listedPartners } from '@/lib/partner-listed';
 import { threadCountsFor } from '@/lib/partner-messages-db';
 import { makeSetupLink } from '@/lib/partner-payments-db';
+import { getRatePlan, getRateDays, setRateDays, upsertRatePlan } from '@/lib/property-rates';
+import { writeHelmCalendarMirror } from '@/lib/helm-calendar-mirror';
+import { shiftIsoDay } from '@/lib/sca-quotes-types';
+import {
+  HOST_SEASON_WINDOW_DAYS,
+  hostPlanPatch,
+  hostRatesHome,
+  hostSeasonRows,
+  parseHostPlan,
+  parseHostSeason,
+  type HostRatesHome,
+} from '@/lib/partner-host-rates';
 import { PARTNER_PAYMENT_COLS, shapeAccount, type PartnerPaymentAccount } from '@/lib/partner-payments';
 import { HOST_PAYOUT_STAYS, hostPayoutsView, type HostPayoutsView } from '@/lib/partner-host-payouts';
 import type { PartnerFeedChannel } from '@/lib/partner-calendar';
-import { hostCalendarSpans, hostCalendarWindow, hostFeedView, type HostCalendarSpan, type HostFeedView } from '@/lib/partner-host-calendar';
+import { easternIsoDay, hostCalendarSpans, hostCalendarWindow, hostFeedView, type HostCalendarSpan, type HostFeedView } from '@/lib/partner-host-calendar';
 import {
   HOST_CODE_MINUTES,
   HOST_CODE_TRIES,
@@ -382,4 +399,59 @@ export async function hostSetupLink(session: HostSession, rawPropertyId: unknown
   if (!home) return { ok: false, reason: 'That home is not one of yours.', notFound: true };
   const made = await makeSetupLink(home.id, hostActor(session.email), now);
   return made.ok ? { ok: true, token: made.token } : { ok: false, reason: made.reason };
+}
+
+/** Each of the host's homes: its plan's four host lines and its seasons from today on. */
+export async function hostRates(session: HostSession, now: Date = new Date()): Promise<{ today: string; homes: HostRatesHome[] }> {
+  const today = easternIsoDay(now);
+  const until = shiftIsoDay(today, HOST_SEASON_WINDOW_DAYS);
+  const homes = await Promise.all(
+    session.homes.map(async (h) => {
+      const [plan, days] = await Promise.all([getRatePlan(h.id), getRateDays(h.id, today, until)]);
+      return hostRatesHome(h, plan, days, today);
+    }),
+  );
+  return { today, homes };
+}
+
+export type HostRateWriteResult = { ok: true; message: string } | { ok: false; reason: string; notFound?: boolean };
+
+function hostHomeOf(session: HostSession, rawPropertyId: unknown): HostHome | undefined {
+  return typeof rawPropertyId === 'string' ? session.homes.find((h) => h.id === rawPropertyId) : undefined;
+}
+
+/** A failed mirror rebuild never undoes a saved price: the 30-minute calendar sync rebuilds it too. */
+async function remirror(propertyId: string, from: string, to: string): Promise<void> {
+  try {
+    const r = await writeHelmCalendarMirror([propertyId], shiftIsoDay(from, -1), to);
+    if (r.errors.length) console.error(`[host rates] mirror ${propertyId}: ${r.errors.join('; ')}`);
+  } catch (e) {
+    console.error(`[host rates] mirror ${propertyId}:`, e instanceof Error ? e.message : String(e));
+  }
+}
+
+/** The nightly price, weekend price, minimum stay and cleaning fee on one of their homes. Nothing else on the plan moves. */
+export async function hostSavePlan(session: HostSession, rawPropertyId: unknown, body: unknown, now: Date = new Date()): Promise<HostRateWriteResult> {
+  const home = hostHomeOf(session, rawPropertyId);
+  if (!home) return { ok: false, reason: 'That home is not one of yours.', notFound: true };
+  const parsed = parseHostPlan(body);
+  if (!parsed.ok) return { ok: false, reason: parsed.reason };
+  await upsertRatePlan(hostPlanPatch(home.id, parsed.value), hostActor(session.email));
+  const today = easternIsoDay(now);
+  await remirror(home.id, today, shiftIsoDay(today, HOST_SEASON_WINDOW_DAYS));
+  return { ok: true, message: 'Your prices are saved.' };
+}
+
+/** A price and / or a minimum stay across dates on one of their homes, or those dates back to the plan. */
+export async function hostSaveSeason(session: HostSession, rawPropertyId: unknown, body: unknown, now: Date = new Date()): Promise<HostRateWriteResult> {
+  const home = hostHomeOf(session, rawPropertyId);
+  if (!home) return { ok: false, reason: 'That home is not one of yours.', notFound: true };
+  const parsed = parseHostSeason(body, easternIsoDay(now));
+  if (!parsed.ok) return { ok: false, reason: parsed.reason };
+  const input = parsed.value;
+  const existing = await getRateDays(home.id, input.from, input.to);
+  const written = await setRateDays(hostSeasonRows(home.id, input, existing), hostActor(session.email));
+  await remirror(home.id, input.from, input.to);
+  const span = written === 1 ? '1 night' : `${written} nights`;
+  return { ok: true, message: input.clear ? `${span} back to your usual prices.` : `${span} saved.` };
 }
