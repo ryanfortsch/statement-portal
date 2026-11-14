@@ -2,8 +2,10 @@
  * A partner home's host asks about one of our paid services on
  * staycapeann.com/host/services, and an owner answers with the price.
  *
- * The services are the rungs of the ladder above listing: a Verified walk, a
- * photo shoot, the guest app, turnovers, guest messages. Each one we already
+ * The services are the rungs of the ladder above listing: a photo shoot, the
+ * guest app, turnovers, guest messages. The walk is not one: every partner
+ * home gets it free before it lists (the listing bar's walk line in
+ * partner-listing.ts; Dotti, 2026-11-14). Each one we already
  * run for our own homes; a partner home is walled off from all of them
  * (src/lib/property-scope.ts), so nothing here books, schedules or charges
  * anything. An ask is a question: one row in partner_service_asks per home
@@ -16,7 +18,8 @@
  * it at all.
  *
  * The catalog's words live here and nowhere else: staycapeann.com shows what
- * Helm sends.
+ * Helm sends. They are Stay Cape Ann's words: the host area is on the guest
+ * site, and Rising Tide is the name owners know, never guests.
  *
  * PURE MODULE: no env, no database, no server-only imports.
  */
@@ -25,12 +28,6 @@ import { buildHostEmail, type HostEmail } from './partner-host.ts';
 import { displayTitle } from './sca-quotes-types.ts';
 
 export const PARTNER_SERVICES = [
-  {
-    key: 'verified_walk',
-    name: 'A Verified walk',
-    phrase: 'a Verified walk',
-    line: 'We walk the home, and your listing shows Verified by Rising Tide.',
-  },
   {
     key: 'photo_shoot',
     name: 'A photo shoot',
