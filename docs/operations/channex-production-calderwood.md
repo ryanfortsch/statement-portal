@@ -2070,3 +2070,74 @@ as Guesty evidence. `test-channex-booking-intake.mts` also exercises the actual 
 commit/receipt path: a lost response, exact replay, modification, cancellation and
 stale revision preserve the first clock; PostgreSQL independently calculates the
 same 30-minute instant. This is local test evidence, not proof of live delivery.
+
+## New-stay admission and Helm-owned time policy — November 13, 2026
+
+Ryan approved 4 PM arrival and 11 AM departure for new Airbnb stays, with
+explicit exceptions recorded in Helm. `new-stay-policy.ts` records that decision;
+`new-stay-clocks.ts` keeps it separate from Guesty's original confirmation clocks.
+Missing reads do not mean no exception. A dated exception must still match the
+stay, and an active Helm checkout adjustment participates in the result. Conflicting
+times or a checkout date not yet reconciled to the canonical booking require review.
+The existing wording and DST checks are preserved. This does not select a new DST
+day-offset policy or silently rewrite the captured guest/cleaner templates.
+
+The migration `20261114010000_channex_new_stay_admission.sql` prepares automatic
+admission after an independently reviewed handover. Installation itself creates
+no handover record, admission, exception, job or message and enables no sender.
+It adds three private tables and three service-only operations; client roles have
+no access, and service roles have no direct table grants.
+
+**Origin is a cutover prerequisite, not a provider inference.** The private epoch
+must be installed separately during the approved cutover, with complete reconciled
+Airbnb/source coverage, all initial imports completed, all existing identities in
+the baseline, and the source/route clearance evidence retained. The row fixes the
+route generation, import generation, original source-drain timestamp, baseline
+remote IDs/codes and both approved timing policies. An empty API response, two
+matching scans, `status=new`, or a recent revision timestamp cannot establish this
+record. No application or service-role API can create it. Subsequent bulk imports
+or reconnects require stopping this lane and a new reviewed route generation.
+An incomplete baseline would misclassify a later import; do not activate without
+the independent coverage review. The actual cutover/epoch installation remains
+unimplemented and unexecuted in this batch.
+
+`helm_channex_new_stays_admit()` reads the saved first applied revision and current
+canonical/remote identities under the import-scope and booking locks. It admits
+at most five eligible stays per call. It excludes pre-boundary receipts, baseline
+IDs and normalized codes, first-seen modifications/cancellations, duplicate
+identities and pre-existing message history across all dates. Repeated/concurrent
+calls cannot create another admission or reset first receipt. Revocation or a
+changed generation makes the retained admission unusable without erasing history.
+
+The existing minute booking-intake tick can invoke this operation after its
+commit/ACK work, including when its feed is empty. It is separately opt-in through
+`HELM_CHANNEX_NEW_STAYS_MODE=calderwood-v1`, and still requires the existing
+production-only booking configuration and active SQL handover. No environment
+flag is changed by this batch. Admission response loss is reported as uncertain;
+later calls reconcile through the immutable records without replaying a booking
+or ACK. No request can supply an origin flag or invent its first-receipt clock.
+
+The private `new-stay-store.ts` reader revalidates admission, exact saved receipts
+and the current Helm clock record before producing planning inputs. Its payload
+includes private receipt data and must remain on the server. It is not a Guesty
+timing binding and does not permit the retained-stay sender to accept new bookings.
+The exception writer records immutable compare-and-save versions, retains actor
+and dates, and recovers identical lost-response retries. It refuses any existing
+message history until explicit schedule reconciliation is implemented.
+
+**Remaining integration:** owner exception controls, the reviewed cutover/epoch
+producer, and the new-stay guest/cleaner registration and dispatch callers still
+need to be completed. This batch implements durable admission and clock storage;
+it does not claim that admitted stays are yet served by Helm. Guesty remains in
+control. The latest Channex and Guesty support replies were rechecked on November
+13; the native-reply compatibility question and Guesty's internal dispatch/expiry
+answer remain unresolved.
+
+Synthetic acceptance tests use real PostgreSQL for baseline exclusions, the
+five-stay bound, simultaneous workers, immutable first receipt, clock-edit races,
+lost responses, existing checkout adjustments, cancellation and scope revocation.
+They assert no guest or cleaner jobs are created. Unit tests cover unavailable
+inputs, defaults/exceptions, unchanged 3 PM/9 AM clocks, DST refusal, private error
+handling and admission recovery on an empty intake feed. Production installation
+must verify function fingerprints, grants, and unchanged operational row counts
+before the already-authorized app release.
