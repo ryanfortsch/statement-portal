@@ -113,6 +113,42 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save', lastSave
           </Field>
         </Row>
         <Row>
+          <Field label="Bathrooms" hint="1.5 = one full, one half">
+            <input
+              name="bathrooms"
+              type="number"
+              min={0.5}
+              max={20}
+              step={0.5}
+              defaultValue={v.bathrooms ?? ''}
+              placeholder="1.5"
+              style={inputStyle}
+            />
+          </Field>
+          <Field label="Sleeps" hint="Guests at most">
+            <input
+              name="sleeps"
+              type="number"
+              min={1}
+              max={40}
+              step={1}
+              defaultValue={v.sleeps ?? ''}
+              placeholder="6"
+              style={inputStyle}
+            />
+          </Field>
+        </Row>
+        <Field label="Notes" hint="For the office. Shows under the owner's name here, never on the deck or contract.">
+          <textarea
+            name="prospect_notes"
+            rows={3}
+            maxLength={2000}
+            defaultValue={v.prospect_notes ?? ''}
+            placeholder="The ADU behind the main house, its own address"
+            style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.5 }}
+          />
+        </Field>
+        <Row>
           <Field label="Neighborhood">
             <input
               name="neighborhood"

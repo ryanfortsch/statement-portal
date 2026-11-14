@@ -79,6 +79,14 @@ export type ProjectionRow = {
   // Prospects list row badge. Null until the analyst sets one.
   close_likelihood_pct: number | null;
 
+  // What the office heard on the first call, before the onboarding form:
+  // bathrooms (1.5 = one full, one half), how many the home sleeps, and a
+  // free note shown under the prospect's name in the workroom. Optional on
+  // the type because rows written before 2026-11-14 predate the columns.
+  bathrooms?: number | null;
+  sleeps?: number | null;
+  prospect_notes?: string | null;
+
   // Per-deal contract addenda. Legacy field: was rendered as a "Rider"
   // page after Sale Protection. Now superseded by contract_overrides
   // below — kept for backward compat on projections created before
