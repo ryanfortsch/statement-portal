@@ -553,7 +553,8 @@ QR opens the guest app, which shows the Wi-Fi password.
 is Guesty's guest app turned around: Guesty's link is per reservation and expires at checkout,
 so it can never be printed; ours outlives every stay, which is exactly why it carries **no door,
 gate, garage, alarm or thermostat code**. The door code arrives in the check-in message (both pages say between 3:30 and 4 PM on check-in
-day, `DOOR_CODE_WHEN`), and
+day, `DOOR_CODE_WHEN`; from 4 PM that day a stay link with no code on it points at that message
+instead, `doorLineForStay`), and
 inside the stay link below. The properties select is an explicit column list (`GUEST_APP_PROPERTY_COLS`), Wi-Fi comes
 through `getGuestWifiPasswords` (a select of the two Wi-Fi columns only), rooms through
 `guestRoomFacts`, how-tos from open guest-facing notes (the concierge's KB), trash from
