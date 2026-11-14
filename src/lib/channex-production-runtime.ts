@@ -49,6 +49,10 @@ export async function verifyDormantProductionStorage(rpc: Rpc) {
 }
 
 export async function inspectProductionRuntime(env: Env, rpc: Rpc, fetcher: typeof fetch = fetch) {
+  // Explicitly retire the dormant-state health check at a future cutover.
+  // This is not a health claim about the independent booking intake worker.
+  if (env.CHANNEX_PRODUCTION_MODE === 'off') return { ok: true, mode: 'inspect' as const,
+    state: 'disabled' as const, readyForCutover: false as const };
   requireProductionInspectionEnvironment(env);
   const checkpoint = async (ok: boolean, code: string) => {
     try {

@@ -29,6 +29,11 @@ function harness() {
   };
   return {storage,inventory,delivery,calls,urls,rpc,fetcher};
 }
+test('explicit inspection off mode performs no checks and makes no active-worker health claim',async()=>{
+ const h=harness();const r=await inspectProductionRuntime({...env,CHANNEX_PRODUCTION_MODE:'off'},h.rpc,h.fetcher);
+ assert.deepEqual(r,{ok:true,mode:'inspect',state:'disabled',readyForCutover:false});
+ assert.deepEqual(h.calls,[]);assert.deepEqual(h.urls,[]);
+});
 test('production runtime proves provider access and dormant storage, persists only bounded health',async()=>{
  const h=harness();const r=await inspectProductionRuntime(env,h.rpc,h.fetcher);
  assert.equal(r.storageVerified,true);assert.equal(r.readyForCutover,false);assert.equal(r.bookingsChanged,0);

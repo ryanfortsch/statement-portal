@@ -68,7 +68,7 @@ supabase/migrations/   302 migrations
 scripts/               parity harnesses and one-off tools (see Testing below)
 ```
 
-**43 cron routes, 42 schedules, and that is correct.** `/api/cron/reviews-to-slips` is a manual
+**44 cron routes, 43 schedules, and that is correct.** `/api/cron/reviews-to-slips` is a manual
 and backfill trigger on purpose; the recurring work runs at the end of `/api/cron/sync-guesty`.
 Do not "fix" it by adding a schedule.
 `/api/cron/pricing-market` checks every six hours at :17 UTC, refreshing imported

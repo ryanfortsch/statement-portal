@@ -11,12 +11,14 @@ on:
       - 'src/lib/rental-periods.ts'
       - 'src/lib/channex-production*'
       - 'src/app/api/cron/channex-production/**'
+      - 'src/app/api/cron/channex-bookings/**'
       - 'src/app/api/cron/channex-messages/**'
       - 'src/app/api/cron/channex-cleaners/**'
       - 'src/app/api/channex/reconciliation/**'
       - 'src/app/api/channex/message-control/**'
       - 'supabase/migrations/*channex*'
       - 'scripts/test-channex-database.mjs'
+      - 'scripts/test-channex-booking-intake.mts'
       - 'scripts/test-channex-planner.mts'
       - 'scripts/test-channex-delivery.mts'
       - 'scripts/test-channex-cycle.mts'
@@ -96,3 +98,4 @@ jobs:
       - run: node scripts/channex-cleaner-enrollment-smoke.mjs
       - run: node --import ./scripts/server-only-test-hook.mjs scripts/channex-automation-operations-smoke.mjs
       - run: node --import ./scripts/server-only-test-hook.mjs scripts/test-channex-new-bookings.mts
+      - run: node --import ./scripts/server-only-test-hook.mjs scripts/test-channex-booking-intake.mts

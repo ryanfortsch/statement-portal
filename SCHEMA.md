@@ -234,7 +234,8 @@ on, service role only, the function too. See `src/lib/partner-calendar.ts`.
   Helm calendar authority and inventory capture, then uses the canonical booking RPCs
   and commits the receipt in the same transaction. Identical retries return the saved
   receipt; older revisions are stale; changed identities and ambiguous ordering fail.
-  No current runtime calls the commit/ACK path. This is not another stay ledger or
+  The default-off `/api/cron/channex-bookings` runner calls the commit/ACK path only
+  after explicit production configuration and fresh active-scope checks. This is not another stay ledger or
   proof of initial booking coverage. See the Channex production operations document.
   First revisions refuse any existing same-property Airbnb confirmation identity
   across all dates, statuses and duplicate rows (`existing_airbnb_stay_requires_handoff`).
