@@ -19,6 +19,19 @@ export const newStayClockChangeSchema = z.object({ id, bookingId: id, replaces: 
   departure: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/).nullable(),
 }).strict().refine(x => x.start < x.end && x.id !== x.replaces);
 
+/** Private SQL provenance, shared with the consistent scheduling-input reader. */
+export function parseNewStaySnapshot(raw: unknown, bookingId: string, at: number) {
+  const s = snapshot.parse(raw), observed = Date.parse(s.observedAt);
+  if (!Number.isSafeInteger(at) || s.bookingId !== bookingId || observed > at || at - observed > 30000) throw Error();
+  const first = parseAirbnbBookingReceipt(s.firstReceipt), current = parseAirbnbBookingReceipt(s.currentReceipt);
+  const stay = { id: bookingId, remoteBookingId: s.remoteBookingId, code: current.revision.reservationCode,
+    start: s.clocks.start, end: s.clocks.end, status: 'confirmed', duplicateOf: null };
+  const confirmation = reviewNewAirbnbConfirmation({ origin: 'verified_new', stay, firstReceipt: first,
+    currentReceipt: current, now: at });
+  if (!['future_candidate', 'past_not_replayed'].includes(confirmation.state)) throw Error();
+  return { ...s, firstReceipt: first, currentReceipt: current, clocks: newStayClocks(s.clocks, stay), confirmation };
+}
+
 /** Private persistence only. It cannot open a handover epoch, create a message
  * scope, change sender authority, schedule or dispatch. load() contains private
  * receipt data and must never be returned from an HTTP endpoint. */
@@ -42,15 +55,7 @@ export function createNewStayStore(rpc: MessageRpc, options: { enabled?: boolean
         const at = now();
         if (!Number.isSafeInteger(started) || !Number.isSafeInteger(at) || at < started || at - started > 30000) throw Error();
         if (raw === null) return null;
-        const s = snapshot.parse(raw), observed = Date.parse(s.observedAt);
-        if (s.bookingId !== bookingId || observed > at || at - observed > 30000) throw Error();
-        const first = parseAirbnbBookingReceipt(s.firstReceipt), current = parseAirbnbBookingReceipt(s.currentReceipt);
-        const stay = { id: bookingId, remoteBookingId: s.remoteBookingId, code: current.revision.reservationCode,
-          start: s.clocks.start, end: s.clocks.end, status: 'confirmed', duplicateOf: null };
-        const confirmation = reviewNewAirbnbConfirmation({ origin: 'verified_new', stay, firstReceipt: first,
-          currentReceipt: current, now: at });
-        if (!['future_candidate', 'past_not_replayed'].includes(confirmation.state)) throw Error();
-        return { ...s, firstReceipt: first, currentReceipt: current, clocks: newStayClocks(s.clocks, stay), confirmation };
+        return parseNewStaySnapshot(raw, bookingId, at);
       } catch { throw Error('New-stay inputs unavailable'); }
     },
     async saveClocks(raw: unknown, actor: string) {

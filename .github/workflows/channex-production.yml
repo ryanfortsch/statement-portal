@@ -20,6 +20,7 @@ on:
       - 'scripts/test-channex-database.mjs'
       - 'scripts/test-channex-booking-intake.mts'
       - 'scripts/test-channex-new-stay-admission.mts'
+      - 'scripts/test-channex-new-stay-scheduling.mts'
       - 'src/lib/__tests__/channex-new-stay-admission.test.ts'
       - 'src/lib/__tests__/channex-booking-runtime.test.ts'
       - 'src/lib/__tests__/fixtures/channex-booking-intake.ts'
@@ -104,3 +105,4 @@ jobs:
       - run: node --import ./scripts/server-only-test-hook.mjs scripts/test-channex-new-bookings.mts
       - run: node --import ./scripts/server-only-test-hook.mjs scripts/test-channex-booking-intake.mts
       - run: node --import ./scripts/server-only-test-hook.mjs scripts/test-channex-new-stay-admission.mts
+      - run: node --import ./scripts/server-only-test-hook.mjs scripts/test-channex-new-stay-scheduling.mts
