@@ -327,7 +327,10 @@ describe('the guards across files', () => {
 
   test('the owner verbs check the owner, and the page is gated', () => {
     const actions = read('src/app/guests/requests/actions.ts');
-    assert.equal((actions.match(/await requireOwnerEmail\(\)/g) ?? []).length, 8);
+    // Every action on the page checks the owner, however many there are.
+    const verbs = (actions.match(/export async function \w+/g) ?? []).length;
+    assert.ok(verbs >= 10, 'every verb is counted');
+    assert.equal((actions.match(/await requireOwnerEmail\(\)/g) ?? []).length, verbs);
     assert.ok(read('src/lib/helm-access.ts').includes("'/guests/requests',"));
   });
 

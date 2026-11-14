@@ -38,6 +38,8 @@ import { pendingListingProposals } from '@/lib/partner-host-listing-db';
 import { listingQueueCard } from '@/lib/partner-host-listing';
 import { waitingServiceAsks } from '@/lib/partner-host-services-db';
 import { serviceQueueCard } from '@/lib/partner-host-services';
+import { waitingApplications } from '@/lib/partner-applications-db';
+import { applicationQueueCard } from '@/lib/partner-applications';
 
 type MyWork = {
   id: string;
@@ -898,10 +900,11 @@ function PlannedWalkRow({ walk }: { walk: PlannedWalk }) {
  */
 async function loadQueueCards(role: HelmRole): Promise<QueueCard[]> {
   const owner = role === 'owner';
-  const [requests, listingChanges, serviceAsks, leases, creative, packets, statements, handoff] = await Promise.all([
+  const [requests, listingChanges, serviceAsks, applications, leases, creative, packets, statements, handoff] = await Promise.all([
     owner ? loadBookingRequestQueue() : null,
     owner ? loadListingChangeQueue() : null,
     owner ? loadServiceAskQueue() : null,
+    owner ? loadApplicationQueue() : null,
     owner ? loadLeaseQueue() : null,
     owner ? loadCreativeQueue() : null,
     // Staff approve submitted packets too (2026-10-20); the card names no
@@ -910,7 +913,7 @@ async function loadQueueCards(role: HelmRole): Promise<QueueCard[]> {
     owner ? loadStatementQueue() : null,
     loadCloseHandoffQueue(role),
   ]);
-  return [requests, listingChanges, serviceAsks, leases, creative, ...packets, statements, handoff]
+  return [requests, listingChanges, serviceAsks, applications, leases, creative, ...packets, statements, handoff]
     .filter((c): c is QueueCard => !!c)
     .filter((c) => roleMayOpen(role, c.href));
 }
@@ -993,6 +996,20 @@ async function loadServiceAskQueue(): Promise<QueueCard | null> {
     const names = new Map(((data ?? []) as Array<{ id: string; name: string | null }>).map((p) => [p.id, p.name]));
     const card = serviceQueueCard(waiting, (id) => names.get(id) ?? null);
     return card ? { id: 'queue-service-asks', ...card } : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Hosts who applied on staycapeann.com/host/apply and nobody has added or
+ * declined (src/lib/partner-applications.ts). Owners only: /guests/requests
+ * is an owner page, and the line names only the town.
+ */
+async function loadApplicationQueue(): Promise<QueueCard | null> {
+  try {
+    const card = applicationQueueCard(await waitingApplications());
+    return card ? { id: 'queue-partner-applications', ...card } : null;
   } catch {
     return null;
   }

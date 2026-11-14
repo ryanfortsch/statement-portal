@@ -394,6 +394,16 @@ the host from hello@ once; the rest goes by email, and Close settles it. Owners 
 section, the page's read, the actions, the home feed's line), because the answer is a price. Full management
 is not on the menu: we see how a home books before we offer it, and a manager-run home is never offered it.
 `partner-host-services.test.ts` holds it.
+A host applies to list at `staycapeann.com/host/apply`, through `POST /api/pms/apply`
+(`src/lib/partner-applications.ts`, since 2026-11-14; no session, the applicant is not a host yet): who
+they are, the street and town, bedrooms, where it is listed now, and who runs it day to day (the owner or
+a management company, kept because a manager-run home is never offered full management). One `new` row per
+email and address in `partner_applications`, and a second application answers as the first did, so the
+form never says who applied. Nothing is listed or sent. Owners see them under Applications on
+`/guests/requests` and on the home feed (the town only): **Add the home** claims the application, then
+makes the home through `createPartnerHome` (the same writer as Add a partner home) and hands the
+application back if that fails; **Decline** keeps a reason for the office. The office writes to the host
+itself. `partner-applications.test.ts` holds it.
 
 **A guest sees their trips on staycapeann.com/trips** (`src/lib/guest-trips.ts`, since
 2026-11-13). The guest is the email they asked or booked with: a partner home's requests
