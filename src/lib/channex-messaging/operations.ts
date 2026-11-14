@@ -1,6 +1,7 @@
 import 'server-only';
 import { retainedPilotConfiguration } from './runtime-config.ts';
 import { cleanerRuntimeConfiguration } from './cleaner-runtime-config.ts';
+import { newStayDeliveryConfiguration, type NewStayAudience } from './new-stay-delivery-config.ts';
 import { createChannexJobStore, type MessageRpc } from './store.ts';
 import { createCleanerSmsStore } from './cleaner-sms-store.ts';
 import { parseScheduleLedger, type ScheduleLedgerRow } from './schedule-plan.ts';
@@ -32,8 +33,15 @@ function configuration(env: Record<string, string | undefined>) {
     cleaner = value ? { state: value.mode === 'receipts-only' ? 'receipts_only' : 'configured', stays: value.manifest.stays.length }
       : { state: 'off', stays: null };
   } catch { cleaner = { state: 'invalid', stays: null }; }
+  const combined = (audience: NewStayAudience, old: AutomationLane): AutomationLane => {
+    try {
+      const value = newStayDeliveryConfiguration(audience, env);
+      if (!value || old.state === 'invalid') return old;
+      return { state: value.mode === 'calderwood-v1' || old.state === 'configured' ? 'configured' : 'receipts_only', stays: null };
+    } catch { return { state: 'invalid', stays: null }; }
+  };
   // Never return the manifest, credentials, receipt key, recipient or transport.
-  return { guest, cleaner };
+  return { guest: combined('guest', guest), cleaner: combined('cleaner', cleaner) };
 }
 function rowBase(r: ScheduleLedgerRow): AutomationOperationRow {
   return { id: r.id, bookingId: r.booking_id, key: r.automation_key,

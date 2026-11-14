@@ -976,9 +976,19 @@ runs itself.
   `HELM_CHANNEX_NEW_STAY_SCHEDULE_MODE=calderwood-v1` lane with an explicit template
   capture/digest and cleaner release reference. Two bounded Channex booking/thread
   reads and final SQL/recipient reads precede its one atomic write. This lane never
-  POSTs to a provider, claims a send, or enables a release. New-stay dispatch,
-  reviewed cutover installation and post-registration time reconciliation remain
-  separate work; installing this migration creates no operational records.
+  POSTs to a provider, claims a send, or enables a release. The separate service-only `helm_channex_new_stay_delivery_worklist(text)` selects
+  up to four existing due jobs and four accepted receipts per audience. Held,
+  expired and terminal attempts cannot dispatch; receipt discovery survives
+  cancellation and source revocation. Each lane refuses more than 200 candidates
+  and rotates selections to avoid a stuck job monopolizing the batch.
+  `HELM_CHANNEX_NEW_GUEST_MODE` and `HELM_CHANNEX_NEW_CLEANER_MODE` independently
+  accept `calderwood-v1` or `receipts-only`; both default off. Dispatch rechecks
+  admission/provider identity, exact frozen render, recipient and approved clocks,
+  then uses the existing one-use SQL claim. Unknown outcomes never retry. Receipt
+  recovery uses only the saved provider identity/hash; it needs neither current
+  enrollment nor a schedule reference. Reviewed cutover installation and
+  post-registration time reconciliation remain separate work; installing these
+  migrations creates no operational records or sender activation.
 - **`guest_threads`**: one thread per stay per channel (`sms`, `email`,
   `airbnb`, `vrbo`, `booking_com`, `direct`), keyed to `booking_id`,
   `guest_id` and `property_id`, with `external_thread_key` (E.164 for

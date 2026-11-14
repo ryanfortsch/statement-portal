@@ -21,6 +21,8 @@ on:
       - 'scripts/test-channex-booking-intake.mts'
       - 'scripts/test-channex-new-stay-admission.mts'
       - 'scripts/test-channex-new-stay-scheduling.mts'
+      - 'scripts/test-channex-new-stay-delivery.mts'
+      - 'src/lib/__tests__/channex-new-stay-delivery.test.ts'
       - 'src/lib/__tests__/channex-new-stay-admission.test.ts'
       - 'src/lib/__tests__/channex-booking-runtime.test.ts'
       - 'src/lib/__tests__/fixtures/channex-booking-intake.ts'
