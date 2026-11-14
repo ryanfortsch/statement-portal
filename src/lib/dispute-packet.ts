@@ -17,6 +17,7 @@
  * shows Guesty's total_paid beside them as a cross-check, never as a payment.
  */
 
+import { selectDisputeReservation } from '@/lib/dispute-reservation-match';
 import { AGREEMENT_CANDIDATE_LIMIT, selectDisputeAgreement } from '@/lib/dispute-agreement-match';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { loadPaymentLink, type PaymentLinkRow } from '@/lib/payment-links';
@@ -123,10 +124,10 @@ export async function loadDisputePacket(
         ? q.eq('confirmation_code', confirmationCode)
         : q.eq('check_in', hints.checkIn as string).eq('check_out', hints.checkOut as string)
     ).limit(2);
-    if (error) unread.push('the reservation');
-    // A date range that matches two records is not a match.
-    const rows = (data ?? []) as DbRow[];
-    const row = rows.length === 1 || reservationId || confirmationCode ? (rows[0] ?? null) : null;
+    // An ID or confirmation code does not make duplicate lookup results safe.
+    const selected = selectDisputeReservation((data ?? []) as DbRow[], Boolean(error));
+    if (selected.issue) unread.push(selected.issue);
+    const row = selected.reservation;
     if (row) {
       const paid = Number(row.total_paid);
       stay = {
@@ -142,8 +143,6 @@ export async function loadDisputePacket(
         status: row.status ?? null,
         bookedAt: row.booked_at ?? null,
       };
-    } else if (!error) {
-      unread.push('the reservation (no synced Guesty row matches this charge)');
     }
   }
 
