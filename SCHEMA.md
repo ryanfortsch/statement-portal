@@ -212,6 +212,16 @@ one `pending` per home by a partial unique index), `decided_at` /
 `property_listing_content` until Approve. RLS on, service role only. See
 `src/lib/partner-host-listing.ts`.
 
+**`partner_service_asks`** (since 2026-11-14): a partner home's host asking
+about a paid service. `property_id`, `host_email`, `service` (`verified_walk`,
+`photo_shoot`, `guest_app`, `turnovers`, `guest_messages`), `note`, `status`
+(`open`, `answered`, `closed`, `withdrawn`; one `open` or `answered` per home
+and service by a partial unique index), `reply` / `answered_at` /
+`answered_by` (an owner's answer, required once `answered`),
+`host_emailed_at`, `closed_at` / `closed_by` (`host:<email>` on a
+withdraw). A question only: nothing here books or charges. RLS on, service
+role only. See `src/lib/partner-host-services.ts`.
+
 **`partner_calendar_feeds`** and **`partner_calendar_holds`** (since
 2026-11-13): a partner home's own calendars, kept apart from `bookings` and
 `channel_listings` on purpose. A feed is one export link (`channel` airbnb,

@@ -86,6 +86,7 @@ import { getAutomationsPanelView } from '@/lib/automations';
 import { isHelmRun, isCapeAnnOps, isPartnerHome } from '@/lib/property-scope';
 import { loadPartnerSetup } from '@/lib/partner-listing-db';
 import { officeListingProposal } from '@/lib/partner-host-listing-db';
+import { officeServiceAsks } from '@/lib/partner-host-services-db';
 import { PartnerHomePanel } from './PartnerHomePanel';
 import { shiftIsoDay, todayInEastern } from '@/lib/sca-quotes-types';
 import type { OwnerCard } from '@/app/properties/actions';
@@ -482,6 +483,8 @@ export default async function PropertyDetailPage({
   // bar, its calendars and the switch onto staycapeann.com.
   const partnerSetup = isPartnerHome(p as { kind?: string | null }) ? await loadPartnerSetup(p.id).catch(() => null) : null;
   const listingChange = partnerSetup ? await officeListingProposal(p.id).catch(() => null) : null;
+  // A host's asks are answered with a price; owners only.
+  const serviceAsks = partnerSetup && owner ? await officeServiceAsks(p.id).catch(() => null) : null;
   // The executed management agreement files itself into Documents with its
   // fee terms. Owner money, so a staff login's Documents list omits it.
   const visibleDocuments = owner ? documents : documents.filter((d) => d.source !== 'contract-auto');
@@ -788,7 +791,7 @@ export default async function PropertyDetailPage({
         )}
       </section>
 
-      {partnerSetup && <PartnerHomePanel setup={partnerSetup} owner={owner} listingChange={listingChange} />}
+      {partnerSetup && <PartnerHomePanel setup={partnerSetup} owner={owner} listingChange={listingChange} serviceAsks={serviceAsks} />}
 
       {/* HEADER BAND — replaces the four stat tiles (Mgmt Fee / Cleaning Est
           / Bank / Owner), which were config rather than state and rendered

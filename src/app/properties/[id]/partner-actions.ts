@@ -8,6 +8,7 @@ import { listPartnerHome, recordPartnerCheck, setPartnerSiteRank, unlistPartnerH
 import { isPartnerFeedChannel, parseFeedUrl } from '@/lib/partner-calendar';
 import { addPartnerFeed, readPartnerFeed, listPartnerFeeds, removePartnerFeed, syncPartnerFeeds } from '@/lib/partner-calendar-db';
 import { approveListingProposal, declineListingProposal } from '@/lib/partner-host-listing-db';
+import { answerServiceAsk, closeServiceAsk } from '@/lib/partner-host-services-db';
 
 /**
  * The partner home panel's verbs (src/app/properties/[id]/PartnerHomePanel.tsx).
@@ -131,5 +132,33 @@ export async function declineListingChangeAction(propertyId: string, proposalId:
     return r.ok ? { ok: true, note: r.note } : { ok: false, error: r.error };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : 'The answer could not be saved.' };
+  }
+}
+
+/**
+ * A host's ask about a paid service: an owner answers with the price and a
+ * date, which emails the host from hello@, then closes it once it is
+ * settled. Owners only, because the answer is a price
+ * (src/lib/partner-host-services-db.ts).
+ */
+export async function answerServiceAskAction(propertyId: string, askId: string, reply: string): Promise<PartnerActionResult> {
+  const by = await requireOwnerEmail();
+  try {
+    const r = await answerServiceAsk(askId, propertyId, by, reply);
+    refresh(propertyId);
+    return r.ok ? { ok: true, note: r.note } : { ok: false, error: r.error };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'The answer could not be saved.' };
+  }
+}
+
+export async function closeServiceAskAction(propertyId: string, askId: string): Promise<PartnerActionResult> {
+  const by = await requireOwnerEmail();
+  try {
+    const r = await closeServiceAsk(askId, propertyId, by);
+    refresh(propertyId);
+    return r.ok ? { ok: true } : { ok: false, error: r.error };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'That could not be closed.' };
   }
 }

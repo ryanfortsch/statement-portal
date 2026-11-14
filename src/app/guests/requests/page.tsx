@@ -19,6 +19,7 @@ import { listPartnerHomePayments, type PartnerHomePayments } from '@/lib/partner
 import { accountStatusLabel, holdLine, paymentsReady } from '@/lib/partner-payments';
 import { summarizePartnerHomes, type PartnerHomeSummary } from '@/lib/partner-listing-db';
 import { pendingListingProposals } from '@/lib/partner-host-listing-db';
+import { waitingServiceAsks } from '@/lib/partner-host-services-db';
 import { RequestActions } from './RequestActions';
 import { HostPaymentActions } from './HostPaymentActions';
 import { AddPartnerHome } from './AddPartnerHome';
@@ -46,11 +47,13 @@ export const dynamic = 'force-dynamic';
 export default async function BookingRequestsPage() {
   const now = new Date();
   const [listed, hosts] = await Promise.all([listBookingRequests({ now }), listPartnerHomePayments().catch(() => null)]);
-  const [setups, changes] = await Promise.all([
+  const [setups, changes, asks] = await Promise.all([
     hosts ? summarizePartnerHomes(hosts.map((h) => h.home.id), now) : new Map<string, PartnerHomeSummary>(),
     pendingListingProposals(),
+    waitingServiceAsks(),
   ]);
   const changeWaiting = new Set(changes.map((c) => c.property_id));
+  const askWaiting = new Set(asks.map((a) => a.property_id));
   // A failed read leaves each request showing the guest's note alone.
   const threads = listed.ok ? await officeThreads(listed.rows, now).catch(() => null) : null;
 
@@ -62,7 +65,7 @@ export default async function BookingRequestsPage() {
         ) : (
           <RequestList rows={listed.rows} now={now} threads={threads} />
         )}
-        <PartnerHomes hosts={hosts} setups={setups} changeWaiting={changeWaiting} now={now} />
+        <PartnerHomes hosts={hosts} setups={setups} changeWaiting={changeWaiting} askWaiting={askWaiting} now={now} />
       </section>
       <HelmFooter module="Requests" right="Stay Cape Ann · Rising Tide" />
     </div>
@@ -276,11 +279,13 @@ function PartnerHomes({
   hosts,
   setups,
   changeWaiting,
+  askWaiting,
   now,
 }: {
   hosts: PartnerHomePayments[] | null;
   setups: Map<string, PartnerHomeSummary>;
   changeWaiting: Set<string>;
+  askWaiting: Set<string>;
   now: Date;
 }) {
   return (
@@ -318,6 +323,13 @@ function PartnerHomes({
                   <div style={{ marginTop: 4 }}>
                     <Link href={`/properties/${home.id}#partner-listing-change`} style={{ fontSize: 12.5, color: 'var(--signal)' }}>
                       The host sent a listing change to review
+                    </Link>
+                  </div>
+                )}
+                {askWaiting.has(home.id) && (
+                  <div style={{ marginTop: 4 }}>
+                    <Link href={`/properties/${home.id}#partner-services`} style={{ fontSize: 12.5, color: 'var(--signal)' }}>
+                      The host asked about a service
                     </Link>
                   </div>
                 )}

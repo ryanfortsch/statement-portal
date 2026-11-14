@@ -7,7 +7,9 @@ import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import type { PersonCheck } from '@/lib/partner-listing';
 import {
   addPartnerFeedAction,
+  answerServiceAskAction,
   approveListingChangeAction,
+  closeServiceAskAction,
   declineListingChangeAction,
   listPartnerHomeAction,
   readPartnerFeedsAction,
@@ -299,6 +301,58 @@ export function ListingChangeVerbs({ propertyId, proposalId, home }: { propertyI
       </Button>
       <Button size="sm" variant="secondary" pending={busy === 'decline'} pendingLabel="Declining" disabled={busy !== null} onClick={decline}>
         Decline
+      </Button>
+    </div>
+  );
+}
+
+/** Answer a host's ask with the price and a date (emailed to them), or close it once settled. */
+export function ServiceAskVerbs({
+  propertyId,
+  askId,
+  service,
+  home,
+  answered,
+}: {
+  propertyId: string;
+  askId: string;
+  service: string;
+  home: string;
+  answered: boolean;
+}) {
+  const { ask, askText } = useConfirm();
+  const { busy, run } = useRun();
+
+  async function answer() {
+    const reply = await askText({
+      title: `Answer about ${service} for ${home}`,
+      body: 'The host is emailed these words from hello@, and they show on the host\'s Services page. Say the price and when we can do it. Their reply comes to hello@.',
+      inputLabel: 'Your answer',
+      placeholder: 'The price, and when we can do it.',
+      confirmLabel: 'Send',
+    });
+    if (reply === null) return;
+    await run('answer', () => answerServiceAskAction(propertyId, askId, reply), 'Sent');
+  }
+  async function close() {
+    const yes = await ask({
+      title: 'Close this ask?',
+      body: 'Use it once it is booked or the host is not going ahead. Nothing is sent, and the host can ask again later.',
+      confirmLabel: 'Close',
+    });
+    if (!yes) return;
+    await run('close', () => closeServiceAskAction(propertyId, askId));
+  }
+
+  return (
+    <div style={{ display: 'flex', gap: 8 }}>
+      {!answered && (
+        <Button size="sm" variant="primary" pending={busy === 'answer'} pendingLabel="Sending" disabled={busy !== null} onClick={answer}>
+          Answer
+        </Button>
+      )}
+      <Button size="sm" variant="secondary" pending={busy === 'close'} pendingLabel="Closing" disabled={busy !== null} onClick={close}>
+        Close
       </Button>
     </div>
   );
