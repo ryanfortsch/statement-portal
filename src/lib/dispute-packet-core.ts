@@ -557,6 +557,8 @@ export function stayHintsFromDescription(description: string | null | undefined)
 // ---------------------------------------------------------------------------
 
 export type StayAgreement = {
+  /** Name/date candidate, not a reservation-linked or identity-verified match. */
+  matchNeedsReview?: boolean;
   signedAt: string | null;
   signedName: string | null;
   countersignedAt: string | null;
@@ -626,6 +628,7 @@ export function stayEvidence(input: StayEvidenceInput): StayEvidence {
   const forBank: string[] = [];
   const gaps: string[] = [];
   const { kind, agreement, review } = input;
+  if (agreement?.matchNeedsReview) gaps.push('This agreement was matched by guest name and stay dates, not a reservation link. Verify the original document belongs to this booking before submitting it.');
   const cancelled = /cancel/i.test(input.reservationStatus || '');
 
   if (input.checkIn && input.checkOut) rows.push({ label: 'Stay', value: `${input.checkIn} to ${input.checkOut}` });

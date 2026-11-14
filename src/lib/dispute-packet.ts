@@ -17,6 +17,7 @@
  * shows Guesty's total_paid beside them as a cross-check, never as a payment.
  */
 
+import { AGREEMENT_CANDIDATE_LIMIT, selectDisputeAgreement } from '@/lib/dispute-agreement-match';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { loadPaymentLink, type PaymentLinkRow } from '@/lib/payment-links';
 import { reservationIdFromRequestKey } from '@/lib/payment-links-text';
@@ -157,20 +158,21 @@ export async function loadDisputePacket(
 }
 
 /**
- * The signed agreement for the stay (matched by home and check-in day), the
+ * A candidate agreement matched by home, guest and full stay dates, the
  * home's cancellation policy and the guest's review. Each read is optional;
  * a failed one is named in `unread`.
  */
 async function loadStayRecord(propertyId: string, stay: PacketStay, unread: string[]): Promise<StayRecord> {
   const [agreements, home, reviews] = await Promise.all([
-    stay.checkIn
+    stay.checkIn && stay.checkOut
       ? supabaseAdmin
           .from('guest_agreements')
-          .select('guest_signed_at, guest_signed_name, countersigned_at, cancel_cutoff_days, cancel_refund_pct, voided_at, drive_url')
+          .select('property_id, guest_name, stay_start, stay_end, guest_signed_at, guest_signed_name, countersigned_at, cancel_cutoff_days, cancel_refund_pct, voided_at, drive_url')
           .eq('property_id', propertyId)
           .eq('stay_start', stay.checkIn)
+          .eq('stay_end', stay.checkOut)
           .order('created_at', { ascending: false })
-          .limit(3)
+          .limit(AGREEMENT_CANDIDATE_LIMIT)
       : Promise.resolve({ data: [], error: null }),
     supabaseAdmin.from('properties').select('cancellation_policy').eq('id', propertyId).maybeSingle(),
     supabaseAdmin
@@ -184,15 +186,19 @@ async function loadStayRecord(propertyId: string, stay: PacketStay, unread: stri
   if (home.error) unread.push("the home's cancellation policy");
   if (reviews.error) unread.push("the guest's review");
 
-  // A signed, unvoided agreement wins over a draft or a voided one.
-  const rows = (agreements.data ?? []) as DbRow[];
-  const a = rows.find((r) => r.guest_signed_at && !r.voided_at) ?? rows[0] ?? null;
+  // Never choose a newer unrelated signature just because the arrival date matches.
+  const selected = selectDisputeAgreement((agreements.data ?? []) as DbRow[], {
+    propertyId, guestName: stay.guestName, checkIn: stay.checkIn, checkOut: stay.checkOut,
+  });
+  if (!agreements.error && selected.issue) unread.push(selected.issue);
+  const a = agreements.error ? null : selected.agreement;
   const r = ((reviews.data ?? []) as DbRow[])[0] ?? null;
   const proof = await loadStayProof(propertyId, stay, unread);
   return {
     proof,
     agreement: a
       ? {
+          matchNeedsReview: true,
           signedAt: a.guest_signed_at ?? null,
           signedName: a.guest_signed_name ?? null,
           countersignedAt: a.countersigned_at ?? null,
